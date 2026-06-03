@@ -16,6 +16,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 
 type TreeResponse = {
   items: OrganizationTreeNode[]
@@ -48,6 +49,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
   const [tenantId, setTenantId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [parentTree, setParentTree] = React.useState<OrganizationTreeNode[]>([])
   const [childSummary, setChildSummary] = React.useState<OrganizationTreeOption[]>([])
   const [originalChildIds, setOriginalChildIds] = React.useState<string[]>([])
@@ -107,13 +109,23 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
     async function load() {
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
-        const { ok, result } = await apiCall<OrganizationResponse>(
+        const { ok, status, result } = await apiCall<OrganizationResponse>(
           `/api/directory/organizations?view=manage&ids=${currentOrgId}&status=all&includeInactive=true&page=1&pageSize=1`,
         )
-        if (!ok) throw new Error(t('directory.organizations.form.errors.load', 'Failed to load organization'))
+        if (!ok) {
+          if (status === 404) {
+            if (!cancelled) setIsNotFound(true)
+            return
+          }
+          throw new Error(t('directory.organizations.form.errors.load', 'Failed to load organization'))
+        }
         const record = Array.isArray(result?.items) ? result.items?.[0] : undefined
-        if (!record) throw new Error(t('directory.organizations.form.errors.notFound', 'Organization not found'))
+        if (!record) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         const resolvedTenantId = record.tenantId || null
         setTenantId(resolvedTenantId)
         const baseTree = await loadParentTree(resolvedTenantId, record.descendantIds ?? [])
@@ -263,11 +275,25 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('directory.organizations.form.errors.notFound', 'Organization not found')}
+            backHref="/backend/directory/organizations"
+            backLabel={t('directory.organizations.form.actions.backToList', 'Back to organizations')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error && !loading && !initialValues) {
     return (
       <Page>
         <PageBody>
-          <div className="rounded border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
+          <ErrorMessage label={error} />
         </PageBody>
       </Page>
     )

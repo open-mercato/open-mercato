@@ -100,6 +100,7 @@
   "planner.availability.errors.updateDateSpecific": "Failed to save date-specific availability.",
   "planner.availability.errors.updateWeekly": "Failed to save weekly availability.",
   "planner.availabilityRuleSets.actions.add": "New schedule",
+  "planner.availabilityRuleSets.actions.backToList": "Back to schedules",
   "planner.availabilityRuleSets.actions.delete": "Delete",
   "planner.availabilityRuleSets.actions.deleteConfirm": "Delete schedule \"{{name}}\"?",
   "planner.availabilityRuleSets.actions.edit": "Edit",

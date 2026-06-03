@@ -100,6 +100,7 @@
   "planner.availability.errors.updateDateSpecific": "Datumsspezifische Verfügbarkeit konnte nicht gespeichert werden.",
   "planner.availability.errors.updateWeekly": "Wöchentliche Verfügbarkeit konnte nicht gespeichert werden.",
   "planner.availabilityRuleSets.actions.add": "Neuer Zeitplan",
+  "planner.availabilityRuleSets.actions.backToList": "Zurück zu Zeitplänen",
   "planner.availabilityRuleSets.actions.delete": "Löschen",
   "planner.availabilityRuleSets.actions.deleteConfirm": "Zeitplan \"{{name}}\" löschen?",
   "planner.availabilityRuleSets.actions.edit": "Bearbeiten",

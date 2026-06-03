@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
@@ -59,6 +60,8 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
   const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
   const [initialValues, setInitialValues] = React.useState<TeamFormValues | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<'details' | 'members'>('details')
   const [memberRows, setMemberRows] = React.useState<TeamMemberRow[]>([])
   const [memberPage, setMemberPage] = React.useState(1)
@@ -168,6 +171,10 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
     const teamIdValue = teamId
     let cancelled = false
     async function loadTeam() {
+      if (!cancelled) {
+        setError(null)
+        setIsNotFound(false)
+      }
       try {
         const params = new URLSearchParams({ page: '1', pageSize: '1', ids: teamIdValue })
         const payload = await readApiResultOrThrow<TeamResponse>(
@@ -176,7 +183,10 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
           { errorMessage: t('staff.teams.errors.load', 'Failed to load team.') },
         )
         const record = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!record) throw new Error(t('staff.teams.errors.notFound', 'Team not found.'))
+        if (!record) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         const customFields = extractCustomFieldEntries(record)
         const isActive = typeof record.isActive === 'boolean'
           ? record.isActive
@@ -192,9 +202,15 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
             ...customFields,
           })
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : t('staff.teams.errors.load', 'Failed to load team.')
-        flash(message, 'error')
+      } catch (err) {
+        if (!cancelled) {
+          if ((err as { status?: number }).status === 404) {
+            setIsNotFound(true)
+          } else {
+            const message = err instanceof Error ? err.message : t('staff.teams.errors.load', 'Failed to load team.')
+            setError(message)
+          }
+        }
       }
     }
     loadTeam()
@@ -287,6 +303,30 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
     })
     router.push('/backend/staff/teams')
   }, [teamId, router, t])
+
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('staff.teams.errors.notFound', 'Team not found.')}
+            backHref="/backend/staff/teams"
+            backLabel={t('staff.teams.actions.backToList', 'Back to teams')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error && !initialValues) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>
