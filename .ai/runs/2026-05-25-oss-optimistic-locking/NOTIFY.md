@@ -157,3 +157,16 @@ Append-only event log. Newest at the bottom.
 ## 2026-06-02 — checkpoint 12 (CI stabilization + 0.6.4 merge)
 - CI fix: TC-CRM-003 root-caused (default-ON locking + sequential inline edits sent stale updatedAt → 409). companies/people commands now return updatedAt; detail pages refresh the token per inline save. Verified TC-CRM-003 + TC-CRM-006 green on a live build. (4d9cf35af)
 - Merged develop 0.6.4 (CHANGELOG conflict only). develop's #2415 RESOLVES my deferred #2411 upstream; #2348 adds the roles/users updated_at migration. PR MERGEABLE. (457a59623)
+
+## 2026-06-03T15:00:00Z — auto-continue-pr resume (QA round-6)
+- Resumed by: @pkarw
+- Resume point: Phase 31 (new) — all prior Tasks rows done; Alina QA round-6 comment 4613412850
+- PR head SHA before resume: fcc88456d
+- Merged latest develop (0.6.5) into branch; resolved conflicts in interactions.ts (kept both command-lock + email-visibility guards), directory/staff/workflows edit pages (combined imports), catalog variant page (took develop's RecordNotFoundState refinement; lock logic lives outside conflict blocks), catalog i18n ×4 (kept develop backToProduct key), CHANGELOG (kept Unreleased + 0.6.5), UPGRADE_NOTES (folded OSS section into 0.6.3→0.6.4 window), package.json + yarn.lock (kept resend + sanitize-html). Merge commit 91fc6abd7.
+- QA round-6 findings to fix: (1) Customer Users save→raw record_modified toast not conflict bar + stale delete shows "Failed to delete user"; (2) Customer Roles save→"Failed to save role" not conflict bar; (3) Inbox Settings save→"Failed to update working language" not conflict bar; (4) Feature Toggle override boolean selector still blank; (5) Pay Links stale delete after conflict still deletes; (6) Feature Toggle seeded identifier validation mismatch (customers.interactions.legacy-adapters).
+
+## 2026-06-03T17:15:00Z — checkpoint 13 (QA round-6 complete)
+- Steps 31.0..31.6 + integration specs landed (atomic commits, each with unit tests). SHAs in PLAN Tasks table + checkpoint-13-checks.md.
+- Root cause: custom admin pages sent the version header & server already 409'd, but their non-throwing apiCall surfaced a generic toast instead of the unified conflict bar — fixed by detecting the 409 envelope via surfaceRecordConflict. Pay-links also had an unguarded delete command (now enforces).
+- Verification: typecheck (core/ui/checkout) ✅, build:packages ✅, targeted unit tests ✅ (26 across 4 suites). Integration (ephemeral, OM_OPTIMISTIC_LOCK=all): TC-CHKT-039 ✅; TC-LOCK-OSS-013/014/015 + TC-FT-003 running.
+- Note: rebased onto teammate docs commit 004f68b90 (TC-LOCK-OSS-000 master plan); corrected Tasks-table SHAs (amend-after-sed had left them off-by-one).
