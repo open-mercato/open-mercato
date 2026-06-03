@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Users, Phone, Check, Mail, Calendar, AlertTriangle, X } from 'lucide-react'
+import { Users, Phone, Check, Mail, Calendar, AlertTriangle, X, StickyNote } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { validatePhoneNumber } from '@open-mercato/shared/lib/phone'
@@ -13,6 +13,7 @@ import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { PhoneNumberField, SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -33,6 +34,7 @@ const TYPE_TABS: Array<{ type: ActivityType; icon: React.ComponentType<{ classNa
   { type: 'call', icon: Phone, labelKey: 'customers.schedule.types.call', fallback: 'Call' },
   { type: 'task', icon: Check, labelKey: 'customers.schedule.types.task', fallback: 'Task' },
   { type: 'email', icon: Mail, labelKey: 'customers.schedule.types.email', fallback: 'Email' },
+  { type: 'note', icon: StickyNote, labelKey: 'customers.schedule.types.note', fallback: 'Note' },
 ]
 
 type DialogChrome = { titleKey: string; titleFallback: string; subtitleKey: string; subtitleFallback: string; saveKey: string; saveFallback: string; saveIcon: React.ComponentType<{ className?: string }> }
@@ -57,6 +59,11 @@ const TYPE_CHROME: Record<ActivityType, DialogChrome> = {
     titleKey: 'customers.schedule.email.title', titleFallback: 'Compose email',
     subtitleKey: 'customers.schedule.email.subtitle', subtitleFallback: 'Compose and send a tracked email',
     saveKey: 'customers.schedule.email.save', saveFallback: 'Send email', saveIcon: Mail,
+  },
+  note: {
+    titleKey: 'customers.schedule.note.title', titleFallback: 'Add note',
+    subtitleKey: 'customers.schedule.note.subtitle', subtitleFallback: 'Write down a note about this interaction',
+    saveKey: 'customers.schedule.note.save', saveFallback: 'Save note', saveIcon: StickyNote,
   },
 }
 
@@ -438,12 +445,7 @@ export function ScheduleActivityDialog({
     }
   }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, isDateMissing, isTimeMissing, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleKeyDown = React.useCallback((e: React.KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault()
-      handleSave()
-    }
-  }, [handleSave])
+  const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave })
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) void guardedClose() }}>

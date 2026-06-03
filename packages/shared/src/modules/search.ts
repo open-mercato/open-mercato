@@ -52,6 +52,8 @@ export type SearchResult = {
   links?: SearchResultLink[]
   /** Extra metadata from the strategy */
   metadata?: Record<string, unknown>
+  /** Organization scope of the result, when known by the strategy. */
+  organizationId?: string | null
 }
 
 // =============================================================================
@@ -70,6 +72,15 @@ export type SearchOptions = {
    * - `undefined` or `null` means no organization filter (tenant-wide).
    */
   organizationId?: string | null
+  /**
+   * Optional organization allowlist.
+   * - Non-empty array restricts results to one of those organizations.
+   * - Empty array means no organizations are visible and should return no results.
+   * - `undefined` or `null` means no organization filter (tenant-wide).
+   *
+   * `organizationId` takes precedence when both are provided.
+   */
+  organizationIds?: string[] | null
   /** Filter to specific entity types */
   entityTypes?: EntityId[]
   /** Use only specific strategies (defaults to all available) */

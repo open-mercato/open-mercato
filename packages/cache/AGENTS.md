@@ -7,8 +7,8 @@ Use `@open-mercato/cache` for all caching needs. MUST NOT use raw Redis, SQLite,
 | Strategy | When to use | Configuration |
 |----------|-------------|---------------|
 | Memory | Use for development and single-process apps | Default (no config needed) |
-| SQLite | Use for single-server production deployments | `CACHE_STRATEGY=sqlite` |
-| Redis | Use for multi-server production with shared cache | `CACHE_STRATEGY=redis` |
+| SQLite | Use for single-server production deployments; local persistent convenience cache, tuned with WAL/`synchronous=NORMAL` | `CACHE_STRATEGY=sqlite` |
+| Redis | Use for multi-server production or latency-sensitive request paths with frequent cache writes | `CACHE_STRATEGY=redis` |
 
 ## Always
 

@@ -606,6 +606,7 @@ const myEnricher: ResponseEnricher = {
   timeout: 2000,                         // ms, default 2000
   fallback: { _mymodule: { count: 0 } },// returned on failure
   critical: false,                       // true = error propagates to client
+  cacheableOnListHit: false,             // see "List cache behavior" below (default false)
   async enrichOne(record, context) {
     // Add fields to a single record
     return { ...record, _mymodule: { count: 42 } }
@@ -629,11 +630,20 @@ const crud = makeCrudRoute({
 })
 ```
 
+### List cache behavior (`cacheableOnListHit`)
+
+When the opt-in CRUD list cache (`ENABLE_CRUD_API_CACHE`) is enabled, the factory stores the **enriched** list payload and partitions cache entries by the active-enricher signature (the ACL/tenant-filtered enricher ids for the caller). On a cache hit it must decide whether to re-run enrichers or serve the stored enriched fields directly:
+
+- The cache-hit path **skips re-running enrichers only when every active enricher opted in with `cacheableOnListHit: true`** (record-pure cohort). Otherwise it re-runs all active enrichers on a hit and the cache stores the base (pre-enrichment) payload.
+- Set `cacheableOnListHit: true` **only** when the enricher's output for a record is a pure function of that record's own cached state and is invalidated together with it (e.g. fields derived from the same module's own per-record data). The shipped `example.customer-todo-count` enricher keeps the default `false`: it reads other modules' tables (todos and per-customer priority) the list cache does not invalidate on, so it must re-run on every hit.
+- Leave it `false` (the fail-closed default) for any enricher whose output depends on data the list cache does not invalidate on: cross-module / cross-entity reads (e.g. a product image fetched for a sales line), wall-clock-relative values (e.g. "days in stage"), or aggregates over other tables. These MUST re-run on every request so the response reflects current data.
+
 ### Response Enricher Rules
 
 - MUST implement `enrichMany()` for batch endpoints (prevents N+1 queries)
 - MUST namespace enriched fields with `_moduleName` prefix (e.g. `_example.todoCount`)
 - MUST use `features` array for ACL gating — enricher runs only if user has all listed features
+- MUST keep `cacheableOnListHit` at `false` (default) unless the enriched output is record-pure and invalidated with the host record — opting in on a cross-module/time-relative enricher serves stale data from the shared list cache
 - Export fields are stripped: `_meta` and `_`-prefixed fields are removed from CSV/Excel exports
 - Enrichers run after `CrudHooks.afterList`, before HTTP response serialization
 - `critical: true` propagates errors to the HTTP response; `false` (default) uses fallback silently

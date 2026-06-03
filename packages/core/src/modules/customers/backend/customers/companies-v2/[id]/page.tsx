@@ -10,7 +10,7 @@ import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/u
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { AttachmentsSection, ErrorMessage, LoadingMessage, type SectionAction } from '@open-mercato/ui/backend/detail'
+import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -54,6 +54,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   const [data, setData] = React.useState<CompanyOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
 
   // Tab state
   const initialTab = React.useMemo(() => {
@@ -113,7 +114,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   const initialLoadDoneRef = React.useRef(false)
   const loadData = React.useCallback(async () => {
     if (!id) {
-      setError(t('customers.companies.detail.error.notFound', 'Company not found.'))
+      setIsNotFound(true)
       setIsLoading(false)
       return
     }
@@ -121,6 +122,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       setIsLoading(true)
     }
     setError(null)
+    setIsNotFound(false)
     try {
       const payload = await readApiResultOrThrow<CompanyOverview>(
         `/api/customers/companies/${encodeURIComponent(id)}`,
@@ -129,8 +131,12 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       )
       setData(payload as CompanyOverview)
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
-      setError(message)
+      if ((err as { status?: number }).status === 404) {
+        setIsNotFound(true)
+      } else {
+        const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
+        setError(message)
+      }
       if (!initialLoadDoneRef.current) setData(null)
     } finally {
       setIsLoading(false)
@@ -373,12 +379,26 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('customers.companies.detail.error.notFound', 'Company not found.')}
+            backHref="/backend/customers/companies"
+            backLabel={t('customers.companies.detail.actions.backToList', 'Back to companies')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !data?.company?.id) {
     return (
       <Page>
         <PageBody>
           <ErrorMessage
-            label={error || t('customers.companies.detail.error.notFound', 'Company not found.')}
+            label={error ?? t('customers.companies.detail.error.load', 'Failed to load company.')}
             action={(
               <Button asChild variant="outline">
                 <Link href="/backend/customers/companies">

@@ -1007,6 +1007,7 @@
   "workflows.tasks.detail.commentsPlaceholder": "Add any comments or notes about this task...",
   "workflows.tasks.detail.completeTask": "Complete Task",
   "workflows.tasks.detail.form.selectOption": "-- Select an option --",
+  "workflows.tasks.detail.loadFailed": "Failed to load task",
   "workflows.tasks.detail.loading": "Loading task...",
   "workflows.tasks.detail.noFormSchema": "This task has no form to complete. You can add optional comments and submit.",
   "workflows.tasks.detail.notFound": "Task not found",

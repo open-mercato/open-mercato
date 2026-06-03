@@ -150,7 +150,7 @@ describe('interactionUpdateSchema scheduledAt derivation', () => {
   it('derives scheduledAt on update when only date+time supplied', () => {
     const result = interactionUpdateSchema.safeParse({
       ...baseUpdate,
-      date: '2026-07-20',
+      date: new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10),
       time: '08:15',
     })
     expect(result.success).toBe(true)

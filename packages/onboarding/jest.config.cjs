@@ -1,5 +1,8 @@
 /** @type {import('jest').Config} */
+const base = require('../../jest.config.base.cjs')
+
 module.exports = {
+  ...base,
   preset: 'ts-jest',
   testEnvironment: 'node',
   watchman: false,

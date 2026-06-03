@@ -261,7 +261,7 @@ export async function POST(req: Request) {
     // Validate against custom field definitions
     try {
       const { validateCustomFieldValuesServer } = await import('../lib/validation')
-      const check = await validateCustomFieldValuesServer(em, { entityId, organizationId: targetOrgId, tenantId: auth.tenantId!, values: norm })
+      const check = await validateCustomFieldValuesServer(em, { entityId, organizationId: targetOrgId, tenantId: auth.tenantId!, values: norm, rejectUndeclaredKeys: true })
       if (!check.ok) return NextResponse.json({ error: 'Validation failed', fields: check.fieldErrors }, { status: 400 })
     } catch { /* ignore if helper missing */ }
 
@@ -322,7 +322,7 @@ export async function PUT(req: Request) {
     // Validate against custom field definitions
     try {
       const { validateCustomFieldValuesServer } = await import('../lib/validation')
-      const check = await validateCustomFieldValuesServer(em, { entityId, organizationId: targetOrgId, tenantId: auth.tenantId!, values: norm })
+      const check = await validateCustomFieldValuesServer(em, { entityId, organizationId: targetOrgId, tenantId: auth.tenantId!, values: norm, rejectUndeclaredKeys: true })
       if (!check.ok) return NextResponse.json({ error: 'Validation failed', fields: check.fieldErrors }, { status: 400 })
     } catch { /* ignore if helper missing */ }
 
