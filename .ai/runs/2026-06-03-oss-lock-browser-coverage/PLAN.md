@@ -31,7 +31,7 @@ cases → ~33 spec files, `TC-LOCK-OSS-014…046`). All green on the ephemeral e
 | 5 | customers `TC-LOCK-OSS-018` activities/tasks modal + delete-after-delete + done/cancel + timeline | CRM-10/11/12/13 | todo |
 | 6 | catalog `TC-LOCK-OSS-019` product edit (UI bar) | CAT-01 | todo |
 | 7 | catalog `TC-LOCK-OSS-020` variant edit + delete | CAT-02/03 | todo |
-| 8 | catalog `TC-LOCK-OSS-021` category edit + delete | CAT-05/06 | todo |
+| 8 | catalog `TC-LOCK-OSS-021` category edit + delete | CAT-05/06 | **done** (3 tests) |
 | 9 | catalog `TC-LOCK-OSS-022` option-schema edit/delete | CAT-07 | todo |
 | 10 | catalog `TC-LOCK-OSS-023` false-positives (variant price overrides, offers/unit-conv) + price kinds | CAT-08/09/10 | todo |
 | 11 | sales `TC-LOCK-OSS-024` quote header edit + delete | SAL-02 | todo |
@@ -45,14 +45,14 @@ cases → ~33 spec files, `TC-LOCK-OSS-014…046`). All green on the ephemeral e
 | 19 | auth `TC-LOCK-OSS-032` user edit + ACL | AUTH-03/04 | todo |
 | 20 | customer_accounts `TC-LOCK-OSS-033` role edit/delete (UI) | AUTH-07 | todo |
 | 21 | auth `TC-LOCK-OSS-034` sidebar customization | AUTH-08 | todo |
-| 22 | staff `TC-LOCK-OSS-035` teams + team-roles + members | STF-01/02/03 | todo |
+| 22 | staff `TC-LOCK-OSS-035` team-roles + teams (member deferred) | STF-01/02 | **done** (4 tests) |
 | 23 | staff `TC-LOCK-OSS-036` leave requests + job history | STF-04/05/06 | todo |
-| 24 | resources `TC-LOCK-OSS-037` resources + resource-types | RES-01/02/03 | todo |
+| 24 | resources `TC-LOCK-OSS-037` resources + resource-types | RES-01/02/03 | **done** (3 tests) |
 | 25 | planner `TC-LOCK-OSS-038` ruleset + availability schedule | PLN-01/02 | todo |
-| 26 | directory `TC-LOCK-OSS-039` organizations + tenants | DIR-01/02 | todo |
+| 26 | directory `TC-LOCK-OSS-039` organizations + tenants | DIR-01/02 | **done** (2 tests) |
 | 27 | currencies `TC-LOCK-OSS-040` currencies + exchange-rates | CUR-01/02 | **wip** — CUR-01 done (382e195); CUR-02 todo |
-| 28 | feature_toggles/dictionaries `TC-LOCK-OSS-041` toggles + dictionaries + entries | FT-01, DICT-01/02 | todo |
-| 29 | business_rules `TC-LOCK-OSS-042` rules + rule sets + perspectives | BR-01/02, PSP-01 | todo |
+| 28 | feature_toggles/dictionaries `TC-LOCK-OSS-041` toggles + dictionaries + entries | FT-01, DICT-01/02 | **done** (4 tests) |
+| 29 | business_rules `TC-LOCK-OSS-042` rules + rule sets + perspectives | BR-01/02, PSP-01 | **blocked** — PRODUCT BUG: BR routes ignore lock; 2 `test.fixme`, clean-save green; PSP-01 todo |
 | 30 | inbox_ops/webhooks/data_sync `TC-LOCK-OSS-043` settings + webhooks + sync schedule | INB-01, WHK-01, SYNC-01 | todo |
 | 31 | checkout/workflows/entities `TC-LOCK-OSS-044` pay link + template + workflow def + custom entity | CHK-01/02, WF-01, ENT-01 | todo |
 | 32 | ui `TC-LOCK-OSS-045` conflict-bar UX (persist/refresh/dismiss/auto-clear/i18n/409 body) | UX-01..07 | todo |
