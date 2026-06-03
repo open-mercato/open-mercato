@@ -1698,7 +1698,15 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                 : `/backend/checkout/templates?flash=${encodeURIComponent(t('checkout.common.flash.saved'))}&type=success`
             }}
             onDelete={recordId ? async () => {
-              await apiCallOrThrow(`/api/checkout/${mode === 'link' ? 'links' : 'templates'}/${encodeURIComponent(recordId)}`, { method: 'DELETE' })
+              try {
+                await withScopedApiRequestHeaders(
+                  buildOptimisticLockHeader(readString(initialValues?.updatedAt) || null),
+                  () => apiCallOrThrow(`/api/checkout/${mode === 'link' ? 'links' : 'templates'}/${encodeURIComponent(recordId)}`, { method: 'DELETE' }),
+                )
+              } catch (error) {
+                if (surfaceRecordConflict(error, t)) return
+                throw error
+              }
               window.location.href = mode === 'link'
                 ? `/backend/checkout/pay-links?flash=${encodeURIComponent(t('checkout.common.flash.deleted'))}&type=success`
                 : `/backend/checkout/templates?flash=${encodeURIComponent(t('checkout.common.flash.deleted'))}&type=success`

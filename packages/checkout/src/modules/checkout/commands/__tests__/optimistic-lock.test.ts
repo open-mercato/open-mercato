@@ -52,6 +52,9 @@ const mockEm = {
   flush: jest.fn(async () => {
     throw new Error(FLUSH_SENTINEL)
   }),
+  // delete commands count active transactions before flushing; 0 lets the
+  // happy path reach the flush sentinel so we can prove the lock guard passed.
+  count: jest.fn(async () => 0),
 }
 
 const mockDataEngine = {}
@@ -189,6 +192,69 @@ describe('checkout command optimistic locking', () => {
     it('passes the lock guard when no expected-version header is sent', async () => {
       await expect(
         runUpdate('checkout.template.update', { id: TEMPLATE_ID, status: 'draft' }, null),
+      ).rejects.toThrow(FLUSH_SENTINEL)
+    })
+  })
+
+  // QA round-6 (#2055): a stale DELETE after a conflict still deleted the
+  // record because the delete commands did not enforce the lock. These guard
+  // that the header now produces a 409 on a stale delete.
+  describe('checkout.link.delete', () => {
+    beforeEach(() => {
+      mockFindOneWithDecryption.mockResolvedValue(linkRecord())
+    })
+
+    it('rejects a stale expected version with a structured 409 conflict', async () => {
+      expect.assertions(3)
+      try {
+        await runUpdate('checkout.link.delete', { id: LINK_ID }, STALE_VERSION)
+      } catch (error) {
+        const httpError = error as { status?: number; body?: Record<string, unknown> }
+        expect(httpError.status).toBe(409)
+        expect(httpError.body?.code).toBe('optimistic_lock_conflict')
+        expect(mockEm.flush).not.toHaveBeenCalled()
+      }
+    })
+
+    it('passes the lock guard when the expected version matches', async () => {
+      await expect(
+        runUpdate('checkout.link.delete', { id: LINK_ID }, CURRENT_VERSION),
+      ).rejects.toThrow(FLUSH_SENTINEL)
+    })
+
+    it('passes the lock guard when no expected-version header is sent (strictly additive)', async () => {
+      await expect(
+        runUpdate('checkout.link.delete', { id: LINK_ID }, null),
+      ).rejects.toThrow(FLUSH_SENTINEL)
+    })
+  })
+
+  describe('checkout.template.delete', () => {
+    beforeEach(() => {
+      mockFindOneWithDecryption.mockResolvedValue(templateRecord())
+    })
+
+    it('rejects a stale expected version with a structured 409 conflict', async () => {
+      expect.assertions(3)
+      try {
+        await runUpdate('checkout.template.delete', { id: TEMPLATE_ID }, STALE_VERSION)
+      } catch (error) {
+        const httpError = error as { status?: number; body?: Record<string, unknown> }
+        expect(httpError.status).toBe(409)
+        expect(httpError.body?.code).toBe('optimistic_lock_conflict')
+        expect(mockEm.flush).not.toHaveBeenCalled()
+      }
+    })
+
+    it('passes the lock guard when the expected version matches', async () => {
+      await expect(
+        runUpdate('checkout.template.delete', { id: TEMPLATE_ID }, CURRENT_VERSION),
+      ).rejects.toThrow(FLUSH_SENTINEL)
+    })
+
+    it('passes the lock guard when no expected-version header is sent', async () => {
+      await expect(
+        runUpdate('checkout.template.delete', { id: TEMPLATE_ID }, null),
       ).rejects.toThrow(FLUSH_SENTINEL)
     })
   })

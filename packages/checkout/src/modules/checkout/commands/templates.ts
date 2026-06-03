@@ -383,6 +383,12 @@ const deleteTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
       deletedAt: null,
     }, undefined, scope)
     if (!template) throw new CrudHttpError(404, { error: 'Template not found' })
+    enforceCommandOptimisticLock({
+      resourceKind: 'checkout.template',
+      resourceId: template.id,
+      current: template.updatedAt ?? null,
+      request: ctx.request ?? null,
+    })
     template.deletedAt = new Date()
     await em.flush()
     await emitCheckoutEvent('checkout.template.deleted', {

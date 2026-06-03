@@ -387,6 +387,12 @@ const deleteLinkCommand: CommandHandler<Record<string, unknown>, { ok: true }> =
       deletedAt: null,
     }, undefined, scope)
     if (!link) throw new CrudHttpError(404, { error: 'Link not found' })
+    enforceCommandOptimisticLock({
+      resourceKind: 'checkout.link',
+      resourceId: link.id,
+      current: link.updatedAt ?? null,
+      request: ctx.request ?? null,
+    })
     const activeCount = await em.count(CheckoutTransaction, {
       linkId: link.id,
       organizationId: scope.organizationId,
