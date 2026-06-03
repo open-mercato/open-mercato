@@ -451,6 +451,32 @@ function serializeIssuePath(path: ReadonlyArray<string | number | symbol>): stri
   return segments.length > 0 ? segments.join('.') : null
 }
 
+function normalizeDirtySnapshotValue(value: unknown): unknown {
+  if (value === undefined || value === null || value === '') return undefined
+  if (Array.isArray(value)) {
+    const normalized = value
+      .map((entry) => normalizeDirtySnapshotValue(entry))
+      .filter((entry) => entry !== undefined)
+    return normalized.length ? normalized : undefined
+  }
+  if (typeof value !== 'object') return value
+
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype !== Object.prototype && prototype !== null) return value
+
+  const normalized: Record<string, unknown> = {}
+  const record = value as Record<string, unknown>
+  for (const key of Object.keys(record).sort()) {
+    const nextValue = normalizeDirtySnapshotValue(record[key])
+    if (nextValue !== undefined) normalized[key] = nextValue
+  }
+  return Object.keys(normalized).length ? normalized : undefined
+}
+
+function createDirtySnapshot(source: Record<string, unknown>): string {
+  return JSON.stringify(normalizeDirtySnapshotValue(source) ?? {})
+}
+
 const FIELDSET_ICON_COMPONENTS: Record<string, React.ComponentType<{ className?: string }>> = {
   layers: Layers,
   tag: Tag,
@@ -750,7 +776,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       setHasUnsavedChanges(false)
       return
     }
-    const currentSnapshot = JSON.stringify(values)
+    const currentSnapshot = createDirtySnapshot(values as Record<string, unknown>)
     const dirty = currentSnapshot !== snapshot
     isDirtyRef.current = dirty
     setHasUnsavedChanges(dirty)
@@ -797,7 +823,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const clearDirtyState = React.useCallback((snapshotSource?: Record<string, unknown>) => {
     const source = snapshotSource ?? (valuesRef.current as Record<string, unknown>)
-    dirtyBaselineSnapshotRef.current = JSON.stringify(source)
+    dirtyBaselineSnapshotRef.current = createDirtySnapshot(source)
     isDirtyRef.current = false
     setHasUnsavedChanges(false)
   }, [])
@@ -842,7 +868,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (!target) return
       if (shouldBypassUnsavedChangesGuardRef.current?.(target)) return
       const baselineSnapshot = dirtyBaselineSnapshotRef.current
-      if (baselineSnapshot && JSON.stringify(valuesRef.current) === baselineSnapshot) {
+      if (baselineSnapshot && createDirtySnapshot(valuesRef.current as Record<string, unknown>) === baselineSnapshot) {
         isDirtyRef.current = false
         setHasUnsavedChanges(false)
         return
@@ -874,7 +900,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           return original(data, unused, url)
         }
         const baselineSnapshot = dirtyBaselineSnapshotRef.current
-        if (baselineSnapshot && JSON.stringify(valuesRef.current) === baselineSnapshot) {
+        if (baselineSnapshot && createDirtySnapshot(valuesRef.current as Record<string, unknown>) === baselineSnapshot) {
           isDirtyRef.current = false
           setHasUnsavedChanges(false)
           return original(data, unused, url)
@@ -2177,7 +2203,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       return mergedValues
     })
     if (mergedValues) {
-      dirtyBaselineSnapshotRef.current = JSON.stringify(mergedValues)
+      dirtyBaselineSnapshotRef.current = createDirtySnapshot(mergedValues as Record<string, unknown>)
     }
     if (!extendedInjectionEventsEnabled || !mergedValues) return
     let cancelled = false
@@ -2190,7 +2216,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         )
         const transformed = result.data
         if (cancelled || !transformed) return
-        dirtyBaselineSnapshotRef.current = JSON.stringify(transformed as Record<string, unknown>)
+        dirtyBaselineSnapshotRef.current = createDirtySnapshot(transformed as Record<string, unknown>)
         setValues(transformed as CrudFormValues<TValues>)
       } catch (err) {
         console.error('[CrudForm] Error in transformDisplayData:', err)
@@ -2259,7 +2285,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
     // Update the dirty baseline so the form doesn't appear dirty from defaults
     if (mergedValues) {
-      dirtyBaselineSnapshotRef.current = JSON.stringify(mergedValues)
+      dirtyBaselineSnapshotRef.current = createDirtySnapshot(mergedValues as Record<string, unknown>)
     }
   }, [isLoading, initialValuesHasId, cfDefinitions, customEntity])
 
