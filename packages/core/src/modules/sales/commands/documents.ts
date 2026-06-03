@@ -4938,6 +4938,7 @@ const updateQuoteCommand: CommandHandler<
     if (!quote)
       throw new CrudHttpError(404, { error: "Sales quote not found" });
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
+    enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
     if (shouldInvalidateSentToken) {
       quote.acceptanceToken = null;

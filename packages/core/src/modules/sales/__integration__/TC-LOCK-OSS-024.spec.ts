@@ -37,28 +37,18 @@ import {
  * `x-om-ext-optimistic-lock-expected-updated-at` header yields the 409.
  *
  * ───────────────────────────────────────────────────────────────────────────
- * PRODUCT BUG — `/api/sales/quotes` does NOT enforce the optimistic lock.
+ * FIXED (#2055 issue #4) — `sales.quotes.update` now enforces the optimistic
+ * lock, mirroring `sales.orders.update`.
  *
- * Route file: packages/core/src/modules/sales/api/quotes/route.ts
- *   (`makeCrudRoute(buildDocumentCrudOptions({ kind: 'quote', … }))`,
- *    updateCommandId `sales.quotes.update`).
+ * Command: packages/core/src/modules/sales/commands/documents.ts —
+ *   `enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE)`
+ *   runs right after the quote is loaded + scope-checked and before mutation.
  *
- * Observed against the ephemeral app (BASE_URL): a stale quote PUT that carries
- * the expected-updated-at header for a now-advanced record returns **200 and
- * silently overwrites** instead of the documented 409 conflict body. The
- * IDENTICAL pattern on `/api/sales/orders` (TC-LOCK-OSS-007) correctly returns
- * 409 in the very same environment — proven by the control assertion in this
- * file (`order control: stale PUT IS refused with 409`). So the quote document
- * aggregate is missing the `enforceSalesDocumentOptimisticLock` guard that the
- * order aggregate has. Because the server never 409s, the browser conflict bar
- * can never appear and the bespoke UI assertions cannot go green.
- *
- * Per the PRODUCT-BUG RULE we do NOT touch product code. The conflict-expecting
- * cases (3 browser + 1 API) are `test.fixme`'d with this reason; two active
- * tests keep the file green and pin the defect:
- *   - `quote BUG: stale PUT is accepted (200) instead of refused (409)`,
- *   - `order control: stale PUT IS refused with 409`.
- * Un-skip the fixme'd cases once the quote route enforces the lock.
+ * A stale quote PUT carrying the expected-updated-at header for a now-advanced
+ * record now returns the documented 409 conflict body, identical to
+ * `/api/sales/orders` (proven by the `order control` case). The API
+ * document-contract case is active; the bespoke browser conflict cases stay
+ * `test.fixme` pending a browser-capable runner.
  * ───────────────────────────────────────────────────────────────────────────
  *
  * Runs as `admin`, which the sales module grants `sales.*` to in setup.ts
@@ -113,8 +103,8 @@ async function quoteStillExists(
 }
 
 test.describe('TC-LOCK-OSS-024: sales quote header edit + delete conflict bar (SAL-02)', () => {
-  // ── Active: pins the product bug deterministically (file stays green). ──────
-  test('quote BUG: stale PUT is accepted (200) instead of refused (409) — product bug, see header', async ({ request }) => {
+  // ── Active: stale quote PUT is now refused with 409 (regression guard). ─────
+  test('quote: stale PUT is refused with 409 (lock enforced like orders)', async ({ request }) => {
     let token: string | null = null
     let quoteId: string | null = null
     try {
@@ -137,9 +127,7 @@ test.describe('TC-LOCK-OSS-024: sales quote header edit + delete conflict bar (S
       const t1 = await readUpdatedAt(request, token, QUOTES_API_BASE, quoteId)
       expect(t1, 'updated_at should advance after session A').not.toBe(t0)
 
-      // Stale session B replays t0. The documented contract is 409; the quote
-      // route does NOT enforce it, so it returns 200. We assert the OBSERVED
-      // buggy behaviour so the regression is pinned and the file runs green.
+      // Stale session B replays t0 → the enforced lock yields the 409 conflict.
       const sessionB = await putWithLock(
         request,
         token,
@@ -147,10 +135,9 @@ test.describe('TC-LOCK-OSS-024: sales quote header edit + delete conflict bar (S
         { id: quoteId, comment: `QA Lock 024 B ${Date.now()}` },
         t0,
       )
-      expect(
-        sessionB.status(),
-        'PRODUCT BUG: quote route ignores the optimistic-lock header — stale PUT returns 200 (should be 409)',
-      ).toBeLessThan(300)
+      const body = await expectConflictBody(sessionB)
+      expect(body.expectedUpdatedAt, 'conflict body echoes the stale token').toBe(t0)
+      expect(body.currentUpdatedAt).not.toBe(t0)
     } finally {
       await deleteEntityIfExists(request, token, QUOTES_API_BASE, quoteId)
     }
@@ -200,11 +187,10 @@ test.describe('TC-LOCK-OSS-024: sales quote header edit + delete conflict bar (S
   })
 
   // ── Fixme'd: blocked by the quote-route product bug (see header). ───────────
-  test.fixme('API document-contract: stale quote PUT is refused with the 409 conflict body', async ({ request }) => {
-    // BLOCKED: /api/sales/quotes (sales.quotes.update) does not enforce the
-    // optimistic lock; stale PUT returns 200 instead of 409. Un-skip once the
-    // quote document aggregate runs enforceSalesDocumentOptimisticLock like
-    // /api/sales/orders does. Route: packages/core/src/modules/sales/api/quotes/route.ts
+  test('API document-contract: stale quote PUT is refused with the 409 conflict body', async ({ request }) => {
+    // The quote document aggregate now runs enforceSalesDocumentOptimisticLock in
+    // sales.quotes.update, mirroring sales.orders.update, so a stale PUT yields the
+    // structured 409 conflict body. Command: packages/core/src/modules/sales/commands/documents.ts
     let token: string | null = null
     let quoteId: string | null = null
     try {
