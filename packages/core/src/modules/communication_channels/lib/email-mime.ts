@@ -68,12 +68,12 @@ export function htmlToText(html: string): string {
   return stripTagBlocks(stripTagBlocks(html, 'style'), 'script')
     .replace(/<br\s*\/?>(?=\s*)/gi, '\n')
     .replace(/<\/p\s*>/gi, '\n\n')
-    .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
     .replace(/&amp;/gi, '&')
+    .replace(/<[^>]+>/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
