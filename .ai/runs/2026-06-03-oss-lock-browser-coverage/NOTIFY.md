@@ -51,3 +51,24 @@ Append-only. Newest at the bottom.
   body has no `code` field, so the unified bar can't recognize it. -036 OSS-header test test.fixme (body-updatedAt API lock green).
 - TOTAL: 23 spec files + helper; ~62 active tests green; 7 test.fixme across **5 product findings**
   (business_rules, workflows.definition, entities.records, customer_accounts roles UI, staff job-history).
+
+## 2026-06-03 — batch-4 landed (7 green + 3 product-gap) — ALL 33 PLAN rows resolved
+- GREEN & pushed: -017 kanban (2), -018 activity/task (4, API), -023 catalog false-positives+price-kinds (4),
+  -025 adjustments/returns (2), -026 payments/shipments (2), -027 quote→convert #2114 (2), -034 sidebar (2, API).
+- **PRODUCT BUG (#2055) — /api/sales/quotes does NOT enforce the lock** (quote aggregate missing
+  enforceSalesDocumentOptimisticLock that the order aggregate has) → stale quote PUT returns 200. -024 stale-edit test.fixme.
+- **PRODUCT GAP (#2055) — ChannelOfferForm.handleSubmit re-wraps the 409 via createCrudFormError and drops the
+  top-level conflict `code`**, so the offer EDIT never surfaces the unified bar (route returns correct 409). -029 edit-bar test.fixme.
+- **PRODUCT GAP (#2055) — sales settings dialogs (Payment/Shipping/TaxRates) show an inline dialog error, not the
+  unified bar** on a 409 (server enforces). -030 browser-bar tests test.fixme.
+- -029 browser list-delete test.skip (flaky hover-menu+search; SAL-13 delete proven by the API delete test).
+
+## CONSOLIDATED PRODUCT FINDINGS (8) for the #2055 author
+A. NO server enforcement (stale write returns 200): (1) business_rules rules/sets PUT, (2) workflows.definition PUT
+   [despite a passing unit test — reader registered at route-module load is absent from the request-scoped guard's
+   build-time reader snapshot], (3) entities.records (custom entity) PUT, (4) sales **quotes** PUT.
+B. Server enforces (409) but the UI never surfaces the unified RecordConflictBanner because the page/dialog handles the
+   409 with an inline error/toast instead of re-throwing the conflict: (5) customer_accounts role edit page,
+   (6) ChannelOfferForm offer edit (drops the 409 `code` on re-wrap), (7) sales settings dialogs (payment/shipping/tax),
+   (8) staff job-history (uses a request-BODY updatedAt + a 409 body without `code`).
+- TOTAL coverage: 33 spec files + shared helper; ~80 active tests green; ~12 test.fixme/skip documenting the above.
