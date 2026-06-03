@@ -227,6 +227,14 @@ export async function GET(req: Request): Promise<Response> {
       }
       connections.add(connection)
 
+      // Flush an initial comment so the runtime sends the response headers and
+      // first body byte immediately. Without it, the streamed Response stays
+      // unflushed until the first heartbeat (30s) or matching event, which
+      // delays the browser EventSource `open` event — clients that gate work on
+      // a "connected" signal would otherwise stall for up to 30s after mount.
+      // Comment lines (`:` prefix) are ignored by EventSource message parsing.
+      controller.enqueue(encoder.encode(': connected\n\n'))
+
       // Start heartbeat to keep connection alive
       heartbeatTimer = setInterval(() => {
         try {

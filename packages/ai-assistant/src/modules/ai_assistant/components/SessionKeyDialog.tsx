@@ -14,6 +14,7 @@ import {
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 
 type Props = {
   open: boolean
@@ -89,16 +90,6 @@ Workflow (use this order):
     setTimeout(() => setCopiedInstructions(false), 2000)
   }
 
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onOpenChange(false)
-      }
-    },
-    [onOpenChange],
-  )
-
   const handleClose = () => {
     setSessionToken(null)
     setExpiresAt(null)
@@ -107,6 +98,8 @@ Workflow (use this order):
     setCopiedInstructions(false)
     onOpenChange(false)
   }
+
+  const handleKeyDown = useDialogKeyHandler({ onCancel: handleClose })
 
   const formatExpiry = (isoDate: string | null) => {
     if (!isoDate) return t('ai_assistant.session.expiresDefault')

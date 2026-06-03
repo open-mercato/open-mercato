@@ -42,6 +42,7 @@ const mockEm = {
   })),
   persist: jest.fn(function persist(this: any) { return this }),
   flush: jest.fn(async () => {}),
+  transactional: jest.fn(async (work: (tx: any) => unknown) => work(mockEm)),
   find: jest.fn(),
   getKysely: jest.fn(() => buildUsageKysely(0)),
 }
@@ -196,6 +197,22 @@ describe('attachments API', () => {
         values: { altText: 'Product spec' },
       }),
     )
+  })
+
+  it('fails with 500 and skips side effects when custom-field persistence throws', async () => {
+    mockDataEngine.setCustomFields.mockRejectedValueOnce(new Error('cf write failed'))
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1,2,3])], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', {
+      method: 'POST',
+      body: fdWith(file, { customFields: JSON.stringify({ altText: 'Product spec' }) }) as any,
+    })
+    const res = await upload(req)
+    expect(res.status).toBe(500)
+    // The attachment row and its custom fields are written inside one transaction
+    // so a custom-field failure aborts the whole unit and never emits a created event.
+    expect(mockEm.transactional).toHaveBeenCalled()
+    expect(mockDataEngine.markOrmEntityChange).not.toHaveBeenCalled()
   })
 
   it('rejects files that exceed configured size limit', async () => {

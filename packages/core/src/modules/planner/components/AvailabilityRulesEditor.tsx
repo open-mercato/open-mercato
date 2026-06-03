@@ -27,7 +27,9 @@ import {
 } from '@open-mercato/core/modules/planner/components/unavailabilityReasons'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
+import { deleteAvailabilityRuleSet } from '@open-mercato/core/modules/planner/lib/deleteAvailabilityRuleSet'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { Calendar, Clock, List, PencilLine, Plus, Trash2 } from 'lucide-react'
 import {
@@ -80,6 +82,7 @@ export type AvailabilityRulesEditorProps = {
   initialTimezone?: string
   rulesetId?: string | null
   onRulesetChange?: (rulesetId: string | null) => Promise<void>
+  allowRuleSetDelete?: boolean
   buildScheduleItems: AvailabilityScheduleItemBuilder
   loadBookedEvents?: (range: ScheduleRange) => Promise<AvailabilityBookedEvent[]>
   readOnly?: boolean
@@ -357,6 +360,7 @@ export function AvailabilityRulesEditor({
   initialTimezone,
   rulesetId,
   onRulesetChange,
+  allowRuleSetDelete,
   buildScheduleItems,
   loadBookedEvents,
   readOnly,
@@ -469,6 +473,11 @@ export function AvailabilityRulesEditor({
       ruleSetCreateTimezoneLabel: t(`${labelPrefix}.availability.ruleset.createTimezone`, 'Timezone'),
       ruleSetCreateSuccess: t(`${labelPrefix}.availability.ruleset.createSuccess`, 'Schedule saved.'),
       ruleSetCreateError: t(`${labelPrefix}.availability.ruleset.createError`, 'Failed to save schedule.'),
+      ruleSetDelete: t(`${labelPrefix}.availability.ruleset.delete`, 'Delete schedule'),
+      ruleSetDeleteConfirm: t(`${labelPrefix}.availability.ruleset.deleteConfirm`, 'Delete schedule "{{name}}"?'),
+      ruleSetDeleteSubmit: t(`${labelPrefix}.availability.ruleset.deleteSubmit`, 'Delete'),
+      ruleSetDeleteSuccess: t(`${labelPrefix}.availability.ruleset.deleteSuccess`, 'Schedule deleted.'),
+      ruleSetDeleteError: t(`${labelPrefix}.availability.ruleset.deleteError`, 'Failed to delete schedule.'),
       editTitle: t(`${modeBase}.form.title.edit`, 'Edit availability'),
       addTitle: t(`${modeBase}.form.title.create`, 'Add availability'),
       applyLabel: t(`${labelPrefix}.availability.actions.apply`, 'Apply'),
@@ -1009,6 +1018,47 @@ export function AvailabilityRulesEditor({
     isReadOnly,
   ])
 
+  const handleDeleteRuleSet = React.useCallback(async () => {
+    if (isReadOnly || !onRulesetChange || !rulesetId) return
+    const selected = ruleSets.find((entry) => entry.id === rulesetId)
+    const name = selected?.name ?? rulesetId
+    await deleteAvailabilityRuleSet({
+      ruleSetId: rulesetId,
+      confirmDelete: () => confirm({
+        title: listLabels.ruleSetDeleteConfirm.replace('{{name}}', name),
+        confirmText: listLabels.ruleSetDeleteSubmit,
+        variant: 'destructive',
+      }),
+      deleteRuleSet: async (id) => {
+        await deleteCrud('planner/availability-rule-sets', id, { errorMessage: listLabels.ruleSetDeleteError })
+      },
+      clearAssignment: async () => {
+        setCustomOverridesEnabled(false)
+        await onRulesetChange(null)
+        await refreshAvailability()
+      },
+      refreshRuleSets,
+      onSuccess: () => flash(listLabels.ruleSetDeleteSuccess, 'success'),
+      onError: (error) => {
+        console.error('planner.availability-rule-sets.delete', error)
+        const normalized = normalizeCrudServerError(error)
+        flash(normalized.message ?? listLabels.ruleSetDeleteError, 'error')
+      },
+    })
+  }, [
+    confirm,
+    isReadOnly,
+    listLabels.ruleSetDeleteConfirm,
+    listLabels.ruleSetDeleteError,
+    listLabels.ruleSetDeleteSubmit,
+    listLabels.ruleSetDeleteSuccess,
+    onRulesetChange,
+    refreshAvailability,
+    refreshRuleSets,
+    ruleSets,
+    rulesetId,
+  ])
+
   const ruleSetFormSchema = React.useMemo(
     () => z.object({
       name: z.string().min(1, t('ui.forms.errors.required', 'Required')),
@@ -1367,6 +1417,18 @@ export function AvailabilityRulesEditor({
               {effectiveRulesetId && !usingRuleSet ? (
                 <Button type="button" variant="ghost" size="sm" onClick={handleResetToRuleSet} disabled={isReadOnly}>
                   {listLabels.ruleSetReset}
+                </Button>
+              ) : null}
+              {allowRuleSetDelete && rulesetId ? (
+                <Button
+                  type="button"
+                  variant="destructive-outline"
+                  size="sm"
+                  onClick={() => { void handleDeleteRuleSet() }}
+                  disabled={isReadOnly}
+                >
+                  <Trash2 className="size-4 mr-2" aria-hidden />
+                  {listLabels.ruleSetDelete}
                 </Button>
               ) : null}
             </div>

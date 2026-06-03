@@ -6,7 +6,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import type { ColumnDef } from '@tanstack/react-table'
@@ -103,6 +103,7 @@ export default function WebhookDetailPage() {
   const [webhook, setWebhook] = React.useState<Webhook | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [isEditing, setIsEditing] = React.useState(false)
 
   const [deliveries, setDeliveries] = React.useState<DeliveryRow[]>([])
@@ -120,7 +121,7 @@ export default function WebhookDetailPage() {
 
   const fetchWebhook = React.useCallback(async (options?: { silent?: boolean }) => {
     if (!webhookId) {
-      setError(t('webhooks.errors.notFound'))
+      setIsNotFound(true)
       setIsLoading(false)
       return
     }
@@ -131,6 +132,7 @@ export default function WebhookDetailPage() {
     }
 
     setError(null)
+    setIsNotFound(false)
 
     try {
       const call = await apiCall<Webhook>(
@@ -144,7 +146,11 @@ export default function WebhookDetailPage() {
         return
       }
 
-      setError(t('webhooks.errors.notFound'))
+      if (call.status === 404) {
+        setIsNotFound(true)
+      } else {
+        setError(t('webhooks.detail.loadError'))
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : t('webhooks.detail.loadError'))
     } finally {
@@ -466,7 +472,20 @@ export default function WebhookDetailPage() {
   }, [access.canManage, access.canSecrets, access.canTest, handleDelete, handleRotateSecret, handleTest, handleToggleActive, t, webhook?.isActive])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('webhooks.detail.loading')} /></PageBody></Page>
-  if (error || !webhook) return <Page><PageBody><ErrorMessage label={error ?? t('webhooks.errors.notFound')} /></PageBody></Page>
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('webhooks.errors.notFound')}
+            backHref="/backend/webhooks"
+            backLabel={t('webhooks.detail.backToList', 'Back to webhooks')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+  if (error || !webhook) return <Page><PageBody><ErrorMessage label={error ?? t('webhooks.detail.loadError')} /></PageBody></Page>
 
   if (isEditing) {
     return (

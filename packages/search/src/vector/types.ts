@@ -50,6 +50,7 @@ export type VectorDriverQuery = {
   filter?: {
     entityIds?: EntityId[]
     organizationId?: string | null
+    organizationIds?: string[] | null
     tenantId: string
   }
 }

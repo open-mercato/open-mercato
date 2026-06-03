@@ -34,7 +34,7 @@ const mockSelectFrom = jest.fn((table: string) => {
 })
 const mockKysely = { selectFrom: mockSelectFrom }
 
-const mockEm = {
+const mockEm: Record<string, unknown> = {
   find: mockEmFind,
   findAndCount: mockEmFindAndCount,
   findOne: mockEmFindOne,
@@ -43,6 +43,7 @@ const mockEm = {
   flush: mockEmFlush,
   nativeUpdate: mockEmNativeUpdate,
   getKysely: jest.fn(() => mockKysely),
+  transactional: (cb: (tx: unknown) => Promise<unknown>) => cb(mockEm),
 }
 
 const mockContainer = {

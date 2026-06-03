@@ -1,6 +1,7 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
 import { calculateNextRun } from '../lib/nextRunCalculator.js'
@@ -98,6 +99,29 @@ function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string | null |
   }
 }
 
+// Super-admin status is the immutable `isSuperAdmin` flag derived from
+// RoleAcl/UserAcl at session resolution. Never compare role names to a string
+// like 'superadmin' — role names are tenant-mutable and trivially spoofable.
+function isSuperAdminActor(ctx: CommandRuntimeContext): boolean {
+  return ctx.auth?.isSuperAdmin === true
+}
+
+// `ensureTenantScope` is a no-op for system-scoped jobs (tenantId === null), so a
+// `scheduler.jobs.manage` holder could otherwise update/delete a system schedule
+// belonging to the whole deployment. System-scoped jobs MUST be super-admin only,
+// mirroring the create route's system-scope gate.
+function ensureCanManageSystemScopedJob(
+  ctx: CommandRuntimeContext,
+  job: { scopeType?: string | null; tenantId?: string | null },
+): void {
+  const isSystemScoped = job.scopeType === 'system' || job.tenantId == null
+  if (!isSystemScoped) return
+  if (isSuperAdminActor(ctx)) return
+  throw new CrudHttpError(403, {
+    error: 'System-scoped scheduled jobs can only be managed by a super administrator.',
+  })
+}
+
 /**
  * CREATE SCHEDULE COMMAND
  */
@@ -107,6 +131,7 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
   async execute(input, ctx) {
     ensureTenantScope(ctx, input.tenantId)
     if (input.organizationId) ensureOrganizationScope(ctx, input.organizationId)
+    ensureCanManageSystemScopedJob(ctx, { scopeType: input.scopeType, tenantId: input.tenantId })
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
 
@@ -208,6 +233,7 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
 
     ensureTenantScope(ctx, schedule.tenantId)
     if (schedule.organizationId) ensureOrganizationScope(ctx, schedule.organizationId)
+    ensureCanManageSystemScopedJob(ctx, schedule)
 
     // Update fields
     if (input.name !== undefined) schedule.name = input.name
@@ -338,6 +364,7 @@ const deleteScheduleCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
 
     ensureTenantScope(ctx, schedule.tenantId)
     if (schedule.organizationId) ensureOrganizationScope(ctx, schedule.organizationId)
+    ensureCanManageSystemScopedJob(ctx, schedule)
 
     // Soft delete
     schedule.deletedAt = new Date()

@@ -731,7 +731,17 @@ test.describe('TC-CRM-028: Example customer sync', () => {
       expect(mapping.syncStatus).toBe('synced');
       expect(mapping.exampleHref).toContain(todoId);
 
-      const todo = await waitForExampleTodo(request, adminToken, todoId, (item) => item.cf_severity === 'high');
+      const todo = await waitForExampleTodo(
+        request,
+        adminToken,
+        todoId,
+        (item) =>
+          item.cf_severity === 'high' &&
+          item.cf_description === 'Follow up with procurement' &&
+          item.cf_priority === 3 &&
+          item.is_done === false &&
+          (item.title?.includes('CRM027 lifecycle') ?? false),
+      );
       expect(todo.title).toContain('CRM027 lifecycle');
       expect(todo.is_done).toBe(false);
       expect(todo.cf_priority).toBe(3);

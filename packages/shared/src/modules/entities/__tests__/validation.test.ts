@@ -1,7 +1,10 @@
 /** @jest-environment node */
 import {
+  MAX_CUSTOM_FIELD_KEYS_PER_RECORD,
   MAX_CUSTOM_FIELD_REGEX_PATTERN_LENGTH,
   MAX_CUSTOM_FIELD_REGEX_INPUT_LENGTH,
+  TOO_MANY_CUSTOM_FIELDS_ERROR,
+  UNKNOWN_CUSTOM_FIELD_ERROR,
   validateValuesAgainstDefs,
 } from '../validation'
 
@@ -120,6 +123,45 @@ describe('validateValuesAgainstDefs', () => {
 
     expect(result.ok).toBe(false)
     expect(result.fieldErrors['cf_body']).toBe('body too large')
+  })
+
+  it('rejects values for undeclared keys only when rejectUndeclaredKeys is set', () => {
+    const defs = [{ key: 'priority', kind: 'integer', configJson: {} }]
+    const strict = validateValuesAgainstDefs({ priority: 1, undeclared: 'x' }, defs as any, {
+      rejectUndeclaredKeys: true,
+    })
+
+    expect(strict.ok).toBe(false)
+    expect(strict.fieldErrors.cf_undeclared).toBe(UNKNOWN_CUSTOM_FIELD_ERROR)
+  })
+
+  it('persists undeclared keys by default (trusted command writes)', () => {
+    const defs = [{ key: 'priority', kind: 'integer', configJson: {} }]
+    const result = validateValuesAgainstDefs({ priority: 1, undeclared: 'x' }, defs as any)
+
+    expect(result.ok).toBe(true)
+  })
+
+  it('ignores undefined keys even in strict mode', () => {
+    const defs = [{ key: 'priority', kind: 'integer', configJson: {} }]
+    const result = validateValuesAgainstDefs({ priority: 1, undeclared: undefined }, defs as any, {
+      rejectUndeclaredKeys: true,
+    })
+
+    expect(result.ok).toBe(true)
+  })
+
+  it('rejects payloads with too many custom field keys', () => {
+    const values: Record<string, number> = {}
+    for (let index = 0; index < MAX_CUSTOM_FIELD_KEYS_PER_RECORD + 1; index++) {
+      values[`field_${index}`] = index
+    }
+
+    const defs = Object.keys(values).map((key) => ({ key, kind: 'integer', configJson: {} }))
+    const result = validateValuesAgainstDefs(values, defs as any)
+
+    expect(result.ok).toBe(false)
+    expect(result.fieldErrors._customFields).toBe(TOO_MANY_CUSTOM_FIELDS_ERROR)
   })
 
   it('fails closed before testing oversized regex patterns', () => {

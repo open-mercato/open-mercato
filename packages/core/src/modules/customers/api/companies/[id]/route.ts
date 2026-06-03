@@ -47,6 +47,7 @@ import {
   withActiveCustomerPersonCompanyLinkFilter,
 } from '../../../lib/personCompanyLinkTable'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.companies.view'] },
@@ -386,11 +387,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   if (!company) return notFound('Company not found')
 
   if (auth.tenantId && company.tenantId !== auth.tenantId) return notFound('Company not found')
-  const allowedOrgIds = new Set<string>()
-  if (scope?.filterIds?.length) scope.filterIds.forEach((id) => allowedOrgIds.add(id))
-  else if (auth.orgId) allowedOrgIds.add(auth.orgId)
-
-  if (allowedOrgIds.size && company.organizationId && !allowedOrgIds.has(company.organizationId)) {
+  if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: company.organizationId })) {
     return forbidden('Access denied')
   }
 
@@ -936,6 +933,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       organizationId: company.organizationId,
       tenantId: company.tenantId,
       isActive: company.isActive,
+      temperature: company.temperature ?? null,
+      renewalQuarter: company.renewalQuarter ?? null,
       createdAt: company.createdAt.toISOString(),
       updatedAt: company.updatedAt.toISOString(),
     },
@@ -1153,6 +1152,8 @@ const companyDetailResponseSchema = z.object({
     organizationId: z.string().uuid().nullable().optional(),
     tenantId: z.string().uuid().nullable().optional(),
     isActive: z.boolean().optional(),
+    temperature: z.string().nullable().optional(),
+    renewalQuarter: z.string().nullable().optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
   }),

@@ -12,8 +12,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
-import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { RotateCcw, XCircle } from 'lucide-react'
 
@@ -106,6 +105,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const [run, setRun] = React.useState<SyncRunDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [logs, setLogs] = React.useState<LogEntry[]>([])
   const [isLoadingLogs, setIsLoadingLogs] = React.useState(false)
 
@@ -124,13 +124,18 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
       setIsLoading(false)
       return
     }
+    setIsNotFound(false)
     const call = await apiCall<SyncRunDetail>(
       `/api/data_sync/runs/${encodeURIComponent(currentRunId)}`,
       undefined,
       { fallback: null },
     )
     if (!call.ok || !call.result) {
-      setError(t('data_sync.runs.detail.loadError'))
+      if (call.status === 404) {
+        setIsNotFound(true)
+      } else {
+        setError(t('data_sync.runs.detail.loadError'))
+      }
       setIsLoading(false)
       return
     }
@@ -243,6 +248,19 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   }, [resolveCurrentRunId, router, t])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('data_sync.runs.detail.title')} /></PageBody></Page>
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('data_sync.runs.detail.notFound', 'Sync run not found.')}
+            backHref="/backend/data-sync"
+            backLabel={t('data_sync.runs.detail.back')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
   if (error || !run) return <Page><PageBody><ErrorMessage label={error ?? t('data_sync.runs.detail.loadError')} /></PageBody></Page>
 
   const totalProcessed = run.createdCount + run.updatedCount + run.skippedCount + run.failedCount
