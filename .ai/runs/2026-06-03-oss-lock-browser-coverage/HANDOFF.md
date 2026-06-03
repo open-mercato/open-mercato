@@ -42,7 +42,24 @@ identified ~68 UI behaviors with no automated spec. This PR adds **browser-drive
 - Keep specs deterministic (out-of-band API bump, not two-tab sleeps). Clean up every fixture in `finally`.
 - Re-run the full `-g TC-LOCK-OSS` suite every ~5 specs.
 
-## Status snapshot
-- Branch created off `feat/oss-optimistic-locking` @ `004f68b90`. Run folder + PLAN/HANDOFF/NOTIFY committed.
-- Next: task 0 (shared helper) → reference spec green → fan out per PLAN order.
-- Update this snapshot block on each resume.
+## Status snapshot (update on each resume)
+- Draft PR **#2451** (base `feat/oss-optimistic-locking`). Ephemeral app at http://127.0.0.1:5001 (port 5001).
+- **GREEN & pushed (8 spec files, 20 active tests):**
+  - TC-LOCK-OSS-040 currencies (CUR-01) — 2
+  - TC-LOCK-OSS-021 catalog categories (CAT-05/06) — 3
+  - TC-LOCK-OSS-035 staff team-role/team (STF-01/02) — 4
+  - TC-LOCK-OSS-037 resources + resource-types (RES-01/02/03) — 3
+  - TC-LOCK-OSS-039 directory tenant/org (DIR-01/02) — 2
+  - TC-LOCK-OSS-041 feature toggles + dictionaries (FT-01/DICT-01/02) — 4 (DICT via API fallback)
+  - TC-LOCK-OSS-042 business_rules (BR-01/02) — clean-save green; **2 test.fixme (PRODUCT BUG, see below)**
+- **PRODUCT FINDING (for #2055): business_rules `rules`+`sets` PUT routes ignore the lock header** → no 409, no bar.
+  Fix on #2055: `packages/core/src/modules/business_rules/api/{rules,sets}/route.ts` PUT must return 409+conflict code.
+  When fixed, drop the `.fixme` in TC-LOCK-OSS-042 and it goes green.
+- **In flight (batch-2 workflow):** TC-LOCK-OSS-014 companies-v2, -015 people-v2, -019 product, -020 variant,
+  -031 auth roles+ACL, -032 auth users+ACL, -043 webhooks/inbox/sync, -044 workflow/entities/checkout.
+- **Still TODO (queue for next batches):** -016 deals, -017 deals kanban, -018 activity/task modals,
+  -022 option-schema, -023 catalog false-positives + price kinds, -024..-030 sales (quote/adjustments/returns/
+  payments/shipments/convert/channels/channel-offers/settings dialogs), -033 customer_accounts roles, -034 sidebar,
+  -036 staff leave/job-history, -038 planner, -040 CUR-02 exchange-rates, -045 conflict-bar UX, -046 negatives.
+- **How to resume:** re-read PLAN.md, ensure ephemeral up, run any green spec to confirm env, then pick the first
+  non-done row and follow the Per-step contract. Reuse the green reference specs (esp. -040, -021, -039, -041) as templates.
