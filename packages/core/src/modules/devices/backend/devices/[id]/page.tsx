@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
@@ -32,6 +33,7 @@ export default function DeviceAdminEditPage({ params }: { params?: { id?: string
   const [device, setDevice] = React.useState<DeviceDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [userLabel, setUserLabel] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
@@ -54,6 +56,26 @@ export default function DeviceAdminEditPage({ params }: { params?: { id?: string
     if (id) load()
     return () => { cancelled = true }
   }, [id, t])
+
+  // Resolve the owner's display name for a link to their profile. Devices admins may not hold
+  // auth.users.list, so fall back to the raw id (rendered without a link) instead of redirecting.
+  React.useEffect(() => {
+    const userId = device?.user_id
+    if (!userId) return
+    let cancelled = false
+    void (async () => {
+      const call = await apiCall<{ items?: { id: string; name?: string | null; email?: string | null }[] }>(
+        `/api/auth/users?id=${encodeURIComponent(userId)}`,
+        { headers: { 'x-om-forbidden-redirect': '0' } },
+        { fallback: null },
+      ).catch(() => null)
+      if (cancelled || !call || !call.ok) return
+      const found = call.result?.items?.find((u) => u.id === userId)
+      const label = found?.name?.trim() || found?.email?.trim() || null
+      if (label) setUserLabel(label)
+    })()
+    return () => { cancelled = true }
+  }, [device?.user_id])
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'clientAppVersion', label: t('devices.form.appVersion'), type: 'text' },
@@ -78,7 +100,11 @@ export default function DeviceAdminEditPage({ params }: { params?: { id?: string
         <div className="mb-4 rounded-md border bg-muted/30 p-4 text-sm space-y-1">
           <div><span className="text-muted-foreground">{t('devices.form.deviceId')}: </span><code className="text-xs">{device.device_id}</code></div>
           <div><span className="text-muted-foreground">{t('devices.form.platform')}: </span>{device.platform}</div>
-          <div><span className="text-muted-foreground">{t('devices.form.userId')}: </span><code className="text-xs">{device.user_id}</code></div>
+          <div><span className="text-muted-foreground">{t('devices.form.userId')}: </span>{userLabel ? (
+            <Link href={`/backend/users/${encodeURIComponent(device.user_id)}/edit`} className="text-primary hover:underline">{userLabel}</Link>
+          ) : (
+            <code className="text-xs">{device.user_id}</code>
+          )}</div>
         </div>
         <CrudForm<FormValues>
           title={t('devices.form.editTitle')}

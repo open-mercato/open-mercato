@@ -11,6 +11,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 
 type Row = {
   id: string
@@ -54,6 +55,57 @@ export default function DevicesAdminListPage() {
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [userOptions, setUserOptions] = React.useState<{ value: string; label: string; description?: string | null }[]>([])
+
+  // Devices admins may not hold auth.users.list; degrade gracefully (no options) instead of redirecting.
+  const loadUserOptions = React.useCallback(async (query?: string) => {
+    const params = new URLSearchParams()
+    params.set('page', '1')
+    params.set('pageSize', '20')
+    if (query && query.trim().length > 0) params.set('search', query.trim())
+    const call = await apiCall<{ items?: { id: string; name?: string | null; email?: string | null }[] }>(
+      `/api/auth/users?${params.toString()}`,
+      { headers: { 'x-om-forbidden-redirect': '0' } },
+      { fallback: null },
+    ).catch(() => null)
+    if (!call || !call.ok) return []
+    const next = (call.result?.items ?? []).flatMap((item) => {
+      if (!item || typeof item.id !== 'string' || !item.id.trim()) return []
+      const name = typeof item.name === 'string' && item.name.trim() ? item.name.trim() : null
+      const email = typeof item.email === 'string' && item.email.trim() ? item.email.trim() : null
+      const label = name ?? email ?? item.id
+      return [{ value: item.id, label, description: email && email !== label ? email : null }]
+    })
+    setUserOptions((prev) => {
+      const map = new Map(prev.map((opt) => [opt.value, opt]))
+      for (const opt of next) map.set(opt.value, opt)
+      return Array.from(map.values())
+    })
+    return next
+  }, [])
+
+  React.useEffect(() => { void loadUserOptions() }, [loadUserOptions, scopeVersion])
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'platform',
+      label: t('devices.list.columns.platform'),
+      type: 'select',
+      options: [
+        { value: 'ios', label: 'iOS' },
+        { value: 'android', label: 'Android' },
+        { value: 'web', label: 'Web' },
+      ],
+    },
+    {
+      id: 'userId',
+      label: t('devices.list.columns.user'),
+      type: 'combobox',
+      options: userOptions,
+      loadOptions: loadUserOptions,
+    },
+  ], [t, userOptions, loadUserOptions])
 
   React.useEffect(() => {
     let cancelled = false
@@ -63,6 +115,10 @@ export default function DevicesAdminListPage() {
         const params = new URLSearchParams()
         params.set('page', String(page))
         params.set('pageSize', '50')
+        const platform = typeof filterValues.platform === 'string' ? filterValues.platform.trim() : ''
+        const userId = typeof filterValues.userId === 'string' ? filterValues.userId.trim() : ''
+        if (platform) params.set('platform', platform)
+        if (userId) params.set('userId', userId)
         const fallback: ResponsePayload = { items: [], total: 0, page, totalPages: 1 }
         const call = await apiCall<ResponsePayload>(`/api/devices/admin/devices?${params.toString()}`, undefined, { fallback })
         if (!call.ok) {
@@ -88,7 +144,7 @@ export default function DevicesAdminListPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [page, reloadToken, scopeVersion, t])
+  }, [page, reloadToken, scopeVersion, filterValues, t])
 
   const handleDeactivate = React.useCallback(async (row: Row) => {
     const confirmed = await confirm({
@@ -162,6 +218,10 @@ export default function DevicesAdminListPage() {
           )}
           columns={columns}
           data={rows}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={(values) => { setFilterValues(values); setPage(1) }}
+          onFiltersClear={() => { setFilterValues({}); setPage(1) }}
           perspective={{ tableId: 'devices.list' }}
           rowActions={(row) => (
             <RowActions items={[
