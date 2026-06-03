@@ -869,6 +869,7 @@ export function DealForm({
             allowInlineCreate={false}
             allowAppearance={false}
             selectClassName="w-full"
+            sortOptions="none"
             disabled={disabled}
             showLabelInput={false}
           />

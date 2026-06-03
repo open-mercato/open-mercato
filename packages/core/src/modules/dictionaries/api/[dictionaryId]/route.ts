@@ -5,6 +5,9 @@ import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dict
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
+  resolveDictionaryEntrySortMode,
+} from '@open-mercato/core/modules/dictionaries/lib/entrySort'
+import {
   dictionariesErrorSchema,
   dictionariesOkSchema,
   dictionariesTag,
@@ -77,6 +80,7 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
       isSystem: dictionary.isSystem,
       isActive: dictionary.isActive,
       managerVisibility: dictionary.managerVisibility,
+      entrySortMode: resolveDictionaryEntrySortMode(dictionary.entrySortMode),
       organizationId: dictionary.organizationId,
       isInherited: context.organizationId ? dictionary.organizationId !== context.organizationId : false,
       createdAt: dictionary.createdAt,
@@ -141,6 +145,9 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
         dictionary.deletedAt = null
       }
     }
+    if (payload.entrySortMode !== undefined) {
+      dictionary.entrySortMode = payload.entrySortMode
+    }
 
     dictionary.updatedAt = new Date()
     await context.em.flush()
@@ -153,6 +160,7 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
       isSystem: dictionary.isSystem,
       isActive: dictionary.isActive,
       managerVisibility: dictionary.managerVisibility,
+      entrySortMode: resolveDictionaryEntrySortMode(dictionary.entrySortMode),
       createdAt: dictionary.createdAt,
       updatedAt: dictionary.updatedAt,
     })
