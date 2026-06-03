@@ -13,6 +13,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -84,7 +85,7 @@ export default function InboxSettingsPage() {
     if (result?.ok && result.result?.ok) {
       setSettings((prev) => prev ? { ...prev, workingLanguage: result.result!.settings.workingLanguage, updatedAt: result.result!.settings.updatedAt ?? prev.updatedAt } : prev)
       flash(t('inbox_ops.settings.language_saved', 'Working language updated'), 'success')
-    } else {
+    } else if (!surfaceRecordConflict({ status: result?.status, body: result?.result }, t)) {
       flash(t('inbox_ops.settings.language_save_failed', 'Failed to update working language'), 'error')
     }
     setIsSavingLanguage(false)
