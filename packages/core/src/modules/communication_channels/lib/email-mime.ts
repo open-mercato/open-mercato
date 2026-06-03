@@ -45,24 +45,41 @@ export function referencesFromMeta(value: unknown): string[] | undefined {
   return value.filter((entry): entry is string => typeof entry === 'string')
 }
 
+/**
+ * Strip every `<tag>…</tag>` block (and its contents) for a single tag name.
+ * Inbound HTML is untrusted, so the matcher must resist evasion: the close tag
+ * allows trailing attributes/whitespace (`</script >`, `</style foo>`), the `i`
+ * flag covers mixed case, and the replacement loops until the string is stable
+ * so a payload split across nested or reconstructed tags cannot survive a
+ * single pass (`<scr<script>ipt>` collapsing back into `<script>`).
+ */
+function stripTagBlocks(html: string, tag: string): string {
+  const blockPattern = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}[^>]*>`, 'gi')
+  let previous: string
+  let current = html
+  do {
+    previous = current
+    current = current.replace(blockPattern, ' ')
+  } while (current !== previous)
+  return current
+}
+
 export function htmlToText(html: string): string {
-  return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+  return stripTagBlocks(stripTagBlocks(html, 'style'), 'script')
     .replace(/<br\s*\/?>(?=\s*)/gi, '\n')
     .replace(/<\/p\s*>/gi, '\n\n')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
+    .replace(/&amp;/gi, '&')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 
 export function escapeQuotes(value: string): string {
-  return value.replace(/"/g, '\\"')
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
 /**
