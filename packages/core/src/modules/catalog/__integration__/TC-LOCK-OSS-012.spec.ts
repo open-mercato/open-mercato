@@ -34,8 +34,10 @@ test.describe('TC-LOCK-OSS-012: variant detail not-found state', () => {
 
       // The dedicated not-found state is visible…
       await expect(page.getByText('Variant not found.', { exact: false })).toBeVisible({ timeout: 10_000 })
-      // …with a recovery action back to the variants list…
-      await expect(page.getByRole('link', { name: /back to variants/i })).toBeVisible()
+      // …with a recovery action back to the product's variants list…
+      // (develop's RecordNotFoundState rollout renamed this label to
+      // "Back to product variants" — match either wording.)
+      await expect(page.getByRole('link', { name: /back to (product )?variants/i })).toBeVisible()
       // …and NO editable variant form (the empty-form regression).
       await expect(page.getByRole('button', { name: /save changes/i })).toHaveCount(0)
     } finally {

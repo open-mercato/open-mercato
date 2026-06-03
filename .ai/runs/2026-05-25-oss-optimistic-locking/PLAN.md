@@ -119,6 +119,7 @@
 | 31 | 31.5 | QA round-6: Pay Links stale DELETE — send `buildOptimisticLockHeader` + surface conflict (delete after conflict still deleted the stale record) | done | ec804ef20 |
 | 31 | 31.6 | QA round-6: Feature Toggle identifier validator rejected seeded `customers.interactions.legacy-adapters` (dots/dashes) — relax `IDENTIFIER_PATTERN` to allow `.` and `-` + tests | done | c7b3d041b |
 | 31 | 31.7 | QA round-6: checkpoint — full gate + integration specs for fixed areas + Playwright smoke; push; CI green | done | c99eebb77 |
+| 31 | 31.8 | QA round-6 CI reconciliation: exempt 3 develop-merged UI files (comm-channels disconnect, dictionary-sort settings blob, email visibility toggle) from the optimistic-lock-coverage guard; match develop's renamed "Back to product variants" label in TC-LOCK-OSS-012; cherry-pick develop's @types/mailparser+nodemailer runtime-deps fix (standalone build) | done | f8c912744 |
 
 ## Goal (resume)
 
