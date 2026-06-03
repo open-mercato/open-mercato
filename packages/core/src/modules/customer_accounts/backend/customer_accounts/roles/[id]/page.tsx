@@ -10,6 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -267,6 +268,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
       )
     ))
     if (!roleCall.ok) {
+      if (surfaceRecordConflict({ status: roleCall.status, body: roleCall.result }, t)) return
       flash(t('customer_accounts.admin.roleDetail.error.save', 'Failed to save role'), 'error')
       return
     }
@@ -297,6 +299,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
       )
     ))
     if (!call.ok) {
+      if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
       flash(t('customer_accounts.admin.roles.error.delete', 'Failed to delete role'), 'error')
       return
     }
