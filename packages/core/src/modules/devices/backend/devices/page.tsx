@@ -192,7 +192,12 @@ export default function DevicesAdminListPage() {
         const userId = row.original.user_id
         const label = userLabelById.get(userId)
         return (
-          <Link href={`/backend/users/${encodeURIComponent(userId)}/edit`} className="text-primary hover:underline">
+          // Stop the click bubbling to the row, whose default action navigates to the device edit page.
+          <Link
+            href={`/backend/users/${encodeURIComponent(userId)}/edit`}
+            className="text-primary hover:underline"
+            onClick={(e) => e.stopPropagation()}
+          >
             {label ?? <code className="text-xs">{userId}</code>}
           </Link>
         )
