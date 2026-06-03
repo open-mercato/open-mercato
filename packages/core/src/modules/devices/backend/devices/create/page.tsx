@@ -42,7 +42,7 @@ export default function DeviceAdminCreatePage() {
     },
     { id: 'clientAppVersion', label: t('devices.form.appVersion'), type: 'text' },
     { id: 'osVersion', label: t('devices.form.osVersion'), type: 'text' },
-    { id: 'pushToken', label: t('devices.form.pushToken'), type: 'text', description: t('devices.form.pushTokenHint') },
+    { id: 'pushToken', label: t('devices.form.pushToken'), type: 'password', description: t('devices.form.pushTokenHint') },
     { id: 'pushProvider', label: t('devices.form.pushProvider'), type: 'text' },
   ], [t])
 

@@ -17,6 +17,16 @@ import { attachOperationMetadataHeader } from '../lib/operationMetadata'
 
 const RESOURCE_KIND = 'devices.user_device'
 
+// push_token is a secret. The mutation guard forwards mutationPayload into record-lock conflict
+// details that are returned to clients, so strip the token before it reaches the guard.
+function redactMutationPayload(
+  payload: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!payload || !('pushToken' in payload)) return payload
+  const { pushToken: _pushToken, ...rest } = payload
+  return rest
+}
+
 type RequestContainer = Awaited<ReturnType<typeof createRequestContainer>>
 type OrganizationScope = Awaited<ReturnType<typeof resolveOrganizationScopeForRequest>>
 
@@ -86,7 +96,7 @@ export async function executeRegister(
   mctx: DeviceMutationContext,
   commandInput: RegisterDeviceCommandInput,
 ): Promise<NextResponse> {
-  const guardResult = await runGuards(mctx, 'create', commandInput.deviceId, commandInput)
+  const guardResult = await runGuards(mctx, 'create', commandInput.deviceId, redactMutationPayload(commandInput))
   if (guardResult && !guardResult.ok) return NextResponse.json(guardResult.body, { status: guardResult.status })
 
   const commandBus = mctx.container.resolve('commandBus') as CommandBus
@@ -110,7 +120,7 @@ export async function executeUpdate(
   device: UserDevice,
   body: Omit<UpdateDeviceCommandInput, 'id' | 'tenantId' | 'userId' | 'organizationId'>,
 ): Promise<NextResponse> {
-  const guardResult = await runGuards(mctx, 'update', device.id, body)
+  const guardResult = await runGuards(mctx, 'update', device.id, redactMutationPayload(body))
   if (guardResult && !guardResult.ok) return NextResponse.json(guardResult.body, { status: guardResult.status })
 
   const commandBus = mctx.container.resolve('commandBus') as CommandBus

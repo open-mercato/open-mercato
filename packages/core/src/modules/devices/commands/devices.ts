@@ -82,6 +82,15 @@ function serializeDevice(device: UserDevice): DeviceSnapshot {
   }
 }
 
+// push_token is a secret (see AGENTS.md). The audit-logs API returns snapshotBefore/snapshotAfter
+// (and the changesJson it derives from them) to clients, so the token is stripped from the snapshots
+// stored on the log entry. The real token stays in payload.undo — which the audit API never exposes
+// and the undo handlers read from via extractUndoPayload — so remove/restore puts it back unchanged.
+function redactSnapshot(snapshot: DeviceSnapshot | null): DeviceSnapshot | null {
+  if (!snapshot) return null
+  return { ...snapshot, pushToken: snapshot.pushToken === null ? null : '[redacted]' }
+}
+
 function applySnapshot(device: UserDevice, snapshot: DeviceSnapshot): void {
   device.platform = snapshot.platform as UserDevice['platform']
   device.clientAppVersion = snapshot.clientAppVersion
@@ -211,8 +220,8 @@ const registerDeviceCommand: CommandHandler<RegisterDeviceCommandInput, { id: st
       resourceId: result.id,
       tenantId: after?.tenantId ?? before?.tenantId ?? null,
       organizationId: after?.organizationId ?? before?.organizationId ?? null,
-      snapshotBefore: before,
-      snapshotAfter: after,
+      snapshotBefore: redactSnapshot(before),
+      snapshotAfter: redactSnapshot(after),
       payload: {
         undo: { before, after } satisfies DeviceUndoPayload,
       },
@@ -331,8 +340,8 @@ const updateDeviceCommand: CommandHandler<UpdateDeviceCommandInput, { id: string
       resourceId: before.id,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
-      snapshotBefore: before,
-      snapshotAfter: after,
+      snapshotBefore: redactSnapshot(before),
+      snapshotAfter: redactSnapshot(after),
       payload: {
         undo: { before, after } satisfies DeviceUndoPayload,
       },
@@ -419,7 +428,7 @@ const deactivateDeviceCommand: CommandHandler<DeactivateDeviceCommandInput, { id
       resourceId: before.id,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
-      snapshotBefore: before,
+      snapshotBefore: redactSnapshot(before),
       payload: {
         undo: { before } satisfies DeviceUndoPayload,
       },
