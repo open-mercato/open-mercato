@@ -11,6 +11,7 @@ import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { handleSectionMutationError, rowOptimisticVersion } from './optimisticLock'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { E } from '#generated/entities.ids.generated'
@@ -571,29 +572,21 @@ export function PaymentDialog({
     [currencyCode, mode, onOpenChange, onSaved, orderId, organizationId, payment?.id, payment?.updatedAt, t, tenantId]
   )
 
-  const handleShortcutSubmit = React.useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-        event.preventDefault()
-        const form = dialogContentRef.current?.querySelector('form')
-        form?.requestSubmit()
-      }
-    },
-    []
+  const handleSubmitForm = React.useCallback(
+    () => dialogContentRef.current?.querySelector('form')?.requestSubmit(),
+    [],
   )
+  const handleKeyDown = useDialogKeyHandler({
+    onConfirm: handleSubmitForm,
+    onCancel: () => onOpenChange(false),
+  })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         ref={dialogContentRef}
         className="sm:max-w-5xl"
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            onOpenChange(false)
-          }
-          handleShortcutSubmit(event)
-        }}
+        onKeyDown={handleKeyDown}
       >
         <DialogHeader>
           <DialogTitle>

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
+import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 
 const uuid = () => z.string().uuid()
 
@@ -530,6 +531,12 @@ export const customerStuckThresholdUpsertSchema = scopedSchema.extend({
   stuckThresholdDays: z.number().int().min(1).max(365),
 })
 
+export const customerDictionarySortModesSchema = z.record(z.string(), dictionaryEntrySortModeSchema)
+
+export const customerDictionarySortModesUpsertSchema = scopedSchema.extend({
+  dictionarySortModes: customerDictionarySortModesSchema,
+})
+
 export type PersonCreateInput = z.infer<typeof personCreateSchema>
 export type PersonUpdateInput = z.infer<typeof personUpdateSchema>
 export type CompanyCreateInput = z.infer<typeof companyCreateSchema>
@@ -549,6 +556,7 @@ export type TodoLinkCreateInput = z.infer<typeof todoLinkCreateSchema>
 export type TodoLinkWithTodoCreateInput = z.infer<typeof todoLinkWithTodoCreateSchema>
 export type CustomerSettingsUpsertInput = z.infer<typeof customerSettingsUpsertSchema>
 export type CustomerStuckThresholdUpsertInput = z.infer<typeof customerStuckThresholdUpsertSchema>
+export type CustomerDictionarySortModesUpsertInput = z.infer<typeof customerDictionarySortModesUpsertSchema>
 export type CustomerAddressFormatInput = z.infer<typeof customerAddressFormatSchema>
 export type InteractionCompleteInput = z.infer<typeof interactionCompleteSchema>
 export type InteractionCancelInput = z.infer<typeof interactionCancelSchema>
@@ -580,16 +588,16 @@ export const pipelineStageCreateSchema = scopedSchema.extend({
   pipelineId: uuid(),
   label: z.string().trim().min(1).max(200),
   order: z.number().int().min(0).optional(),
-  color: z.string().trim().max(20).optional(),
-  icon: z.string().trim().max(100).optional(),
+  color: z.string().trim().max(20).nullish(),
+  icon: z.string().trim().max(100).nullish(),
 })
 
 export const pipelineStageUpdateSchema = z.object({
   id: uuid(),
   label: z.string().trim().min(1).max(200).optional(),
   order: z.number().int().min(0).optional(),
-  color: z.string().trim().max(20).optional(),
-  icon: z.string().trim().max(100).optional(),
+  color: z.string().trim().max(20).nullish(),
+  icon: z.string().trim().max(100).nullish(),
 })
 
 export const pipelineStageDeleteSchema = z.object({

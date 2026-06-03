@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -41,6 +42,8 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
   const scopeVersion = useOrganizationScopeVersion()
   // optimistic-lock: TeamRoleForm forwards optimisticLockUpdatedAt from initialValues.updatedAt (wrapper auto-derives the header on save + delete).
   const [initialValues, setInitialValues] = React.useState<TeamRoleFormValues | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [teams, setTeams] = React.useState<TeamRoleOption[]>([])
 
   React.useEffect(() => {
@@ -48,6 +51,10 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
     const roleIdValue = roleId
     let cancelled = false
     async function loadRole() {
+      if (!cancelled) {
+        setError(null)
+        setIsNotFound(false)
+      }
       try {
         const params = new URLSearchParams({ page: '1', pageSize: '1', ids: roleIdValue })
         const payload = await readApiResultOrThrow<TeamRoleResponse>(
@@ -56,7 +63,10 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
           { errorMessage: t('staff.teamRoles.errors.load', 'Failed to load team role.') },
         )
         const record = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!record) throw new Error(t('staff.teamRoles.errors.notFound', 'Team role not found.'))
+        if (!record) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         const customFields = extractCustomFieldEntries(record)
         const appearanceIcon = typeof record.appearanceIcon === 'string'
           ? record.appearanceIcon
@@ -87,9 +97,15 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
             ...customFields,
           })
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : t('staff.teamRoles.errors.load', 'Failed to load team role.')
-        flash(message, 'error')
+      } catch (err) {
+        if (!cancelled) {
+          if ((err as { status?: number }).status === 404) {
+            setIsNotFound(true)
+          } else {
+            const message = err instanceof Error ? err.message : t('staff.teamRoles.errors.load', 'Failed to load team role.')
+            setError(message)
+          }
+        }
       }
     }
     loadRole()
@@ -138,6 +154,30 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
     flash(t('staff.teamRoles.messages.deleted', 'Team role deleted.'), 'success')
     router.push('/backend/staff/team-roles')
   }, [roleId, router, t])
+
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('staff.teamRoles.errors.notFound', 'Team role not found.')}
+            backHref="/backend/staff/team-roles"
+            backLabel={t('staff.teamRoles.actions.backToList', 'Back to team roles')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error && !initialValues) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>

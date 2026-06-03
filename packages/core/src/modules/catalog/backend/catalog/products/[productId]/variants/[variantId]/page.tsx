@@ -112,7 +112,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   const [existingPriceVersions, setExistingPriceVersions] = React.useState<Record<string, string | null>>({})
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const [notFound, setNotFound] = React.useState(false)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [currentProductId, setCurrentProductId] = React.useState<string | null>(productId)
   const [productTitle, setProductTitle] = React.useState<string>('')
   const [productTaxRateId, setProductTaxRateId] = React.useState<string | null>(null)
@@ -180,16 +180,22 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     async function load() {
       setLoading(true)
       setError(null)
-      setNotFound(false)
+      setIsNotFound(false)
       try {
         const variantRes = await apiCall<VariantResponse>(
           `/api/catalog/variants?id=${encodeURIComponent(variantId!)}&page=1&pageSize=1`,
         )
-        if (!variantRes.ok) throw new Error(t('catalog.variants.form.errors.load', 'Failed to load variant.'))
+        if (!variantRes.ok) {
+          if (variantRes.status === 404) {
+            if (!cancelled) setIsNotFound(true)
+            return
+          }
+          throw new Error(t('catalog.variants.form.errors.load', 'Failed to load variant.'))
+        }
         const record = Array.isArray(variantRes.result?.items) ? variantRes.result?.items?.[0] : undefined
         if (!record) {
-          if (!cancelled) setNotFound(true)
-          throw new Error(t('catalog.variants.form.errors.notFound', 'Variant not found.'))
+          if (!cancelled) setIsNotFound(true)
+          return
         }
         const resolvedProductId =
           typeof record.product_id === 'string'
@@ -454,15 +460,25 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   // When the variant was deleted (e.g. concurrently in another tab) the GET
   // returns no record. Render a dedicated not-found state with a recovery link
   // instead of an empty CrudForm that throws runtime errors (#2055 QA).
-  if (!loading && notFound) {
+  if (isNotFound) {
     return (
       <Page>
         <PageBody>
           <RecordNotFoundState
             label={t('catalog.variants.form.errors.notFound', 'Variant not found.')}
             backHref={productVariantsHref}
-            backLabel={t('catalog.variants.form.backToVariants', 'Back to variants')}
+            backLabel={t('catalog.variants.form.actions.backToProduct', 'Back to product variants')}
           />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error && !loading) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
         </PageBody>
       </Page>
     )
@@ -471,9 +487,6 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   return (
     <Page>
       <PageBody>
-        {error ? (
-          <ErrorMessage label={error} className="mb-4" />
-        ) : null}
         <CrudForm<VariantFormValues>
           title={formTitle}
           backHref={productVariantsHref}

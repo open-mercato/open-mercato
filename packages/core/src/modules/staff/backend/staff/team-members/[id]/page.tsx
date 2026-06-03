@@ -18,6 +18,7 @@ import { TeamMemberForm, buildTeamMemberPayload, type TeamMemberFormValues } fro
 import { NotesSection } from '@open-mercato/ui/backend/detail'
 import { ActivitiesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { AddressesSection as SharedAddressesSection } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { renderDictionaryColor, renderDictionaryIcon, ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { createStaffNotesAdapter } from '@open-mercato/core/modules/staff/components/detail/notesAdapter'
 import { createStaffActivitiesAdapter } from '@open-mercato/core/modules/staff/components/detail/activitiesAdapter'
@@ -73,6 +74,8 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
   const searchParams = useSearchParams()
   const [initialValues, setInitialValues] = React.useState<TeamMemberFormValues | null>(null)
   const [memberRecord, setMemberRecord] = React.useState<TeamMemberRecord | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
   const [activePanel, setActivePanel] = React.useState<'details' | 'availability' | 'jobHistory'>('details')
   const [activeTab, setActiveTab] = React.useState<'notes' | 'activities' | 'addresses'>('notes')
@@ -197,6 +200,10 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
     const memberIdValue = memberId
     let cancelled = false
     async function loadMember() {
+      if (!cancelled) {
+        setError(null)
+        setIsNotFound(false)
+      }
       try {
         const params = new URLSearchParams({ page: '1', pageSize: '1', ids: memberIdValue })
         const payload = await readApiResultOrThrow<TeamMemberResponse>(
@@ -205,7 +212,10 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
           { errorMessage: t('staff.teamMembers.form.errors.load', 'Failed to load team member.') },
         )
         const record = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!record) throw new Error(t('staff.teamMembers.form.errors.notFound', 'Team member not found.'))
+        if (!record) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         const customFields = extractCustomFieldEntries(record)
         if (!cancelled) {
           const resolvedTeamId = record.teamId ?? record.team_id ?? null
@@ -235,9 +245,15 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                 : null,
           )
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : t('staff.teamMembers.form.errors.load', 'Failed to load team member.')
-        flash(message, 'error')
+      } catch (err) {
+        if (!cancelled) {
+          if ((err as { status?: number }).status === 404) {
+            setIsNotFound(true)
+          } else {
+            const message = err instanceof Error ? err.message : t('staff.teamMembers.form.errors.load', 'Failed to load team member.')
+            setError(message)
+          }
+        }
       }
     }
     void loadMember()
@@ -314,6 +330,30 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
     ? memberRecord?.roleNames
     : [t('staff.teamMembers.detail.roles.unassigned', 'No roles assigned')]
   const userEmail = memberRecord?.user?.email ?? null
+
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('staff.teamMembers.form.errors.notFound', 'Team member not found.')}
+            backHref="/backend/staff/team-members"
+            backLabel={t('staff.teamMembers.actions.backToList', 'Back to team members')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error && !initialValues) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>

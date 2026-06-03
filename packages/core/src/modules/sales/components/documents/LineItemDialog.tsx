@@ -23,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@open-mercato/ui/primitives/dialog";
+import { useDialogKeyHandler } from "@open-mercato/ui/hooks/useDialogKeyHandler";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { Input } from "@open-mercato/ui/primitives/input";
 import {
@@ -2812,6 +2813,15 @@ export function LineItemDialog({
     resetForm,
   ]);
 
+  const handleSubmitForm = React.useCallback(
+    () => dialogContentRef.current?.querySelector("form")?.requestSubmit(),
+    [],
+  )
+  const handleKeyDown = useDialogKeyHandler({
+    onConfirm: handleSubmitForm,
+    onCancel: closeDialog,
+  })
+
   return (
     <Dialog
       open={open}
@@ -2820,16 +2830,7 @@ export function LineItemDialog({
       <DialogContent
         className="sm:max-w-5xl"
         ref={dialogContentRef}
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-            event.preventDefault();
-            dialogContentRef.current?.querySelector("form")?.requestSubmit();
-          }
-          if (event.key === "Escape") {
-            event.preventDefault();
-            closeDialog();
-          }
-        }}
+        onKeyDown={handleKeyDown}
       >
         <DialogHeader>
           <DialogTitle>

@@ -260,10 +260,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         </TableRow>
       )
     }
-    return entries
-      .slice()
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
-      .map((entry) => (
+    return entries.map((entry) => (
         <TableRow key={entry.id}>
           <TableCell className="font-medium">{entry.value}</TableCell>
           <TableCell>{entry.label}</TableCell>

@@ -1,6 +1,20 @@
 export type IntegrationScope = {
   organizationId: string
   tenantId: string
+  /**
+   * Optional per-user secret scoping. When set, credential lookups and writes
+   * are scoped to a single user — used by per-user channels (Gmail, IMAP)
+   * so two users on the same tenant don't share one row.
+   *
+   * When `undefined`/`null`, behaviour is unchanged — tenant-wide credentials
+   * (e.g. shared Stripe/Akeneo API keys) keep working exactly as before.
+   *
+   * Stored on `IntegrationCredentials.user_id` (added 2026-05-26 by the email
+   * integration spec). Backed by the partial unique index
+   * `integration_credentials_user_lookup_idx` across integration, organization,
+   * tenant, and user where `user_id IS NOT NULL AND deleted_at IS NULL`.
+   */
+  userId?: string | null
 }
 
 export type IntegrationCategory =

@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -42,6 +43,8 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
   const router = useRouter()
   // optimistic-lock: AvailabilityRuleSetForm forwards optimisticLockUpdatedAt from initialValues.updatedAt (wrapper auto-derives the header on save + delete).
   const [initialValues, setInitialValues] = React.useState<AvailabilityRuleSetFormValues | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
 
   React.useEffect(() => {
@@ -49,6 +52,10 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
     const rulesetIdValue = rulesetId
     let cancelled = false
     async function loadRuleSet() {
+      if (!cancelled) {
+        setError(null)
+        setIsNotFound(false)
+      }
       try {
         const params = new URLSearchParams({ page: '1', pageSize: '1', ids: rulesetIdValue })
         const payload = await readApiResultOrThrow<RuleSetResponse>(
@@ -57,7 +64,10 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
           { errorMessage: translate('planner.availabilityRuleSets.form.errors.load', 'Failed to load schedule.') },
         )
         const record = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!record) throw new Error(translate('planner.availabilityRuleSets.form.errors.notFound', 'Schedule not found.'))
+        if (!record) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         const customFields = extractCustomFieldEntries(record)
         if (!cancelled) {
           setInitialValues({
@@ -73,9 +83,15 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
             ...customFields,
           })
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : translate('planner.availabilityRuleSets.form.errors.load', 'Failed to load schedule.')
-        flash(message, 'error')
+      } catch (err) {
+        if (!cancelled) {
+          if ((err as { status?: number }).status === 404) {
+            setIsNotFound(true)
+          } else {
+            const message = err instanceof Error ? err.message : translate('planner.availabilityRuleSets.form.errors.load', 'Failed to load schedule.')
+            setError(message)
+          }
+        }
       }
     }
     loadRuleSet()
@@ -156,6 +172,30 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
   ]), [translate])
 
   const resolvedInitialValues = initialValues ?? {}
+
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={translate('planner.availabilityRuleSets.form.errors.notFound', 'Schedule not found.')}
+            backHref="/backend/planner/availability-rulesets"
+            backLabel={translate('planner.availabilityRuleSets.actions.backToList', 'Back to schedules')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error && !initialValues) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>

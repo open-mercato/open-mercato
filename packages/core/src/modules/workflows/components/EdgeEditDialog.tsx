@@ -26,6 +26,7 @@ import {Plus, Trash2} from 'lucide-react'
 import {type BusinessRule, BusinessRulesSelector} from './BusinessRulesSelector'
 import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 import {useT} from '@open-mercato/shared/lib/i18n/context'
+import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
 
 export interface EdgeEditDialogProps {
@@ -302,14 +303,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
     onDelete(edge.id)
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      handleSave()
-    }
-    if (e.key === 'Escape') {
-      onClose()
-    }
-  }
+  const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave, onCancel: onClose })
 
   if (!isOpen || !edge) return null
 
@@ -317,7 +311,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <div className="flex items-center gap-2 mb-2">
             <DialogTitle>{t('workflows.edgeEditor.title')}</DialogTitle>

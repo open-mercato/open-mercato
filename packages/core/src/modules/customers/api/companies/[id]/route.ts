@@ -37,6 +37,7 @@ import {
 } from '../../../lib/interactionCompatibility'
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
 import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
+import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -396,6 +397,20 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     organizationId: company.organizationId ?? scope?.selectedId ?? auth.orgId ?? null,
   }
 
+  // Per-user email privacy (CRM email integration): exclude private email
+  // interactions owned by other users from every read path that returns
+  // customer_interactions. Non-email rows, shared emails, and legacy
+  // null-visibility rows pass through. v1 is strict owner-only: there is NO
+  // admin bypass — the filter ignores caller features, and
+  // `customers.email.view_private` is reserved (inert) for v2 oversight.
+  // Mirrors the people detail route. API-key callers resolve to null
+  // (no author match — shared/non-email rows only).
+  const viewerUserId = auth.isApiKey ? null : (auth.sub ?? null)
+  const emailVisibilityFilter = buildEmailVisibilityMikroFilter({
+    currentUserId: viewerUserId,
+    userFeatures: undefined,
+  })
+
   const profile = company.companyProfile
     ? await findOneWithDecryption(
         em,
@@ -480,11 +495,13 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
               tenantId: company.tenantId,
               organizationId: company.organizationId,
               deletedAt: null,
+              ...emailVisibilityFilter,
             }
           : {
               entity: company.id,
               tenantId: company.tenantId,
               organizationId: company.organizationId,
+              ...emailVisibilityFilter,
             },
         { orderBy: { scheduledAt: 'asc', createdAt: 'desc' }, limit: 100 },
         companyScope,
@@ -523,6 +540,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             deletedAt: null,
             status: 'planned',
             interactionType: { $ne: 'task' },
+            ...emailVisibilityFilter,
           },
           { orderBy: { scheduledAt: 'ASC', createdAt: 'ASC' }, limit: plannedPreviewLimit },
           companyScope,
@@ -609,7 +627,6 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       if (comment.authorUserId) authorIds.add(comment.authorUserId)
     }
   }
-  const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
   if (viewerUserId) authorIds.add(viewerUserId)
 
   let userMap = new Map<string, { name: string | null; email: string | null }>()
@@ -795,12 +812,14 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     tenantId: company.tenantId,
     deletedAt: null,
     interactionType: { $ne: 'task' },
+    ...emailVisibilityFilter,
   })
   const interactionCount = await em.count(CustomerInteraction, {
     entity: company.id,
     organizationId: company.organizationId,
     tenantId: company.tenantId,
     deletedAt: null,
+    ...emailVisibilityFilter,
   })
   const todoCount = interactionFlags.unified
     ? await em.count(CustomerInteraction, {
@@ -858,6 +877,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           organizationId: company.organizationId,
           tenantId: company.tenantId,
           deletedAt: null,
+          ...emailVisibilityFilter,
         },
         {
           fields: ['id', 'occurredAt', 'scheduledAt', 'createdAt'],

@@ -29,13 +29,52 @@ test.describe('TC-CRM-022: Pipeline Stage CRUD and Reorder', () => {
     let pipelineId: string | null = null;
     try {
       pipelineId = await createTestPipeline(request, token);
+      const label = `Prospecting ${Date.now()}`;
       const res = await apiRequest(request, 'POST', '/api/customers/pipeline-stages', {
         token,
-        data: { pipelineId, label: 'Prospecting' },
+        data: { pipelineId, label },
       });
       expect(res.ok(), `POST stage failed: ${res.status()}`).toBeTruthy();
       const body = await res.json() as Record<string, unknown>;
       expect(typeof body.id).toBe('string');
+
+      const listRes = await apiRequest(request, 'GET', `/api/customers/pipeline-stages?pipelineId=${encodeURIComponent(pipelineId)}`, { token });
+      expect(listRes.ok(), `GET stages failed: ${listRes.status()}`).toBeTruthy();
+      const listBody = await listRes.json() as Record<string, unknown>;
+      const items = listBody.items as Array<Record<string, unknown>>;
+      const created = items.find((stage) => stage.id === body.id);
+      expect(created?.label).toBe(label);
+      expect(created?.color).toBeNull();
+      expect(created?.icon).toBeNull();
+    } finally {
+      if (pipelineId) await deletePipeline(request, token, pipelineId);
+    }
+  });
+
+  test('should clear optional stage appearance with null values', async ({ request }) => {
+    let pipelineId: string | null = null;
+    try {
+      pipelineId = await createTestPipeline(request, token);
+      const createRes = await apiRequest(request, 'POST', '/api/customers/pipeline-stages', {
+        token,
+        data: { pipelineId, label: 'Styled Stage', color: '#2563eb', icon: 'lucide:star' },
+      });
+      expect(createRes.ok(), `POST styled stage failed: ${createRes.status()}`).toBeTruthy();
+      const stageId = ((await createRes.json()) as Record<string, unknown>).id as string;
+
+      const updateRes = await apiRequest(request, 'PUT', '/api/customers/pipeline-stages', {
+        token,
+        data: { id: stageId, color: null, icon: null },
+      });
+      expect(updateRes.ok(), `PUT clear stage appearance failed: ${updateRes.status()}`).toBeTruthy();
+
+      const listRes = await apiRequest(request, 'GET', `/api/customers/pipeline-stages?pipelineId=${encodeURIComponent(pipelineId)}`, { token });
+      expect(listRes.ok(), `GET stages failed: ${listRes.status()}`).toBeTruthy();
+      const listBody = await listRes.json() as Record<string, unknown>;
+      const items = listBody.items as Array<Record<string, unknown>>;
+      const updated = items.find((stage) => stage.id === stageId);
+      expect(updated?.color).toBeNull();
+      expect(updated?.icon).toBeNull();
     } finally {
       if (pipelineId) await deletePipeline(request, token, pipelineId);
     }

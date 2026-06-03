@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/core",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -238,6 +238,7 @@
     "mammoth": "^1.9.0",
     "pdfjs-dist": "^6.0.227",
     "resend": "^6.12.3",
+    "sanitize-html": "^2.13.0",
     "semver": "^7.8.1",
     "svix": "^1.95.1",
     "ts-pattern": "^5.0.0",
@@ -262,6 +263,7 @@
     "@types/jest": "^30.0.0",
     "@types/react": "^19.2.16",
     "@types/react-dom": "^19.2.3",
+    "@types/sanitize-html": "^2.13.0",
     "@types/semver": "^7.5.8",
     "chance": "^1.1.13",
     "jest": "^30.4.2",

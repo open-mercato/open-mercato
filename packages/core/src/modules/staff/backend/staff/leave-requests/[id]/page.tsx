@@ -6,7 +6,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -22,12 +22,13 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
   const router = useRouter()
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [record, setRecord] = React.useState<NormalizedLeaveRequest | null>(null)
   const [decisionComment, setDecisionComment] = React.useState('')
 
   React.useEffect(() => {
     if (!id) {
-      setError(t('staff.leaveRequests.errors.notFound', 'Leave request not found.'))
+      setIsNotFound(true)
       setIsLoading(false)
       return
     }
@@ -36,6 +37,7 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
     async function load() {
       setIsLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
         const params = new URLSearchParams({ page: '1', pageSize: '1', ids: requestId })
         const payload = await readApiResultOrThrow<LeaveRequestsResponse>(
@@ -44,7 +46,13 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
           { errorMessage: t('staff.leaveRequests.errors.load', 'Failed to load leave request.') },
         )
         const entry = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!entry) throw new Error(t('staff.leaveRequests.errors.notFound', 'Leave request not found.'))
+        if (!entry) {
+          if (!cancelled) {
+            setIsNotFound(true)
+            setRecord(null)
+          }
+          return
+        }
         if (!cancelled) {
           const normalized = normalizeLeaveRequest(entry)
           setRecord(normalized)
@@ -52,9 +60,14 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
         }
       } catch (err) {
         if (!cancelled) {
-          const message = err instanceof Error ? err.message : t('staff.leaveRequests.errors.load', 'Failed to load leave request.')
-          setError(message)
-          setRecord(null)
+          if ((err as { status?: number }).status === 404) {
+            setIsNotFound(true)
+            setRecord(null)
+          } else {
+            const message = err instanceof Error ? err.message : t('staff.leaveRequests.errors.load', 'Failed to load leave request.')
+            setError(message)
+            setRecord(null)
+          }
         }
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -115,6 +128,20 @@ const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) =>
       <Page>
         <PageBody>
           <LoadingMessage label={t('staff.leaveRequests.form.loading', 'Loading leave request...')} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('staff.leaveRequests.errors.notFound', 'Leave request not found.')}
+            backHref="/backend/staff/leave-requests"
+            backLabel={t('staff.leaveRequests.actions.backToList', 'Back to leave requests')}
+          />
         </PageBody>
       </Page>
     )

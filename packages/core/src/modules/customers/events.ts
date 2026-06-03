@@ -78,6 +78,10 @@ const events = [
   { id: 'customers.person_company_link.created', label: 'Person Linked To Company', entity: 'person_company_link', category: 'crud', clientBroadcast: true },
   { id: 'customers.person_company_link.updated', label: 'Person-Company Link Updated', entity: 'person_company_link', category: 'crud', clientBroadcast: true },
   { id: 'customers.person_company_link.deleted', label: 'Person Unlinked From Company', entity: 'person_company_link', category: 'crud', clientBroadcast: true },
+
+  // ── Email integration (2026-05-27) ────────────────────────────────────────
+  { id: 'customers.email.linked', label: 'Email Linked To Person', entity: 'email_link', category: 'lifecycle', clientBroadcast: true },
+  { id: 'customers.email.visibility_changed', label: 'Email Visibility Changed', entity: 'email_link', category: 'lifecycle', clientBroadcast: true },
 ] as const
 
 export const eventsConfig = createModuleEvents({

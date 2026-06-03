@@ -22,7 +22,9 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.6.3 - 0.6.4 — OSS optimistic locking default-ON (2026-05-27)
+## 0.6.3 → 0.6.4 (2026-06-02)
+
+### OSS optimistic locking default-ON (2026-05-27)
 
 The `updated_at`-based optimistic-locking guard introduced in
 [`#1981`](https://github.com/open-mercato/open-mercato/pull/2055) is now
@@ -32,7 +34,7 @@ runtime behavior is strictly additive — clients that do not send the
 through unchanged — but downstream operators and module authors should
 review the following before deploying:
 
-### What changed
+#### What changed
 
 - `parseOptimisticLockEnv(undefined | '' | '   ')` now returns
   `{ mode: 'all' }` (previously `{ mode: 'off' }`). The platform DI
@@ -50,7 +52,7 @@ review the following before deploying:
   people use a `kind` discriminator on the polymorphic
   `customer_entities` table, so the generic reader cannot match).
 
-### When you might see a change in behavior
+#### When you might see a change in behavior
 
 Only when *all four* of these are true:
 
@@ -69,7 +71,7 @@ race. Pages built on `CrudForm` already render the localized
 `ui.forms.flash.recordModified` flash; custom callers should pin against
 `code: 'optimistic_lock_conflict'` (via `extractOptimisticLockConflict`).
 
-### How to opt out
+#### How to opt out
 
 Set the env var explicitly:
 
@@ -79,22 +81,20 @@ OM_OPTIMISTIC_LOCK=off
 
 Restart the app/dev server — the env is read once at module-load time.
 
-### Custom modules that registered their own `crudMutationGuardService`
+#### Custom modules that registered their own `crudMutationGuardService`
 
 If you wrote a custom module that registers `crudMutationGuardService`
 in its `di.ts`, your registration still wins (Awilix replaces same-key
 registrations, and module DI runs after the platform default in
 `createRequestContainer`). No changes required.
 
-### Custom modules that built on the old `parseOptimisticLockEnv` default
+#### Custom modules that built on the old `parseOptimisticLockEnv` default
 
 If your code branches on `parseOptimisticLockEnv(undefined).mode === 'off'`
 to short-circuit, that branch now returns `'all'`. Audit any
 `if (config.mode === 'off')` paths that fed off the parser default; the
 guard's own runtime check (`config.mode === 'off' → PASS`) is unchanged
 and still does the right thing.
-
-## 0.6.2 → 0.6.3
 
 ### Deprecations
 

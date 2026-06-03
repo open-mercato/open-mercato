@@ -10,6 +10,40 @@
 
 ---
 
+# 0.6.5 (2026-06-03)
+
+## Highlights
+
+Open Mercato `0.6.5` opens the next cycle on top of `0.6.4`'s hardening work. The headline is the **IMAP + Google email integration foundation** — shared MIME assembly, inbound normalization, and threading-id plumbing that every email channel provider now builds on instead of copy-pasting. UI continues the `RecordNotFoundState` rollout into its fourth phase (throw-on-load edit pages) with integration coverage in phase five, and the dialog Esc/Cmd+Enter behavior is consolidated behind a single `useDialogKeyHandler` hook. Customers gains configurable, optional pipeline-stage handling, and the production Docker fullapp stack inherits the dev-mode `NODE_OPTIONS` heap cap. A CodeQL false-positive in the command-menu test is also cleared.
+
+## ✨ Features
+- ✨ IMAP + Google email integration foundations — shared MIME assembly, inbound parsing, and threading plumbing. (#2424) *(@haxiorz)*
+- ✨ Configurable dictionary entry sorting (carry-forward of #2429). (#2434) *(@pkarw)*
+- ✨ Adopt `RecordNotFoundState` across throw-on-load edit pages — Phase 4 (#2101). (#2435) *(@pkarw)*
+
+## 🐛 Fixes
+- 🐛 `LookupSelect` search input no longer clears typed text (#2389). (#2422) *(@pkarw)*
+- 🐛 Allow optional pipeline stage appearance (supersedes #2430). (#2433) *(@pkarw)*
+- 🐛 Validate deal pipeline stage assignments. (#2439) *(@pmadajthey)*
+- 🐛 Avoid a false unsaved-changes prompt on a clean person detail page. (#2437) *(@pmadajthey)*
+- 🐳 Add the `NODE_OPTIONS` heap cap to the production fullapp Docker stack (#2371). (#2438) *(@Kotmin)*
+
+## 🛠️ Improvements
+- 🛠️ Extract a `useDialogKeyHandler` hook for Esc/Cmd+Enter dialogs (#2366). (#2426) *(@Marynat)*
+
+## 🧪 Testing
+- 🧪 Add `RecordNotFoundState` integration coverage — Phase 5 (#2101). (#2436) *(@izqzmyli)*
+- 🧪 Clear a CodeQL incomplete-URL-sanitization false positive in the command-menu test. (#2427) *(@pkarw)*
+
+## 👥 Contributors
+
+- @haxiorz
+- @pkarw
+- @Marynat
+- @pmadajthey
+- @Kotmin
+- @izqzmyli
+
 # 0.6.4 (2026-06-02)
 
 ## Highlights

@@ -13,6 +13,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Copy, Download, Trash2 } from 'lucide-react'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { AttachmentContentPreview } from '@open-mercato/core/modules/attachments/components/AttachmentContentPreview'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { E } from '@open-mercato/core/generated-shims/entities.ids.generated'
@@ -476,15 +477,9 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
     [item, onSave],
   )
 
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onOpenChange(false)
-      }
-    },
-    [onOpenChange],
-  )
+  const handleKeyDown = useDialogKeyHandler({
+    onCancel: () => onOpenChange(false),
+  })
 
   const handleCopyResizedUrl = React.useCallback(async () => {
     if (!item) return

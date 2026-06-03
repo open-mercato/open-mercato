@@ -110,6 +110,34 @@ async function resolvePipelineStageValue(
   return entry?.value ?? stage.label
 }
 
+function resolvePipelineAssignment(input: {
+  pipelineId?: string | null
+  pipelineStageId?: string | null
+  stageSnapshot: PipelineStageSnapshot | null
+}): { pipelineId: string | null; pipelineStageId: string | null } {
+  const requestedPipelineId = input.pipelineId ?? null
+  const requestedPipelineStageId = input.pipelineStageId ?? null
+
+  if (requestedPipelineStageId && !input.stageSnapshot) {
+    throw new CrudHttpError(400, { error: 'Pipeline stage not found' })
+  }
+
+  if (
+    requestedPipelineId &&
+    input.stageSnapshot &&
+    input.stageSnapshot.pipelineId !== requestedPipelineId
+  ) {
+    throw new CrudHttpError(400, {
+      error: 'Pipeline stage does not belong to the selected pipeline',
+    })
+  }
+
+  return {
+    pipelineId: requestedPipelineId ?? input.stageSnapshot?.pipelineId ?? null,
+    pipelineStageId: requestedPipelineStageId,
+  }
+}
+
 async function upsertDealStageTransition(
   em: EntityManager,
   input: {
@@ -369,12 +397,21 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     const normalizedTransitionAuthorUserId = normalizeAuthorUserId(null, ctx.auth)
     let deal!: CustomerDeal
     let stageSnapshot: PipelineStageSnapshot | null = null
+    let pipelineAssignment: { pipelineId: string | null; pipelineStageId: string | null } = {
+      pipelineId: null,
+      pipelineStageId: null,
+    }
     let resolvedPipelineStageLabel: string | null = null
     await withAtomicFlush(em, [
       async () => {
         stageSnapshot = parsed.pipelineStageId
           ? await loadPipelineStageSnapshot(em, parsed.pipelineStageId, parsed.tenantId, parsed.organizationId)
           : null
+        pipelineAssignment = resolvePipelineAssignment({
+          pipelineId: parsed.pipelineId,
+          pipelineStageId: parsed.pipelineStageId,
+          stageSnapshot,
+        })
         resolvedPipelineStageLabel = stageSnapshot
           ? (await ensureDictionaryEntry(em, {
             tenantId: parsed.tenantId,
@@ -392,8 +429,8 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           description: parsed.description ?? null,
           status: parsed.status ?? 'open',
           pipelineStage: resolvedPipelineStageLabel,
-          pipelineId: parsed.pipelineId ?? null,
-          pipelineStageId: parsed.pipelineStageId ?? null,
+          pipelineId: pipelineAssignment.pipelineId,
+          pipelineStageId: pipelineAssignment.pipelineStageId,
           valueAmount: toNumericString(parsed.valueAmount),
           valueCurrency: parsed.valueCurrency ?? null,
           probability: parsed.probability ?? null,
@@ -507,14 +544,34 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     const normalizedTransitionAuthorUserId = normalizeAuthorUserId(null, ctx.auth)
 
     let nextStageSnapshot: PipelineStageSnapshot | null = null
+    let nextPipelineAssignment: { pipelineId: string | null; pipelineStageId: string | null } = {
+      pipelineId: record.pipelineId ?? null,
+      pipelineStageId: record.pipelineStageId ?? null,
+    }
     let nextPipelineStageLabel: string | null = null
     let resolvedCurrentPipelineStageLabel: string | null = null
 
     await withAtomicFlush(em, [
       async () => {
-        nextStageSnapshot = parsed.pipelineStageId
-          ? await loadPipelineStageSnapshot(em, parsed.pipelineStageId, record.tenantId, record.organizationId)
+        const pipelineAssignmentChanged =
+          parsed.pipelineId !== undefined || parsed.pipelineStageId !== undefined
+        const requestedPipelineStageId =
+          parsed.pipelineStageId !== undefined
+            ? parsed.pipelineStageId ?? null
+            : record.pipelineStageId ?? null
+        const requestedPipelineId =
+          parsed.pipelineId !== undefined ? parsed.pipelineId ?? null : record.pipelineId ?? null
+
+        nextStageSnapshot = requestedPipelineStageId && (pipelineAssignmentChanged || !record.pipelineStage)
+          ? await loadPipelineStageSnapshot(em, requestedPipelineStageId, record.tenantId, record.organizationId)
           : null
+        if (pipelineAssignmentChanged) {
+          nextPipelineAssignment = resolvePipelineAssignment({
+            pipelineId: requestedPipelineId,
+            pipelineStageId: requestedPipelineStageId,
+            stageSnapshot: nextStageSnapshot,
+          })
+        }
         nextPipelineStageLabel = nextStageSnapshot
           ? (await ensureDictionaryEntry(em, {
             tenantId: record.tenantId,
@@ -533,8 +590,10 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         if (parsed.description !== undefined) record.description = parsed.description ?? null
         if (parsed.status !== undefined) record.status = parsed.status ?? record.status
         if (parsed.pipelineStage !== undefined) record.pipelineStage = parsed.pipelineStage ?? null
-        if (parsed.pipelineId !== undefined) record.pipelineId = parsed.pipelineId ?? null
-        if (parsed.pipelineStageId !== undefined) record.pipelineStageId = parsed.pipelineStageId ?? null
+        if (parsed.pipelineId !== undefined || (parsed.pipelineStageId !== undefined && nextStageSnapshot)) {
+          record.pipelineId = nextPipelineAssignment.pipelineId
+        }
+        if (parsed.pipelineStageId !== undefined) record.pipelineStageId = nextPipelineAssignment.pipelineStageId
 
         if (nextPipelineStageLabel && (parsed.pipelineStageId !== undefined || !record.pipelineStage)) {
           record.pipelineStage = nextPipelineStageLabel

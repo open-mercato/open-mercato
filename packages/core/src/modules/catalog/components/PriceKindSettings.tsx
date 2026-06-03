@@ -521,6 +521,7 @@ export function PriceKindSettings() {
                   fetchOptions={currencyOptionsLoader}
                   labels={currencyLabels}
                   allowInlineCreate={false}
+                  sortOptions="none"
                 />
               </div>
               <div className="flex flex-col gap-2">
