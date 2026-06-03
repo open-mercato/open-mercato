@@ -36,10 +36,8 @@ type ResolvedEmailPayload = {
 
 type SesTransportOptions = TransportOptions & {
   SES: {
-    ses: unknown
-    aws: {
-      SendRawEmailCommand: unknown
-    }
+    sesClient: unknown
+    SendEmailCommand: unknown
   }
 }
 
@@ -120,14 +118,14 @@ async function sendWithSes({
   replyTo,
   attachments,
 }: ResolvedEmailPayload) {
-  const [{ SESClient, SendRawEmailCommand }, nodemailerModule] = await Promise.all([
-    import('@aws-sdk/client-ses'),
+  const [{ SESv2Client, SendEmailCommand }, nodemailerModule] = await Promise.all([
+    import('@aws-sdk/client-sesv2'),
     import('nodemailer'),
   ])
   const region = resolveAwsSesRegion()
-  const ses = new SESClient(region ? { region } : {})
+  const sesClient = new SESv2Client(region ? { region } : {})
   const sesTransportOptions: SesTransportOptions = {
-    SES: { ses, aws: { SendRawEmailCommand } },
+    SES: { sesClient, SendEmailCommand },
   }
   const createTransport = nodemailerModule.default?.createTransport ?? nodemailerModule.createTransport
   const transporter = createTransport(sesTransportOptions)

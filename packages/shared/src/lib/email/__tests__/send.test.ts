@@ -6,8 +6,8 @@ var sendMock: jest.Mock
 var ResendMock: jest.Mock
 var sendMailMock: jest.Mock
 var createTransportMock: jest.Mock
-var SESClientMock: jest.Mock
-var SendRawEmailCommandMock: jest.Mock
+var SESv2ClientMock: jest.Mock
+var SendEmailCommandMock: jest.Mock
 
 jest.mock('resend', () => {
   sendMock = jest.fn().mockResolvedValue({ data: { id: 'email-1' } })
@@ -24,12 +24,12 @@ jest.mock('nodemailer', () => {
   return { __esModule: true, default: { createTransport: createTransportMock } }
 })
 
-jest.mock('@aws-sdk/client-ses', () => {
-  SESClientMock = jest.fn()
-  SendRawEmailCommandMock = jest.fn()
+jest.mock('@aws-sdk/client-sesv2', () => {
+  SESv2ClientMock = jest.fn()
+  SendEmailCommandMock = jest.fn()
   return {
-    SESClient: SESClientMock,
-    SendRawEmailCommand: SendRawEmailCommandMock,
+    SESv2Client: SESv2ClientMock,
+    SendEmailCommand: SendEmailCommandMock,
   }
 })
 
@@ -46,8 +46,8 @@ describe('sendEmail', () => {
     ResendMock.mockClear()
     sendMailMock?.mockClear()
     createTransportMock?.mockClear()
-    SESClientMock?.mockClear()
-    SendRawEmailCommandMock?.mockClear()
+    SESv2ClientMock?.mockClear()
+    SendEmailCommandMock?.mockClear()
   })
 
   afterEach(() => {
@@ -218,11 +218,11 @@ describe('sendEmail', () => {
 
     expect(resolveEmailProvider()).toBe('ses')
     expect(resolveAwsSesRegion()).toBe('eu-west-2')
-    expect(SESClientMock).toHaveBeenCalledWith({ region: 'eu-west-2' })
+    expect(SESv2ClientMock).toHaveBeenCalledWith({ region: 'eu-west-2' })
     expect(createTransportMock).toHaveBeenCalledWith({
       SES: {
-        ses: expect.any(Object),
-        aws: { SendRawEmailCommand: SendRawEmailCommandMock },
+        sesClient: expect.any(Object),
+        SendEmailCommand: SendEmailCommandMock,
       },
     })
     expect(sendMailMock).toHaveBeenCalledWith(
@@ -257,7 +257,7 @@ describe('sendEmail', () => {
       react: React.createElement('div', null, 'Hi'),
     })
 
-    expect(SESClientMock).toHaveBeenCalledWith({ region: 'eu-central-1' })
+    expect(SESv2ClientMock).toHaveBeenCalledWith({ region: 'eu-central-1' })
   })
 
   it('allows the AWS SDK to resolve region when SES region env vars are not set', async () => {
@@ -271,7 +271,7 @@ describe('sendEmail', () => {
       react: React.createElement('div', null, 'Hi'),
     })
 
-    expect(SESClientMock).toHaveBeenCalledWith({})
+    expect(SESv2ClientMock).toHaveBeenCalledWith({})
   })
 
   it('throws a provider-specific error when SES sending fails', async () => {
