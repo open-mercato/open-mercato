@@ -617,55 +617,67 @@ describe('Step Handler (Unit Tests)', () => {
       expect(mockStepInstance.exitedAt).toBeDefined()
     })
 
-    test('should throw error for unimplemented step types', async () => {
-      const definitionWithUnsupportedStep = {
+    test('PARALLEL_FORK opens branches and parks the instance in FORKED', async () => {
+      const forkDef = {
         ...mockDefinition,
         definition: {
           steps: [
-            {
-              stepId: 'parallel-fork',
-              stepName: 'Parallel Fork',
-              stepType: 'PARALLEL_FORK',
-            },
+            { stepId: 'fork', stepName: 'Fork', stepType: 'PARALLEL_FORK', config: { joinStepId: 'join' } },
+            { stepId: 'a', stepName: 'A', stepType: 'AUTOMATED' },
+            { stepId: 'b', stepName: 'B', stepType: 'AUTOMATED' },
+            { stepId: 'join', stepName: 'Join', stepType: 'PARALLEL_JOIN', config: { forkStepId: 'fork' } },
+          ],
+          transitions: [
+            { transitionId: 't-fa', fromStepId: 'fork', toStepId: 'a', trigger: 'auto' },
+            { transitionId: 't-fb', fromStepId: 'fork', toStepId: 'b', trigger: 'auto' },
+          ],
+        },
+      }
+
+      mockEm.findOne
+        .mockResolvedValueOnce(forkDef as unknown as WorkflowDefinition) // enterStep
+        .mockResolvedValueOnce(forkDef as unknown as WorkflowDefinition) // executeStep
+        .mockResolvedValueOnce(forkDef as unknown as WorkflowDefinition) // PARALLEL_FORK case
+      mockEm.create.mockImplementation((_entity: any, data: any) => ({ ...(data || {}), id: 'generated' }))
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        mockInstance as WorkflowInstance,
+        'fork',
+        { workflowContext: {} }
+      )
+
+      expect(result.status).toBe('WAITING')
+      expect(result.waitReason).toBe('FORK')
+      expect((mockInstance as any).status).toBe('FORKED')
+      expect((mockInstance as any).activeForkStepId).toBe('fork')
+    })
+
+    test('PARALLEL_JOIN step execution is a no-op completion (synchronization handled by the loop)', async () => {
+      const joinDef = {
+        ...mockDefinition,
+        definition: {
+          steps: [
+            { stepId: 'join', stepName: 'Join', stepType: 'PARALLEL_JOIN', config: { forkStepId: 'fork' } },
           ],
           transitions: [],
         },
       }
 
       mockEm.findOne
-        .mockResolvedValueOnce(definitionWithUnsupportedStep as WorkflowDefinition) // enterStep
-        .mockResolvedValueOnce(definitionWithUnsupportedStep as WorkflowDefinition) // executeStep
-
-      const mockStepInstance = {
-        id: 'step-instance-1',
-        workflowInstanceId: testInstanceId,
-        stepId: 'parallel-fork',
-        stepName: 'Parallel Fork',
-        stepType: 'PARALLEL_FORK',
-        status: 'ACTIVE',
-        tenantId: testTenantId,
-        organizationId: testOrgId,
-        retryCount: 0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as StepInstance
-
-      mockEm.create
-        .mockReturnValueOnce(mockStepInstance)
-        .mockReturnValueOnce({} as any) // event
-
-      // Mock for error recovery - findOne to get the failed step
-      mockEm.findOne.mockResolvedValueOnce(mockStepInstance)
+        .mockResolvedValueOnce(joinDef as unknown as WorkflowDefinition) // enterStep
+        .mockResolvedValueOnce(joinDef as unknown as WorkflowDefinition) // executeStep
+      mockEm.create.mockImplementation((_entity: any, data: any) => ({ ...(data || {}), id: 'generated' }))
 
       const result = await stepHandler.executeStep(
         mockEm,
         mockInstance as WorkflowInstance,
-        'parallel-fork',
+        'join',
         { workflowContext: {} }
       )
 
-      expect(result.status).toBe('FAILED')
-      expect(result.error).toContain('not yet implemented')
+      expect(result.status).toBe('COMPLETED')
+      expect(result.outputData.stepType).toBe('PARALLEL_JOIN')
     })
   })
 })

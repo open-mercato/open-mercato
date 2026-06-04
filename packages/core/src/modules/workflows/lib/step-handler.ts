@@ -12,6 +12,7 @@
 import { EntityManager } from '@mikro-orm/core'
 import {
   WorkflowInstance,
+  WorkflowBranchInstance,
   WorkflowDefinition,
   StepInstance,
   UserTask,
@@ -36,7 +37,7 @@ export interface StepExecutionResult {
   status: 'COMPLETED' | 'WAITING' | 'FAILED'
   outputData?: any
   nextSteps?: string[] // For parallel forks (Phase 7)
-  waitReason?: 'USER_TASK' | 'SIGNAL' | 'TIMER'
+  waitReason?: 'USER_TASK' | 'SIGNAL' | 'TIMER' | 'FORK'
   error?: string
 }
 
@@ -68,7 +69,8 @@ export async function enterStep(
   em: EntityManager,
   instance: WorkflowInstance,
   stepId: string,
-  context: StepExecutionContext
+  context: StepExecutionContext,
+  branch?: WorkflowBranchInstance | null
 ): Promise<StepInstance> {
   // Load workflow definition to get step details
   const definition = await em.findOne(WorkflowDefinition, {
@@ -98,6 +100,7 @@ export async function enterStep(
   // Create step instance
   const stepInstance = em.create(StepInstance, {
     workflowInstanceId: instance.id,
+    branchInstanceId: branch ? branch.id : null,
     stepId: stepDef.stepId,
     stepName: stepDef.stepName,
     stepType: stepDef.stepType,
@@ -117,6 +120,7 @@ export async function enterStep(
   await logStepEvent(em, {
     workflowInstanceId: instance.id,
     stepInstanceId: stepInstance.id,
+    ...(branch ? { branchInstanceId: branch.id } : {}),
     eventType: 'STEP_ENTERED',
     eventData: {
       stepId: stepDef.stepId,
@@ -198,11 +202,12 @@ export async function executeStep(
   instance: WorkflowInstance,
   stepId: string,
   context: StepExecutionContext,
-  container?: any
+  container?: any,
+  branch?: WorkflowBranchInstance | null
 ): Promise<StepExecutionResult> {
   try {
     // Enter the step (create step instance)
-    const stepInstance = await enterStep(em, instance, stepId, context)
+    const stepInstance = await enterStep(em, instance, stepId, context, branch)
 
     // Load workflow definition to get step configuration
     const definition = await em.findOne(WorkflowDefinition, {
@@ -233,7 +238,8 @@ export async function executeStep(
       stepInstance,
       stepDef,
       context,
-      container
+      container,
+      branch
     )
 
     // If step completed, exit it
@@ -305,7 +311,8 @@ async function executeStepByType(
   stepInstance: StepInstance,
   stepDef: any,
   context: StepExecutionContext,
-  container?: any
+  container?: any,
+  branch?: WorkflowBranchInstance | null
 ): Promise<StepExecutionResult> {
   const stepType: WorkflowStepType = stepDef.stepType
 
@@ -317,10 +324,10 @@ async function executeStepByType(
       return handleEndStep(stepDef, context)
 
     case 'AUTOMATED':
-      return await handleAutomatedStep(em, instance, stepInstance, stepDef, context, container)
+      return await handleAutomatedStep(em, instance, stepInstance, stepDef, context, container, branch)
 
     case 'USER_TASK':
-      return await handleUserTaskStep(em, instance, stepInstance, stepDef, context)
+      return await handleUserTaskStep(em, instance, stepInstance, stepDef, context, branch)
 
     case 'SUB_WORKFLOW':
       if (!container) {
@@ -333,19 +340,40 @@ async function executeStepByType(
       return await handleSubWorkflowStep(em, container, instance, stepInstance, stepDef, context)
 
     case 'WAIT_FOR_SIGNAL':
-      return await handleWaitForSignalStep(em, instance, stepInstance, stepDef, context)
+      return await handleWaitForSignalStep(em, instance, stepInstance, stepDef, context, branch)
 
     case 'WAIT_FOR_TIMER':
-      return await handleWaitForTimerStep(em, instance, stepInstance, stepDef, context)
+      return await handleWaitForTimerStep(em, instance, stepInstance, stepDef, context, branch)
 
-    case 'PARALLEL_FORK':
+    case 'PARALLEL_FORK': {
+      // Entering a fork opens branch tokens and parks the root token in the
+      // FORKED state; the interleaved loop in the executor drives the branches.
+      if (branch) {
+        // Nested forks are rejected by definition validation; fail closed.
+        throw new StepExecutionError(
+          'Nested PARALLEL_FORK is not supported',
+          'NESTED_FORK_NOT_SUPPORTED',
+          { stepType, stepId: stepDef.stepId }
+        )
+      }
+      const definition = await em.findOne(WorkflowDefinition, { id: instance.definitionId })
+      if (!definition) {
+        throw new StepExecutionError(
+          `Workflow definition not found: ${instance.definitionId}`,
+          'DEFINITION_NOT_FOUND',
+          { definitionId: instance.definitionId }
+        )
+      }
+      const { openFork } = await import('./parallel-handler')
+      await openFork(em, instance, definition, stepDef)
+      return { status: 'WAITING', waitReason: 'FORK', outputData: { stepType: 'PARALLEL_FORK', forkStepId: stepDef.stepId } }
+    }
+
     case 'PARALLEL_JOIN':
-      // These will be implemented in later phases
-      throw new StepExecutionError(
-        `Step type not yet implemented: ${stepType}`,
-        'STEP_TYPE_NOT_IMPLEMENTED',
-        { stepType }
-      )
+      // The join is a synchronization point handled by the parallel loop
+      // (branches are marked COMPLETED on arrival; the loop fires the join).
+      // Executing the step itself is a no-op.
+      return { status: 'COMPLETED', outputData: { stepType: 'PARALLEL_JOIN', timestamp: new Date().toISOString() } }
 
     default:
       throw new StepExecutionError(
@@ -401,7 +429,8 @@ async function handleAutomatedStep(
   stepInstance: StepInstance,
   stepDef: any,
   context: StepExecutionContext,
-  container?: any
+  container?: any,
+  branch?: WorkflowBranchInstance | null
 ): Promise<StepExecutionResult> {
   // Extract activities from step definition
   const activities = stepDef.activities || []
@@ -434,9 +463,15 @@ async function handleAutomatedStep(
     const pendingActivities = results.filter(r => r.async && !r.success)
     if (pendingActivities.length > 0) {
       // Workflow should pause and wait for async activities
-      instance.status = 'WAITING_FOR_ACTIVITIES'
-      instance.pausedAt = new Date()
-      instance.updatedAt = new Date()
+      const now = new Date()
+      if (branch) {
+        branch.status = 'WAITING_FOR_ACTIVITIES'
+        branch.updatedAt = now
+      } else {
+        instance.status = 'WAITING_FOR_ACTIVITIES'
+        instance.pausedAt = now
+        instance.updatedAt = now
+      }
       await em.flush()
 
       return {
@@ -506,7 +541,8 @@ async function handleUserTaskStep(
   instance: WorkflowInstance,
   stepInstance: StepInstance,
   stepDef: any,
-  context: StepExecutionContext
+  context: StepExecutionContext,
+  branch?: WorkflowBranchInstance | null
 ): Promise<StepExecutionResult> {
   const userTaskConfig = stepDef.userTaskConfig || {}
 
@@ -524,6 +560,7 @@ async function handleUserTaskStep(
   const userTask = em.create(UserTask, {
     workflowInstanceId: instance.id,
     stepInstanceId: stepInstance.id,
+    branchInstanceId: branch ? branch.id : null,
     taskName: stepDef.stepName,
     description: stepDef.description || null,
     status: 'PENDING',
@@ -544,6 +581,7 @@ async function handleUserTaskStep(
   await logStepEvent(em, {
     workflowInstanceId: instance.id,
     stepInstanceId: stepInstance.id,
+    ...(branch ? { branchInstanceId: branch.id } : {}),
     eventType: 'USER_TASK_CREATED',
     eventData: {
       userTaskId: userTask.id,
@@ -555,9 +593,15 @@ async function handleUserTaskStep(
     organizationId: instance.organizationId,
   })
 
-  // Pause workflow execution - workflow waits for user task completion
-  instance.status = 'PAUSED'
-  instance.updatedAt = now
+  // Pause execution - waits for user task completion. For a branch, only the
+  // branch pauses; sibling branches keep running.
+  if (branch) {
+    branch.status = 'PAUSED'
+    branch.updatedAt = now
+  } else {
+    instance.status = 'PAUSED'
+    instance.updatedAt = now
+  }
   await em.flush()
 
   return {
@@ -719,7 +763,8 @@ async function handleWaitForSignalStep(
   instance: WorkflowInstance,
   stepInstance: StepInstance,
   stepDef: any,
-  context: StepExecutionContext
+  context: StepExecutionContext,
+  branch?: WorkflowBranchInstance | null
 ): Promise<StepExecutionResult> {
   const signalConfig = stepDef.signalConfig || {}
   const signalName = signalConfig.signalName || stepDef.stepId
@@ -731,6 +776,7 @@ async function handleWaitForSignalStep(
   await logStepEvent(em, {
     workflowInstanceId: instance.id,
     stepInstanceId: stepInstance.id,
+    ...(branch ? { branchInstanceId: branch.id } : {}),
     eventType: 'SIGNAL_AWAITING',
     eventData: {
       signalName,
@@ -742,10 +788,15 @@ async function handleWaitForSignalStep(
     organizationId: instance.organizationId,
   })
 
-  // Pause workflow execution
-  instance.status = 'PAUSED'
-  instance.pausedAt = now
-  instance.updatedAt = now
+  // Pause execution (branch-scoped when running inside a parallel branch)
+  if (branch) {
+    branch.status = 'PAUSED'
+    branch.updatedAt = now
+  } else {
+    instance.status = 'PAUSED'
+    instance.pausedAt = now
+    instance.updatedAt = now
+  }
   await em.flush()
 
   // Return WAITING status to halt executor
@@ -774,7 +825,8 @@ async function handleWaitForTimerStep(
   instance: WorkflowInstance,
   stepInstance: StepInstance,
   stepDef: any,
-  context: StepExecutionContext
+  context: StepExecutionContext,
+  branch?: WorkflowBranchInstance | null
 ): Promise<StepExecutionResult> {
   const timerConfig = stepDef.config || stepDef.timerConfig || {}
   const duration: string | undefined = timerConfig.duration
@@ -828,6 +880,7 @@ async function handleWaitForTimerStep(
   const jobId = await enqueueTimerJob({
     workflowInstanceId: instance.id,
     stepInstanceId: stepInstance.id,
+    branchInstanceId: branch ? branch.id : undefined,
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
     userId: context.userId,
@@ -838,6 +891,7 @@ async function handleWaitForTimerStep(
   await logWorkflowEvent(em, {
     workflowInstanceId: instance.id,
     stepInstanceId: stepInstance.id,
+    ...(branch ? { branchInstanceId: branch.id } : {}),
     eventType: 'TIMER_AWAITING',
     eventData: {
       fireAt: fireAt.toISOString(),
@@ -850,9 +904,14 @@ async function handleWaitForTimerStep(
     organizationId: instance.organizationId,
   })
 
-  instance.status = 'PAUSED'
-  instance.pausedAt = now
-  instance.updatedAt = now
+  if (branch) {
+    branch.status = 'PAUSED'
+    branch.updatedAt = now
+  } else {
+    instance.status = 'PAUSED'
+    instance.pausedAt = now
+    instance.updatedAt = now
+  }
   await em.flush()
 
   return {
@@ -881,6 +940,7 @@ async function logStepEvent(
   event: {
     workflowInstanceId: string
     stepInstanceId: string
+    branchInstanceId?: string | null
     eventType: string
     eventData: any
     userId?: string
