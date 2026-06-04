@@ -160,6 +160,10 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
   // Contrast: the list-delete path below uses `surfaceRecordConflict(err, t)` on
   // the RAW error (top-level code intact) and DOES show the bar — kept active.
   test('SAL-13: stale offer edit shows the conflict bar', async ({ page }) => {
+    // Full browser login + navigation + fixture setup/teardown does not fit the
+    // 20s default under parallel CI shard load; 60s matches the login+navigation
+    // convention used by the other UI integration specs (see TC-CUR-004).
+    test.setTimeout(60_000)
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let productId: string | null = null
@@ -210,6 +214,10 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
   // header → 409 → `surfaceRecordConflict` renders the unified conflict bar. We
   // assert the bar AND that the refused delete left the offer intact.
   test('SAL-13: stale offer list-delete is refused (conflict bar) and the offer is not removed', async ({ page }) => {
+    // Full browser login + navigation + debounced search + row-menu + delete does
+    // not fit the 20s default under parallel CI shard load; 60s matches the
+    // login+navigation convention used by the other UI integration specs.
+    test.setTimeout(60_000)
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let productId: string | null = null

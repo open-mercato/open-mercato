@@ -26,6 +26,19 @@ export function resolveApiUrl(path: string): string {
 
 export const CONFLICT_BANNER_TESTID = 'record-conflict-banner'
 
+/**
+ * The enterprise `record_locks` module (enabled in CI via
+ * `OM_ENABLE_ENTERPRISE_MODULES=true`) supersedes the OSS banner with a richer
+ * "Conflict detected" resolution dialog. Both are valid surfaces for "the stale
+ * write was refused": on a CrudForm edit page either one can win depending on
+ * whether the record_locks incoming-changes SSE (fired by the out-of-band bump)
+ * is processed before the browser's stale save reaches the server. Asserting one
+ * fixed surface is therefore racy; we wait for whichever conflict surface appears.
+ * (List-delete / non-form flows have no record_locks lock and only ever surface
+ * the OSS banner, so matching either surface is safe there too.)
+ */
+export const CONFLICT_DIALOG_TESTID = 'record-lock-conflict-dialog'
+
 function authHeaders(token: string, lockValue?: string): Record<string, string> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
@@ -120,19 +133,31 @@ export async function expectConflictBody(response: { status(): number; json(): P
   return body
 }
 
-/** Assert the unified conflict bar is visible (a stale save was refused). */
+/**
+ * Assert a stale save was refused and surfaced as a conflict. Matches EITHER the
+ * OSS `record-conflict-banner` OR the enterprise record_locks "Conflict detected"
+ * dialog — see `CONFLICT_DIALOG_TESTID` for why both are valid and why pinning one
+ * is racy when enterprise modules are enabled.
+ */
 export async function expectConflictBanner(page: Page): Promise<void> {
+  const conflictSurface = page
+    .getByTestId(CONFLICT_BANNER_TESTID)
+    .or(page.getByTestId(CONFLICT_DIALOG_TESTID))
   await expect(
-    page.getByTestId(CONFLICT_BANNER_TESTID),
-    'the "Record changed" conflict bar should be visible after a stale save',
+    conflictSurface.first(),
+    'a conflict surface (OSS bar or record_locks dialog) should appear after a stale save',
   ).toBeVisible({ timeout: 10_000 })
 }
 
-/** Assert the conflict bar is NOT present (a clean single-tab save must not 409). */
+/** Assert no conflict surface is present (a clean single-tab save must not 409). */
 export async function expectNoConflictBanner(page: Page): Promise<void> {
   await expect(
     page.getByTestId(CONFLICT_BANNER_TESTID),
     'a clean save must not surface a false-positive conflict bar',
+  ).toHaveCount(0)
+  await expect(
+    page.getByTestId(CONFLICT_DIALOG_TESTID),
+    'a clean save must not surface a false-positive conflict dialog',
   ).toHaveCount(0)
 }
 

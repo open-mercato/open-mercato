@@ -74,8 +74,13 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
       // test times out. Re-open the menu and retry the click across a few
       // attempts (mirrors TC-ADMIN-002's clickDeleteMenuItem) so neither a
       // swallowed keypress nor a detached element can hang the run.
+      // Bound every click: when the list re-renders (optimistic-lock headers /
+      // scope version) it can detach the portalled menu mid-click, and an
+      // un-bounded Playwright click auto-retries the detaching element until the
+      // whole test times out — defeating the retry loop below. A short per-click
+      // timeout makes a detached-element hang fail fast so the loop re-opens it.
       const openRowActions = async (): Promise<void> => {
-        await actionsButton.click().catch(async () => {
+        await actionsButton.click({ timeout: 5_000 }).catch(async () => {
           await actionsButton.focus();
           await actionsButton.press('Enter');
         });
@@ -93,7 +98,7 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
           .then(() => true)
           .catch(() => false);
         if (!opened) continue;
-        if (await setBaseItem.click().then(() => true).catch(() => false)) {
+        if (await setBaseItem.click({ timeout: 5_000 }).then(() => true).catch(() => false)) {
           setBaseClicked = true;
           break;
         }
