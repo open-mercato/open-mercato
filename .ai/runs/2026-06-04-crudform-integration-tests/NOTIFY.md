@@ -22,3 +22,12 @@
 - Integration smoke on live :3000: TC-CUR-CRUDFORM-001 passes (default) and skips when
   OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISABLED=1. Harness proven end-to-end + skippable.
 - Opening foundation PR; per-module rollout tracked in MODULE-LEDGER.md.
+
+## 2026-06-04T21:45:00Z — 3 green PRs shipped; per-module pattern proven
+- #2548 foundation (currencies A5), #2551 resources (A1), #2553 staff (A2). All verified green
+  vs live :3000 (create→read→assert→update→read→assert→delete) AND skip with the disable flag.
+- Coverage proven across the hardest cases: custom fields (text/int/select/boolean/date/float/
+  currency), multiselect arrays (role_ids/tags), FK prerequisites, partial-update CF retention.
+- Used research+live-probe subagents per module (resources, staff) — fast, accurate contracts.
+- Remaining Tier-A/B/C modules are mechanical applications of the same harness; recipe + gotchas
+  captured in HANDOFF.md, status in MODULE-LEDGER.md. Resumable.
