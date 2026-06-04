@@ -66,22 +66,36 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
       // Open row actions menu (focus + Enter, same pattern as TC-ADMIN-002).
       const actionsButton = row.getByRole('button', { name: 'Open actions' });
       await expect(actionsButton).toBeEnabled({ timeout: 10_000 });
-      await actionsButton.focus();
-      await actionsButton.press('Enter');
 
-      // The "Set as base" menu item is portalled to document.body. If the
-      // trigger swallows the Enter keypress before hydration finishes, the
-      // menu never opens and clicking the item would auto-wait until the test
-      // timeout. Wait for the item with a bounded budget and fall back to a
-      // pointer click to open the menu, so a missed keypress can't hang the run.
-      const setBaseItem = page.getByRole('menuitem').filter({ hasText: /Set as Base/ }).first();
-      await expect(setBaseItem)
-        .toBeVisible({ timeout: 5_000 })
-        .catch(async () => {
-          await actionsButton.click();
-          await expect(setBaseItem).toBeVisible({ timeout: 5_000 });
+      // The "Set as base" menu item is portalled to document.body. The
+      // currencies list re-renders its rows when data settles (optimistic-lock
+      // headers, scope version), which can detach the portalled menu item
+      // mid-click — Playwright then auto-retries the detached element until the
+      // test times out. Re-open the menu and retry the click across a few
+      // attempts (mirrors TC-ADMIN-002's clickDeleteMenuItem) so neither a
+      // swallowed keypress nor a detached element can hang the run.
+      const openRowActions = async (): Promise<void> => {
+        await actionsButton.click().catch(async () => {
+          await actionsButton.focus();
+          await actionsButton.press('Enter');
         });
-      await setBaseItem.click();
+      };
+
+      const setBaseItem = page.getByRole('menuitem').filter({ hasText: /Set as Base/ }).first();
+      let setBaseClicked = false;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await openRowActions();
+        const opened = await setBaseItem
+          .waitFor({ state: 'visible', timeout: 5_000 })
+          .then(() => true)
+          .catch(() => false);
+        if (!opened) continue;
+        if (await setBaseItem.click().then(() => true).catch(() => false)) {
+          setBaseClicked = true;
+          break;
+        }
+      }
+      expect(setBaseClicked, 'Could not click the "Set as Base" menu item').toBe(true);
 
       await expect(page.getByText('Base currency updated successfully').first()).toBeVisible({
         timeout: 10_000,

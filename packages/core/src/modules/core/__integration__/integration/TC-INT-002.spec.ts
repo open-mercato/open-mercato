@@ -111,8 +111,14 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
       await page.getByPlaceholder(/Search by title/i).fill(dealTitle);
       const dealRow = page.locator('tr').filter({ has: page.getByText(dealTitle, { exact: true }) }).first();
       await expect(dealRow).toBeVisible({ timeout: 30_000 });
-      await dealRow.getByText(dealTitle, { exact: true }).click();
-      await expect(page).toHaveURL(/\/backend\/customers\/deals\/[0-9a-f-]{36}$/i);
+      // The deals list re-renders as the debounced search settles, so a click
+      // can land on a row that is replaced before navigation registers (the URL
+      // stays on the filtered list). Retry the click until the detail route is
+      // reached instead of asserting once on a single, possibly-stale click.
+      await expect(async () => {
+        await dealRow.getByText(dealTitle, { exact: true }).click();
+        await expect(page).toHaveURL(/\/backend\/customers\/deals\/[0-9a-f-]{36}$/i, { timeout: 5_000 });
+      }).toPass({ timeout: 30_000 });
       dealId = page.url().match(/\/backend\/customers\/deals\/([0-9a-f-]{36})$/i)?.[1] ?? null;
 
       await createSalesDocument(page, { kind: 'order', customerQuery: companyName, preferApi: true, token });
