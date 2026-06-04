@@ -120,6 +120,14 @@
 | 31 | 31.6 | QA round-6: Feature Toggle identifier validator rejected seeded `customers.interactions.legacy-adapters` (dots/dashes) — relax `IDENTIFIER_PATTERN` to allow `.` and `-` + tests | done | c7b3d041b |
 | 31 | 31.7 | QA round-6: checkpoint — full gate + integration specs for fixed areas + Playwright smoke; push; CI green | done | c99eebb77 |
 | 31 | 31.8 | QA round-6 CI reconciliation: exempt 3 develop-merged UI files (comm-channels disconnect, dictionary-sort settings blob, email visibility toggle) from the optimistic-lock-coverage guard; match develop's renamed "Back to product variants" label in TC-LOCK-OSS-012; cherry-pick develop's @types/mailparser+nodemailer runtime-deps fix (standalone build) | done | f8c912744 |
+| 32 | 32.1 | QA round-7 #2453 (server): updatePersonCommand dropped person/profile scalar writes (status/source/lifecycleStage/email/phone/jobTitle) when companyEntityId was present — syncLegacyPrimaryCompanyLink's findOne+nativeUpdate (and ensureDictionaryEntry's findOne) interleaved inside withAtomicFlush dropped the pending changeset; 200 + bumped updated_at but no persist. Flush scalar mutations before the read phases. + TC-CRM-2453 integration test | done | 71416bb9e |
+| 32 | 32.2 | QA round-7 #2453 (client): people-v2 detail rendered the CrudForm twice (mobile MobilePersonDetail + desktop CollapsibleZoneLayout, both in DOM); shared formWrapperRef made header Save submit the hidden instance's stale values → silent discard. Render one variant via useIsMobile. Fold post-save token-pin into loadData (one re-render) | todo | — |
+| 32 | 32.3 | QA round-7: audit + fix sibling customer detail commands/pages (companies-v2, deals) for the same withAtomicFlush interleaved-read write-loss and the dual-layout duplication; identify introducing commit | todo | — |
+| 32 | 32.4 | QA round-7 (comment 4616551578): staff Job History stale DELETE shows raw `record_modified` instead of the unified conflict bar — route deleteCrud 409 through surfaceRecordConflict in JobHistorySection | todo | — |
+| 32 | 32.5 | QA round-7: GET /api/staff/timesheets/time-entries 500 on malformed date filters (`from=undefined`) — tighten date refine to full YYYY-MM-DD + omit empty client params | todo | — |
+| 32 | 32.6 | QA round-7: GET /api/integrations 500 — harden aggregateAnalytics (graceful empty on DB error) + expose updatedAt on the list response | todo | — |
+| 32 | 32.7 | QA round-7: verify Dictionaries save 500 already fixed (493346391) on HEAD; add/confirm coverage | todo | — |
+| 32 | 32.8 | QA round-7: checkpoint — full gate + integration suite + Playwright smoke; push; CI green | todo | — |
 
 ## Goal (resume)
 
