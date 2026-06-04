@@ -83,11 +83,13 @@ describe('getOverrides', () => {
         await getOverrides(em, mockTenant1, query)
 
         const findCalls = (em.find as jest.Mock).mock.calls
-        const toggleFilter = findCalls[0][1] as any[]
+        const toggleFilter = findCalls[0][1] as Record<string, unknown>
 
-        expect(toggleFilter).toHaveLength(2)
-        expect(toggleFilter).toContainEqual({ category: { $ilike: '%cat1%' } })
-        expect(toggleFilter).toContainEqual({ name: { $ilike: '%One%' } })
+        expect(toggleFilter).toEqual({
+            deletedAt: null,
+            category: { $ilike: '%cat1%' },
+            name: { $ilike: '%One%' },
+        })
     })
 
     it('should paginate results', async () => {
