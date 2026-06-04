@@ -109,6 +109,7 @@
   "dictionaries.errors.entry_not_found": "Entrada de diccionario no encontrada",
   "dictionaries.errors.entry_required": "El valor es obligatorio",
   "dictionaries.errors.entry_update_failed": "Error al actualizar la entrada de diccionario.",
+  "dictionaries.errors.invalid_key": "Usa letras minúsculas, números, guion o guion bajo.",
   "dictionaries.errors.not_found": "Diccionario no encontrado",
   "dictionaries.errors.organization_required": "Se requiere un contexto de organización",
   "dictionaries.errors.unauthorized": "No autorizado",

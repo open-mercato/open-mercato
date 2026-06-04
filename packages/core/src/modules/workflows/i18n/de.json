@@ -860,6 +860,7 @@
   "workflows.messages.instanceStarted": "Workflow-Instanz gestartet",
   "workflows.messages.invalidWorkflow": "Ungültige Workflow-Definition",
   "workflows.messages.loadFailed": "Workflows konnten nicht geladen werden",
+  "workflows.messages.saveFailed": "Speichern fehlgeschlagen",
   "workflows.messages.taskAlreadyClaimed": "Aufgabe wurde bereits von einem anderen Benutzer übernommen",
   "workflows.messages.taskClaimed": "Aufgabe erfolgreich übernommen",
   "workflows.messages.taskCompleted": "Aufgabe erfolgreich abgeschlossen",

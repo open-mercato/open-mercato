@@ -467,6 +467,11 @@ const sidebars: SidebarsConfig = {
           ],
         },
         "framework/webhooks/overview",
+        {
+          type: "category",
+          label: "Data Integrity",
+          items: ["framework/data-integrity/concurrency-locking"],
+        },
         "framework/pricing-tax-overrides",
         "framework/rbac/overview",
         "framework/feature-toggles/overview",

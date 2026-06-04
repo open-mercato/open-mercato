@@ -651,6 +651,7 @@ export function DealsSection({
               : currentCompanyIds
           await runWriteMutation(
             () =>
+              // optimistic-lock-exempt: deal association list (link)
               updateCrud(
                 'customers/deals',
                 { id: dealId, personIds: nextPersonIds, companyIds: nextCompanyIds },
@@ -684,6 +685,7 @@ export function DealsSection({
               : currentCompanyIds
           await runWriteMutation(
             () =>
+              // optimistic-lock-exempt: deal association list (unlink)
               updateCrud(
                 'customers/deals',
                 { id: dealId, personIds: nextPersonIds, companyIds: nextCompanyIds },
@@ -762,6 +764,7 @@ export function DealsSection({
         if (Object.keys(custom).length) payload.customFields = custom
         const { result } = await runWriteMutation(
           () =>
+            // optimistic-lock-exempt: deal create-only, no prior version
             createCrud<{ id?: string }>('customers/deals', payload, {
               errorMessage: translate('customers.people.detail.deals.error', 'Failed to save deal.'),
             }),
@@ -848,6 +851,7 @@ export function DealsSection({
         }
         await runWriteMutation(
           () =>
+            // optimistic-lock-exempt: deal association list (unlink)
             updateCrud('customers/deals', payload, {
               errorMessage: translate('customers.people.detail.deals.unlinkError', 'Failed to unlink deal.'),
             }),

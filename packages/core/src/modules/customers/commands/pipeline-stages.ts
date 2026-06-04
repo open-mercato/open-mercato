@@ -49,18 +49,6 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
         ? existingStages.length
         : Math.max(0, Math.min(requestedOrder, existingStages.length))
 
-    // Shift the order of every stage at or after the insert position. Skipping
-    // this step would either duplicate `order` values (silently corrupting kanban
-    // ordering) or push the new stage to the wrong spot when re-sorting.
-    if (requestedOrder !== undefined) {
-      for (const stage of existingStages) {
-        if (stage.order >= insertOrder) {
-          stage.order += 1
-          stage.updatedAt = new Date()
-        }
-      }
-    }
-
     const stage = em.create(CustomerPipelineStage, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -73,6 +61,17 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
 
     await withAtomicFlush(em, [
       () => {
+        // Shift the order of every stage at or after the insert position. Skipping
+        // this step would either duplicate `order` values (silently corrupting kanban
+        // ordering) or push the new stage to the wrong spot when re-sorting.
+        if (requestedOrder !== undefined) {
+          for (const existing of existingStages) {
+            if (existing.order >= insertOrder) {
+              existing.order += 1
+              existing.updatedAt = new Date()
+            }
+          }
+        }
         em.persist(stage)
       },
       async () => {
@@ -112,11 +111,12 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
     ensureTenantScope(ctx, stage.tenantId)
     ensureOrganizationScope(ctx, stage.organizationId)
 
-    if (parsed.label !== undefined) stage.label = parsed.label
-    if (parsed.order !== undefined) stage.order = parsed.order
-    stage.updatedAt = new Date()
-
     await withAtomicFlush(em, [
+      () => {
+        if (parsed.label !== undefined) stage.label = parsed.label
+        if (parsed.order !== undefined) stage.order = parsed.order
+        stage.updatedAt = new Date()
+      },
       async () => {
         if (parsed.label !== undefined || parsed.color !== undefined || parsed.icon !== undefined) {
           await ensureDictionaryEntry(em, {

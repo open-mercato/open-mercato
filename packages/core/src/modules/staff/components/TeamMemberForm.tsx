@@ -32,6 +32,7 @@ export type TeamMemberFormValues = {
   roleIds?: string[]
   tags?: string[]
   isActive?: boolean
+  updatedAt?: string | null
 } & Record<string, unknown>
 
 export type TeamMemberFormProps = {
@@ -515,6 +516,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
       groups={groups}
       entityId={E.staff.staff_team_member}
       initialValues={initialValues}
+      optimisticLockUpdatedAt={initialValues.updatedAt}
       onSubmit={onSubmit}
       onDelete={onDelete}
       isLoading={isLoading}

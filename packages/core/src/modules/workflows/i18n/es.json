@@ -860,6 +860,7 @@
   "workflows.messages.instanceStarted": "Instancia del flujo de trabajo iniciada",
   "workflows.messages.invalidWorkflow": "Definicion de flujo de trabajo no valida",
   "workflows.messages.loadFailed": "No se pudieron cargar los flujos de trabajo",
+  "workflows.messages.saveFailed": "Error al guardar",
   "workflows.messages.taskAlreadyClaimed": "La tarea ya ha sido reclamada por otro usuario",
   "workflows.messages.taskClaimed": "Tarea reclamada correctamente",
   "workflows.messages.taskCompleted": "Tarea completada correctamente",

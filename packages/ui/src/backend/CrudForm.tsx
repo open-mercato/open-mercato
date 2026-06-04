@@ -35,6 +35,7 @@ import { FormFooter } from './forms/FormFooter'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import {
+  Check,
   Settings,
   Layers,
   Tag,
@@ -85,6 +86,8 @@ import { TimePicker } from './inputs/TimePicker'
 import { DatePicker } from './inputs/DatePicker'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
 import { withScopedApiRequestHeaders } from './utils/apiCall'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from './utils/optimisticLock'
+import { surfaceRecordConflict } from './conflicts'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
@@ -307,6 +310,30 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   onDelete?: () => Promise<void> | void
   // When true, shows Delete button whenever onDelete is provided, even without an id
   deleteVisible?: boolean
+  /**
+   * OSS opt-in optimistic locking (spec: .ai/specs/2026-05-25-oss-optimistic-locking.md).
+   *
+   * When set to a non-empty ISO-8601 string (typically `record.updatedAt`
+   * from the API response), the form auto-injects the
+   * `x-om-ext-optimistic-lock-expected-updated-at` extension header on
+   * every PUT / PATCH / DELETE issued through the underlying `onSubmit` /
+   * `onDelete` callbacks (via `withScopedApiRequestHeaders`). When the
+   * server-side guard is opted in for the resource and the timestamp is
+   * stale, the API responds with a structured 409 conflict body.
+   *
+   * Strictly additive: when the prop is absent / null / empty, the form
+   * behaves exactly as before (no header injected).
+   */
+  optimisticLockUpdatedAt?: string | null
+  /**
+   * Opt out of optimistic locking entirely for this form. When `true`, the
+   * extension header is never attached, regardless of `optimisticLockUpdatedAt`
+   * or the value auto-derived from `initialValues.updatedAt`. Use for forms
+   * whose locking is owned elsewhere (e.g. sales document sub-resources guarded
+   * at the command layer against the parent aggregate) or for entities without
+   * an `updated_at` column.
+   */
+  disableOptimisticLock?: boolean
   // Legacy field-only grid toggle. Use `groups` for advanced layout.
   twoColumn?: boolean
   title?: string
@@ -665,6 +692,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   onSubmit,
   onDelete,
   deleteVisible,
+  optimisticLockUpdatedAt,
+  disableOptimisticLock = false,
   twoColumn = false,
   title,
   backHref,
@@ -788,6 +817,28 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   )
 
   const operation = recordId ? 'update' : 'create'
+
+  // Resolve the optimistic-lock version used to build the extension header.
+  // Explicit `optimisticLockUpdatedAt` (including `null`) always wins. When the
+  // prop is absent, auto-derive from the loaded record's `updatedAt`/`updated_at`
+  // so every edit CrudForm enforces optimistic locking by default without
+  // per-form wiring. Presence of a loaded `updatedAt` — NOT the create/update
+  // heuristic — drives this: some edit pages keep the record id outside form
+  // values (so `operation` reads as `create`), while a genuine create has no
+  // `updatedAt` in `initialValues`. Even a "duplicate"-style create that carries
+  // one is harmless — the server ignores the header on inserts (no candidate id).
+  // `disableOptimisticLock` always wins; an explicit prop (incl. `null`) wins next.
+  const resolvedOptimisticLockUpdatedAt = React.useMemo<string | null | undefined>(() => {
+    if (disableOptimisticLock) return null
+    if (optimisticLockUpdatedAt !== undefined) return optimisticLockUpdatedAt
+    const source = initialValues as Record<string, unknown> | undefined
+    const camel = source?.updatedAt
+    if (typeof camel === 'string' && camel.length > 0) return camel
+    const snake = source?.updated_at
+    if (typeof snake === 'string' && snake.length > 0) return snake
+    return null
+  }, [disableOptimisticLock, optimisticLockUpdatedAt, initialValues])
+
   const injectionContext = React.useMemo(() => ({
     formId,
     entityId: primaryEntityId,
@@ -1265,8 +1316,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         }
       }
 
-      if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
-        await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
+      const optimisticLockHeader = buildOptimisticLockHeader(resolvedOptimisticLockUpdatedAt)
+      const mergedDeleteHeaders = {
+        ...(injectionRequestHeaders ?? {}),
+        ...optimisticLockHeader,
+      }
+      if (Object.keys(mergedDeleteHeaders).length > 0) {
+        await withScopedApiRequestHeaders(mergedDeleteHeaders, async () => {
           await onDelete()
         })
       } else {
@@ -1310,8 +1366,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       } catch {
         // ignore event dispatch failures
       }
-      const message = err instanceof Error && err.message ? err.message : deleteErrorMessage
-      try { flash(message, 'error') } catch {}
+      const optimisticLockConflict = extractOptimisticLockConflict(err)
+      if (optimisticLockConflict) {
+        // Surface on the unified, persistent conflict bar instead of a toast.
+        try { surfaceRecordConflict(err, t) } catch {}
+      } else {
+        const message = err instanceof Error && err.message ? err.message : deleteErrorMessage
+        try { flash(message, 'error') } catch {}
+      }
     } finally {
       deletingRef.current = false
       setPending(false)
@@ -2631,8 +2693,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     
     try {
       submitNavigationBypassRef.current = true
-      if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
-        await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
+      const optimisticLockHeader = buildOptimisticLockHeader(resolvedOptimisticLockUpdatedAt)
+      const mergedSubmitHeaders = {
+        ...(injectionRequestHeaders ?? {}),
+        ...optimisticLockHeader,
+      }
+      if (Object.keys(mergedSubmitHeaders).length > 0) {
+        await withScopedApiRequestHeaders(mergedSubmitHeaders, async () => {
           await onSubmit?.(coreSubmitValues, submitContext)
         })
       } else {
@@ -2690,7 +2757,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         }
       }
 
-      let displayMessage = typeof helperMessage === 'string' && helperMessage.trim() ? helperMessage.trim() : ''
+      const optimisticLockConflict = extractOptimisticLockConflict(err)
+      let displayMessage = optimisticLockConflict
+        ? t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.')
+        : typeof helperMessage === 'string' && helperMessage.trim() ? helperMessage.trim() : ''
       if (hasFieldErrors) {
         const lowered = displayMessage.toLowerCase()
         const highlightedLower = highlightedMessage.toLowerCase()
@@ -2705,7 +2775,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         displayMessage = hasFieldErrors ? highlightedMessage : saveErrorMessage
       }
       displayMessage = parseServerMessage(displayMessage)
-      if (!hasFieldErrors) {
+      if (optimisticLockConflict) {
+        // Primary surface for the conflict is the persistent, error-styled
+        // RecordConflictBanner (unified across all forms). Keep the inline
+        // form error too, but suppress the redundant transient toast.
+        try { surfaceRecordConflict(err, t) } catch {}
+      } else if (!hasFieldErrors) {
         flash(displayMessage, 'error')
       }
       setFormError(displayMessage)
@@ -3989,7 +4064,22 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
               className={`w-full justify-start rounded-none font-normal px-3 py-2 ${isSel ? 'bg-muted' : ''}`}
             >
               <span className="inline-flex items-center gap-2">
-                <Checkbox checked={isSel} disabled tabIndex={-1} className="pointer-events-none" />
+                {/* Decorative selection indicator — NOT an interactive Checkbox.
+                    The enclosing Button owns the click; a real Radix Checkbox here
+                    nests a <button> inside a <button> (hydration error) and its
+                    Presence/ref lifecycle drives an infinite update loop when the
+                    listbox renders selected values. A plain span mirrors the DS
+                    checkbox look without any of that. */}
+                <span
+                  aria-hidden="true"
+                  className={`inline-flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${
+                    isSel
+                      ? 'border-accent-indigo bg-accent-indigo text-accent-indigo-foreground'
+                      : 'border-input bg-background'
+                  }`}
+                >
+                  {isSel ? <Check className="size-3.5" aria-hidden="true" /> : null}
+                </span>
                 <span>{opt.label}</span>
               </span>
             </Button>

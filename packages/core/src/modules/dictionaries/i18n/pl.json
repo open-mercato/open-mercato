@@ -109,6 +109,7 @@
   "dictionaries.errors.entry_not_found": "Nie znaleziono wpisu słownika",
   "dictionaries.errors.entry_required": "Wartość jest wymagana",
   "dictionaries.errors.entry_update_failed": "Nie udało się zaktualizować wpisu słownikowego.",
+  "dictionaries.errors.invalid_key": "Użyj małych liter, cyfr, łącznika lub podkreślenia.",
   "dictionaries.errors.not_found": "Nie znaleziono słownika",
   "dictionaries.errors.organization_required": "Wymagany jest kontekst organizacji",
   "dictionaries.errors.unauthorized": "Brak autoryzacji",

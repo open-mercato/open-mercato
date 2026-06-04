@@ -63,8 +63,8 @@ yarn workspace @open-mercato/core build
 When creating a new entity or CRUD slice, copy the customers module structure first, then align with `packages/core/AGENTS.md` and `packages/cli/AGENTS.md`.
 
 1. Define MikroORM v7 entities in `data/entities.ts` with decorators imported from `@mikro-orm/decorators/legacy`.
-2. Use UUID primary keys, snake_case table/column names, `organization_id`, `tenant_id`, and standard timestamp/soft-delete columns.
-3. Add validators, commands, CRUD route, backend pages, ACL, setup grants, events, search, and translations as applicable.
+2. Use UUID primary keys, snake_case table/column names, `organization_id`, `tenant_id`, and standard timestamp/soft-delete columns. For a **user-editable** entity, include `updated_at` (onCreate+onUpdate) so optimistic locking works, and return `updatedAt` from its CRUD list/detail responses.
+3. Add validators, commands, CRUD route, backend pages, ACL, setup grants, events, search, and translations as applicable. Edit/delete UI: prefer `CrudForm` (auto-derives the optimistic-lock header from `initialValues.updatedAt`); for custom list-row/dialog mutations, wrap with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` and `surfaceRecordConflict(err, t)`.
 4. Generate or author the migration for only this entity change, then update the module's `migrations/.snapshot-open-mercato.json`.
 5. Run `yarn db:generate` again as a no-op check; expected output for the touched module is `no changes`.
 

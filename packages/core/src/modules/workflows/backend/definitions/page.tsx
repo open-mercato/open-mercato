@@ -18,7 +18,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -86,7 +88,7 @@ export default function WorkflowDefinitionsListPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
-  const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string } | null>(null)
+  const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string; updatedAt: string | null } | null>(null)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['workflow-definitions', 'list', filterValues, page],
@@ -121,22 +123,31 @@ export default function WorkflowDefinitionsListPage() {
     },
   })
 
-  const handleDelete = (id: string, workflowName: string) => {
-    setDeleteTarget({ id, name: workflowName })
+  const handleDelete = (id: string, workflowName: string, updatedAt: string | null) => {
+    setDeleteTarget({ id, name: workflowName, updatedAt })
   }
 
   const confirmDelete = async () => {
     if (!deleteTarget) return
 
-    const result = await apiCall(`/api/workflows/definitions/${deleteTarget.id}`, {
-      method: 'DELETE',
-    })
+    const result = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(deleteTarget.updatedAt),
+      () => apiCall(`/api/workflows/definitions/${deleteTarget.id}`, {
+        method: 'DELETE',
+      }),
+    )
 
     if (result.ok) {
       flash(t('workflows.messages.deleted'), 'success')
       queryClient.invalidateQueries({ queryKey: ['workflow-definitions'] })
     } else {
-      flash(t('workflows.messages.deleteFailed'), 'error')
+      const conflictError = Object.assign(new Error(t('workflows.messages.deleteFailed')), {
+        status: result.status,
+        ...(result.result && typeof result.result === 'object' ? result.result : {}),
+      })
+      if (!surfaceRecordConflict(conflictError, t)) {
+        flash(t('workflows.messages.deleteFailed'), 'error')
+      }
     }
     setDeleteTarget(null)
   }
@@ -354,7 +365,7 @@ export default function WorkflowDefinitionsListPage() {
           ...(!isCodeOnly ? [{
             id: 'delete',
             label: t('common.delete'),
-            onSelect: () => handleDelete(row.original.id, row.original.workflowName),
+            onSelect: () => handleDelete(row.original.id, row.original.workflowName, row.original.updatedAt),
             destructive: true,
           }] : []),
         ]

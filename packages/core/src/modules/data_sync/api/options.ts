@@ -33,9 +33,12 @@ export async function GET(req: Request) {
         const adapter = getDataSyncAdapter(integration.providerKey as string)
         if (!adapter) return null
 
-        const [credentials, state] = await Promise.all([
-          credentialsService.resolve(integration.id, scope),
-          stateService.resolveState(integration.id, scope),
+        const [credentials, isEnabled] = await Promise.all([
+          credentialsService.resolve(integration.id, scope).catch(() => null),
+          stateService
+            .resolveState(integration.id, scope)
+            .then((state) => state.isEnabled)
+            .catch(() => false),
         ])
 
         return {
@@ -48,7 +51,7 @@ export async function GET(req: Request) {
           canStartRun: adapter.runMode !== 'provider',
           supportedEntities: adapter.supportedEntities,
           hasCredentials: Boolean(credentials),
-          isEnabled: state.isEnabled,
+          isEnabled,
           settingsPath: `/backend/integrations/${encodeURIComponent(integration.id)}`,
         }
       }),

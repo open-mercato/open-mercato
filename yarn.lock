@@ -6613,6 +6613,7 @@ __metadata:
     pdfjs-dist: "npm:^6.0.227"
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
+    resend: "npm:^6.12.3"
     sanitize-html: "npm:^2.13.0"
     semver: "npm:^7.8.1"
     svix: "npm:^1.95.1"
@@ -25319,7 +25320,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"resend@npm:^6.12.4":
+"resend@npm:^6.12.3, resend@npm:^6.12.4":
   version: 6.12.4
   resolution: "resend@npm:6.12.4"
   dependencies:

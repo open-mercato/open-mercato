@@ -689,7 +689,10 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
         setInternalTenantId(deleted, tenantId)
         deleted.isActive = false
         deleted.parentId = null
-
+        resolvedDeleted = deleted
+      },
+      async () => {
+        const deleted = resolvedDeleted
         const childrenFilter: FilterQuery<Organization> = { tenant: tenantId, parentId: id, deletedAt: null }
         const children = await em.find(Organization, childrenFilter)
         const toPersist: Organization[] = []
@@ -698,11 +701,11 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
           toPersist.push(child)
         }
         toPersist.push(deleted)
-        if (toPersist.length) await em.persist(toPersist).flush()
+        if (toPersist.length) em.persist(toPersist)
         setUndoMeta(deleted, { childParentsBefore: childSnapshotsBefore })
-
+      },
+      async () => {
         await rebuildHierarchyForTenant(em, tenantId)
-        resolvedDeleted = deleted
       },
     ], { transaction: true })
 

@@ -14,8 +14,9 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ComboboxInput, TimePicker } from '@open-mercato/ui/backend/inputs'
@@ -53,12 +54,16 @@ type AvailabilityRule = {
   unavailabilityReasonEntryId?: string | null
   unavailabilityReasonValue?: string | null
   createdAt?: string | null
+  updatedAt?: string | null
+  updated_at?: string | null
 }
 
 type AvailabilityRuleSet = {
   id: string
   name: string
   timezone: string
+  updatedAt?: string | null
+  updated_at?: string | null
 }
 
 export type AvailabilityBookedEvent = {
@@ -94,6 +99,14 @@ type RuleSetFormValues = {
   name: string
 }
 type WeeklyWindows = TimeWindow[][]
+
+function withOptimisticLockForRule<T>(rule: AvailabilityRule, mutation: () => Promise<T>): Promise<T> {
+  return withScopedApiRequestHeaders(buildOptimisticLockHeader(rule.updatedAt ?? rule.updated_at ?? null), mutation)
+}
+
+function withOptimisticLockForRuleSet<T>(ruleSet: AvailabilityRuleSet | null | undefined, mutation: () => Promise<T>): Promise<T> {
+  return withScopedApiRequestHeaders(buildOptimisticLockHeader(ruleSet?.updatedAt ?? ruleSet?.updated_at ?? null), mutation)
+}
 
 const DAY_LABELS = [
   { code: 'SU', short: 'S', nameKey: 'schedule.weekday.sunday', fallback: 'Sunday' },
@@ -886,16 +899,21 @@ export function AvailabilityRulesEditor({
     try {
       const updates: Array<Promise<unknown>> = []
       rulesToUpdate.forEach((rule) => {
-        updates.push(updateCrud('planner/availability', {
-          id: rule.id,
-          timezone: trimmedTimezone,
-        }))
+        updates.push(withOptimisticLockForRule(rule, () => (
+          updateCrud('planner/availability', {
+            id: rule.id,
+            timezone: trimmedTimezone,
+          })
+        )))
       })
       if (rulesetTimezoneId) {
-        updates.push(updateCrud('planner/availability-rule-sets', {
-          id: rulesetTimezoneId,
-          timezone: trimmedTimezone,
-        }))
+        const ruleSet = ruleSets.find((entry) => entry.id === rulesetTimezoneId) ?? null
+        updates.push(withOptimisticLockForRuleSet(ruleSet, () => (
+          updateCrud('planner/availability-rule-sets', {
+            id: rulesetTimezoneId,
+            timezone: trimmedTimezone,
+          })
+        )))
       }
       if (updates.length) {
         await Promise.all(updates)
@@ -915,6 +933,7 @@ export function AvailabilityRulesEditor({
     listLabels.timezoneSaveError,
     refreshAvailability,
     refreshRuleSetRules,
+    ruleSets,
     effectiveRulesetId,
     subjectId,
     subjectType,
@@ -979,8 +998,14 @@ export function AvailabilityRulesEditor({
     }
     try {
       const idsToDelete = selectCustomRuleIdsToDelete('reset', availabilityRules)
+      const idsToDeleteSet = new Set(idsToDelete)
       await Promise.all(
-        idsToDelete.map((id) => deleteCrud('planner/availability', id, { errorMessage: listLabels.saveWeeklyError })),
+        availabilityRules
+          .filter((rule) => idsToDeleteSet.has(rule.id))
+          .map((rule) => withOptimisticLockForRule(
+            rule,
+            () => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveWeeklyError }),
+          )),
       )
       setCustomOverridesEnabled(false)
       await refreshAvailability()
@@ -996,8 +1021,14 @@ export function AvailabilityRulesEditor({
     // Switching preserves saved custom hours (#2325); only an explicit reset clears them.
     const idsToDelete = selectCustomRuleIdsToDelete('switch', availabilityRules)
     if (idsToDelete.length) {
+      const idsToDeleteSet = new Set(idsToDelete)
       await Promise.all(
-        idsToDelete.map((id) => deleteCrud('planner/availability', id, { errorMessage: listLabels.saveWeeklyError })),
+        availabilityRules
+          .filter((rule) => idsToDeleteSet.has(rule.id))
+          .map((rule) => withOptimisticLockForRule(
+            rule,
+            () => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveWeeklyError }),
+          )),
       )
     }
     setSelectedRulesetId(nextId)
@@ -1030,7 +1061,11 @@ export function AvailabilityRulesEditor({
         variant: 'destructive',
       }),
       deleteRuleSet: async (id) => {
-        await deleteCrud('planner/availability-rule-sets', id, { errorMessage: listLabels.ruleSetDeleteError })
+        // Version-check the schedule delete (the list page already does; the editor
+        // previously sent no header → last-write-wins on delete). #2055 round-5.
+        await withOptimisticLockForRuleSet(selected, () => (
+          deleteCrud('planner/availability-rule-sets', id, { errorMessage: listLabels.ruleSetDeleteError })
+        ))
       },
       clearAssignment: async () => {
         setCustomOverridesEnabled(false)
@@ -1258,9 +1293,12 @@ export function AvailabilityRulesEditor({
         }, { errorMessage: listLabels.saveDateError })
       } else {
         const rulesToDelete = editorRules
-        const uniqueRuleIds = Array.from(new Set(rulesToDelete.map((rule) => rule.id)))
+        const uniqueRulesById = new Map(rulesToDelete.map((rule) => [rule.id, rule]))
         await Promise.all(
-          uniqueRuleIds.map((id) => deleteCrud('planner/availability', id, { errorMessage: listLabels.saveDateError })),
+          Array.from(uniqueRulesById.values()).map((rule) => withOptimisticLockForRule(
+            rule,
+            () => deleteCrud('planner/availability', rule.id, { errorMessage: listLabels.saveDateError }),
+          )),
         )
 
         const creations: Array<Promise<unknown>> = []
@@ -1607,7 +1645,12 @@ export function AvailabilityRulesEditor({
                                 variant="outline"
                                 size="icon"
                                 onClick={async () => {
-                                  await Promise.all(rules.map((rule) => deleteCrud('planner/availability', rule.id)))
+                                  await Promise.all(
+                                    rules.map((rule) => withOptimisticLockForRule(
+                                      rule,
+                                      () => deleteCrud('planner/availability', rule.id),
+                                    )),
+                                  )
                                   await refreshAvailability()
                                   await refreshRuleSetRules()
                                 }}
