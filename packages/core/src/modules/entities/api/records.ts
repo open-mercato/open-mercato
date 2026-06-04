@@ -192,6 +192,41 @@ export async function GET(req: Request) {
     const rawItems = res.items || []
     const viewPageItems = rawItems.map(mapRow)
     const fullPageItems = rawItems.map(mapFullRow)
+
+    // Expose `updated_at` on custom-entity records. The query engine returns only
+    // the `doc` fields + `id`, dropping the base `updated_at` column — which made
+    // optimistic locking impossible end-to-end (no version for the edit page to
+    // round-trip as the lock header). Batch-read it from storage and merge it in.
+    if (isCustomEntity && viewPageItems.length) {
+      try {
+        const recordIds = viewPageItems
+          .map((it: any) => it?.id)
+          .filter((v: any): v is string => typeof v === 'string' && v.length > 0)
+        if (recordIds.length) {
+          const db = em.getKysely()
+          const rows = await db
+            .selectFrom('custom_entities_storage' as any)
+            .select(['entity_id' as any, 'updated_at' as any])
+            .where('entity_type' as any, '=', entityId)
+            .where('entity_id' as any, 'in', recordIds as any)
+            .execute()
+          const updatedById = new Map<string, string>()
+          for (const row of rows as any[]) {
+            const value = row?.updated_at
+            const iso = value instanceof Date ? value.toISOString() : (typeof value === 'string' && value.length > 0 ? value : null)
+            if (iso && row?.entity_id) updatedById.set(String(row.entity_id), iso)
+          }
+          for (const item of viewPageItems as any[]) {
+            const iso = updatedById.get(String(item?.id))
+            if (iso) {
+              item.updated_at = iso
+              item.updatedAt = iso
+            }
+          }
+        }
+      } catch { /* best-effort: locking simply will not engage if storage is unavailable */ }
+    }
+
     const total = typeof res.total === 'number' ? res.total : rawItems.length
     const effectivePageSize = res.pageSize || pageSize
     const payload = {
