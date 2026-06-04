@@ -411,3 +411,34 @@ merge artifacts, not optimistic-locking regressions.
 - [x] R.4 Full gate green: build:packages ✓, generate ✓, build:packages ✓,
   i18n:check-sync ✓, i18n:check-usage ✓ (0 missing), typecheck ✓, test ✓ (20/20),
   build:app ✓
+
+## Resume — develop merge + flaky integration stabilization (2026-06-04, auto-continue-pr)
+
+Pulled the latest `origin/develop` (5 commits) and root-caused the integration
+flakes surfaced in CI run 26959793103 (shards 7/12/13 retried; the 08:23 run
+failed on shard 7). All fixes are root-cause, validated locally over two
+back-to-back rounds with `--retries=0` against an **enterprise-enabled**
+ephemeral app (`OM_ENABLE_ENTERPRISE_MODULES=true`, `OM_OPTIMISTIC_LOCK=all`) —
+9/9 green both rounds.
+
+- [x] M.1 Merge `origin/develop`; one semantic conflict in
+  `customers/commands/personCompanyLinks.ts` (both sides refactored the same undo
+  phases). Resolved to develop's canonical queries-before-mutations undo blocks +
+  kept this PR's forward-update split. Verified `personCompanyLinks.undo` (4/4) +
+  customers/sales unit suites (131/131).
+- [x] M.2 TC-LOCK-OSS-035 root cause: with enterprise `record_locks` enabled in
+  CI, the incoming-changes SSE (fired by the test's out-of-band bump) races the
+  browser save — when it wins, the conflict surfaces as the record_locks "Conflict
+  detected" dialog and pre-empts the server 409, so the OSS `record-conflict-banner`
+  never renders. Fix: shared `expectConflictBanner` now accepts EITHER surface (both
+  are valid refusals); enterprise dialog gained `data-testid="record-lock-conflict-dialog"`.
+  Hardens all 25 TC-LOCK-OSS UI specs against the same race.
+- [x] M.3 TC-LOCK-OSS-029 root cause: full browser login+nav+search+menu+delete
+  flow ran under the 20s default while 12 sibling UI specs use 60s; under parallel
+  shard load the test was torn down mid-`waitForResponse`. Fix: `test.setTimeout(60_000)`
+  on the two browser-flow tests (matches TC-CUR-004 convention).
+- [x] M.4 TC-CUR-004 root cause: the row-actions retry loop's `actionsButton.click()` /
+  `setBaseItem.click()` had no timeout, so a portalled-menu detach (list re-render)
+  made Playwright auto-retry the click until the 60s test timeout — defeating the
+  retry loop. Fix: bound both clicks to 5s so a detached-element hang fails fast and
+  the loop re-opens the menu.
