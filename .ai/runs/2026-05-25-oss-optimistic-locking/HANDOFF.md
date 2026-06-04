@@ -35,3 +35,22 @@ MikroORM v7 + withAtomicFlush flushes ONCE at the end. A managed-entity scalar m
 - Worktree: `.ai/tmp/auto-continue-pr/pr-2055-20260604-044233`. @open-mercato/core/modules/* resolves to dist — rebuild core (`yarn workspace @open-mercato/core build`) after source edits before browser testing on a worktree dev server.
 - Local shared `open-mercato` DB is behind develop (missing IMAP migrations: integration_credentials.user_id, messages.idempotency_key) → integrations list + messages create 500 locally only; both work in the fresh-migrated ephemeral runner.
 - Full ephemeral suite: `OM_OPTIMISTIC_LOCK=all ENABLE_CRUD_API_CACHE=true yarn mercato test:integration`. Kill any leftover :5001 listener between runs (teardown can leak the app process → next run fails readiness).
+
+## QA SWEEP TASK (resume 8 — in progress) — comprehensive CrudForm data-persistence audit
+**Goal:** Verify EVERY CrudForm saves all fields incl. custom fields (browser-confirmed). Root-cause failures. File GitHub issues (owner fixes separately). Comprehensive report → PR #2055. Scope = issue #2333 (SQL transaction-safety umbrella) + its merged PRs: #2343 #2355(2336) #2374(2337) #2368(2338) #2360(2339) #2356(2341) #2376(2335) #2377(2342) #2383 #2348.
+
+**Root-cause family (confirmed):** the #2333 atomic-writes work wrapped writes in withAtomicFlush/em.transactional but left interleaved reads (em.find/findOne/findWithDecryption/nativeUpdate/sync helper / resolveDictionaryEntryValue) between scalar mutations and the flush → MikroORM v7 UOW-LOSS (200 OK + updated_at bumped, columns not persisted). #2333 taxonomy calls this UOW-LOSS.
+
+**Already FIXED on this branch (do NOT re-report):**
+- Framework: withAtomicFlush now flushes per-phase (fe22b4c8e).
+- 13 withAtomicFlush commands restructured (clean phases): people, companies, addresses, personCompanyLinks, pipeline-stages, sales documents (updateOrder/updateQuote/returns.undo), catalog variants, directory orgs, auth sidebarPreferencesService, resources, currencies, messages updateDraft.
+- shipments updateShipmentCommand (em.transactional) — c496f9b65.
+- detail-page delete error surfacing (companies/people/deals) — 99c54dbc7.
+
+**STILL TO QA / likely-affected (per #2333 findings, NOT yet verified/fixed here):**
+- em.transactional callers other than shipments: sales payments updatePayment (CRITICAL), createPaymentCommand, convertQuoteToOrderCommand, sales createOrder/createQuote (custom-field flush mid-build), deals.createDeal (two txns), interactions, catalog products create/update, attachments.
+- Custom-field persistence on EDIT, esp. MULTICHOICE/array: deal "require legal review/competitive risk" (reported, task #10), product "required resources" multichoice (reported, task #11). Likely a custom-field-array write/read path issue distinct from UOW-LOSS.
+- makeCrudRoute direct-ORM entity+custom-field path (#2376) — verify custom fields persist on edit for makeCrudRoute entities (todos, etc.).
+- Non-command routes: auth ACL, dictionaries, perspectives, quotes/send.
+
+**Method:** dynamic workflow agents do em.transactional audit + custom-field root cause + CrudForm inventory; main agent browser-confirms; create GH issues per confirmed failure; write report at .ai/analysis/2055-crudform-persistence-qa.md → post to PR #2055.
