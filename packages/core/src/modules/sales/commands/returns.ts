@@ -498,13 +498,13 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
             line.updatedAt = new Date()
             em.persist(line)
           })
-          // Persist the line returnedQuantity reversals above before any further
-          // query runs on this EntityManager. MikroORM v7 silently discards the
-          // pending scalar changes on the managed `lines` if a read (the
-          // adjustment / header / return-line lookups below) executes before the
-          // terminal flush (see SPEC-018).
-          await em.flush()
         },
+        // The line returnedQuantity reversals above are persisted by
+        // withAtomicFlush's per-phase flush boundary before the adjustment /
+        // header / return-line lookups below run any query on this
+        // EntityManager. MikroORM v7 would otherwise silently discard the pending
+        // scalar changes on the managed `lines` when the next read resets the
+        // changeset (see SPEC-018).
         async () => {
           if (after.adjustmentIds.length) {
             const adjustments = await findWithDecryption(

@@ -368,7 +368,7 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
         : null
     }
     await withAtomicFlush(em, [
-      async () => {
+      () => {
         if (parsed.capacityUnitValue !== undefined) {
           record.capacityUnitValue = capacityUnit?.value ?? null
           record.capacityUnitName = capacityUnit?.name ?? null
@@ -384,7 +384,6 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
         if (parsed.availabilityRuleSetId !== undefined) record.availabilityRuleSetId = parsed.availabilityRuleSetId ?? null
         record.updatedAt = new Date()
         if (parsed.isActive !== undefined) record.isActive = parsed.isActive
-        await em.flush()
       },
       () => syncResourcesResourceTags(em, {
         resourceId: record.id,
@@ -482,7 +481,7 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
     const record = await em.findOne(ResourcesResource, { id: before.id })
     if (!record) return
     await withAtomicFlush(em, [
-      async () => {
+      () => {
         record.name = before.name
         record.description = before.description ?? null
         record.resourceTypeId = before.resourceTypeId ?? null
@@ -497,7 +496,6 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
         record.availabilityRuleSetId = before.availabilityRuleSetId ?? null
         record.deletedAt = before.deletedAt ? new Date(before.deletedAt) : null
         record.updatedAt = new Date()
-        await em.flush()
       },
       () => syncResourcesResourceTags(em, {
         resourceId: record.id,

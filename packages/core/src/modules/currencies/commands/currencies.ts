@@ -232,18 +232,18 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
 
     // Demote any existing base currency and persist the scalar changes in one
     // transaction; a partial commit would leave zero or two base currencies.
-    // The scalar mutations flush first so the pending changeset on the managed
-    // `record` is issued before `enforceBaseCurrency` runs its interleaved
-    // `nativeUpdate` (which would otherwise drop the pending UPDATE under v7).
+    // The scalar mutations live in the first phase so the per-phase flush issues
+    // the pending changeset on the managed `record` before `enforceBaseCurrency`
+    // runs its interleaved `nativeUpdate` (which would otherwise drop the pending
+    // UPDATE under v7).
     await withAtomicFlush(
       em,
       [
-        async () => {
+        () => {
           for (const [key, change] of Object.entries(changes)) {
             ;(record as any)[key] = change.to
           }
           record.updatedAt = new Date()
-          await em.flush()
         },
         () =>
           parsed.isBase === true && record.isBase

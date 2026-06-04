@@ -49,18 +49,6 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
         ? existingStages.length
         : Math.max(0, Math.min(requestedOrder, existingStages.length))
 
-    // Shift the order of every stage at or after the insert position. Skipping
-    // this step would either duplicate `order` values (silently corrupting kanban
-    // ordering) or push the new stage to the wrong spot when re-sorting.
-    if (requestedOrder !== undefined) {
-      for (const stage of existingStages) {
-        if (stage.order >= insertOrder) {
-          stage.order += 1
-          stage.updatedAt = new Date()
-        }
-      }
-    }
-
     const stage = em.create(CustomerPipelineStage, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -72,14 +60,19 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
     })
 
     await withAtomicFlush(em, [
-      async () => {
+      () => {
+        // Shift the order of every stage at or after the insert position. Skipping
+        // this step would either duplicate `order` values (silently corrupting kanban
+        // ordering) or push the new stage to the wrong spot when re-sorting.
+        if (requestedOrder !== undefined) {
+          for (const existing of existingStages) {
+            if (existing.order >= insertOrder) {
+              existing.order += 1
+              existing.updatedAt = new Date()
+            }
+          }
+        }
         em.persist(stage)
-        // Persist the pending `order` shifts applied to the managed
-        // `existingStages` (and the new stage) before `ensureDictionaryEntry`
-        // runs its `em.findOne` on the same EntityManager. MikroORM v7 drops
-        // the still-pending scalar changeset if an interleaved query executes
-        // before the terminal flush (SPEC-018).
-        await em.flush()
       },
       async () => {
         await ensureDictionaryEntry(em, {
@@ -118,17 +111,13 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
     ensureTenantScope(ctx, stage.tenantId)
     ensureOrganizationScope(ctx, stage.organizationId)
 
-    if (parsed.label !== undefined) stage.label = parsed.label
-    if (parsed.order !== undefined) stage.order = parsed.order
-    stage.updatedAt = new Date()
-
     await withAtomicFlush(em, [
+      () => {
+        if (parsed.label !== undefined) stage.label = parsed.label
+        if (parsed.order !== undefined) stage.order = parsed.order
+        stage.updatedAt = new Date()
+      },
       async () => {
-        // Persist the scalar mutations applied to the managed `stage` above
-        // before `ensureDictionaryEntry` runs its `em.findOne` on the same
-        // EntityManager. MikroORM v7 drops the still-pending scalar changeset if
-        // an interleaved query executes before the terminal flush (SPEC-018).
-        await em.flush()
         if (parsed.label !== undefined || parsed.color !== undefined || parsed.icon !== undefined) {
           await ensureDictionaryEntry(em, {
             tenantId: stage.tenantId,

@@ -4974,12 +4974,12 @@ const updateQuoteCommand: CommandHandler<
               value: "draft",
             });
           }
-          // Persist the scalar mutations above before the recalc reads below.
-          // MikroORM v7 silently discards pending scalar changes on `quote` if a
-          // query (the `em.find` line/adjustment lookups) runs on the same
-          // EntityManager before the terminal flush (see SPEC-018).
-          await em.flush();
         },
+        // Scalar mutations above are persisted by withAtomicFlush's per-phase
+        // flush boundary before the recalc reads below run any query on the same
+        // EntityManager. MikroORM v7 would otherwise silently discard pending
+        // scalar changes on `quote` when the `em.find` line/adjustment lookups
+        // reset the changeset (see SPEC-018).
         async () => {
           if (shouldRecalculateTotals) {
             const [existingLines, adjustments] = await Promise.all([
@@ -5194,13 +5194,13 @@ const updateOrderCommand: CommandHandler<
             input: parsed,
             em,
           });
-          // Persist the scalar mutations above before the recalc reads and the
-          // status-change-note lookup below. MikroORM v7 silently discards pending
-          // scalar changes on `order` if a query (`em.find` lines/adjustments,
-          // appendOrderStatusChangeNote) runs on the same EntityManager before the
-          // terminal flush (see SPEC-018).
-          await em.flush();
         },
+        // Scalar mutations above are persisted by withAtomicFlush's per-phase
+        // flush boundary before the recalc reads and the status-change-note
+        // lookup below run any query on the same EntityManager. MikroORM v7 would
+        // otherwise silently discard pending scalar changes on `order` when the
+        // `em.find` lines/adjustments or appendOrderStatusChangeNote queries
+        // reset the changeset (see SPEC-018).
         async () => {
           if (shouldRecalculateTotals) {
             const [existingLines, adjustments] = await Promise.all([

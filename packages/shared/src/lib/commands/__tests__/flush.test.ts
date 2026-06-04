@@ -19,9 +19,12 @@ function createFakeEm(overrides?: { inTransaction?: boolean }): FakeEntityManage
 }
 
 describe('withAtomicFlush', () => {
-  it('runs phases in order and flushes once at the end', async () => {
+  it('runs phases in order and flushes after each phase (SPEC-018 boundaries)', async () => {
     const em = createFakeEm()
     const calls: string[] = []
+    em.flush.mockImplementation(async () => {
+      calls.push('flush')
+    })
 
     await withAtomicFlush(em as any, [
       async () => {
@@ -37,14 +40,23 @@ describe('withAtomicFlush', () => {
       },
     ])
 
-    expect(calls).toEqual(['phase1-start', 'phase1-end', 'phase2', 'phase3'])
-    expect(em.flush).toHaveBeenCalledTimes(1)
+    // Each phase is flushed before the next begins — the interleaved-read guard.
+    expect(calls).toEqual([
+      'phase1-start',
+      'phase1-end',
+      'flush',
+      'phase2',
+      'flush',
+      'phase3',
+      'flush',
+    ])
+    expect(em.flush).toHaveBeenCalledTimes(3)
     expect(em.begin).not.toHaveBeenCalled()
     expect(em.commit).not.toHaveBeenCalled()
     expect(em.rollback).not.toHaveBeenCalled()
   })
 
-  it('lets a later phase observe state a prior phase mutated', async () => {
+  it('flushes a phase before a later phase observes its mutation', async () => {
     const em = createFakeEm()
     const state: { value: number } = { value: 0 }
     let observed: number | null = null
@@ -59,7 +71,8 @@ describe('withAtomicFlush', () => {
     ])
 
     expect(observed).toBe(42)
-    expect(em.flush).toHaveBeenCalledTimes(1)
+    // Two phases → flushed at each boundary.
+    expect(em.flush).toHaveBeenCalledTimes(2)
   })
 
   it('wraps phases in begin/commit when transaction option is true', async () => {
@@ -93,25 +106,31 @@ describe('withAtomicFlush', () => {
     expect(em.rollback).toHaveBeenCalledTimes(1)
   })
 
-  it('propagates a thrown error and does NOT flush when a phase throws (non-transactional)', async () => {
+  it('propagates a thrown error and stops at the failing phase (non-transactional, per-phase flush)', async () => {
     const em = createFakeEm()
     const failure = new Error('phase-failure')
+    let thirdPhaseRan = false
 
     await expect(
       withAtomicFlush(em as any, [
         () => {
-          // ok
+          // ok — its changeset is flushed at the phase boundary before phase 2 runs
         },
         () => {
           throw failure
         },
         () => {
-          throw new Error('should-not-run')
+          thirdPhaseRan = true
         },
       ]),
     ).rejects.toBe(failure)
 
-    expect(em.flush).not.toHaveBeenCalled()
+    // Non-transactional: the first phase flushed independently before phase 2
+    // threw; the failing phase's own flush and every later phase are skipped.
+    // (This independent-commit risk is exactly why mutating commands pass
+    // `{ transaction: true }`, where the whole sequence rolls back instead.)
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(thirdPhaseRan).toBe(false)
   })
 
   it('is a true no-op when phases is empty — no flush, no transaction', async () => {

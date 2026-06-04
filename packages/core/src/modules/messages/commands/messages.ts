@@ -526,7 +526,30 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       }
     }
 
-    await withAtomicFlush(em, [async () => {
+    // Validate the send transition BEFORE the atomic-flush block so a rejected
+    // send never mutates or flushes anything (everything checked here is known
+    // from the parsed input + the loaded message).
+    if (isSending) {
+      const finalVisibility = input.visibility ?? message.visibility
+      const finalSubject = input.subject ?? message.subject
+      const finalBody = input.body ?? message.body
+      const finalRecipientCount = input.recipients
+        ? input.recipients.length
+        : (preloadedRecipients?.length ?? 0)
+      if (finalVisibility !== 'public' && finalRecipientCount === 0) {
+        throw new Error('at least one recipient is required')
+      }
+      if (!finalSubject?.trim()) throw new Error('subject is required')
+      if (!finalBody?.trim()) throw new Error('body is required')
+    }
+
+    // Phase 1 mutates the managed `message` scalars; the per-phase flush issues
+    // those changes before phase 2's interleaved reads run (e.g.
+    // `linkAttachmentsToMessage` issues an `em.find`). Under MikroORM v7 a read
+    // between a scalar mutation and the terminal flush on the same EntityManager
+    // silently drops the pending changeset, so keeping the scalar edits in their
+    // own phase guarantees subject/body/etc. are persisted (SPEC-018 Problem 1).
+    await withAtomicFlush(em, [() => {
       if (input.type !== undefined) message.type = input.type
       if (input.visibility !== undefined) message.visibility = input.visibility
       if (input.sourceEntityType !== undefined) message.sourceEntityType = input.sourceEntityType
@@ -539,14 +562,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       if (input.priority !== undefined) message.priority = input.priority
       if (input.actionData !== undefined) message.actionData = input.actionData
       if (input.sendViaEmail !== undefined) message.sendViaEmail = input.sendViaEmail
-
-      // Flush the scalar mutations on the managed `message` before any later
-      // interleaved read runs (e.g. `linkAttachmentsToMessage` issues an
-      // `em.find`). Under MikroORM v7 such a read between a scalar mutation and
-      // the terminal flush silently drops the pending changeset, so the message
-      // edits (subject/body/etc.) would never be persisted (SPEC-018 Problem 1).
-      await em.flush()
-
+    }, async () => {
       if (input.recipients) {
         await em.nativeDelete(MessageRecipient, { messageId: message.id })
         for (const recipient of input.recipients) {
@@ -602,19 +618,8 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       }
 
       if (isSending) {
-        const finalVisibility = input.visibility ?? message.visibility
-        const finalSubject = input.subject ?? message.subject
-        const finalBody = input.body ?? message.body
-        const finalRecipientCount = input.recipients
-          ? input.recipients.length
-          : (preloadedRecipients?.length ?? 0)
-
-        if (finalVisibility !== 'public' && finalRecipientCount === 0) {
-          throw new Error('at least one recipient is required')
-        }
-        if (!finalSubject?.trim()) throw new Error('subject is required')
-        if (!finalBody?.trim()) throw new Error('body is required')
-
+        // Send transition was validated before the block; just apply the
+        // status mutations here (persisted by this phase's boundary flush).
         message.isDraft = false
         message.status = 'sent'
         message.sentAt = new Date()

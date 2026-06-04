@@ -421,7 +421,7 @@ export async function updateSidebarVariant(
   if (!variant) return null
   const target = variant
   await withAtomicFlush(em, [
-    async () => {
+    () => {
       if (typeof input.name === 'string' && input.name.trim().length > 0) {
         target.name = input.name.trim()
       }
@@ -432,11 +432,12 @@ export async function updateSidebarVariant(
         })
       }
       if (typeof input.isActive === 'boolean') {
-        if (input.isActive) {
-          await em.flush()
-          await deactivateAllVariants(em, scope, variantId)
-        }
         target.isActive = input.isActive
+      }
+    },
+    async () => {
+      if (input.isActive === true) {
+        await deactivateAllVariants(em, scope, variantId)
       }
     },
   ], { transaction: true })

@@ -754,7 +754,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     }
 
     await withAtomicFlush(em, [
-      async () => {
+      () => {
         if (parsed.description !== undefined) record.description = normalizeOptionalString(parsed.description)
         if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
         if (parsed.primaryEmail !== undefined) record.primaryEmail = normalizeEmail(parsed.primaryEmail)
@@ -805,13 +805,6 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
         if (parsed.displayName !== undefined) {
           record.displayName = parsed.displayName.trim()
         }
-        // Flush the person/profile scalar mutations before later phases run their
-        // own queries — ensureDictionaryEntry's findOne and especially
-        // syncLegacyPrimaryCompanyLink's findOne + nativeUpdate. Those interleaved
-        // reads otherwise drop the still-pending scalar changeset, so the write
-        // returns 200 with updated_at bumped while status/source/email/etc. are
-        // never persisted (#2453). Still inside the same transaction → atomic.
-        await em.flush()
       },
       async () => {
         if (parsed.status !== undefined) {

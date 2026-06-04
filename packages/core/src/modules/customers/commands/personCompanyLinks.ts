@@ -295,15 +295,11 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
     if (!link) return
 
     await withAtomicFlush(em, [
-      async () => {
+      () => {
         link.isPrimary = false
         link.deletedAt = new Date()
-        // Persist the scalar mutations on the managed `link` before the
-        // interleaved `findOneWithDecryption` / `loadPersonCompanyLinks` /
-        // `promoteFallbackPrimaryLink` reads below run on the same EntityManager.
-        // MikroORM v7 drops the still-pending scalar changeset if a query
-        // executes before the terminal flush (SPEC-018).
-        await em.flush()
+      },
+      async () => {
         const person = await findOneWithDecryption(
           em,
           CustomerEntity,
@@ -383,6 +379,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
     const profile = await requirePersonProfile(em, person)
     const linkedCompany = await requireCompanyEntity(em, companyId, parsed.tenantId, parsed.organizationId)
 
+    const linkWasPrimary = link.isPrimary
     await withAtomicFlush(em, [
       async () => {
         if (parsed.isPrimary) {
@@ -390,20 +387,16 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
           link.isPrimary = true
           profile.company = linkedCompany
         } else if (!parsed.isPrimary) {
-          const linkWasPrimary = link.isPrimary
           link.isPrimary = false
-          if (linkWasPrimary) {
-            // Persist the `link.isPrimary` mutation before `loadPersonCompanyLinks`
-            // and `promoteFallbackPrimaryLink` (which queries + `em.nativeUpdate`)
-            // run on the same EntityManager. MikroORM v7 drops the pending scalar
-            // changeset if an interleaved query executes before the terminal flush
-            // (SPEC-018).
-            await em.flush()
-            const remainingLinks = (await loadPersonCompanyLinks(em, person)).filter((entry) => entry.id !== link.id)
-            await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, companyId)
-          } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === companyId) {
+          if (!linkWasPrimary && profile.company && typeof profile.company !== 'string' && profile.company.id === companyId) {
             profile.company = null
           }
+        }
+      },
+      async () => {
+        if (!parsed.isPrimary && linkWasPrimary) {
+          const remainingLinks = (await loadPersonCompanyLinks(em, person)).filter((entry) => entry.id !== link.id)
+          await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, companyId)
         }
       },
     ], { transaction: true })
@@ -465,6 +458,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
     )
     if (!link) return
 
+    let undoProfile: CustomerPersonProfile | null = null
     await withAtomicFlush(em, [
       async () => {
         const person = await findOneWithDecryption(
@@ -475,34 +469,33 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
           { tenantId: before.tenantId, organizationId: before.organizationId },
         )
         if (person) {
-          const profile = await findOneWithDecryption(
+          undoProfile = await findOneWithDecryption(
             em,
             CustomerPersonProfile,
             { entity: person },
             { populate: ['company'] },
             { tenantId: person.tenantId, organizationId: person.organizationId },
           )
-          if (profile) {
+          if (undoProfile) {
             if (before.isPrimary) {
               await clearPrimaryFlagsForPerson(em, person)
               link.isPrimary = true
-              // Persist the `link.isPrimary` mutation before the interleaved
-              // company `findOneWithDecryption` runs on the same EntityManager.
-              // MikroORM v7 drops the still-pending scalar changeset if a query
-              // executes before the terminal flush (SPEC-018).
-              await em.flush()
-              const company = await findOneWithDecryption(
-                em,
-                CustomerEntity,
-                { id: before.companyEntityId, kind: 'company', tenantId: before.tenantId, organizationId: before.organizationId, deletedAt: null },
-                undefined,
-                { tenantId: before.tenantId, organizationId: before.organizationId },
-              )
-              if (company) profile.company = company
             } else {
               link.isPrimary = false
             }
           }
+        }
+      },
+      async () => {
+        if (undoProfile && before.isPrimary) {
+          const company = await findOneWithDecryption(
+            em,
+            CustomerEntity,
+            { id: before.companyEntityId, kind: 'company', tenantId: before.tenantId, organizationId: before.organizationId, deletedAt: null },
+            undefined,
+            { tenantId: before.tenantId, organizationId: before.organizationId },
+          )
+          if (company) undoProfile.company = company
         }
       },
     ], { transaction: true })
@@ -568,13 +561,6 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
         link.deletedAt = new Date()
       },
       async () => {
-        // Persist the scalar mutations on the managed `link` above before
-        // `promoteFallbackPrimaryLink` runs its `em.nativeUpdate` / queries on the
-        // same EntityManager. MikroORM v7 drops the still-pending scalar changeset
-        // if an interleaved query executes before the terminal flush (SPEC-018).
-        await em.flush()
-      },
-      async () => {
         if (linkWasPrimary) {
           await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, companyId)
         } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === companyId) {
@@ -634,37 +620,33 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
     )
     if (!link) return
 
+    let undoPerson: CustomerEntity | null = null
     await withAtomicFlush(em, [
-      async () => {
+      () => {
         link.deletedAt = null
         link.isPrimary = before.isPrimary
-        // Persist the scalar mutations on the managed `link` before the
-        // interleaved `findOneWithDecryption` / `clearPrimaryFlagsForPerson`
-        // reads below run on the same EntityManager. MikroORM v7 drops the
-        // still-pending scalar changeset if a query executes before the terminal
-        // flush (SPEC-018).
-        await em.flush()
-
-        const person = await findOneWithDecryption(
+      },
+      async () => {
+        undoPerson = await findOneWithDecryption(
           em,
           CustomerEntity,
           { id: before.personEntityId, kind: 'person', tenantId: before.tenantId, organizationId: before.organizationId, deletedAt: null },
           undefined,
           { tenantId: before.tenantId, organizationId: before.organizationId },
         )
-        if (person && before.isPrimary) {
-          await clearPrimaryFlagsForPerson(em, person)
+        if (undoPerson && before.isPrimary) {
+          await clearPrimaryFlagsForPerson(em, undoPerson)
           link.isPrimary = true
-          // Persist the re-applied `link.isPrimary` before the interleaved
-          // profile / company reads below run on the same EntityManager
-          // (SPEC-018).
-          await em.flush()
+        }
+      },
+      async () => {
+        if (undoPerson && before.isPrimary) {
           const profile = await findOneWithDecryption(
             em,
             CustomerPersonProfile,
-            { entity: person },
+            { entity: undoPerson },
             { populate: ['company'] },
-            { tenantId: person.tenantId, organizationId: person.organizationId },
+            { tenantId: undoPerson.tenantId, organizationId: undoPerson.organizationId },
           )
           if (profile) {
             const company = await findOneWithDecryption(
