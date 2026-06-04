@@ -54,3 +54,9 @@ MikroORM v7 + withAtomicFlush flushes ONCE at the end. A managed-entity scalar m
 - Non-command routes: auth ACL, dictionaries, perspectives, quotes/send.
 
 **Method:** dynamic workflow agents do em.transactional audit + custom-field root cause + CrudForm inventory; main agent browser-confirms; create GH issues per confirmed failure; write report at .ai/analysis/2055-crudform-persistence-qa.md → post to PR #2055.
+
+## QA SWEEP — results (resume 8b)
+- Umbrella #2466 created (child of #2333); PR #2055 + #2333 cross-linked; report at .ai/analysis/2055-crudform-persistence-qa.md.
+- Probed OK: business_rules rule, catalog product, sales payment (false-positive cleared), dictionaries, + all fixed commands.
+- INCONCLUSIVE: EAV custom records (example:todo) — list is query-index-backed/async so API readback unreliable; PUT 200; NEEDS UI QA. feature_toggles needs superadmin to probe. communication_channels has no field-edit endpoint.
+- Remaining tracked as checklist in #2466.
