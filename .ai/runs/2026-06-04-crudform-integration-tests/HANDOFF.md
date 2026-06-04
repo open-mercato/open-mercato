@@ -1,26 +1,30 @@
 # Handoff — 2026-06-04-crudform-integration-tests
 
-**Last updated:** 2026-06-04T20:10:00Z
+**Last updated:** 2026-06-04T20:55:00Z
 **Branch:** feat/crudform-integration-tests (off origin/develop @ 0bd8b3aab)
-**PR:** not yet opened
-**Current phase/step:** Phase 1, Step 1.1 (seed)
-**Last commit:** — (seed pending)
+**PR:** (opening now)
+**Current phase/step:** Phase 1 COMPLETE (foundation). All 5 Tasks-table rows `done`.
+**Last commit:** docs(qa) sweep documentation (8e50cbbab)
 
 ## What just happened
-- Classified as Spec-implementation run; created run folder + module ledger.
-- Decisions (user-confirmed): foundation PR first then stacked per-module PRs; Tier-A first.
-- Studied house pattern (TC-DIR-006/007, TC-CRM-028), shared helpers (api.ts, generalFixtures).
+- Shipped the foundation: shared harness + skip-gate + jest unit tests + currencies reference
+  spec + `.ai/qa/AGENTS.md` docs.
+- Final gate green: typecheck 21/21, i18n in sync, core jest 21/21, build:packages clean.
+- Integration-verified against live :3000: currencies spec passes; skip-gate skips with the flag.
 
 ## Next concrete action
-- Step 1.2: write `packages/core/src/helpers/integration/crudFormPersistence.ts`.
+- Open the foundation PR (this branch). Then start the per-module program from `MODULE-LEDGER.md`
+  (A1 = resources, first custom-field end-to-end coverage), each as its own stacked PR branched
+  off `feat/crudform-integration-tests`.
 
 ## Blockers / open questions
-- none
+- Per-module PRs go fully green in CI only once this foundation merges (they import the harness).
+  Stack them off this branch; rebase onto develop after merge.
 
 ## Environment caveats
-- Dev runtime runnable: unknown (will verify integration green via ephemeral runner / :3000 at checkpoint)
-- Playwright / browser checks: integration specs need BASE_URL app; jest unit tests need no server
-- Database/migration state: N/A — tests only, no schema changes
+- Dev runtime runnable: YES — live app on :3000 (login 200). Used for integration smoke.
+- Playwright / browser checks: API-only (`request` fixture) — no browser needed for these specs.
+- Database/migration state: clean — tests only, no schema changes.
 
 ## Worktree
 - Path: .ai/tmp/auto-create-pr/crudform-integration-tests-20260604-220428
