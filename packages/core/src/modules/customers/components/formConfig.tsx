@@ -1427,15 +1427,20 @@ export function buildCompanyPayload(
 // Edit-mode types
 // ---------------------------------------------------------------------------
 
-export type CompanyEditFormValues = Omit<CompanyFormValues, 'addresses'> & {
+// URL/email fields are clearable on edit: blanking a previously-set value transmits null,
+// so the edit-form value types widen to `string | null` to match the edit-schema output. See #2526.
+export type CompanyEditFormValues = Omit<CompanyFormValues, 'addresses' | 'primaryEmail' | 'websiteUrl'> & {
   id: string
+  primaryEmail?: string | null
+  websiteUrl?: string | null
 }
 
-export type PersonEditFormValues = Omit<PersonFormValues, 'addresses'> & {
+export type PersonEditFormValues = Omit<PersonFormValues, 'addresses' | 'primaryEmail'> & {
   id: string
   department?: string
-  linkedInUrl?: string
-  twitterUrl?: string
+  primaryEmail?: string | null
+  linkedInUrl?: string | null
+  twitterUrl?: string | null
 }
 
 // ---------------------------------------------------------------------------
