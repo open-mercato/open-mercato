@@ -860,6 +860,7 @@
   "workflows.messages.instanceStarted": "Instancja przepływu rozpoczęta",
   "workflows.messages.invalidWorkflow": "Nieprawidłowa definicja przepływu",
   "workflows.messages.loadFailed": "Nie udało się załadować przepływów",
+  "workflows.messages.saveFailed": "Nie udało się zapisać",
   "workflows.messages.taskAlreadyClaimed": "Zadanie zostało już przejęte przez innego użytkownika",
   "workflows.messages.taskClaimed": "Zadanie przejęte pomyślnie",
   "workflows.messages.taskCompleted": "Zadanie ukończone pomyślnie",

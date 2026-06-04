@@ -860,6 +860,7 @@
   "workflows.messages.instanceStarted": "Workflow instance started",
   "workflows.messages.invalidWorkflow": "Invalid workflow definition",
   "workflows.messages.loadFailed": "Failed to load workflows",
+  "workflows.messages.saveFailed": "Failed to save",
   "workflows.messages.taskAlreadyClaimed": "Task is already claimed by another user",
   "workflows.messages.taskClaimed": "Task claimed successfully",
   "workflows.messages.taskCompleted": "Task completed successfully",
