@@ -62,6 +62,7 @@ Findings (not full pass):
 ## Bugs filed
 - #2498 customers.people.update undo no-op (encryption deep-decrypt re-baselines change tracking before flush; systemic class)
 - #2504 scheduler.jobs undo no-op (reads logEntry.payload not commandPayload; use extractUndoPayload)
+- #2507 customers.personCompanyLinks.create undo no-op (link persists; likely same encryption class as #2498)
 - #2506 medium findings (deprecated-route no token; redo-of-create new id; feature_toggles.global ACL gap; exchange_rates 409)
 
 ## TODO (remaining scenarios)
@@ -74,3 +75,9 @@ timesheets(entries/projects/members), activities/addresses/comments/job-historie
 resources: activities, comments, resourceTags assign/unassign. planner: availability(+weekly/date-specific
 replace), rule-sets. directory.organizations (null org_id, #2398). checkout: template/link. §4 negatives.
 §5 X4/X6/X7/X8/X9/X12.
+
+## Batch 3 (spot checks)
+- ✅ customers.dictionaryEntries create→undo removes entry
+- ❌ customers.personCompanyLinks.create undo no-op → #2507
+- ⚠️ X10 cf-heavy undo: not independently verified (product/company cf API path not resolved this pass) — people cf undo blocked by #2498
+- ⏭️ sales document lines/adjustments, planner weekly/date-specific replace, feature_toggles.overrides, sales.returns: endpoint/payload not resolved this pass — deferred to next phase (contracts.json + commands enumeration cover them)
