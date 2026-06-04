@@ -210,24 +210,19 @@ test.describe('TC-LOCK-OSS-043: webhooks + inbox settings + data-sync schedule o
     }
   })
 
-  // WHK-01 (browser UI): the webhooks LIST page delete handler must surface the
-  // unified `record-conflict-banner` on a stale DELETE 409 — not a success
-  // toast. Regression guard for "Webhook deleted successfully" on a stale tab.
-  // The list-row `handleDelete` now sends the expected-version header
-  // (`buildOptimisticLockHeader(row.updatedAt)`) and routes the resulting 409
-  // through `surfaceRecordConflict`
-  // (packages/webhooks/src/modules/webhooks/backend/webhooks/page.tsx).
-  // Deterministic pattern: create + load the list, capture the row's token by
-  // rendering, then advance `updated_at` out-of-band via a header-less PUT so
-  // the in-page row token is stale, then trigger the row delete → 409 → bar.
-  // fixme: the product fix is committed/verified — the webhooks server DELETE returns the
-  // structured 409 (proven by the active "WHK-01 stale webhook DELETE is refused with a 409"
-  // API test) and the list/detail pages now send the lock header + route the 409 through
-  // surfaceRecordConflict. Driving the list-row RowActions delete headless is brittle (the
-  // hover/menu click times out), like the offer/settings list-delete flows. Deferred as a browser test.
-  test.fixme('WHK-01 stale webhook DELETE in the list surfaces the conflict bar', async ({ page }) => {
+  // WHK-01 (browser UI): now ACTIVE. The product fix is committed/verified — the webhooks
+  // server DELETE returns the structured 409 (proven by the active "WHK-01 stale webhook
+  // DELETE is refused with a 409" API test) and the list page sends the lock header
+  // (`buildOptimisticLockHeader(row.updatedAt)`) + routes the resulting 409 through
+  // surfaceRecordConflict. The RowActions menu opens on CLICK of the "Open actions" kebab and
+  // renders the items in a portal on document.body (role="menuitem"); the confirm dialog is a
+  // role="alertdialog" with a "Confirm" button. We drive that choreography robustly here:
+  // wait for the filtered list GET to settle, open the kebab, click Delete, confirm, then
+  // assert the unified conflict bar (never the success toast).
+  test('WHK-01 stale webhook DELETE in the list surfaces the conflict bar', async ({ page }) => {
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
+    const webhookName = `QA Lock 043 ${stamp}`
     let webhookId: string | null = null
     try {
       const webhook = await createWebhook(page.request, token, stamp)
@@ -235,9 +230,21 @@ test.describe('TC-LOCK-OSS-043: webhooks + inbox settings + data-sync schedule o
 
       await login(page, 'admin')
       await page.goto('/backend/webhooks')
+      // Wait for the list GET to settle before interacting. The list reflects the
+      // freshly created fixture immediately (newest-first), so a unique name makes
+      // the row unambiguous.
+      await page
+        .waitForResponse(
+          (response) =>
+            response.url().includes('/api/webhooks') &&
+            response.request().method() === 'GET' &&
+            response.ok(),
+          { timeout: 20_000 },
+        )
+        .catch(() => undefined)
 
-      const row = page.getByRole('row', { name: new RegExp(`QA Lock 043 ${stamp}`) })
-      await expect(row, 'created webhook should appear in the list').toBeVisible({ timeout: 15_000 })
+      const row = page.getByRole('row', { name: new RegExp(`${webhookName}\\b`) }).first()
+      await expect(row, 'created webhook should appear in the list').toBeVisible({ timeout: 20_000 })
 
       // Advance updated_at out-of-band → the in-page row token is now stale.
       const bump = await apiRequest(page.request, 'PUT', `${WEBHOOKS_API}/${webhookId}`, {
@@ -246,11 +253,20 @@ test.describe('TC-LOCK-OSS-043: webhooks + inbox settings + data-sync schedule o
       })
       expect(bump.status(), 'out-of-band webhook PUT should succeed').toBeLessThan(300)
 
-      // Open the row actions menu and trigger delete (the row still holds the
-      // stale updated_at captured at render time).
-      await row.getByRole('button', { name: /open actions/i }).click()
-      await page.getByRole('menuitem', { name: /delete/i }).click()
-      await page.getByRole('button', { name: /^(confirm|delete)$/i }).click()
+      // Open the row's RowActions kebab (opens on click) and trigger Delete. The
+      // menu renders in a portal on document.body, so query it at the page level.
+      const kebab = row.getByRole('button', { name: /open actions/i })
+      await expect(kebab, 'row should expose an Open actions trigger').toBeVisible()
+      await kebab.click()
+      const deleteItem = page.getByRole('menuitem', { name: /^delete$/i })
+      await expect(deleteItem, 'delete menu item should be visible').toBeVisible({ timeout: 10_000 })
+      await deleteItem.click()
+
+      // Confirm the destructive alertdialog (the row still holds the stale
+      // updated_at captured at render time, so the DELETE 409s).
+      const dialog = page.getByRole('alertdialog')
+      await expect(dialog, 'confirm dialog should open').toBeVisible({ timeout: 10_000 })
+      await dialog.getByRole('button', { name: /^(confirm|delete)$/i }).click()
 
       // The client must route the 409 to the unified conflict bar, never the
       // success toast.

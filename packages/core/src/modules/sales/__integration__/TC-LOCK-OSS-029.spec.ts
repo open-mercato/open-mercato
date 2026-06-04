@@ -111,17 +111,19 @@ async function deleteIfExists(
 }
 
 /**
- * The offers-list RowActions menu opens on pointer-enter of its trigger and
- * closes shortly after pointer-leave, so a single `.hover()` is timing-sensitive
- * when the table is still settling. Re-hover the trigger until the destructive
- * "Delete" menu item is actually visible, then return it for the caller to click.
+ * The offers-list RowActions kebab trigger ("Open actions") opens its menu on
+ * CLICK (its `onClick` sets the menu open), which is far more deterministic than
+ * the hover affordance. The menu renders in a portal on `document.body`, so the
+ * "Delete" menuitem is queried from the page (not scoped to the row). Click the
+ * trigger until the destructive "Delete" menu item is actually visible, then
+ * return it for the caller to click.
  */
 async function openListDeleteItem(page: Page, row: Locator): Promise<Locator> {
   const actionsTrigger = row.getByRole('button', { name: /open actions/i })
   const deleteItem = page.getByRole('menuitem', { name: /^delete$/i })
   await expect(async () => {
     await expect(actionsTrigger).toBeVisible({ timeout: 2_000 })
-    await actionsTrigger.hover()
+    await actionsTrigger.click()
     await expect(deleteItem).toBeVisible({ timeout: 1_500 })
   }).toPass({ timeout: 20_000 })
   return deleteItem
@@ -199,12 +201,15 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
     }
   })
 
-  // skip: the browser list-delete flow (hover-to-open RowActions menu + debounced
-  // search filter) is flaky under parallel load. The SAL-13 stale-delete CONTRACT is
-  // covered deterministically by the "SAL-13 (API): stale offer DELETE returns 409"
-  // test below (a refused stale delete means the offer is not removed). Kept for the
-  // record; re-enable if the list interaction is hardened.
-  test.skip('SAL-13: stale offer list-delete is refused (conflict bar) and the offer is not removed', async ({ page }) => {
+  // The browser list-delete flow is now driven robustly: the RowActions menu is
+  // opened by CLICKING the kebab "Open actions" trigger (deterministic `onClick`
+  // open, no hover race), the target row is isolated via the in-UI search box on
+  // its unique epoch-millis stamp (the list ignores URL filters), and the
+  // filtered GET is awaited before interacting. Clicking "Delete" fires the
+  // DELETE immediately (no confirm dialog) carrying the now-stale per-offer lock
+  // header → 409 → `surfaceRecordConflict` renders the unified conflict bar. We
+  // assert the bar AND that the refused delete left the offer intact.
+  test('SAL-13: stale offer list-delete is refused (conflict bar) and the offer is not removed', async ({ page }) => {
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let productId: string | null = null
@@ -247,12 +252,23 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
         title: `QA Lock 029 offer del bumped ${stamp}`,
       })
 
-      // Open the RowActions menu (it opens on pointer-enter of the trigger) and
+      // Open the RowActions menu by CLICKING the kebab "Open actions" trigger and
       // click Delete (fires immediately — no confirm dialog) → stale per-offer
       // DELETE header → 409 → conflict bar. The list-delete handler calls
       // `surfaceRecordConflict(err, t)` on the raw error, so the bar surfaces.
+      // Await the refused DELETE (409) alongside the click so the conflict is
+      // proven deterministically before asserting the bar — no banner-timing race.
       const deleteItem = await openListDeleteItem(page, row)
+      const refusedDelete = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'DELETE' &&
+          response.url().includes(OFFERS_API_BASE) &&
+          response.url().includes(offerId as string),
+        { timeout: 20_000 },
+      )
       await deleteItem.click()
+      const deleteResponse = await refusedDelete
+      expect(deleteResponse.status(), 'stale list-delete should be refused with 409').toBe(409)
 
       await expectConflictBanner(page)
 

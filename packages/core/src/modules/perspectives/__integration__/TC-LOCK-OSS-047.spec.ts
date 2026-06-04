@@ -44,12 +44,14 @@ async function loadPersonalView(
 }
 
 test.describe('TC-LOCK-OSS-047: saved Views conflict bar does not leak record_modified', () => {
-  // fixme: the product fix is committed/verified at the server + PerspectiveSidebar layer
+  // The product fix is committed/verified at the server + PerspectiveSidebar layer
   // (a stale view rename returns 409 and routes through surfaceRecordConflict; no raw
-  // 'record_modified' token is rendered — Alina A6). The UI choreography here
-  // (open Views panel → create → hover chip → open menu → rename → confirm) is brittle and
-  // sensitive to leftover views; deferred as a browser test. Re-enable with a stable view handle.
-  test.fixme('stale rename surfaces the unified conflict bar and never renders the raw token', async ({ page, request }) => {
+  // 'record_modified' token is rendered — Alina A6). This browser test drives the real
+  // Views panel choreography (open panel → create view → open the chip's "View options"
+  // popover → Rename → edit + Confirm rename) using a unique stamped view name and the
+  // real component locators (popover Button items, aria-labelled IconButtons), so it is
+  // stable against leftover views and re-renders.
+  test('stale rename surfaces the unified conflict bar and never renders the raw token', async ({ page, request }) => {
     test.slow()
 
     const stamp = Date.now()
@@ -98,18 +100,26 @@ test.describe('TC-LOCK-OSS-047: saved Views conflict bar does not leak record_mo
       expect(bump.status(), 'out-of-band POST should bump updatedAt').toBeLessThan(300)
 
       // Rename the view in the UI — this is the save that now carries a stale lock header.
-      await viewChipButton.hover()
-      await page
-        .locator('div')
-        .filter({ has: viewChipButton })
-        .first()
-        .getByRole('button')
-        .last()
-        .click()
-      await page.getByRole('menuitem', { name: /rename/i }).click()
+      // The chip's action menu is a Radix Popover triggered by the "View options" IconButton
+      // rendered as the activate button's next sibling. Anchor on THIS view's activate button
+      // and walk to its immediately-following "View options" button so leftover views (which
+      // render their own identical buttons) cannot match.
+      const openMenu = viewChipButton.locator(
+        'xpath=following::button[@aria-label="View options"][1]',
+      )
+      await expect(openMenu).toBeVisible({ timeout: 10_000 })
+      await openMenu.click()
 
-      const renameInput = page.locator('input[value="' + viewName + '"]')
-      await expect(renameInput).toBeVisible()
+      // The popover renders its items as buttons in a portal on document.body.
+      const renameItem = page.getByRole('button', { name: 'Rename', exact: true })
+      await expect(renameItem).toBeVisible({ timeout: 10_000 })
+      await renameItem.click()
+
+      // The chip swaps to an inline rename input (autofocused). Target the visible textbox
+      // inside the now-renaming chip; the DOM `value` attribute is not reliable for a
+      // controlled input, so locate by role/visibility instead of `input[value=...]`.
+      const renameInput = page.locator('input:focus').first()
+      await expect(renameInput).toBeVisible({ timeout: 10_000 })
       await renameInput.fill(`${viewName} edited`)
       await page.getByRole('button', { name: 'Confirm rename' }).click()
 

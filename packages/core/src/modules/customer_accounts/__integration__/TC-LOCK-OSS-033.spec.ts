@@ -1,9 +1,8 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-// `expectConflictBanner` is intentionally still imported: the fixme browser
-// case below asserts the conflict bar and will use it once the product bug
-// (page swallows the 409) is fixed.
+// `expectConflictBanner` asserts the conflict bar surfaced by the now-active
+// browser edit case below.
 import {
   expectConflictBanner,
   expectConflictBody,
@@ -32,20 +31,16 @@ import { fillControlledInput } from '@open-mercato/core/modules/core/__integrati
  *     fresh-header DELETE succeeds — the server-side guard is real (matching the
  *     command-route fallback pattern in TC-LOCK-OSS-043 / TC-LOCK-OSS-013).
  *
- * PRODUCT-BUG (UI surface only — server enforcement is correct):
- * The browser edit case is `test.fixme` below. The server DOES enforce the lock
- * (the API DELETE/PUT cases above get a real 409, never a silent 200), but the
- * edit page `backend/customer_accounts/roles/[id]/page.tsx` swallows the
- * conflict instead of surfacing the unified bar. Its `handleSubmit` uses
- * `apiCall(...)` (which returns `{ ok: false }` rather than throwing) and on
- * `!roleCall.ok` it only calls `flash('Failed to save role', 'error')` and
- * returns — it never re-throws the 409. `CrudForm` renders the
- * `record-conflict-banner` only when its `onSubmit` handler THROWS a conflict
- * error (see `CrudForm.tsx` ~L2672 `extractOptimisticLockConflict` →
- * `surfaceRecordConflict`). Because the page intercepts and downgrades the 409
- * to a generic toast, `data-testid="record-conflict-banner"` never appears. The
- * fix belongs in product code (throw `raiseCrudError`/the conflict on a non-ok
- * `roleCall`, or use `apiCallOrThrow`), so this test stays fixme until then.
+ * UI surface (now FIXED — server enforcement was always correct):
+ * The browser edit case below is ACTIVE. The server enforces the lock (the API
+ * DELETE/PUT cases get a real 409, never a silent 200), and the edit page
+ * `backend/customer_accounts/roles/[id]/page.tsx` now routes that 409 to the
+ * unified conflict bar. Its `handleSubmit` calls
+ * `surfaceRecordConflict({ status: roleCall.status, body: roleCall.result }, t)`
+ * on a non-ok `roleCall` (fix from commit bae74923e), so
+ * `data-testid="record-conflict-banner"` appears when the in-form
+ * optimistic-lock token is stale. Previously the page downgraded the 409 to a
+ * generic toast; that bug is gone.
  *
  * Deterministic pattern (no two real tabs / sleeps): create a role via API,
  * establish a non-null `updated_at` with one header-less PUT, load the edit page
@@ -128,11 +123,11 @@ async function deleteRole(
 }
 
 test.describe('TC-LOCK-OSS-033: customer_accounts portal role edit + delete optimistic-lock guard', () => {
-  // PRODUCT BUG: the edit page (backend/customer_accounts/roles/[id]/page.tsx)
-  // swallows the server's 409 in `handleSubmit` (apiCall → flash on !ok, never
-  // throws), so CrudForm never renders the `record-conflict-banner`. The
-  // server-side guard itself IS correct — see the active API case below.
-  test.fixme('AUTH-07 stale portal-role edit surfaces the conflict bar in the browser', async ({ page }) => {
+  // The edit page (backend/customer_accounts/roles/[id]/page.tsx) now routes the
+  // server's 409 to `surfaceRecordConflict` in `handleSubmit` (fix bae74923e),
+  // so CrudForm renders the `record-conflict-banner` on a stale-token save.
+  // The server-side guard itself was always correct — see the active API case below.
+  test('AUTH-07 stale portal-role edit surfaces the conflict bar in the browser', async ({ page }) => {
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let roleId: string | null = null
