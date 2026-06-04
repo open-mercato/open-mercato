@@ -433,6 +433,7 @@ export async function updateSidebarVariant(
       }
       if (typeof input.isActive === 'boolean') {
         if (input.isActive) {
+          await em.flush()
           await deactivateAllVariants(em, scope, variantId)
         }
         target.isActive = input.isActive

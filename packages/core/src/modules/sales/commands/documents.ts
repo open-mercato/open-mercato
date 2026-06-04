@@ -4974,6 +4974,13 @@ const updateQuoteCommand: CommandHandler<
               value: "draft",
             });
           }
+          // Persist the scalar mutations above before the recalc reads below.
+          // MikroORM v7 silently discards pending scalar changes on `quote` if a
+          // query (the `em.find` line/adjustment lookups) runs on the same
+          // EntityManager before the terminal flush (see SPEC-018).
+          await em.flush();
+        },
+        async () => {
           if (shouldRecalculateTotals) {
             const [existingLines, adjustments] = await Promise.all([
               em.find(
@@ -5187,6 +5194,14 @@ const updateOrderCommand: CommandHandler<
             input: parsed,
             em,
           });
+          // Persist the scalar mutations above before the recalc reads and the
+          // status-change-note lookup below. MikroORM v7 silently discards pending
+          // scalar changes on `order` if a query (`em.find` lines/adjustments,
+          // appendOrderStatusChangeNote) runs on the same EntityManager before the
+          // terminal flush (see SPEC-018).
+          await em.flush();
+        },
+        async () => {
           if (shouldRecalculateTotals) {
             const [existingLines, adjustments] = await Promise.all([
               em.find(

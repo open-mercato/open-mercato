@@ -762,12 +762,13 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
       await withAtomicFlush(
         em,
         [
+          () => em.flush(),
           async () => {
             if (parsed.isDefault === true) {
               previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
+              await em.flush()
             }
           },
-          () => em.flush(),
           () => aggregateVariantMediaToProduct(em, record),
         ],
         { transaction: true }

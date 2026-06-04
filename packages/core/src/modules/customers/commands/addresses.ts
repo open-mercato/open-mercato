@@ -230,6 +230,11 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
 
     await withAtomicFlush(em, [
       async () => {
+        // Persist the scalar mutations applied to the managed `address` above
+        // before `enforcePrimaryAddress` runs its `em.nativeUpdate` on the same
+        // EntityManager. MikroORM v7 drops the still-pending scalar changeset if
+        // an interleaved query executes before the terminal flush (SPEC-018).
+        await em.flush()
         if (address.isPrimary) {
           await enforcePrimaryAddress(em, typeof address.entity === 'string' ? address.entity : address.entity.id, address.id)
         }

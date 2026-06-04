@@ -540,6 +540,13 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       if (input.actionData !== undefined) message.actionData = input.actionData
       if (input.sendViaEmail !== undefined) message.sendViaEmail = input.sendViaEmail
 
+      // Flush the scalar mutations on the managed `message` before any later
+      // interleaved read runs (e.g. `linkAttachmentsToMessage` issues an
+      // `em.find`). Under MikroORM v7 such a read between a scalar mutation and
+      // the terminal flush silently drops the pending changeset, so the message
+      // edits (subject/body/etc.) would never be persisted (SPEC-018 Problem 1).
+      await em.flush()
+
       if (input.recipients) {
         await em.nativeDelete(MessageRecipient, { messageId: message.id })
         for (const recipient of input.recipients) {

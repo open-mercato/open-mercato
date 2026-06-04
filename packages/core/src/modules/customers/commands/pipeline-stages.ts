@@ -72,8 +72,14 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
     })
 
     await withAtomicFlush(em, [
-      () => {
+      async () => {
         em.persist(stage)
+        // Persist the pending `order` shifts applied to the managed
+        // `existingStages` (and the new stage) before `ensureDictionaryEntry`
+        // runs its `em.findOne` on the same EntityManager. MikroORM v7 drops
+        // the still-pending scalar changeset if an interleaved query executes
+        // before the terminal flush (SPEC-018).
+        await em.flush()
       },
       async () => {
         await ensureDictionaryEntry(em, {
@@ -118,6 +124,11 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
 
     await withAtomicFlush(em, [
       async () => {
+        // Persist the scalar mutations applied to the managed `stage` above
+        // before `ensureDictionaryEntry` runs its `em.findOne` on the same
+        // EntityManager. MikroORM v7 drops the still-pending scalar changeset if
+        // an interleaved query executes before the terminal flush (SPEC-018).
+        await em.flush()
         if (parsed.label !== undefined || parsed.color !== undefined || parsed.icon !== undefined) {
           await ensureDictionaryEntry(em, {
             tenantId: stage.tenantId,

@@ -477,11 +477,12 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
     // Line reversals, adjustment/return removals, and the order-total recompute
     // interleave queries on the same EntityManager with scalar mutations, so they
     // must run inside an atomic flush to avoid lost updates and partial commits.
+    let lines: SalesOrderLine[] = []
     await withAtomicFlush(
       em,
       [
         async () => {
-          const lines = await findWithDecryption(
+          lines = await findWithDecryption(
             em,
             SalesOrderLine,
             { order: order.id, deletedAt: null },
@@ -497,7 +498,14 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
             line.updatedAt = new Date()
             em.persist(line)
           })
-
+          // Persist the line returnedQuantity reversals above before any further
+          // query runs on this EntityManager. MikroORM v7 silently discards the
+          // pending scalar changes on the managed `lines` if a read (the
+          // adjustment / header / return-line lookups below) executes before the
+          // terminal flush (see SPEC-018).
+          await em.flush()
+        },
+        async () => {
           if (after.adjustmentIds.length) {
             const adjustments = await findWithDecryption(
               em,

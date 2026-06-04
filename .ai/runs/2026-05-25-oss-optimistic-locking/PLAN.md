@@ -127,6 +127,7 @@
 | 32 | 32.5 | QA round-7: GET /api/staff/timesheets/time-entries 500 on malformed date filters (`from=undefined`) — tighten date refine to full YYYY-MM-DD + omit empty client params | done | 229fc1703 |
 | 32 | 32.6 | QA round-7: GET /api/integrations 500 — NOT a PR regression: GET /api/integrations 500 is `column integration_credentials.user_id does not exist` — the IMAP/email-foundation migration (Migration20260526154136, merged from develop #2424) not applied on the stale local DB. CI runs a fresh migrated DB → green. No code change | done | (env, no-code) |
 | 32 | 32.7 | QA round-7: verified Dictionaries save returns 200 + persists on HEAD (fixed by 493346391, permissive updateKeySchema + ZodError→400); no further change | done | (verified) |
+| 32 | 32.9 | QA round-7: codebase-wide withAtomicFlush audit — same interleaved-read write-loss (mutate→read→terminal-flush) found and fixed in sales updateQuote/updateOrder + returns undo, catalog updateVariant, directory deleteOrganization, auth updateSidebarVariant, resources updateResource(+undo), currencies updateCurrency, messages updateDraft, customers addresses/personCompanyLinks/pipeline-stages. Flush scalars before interleaved reads, atomicity preserved. Introduced by atomic-writes #2337 (b46ca23da) | done | 83cd3329b |
 | 32 | 32.8 | QA round-7: checkpoint — full gate + integration suite + Playwright smoke; push; CI green | todo | — |
 
 ## Goal (resume)

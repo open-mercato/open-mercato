@@ -298,6 +298,12 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
       async () => {
         link.isPrimary = false
         link.deletedAt = new Date()
+        // Persist the scalar mutations on the managed `link` before the
+        // interleaved `findOneWithDecryption` / `loadPersonCompanyLinks` /
+        // `promoteFallbackPrimaryLink` reads below run on the same EntityManager.
+        // MikroORM v7 drops the still-pending scalar changeset if a query
+        // executes before the terminal flush (SPEC-018).
+        await em.flush()
         const person = await findOneWithDecryption(
           em,
           CustomerEntity,
@@ -387,6 +393,12 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
           const linkWasPrimary = link.isPrimary
           link.isPrimary = false
           if (linkWasPrimary) {
+            // Persist the `link.isPrimary` mutation before `loadPersonCompanyLinks`
+            // and `promoteFallbackPrimaryLink` (which queries + `em.nativeUpdate`)
+            // run on the same EntityManager. MikroORM v7 drops the pending scalar
+            // changeset if an interleaved query executes before the terminal flush
+            // (SPEC-018).
+            await em.flush()
             const remainingLinks = (await loadPersonCompanyLinks(em, person)).filter((entry) => entry.id !== link.id)
             await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, companyId)
           } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === companyId) {
@@ -474,6 +486,11 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
             if (before.isPrimary) {
               await clearPrimaryFlagsForPerson(em, person)
               link.isPrimary = true
+              // Persist the `link.isPrimary` mutation before the interleaved
+              // company `findOneWithDecryption` runs on the same EntityManager.
+              // MikroORM v7 drops the still-pending scalar changeset if a query
+              // executes before the terminal flush (SPEC-018).
+              await em.flush()
               const company = await findOneWithDecryption(
                 em,
                 CustomerEntity,
@@ -551,6 +568,13 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
         link.deletedAt = new Date()
       },
       async () => {
+        // Persist the scalar mutations on the managed `link` above before
+        // `promoteFallbackPrimaryLink` runs its `em.nativeUpdate` / queries on the
+        // same EntityManager. MikroORM v7 drops the still-pending scalar changeset
+        // if an interleaved query executes before the terminal flush (SPEC-018).
+        await em.flush()
+      },
+      async () => {
         if (linkWasPrimary) {
           await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, companyId)
         } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === companyId) {
@@ -614,6 +638,12 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
       async () => {
         link.deletedAt = null
         link.isPrimary = before.isPrimary
+        // Persist the scalar mutations on the managed `link` before the
+        // interleaved `findOneWithDecryption` / `clearPrimaryFlagsForPerson`
+        // reads below run on the same EntityManager. MikroORM v7 drops the
+        // still-pending scalar changeset if a query executes before the terminal
+        // flush (SPEC-018).
+        await em.flush()
 
         const person = await findOneWithDecryption(
           em,
@@ -625,6 +655,10 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
         if (person && before.isPrimary) {
           await clearPrimaryFlagsForPerson(em, person)
           link.isPrimary = true
+          // Persist the re-applied `link.isPrimary` before the interleaved
+          // profile / company reads below run on the same EntityManager
+          // (SPEC-018).
+          await em.flush()
           const profile = await findOneWithDecryption(
             em,
             CustomerPersonProfile,

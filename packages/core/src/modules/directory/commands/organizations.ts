@@ -689,6 +689,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
         setInternalTenantId(deleted, tenantId)
         deleted.isActive = false
         deleted.parentId = null
+        await em.flush()
 
         const childrenFilter: FilterQuery<Organization> = { tenant: tenantId, parentId: id, deletedAt: null }
         const children = await em.find(Organization, childrenFilter)
