@@ -41,19 +41,17 @@ import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/he
  *    edit page is asserted to succeed (<400) and to NOT raise a false-positive
  *    conflict bar. This stays active and proves the happy-path edit flow works.
  *
- *  - ENT-01 (browser, test.fixme — PRODUCT GAP): the custom-entity record edit
- *    page (`/backend/entities/user/<entityId>/records/<recordId>`) passes
- *    `optimisticLockUpdatedAt` into `CrudForm`, so the browser DOES attach the
- *    optimistic-lock header. But the server side does NOT enforce it: the
- *    update flows through `PUT /api/entities/records`
- *    (`packages/core/src/modules/entities/api/records.ts`) → DataEngine
- *    `updateCustomEntityRecord` (`packages/shared/src/lib/data/engine.ts`),
- *    neither of which registers an optimistic-lock reader for
- *    `entities.records` nor calls `validateCrudMutationGuard` /
- *    `enforceCommandOptimisticLock`. A stale write therefore returns 200 with
- *    no 409 and no conflict bar. Per the PRODUCT-BUG rule this surface is marked
- *    `test.fixme` (skipped, so the file still runs green) rather than patching
- *    product code. See the header comment on that test for the exact gap.
+ *  - ENT-01 (browser, ACTIVE): the custom-entity record edit page
+ *    (`/backend/entities/user/<entityId>/records/<recordId>`) passes
+ *    `optimisticLockUpdatedAt` into `CrudForm`, so the browser attaches the
+ *    optimistic-lock header. The server side now enforces it: `PUT
+ *    /api/entities/records` (`packages/core/src/modules/entities/api/records.ts`)
+ *    reads the record's current `updated_at` from `custom_entities_storage` and
+ *    calls `enforceCommandOptimisticLock` (resourceKind `entities.record`)
+ *    before delegating to DataEngine `updateCustomEntityRecord`
+ *    (`packages/shared/src/lib/data/engine.ts`). A stale write is refused with
+ *    the structured 409 `optimistic_lock_conflict` body and the browser raises
+ *    the unified conflict bar.
  *
  *  - CHK-01 / CHK-02 (NOT APPLICABLE on OSS): the brief references a checkout
  *    "pay link / template" guarded by `enforceCommandOptimisticLock`. On this
@@ -214,27 +212,94 @@ test.describe('TC-LOCK-OSS-044: workflows definition + custom-entity optimistic-
   })
 
   /**
-   * ENT-01 — PRODUCT GAP (test.fixme).
+   * ENT-01 — custom-entity record stale edit (browser, ACTIVE).
    *
-   * The custom-entity record edit page passes `optimisticLockUpdatedAt` to
-   * `CrudForm`, so the browser attaches the optimistic-lock header on save. The
-   * server side does NOT honor it: `PUT /api/entities/records`
-   * (`packages/core/src/modules/entities/api/records.ts`) performs the update
-   * straight through `dataEngine.updateCustomEntityRecord`
-   * (`packages/shared/src/lib/data/engine.ts`) with no registered
-   * optimistic-lock reader for `entities.records` and no
-   * `validateCrudMutationGuard` / `enforceCommandOptimisticLock` call. A stale
-   * write therefore returns 200 with no 409 and no conflict bar.
+   * The custom-entity record edit page
+   * (`/backend/entities/user/<entityId>/records/<recordId>`) passes
+   * `optimisticLockUpdatedAt` to `CrudForm`, so the browser attaches the
+   * optimistic-lock header on save. The server side now enforces it:
+   * `PUT /api/entities/records`
+   * (`packages/core/src/modules/entities/api/records.ts`) reads the record's
+   * current `updated_at` from `custom_entities_storage` and calls
+   * `enforceCommandOptimisticLock` (resourceKind `entities.record`) before
+   * delegating to `dataEngine.updateCustomEntityRecord`
+   * (`packages/shared/src/lib/data/engine.ts`). A stale write therefore returns
+   * the structured 409 `optimistic_lock_conflict` body and the browser raises
+   * the unified conflict bar.
    *
-   * Fixing this requires product changes (register a reader for the
-   * `custom_entities_storage` doc + thread the guard through the records route),
-   * which is out of scope for a test. Marked `test.fixme` so the file still runs
-   * green; flip to an active browser conflict-bar test once the route enforces
-   * the lock.
+   * Pattern (same as WF-01 above): create a custom entity + one text field +
+   * a record, load the edit page (the form captures `updated_at`), advance
+   * `updated_at` out-of-band with a header-less PUT, then edit + save in the
+   * browser so the now-stale header triggers the 409 → conflict bar.
    */
-  test.fixme('ENT-01 stale custom-entity record edit shows the conflict bar', async () => {
-    // Intentionally empty: the records PUT route does not enforce the
-    // optimistic-lock header, so there is no 409/conflict-bar behavior to
-    // assert yet. See the block comment above for the exact route + gap.
+  test('ENT-01 stale custom-entity record edit shows the conflict bar', async ({ page }) => {
+    const token = await getAuthToken(page.request, 'admin')
+    const stamp = Date.now()
+    const entityId = `qa_lock_044:rec_${stamp}`
+    const fieldKey = 'qa_value'
+    let recordId: string | null = null
+    let entityCreated = false
+    try {
+      // 1) Create the custom entity definition.
+      const createEntity = await apiRequest(page.request, 'POST', '/api/entities/entities', {
+        token,
+        data: { entityId, label: `QA Lock 044 ${stamp}`, showInSidebar: false, isActive: true },
+      })
+      expect(createEntity.status(), `POST /api/entities/entities should succeed, got ${createEntity.status()}`).toBeLessThan(300)
+      entityCreated = true
+
+      // 2) Add one editable text field so the record edit form renders an input.
+      const createField = await apiRequest(page.request, 'POST', '/api/entities/definitions', {
+        token,
+        data: {
+          entityId,
+          key: fieldKey,
+          kind: 'text',
+          configJson: { label: 'QA value', formEditable: true, listVisible: true },
+          isActive: true,
+        },
+      })
+      expect(createField.status(), `POST /api/entities/definitions should succeed, got ${createField.status()}`).toBeLessThan(300)
+
+      // 3) Create a record with an initial value.
+      const createRecord = await apiRequest(page.request, 'POST', '/api/entities/records', {
+        token,
+        data: { entityId, values: { [fieldKey]: `initial ${stamp}` } },
+      })
+      expect(createRecord.status(), `POST /api/entities/records should succeed, got ${createRecord.status()}`).toBeLessThan(300)
+      const createBody = await readJsonSafe<{ item?: { recordId?: string } }>(createRecord)
+      recordId = createBody?.item?.recordId ?? null
+      expect(typeof recordId, 'create response should expose the new recordId').toBe('string')
+
+      await login(page, 'admin')
+      await page.goto(
+        `/backend/entities/user/${encodeURIComponent(entityId)}/records/${encodeURIComponent(recordId as string)}`,
+      )
+
+      // The edit page is a CrudForm in custom-entity mode; the text field
+      // renders with a bare field id (no cf_ prefix) and captures `updated_at`.
+      const valueInput = page.locator(`[data-crud-field-id="${fieldKey}"] input`).first()
+      await expect(valueInput).toBeVisible({ timeout: 15_000 })
+
+      // Advance updated_at out-of-band → the browser form now holds a stale token.
+      const bump = await apiRequest(page.request, 'PUT', '/api/entities/records', {
+        token,
+        data: { entityId, recordId, values: { [fieldKey]: `bumped ${stamp}` } },
+      })
+      expect(bump.status(), `out-of-band PUT /api/entities/records should succeed, got ${bump.status()}`).toBeLessThan(300)
+
+      // Edit + save in the browser → stale header → 409 → conflict bar.
+      await fillControlledInput(valueInput, `stale ${stamp}`)
+      await valueInput.press('Control+Enter')
+
+      await expectConflictBanner(page)
+    } finally {
+      if (recordId) {
+        await apiRequest(page.request, 'DELETE', `/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`, { token }).catch(() => {})
+      }
+      if (entityCreated) {
+        await apiRequest(page.request, 'DELETE', '/api/entities/entities', { token, data: { entityId } }).catch(() => {})
+      }
+    }
   })
 })
