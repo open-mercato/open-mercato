@@ -132,6 +132,15 @@ For platform connectors with multiple integrations (e.g., MedusaJS):
 2. If `bundleId` is set, fallback to bundle's credentials
 3. Return `null` if neither exists
 
+## Per-User Credential Scoping
+
+`IntegrationScope` carries an optional `userId?: string | null` (added 2026-05-26 for per-user email channels). Every `createCredentialsService` method scopes by it:
+
+- **Omit `scope.userId`** (or pass `null`) for tenant-wide credentials (shared API keys, e.g. Stripe/Akeneo) — the filter pins `user_id IS NULL`, the historical behaviour.
+- **Pass `scope.userId`** for per-user credentials (Gmail/IMAP mailboxes) — reads and writes land on that user's own row.
+
+Uniqueness across `(integration_id, organization_id, tenant_id, user_id)` is enforced by the partial unique index `integration_credentials_user_lookup_idx` (`WHERE user_id IS NOT NULL AND deleted_at IS NULL`). **Callers MUST thread the correct `userId` on every per-user read AND write** — a tenant-wide scope can never read a user-scoped row and vice versa, so a missing `userId` silently resolves the wrong (or no) credentials.
+
 ## Events
 
 | Event ID | Emitted When |

@@ -342,8 +342,8 @@ All API changes are **additive** — no route renames, no method changes, no rem
 
 ## Integration & Test Coverage
 
-New integration specs `__integration__/TC-WF-014..` (self-contained: fixtures created in setup via API, cleanup in teardown — `.ai/qa/AGENTS.md`):
-- **TC-WF-014** FORK→2 AUTOMATED branches→JOIN wait-all, completed, namespace merge.
+New integration specs `__integration__/TC-WF-015..022` (self-contained: fixtures created in setup via API, cleanup in teardown — `.ai/qa/AGENTS.md`):
+- **TC-WF-022** FORK→2 AUTOMATED branches→JOIN wait-all, completed, namespace merge.
 - **TC-WF-015** FORK with a USER_TASK branch: one branch PAUSED, the other proceeds; completing the task resumes the branch; JOIN fires.
 - **TC-WF-016** FORK with an async-activity branch (queue) + per-branch resume; JOIN after the job completes.
 - **TC-WF-017** Failure in one branch → siblings CANCELLED, instance FAILED, LIFO compensation spans activities from both branches.
@@ -379,7 +379,7 @@ API surface to cover: `POST /api/workflows/instances` (start), `instances/[id]` 
 |-------|--------|------|-------|
 | Phase 1 — Data model + validation | Done | 2026-06-02 | Entity + columns + migration + snapshot + FORK/JOIN validation; 16 new unit tests pass, 521 workflows tests green, typecheck clean |
 | Phase 2 — Engine (token abstraction) | Done | 2026-06-02 | Token abstraction + FORK/JOIN handlers + interleaved loop + JOIN merge/outputMapping + branch failure→sibling cancel; DI signatures preserved; 27 suites / 524 tests green, typecheck clean |
-| Phase 3 — Pause, resume, failure | Done (integration tests authored, not run here) | 2026-06-02 | Per-branch resume for all 4 mechanisms; public `workflows.branch.*` + `workflows.join.completed` events; base i18n (en/es/de/pl); TC-WF-014..020 written. Typecheck clean, 524 unit tests green. Integration suite needs CI/DB (yarn unavailable in this env). |
+| Phase 3 — Pause, resume, failure | Done (integration tests authored, not run here) | 2026-06-02 | Per-branch resume for all 4 mechanisms; public `workflows.branch.*` + `workflows.join.completed` events; base i18n (en/es/de/pl); TC-WF-015..022 written. Typecheck clean, 524 unit tests green. Integration suite needs CI/DB (yarn unavailable in this env). |
 | Phase 4 — Visual editor | Core done; instance viewer deferred | 2026-06-02 | FORK/JOIN React Flow nodes + registration + icons + authoring + edit-dialog labels + i18n (en/es/de/pl). Per-branch instance-viewer visualization deferred as a follow-up (data is available: branch events + `branchInstanceId` on events/steps/tasks). UI not visually verifiable in this env. |
 
 ### Phase 4 — Detailed Progress
@@ -392,7 +392,7 @@ API surface to cover: `POST /api/workflows/instances` (start), `instances/[id]` 
 - [x] **7** Per-branch resume: USER_TASK (`task-handler` routes branch tasks to `resumeBranch`), signal (`signal-handler` matches the paused branch by signal name), timer (`timer-handler` branch short-circuit; worker passes `branchInstanceId`), async activity (`resumeBranchAfterActivities` + worker tagging `branchInstanceId` on the job, activity context, and ACTIVITY_COMPLETED/FAILED events). Shared `resumeBranch` helper; **missing `branchInstanceId` → instance-level resume (in-flight job safety)**. Added `StepInstance.branchInstanceId` (additive column + migration + snapshot) for correct per-branch step-instance lookup.
 - [x] **8** Branch failure → sibling cancellation + instance compensation (landed with Phase 2 engine).
 - [x] **9** Public events `workflows.branch.{opened,completed,cancelled,failed}` + `workflows.join.completed` in `events.ts`; base i18n `workflows.parallel.*` (branch statuses, labels, validation title) across en/es/de/pl.
-- [x] Integration tests `__integration__/TC-WF-014..020`: 014 fork→2 auto→join + namespace merge; 015 user-task branch resume; 016 async-activity branch (worker-gated skip); 017 branch failure → sibling cancellation → instance FAILED; 018 validation (missing joinStepId / nested fork / bypass → 400); 019 fork-less regression; 020 tenant scoping. **Authored but not executed here** (Playwright + app + DB unavailable in this sandbox) — must run in CI.
+- [x] Integration tests `__integration__/TC-WF-015..022`: 022 fork→2 auto→join + namespace merge; 015 user-task branch resume; 016 async-activity branch (worker-gated skip); 017 branch failure → sibling cancellation → instance FAILED; 018 validation (missing joinStepId / nested fork / bypass → 400); 019 fork-less regression; 020 tenant scoping. **Authored but not executed here** (Playwright + app + DB unavailable in this sandbox) — must run in CI.
 
 ### Phase 2 — Detailed Progress
 - [x] **3a** Engine unit-test baseline: existing 521 single-token tests (lib/api) used as the regression gate; verified green after each refactor step.
@@ -411,7 +411,7 @@ API surface to cover: `POST /api/workflows/instances` (start), `instances/[id]` 
 ## Changelog
 
 ### 2026-06-02 (implementation)
-- Implemented Phases 1–3 fully and Phase 4 core. Engine: token abstraction (root + branch), `openFork`/`advanceBranches`/`fireJoin`, per-branch pause/resume (USER_TASK/signal/timer/async), branch failure → sibling cancellation, public branch events, base i18n, FORK/JOIN visual-editor nodes. Added `StepInstance.branchInstanceId` (additive) for per-branch step lookup. DI signatures preserved; **524 unit tests green, typecheck clean** throughout. Integration tests TC-WF-014..020 authored but **not executed** here (yarn/DB/Playwright unavailable in sandbox — must run in CI). `yarn generate` still needs to run (new entity) before app boot. Per-branch instance-viewer UI deferred as a follow-up.
+- Implemented Phases 1–3 fully and Phase 4 core. Engine: token abstraction (root + branch), `openFork`/`advanceBranches`/`fireJoin`, per-branch pause/resume (USER_TASK/signal/timer/async), branch failure → sibling cancellation, public branch events, base i18n, FORK/JOIN visual-editor nodes. Added `StepInstance.branchInstanceId` (additive) for per-branch step lookup. DI signatures preserved; **524 unit tests green, typecheck clean** throughout. Integration tests TC-WF-015..022 authored but **not executed** here (yarn/DB/Playwright unavailable in sandbox — must run in CI). `yarn generate` still needs to run (new entity) before app boot. Per-branch instance-viewer UI deferred as a follow-up.
 
 ### 2026-06-02 (pre-implement)
 - Pre-implement analysis applied (`.ai/specs/analysis/ANALYSIS-2026-06-01-workflows-parallel-fork-join.md`):

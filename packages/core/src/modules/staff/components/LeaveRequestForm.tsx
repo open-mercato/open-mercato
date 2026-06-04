@@ -283,6 +283,7 @@ export function LeaveRequestForm(props: LeaveRequestFormProps) {
             createOption={canManageReasons ? createReasonOption : undefined}
             labels={reasonLabels}
             selectClassName="w-full"
+            sortOptions="none"
             manageHref={canManageReasons ? '/backend/config/dictionaries' : undefined}
             allowInlineCreate={canManageReasons}
             showManage={canManageReasons}

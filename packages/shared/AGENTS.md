@@ -121,6 +121,15 @@ import { hasFeature, hasAllFeatures } from '@open-mercato/shared/security/featur
 - Use `parseIdsParam()` and `mergeIdFilter()` from `@open-mercato/shared/lib/crud/ids` for factory-level `ids` query support.
 - Keep `ids` format as comma-separated UUIDs (`?ids=uuid1,uuid2`) and intersect with existing `id` filters.
 
+### Command Undo Pattern — read the snapshot via `extractUndoPayload`
+
+A command's `buildLog()` returns `payload: { undo: { before, after } }`, but the command bus persists that under `commandPayload` (column `command_payload`, wrapped in a redo envelope) — **the stored `ActionLog` row has no top-level `payload`**. Reading `logEntry.payload` inside an `undo()` handler is therefore always `undefined`, which makes undo a silent no-op (issue #2504).
+
+MUST rules:
+- Inside `undo()`, read the snapshot **only** through `extractUndoPayload<UndoPayload<TSnapshot>>(logEntry)` from `@open-mercato/shared/lib/commands/undo`. It unwraps `commandPayload` (and the redo envelope) and falls back to `snapshotBefore`/`snapshotAfter`.
+- NEVER access `logEntry.payload` in an undo handler. The `logEntry` parameter is typed as `CommandUndoLogEntry`, which intentionally omits `payload` so this footgun is a compile-time error.
+- Delete-undo should be robust to either deletion strategy: clear `deletedAt` when the row survives (soft delete), otherwise re-create the entity from the snapshot (mirror `packages/core/src/modules/sales/commands/configuration.ts`).
+
 ### Module-Level Overrides (`@open-mercato/shared/modules/overrides`)
 
 Downstream apps replace or disable any contract a module presents through a single `entry.overrides` field on a `ModuleEntry`. The umbrella spec is `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`; phases 1-18 are wired.

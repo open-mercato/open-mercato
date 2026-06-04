@@ -22,7 +22,7 @@ Implement working `PARALLEL_FORK` / `PARALLEL_JOIN` execution in the workflows e
 ## Risks
 
 - Token-abstraction refactor could regress the single-token path — mitigated by keeping the 521 existing unit tests green at every step and preserving DI signatures.
-- Integration tests TC-WF-014..020 authored but **not executed** in the implementation environment (yarn/Playwright/DB unavailable) — must pass in CI; TC-WF-016 (async, worker-gated) and TC-WF-017 (failure) may need tuning once run.
+- Integration tests TC-WF-015..022 authored but **not executed** in the implementation environment (yarn/Playwright/DB unavailable) — must pass in CI; TC-WF-016 (async, worker-gated) and TC-WF-017 (failure) may need tuning once run.
 - `yarn generate` must run before app boot (new entity).
 
 ## Environment blocker (this run)
@@ -56,7 +56,7 @@ Phases mirror the spec. All implemented in this run (pre-existing working tree c
 - [x] 3.1 Per-branch resume: USER_TASK / signal / timer / async (with in-flight-job instance-level fallback)
 - [x] 3.2 `StepInstance.branchInstanceId` (additive) for per-branch step lookup
 - [x] 3.3 Public `workflows.branch.*` + `workflows.join.completed` events; base i18n ×4 locales
-- [x] 3.4 Integration tests TC-WF-014..020 (authored; run in CI)
+- [x] 3.4 Integration tests TC-WF-015..022 (authored; run in CI)
 
 ### Phase 4: Visual editor
 

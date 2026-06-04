@@ -20,6 +20,7 @@ import {WorkflowDefinition, WorkflowSelector} from './WorkflowSelector'
 import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 import {StartPreConditionsEditor, type StartPreCondition} from './fields/StartPreConditionsEditor'
 import {useT} from '@open-mercato/shared/lib/i18n/context'
+import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
 import {isFutureIsoDateString, isValidDurationString} from '../data/validators'
 
@@ -485,14 +486,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     onDelete(node.id)
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      handleSave()
-    }
-    if (e.key === 'Escape') {
-      onClose()
-    }
-  }
+  const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave, onCancel: onClose })
 
   if (!isOpen || !node) return null
 
@@ -520,7 +514,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <div className="flex items-center gap-2 mb-2">
             <DialogTitle>{t('workflows.nodeEditor.title')}</DialogTitle>

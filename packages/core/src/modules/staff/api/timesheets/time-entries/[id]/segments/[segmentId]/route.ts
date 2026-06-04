@@ -6,7 +6,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../../data/entities'
 import { staffTimeEntrySegmentUpdateSchema } from '../../../../../../data/validators'
 import { getStaffMemberByUserId } from '../../../../../../lib/staffMemberResolver'
@@ -110,17 +112,54 @@ export async function PATCH(req: Request) {
     )
   }
 
-  if (parsed.data.startedAt !== undefined) {
-    segment.startedAt = parsed.data.startedAt
-  }
-  if (parsed.data.endedAt !== undefined) {
-    segment.endedAt = parsed.data.endedAt ?? null
-  }
-  if (parsed.data.segmentType !== undefined) {
-    segment.segmentType = parsed.data.segmentType
-  }
+  // Apply the segment edit inside a single transaction with a PESSIMISTIC_WRITE
+  // lock on the parent time entry row, re-loading the segment under the lock so
+  // concurrent segment edits / timer-stop recomputes on the same entry serialize
+  // instead of racing on a shared in-memory snapshot (issue #2416).
+  let updatedSegment: StaffTimeEntrySegment
+  try {
+    updatedSegment = await em.transactional(async (trx) => {
+      const lockedEntry = await findOneWithDecryption(
+        trx,
+        StaffTimeEntry,
+        { id: ids.entryId, tenantId, organizationId, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        scopeCtx,
+      )
+      if (!lockedEntry) {
+        throw new CrudHttpError(404, { error: 'Time entry not found' })
+      }
 
-  await em.flush()
+      const lockedSegment = await findOneWithDecryption(
+        trx,
+        StaffTimeEntrySegment,
+        { id: ids.segmentId, timeEntryId: ids.entryId, tenantId, organizationId, deletedAt: null },
+        {},
+        scopeCtx,
+      )
+      if (!lockedSegment) {
+        throw new CrudHttpError(404, { error: 'Segment not found' })
+      }
+
+      if (parsed.data.startedAt !== undefined) {
+        lockedSegment.startedAt = parsed.data.startedAt
+      }
+      if (parsed.data.endedAt !== undefined) {
+        lockedSegment.endedAt = parsed.data.endedAt ?? null
+      }
+      if (parsed.data.segmentType !== undefined) {
+        lockedSegment.segmentType = parsed.data.segmentType
+      }
+
+      await trx.flush()
+      return lockedSegment
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    throw err
+  }
 
   if (guardResult.afterSuccessCallbacks.length) {
     await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
@@ -128,7 +167,7 @@ export async function PATCH(req: Request) {
       organizationId,
       userId: auth.sub ?? '',
       resourceKind: 'staff.timesheets.time_entry_segment',
-      resourceId: segment.id,
+      resourceId: updatedSegment.id,
       operation: 'update',
       requestMethod: req.method,
       requestHeaders: req.headers,
@@ -138,13 +177,13 @@ export async function PATCH(req: Request) {
   return NextResponse.json({
     ok: true,
     item: {
-      id: segment.id,
-      timeEntryId: segment.timeEntryId,
-      startedAt: segment.startedAt,
-      endedAt: segment.endedAt,
-      segmentType: segment.segmentType,
-      createdAt: segment.createdAt,
-      updatedAt: segment.updatedAt,
+      id: updatedSegment.id,
+      timeEntryId: updatedSegment.timeEntryId,
+      startedAt: updatedSegment.startedAt,
+      endedAt: updatedSegment.endedAt,
+      segmentType: updatedSegment.segmentType,
+      createdAt: updatedSegment.createdAt,
+      updatedAt: updatedSegment.updatedAt,
     },
   })
 }

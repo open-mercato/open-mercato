@@ -402,6 +402,7 @@
   "workflows.errors.createFailed": "Failed to create workflow",
   "workflows.errors.fetchFailed": "Failed to fetch workflow",
   "workflows.errors.loadFailed": "Failed to load workflow. Please try again.",
+  "workflows.errors.notFound": "Workflow not found.",
   "workflows.errors.updateFailed": "Failed to update workflow",
   "workflows.events.backToList": "Back to Events",
   "workflows.events.detail.eventData": "Event Data",

@@ -1,4 +1,166 @@
 
+# 0.6.5 (2026-06-03)
+
+## Highlights
+
+Open Mercato `0.6.5` opens the next cycle on top of `0.6.4`'s hardening work. The headline is the **IMAP + Google email integration foundation** — shared MIME assembly, inbound normalization, and threading-id plumbing that every email channel provider now builds on instead of copy-pasting. UI continues the `RecordNotFoundState` rollout into its fourth phase (throw-on-load edit pages) with integration coverage in phase five, and the dialog Esc/Cmd+Enter behavior is consolidated behind a single `useDialogKeyHandler` hook. Customers gains configurable, optional pipeline-stage handling, and the production Docker fullapp stack inherits the dev-mode `NODE_OPTIONS` heap cap. A CodeQL false-positive in the command-menu test is also cleared.
+
+## ✨ Features
+- ✨ IMAP + Google email integration foundations — shared MIME assembly, inbound parsing, and threading plumbing. (#2424) *(@haxiorz)*
+- ✨ Configurable dictionary entry sorting (carry-forward of #2429). (#2434) *(@pkarw)*
+- ✨ Adopt `RecordNotFoundState` across throw-on-load edit pages — Phase 4 (#2101). (#2435) *(@pkarw)*
+
+## 🐛 Fixes
+- 🐛 `LookupSelect` search input no longer clears typed text (#2389). (#2422) *(@pkarw)*
+- 🐛 Allow optional pipeline stage appearance (supersedes #2430). (#2433) *(@pkarw)*
+- 🐛 Validate deal pipeline stage assignments. (#2439) *(@pmadajthey)*
+- 🐛 Avoid a false unsaved-changes prompt on a clean person detail page. (#2437) *(@pmadajthey)*
+- 🐳 Add the `NODE_OPTIONS` heap cap to the production fullapp Docker stack (#2371). (#2438) *(@Kotmin)*
+
+## 🛠️ Improvements
+- 🛠️ Extract a `useDialogKeyHandler` hook for Esc/Cmd+Enter dialogs (#2366). (#2426) *(@Marynat)*
+
+## 🧪 Testing
+- 🧪 Add `RecordNotFoundState` integration coverage — Phase 5 (#2101). (#2436) *(@izqzmyli)*
+- 🧪 Clear a CodeQL incomplete-URL-sanitization false positive in the command-menu test. (#2427) *(@pkarw)*
+
+## 👥 Contributors
+
+- @haxiorz
+- @pkarw
+- @Marynat
+- @pmadajthey
+- @Kotmin
+- @izqzmyli
+
+# 0.6.4 (2026-06-02)
+
+## Highlights
+
+Open Mercato `0.6.4` is a hardening-and-scale release that builds directly on `0.6.3`'s performance and security work. Two large, cross-cutting audits land together: a **repository-wide transaction-safety pass** that wraps multi-entity writes across sales, customers, catalog, auth, resources, staff, CRUD, and enterprise flows in atomic transactions (no more partial writes on failure), and a **second wave of performance quick wins** — request-level parallelism, per-process/per-locale memoization, N+1 batching, enricher/cache-hit short-circuits, and a fire-and-forget `query_index` path — continuing the p50 < 100 ms push for list/detail APIs.
+
+On the access-control side, the new **ACL feature dependency bundles** let modules declare `dependsOn` so the platform warns at edit time when a granted feature is missing its prerequisites, rolled out across sixteen core and provider modules. Security hardening tightens tenant/org scoping in catalog, customers, search, and customer-portal SSE, requires super-admin for global feature-toggle and system-scheduler writes, fails closed on missing credential DEKs and org-scope checks, and rejects undeclared custom-field keys.
+
+UI ships **DS Foundation v5** (12 new primitives plus rewrites and adoptions), completes the three-phase `RecordNotFoundState` rollout across backend pages, redesigns the create-deal page to the Figma spec, and adds auto-hiding completed progress operations. Rounding it out: a dev-mode `NODE_OPTIONS` heap cap and Redis LRU/eviction tuning, a time-bomb scanner for clock-dependent tests, a broad flaky-test stabilization sweep, and new specs for Railway one-command deployment and PARALLEL_FORK/PARALLEL_JOIN workflow support. Enjoy!
+
+## ✨ Features
+- ✨ DS Foundation v5 — 12 new primitives, 8 rewrites, and downstream adoptions. (#2322) *(@zielivia)*
+- ✨ Redesign the create-deal page to match the Figma mockups. (#2069) *(@haxiorz)*
+- ✨ Adopt `RecordNotFoundState` across backend pages — Phases 1–3 (Phase 1 supersedes #2106). (#2185, #2264, #2404) *(@izqzmyli, via @pkarw)*
+- ✨ Auto-hide completed progress operations after a configurable timeout (fixes #2206). (#2308) *(@izqzmyli)*
+- ✨ Planner: delete availability schedules from the team-member screen. (#2329) *(@adeptofvoltron)*
+
+### 🔐 ACL feature dependency bundles
+- 🔐 ACL dependency bundles — declare `dependsOn` and warn at edit time when a granted feature is missing its prerequisites. (#2141, #2220) *(@pkarw)*
+- 🔐 Declare ACL feature dependencies across modules — `gateway_stripe`, `checkout`, `example`, `ai_assistant`, `progress`, `query_index`, `resources`, `storage_s3`, `directory`, `currencies`, `entities`, `security`, `record_locks`, `sso`, `sync_excel`, `onboarding`. (#2249, #2260, #2261, #2265, #2277, #2280, #2281, #2283, #2284, #2285, #2286, #2287, #2288, #2289, #2295, #2297) *(@pkarw)*
+
+## 🔒 Security
+- 🔒 Scope catalog reads to tenant/org — variant price snapshot loader, `require*` command helpers, and `decorateOffersWithDetails` (fixes #2119, #2118, #2120). (#2196, #2197, #2198) *(@pkarw)*
+- 🔒 Scope customer comment/activity deal enrichment to tenant + org (fixes #2117). (#2212) *(@pkarw)*
+- 🔒 Fail closed on org-scope checks in customers and shared helpers (fixes #2239, #2245). (#2300) *(@adeptofvoltron)*
+- 🔒 Restrict global feature-toggle writes to super admins (fixes #2266). (#2278) *(@pkarw)*
+- 🔒 Require super-admin to manage system-scoped scheduler jobs (fixes #2267). (#2279) *(@pkarw)*
+- 🔒 Filter customer-portal SSE recipients by scope. (#2294) *(@WXYZx)*
+- 🔒 Scope search results to allowed organizations. (#2296) *(@WXYZx)*
+- 🔒 Fail closed when the integrations credentials DEK is unavailable. (#2299) *(@WXYZx)*
+- 🔒 Validate uploads and harden downloads in `storage_s3` (fixes #2269). (#2320) *(@rengare)*
+- 🔒 Reject undeclared custom-field keys on entities. (#2396) *(@mat89c)*
+
+## 🐛 Fixes
+- 🐛 Correct AI assistant `participantCount` and revoke-404 contract deviations (fixes #2189). (#2192) *(@adeptofvoltron)*
+- 🔐 Isolate AI chat sessions per tenant/org scope (fixes #2123). (#2194) *(@adeptofvoltron)*
+- 🌍 AI chat sharing — i18n, persisted notification title, and owner-in-picker (fixes #2097). (#2200) *(@adeptofvoltron)*
+- 🐛 Fix CRM customer list server-side sorting. (#2217) *(@pmadajthey)*
+- 🐛 Fix encrypted-field sorting in query engines. (#2282) *(@pmadajthey)*
+- 🐛 Stabilize planner availability-schedule switching (fixes #2307). (#2323) *(@rengare)*
+- 🐛 Staff timesheets QA follow-ups — wildcard ACL, duplicate-code 409, bulk validation, i18n (fixes #2303, #2304, #2305). (#2309) *(@izqzmyli)*
+- 🐛 Open `DatePicker` on the selected value's month. (#2330) *(@adeptofvoltron)*
+- 🐛 Preserve custom hours when switching planner availability schedules (fixes #2325). (#2345) *(@adeptofvoltron)*
+- 🔧 Add the missing `updated_at` migration for roles & users so fresh installs boot. (#2348) *(@pkarw)*
+- 🐳 Configure Redis with an LRU eviction policy and disable dev persistence (fixes #2372). (#2390) *(@Kotmin)*
+- 🐛 Add a note type to `ScheduleActivityDialog` to prevent a crash on edit (fixes #2388). (#2405) *(@adeptofvoltron)*
+- 🐛 Serialize `temperature` and `renewalQuarter` in company detail GET (fixes #2399). (#2408) *(@adeptofvoltron)*
+- 🐛 Persist metadata changes for system entities on save (fixes #2411). (#2415) *(@adeptofvoltron)*
+- 🐛 Make tenant-level org undo reachable via the public undo API (fixes #2398). (#2417) *(@adeptofvoltron)*
+
+### 🔧 Transaction safety — atomic multi-entity writes
+- 🔧 Harden `withAtomicFlush` + a repository-wide SQL transaction-safety audit. (#2343) *(@pkarw)*
+- 🔧 Sales — atomic quote acceptance + convert-to-order under one lock (fixes #2114). (#2347) *(@pkarw)*
+- 🔧 Sales — atomic order/quote/payment writes (fixes #2336). (#2355) *(@pkarw)*
+- 🔧 Core — atomic multi-table writes in perspectives, messages, and inbox ops (fixes #2340). (#2354) *(@adeptofvoltron)*
+- 🔧 Resources & `data_sync` — atomic relation & batch writes (fixes #2341). (#2356) *(@adeptofvoltron)*
+- 🔧 Auth, directory & staff — atomic ACL, user-delete cascade & org-hierarchy writes (fixes #2339). (#2360) *(@adeptofvoltron)*
+- 🔧 Catalog, currencies & translations — atomic product/variant/category/base-currency writes (fixes #2338). (#2368) *(@adeptofvoltron)*
+- 🔧 Customers — atomic writes for portal roles, companies, links & addresses (fixes #2337). (#2374) *(@pkarw)*
+- 🔧 CRUD — atomic `makeCrudRoute` direct-ORM entity + custom-field writes (fixes #2335). (#2376) *(@pkarw)*
+- 🔧 Enterprise, onboarding & sync-akeneo — atomic multi-entity writes (fixes #2342). (#2377) *(@pkarw)*
+- 🔧 Attachments & `sync_excel` — atomic entity + custom-field & import-config writes. (#2383) *(@pkarw)*
+- 🔧 Staff — serialize timesheets timer/segment writes with a locking transaction (fixes #2416). (#2420) *(@pkarw)*
+
+## 🛠️ Improvements
+- 🛠️ Refresh stale AI module-scaffold APIs + add a SKILL-level post-scaffold validation gate (supersedes #2216). (#2243) *(@Kotmin, via @pkarw)*
+- 🛠️ Add a `NODE_OPTIONS` heap cap to prevent V8 memory drift in dev (fixes #2370). (#2375) *(@Kotmin)*
+- 🛠️ Combine Dependabot minor-and-patch and major bumps (#2394, #2395). (#2403) *(@pkarw)*
+
+### ⚡ Performance
+- 🛠️ Lazy-load recharts, `@xyflow/react`, and ClientBootstrap registries for a ~1 GB dev RAM win. (#2129) *(@pkarw)*
+- 🛠️ Thread the custom-field definition index through `QueryEngine` (fixes #2133). (#2210) *(@pkarw)*
+- 🛠️ Fold the shipment-status `DictionaryEntry` fetch into the sales `afterList` `Promise.all` (fixes #2131). (#2211) *(@pkarw)*
+- 🛠️ Memoize `deriveJwtAudienceSecret` HMAC per process. (#2263) *(@mat89c)*
+- 🛠️ Push tenants-list pagination to the DB; close the `findAndCount` fetch-all-then-slice audit (fixes #2136). (#2290) *(@pkarw)*
+- 🛠️ Cache business-rule discovery. (#2298) *(@WXYZx)*
+- 🛠️ Fire-and-forget `query_index` emits to unblock CRUD responses. (#2310) *(@izqzmyli)*
+- 🛠️ Memoize `TenantEncryptionSubscriber` per service (fixes #2235). (#2311) *(@pkarw)*
+- 🛠️ Parallelize search-token sources in CRM search (fixes #2231). (#2312) *(@pkarw)*
+- 🛠️ Consolidate org-scope resolution into a single organizations query (fixes #2228). (#2313) *(@pkarw)*
+- 🛠️ Skip response enrichers on list cache hits (fixes #2222). (#2314) *(@pkarw)*
+- 🛠️ Parallelize per-request session/user/role/ACL resolution (fixes #2221). (#2315) *(@pkarw)*
+- 🛠️ Memoize the i18n dictionary per locale (fixes #2224). (#2316) *(@pkarw)*
+- 🛠️ Batch N+1 lookups in rate ingestion, field defs, and role perspectives (fixes #1399). (#2317) *(@pkarw)*
+- 🛠️ Add a batch widget-data endpoint to collapse per-widget container/RBAC/scope rebuilds (fixes #2273). (#2318) *(@pkarw)*
+- 🛠️ Dedupe the webhooks integration check and parallelize outbound delivery. (#2344) *(@mat89c)*
+- 🛠️ Batch price resolution in the products `afterList` hook. (#2392) *(@Marynat)*
+- 🛠️ Tune SQLite cache writes. (#2400) *(@WXYZx)*
+- 🛠️ Cache `query_index` coverage snapshots by TTL. (#2401) *(@WXYZx)*
+
+## 🧪 Testing
+- 🧪 Add cross-tenant access integration tests for attachments (TC-ATTACH-XSS-001–005). (#2186) *(@izqzmyli)*
+- 🧪 Stabilize TC-CRM-028 (todos_pkey) and TC-WF-013 (timer resume). (#2188) *(@pkarw)*
+- 🧪 Stabilize the TC-AI-MERCHANDISING-008 selection-pill flake. (#2195) *(@pkarw)*
+- 🧪 Stabilize release integration flakes — sales shard-12 timeouts + deal-create hydration race. (#2202) *(@pkarw)*
+- 🧪 Un-skip TC-CRM-071 + fix the create-deal hydration race. (#2213) *(@pkarw)*
+- 🧪 Stabilize TC-INT-004 by raising the per-test timeout budget. (#2226) *(@pkarw)*
+- 🧪 Fix flaky-test readiness races at the root (no timeout bumps). (#2369) *(@pkarw)*
+- 🧪 Use a dynamic future datetime in workflow timer validator tests. (#2391) *(@MStaniaszek1998)*
+- 🧪 Add a time-bomb scanner and fix clock-dependent date literals (fixes #2384). (#2393) *(@adeptofvoltron)*
+- 🧪 Cap `yarn test` memory fan-out below the `yarn dev` budget (fixes #2402). (#2412) *(@pkarw)*
+- 🧪 Stabilize the flaky TC-CRM-028 example-customer-sync poll. (#2418) *(@pkarw)*
+- 🧪 Stabilize flaky TC-MSG-009 and TC-AUTH-009. (#2419) *(@pkarw)*
+
+## 📝 Specs & Documentation
+- 📝 Spec: Railway one-command deployment from the Open Mercato CLI. (#1898) *(@pkarw)*
+- 📝 Spec: compile + route-warmup speedup (30–50%). (#2199) *(@pkarw)*
+- 📝 Document in-process dev watcher/workers + parallelism flags. (#2203) *(@pkarw)*
+- 📝 Add a Page URL field to the bug-report issue template. (#2331) *(@adeptofvoltron)*
+- 📝 Spec: PARALLEL_FORK / PARALLEL_JOIN workflow engine support. (#2385) *(@adeptofvoltron)*
+
+## 👥 Contributors
+
+- @pkarw
+- @haxiorz
+- @zielivia
+- @izqzmyli
+- @adeptofvoltron
+- @WXYZx
+- @rengare
+- @mat89c
+- @pmadajthey
+- @Marynat
+- @Kotmin
+- @MStaniaszek1998
+
+---
+
 # 0.6.3 (2026-05-28)
 
 ## Highlights

@@ -6,7 +6,7 @@ import { WorkflowBranchInstance } from '../../data/entities'
  * Lightweight in-memory EntityManager stub covering exactly the surface
  * `openFork` touches. The full FORK→branches→JOIN execution path (interleaved
  * loop, wait-all, namespace merge, outputMapping) is verified end-to-end by the
- * integration tests TC-WF-014..020 against a real database.
+ * integration tests TC-WF-015..022 against a real database.
  */
 function makeEmStub() {
   const created: Array<{ entity: any; data: any }> = []

@@ -15,6 +15,7 @@ type RuntimeContext = {
   userId?: string
   features: string[]
   currentPath: string
+  t?: (key: string, fallback?: string) => string
   refreshNotifications: () => void
   navigate: (href: string) => void
   markAsRead: (notificationId: string) => Promise<void>
@@ -57,6 +58,7 @@ function buildHandlerContext(runtime: RuntimeContext): NotificationHandlerContex
     userId: runtime.userId,
     features: runtime.features,
     currentPath: runtime.currentPath,
+    t: runtime.t,
     toast(options) {
       const text = options.body ? `${options.title}: ${options.body}` : options.title
       flash(text, toFlashKind(options.severity))

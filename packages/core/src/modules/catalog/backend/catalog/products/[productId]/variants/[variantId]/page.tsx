@@ -9,7 +9,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { E } from '#generated/entities.ids.generated'
@@ -95,6 +95,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   const [existingPriceIds, setExistingPriceIds] = React.useState<Record<string, string>>({})
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [currentProductId, setCurrentProductId] = React.useState<string | null>(productId)
   const [productTitle, setProductTitle] = React.useState<string>('')
   const [productTaxRateId, setProductTaxRateId] = React.useState<string | null>(null)
@@ -162,13 +163,23 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     async function load() {
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
         const variantRes = await apiCall<VariantResponse>(
           `/api/catalog/variants?id=${encodeURIComponent(variantId!)}&page=1&pageSize=1`,
         )
-        if (!variantRes.ok) throw new Error(t('catalog.variants.form.errors.load', 'Failed to load variant.'))
+        if (!variantRes.ok) {
+          if (variantRes.status === 404) {
+            if (!cancelled) setIsNotFound(true)
+            return
+          }
+          throw new Error(t('catalog.variants.form.errors.load', 'Failed to load variant.'))
+        }
         const record = Array.isArray(variantRes.result?.items) ? variantRes.result?.items?.[0] : undefined
-        if (!record) throw new Error(t('catalog.variants.form.errors.notFound', 'Variant not found.'))
+        if (!record) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         const resolvedProductId =
           typeof record.product_id === 'string'
             ? record.product_id
@@ -418,12 +429,33 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     : t('catalog.variants.form.editTitle', 'Edit variant')
   const productVariantsHref = `/backend/catalog/products/${currentProductId}#variants`
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('catalog.variants.form.errors.notFound', 'Variant not found.')}
+            backHref={productVariantsHref}
+            backLabel={t('catalog.variants.form.actions.backToProduct', 'Back to product variants')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error && !loading) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
-        {error ? (
-          <ErrorMessage label={error} className="mb-4" />
-        ) : null}
         <CrudForm<VariantFormValues>
           title={formTitle}
           backHref={productVariantsHref}

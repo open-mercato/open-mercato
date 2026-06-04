@@ -402,6 +402,7 @@
   "workflows.errors.createFailed": "No se pudo crear el flujo de trabajo",
   "workflows.errors.fetchFailed": "No se pudo obtener el flujo de trabajo",
   "workflows.errors.loadFailed": "No se pudo cargar el flujo de trabajo. Intentalo de nuevo.",
+  "workflows.errors.notFound": "Flujo de trabajo no encontrado.",
   "workflows.errors.updateFailed": "No se pudo actualizar el flujo de trabajo",
   "workflows.events.backToList": "Volver a eventos",
   "workflows.events.detail.eventData": "Datos del evento",

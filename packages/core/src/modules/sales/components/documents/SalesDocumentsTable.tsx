@@ -251,7 +251,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         undefined,
         { fallback: { items: [] } }
       )
-      const entries = normalizeDictionaryEntries(response.result?.items ?? [])
+      const entries = normalizeDictionaryEntries(response.result?.items ?? [], { sort: false })
       setStatusMap(createDictionaryMap(entries))
     } catch (err) {
       console.error('sales.documents.statuses.load', err)

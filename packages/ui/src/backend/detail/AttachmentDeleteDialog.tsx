@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type Props = {
@@ -20,20 +21,11 @@ export function AttachmentDeleteDialog({ open, onOpenChange, fileName, onConfirm
     'Delete attachment "{{name}}"? This action cannot be undone.',
   ).replace('{{name}}', fileName || t('attachments.library.metadata.title', 'attachment'))
 
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onOpenChange(false)
-        return
-      }
-      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault()
-        if (!isDeleting) onConfirm()
-      }
-    },
-    [isDeleting, onConfirm, onOpenChange],
-  )
+  const handleKeyDown = useDialogKeyHandler({
+    onConfirm,
+    onCancel: () => onOpenChange(false),
+    disabled: isDeleting,
+  })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
