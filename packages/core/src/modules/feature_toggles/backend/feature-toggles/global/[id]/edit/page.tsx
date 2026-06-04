@@ -1,6 +1,7 @@
 "use client"
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
 import { CrudForm } from "@open-mercato/ui/backend/CrudForm";
+import { ErrorMessage, LoadingMessage } from "@open-mercato/ui/backend/detail";
 import { E } from "#generated/entities.ids.generated";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import * as React from 'react'
@@ -16,7 +17,7 @@ export default function EditFeatureTogglePage({ params }: { params?: { id?: stri
   const fields = createFieldDefinitions(t);
   const formGroups = createFormGroups(t);
 
-  const { data: featureToggleItem, isLoading } = useFeatureToggleItem(id)
+  const { data: featureToggleItem, isLoading, isError } = useFeatureToggleItem(id)
 
   React.useEffect(() => {
     if (featureToggleItem) {
@@ -32,6 +33,26 @@ export default function EditFeatureTogglePage({ params }: { params?: { id?: stri
     }
   }, [featureToggleItem])
 
+  // Gate the form on load. Mounting CrudForm with placeholder `{}` before the
+  // record arrives makes the required `type` Select mount controlled with `''`,
+  // then flip empty→value asynchronously — a transition the Radix trigger fails
+  // to re-derive, leaving Type blank and blocking save. Rendering CrudForm only
+  // once the record is present mirrors the synchronous create flow, so the
+  // Select mounts a single time with the stored value already set.
+  if (!initialValues) {
+    return (
+      <Page>
+        <PageBody>
+          {isError && !isLoading ? (
+            <ErrorMessage label={t('feature_toggles.form.errors.load', 'Failed to load feature toggle')} />
+          ) : (
+            <LoadingMessage label={t('feature_toggles.form.loading', 'Loading feature toggles')} />
+          )}
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
@@ -41,8 +62,7 @@ export default function EditFeatureTogglePage({ params }: { params?: { id?: stri
           versionHistory={{ resourceKind: 'feature_toggles.global', resourceId: id ? String(id) : '' }}
           fields={fields}
           entityId={E.feature_toggles.feature_toggle}
-          initialValues={initialValues ?? {}}
-          isLoading={isLoading}
+          initialValues={initialValues}
           groups={formGroups}
           loadingMessage={t('feature_toggles.form.loading', 'Loading feature toggles')}
           submitLabel={t('feature_toggles.form.action.save', 'Save')}
