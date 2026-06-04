@@ -43,5 +43,14 @@ reports (root-caused) for every failure, tracked against issue #2468.
 A tracking PR (this branch → develop) holds the new specs + this run folder. It is linked to #2468.
 Keep `PLAN.md` checkboxes current; that is the source of truth for what's verified.
 
-## Current status
-See PLAN.md checklist + the latest comment on #2468. Updated each checkpoint.
+## Current status (2026-06-04)
+- Ephemeral app: http://127.0.0.1:46203 (still running). Branch `qa/2468-undo-redo-verification`, tracking PR #2500.
+- Verified ~50 scenarios (see VERIFICATION-MATRIX.md). Bugs filed: #2498, #2504, #2507 (P-high), #2506 (medium findings).
+- Green regression specs: TC-UNDO-001-people.spec.ts, TC-UNDO-001-config-entities.spec.ts (14), scheduler fixme spec.
+- Repro/sweep scripts: repro.mjs(removed), sweep.mjs, batch2.mjs, batch3.mjs + contracts.json (live-validated payloads).
+
+## To resume (remaining — see VERIFICATION-MATRIX "TODO" + Batch-3 deferred)
+1. App may have stopped; if so re-run `yarn test:integration:ephemeral:start` from the worktree, read new baseUrl from `.ai/qa/ephemeral-env.json`.
+2. Remaining scenarios: sales documents (orders/quotes lines/adjustments/convert), shipments, returns; planner weekly/date-specific replace; staff team-member activities/addresses/comments/job-histories + time_project_members assign/unassign; resources resourceTags CRUD (non-undoable per enumeration — verify negative); customers tags/labels unassign, todos.unlink, dictionaryKindSettings.upsert, entityRoles(+userId), interactions update; catalog productUnitConversions (valid UoM); X8 tenant isolation, X9 bulk undo, X10 cf-heavy on a working entity, X12 search/index.
+3. Use contracts.json + the commands enumeration (in conversation) for payloads; extend sweep.mjs/batch2.mjs (they auto-provision parents).
+4. Confirm #2507/#2498 share root cause; if the encryption-subscriber systemic fix lands, flip the relevant test.fixme to active.
