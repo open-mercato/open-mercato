@@ -620,7 +620,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     if (!profile) throw new CrudHttpError(404, { error: 'Company profile not found' })
 
     await withAtomicFlush(em, [
-      () => {
+      async () => {
         if (parsed.displayName !== undefined) record.displayName = parsed.displayName
         if (parsed.description !== undefined) record.description = parsed.description ?? null
         if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
@@ -656,6 +656,14 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         if (parsed.annualRevenue !== undefined) {
           profile.annualRevenue = parsed.annualRevenue !== null && parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null
         }
+
+        // Flush the company/profile scalar mutations before the tag-sync phase runs
+        // its own queries — syncEntityTags' loadEntityTagIds findWithDecryption and the
+        // CustomerTag in-scope find. Those interleaved reads otherwise drop the still-
+        // pending scalar changeset, so the write returns 200 with updated_at bumped while
+        // displayName/status/source/etc. are never persisted (#2453 sibling). Still inside
+        // the same transaction → atomic.
+        await em.flush()
       },
       () => syncEntityTags(em, record, parsed.tags),
     ], { transaction: true })
