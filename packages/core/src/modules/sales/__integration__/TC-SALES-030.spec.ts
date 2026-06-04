@@ -447,4 +447,165 @@ test.describe('TC-SALES-030 sales read-model totals fidelity', () => {
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
     }
   })
+
+  test('rate-based and tax-kind order adjustments aggregate correctly', async ({ request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    let discountOrderId: string | null = null
+    let taxOrderId: string | null = null
+
+    try {
+      // Rate-based discount: 10% of a 100 net line.
+      const discountOrderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
+        token,
+        data: { currencyCode: 'USD' },
+      })
+      discountOrderId = (await readJson(discountOrderResponse)).id as string
+      await apiRequest(request, 'POST', '/api/sales/order-lines', {
+        token,
+        data: { orderId: discountOrderId, currencyCode: 'USD', quantity: 1, name: 'Rate disc line', unitPriceNet: 100, unitPriceGross: 100 },
+      })
+      await apiRequest(request, 'POST', '/api/sales/order-adjustments', {
+        token,
+        data: { orderId: discountOrderId, scope: 'order', kind: 'discount', rate: 10, currencyCode: 'USD', label: 'Percent off' },
+      })
+      const discountOrder = await readSingleDocument(request, token, 'orders', discountOrderId!)
+      expect(num(discountOrder.discountTotalAmount)).toBe(10)
+      expect(num(discountOrder.grandTotalNetAmount)).toBe(90)
+
+      // Tax-kind adjustment: an explicit 7 tax on a 100 net line.
+      const taxOrderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
+        token,
+        data: { currencyCode: 'USD' },
+      })
+      taxOrderId = (await readJson(taxOrderResponse)).id as string
+      await apiRequest(request, 'POST', '/api/sales/order-lines', {
+        token,
+        data: { orderId: taxOrderId, currencyCode: 'USD', quantity: 1, name: 'Tax adj line', unitPriceNet: 100, unitPriceGross: 100 },
+      })
+      await apiRequest(request, 'POST', '/api/sales/order-adjustments', {
+        token,
+        data: { orderId: taxOrderId, scope: 'order', kind: 'tax', amountNet: 7, amountGross: 7, currencyCode: 'USD', label: 'Eco tax' },
+      })
+      const taxOrder = await readSingleDocument(request, token, 'orders', taxOrderId!)
+      expect(num(taxOrder.taxTotalAmount)).toBe(7)
+      expect(num(taxOrder.grandTotalGrossAmount)).toBe(107)
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', discountOrderId)
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', taxOrderId)
+    }
+  })
+
+  test('multiple payments sum into paid total', async ({ request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    let orderId: string | null = null
+    const paymentIds: string[] = []
+
+    try {
+      const orderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
+        token,
+        data: { currencyCode: 'USD' },
+      })
+      orderId = (await readJson(orderResponse)).id as string
+      await apiRequest(request, 'POST', '/api/sales/order-lines', {
+        token,
+        data: { orderId, currencyCode: 'USD', quantity: 1, name: 'Split-pay line', unitPriceNet: 100, unitPriceGross: 100 },
+      })
+      for (const amount of [30, 50]) {
+        const payResponse = await apiRequest(request, 'POST', '/api/sales/payments', {
+          token,
+          data: { orderId, amount, currencyCode: 'USD' },
+        })
+        expect(payResponse.status()).toBe(201)
+        paymentIds.push((await readJson(payResponse)).id as string)
+      }
+
+      const order = await readSingleDocument(request, token, 'orders', orderId!)
+      expect(num(order.paidTotalAmount)).toBe(80)
+      expect(num(order.outstandingAmount)).toBe(20)
+    } finally {
+      for (const id of paymentIds) {
+        await deleteSalesEntityIfExists(request, token, '/api/sales/payments', id)
+      }
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+    }
+  })
+
+  test('deleting an order adjustment recomputes document totals', async ({ request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    let orderId: string | null = null
+
+    try {
+      const orderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
+        token,
+        data: { currencyCode: 'USD' },
+      })
+      orderId = (await readJson(orderResponse)).id as string
+      await apiRequest(request, 'POST', '/api/sales/order-lines', {
+        token,
+        data: { orderId, currencyCode: 'USD', quantity: 1, name: 'Adj-del line', unitPriceNet: 100, unitPriceGross: 100 },
+      })
+      const adjResponse = await apiRequest(request, 'POST', '/api/sales/order-adjustments', {
+        token,
+        data: { orderId, scope: 'order', kind: 'surcharge', amountNet: 25, amountGross: 25, currencyCode: 'USD', label: 'Temp fee' },
+      })
+      expect(adjResponse.status()).toBe(201)
+      const adjustmentId = (await readJson(adjResponse)).id as string
+
+      let order = await readSingleDocument(request, token, 'orders', orderId!)
+      expect(num(order.grandTotalGrossAmount)).toBe(125)
+
+      const deleteResponse = await apiRequest(request, 'DELETE', '/api/sales/order-adjustments', {
+        token,
+        data: { id: adjustmentId, orderId },
+      })
+      expect(deleteResponse.status()).toBe(200)
+
+      order = await readSingleDocument(request, token, 'orders', orderId!)
+      expect(num(order.surchargeTotalAmount)).toBe(0)
+      expect(num(order.grandTotalGrossAmount)).toBe(100)
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+    }
+  })
+
+  test('deleting an order line recomputes document totals', async ({ request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    let orderId: string | null = null
+
+    try {
+      const orderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
+        token,
+        data: { currencyCode: 'USD' },
+      })
+      orderId = (await readJson(orderResponse)).id as string
+      await apiRequest(request, 'POST', '/api/sales/order-lines', {
+        token,
+        data: { orderId, currencyCode: 'USD', quantity: 1, name: 'Keep', unitPriceNet: 100, unitPriceGross: 100 },
+      })
+      const removableResponse = await apiRequest(request, 'POST', '/api/sales/order-lines', {
+        token,
+        data: { orderId, currencyCode: 'USD', quantity: 1, name: 'Remove', unitPriceNet: 40, unitPriceGross: 40 },
+      })
+      const removableLineId = (await readJson(removableResponse)).id as string
+
+      let order = await readSingleDocument(request, token, 'orders', orderId!)
+      expect(num(order.subtotalNetAmount)).toBe(140)
+
+      const deleteResponse = await apiRequest(request, 'DELETE', '/api/sales/order-lines', {
+        token,
+        data: { id: removableLineId, orderId },
+      })
+      expect(deleteResponse.status()).toBe(200)
+
+      order = await readSingleDocument(request, token, 'orders', orderId!)
+      expect(num(order.subtotalNetAmount)).toBe(100)
+      expect(num(order.grandTotalGrossAmount)).toBe(100)
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+    }
+  })
 })
