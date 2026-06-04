@@ -31,8 +31,12 @@ import {
  *          page is NOT the live single-Save editor — it edits inline and has no
  *          header "Save" button. Lenient assertion only.
  *   NEG-02 opt-out (OM_OPTIMISTIC_LOCK=off): NOT runnable here — this shared app
- *          boots default-ON. Added as test.fixme with a note; it needs a
- *          separately-booted app with the env flag set.
+ *          boots default-ON and a second app with the flag flipped cannot be
+ *          booted from this suite. The opt-out is a pure function of the env
+ *          parser + guard, so it is proven as a runnable UNIT test in
+ *          packages/shared/src/lib/crud/__tests__/optimistic-lock.test.ts
+ *          (the "NEG-02 … stale header is NOT enforced" case) instead of a
+ *          dangling integration placeholder.
  *
  * Route under test (NEG-01/05): `packages/core/src/modules/currencies/api/currencies/route.ts`
  * (a `makeCrudRoute` CRUD surface). The lock header contract lives in
@@ -157,8 +161,12 @@ test.describe('TC-LOCK-OSS-046: optimistic-lock negative / additive contract', (
   })
 
   // NEG-02 opt-out (OM_OPTIMISTIC_LOCK=off): this shared app boots default-ON, so a
-  // stale write always 409s here — there is no way to prove the opt-out path
-  // against it. Verifying it requires a separately-booted app with
-  // OM_OPTIMISTIC_LOCK=off where a stale-header PUT would return 200 (lock disabled).
-  test.fixme('NEG-02: with OM_OPTIMISTIC_LOCK=off a stale-header PUT returns 200 (needs opt-out app boot)', async () => {})
+  // stale write always 409s here — the opt-out path cannot be exercised against it
+  // (a second app with the env flag flipped cannot be booted from this suite).
+  // The opt-out behavior is a pure function of the env parser + guard service, so it
+  // is proven as a runnable UNIT test instead of an unrunnable integration placeholder:
+  // see packages/shared/src/lib/crud/__tests__/optimistic-lock.test.ts → the
+  // "NEG-02: with OM_OPTIMISTIC_LOCK=... a stale header is NOT enforced" case, which
+  // asserts that a stale header (that 409s when the guard is ON) passes through ok
+  // when the lock is disabled — the same 200/no-enforcement contract this case wanted.
 })

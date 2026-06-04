@@ -103,6 +103,39 @@ describe('createOptimisticLockGuardService — short-circuits', () => {
     expect(result).toEqual({ ok: true, shouldRunAfterSuccess: false })
   })
 
+  // NEG-02 opt-out (OM_OPTIMISTIC_LOCK=off): this was originally a test.fixme in
+  // TC-LOCK-OSS-046.spec.ts because the shared integration app boots default-ON
+  // and a second app with the env flag flipped cannot be booted. The behavior is
+  // a pure function of the parser + guard, so it is proven here as a unit test:
+  // with the lock disabled, a STALE header (a token that mismatches the current
+  // updated_at, which would normally 409) instead passes through ok — exactly the
+  // 200/no-enforcement contract the integration case asserted.
+  it.each(['off', 'false', '0', 'no', 'disabled', 'none'])(
+    'NEG-02: with OM_OPTIMISTIC_LOCK="%s" a stale header is NOT enforced (would-be 409 passes)',
+    async (offToken) => {
+      const stale = '2026-05-25T08:00:00.000Z'
+      const current = '2026-05-25T09:00:00.000Z'
+      const headers = new Headers()
+      headers.set(OPTIMISTIC_LOCK_HEADER_NAME, stale)
+      const service = makeService({
+        envValue: offToken,
+        readers: { 'customers.company': async () => current },
+      })
+      // Sanity: the same stale-vs-current pair DOES 409 when the guard is ON,
+      // so this assertion isolates the opt-out, not a degenerate no-op input.
+      const onService = makeService({
+        envValue: 'all',
+        readers: { 'customers.company': async () => current },
+      })
+      const onResult = await onService.validateMutation(makeInput({ requestHeaders: new Headers(headers) }))
+      expect(onResult.ok).toBe(false)
+
+      const result = await service.validateMutation(makeInput({ requestHeaders: headers }))
+      expect(result).toEqual({ ok: true, shouldRunAfterSuccess: false })
+      expect(service.getConfig()).toEqual({ mode: 'off' })
+    },
+  )
+
   it('passes when env is unset (default mode=all) but no reader is registered (strict-additive opt-in)', async () => {
     const service = makeService({ envValue: undefined, readers: {} })
     const result = await service.validateMutation(makeInput())
