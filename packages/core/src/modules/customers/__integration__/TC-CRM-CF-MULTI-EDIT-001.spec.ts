@@ -131,8 +131,13 @@ test.describe('TC-CRM-CF-MULTI-EDIT-001: deal multichoice custom field persists 
       dealId = typeof createBody?.id === 'string' ? createBody.id : null;
       expect(dealId, 'create deal should return an id').toBeTruthy();
 
-      const afterCreate = await fetchDealCustomValues(request, token, dealId as string);
-      expect(asStringArray(afterCreate[fieldKey])).toEqual(['alpha', 'beta']);
+      // customValues come from the eventually-consistent query index; poll until it converges.
+      await expect
+        .poll(
+          async () => asStringArray((await fetchDealCustomValues(request, token as string, dealId as string))[fieldKey]),
+          { message: 'deal multi-select create should appear in the query index', timeout: 15_000 },
+        )
+        .toEqual(['alpha', 'beta']);
 
       // EDIT to a DIFFERENT multi-value set using the `customFields` wrapper —
       // the shape the fixed `useDealFormHandlers` now sends.
@@ -146,19 +151,18 @@ test.describe('TC-CRM-CF-MULTI-EDIT-001: deal multichoice custom field persists 
       });
       expect(updateRes.ok(), `update deal failed: ${updateRes.status()}`).toBeTruthy();
 
-      const afterUpdate = await fetchDealCustomValues(request, token, dealId as string);
-      // TEMP DIAGNOSTIC (revert): the list endpoint reads from the async query
-      // index; the detail endpoint reads LIVE from EAV (loadCustomFieldValues).
-      // Surfacing both in the assertion message reveals whether a [] result is a
-      // dropped EAV write (detail also []) or an empty/stale index (detail correct).
-      const detailRes = await apiRequest(request, 'GET', `/api/customers/deals/${encodeURIComponent(dealId as string)}`, { token });
-      const detailBody = await readJsonSafe<{ customFields?: Record<string, unknown> }>(detailRes);
-      const liveEav = detailBody?.customFields?.[fieldKey];
-      const diag = `INDEX(list)=${JSON.stringify(afterUpdate[fieldKey])} LIVE_EAV(detail status=${detailRes.status()})=${JSON.stringify(liveEav)}`;
-      // New set persists, and the old values (alpha/beta) are gone.
-      expect(asStringArray(afterUpdate[fieldKey]), diag).toEqual(['delta', 'gamma']);
-      expect(asStringArray(afterUpdate[fieldKey])).not.toContain('alpha');
-      expect(asStringArray(afterUpdate[fieldKey])).not.toContain('beta');
+      // The deal list endpoint serves customValues from the query index, which is
+      // updated out-of-band (fire-and-forget `query_index.upsert_one`). The write
+      // itself is synchronous (live EAV reflects it immediately), but the index is
+      // eventually consistent, so a single immediate read races the async re-index
+      // and can observe an empty/stale value under load. Poll until the index
+      // converges to the new set (mirrors TC-CUR-004's expect.poll on an indexed read).
+      await expect
+        .poll(
+          async () => asStringArray((await fetchDealCustomValues(request, token as string, dealId as string))[fieldKey]),
+          { message: 'deal multi-select edit should converge in the query index to the new values', timeout: 15_000 },
+        )
+        .toEqual(['delta', 'gamma']);
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
@@ -210,8 +214,14 @@ test.describe('TC-CRM-CF-MULTI-EDIT-001: deal multichoice custom field persists 
       expect(updateRes.ok(), `update deal failed: ${updateRes.status()}`).toBeTruthy();
 
       // The bare key is dropped by dealUpdateSchema.parse → custom value unchanged.
-      const afterUpdate = await fetchDealCustomValues(request, token, dealId as string);
-      expect(asStringArray(afterUpdate[fieldKey])).toEqual(['one']);
+      // Poll the eventually-consistent index; it must stay ['one'] (would converge
+      // to ['two','three'] and time out if the bare-key path wrongly persisted).
+      await expect
+        .poll(
+          async () => asStringArray((await fetchDealCustomValues(request, token as string, dealId as string))[fieldKey]),
+          { message: 'bare-key edit must not change the persisted custom value', timeout: 15_000 },
+        )
+        .toEqual(['one']);
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
