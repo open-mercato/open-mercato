@@ -179,8 +179,8 @@ test.describe('TC-WMS-026: Inventory console row actions', () => {
         .poll(
           async () => {
             const balance = await fetchBalanceAtLocation(request, adminToken, {
-              warehouseId,
-              locationId: fromLocationId,
+              warehouseId: warehouseId!,
+              locationId: fromLocationId!,
               catalogVariantId: variantId,
             })
             return toNumber(balance?.quantity_available ?? 0)
@@ -353,9 +353,9 @@ test.describe('TC-WMS-026: Inventory console row actions', () => {
         .poll(
           async () => {
             const reservations = await fetchReservations(request, adminToken, {
-              warehouseId,
+              warehouseId: warehouseId!,
               catalogVariantId: variantId,
-              sourceId: orderId,
+              sourceId: orderId!,
             })
             return reservations.find(
               (item) => item.id === reservationId && item.status === 'active',
