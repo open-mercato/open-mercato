@@ -7,6 +7,7 @@ import { User, Hash, Users, Building2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { CollapsibleZoneLayout, type ZoneSectionDescriptor } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
+import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -55,6 +56,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const router = useRouter()
   const searchParams = useSearchParams()
   const { organizationId } = useOrganizationScopeDetail()
+  const isMobile = useIsMobile()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
@@ -135,7 +137,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   // Data loading
   const initialLoadDoneRef = React.useRef(false)
-  const loadData = React.useCallback(async () => {
+  const loadData = React.useCallback(async (lockTokenOverride?: string | null) => {
     if (!id) {
       setIsNotFound(true)
       setIsLoading(false)
@@ -152,7 +154,15 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
         undefined,
         { errorMessage: t('customers.people.detail.error.load', 'Failed to load person.') },
       )
-      setData(payload as PersonOverview)
+      // When the caller is the save handler, pin the optimistic-lock token to the
+      // value the write itself returned rather than the one this GET observed — a
+      // concurrent third-party bump between save and reload must stay stale so the
+      // next in-page save 409s (#2055, Alina A7). Applied in the same state update
+      // as the refresh to avoid a redundant second re-render.
+      const next = lockTokenOverride && payload?.person
+        ? { ...payload, person: { ...payload.person, updatedAt: lockTokenOverride, updated_at: lockTokenOverride } }
+        : payload
+      setData(next as PersonOverview)
     } catch (err) {
       if ((err as { status?: number }).status === 404) {
         setIsNotFound(true)
@@ -355,25 +365,13 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
           () => updateCrud<{ updatedAt?: string | null }>('customers/people', payload),
         )
         flash(t('customers.people.form.updateSuccess', 'Person updated.'), 'success')
-        // Refresh the optimistic-lock token from the write's OWN authoritative
-        // response (`updatedAt`), not from a follow-up GET. A separate `loadData()`
-        // GET races concurrent third-party writes: if another tab bumps the record
-        // between this save and the reload, the GET would capture the *bumped*
-        // token, so the next in-page save would no longer be stale and would
-        // silently overwrite (no 409, no conflict bar). Pinning the token to the
-        // value the server just wrote keeps a later concurrent bump correctly
-        // stale → 409 → unified conflict bar (#2055, Alina A7 sequential-save).
+        // Refresh the view and pin the optimistic-lock token to the write's OWN
+        // authoritative `updatedAt` in a single reload (see loadData) so a
+        // concurrent third-party bump stays stale on the next save (#2055, Alina A7).
         const savedUpdatedAt = typeof updateResponse.result?.updatedAt === 'string'
           ? updateResponse.result.updatedAt
           : null
-        await loadData()
-        if (savedUpdatedAt) {
-          setData((prev) => (
-            prev?.person
-              ? { ...prev, person: { ...prev.person, updatedAt: savedUpdatedAt, updated_at: savedUpdatedAt } }
-              : prev
-          ))
-        }
+        await loadData(savedUpdatedAt)
       } finally {
         setIsSaving(false)
       }
@@ -648,22 +646,22 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 </div>
               </PersonDetailTabs>
             )
-            return (
-              <>
-                <div className="md:hidden">
-                  <MobilePersonDetail zone1={zone1Content} zone2={zone2Content} />
-                </div>
-                <div className="hidden md:block">
-                  <CollapsibleZoneLayout
-                    pageType="person-v2"
-                    entityName={personName}
-                    isDirty={isDirty}
-                    sections={zoneSections}
-                    zone1={zone1Content}
-                    zone2={zone2Content}
-                  />
-                </div>
-              </>
+            // Render only the layout variant that matches the viewport. Mounting
+            // both the mobile and desktop layouts at once would create two
+            // CrudForm instances bound to one `formWrapperRef`, so header Save
+            // could submit the hidden instance's stale values and silently
+            // discard the edit (#2453). `useIsMobile` is SSR-safe.
+            return isMobile ? (
+              <MobilePersonDetail zone1={zone1Content} zone2={zone2Content} />
+            ) : (
+              <CollapsibleZoneLayout
+                pageType="person-v2"
+                entityName={personName}
+                isDirty={isDirty}
+                sections={zoneSections}
+                zone1={zone1Content}
+                zone2={zone2Content}
+              />
             )
           })()}
 
