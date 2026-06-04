@@ -113,6 +113,12 @@ describe('htmlToText', () => {
   it('removes a script tag reconstructed by a single sanitization pass', () => {
     expect(htmlToText('<scr<script>ipt>alert(1)</scr</script>ipt>')).toBe('')
   })
+
+  it('removes unterminated or truncated script/style blocks so no tag prefix leaks', () => {
+    expect(htmlToText('a<script>alert(1)')).toBe('a')
+    expect(htmlToText('hello<script')).toBe('hello')
+    expect(htmlToText('a<style>.x{color:red}')).toBe('a')
+  })
 })
 
 describe('escapeQuotes', () => {

@@ -17,11 +17,14 @@ export type WorkflowDefinitionFormValues = {
   enabled: boolean
   effectiveFrom?: string | null
   effectiveTo?: string | null
-  metadata?: {
-    tags?: string[]
-    category?: string
-    icon?: string
-  } | null
+  // Metadata fields are declared on the form with dot-path ids
+  // (`metadata.category`, `metadata.tags`, `metadata.icon`). CrudForm only
+  // collapses dot-paths for injected/custom fields, so declared base fields are
+  // carried as flat keys end-to-end; buildWorkflowPayload reassembles them into
+  // the nested metadata object the API expects. See issue #2503.
+  'metadata.category'?: string
+  'metadata.tags'?: string[]
+  'metadata.icon'?: string
   steps: any[]
   transitions: any[]
   triggers: WorkflowDefinitionTrigger[]
@@ -49,11 +52,11 @@ export const workflowDefinitionFormSchema = z.object({
   enabled: z.boolean(),
   effectiveFrom: z.string().optional().nullable(),
   effectiveTo: z.string().optional().nullable(),
-  metadata: z.object({
-    tags: z.array(z.string()).optional(),
-    category: z.string().max(50).optional(),
-    icon: z.string().max(50).optional(),
-  }).optional().nullable(),
+  // Flat dot-path keys mirror the field ids so CrudForm's non-strict
+  // schema.safeParse keeps them instead of stripping them before onSubmit.
+  'metadata.category': z.string().max(50).optional(),
+  'metadata.tags': z.array(z.string()).optional(),
+  'metadata.icon': z.string().max(50).optional(),
   steps: z.array(z.any()),
   transitions: z.array(z.any()),
   triggers: z.array(z.any()).default([]),
@@ -70,11 +73,9 @@ export const defaultFormValues: WorkflowDefinitionFormValues = {
   enabled: true,
   effectiveFrom: null,
   effectiveTo: null,
-  metadata: {
-    tags: [],
-    category: '',
-    icon: '',
-  },
+  'metadata.category': '',
+  'metadata.tags': [],
+  'metadata.icon': '',
   steps: [],
   transitions: [],
   triggers: [],
@@ -237,6 +238,7 @@ import { toDateInputValue } from '@open-mercato/shared/lib/date/format'
  */
 export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionFormValues {
   const updatedAt = workflow.updatedAt ?? workflow.updated_at ?? null
+  const metadata = workflow.metadata || {}
   return {
     workflowId: workflow.workflowId || '',
     workflowName: workflow.workflowName || '',
@@ -245,7 +247,10 @@ export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionForm
     enabled: workflow.enabled ?? true,
     effectiveFrom: toDateInputValue(workflow.effectiveFrom),
     effectiveTo: toDateInputValue(workflow.effectiveTo),
-    metadata: workflow.metadata || { tags: [], category: '', icon: '' },
+    // Hydrate the flat dot-path keys the CrudForm inputs actually read.
+    'metadata.category': metadata.category || '',
+    'metadata.tags': Array.isArray(metadata.tags) ? metadata.tags : [],
+    'metadata.icon': metadata.icon || '',
     steps: workflow.definition?.steps || [],
     transitions: workflow.definition?.transitions || [],
     triggers: workflow.definition?.triggers || [],
@@ -259,6 +264,16 @@ export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionForm
  */
 export function buildWorkflowPayload(values: WorkflowDefinitionFormValues) {
   const triggers = values.triggers ?? []
+  // Collapse the flat dot-path keys back into the nested metadata object the API
+  // expects. Empty category/icon are dropped so they don't persist as blanks.
+  const category = (values['metadata.category'] || '').trim()
+  const icon = (values['metadata.icon'] || '').trim()
+  const tags = Array.isArray(values['metadata.tags']) ? values['metadata.tags'] : []
+  const metadata = {
+    tags,
+    ...(category ? { category } : {}),
+    ...(icon ? { icon } : {}),
+  }
   return {
     workflowId: values.workflowId,
     workflowName: values.workflowName,
@@ -267,7 +282,7 @@ export function buildWorkflowPayload(values: WorkflowDefinitionFormValues) {
     enabled: values.enabled,
     effectiveFrom: values.effectiveFrom || null,
     effectiveTo: values.effectiveTo || null,
-    metadata: values.metadata || null,
+    metadata,
     definition: {
       steps: values.steps,
       transitions: values.transitions,
