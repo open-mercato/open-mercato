@@ -424,15 +424,23 @@ function writeByDotPath(target: Record<string, unknown>, path: string, value: un
   for (let index = 0; index < segments.length - 1; index++) {
     const segment = segments[index]
     const existing = current[segment]
-    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
-      const created: Record<string, unknown> = {}
+    const isSafeObject =
+      !!existing &&
+      typeof existing === 'object' &&
+      !Array.isArray(existing) &&
+      (Object.getPrototypeOf(existing) === Object.prototype || Object.getPrototypeOf(existing) === null)
+
+    if (!isSafeObject) {
+      const created = Object.create(null) as Record<string, unknown>
       current[segment] = created
       current = created
     } else {
       current = existing as Record<string, unknown>
     }
   }
-  current[segments[segments.length - 1]] = value
+  const finalSegment = segments[segments.length - 1]
+  if (isProtoPollutingKey(finalSegment)) return
+  current[finalSegment] = value
 }
 
 // Collapse flat dot-path keys (e.g. `metadata.category`) declared as base form
