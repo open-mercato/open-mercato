@@ -446,6 +446,8 @@ jobs:
       JWT_SECRET: 'ci-ephemeral-test-jwt-secret'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
+      # TEMP diagnostic for TC-*-CF-MULTI-EDIT-001 (multi-select update -> []). Revert once root-caused.
+      OM_CF_DEBUG: '1'
       # Enables the OSS opt-in optimistic-locking guard from PR #1981.
       # `OM_OPTIMISTIC_LOCK=all` (workflow-level env) auto-registers a
       # generic reader for every CRUD entity (Phase 13). Required by
