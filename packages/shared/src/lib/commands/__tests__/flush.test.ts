@@ -19,9 +19,12 @@ function createFakeEm(overrides?: { inTransaction?: boolean }): FakeEntityManage
 }
 
 describe('withAtomicFlush', () => {
-  it('runs phases in order and flushes once at the end', async () => {
+  it('runs phases in order and flushes after each phase (SPEC-018 boundaries)', async () => {
     const em = createFakeEm()
     const calls: string[] = []
+    em.flush.mockImplementation(async () => {
+      calls.push('flush')
+    })
 
     await withAtomicFlush(em as any, [
       async () => {
@@ -37,14 +40,23 @@ describe('withAtomicFlush', () => {
       },
     ])
 
-    expect(calls).toEqual(['phase1-start', 'phase1-end', 'phase2', 'phase3'])
-    expect(em.flush).toHaveBeenCalledTimes(1)
+    // Each phase is flushed before the next begins — the interleaved-read guard.
+    expect(calls).toEqual([
+      'phase1-start',
+      'phase1-end',
+      'flush',
+      'phase2',
+      'flush',
+      'phase3',
+      'flush',
+    ])
+    expect(em.flush).toHaveBeenCalledTimes(3)
     expect(em.begin).not.toHaveBeenCalled()
     expect(em.commit).not.toHaveBeenCalled()
     expect(em.rollback).not.toHaveBeenCalled()
   })
 
-  it('lets a later phase observe state a prior phase mutated', async () => {
+  it('flushes a phase before a later phase observes its mutation', async () => {
     const em = createFakeEm()
     const state: { value: number } = { value: 0 }
     let observed: number | null = null
@@ -59,7 +71,8 @@ describe('withAtomicFlush', () => {
     ])
 
     expect(observed).toBe(42)
-    expect(em.flush).toHaveBeenCalledTimes(1)
+    // Two phases → flushed at each boundary.
+    expect(em.flush).toHaveBeenCalledTimes(2)
   })
 
   it('wraps phases in begin/commit when transaction option is true', async () => {
@@ -93,25 +106,31 @@ describe('withAtomicFlush', () => {
     expect(em.rollback).toHaveBeenCalledTimes(1)
   })
 
-  it('propagates a thrown error and does NOT flush when a phase throws (non-transactional)', async () => {
+  it('propagates a thrown error and stops at the failing phase (non-transactional, per-phase flush)', async () => {
     const em = createFakeEm()
     const failure = new Error('phase-failure')
+    let thirdPhaseRan = false
 
     await expect(
       withAtomicFlush(em as any, [
         () => {
-          // ok
+          // ok — its changeset is flushed at the phase boundary before phase 2 runs
         },
         () => {
           throw failure
         },
         () => {
-          throw new Error('should-not-run')
+          thirdPhaseRan = true
         },
       ]),
     ).rejects.toBe(failure)
 
-    expect(em.flush).not.toHaveBeenCalled()
+    // Non-transactional: the first phase flushed independently before phase 2
+    // threw; the failing phase's own flush and every later phase are skipped.
+    // (This independent-commit risk is exactly why mutating commands pass
+    // `{ transaction: true }`, where the whole sequence rolls back instead.)
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(thirdPhaseRan).toBe(false)
   })
 
   it('is a true no-op when phases is empty — no flush, no transaction', async () => {
@@ -218,6 +237,88 @@ describe('withAtomicFlush', () => {
     await withAtomicFlush(em as any, [() => {}], { transaction: true })
 
     expect(em.begin).toHaveBeenCalledWith(undefined)
+  })
+
+  describe('commit-boundary pending-changes guard', () => {
+    type UowEm = FakeEntityManager & {
+      getUnitOfWork: jest.Mock<{ computeChangeSets: jest.Mock; getChangeSets: jest.Mock }, []>
+    }
+
+    function createUowEm(pendingChangeSets: unknown[], opts?: { inTransaction?: boolean }): UowEm {
+      const computeChangeSets = jest.fn()
+      const getChangeSets = jest.fn().mockReturnValue(pendingChangeSets)
+      return {
+        ...createFakeEm(opts),
+        getUnitOfWork: jest.fn().mockReturnValue({ computeChangeSets, getChangeSets }),
+      }
+    }
+
+    it('flushes once more when a change set lingers past the last phase flush', async () => {
+      // One managed entity is still dirty at the commit boundary (a phase mutated
+      // after its own flush). The guard must persist it instead of letting the
+      // transaction commit the work-in-progress silently.
+      const em = createUowEm([{ entity: 'lingering' }], { inTransaction: false })
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        await withAtomicFlush(em as any, [() => {}], { transaction: true, label: 'demo.command' })
+      } finally {
+        warn.mockRestore()
+      }
+
+      // 1 per-phase flush + 1 defensive guard flush, all inside the same transaction.
+      expect(em.flush).toHaveBeenCalledTimes(2)
+      expect(em.commit).toHaveBeenCalledTimes(1)
+      expect(em.rollback).not.toHaveBeenCalled()
+    })
+
+    it('warns (dev) and names the label when the guard has to act', async () => {
+      const em = createUowEm([{ a: 1 }, { b: 2 }])
+      const previousEnv = process.env.NODE_ENV
+      process.env.NODE_ENV = 'development'
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      let warnCallCount = 0
+      let warnMessage = ''
+      try {
+        await withAtomicFlush(em as any, [() => {}], { label: 'sales.update_shipment' })
+        // Capture BEFORE mockRestore — restore() resets mock.calls.
+        warnCallCount = warn.mock.calls.length
+        warnMessage = String(warn.mock.calls[0]?.[0] ?? '')
+      } finally {
+        warn.mockRestore()
+        process.env.NODE_ENV = previousEnv
+      }
+
+      expect(warnCallCount).toBe(1)
+      expect(warnMessage).toContain('sales.update_shipment')
+      expect(warnMessage).toContain('2 pending change-set(s)')
+    })
+
+    it('does NOT flush again when the UnitOfWork is clean at the boundary', async () => {
+      const em = createUowEm([])
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        await withAtomicFlush(em as any, [() => {}, () => {}])
+      } finally {
+        warn.mockRestore()
+      }
+
+      // 2 phases → 2 per-phase flushes; the clean guard adds nothing.
+      expect(em.flush).toHaveBeenCalledTimes(2)
+      expect(warn).not.toHaveBeenCalled()
+    })
+
+    it('never throws when the UnitOfWork probe itself fails', async () => {
+      const em: any = {
+        ...createFakeEm(),
+        getUnitOfWork: jest.fn(() => {
+          throw new Error('uow unavailable')
+        }),
+      }
+
+      await expect(withAtomicFlush(em, [() => {}])).resolves.toBeUndefined()
+      // Probe failure → unknown → no defensive flush beyond the per-phase one.
+      expect(em.flush).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('opens its own transaction when the EM does not implement isInTransaction (partial/mock EM)', async () => {

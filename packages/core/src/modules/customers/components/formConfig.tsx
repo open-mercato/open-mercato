@@ -1897,6 +1897,8 @@ export type PersonOverview = {
     nextInteractionIcon?: string | null
     nextInteractionColor?: string | null
     organizationId?: string | null
+    updatedAt?: string | null
+    updated_at?: string | null
   }
   profile: {
     id: string

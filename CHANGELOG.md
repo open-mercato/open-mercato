@@ -1,38 +1,4 @@
 
-# 0.6.5 (2026-06-03)
-
-## Highlights
-
-Open Mercato `0.6.5` opens the next cycle on top of `0.6.4`'s hardening work. The headline is the **IMAP + Google email integration foundation** — shared MIME assembly, inbound normalization, and threading-id plumbing that every email channel provider now builds on instead of copy-pasting. UI continues the `RecordNotFoundState` rollout into its fourth phase (throw-on-load edit pages) with integration coverage in phase five, and the dialog Esc/Cmd+Enter behavior is consolidated behind a single `useDialogKeyHandler` hook. Customers gains configurable, optional pipeline-stage handling, and the production Docker fullapp stack inherits the dev-mode `NODE_OPTIONS` heap cap. A CodeQL false-positive in the command-menu test is also cleared.
-
-## ✨ Features
-- ✨ IMAP + Google email integration foundations — shared MIME assembly, inbound parsing, and threading plumbing. (#2424) *(@haxiorz)*
-- ✨ Configurable dictionary entry sorting (carry-forward of #2429). (#2434) *(@pkarw)*
-- ✨ Adopt `RecordNotFoundState` across throw-on-load edit pages — Phase 4 (#2101). (#2435) *(@pkarw)*
-
-## 🐛 Fixes
-- 🐛 `LookupSelect` search input no longer clears typed text (#2389). (#2422) *(@pkarw)*
-- 🐛 Allow optional pipeline stage appearance (supersedes #2430). (#2433) *(@pkarw)*
-- 🐛 Validate deal pipeline stage assignments. (#2439) *(@pmadajthey)*
-- 🐛 Avoid a false unsaved-changes prompt on a clean person detail page. (#2437) *(@pmadajthey)*
-- 🐳 Add the `NODE_OPTIONS` heap cap to the production fullapp Docker stack (#2371). (#2438) *(@Kotmin)*
-
-## 🛠️ Improvements
-- 🛠️ Extract a `useDialogKeyHandler` hook for Esc/Cmd+Enter dialogs (#2366). (#2426) *(@Marynat)*
-
-## 🧪 Testing
-- 🧪 Add `RecordNotFoundState` integration coverage — Phase 5 (#2101). (#2436) *(@izqzmyli)*
-- 🧪 Clear a CodeQL incomplete-URL-sanitization false positive in the command-menu test. (#2427) *(@pkarw)*
-
-## 👥 Contributors
-
-- @haxiorz
-- @pkarw
-- @Marynat
-- @pmadajthey
-- @Kotmin
-- @izqzmyli
-
 # 0.6.4 (2026-06-02)
 
 ## Highlights
@@ -44,6 +10,14 @@ On the access-control side, the new **ACL feature dependency bundles** let modul
 UI ships **DS Foundation v5** (12 new primitives plus rewrites and adoptions), completes the three-phase `RecordNotFoundState` rollout across backend pages, redesigns the create-deal page to the Figma spec, and adds auto-hiding completed progress operations. Rounding it out: a dev-mode `NODE_OPTIONS` heap cap and Redis LRU/eviction tuning, a time-bomb scanner for clock-dependent tests, a broad flaky-test stabilization sweep, and new specs for Railway one-command deployment and PARALLEL_FORK/PARALLEL_JOIN workflow support. Enjoy!
 
 ## ✨ Features
+- ✨ OSS optimistic-locking guard is now **default ON** across every CRUD entity exposed via `makeCrudRoute`. Opt out with `OM_OPTIMISTIC_LOCK=off` (also accepts `false` / `0` / `no` / `disabled` / `none`). Runtime stays strictly additive — requests without the `x-om-ext-optimistic-lock-expected-updated-at` header continue to pass through. See [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) → "OSS optimistic locking default-ON" and [`.ai/specs/2026-05-25-oss-optimistic-locking.md`](.ai/specs/2026-05-25-oss-optimistic-locking.md) §3.4 + §4. (#1981 / #2055 Phase 14) *(@pkarw)*
+- ✨ Command-level OSS optimistic locking — new `enforceCommandOptimisticLock` helper lets Command-pattern / non-`makeCrudRoute` writes enforce the same `updated_at` 409 check against an aggregate root. Wired into the sales document sub-resource commands (order/quote lines + adjustments, return create) and quote→order conversion (closes the accept/convert race #2114) as a document-aggregate check. Strictly additive; honors `OM_OPTIMISTIC_LOCK`. See `.ai/specs/2026-05-25-oss-optimistic-locking.md` §10 + concurrency-locking docs. (#1981 / #2055 Phase 16–18) *(@pkarw)*
+- ✨ Unified record-conflict bar — optimistic-lock 409s ("this record was modified") now surface as a persistent, error-styled bar in `AppShell` (like the undo banner) instead of a transient toast. `CrudForm` and `useGuardedMutation` route conflicts automatically; custom pages call `surfaceRecordConflict(err, t)` from the new `@open-mercato/ui/backend/conflicts`. (#1981 / #2055) *(@pkarw)*
+- ✨ 100% OSS optimistic-lock coverage across CRM (companies-v2 / people-v2 / deals), catalog (product + product-variant delete), and sales — including sales document sub-sections (lines/adjustments/returns send the document-aggregate version header; payments/shipments send their own row `updatedAt`). See [`.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md`](.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md). (#1981 / #2055) *(@pkarw)*
+- ✨ Command-level enterprise seam — `createCommandOptimisticLockGuardService({ resolveExpected? })` mirrors the CRUD `crudMutationGuardService` override so enterprise can plug a `record_locks`-backed expected-version resolver via DI without touching command handlers. OSS default is the header compare. (#2055, enterprise follow-up #2232) *(@pkarw)*
+- ✨ IMAP + Google email integration foundations — shared MIME assembly, inbound parsing, and threading plumbing. (#2424) *(@haxiorz)*
+- ✨ Configurable dictionary entry sorting (carry-forward of #2429). (#2434) *(@pkarw)*
+- ✨ Adopt `RecordNotFoundState` across throw-on-load edit pages — Phase 4 (#2101). (#2435) *(@pkarw)*
 - ✨ DS Foundation v5 — 12 new primitives, 8 rewrites, and downstream adoptions. (#2322) *(@zielivia)*
 - ✨ Redesign the create-deal page to match the Figma mockups. (#2069) *(@haxiorz)*
 - ✨ Adopt `RecordNotFoundState` across backend pages — Phases 1–3 (Phase 1 supersedes #2106). (#2185, #2264, #2404) *(@izqzmyli, via @pkarw)*
@@ -82,6 +56,11 @@ UI ships **DS Foundation v5** (12 new primitives plus rewrites and adoptions), c
 - 🐛 Serialize `temperature` and `renewalQuarter` in company detail GET (fixes #2399). (#2408) *(@adeptofvoltron)*
 - 🐛 Persist metadata changes for system entities on save (fixes #2411). (#2415) *(@adeptofvoltron)*
 - 🐛 Make tenant-level org undo reachable via the public undo API (fixes #2398). (#2417) *(@adeptofvoltron)*
+- 🐛 `LookupSelect` search input no longer clears typed text (#2389). (#2422) *(@pkarw)*
+- 🐛 Allow optional pipeline stage appearance (supersedes #2430). (#2433) *(@pkarw)*
+- 🐛 Validate deal pipeline stage assignments. (#2439) *(@pmadajthey)*
+- 🐛 Avoid a false unsaved-changes prompt on a clean person detail page. (#2437) *(@pmadajthey)*
+- 🐳 Add the `NODE_OPTIONS` heap cap to the production fullapp Docker stack (#2371). (#2438) *(@Kotmin)*
 
 ### 🔧 Transaction safety — atomic multi-entity writes
 - 🔧 Harden `withAtomicFlush` + a repository-wide SQL transaction-safety audit. (#2343) *(@pkarw)*
@@ -101,6 +80,7 @@ UI ships **DS Foundation v5** (12 new primitives plus rewrites and adoptions), c
 - 🛠️ Refresh stale AI module-scaffold APIs + add a SKILL-level post-scaffold validation gate (supersedes #2216). (#2243) *(@Kotmin, via @pkarw)*
 - 🛠️ Add a `NODE_OPTIONS` heap cap to prevent V8 memory drift in dev (fixes #2370). (#2375) *(@Kotmin)*
 - 🛠️ Combine Dependabot minor-and-patch and major bumps (#2394, #2395). (#2403) *(@pkarw)*
+- 🛠️ Extract a `useDialogKeyHandler` hook for Esc/Cmd+Enter dialogs (#2366). (#2426) *(@Marynat)*
 
 ### ⚡ Performance
 - 🛠️ Lazy-load recharts, `@xyflow/react`, and ClientBootstrap registries for a ~1 GB dev RAM win. (#2129) *(@pkarw)*
@@ -136,6 +116,8 @@ UI ships **DS Foundation v5** (12 new primitives plus rewrites and adoptions), c
 - 🧪 Cap `yarn test` memory fan-out below the `yarn dev` budget (fixes #2402). (#2412) *(@pkarw)*
 - 🧪 Stabilize the flaky TC-CRM-028 example-customer-sync poll. (#2418) *(@pkarw)*
 - 🧪 Stabilize flaky TC-MSG-009 and TC-AUTH-009. (#2419) *(@pkarw)*
+- 🧪 Add `RecordNotFoundState` integration coverage — Phase 5 (#2101). (#2436) *(@izqzmyli)*
+- 🧪 Clear a CodeQL incomplete-URL-sanitization false positive in the command-menu test. (#2427) *(@pkarw)*
 
 ## 📝 Specs & Documentation
 - 📝 Spec: Railway one-command deployment from the Open Mercato CLI. (#1898) *(@pkarw)*

@@ -83,6 +83,7 @@ export default function CreateSalesDocumentPage() {
               catalogPrice: item.catalogPrice ?? null,
             }
           }
+          // optimistic-lock-exempt: create-only line item on newly created document, no prior version
           await apiCall(lineEndpoint, {
             method: 'POST',
             body: JSON.stringify(linePayload),
@@ -93,6 +94,7 @@ export default function CreateSalesDocumentPage() {
       }
 
       try {
+        // optimistic-lock-exempt: one-time inbox action completion transition, create-only flow
         await apiCall(
           `/api/inbox_ops/proposals/${inboxDraft.proposalId}/actions/${inboxDraft.actionId}/complete`,
           {

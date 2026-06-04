@@ -64,6 +64,11 @@ export async function seedConnectedChannel(
  *
  * Returns the created link + message ids (the message id is the platform
  * `messages.message` id, usable as `messageThreadId` to thread a follow-up).
+ *
+ * Pass `createThreadMapping: true` to also seed a `ChannelThreadMapping` for the
+ * thread — required before exercising the reaction (`/messages/[id]/reactions`)
+ * and thread-assign (`/threads/[id]/assign`) routes, which resolve the owning
+ * channel through that mapping.
  */
 export async function seedInboundMessage(
   request: APIRequestContext,
@@ -80,6 +85,7 @@ export async function seedInboundMessage(
     references?: string[];
     messageThreadId?: string;
     providerKey?: string;
+    createThreadMapping?: boolean;
   },
 ): Promise<{ channelLinkId: string; messageId: string; conversationId: string }> {
   const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {

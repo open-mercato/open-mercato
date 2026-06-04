@@ -520,6 +520,10 @@ MikroORM's identity-map and subscriber infrastructure can silently discard pendi
   — side effects should only fire after the DB changes are committed.
 - This applies to **both** `execute` methods (update commands) and `undo` handlers.
 
+### Commit-boundary guarantee (defense in depth)
+
+`withAtomicFlush` flushes after **each** phase, then runs a final **pending-changes guard** before the transaction commits: it re-checks the `UnitOfWork` and, if any change set still lingers (a phase mutated a managed entity after its own flush boundary), flushes it defensively inside the same transaction and logs a dev warning naming `options.label`. The transaction therefore can never commit unflushed scalar work — even if a per-phase flush was missed. Pass `{ label: '<module>.<command>' }` so the warning is actionable. The guard is a safety net, **not** a license to interleave mutate→read in one phase: structure phases correctly; let the guard catch only genuine slips.
+
 ### Wrong
 
 ```typescript
@@ -567,6 +571,7 @@ await emitCrudSideEffects({ ... })
 - Tables: plural snake_case; prefer `<module>_` prefixes for module-owned tables (e.g., `catalog_products`, `sales_orders`)
 - UUID PKs, explicit FKs, junction tables for M2M
 - Include `deleted_at timestamptz null` for soft delete
+- **User-editable entities MUST include an `updated_at` column** so OSS optimistic locking (default ON) can function — without it `CrudForm`'s auto-derive silently no-ops and concurrent edits are lost. Use `@Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })`, and make the entity's list/detail CRUD responses return `updatedAt`. The `optimistic-lock-editable-entities.test.ts` guard fails if a curated editable entity drops the column. Append-only logs, junction/assignment tables, session/token rows, background-job rows, and sub-resource lines guarded by a parent aggregate are exempt.
 
 ## Generated Files
 

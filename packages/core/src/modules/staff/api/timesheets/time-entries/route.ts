@@ -37,13 +37,25 @@ export const metadata = routeMetadata
 
 const rawBodySchema = z.object({}).passthrough()
 
+const isParseableDateFilter = (value: string): boolean => {
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return true
+  if (!/^\d{4}-\d{2}-\d{2}([T ].*)?$/.test(trimmed)) return false
+  return !Number.isNaN(new Date(trimmed).getTime())
+}
+
+const dateFilterSchema = z
+  .string()
+  .refine(isParseableDateFilter, { message: 'Invalid date' })
+  .optional()
+
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     staffMemberId: z.string().uuid().optional(),
-    from: z.string().optional(),
-    to: z.string().optional(),
+    from: dateFilterSchema,
+    to: dateFilterSchema,
     projectId: z.string().uuid().optional(),
     ids: z.string().optional(),
     sortField: z.string().optional(),
@@ -102,10 +114,10 @@ const crud = makeCrudRoute({
       if (typeof query.staffMemberId === 'string' && query.staffMemberId.length > 0) {
         filters[F.staff_member_id] = query.staffMemberId
       }
-      if (typeof query.from === 'string' && query.from.length > 0) {
+      if (typeof query.from === 'string' && query.from.length > 0 && isParseableDateFilter(query.from)) {
         filters[F.date] = { ...((filters[F.date] as Record<string, unknown>) ?? {}), $gte: query.from }
       }
-      if (typeof query.to === 'string' && query.to.length > 0) {
+      if (typeof query.to === 'string' && query.to.length > 0 && isParseableDateFilter(query.to)) {
         filters[F.date] = { ...((filters[F.date] as Record<string, unknown>) ?? {}), $lte: query.to }
       }
       if (typeof query.projectId === 'string' && query.projectId.length > 0) {

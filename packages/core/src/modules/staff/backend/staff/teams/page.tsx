@@ -10,7 +10,9 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { MarkdownPreview } from '@open-mercato/ui/backend/markdown/MarkdownContent'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -207,14 +209,18 @@ export default function StaffTeamsPage() {
     })
     if (!confirmed) return
     try {
-      await deleteCrud('staff/teams', entry.id, { errorMessage: labels.errors.delete })
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(entry.updatedAt),
+        () => deleteCrud('staff/teams', entry.id, { errorMessage: labels.errors.delete }),
+      )
       flash(labels.messages.deleted, 'success')
       handleRefresh()
     } catch (error) {
+      if (surfaceRecordConflict(error, t)) { handleRefresh(); return }
       console.error('staff.teams.delete', error)
       flash(labels.errors.delete, 'error')
     }
-  }, [confirm, handleRefresh, labels.actions.deleteConfirm, labels.actions.delete, labels.errors.delete, labels.errors.deleteAssigned, labels.messages.deleted])
+  }, [confirm, handleRefresh, labels.actions.deleteConfirm, labels.actions.delete, labels.errors.delete, labels.errors.deleteAssigned, labels.messages.deleted, t])
 
   return (
     <Page>

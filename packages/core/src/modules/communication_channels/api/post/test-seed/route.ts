@@ -5,7 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import { ExternalConversation, MessageChannelLink } from '../../../data/entities'
+import { ChannelThreadMapping, ExternalConversation, MessageChannelLink } from '../../../data/entities'
 import {
   COMMUNICATION_CHANNELS_CONNECT_CREDENTIAL_CHANNEL_COMMAND_ID,
   type ConnectCredentialChannelInput,
@@ -79,6 +79,14 @@ const emitInboundSchema = z.object({
    * hub-thread inheritance join can resolve a Person from a sibling message.
    */
   messageThreadId: z.string().uuid().optional(),
+  /**
+   * Test-only: also create a `ChannelThreadMapping` for the seeded thread. The
+   * reaction (`/messages/[id]/reactions`) and thread-assign
+   * (`/threads/[id]/assign`) routes resolve the owning channel through this
+   * mapping and return 409/404 without it. Opt-in so the existing CRM-link
+   * seeds (which don't need a mapping) keep their current mapping-free shape.
+   */
+  createThreadMapping: z.boolean().optional(),
 })
 
 const bodySchema = z.discriminatedUnion('action', [connectChannelSchema, emitInboundSchema])
@@ -225,6 +233,25 @@ export async function POST(req: Request): Promise<Response> {
   })
   em.persist(link)
   await em.flush()
+
+  // Optionally mirror `ingest-inbound-message`: a real inbound message always
+  // lands a ChannelThreadMapping that the reaction + thread-assign routes use to
+  // resolve the owning channel. Seeded inbound messages skip it by default; opt
+  // in for tests that exercise those routes. Keyed by `messageThreadId ?? messageId`
+  // to match how those commands resolve the mapping (`message.threadId ?? message.id`).
+  if (body.createThreadMapping) {
+    const mapping = em.create(ChannelThreadMapping, {
+      externalConversationId: conversation.id,
+      messageThreadId: body.messageThreadId ?? messageId,
+      channelId: body.channelId,
+      providerKey,
+      externalThreadRef: conversation.externalConversationId,
+      tenantId,
+      organizationId,
+    })
+    em.persist(mapping)
+    await em.flush()
+  }
 
   // Emit the hub event through the real event bus so the persistent customers
   // link-channel-message-received subscriber is enqueued to the `events` queue.

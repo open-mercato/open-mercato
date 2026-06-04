@@ -33,7 +33,10 @@ export class User {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-@Property({ name: 'deleted_at', type: Date, nullable: true })
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date | null
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
 
@@ -51,6 +54,9 @@ export class Role {
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date | null
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null

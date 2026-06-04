@@ -54,6 +54,38 @@ export type CommandExecuteResult<TResult> = {
   logEntry: any | null
 }
 
+/**
+ * Shape of the persisted action log handed to a command's `undo()` handler.
+ *
+ * IMPORTANT: there is intentionally **no `payload` field**. `buildLog()` returns
+ * a `payload` in its metadata, but the command bus persists that under
+ * `commandPayload` (column `command_payload`, wrapped in a redo envelope) — the
+ * stored row never has a top-level `payload`. Reading `logEntry.payload` in an
+ * undo handler is therefore always `undefined` and silently no-ops the undo
+ * (issue #2504). Always read the undo snapshot through
+ * `extractUndoPayload(logEntry)` from `@open-mercato/shared/lib/commands/undo`,
+ * which unwraps `commandPayload`/snapshots correctly. Omitting `payload` here
+ * makes the footgun a compile-time error instead of a runtime silent failure.
+ */
+export type CommandUndoLogEntry = {
+  id?: string
+  commandId?: string
+  commandPayload?: unknown | null
+  snapshotBefore?: unknown | null
+  snapshotAfter?: unknown | null
+  resourceKind?: string | null
+  resourceId?: string | null
+  undoToken?: string | null
+  actionLabel?: string | null
+  tenantId?: string | null
+  organizationId?: string | null
+  actorUserId?: string | null
+  changesJson?: Record<string, unknown> | null
+  contextJson?: Record<string, unknown> | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
 export type CommandLogBuilderArgs<TInput, TResult> = {
   input: TInput
   result: TResult
@@ -71,7 +103,7 @@ export interface CommandHandler<TInput = unknown, TResult = unknown> {
   execute(input: TInput, ctx: CommandRuntimeContext): Promise<TResult> | TResult
   buildLog?(args: CommandLogBuilderArgs<TInput, TResult>): Promise<CommandLogMetadata | null | undefined> | CommandLogMetadata | null | undefined
   captureAfter?(input: TInput, result: TResult, ctx: CommandRuntimeContext): Promise<unknown> | unknown
-  undo?(params: { input: TInput; ctx: CommandRuntimeContext; logEntry: any }): Promise<void> | void
+  undo?(params: { input: TInput; ctx: CommandRuntimeContext; logEntry: CommandUndoLogEntry }): Promise<void> | void
 }
 
 export type CommandExecutionOptions<TInput> = {

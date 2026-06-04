@@ -86,12 +86,12 @@ const setPrimaryChannelCommand: CommandHandler<
     // `is_primary=false` and `is_primary=true` updates is unsafe: MikroORM
     // does not guarantee SET-false statements execute before SET-true.
     //
-    // Fix (review R2-H1 / F2, 2026-05-26): two phases inside one transaction.
-    // `withAtomicFlush` runs each phase and flushes between them (the platform
-    // helper for exactly this multi-phase mutation — see packages/core/AGENTS.md
-    // "Entity Update Safety"). Phase 1 clears + flushes so Postgres observes
-    // `is_primary=false` before Phase 2's UPDATE runs; the transaction wraps both
-    // for all-or-nothing semantics.
+    // `withAtomicFlush` issues ONE flush at the END of all phases (it does NOT
+    // flush between them — see packages/shared/src/lib/commands/flush.ts), so a
+    // managed-entity two-phase still lands the SET-false and SET-true updates in
+    // that single unordered flush and races (23505). Phase 1 therefore flushes
+    // the clear EXPLICITLY so Postgres observes `is_primary=false` before Phase
+    // 2's SET-true UPDATE runs; the transaction wraps both for all-or-nothing.
     const previousPrimaries = await findWithDecryption(
       em,
       CommunicationChannel,
@@ -114,11 +114,14 @@ const setPrimaryChannelCommand: CommandHandler<
     await withAtomicFlush(
       em,
       [
-        () => {
+        async () => {
           for (const prev of previousPrimaries as CommunicationChannel[]) {
             previousPrimaryChannelId = prev.id
             prev.isPrimary = false
           }
+          // Flush the clear before Phase 2 sets the new primary, so Postgres
+          // never sees two `is_primary` rows for this user at once (see above).
+          await em.flush()
         },
         () => {
           channel.isPrimary = true

@@ -866,7 +866,8 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     })
     await emitQueryIndexUpsertEvents(ctx, [personEntityIndexEntry(record)])
 
-    return { entityId: record.id }
+    // Expose the freshly-bumped updatedAt for inline-edit sequential-save lock refresh (#2055).
+    return { entityId: record.id, updatedAt: record.updatedAt }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()

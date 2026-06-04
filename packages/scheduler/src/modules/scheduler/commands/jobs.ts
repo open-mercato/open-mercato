@@ -1,5 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/core'
@@ -68,6 +69,48 @@ async function loadScheduleSnapshot(
     nextRunAt: schedule.nextRunAt ?? null,
     lastRunAt: schedule.lastRunAt ?? null,
   }
+}
+
+/**
+ * Snapshots are persisted as JSON (in the action log's command payload), so Date
+ * fields come back as ISO strings on undo. Coerce them to Date before writing
+ * them onto the entity, otherwise MikroORM throws while flushing a Date column.
+ */
+function toDate(value: Date | string | null | undefined): Date | null {
+  if (!value) return null
+  return value instanceof Date ? value : new Date(value)
+}
+
+/**
+ * Re-create a ScheduledJob entity from a snapshot, preserving its original id.
+ * Used by delete-undo when the row was hard-removed rather than soft-deleted.
+ */
+function materializeScheduleFromSnapshot(em: EntityManager, snapshot: ScheduleSnapshot): ScheduledJob {
+  const now = new Date()
+  return em.create(ScheduledJob, {
+    id: snapshot.id,
+    name: snapshot.name,
+    description: snapshot.description,
+    scopeType: snapshot.scopeType,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    scheduleType: snapshot.scheduleType,
+    scheduleValue: snapshot.scheduleValue,
+    timezone: snapshot.timezone,
+    targetType: snapshot.targetType,
+    targetQueue: snapshot.targetQueue,
+    targetCommand: snapshot.targetCommand,
+    targetPayload: snapshot.targetPayload,
+    requireFeature: snapshot.requireFeature,
+    isEnabled: snapshot.isEnabled,
+    sourceType: snapshot.sourceType,
+    sourceModule: snapshot.sourceModule,
+    nextRunAt: toDate(snapshot.nextRunAt),
+    lastRunAt: toDate(snapshot.lastRunAt),
+    deletedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  })
 }
 
 /**
@@ -197,8 +240,7 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
   },
 
   async undo({ logEntry, ctx }) {
-    const undoPayload = logEntry.payload as { undo?: { after?: ScheduleSnapshot } }
-    const after = undoPayload?.undo?.after
+    const after = extractUndoPayload<UndoPayload<ScheduleSnapshot>>(logEntry)?.after
     if (!after) return
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -307,8 +349,7 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
   },
 
   async undo({ logEntry, ctx }) {
-    const undoPayload = logEntry.payload as { undo?: { before?: ScheduleSnapshot; after?: ScheduleSnapshot } }
-    const before = undoPayload?.undo?.before
+    const before = extractUndoPayload<UndoPayload<ScheduleSnapshot>>(logEntry)?.before
     if (!before) return
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -332,8 +373,8 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
       schedule.isEnabled = before.isEnabled
       schedule.sourceType = before.sourceType
       schedule.sourceModule = before.sourceModule
-      schedule.nextRunAt = before.nextRunAt
-      schedule.lastRunAt = before.lastRunAt
+      schedule.nextRunAt = toDate(before.nextRunAt)
+      schedule.lastRunAt = toDate(before.lastRunAt)
       schedule.updatedAt = new Date()
 
       await em.flush()
@@ -392,20 +433,22 @@ const deleteScheduleCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
   },
 
   async undo({ logEntry, ctx }) {
-    const undoPayload = logEntry.payload as { undo?: { before?: ScheduleSnapshot } }
-    const before = undoPayload?.undo?.before
+    const before = extractUndoPayload<UndoPayload<ScheduleSnapshot>>(logEntry)?.before
     if (!before) return
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
-    const schedule = await em.findOne(ScheduledJob, { id: before.id })
+    const existing = await em.findOne(ScheduledJob, { id: before.id })
 
-    if (schedule) {
-      // Restore by clearing deletedAt
+    // Soft-deleted rows are restored by clearing `deletedAt`. A hard-removed row
+    // (no surviving record) is re-materialized from the snapshot so undo is
+    // robust to either deletion strategy — mirroring the sales reference undo.
+    const schedule = existing ?? materializeScheduleFromSnapshot(em, before)
+    if (existing) {
       schedule.deletedAt = null
       schedule.updatedAt = new Date()
-      await em.flush()
-      await syncBullMQAfterUndo(ctx, schedule)
     }
+    await em.flush()
+    await syncBullMQAfterUndo(ctx, schedule)
   },
 }
 

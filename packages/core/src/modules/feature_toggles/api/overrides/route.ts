@@ -6,7 +6,9 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { getOverrides } from '../../lib/queries'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
+import { FeatureToggleOverride } from '../../data/entities'
 import { buildContext } from '../../lib/utils'
 import { resolveFeatureCheckContext } from "@open-mercato/core/modules/directory/utils/organizationScope"
 import { ProcessedChangeOverrideStateInput } from '../../data/validators'
@@ -85,6 +87,23 @@ export async function PUT(req: Request) {
       return NextResponse.json({
         error: 'Tenant context required. Please select a tenant.'
       }, { status: 400 })
+    }
+
+    // Optimistic lock: refuse a stale override overwrite when two admins edit the
+    // same global toggle override in parallel. Only enforced when an override row
+    // already exists (first set has no prior version). Strictly additive.
+    const em = ctx.container.resolve('em') as EntityManager
+    const existingOverride = await em.findOne(FeatureToggleOverride, {
+      tenantId: scope.tenantId,
+      toggle: { id: parsed.data.toggleId },
+    })
+    if (existingOverride) {
+      enforceCommandOptimisticLock({
+        resourceKind: 'feature_toggles.feature_toggle_override',
+        resourceId: existingOverride.id,
+        current: existingOverride.updatedAt ?? null,
+        request: req,
+      })
     }
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus

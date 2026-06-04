@@ -242,6 +242,7 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
           organizationId: organizationId ?? null,
           widgetIds: selected,
         }
+        // optimistic-lock-exempt: per-role widget visibility preference
         await apiCallOrThrow('/api/dashboards/roles/widgets', {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
@@ -258,6 +259,7 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
           mode,
           widgetIds: selected,
         }
+        // optimistic-lock-exempt: per-user widget visibility preference
         await apiCallOrThrow('/api/dashboards/users/widgets', {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },

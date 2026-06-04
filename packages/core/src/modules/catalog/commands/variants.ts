@@ -726,48 +726,48 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
       ? await resolveVariantTaxRate(em, product, parsed.taxRateId ?? null, parsed.taxRate)
       : null
 
-    if (parsed.name !== undefined) record.name = parsed.name ?? null
-    if (parsed.sku !== undefined) record.sku = parsed.sku ?? null
-    if (parsed.barcode !== undefined) record.barcode = parsed.barcode ?? null
-    if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
-    if (parsed.isDefault !== undefined) record.isDefault = parsed.isDefault
-    if (parsed.isActive !== undefined) record.isActive = parsed.isActive
-    if (Object.prototype.hasOwnProperty.call(parsed, 'weightValue')) {
-      record.weightValue = toNumericString(parsed.weightValue)
-    }
-    if (parsed.weightUnit !== undefined) record.weightUnit = parsed.weightUnit ?? null
-    if (parsed.dimensions !== undefined) {
-      record.dimensions = parsed.dimensions ? cloneJson(parsed.dimensions) : null
-    }
-    let metadataSplit: MetadataSplitResult | null = null
-    if (parsed.metadata !== undefined) {
-      metadataSplit = splitOptionValuesFromMetadata(parsed.metadata)
-      record.metadata = metadataSplit.metadata
-    }
-    if (parsed.optionValues !== undefined) {
-      record.optionValues = parsed.optionValues ? cloneJson(parsed.optionValues) : null
-    } else if (metadataSplit?.hadOptionValues) {
-      record.optionValues = metadataSplit.optionValues ? cloneJson(metadataSplit.optionValues) : null
-    }
-    if (taxRateProvided) {
-      record.taxRateId = resolvedTaxRate?.taxRateId ?? null
-      record.taxRate = resolvedTaxRate?.taxRate ?? null
-    }
-    if (parsed.customFieldsetCode !== undefined) {
-      record.customFieldsetCode = parsed.customFieldsetCode ?? null
-    }
-
     let previousDefaultVariantId: string | null = null
     try {
       await withAtomicFlush(
         em,
         [
+          () => {
+            if (parsed.name !== undefined) record.name = parsed.name ?? null
+            if (parsed.sku !== undefined) record.sku = parsed.sku ?? null
+            if (parsed.barcode !== undefined) record.barcode = parsed.barcode ?? null
+            if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
+            if (parsed.isDefault !== undefined) record.isDefault = parsed.isDefault
+            if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+            if (Object.prototype.hasOwnProperty.call(parsed, 'weightValue')) {
+              record.weightValue = toNumericString(parsed.weightValue)
+            }
+            if (parsed.weightUnit !== undefined) record.weightUnit = parsed.weightUnit ?? null
+            if (parsed.dimensions !== undefined) {
+              record.dimensions = parsed.dimensions ? cloneJson(parsed.dimensions) : null
+            }
+            let metadataSplit: MetadataSplitResult | null = null
+            if (parsed.metadata !== undefined) {
+              metadataSplit = splitOptionValuesFromMetadata(parsed.metadata)
+              record.metadata = metadataSplit.metadata
+            }
+            if (parsed.optionValues !== undefined) {
+              record.optionValues = parsed.optionValues ? cloneJson(parsed.optionValues) : null
+            } else if (metadataSplit?.hadOptionValues) {
+              record.optionValues = metadataSplit.optionValues ? cloneJson(metadataSplit.optionValues) : null
+            }
+            if (taxRateProvided) {
+              record.taxRateId = resolvedTaxRate?.taxRateId ?? null
+              record.taxRate = resolvedTaxRate?.taxRate ?? null
+            }
+            if (parsed.customFieldsetCode !== undefined) {
+              record.customFieldsetCode = parsed.customFieldsetCode ?? null
+            }
+          },
           async () => {
             if (parsed.isDefault === true) {
               previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
             }
           },
-          () => em.flush(),
           () => aggregateVariantMediaToProduct(em, record),
         ],
         { transaction: true }

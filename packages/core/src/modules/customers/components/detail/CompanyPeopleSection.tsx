@@ -360,6 +360,7 @@ export function CompanyPeopleSection({
         for (const personId of addedIds) {
           await runWriteMutation(
             () =>
+              // optimistic-lock-exempt: person-company link add/remove
               apiCallOrThrow(
                 `/api/customers/people/${encodeURIComponent(personId)}/companies`,
                 {
@@ -514,6 +515,7 @@ export function CompanyPeopleSection({
       try {
         await runWriteMutation(
           () =>
+            // optimistic-lock-exempt: person-company link add/remove
             apiCallOrThrow(
               `/api/customers/people/${encodeURIComponent(personId)}/companies/${encodeURIComponent(companyId)}`,
               { method: 'DELETE' },

@@ -8,8 +8,9 @@ import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+import { apiFetch, withScopedApiHeaders } from '@open-mercato/ui/backend/utils/api'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { formatWorkflowValidationError } from '../../../lib/format-validation-error'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -95,17 +96,32 @@ export default function EditWorkflowDefinitionPage() {
 
   const handleSubmit = async (values: WorkflowDefinitionFormValues) => {
     const payload = buildWorkflowPayload({ ...values, triggers })
+    const optimisticLockHeader = buildOptimisticLockHeader(
+      typeof definition?.updatedAt === 'string' ? definition.updatedAt : null,
+    )
 
     await runMutation({
       operation: async () => {
-        const response = await apiFetch(`/api/workflows/definitions/${definitionId}`, {
+        const updateDefinition = () => apiFetch(`/api/workflows/definitions/${definitionId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         })
+        const response = Object.keys(optimisticLockHeader).length > 0
+          ? await withScopedApiHeaders(optimisticLockHeader, updateDefinition)
+          : await updateDefinition()
         if (!response.ok) {
-          const errorBody = await readJsonSafe<{ error?: string; details?: Array<{ path?: Array<string | number>; message?: string }> }>(response, null)
-          throw new Error(formatWorkflowValidationError(errorBody, t('workflows.errors.updateFailed')))
+          const errorBody = await readJsonSafe<{
+            error?: string
+            code?: string
+            currentUpdatedAt?: string
+            expectedUpdatedAt?: string
+            details?: Array<{ path?: Array<string | number>; message?: string }>
+          }>(response, null)
+          throw Object.assign(
+            new Error(formatWorkflowValidationError(errorBody, t('workflows.errors.updateFailed'))),
+            { status: response.status, ...(errorBody ?? {}) },
+          )
         }
         return response
       },

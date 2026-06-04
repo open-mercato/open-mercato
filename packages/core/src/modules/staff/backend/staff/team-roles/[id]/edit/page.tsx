@@ -23,6 +23,8 @@ type TeamRoleRecord = {
   appearanceColor?: string | null
   appearance_icon?: string | null
   appearance_color?: string | null
+  updatedAt?: string | null
+  updated_at?: string | null
 } & Record<string, unknown>
 
 type TeamRoleResponse = {
@@ -38,6 +40,7 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
   const t = useT()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
+  // optimistic-lock: TeamRoleForm forwards optimisticLockUpdatedAt from initialValues.updatedAt (wrapper auto-derives the header on save + delete).
   const [initialValues, setInitialValues] = React.useState<TeamRoleFormValues | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
@@ -86,6 +89,11 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
             name: record.name ?? '',
             description: record.description ?? '',
             appearance: { icon: appearanceIcon, color: appearanceColor },
+            updatedAt: typeof record.updatedAt === 'string'
+              ? record.updatedAt
+              : typeof record.updated_at === 'string'
+                ? record.updated_at
+                : null,
             ...customFields,
           })
         }

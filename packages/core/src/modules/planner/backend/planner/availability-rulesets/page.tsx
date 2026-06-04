@@ -9,8 +9,9 @@ import { markdownToPlainText } from '@open-mercato/ui/backend/markdown/markdownT
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -126,7 +127,10 @@ export default function PlannerAvailabilityRuleSetsPage() {
     })
     if (!confirmed) return
     try {
-      await deleteCrud('planner/availability-rule-sets', entry.id, { errorMessage: labels.errors.delete })
+      const headers = buildOptimisticLockHeader(entry.updatedAt)
+      await withScopedApiRequestHeaders(headers, () => (
+        deleteCrud('planner/availability-rule-sets', entry.id, { errorMessage: labels.errors.delete })
+      ))
       flash(labels.messages.deleted, 'success')
       handleRefresh()
     } catch (error) {
@@ -237,4 +241,3 @@ function mapRuleSet(item: Record<string, unknown>): RuleSetRow {
     updatedAt,
   }, item)
 }
-

@@ -22,6 +22,8 @@ type CategoryRow = {
   description: string | null
   parentId: string | null
   isActive: boolean
+  updatedAt?: string | null
+  updated_at?: string | null
   pathLabel?: string
 }
 
@@ -36,6 +38,7 @@ type CategoryFormValues = {
   description?: string
   parentId?: string | null
   isActive?: boolean
+  updatedAt?: string | null
 }
 
 async function submitCategoryUpdate(
@@ -116,6 +119,7 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
           description: record.description ?? '',
           parentId: record.parentId ?? '',
           isActive: record.isActive,
+          updatedAt: record.updatedAt ?? record.updated_at ?? null,
           ...customValues,
         })
         setPathLabel(record.pathLabel ?? '')
@@ -238,6 +242,7 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
           groups={groups}
           entityId={E.catalog.catalog_product_category}
           initialValues={initialValues ?? { id: categoryId, name: '', slug: '', description: '', parentId: '', isActive: true }}
+          optimisticLockUpdatedAt={initialValues?.updatedAt}
           isLoading={loading}
           loadingMessage={t('catalog.categories.form.loading', 'Loading category...')}
           submitLabel={t('catalog.categories.form.action.save', 'Save')}

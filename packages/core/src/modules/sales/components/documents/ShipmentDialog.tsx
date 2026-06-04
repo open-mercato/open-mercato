@@ -10,10 +10,12 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { CrudForm, type CrudCustomFieldRenderProps, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { handleSectionMutationError, rowOptimisticVersion } from './optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
@@ -973,13 +975,25 @@ export function ShipmentDialog({
       }
 
       const action = shipment?.id ? updateCrud : createCrud
-      const result = await action(
-        'sales/shipments',
-        shipment?.id ? { id: shipment.id, ...payload } : payload,
-        {
-          errorMessage: t('sales.documents.shipments.errorSave', 'Failed to save shipment.'),
-        },
-      )
+      let result
+      try {
+        result = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(shipment?.id ? rowOptimisticVersion(shipment) : undefined),
+          () =>
+            action(
+              'sales/shipments',
+              shipment?.id ? { id: shipment.id, ...payload } : payload,
+              {
+                errorMessage: t('sales.documents.shipments.errorSave', 'Failed to save shipment.'),
+              },
+            ),
+        )
+      } catch (err) {
+        if (handleSectionMutationError(err, t, () => void onSaved())) {
+          return
+        }
+        throw err
+      }
       if (result.ok) {
         const shipmentId = ((result.result as any)?.id as string | undefined) ?? shipment?.id ?? null
         const shouldAddShippingAdjustment =
@@ -1101,6 +1115,7 @@ export function ShipmentDialog({
       orderId,
       organizationId,
       shipment?.id,
+      shipment?.updatedAt,
       addressOptions,
       addressOptionsMap,
       shippingMethods,
