@@ -1,6 +1,8 @@
 import { expect, type APIRequestContext } from '@playwright/test';
-import { apiRequest } from '@open-mercato/core/helpers/integration/api';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { createUserFixture, deleteUserIfExists } from '@open-mercato/core/helpers/integration/authFixtures';
+import { deleteUserAclInDb, setUserAclInDb } from '@open-mercato/core/helpers/integration/dbFixtures';
 
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000';
 
@@ -246,4 +248,102 @@ export async function deleteWebhookIfExists(
   } catch {
     return;
   }
+}
+
+export type WebhookRotateSecretResponse = {
+  success: true;
+  secret: string;
+  previousSecretSetAt: string | null;
+};
+
+export async function rotateWebhookSecret(
+  request: APIRequestContext,
+  token: string,
+  webhookId: string,
+  path = `/api/webhooks/${webhookId}/rotate-secret`,
+): Promise<WebhookRotateSecretResponse> {
+  const response = await apiRequest(request, 'POST', path, { token });
+  expect(response.status()).toBe(200);
+  const body = await readJsonSafe<WebhookRotateSecretResponse>(response);
+  if (!body) {
+    throw new Error(`Expected rotate-secret response for ${webhookId}`);
+  }
+  return body;
+}
+
+export type WebhookTestDeliveryResponse = {
+  success: true;
+  delivery: WebhookDeliveryDetailResponse;
+};
+
+export async function sendTestDelivery(
+  request: APIRequestContext,
+  token: string,
+  webhookId: string,
+  input: { eventType?: string; payload?: Record<string, unknown> } = {},
+  path = `/api/webhooks/${webhookId}/test`,
+): Promise<WebhookTestDeliveryResponse> {
+  const response = await apiRequest(request, 'POST', path, { token, data: input });
+  expect(response.status()).toBe(200);
+  const body = await readJsonSafe<WebhookTestDeliveryResponse>(response);
+  if (!body) {
+    throw new Error(`Expected test delivery response for ${webhookId}`);
+  }
+  return body;
+}
+
+export type ProvisionedWebhooksUser = {
+  userId: string;
+  email: string;
+  password: string;
+  token: string;
+};
+
+/**
+ * Creates a self-contained, role-less user and grants it an exact webhooks feature
+ * set (and optional organization-visibility list) through a per-user ACL row, then
+ * logs it in. The DB ACL path mirrors the org-scope fixtures: granting features via
+ * the ACL API requires a super-admin actor, while `setUserAclInDb` keeps the spec
+ * self-contained and deterministic. Login happens AFTER the ACL is written so the
+ * fresh session resolves the new grants.
+ */
+export async function provisionWebhooksUser(
+  request: APIRequestContext,
+  adminToken: string,
+  input: {
+    tenantId: string;
+    organizationId: string;
+    features: string[];
+    organizations?: string[] | null;
+    slug: string;
+  },
+): Promise<ProvisionedWebhooksUser> {
+  const unique = `${Date.now()}${Math.floor(Math.random() * 1_000_000)}`;
+  const email = `qa-webhooks-${input.slug}-${unique}@acme.com`;
+  const password = 'Valid1!Webhooks';
+  const userId = await createUserFixture(request, adminToken, {
+    email,
+    password,
+    organizationId: input.organizationId,
+    roles: [],
+    name: `QA Webhooks ${input.slug}`,
+  });
+  await setUserAclInDb({
+    userId,
+    tenantId: input.tenantId,
+    features: input.features,
+    organizations: input.organizations ?? null,
+  });
+  const token = await getAuthToken(request, email, password);
+  return { userId, email, password, token };
+}
+
+export async function cleanupWebhooksUser(
+  request: APIRequestContext,
+  adminToken: string | null,
+  user: ProvisionedWebhooksUser | null,
+): Promise<void> {
+  if (!user) return;
+  await deleteUserAclInDb(user.userId).catch(() => undefined);
+  await deleteUserIfExists(request, adminToken, user.userId).catch(() => undefined);
 }
