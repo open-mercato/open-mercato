@@ -25,6 +25,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  indexer: { entityType: E.wms.inventory_balance },
   list: {
     schema: inventoryBalanceListQuerySchema,
     entityId: E.wms.inventory_balance,
