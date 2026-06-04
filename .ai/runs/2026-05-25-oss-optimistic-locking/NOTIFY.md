@@ -175,3 +175,8 @@ Append-only event log. Newest at the bottom.
 - All 6 Alina findings fixed (atomic commits 31.1..31.6) + 5 integration specs + live browser conflict-bar proof.
 - Post-merge CI reconciliation (31.8): exempt-markers for 3 develop-merged UI files (lock-coverage guard), TC-LOCK-OSS-012 label widened, cherry-picked develop's @types/mailparser+nodemailer runtime-deps fix.
 - CI: 27/27 green on 4811ac120. Replies posted to @alinadivante + comprehensive resume summary.
+
+##  — auto-continue-pr resume 6 close (QA round-7)
+- Phase 32 complete. Two #2453 root causes (server interleaved-flush + client dual-form) + codebase-wide withAtomicFlush audit (11 commands) + Job History/timesheets fixes.
+- Ephemeral: R1 1094 passed/0 failed; R3 1093 passed/0 failed/0 flaky after deferring the pre-existing flaky kanban browser case CRM-08.
+- Commits: people 30feb254e/e3495e913; job-history effd5386e; companies 665100dd5; timesheets 495080b40; audit 83cd3329b; tests db84b7d3c; defer c376d2e09.

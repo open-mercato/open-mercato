@@ -1,31 +1,37 @@
 # Handoff — 2026-05-25-oss-optimistic-locking
 
-**Last updated:** 2026-06-03 (resume 5 — QA round-6, Phase 31)
+**Last updated:** 2026-06-04 (resume 6 — QA round-7, Phase 32)
 **Branch:** feat/oss-optimistic-locking
 **PR:** https://github.com/open-mercato/open-mercato/pull/2055
-**Current phase/step:** COMPLETE — Phase 31 (QA round-6) done; CI 27/27 green on 4811ac120. Awaiting human re-QA from @alinadivante.
-**Last code commit:** 4811ac120 (TC-LOCK-OSS-012 label). Fix commits a965a099c..c7b3d041b; CI-reconciliation 50f0ad94e + 4d899a355 + 4811ac120.
+**Current phase/step:** COMPLETE — Phase 32 (QA round-7) done. Full ephemeral suite stable across rounds (R1 1094✓/0✗; R3 1093✓/0✗/0 flaky after deferral). Awaiting human re-QA from @alinadivante.
 
-## QA round-6 source
-@alinadivante comment https://github.com/open-mercato/open-mercato/pull/2055#issuecomment-4613412850 — backend 409 enforcement works in more places, but several custom UI pages showed raw/generic toasts instead of the unified conflict bar; plus a pay-link stale-delete gap, a feature-toggle boolean-selector regression, and a feature-toggle identifier validation mismatch.
+## QA round-7 sources
+- @alinadivante https://github.com/open-mercato/open-mercato/pull/2055#issuecomment-4616381470 (People-v2, Dictionaries, Timesheets, Integrations, Data Sync)
+- @alinadivante https://github.com/open-mercato/open-mercato/pull/2055#issuecomment-4616551578 (Job History stale-delete conflict bar)
+- Issue #2453 (People-v2 dropdown persistence)
 
-## Done this resume (Phase 31)
-- 31.0 (91fc6abd7) Merge develop (0.6.5) + resolve 13 conflicts (interactions email-visibility, directory/staff/workflows imports, catalog variant RecordNotFoundState, catalog i18n ×4, CHANGELOG, UPGRADE_NOTES, package.json + yarn.lock).
-- 31.1 (a965a099c) Customer Users page: route the apiCall 409 envelope through `surfaceRecordConflict` on save + delete.
-- 31.2 (bae74923e) Customer Roles page: same on save + delete.
-- 31.3 (d120f11b6) Inbox Settings working-language PATCH: same.
-- 31.4 (1f0984274) Feature Toggle GLOBAL default-value boolean selector now normalizes via `booleanOverrideSelectValue` (b4a672a only fixed the per-tenant override card).
-- 31.5 (ec804ef20) Pay Links stale DELETE: client sends version header + surfaces conflict; `checkout.link.delete` / `checkout.template.delete` commands now call `enforceCommandOptimisticLock`.
-- 31.6 (c7b3d041b) Feature Toggle identifier validator relaxed to allow dots/dashes (`/^[a-z][a-z0-9_.-]*$/`).
-- Integration specs (6293715d1): TC-CHKT-039, TC-LOCK-OSS-014, TC-LOCK-OSS-015, TC-FT-003.
+## Done this resume (Phase 32)
+- 32.1 (#2453 server): updatePersonCommand flushes scalars before interleaved ensureDictionaryEntry/syncLegacyPrimaryCompanyLink reads. + TC-CRM-2453.
+- 32.2 (#2453 client): people-v2 renders ONE CrudForm via useIsMobile (was mobile+desktop dual-render sharing formWrapperRef → header Save hit the hidden stale form). loadData token-pin folded into one re-render.
+- 32.3 companies.ts had the same interleaved-read bug (syncEntityTags) — fixed. deals.ts already guarded. companies-v2/deals render the form once. + TC-CRM-2453-COMPANY.
+- 32.4 Job History stale-delete → surfaceRecordConflict (unified bar). + TC-LOCK-OSS-036 delete-409 case.
+- 32.5 Timesheets: from=2026 partial date no longer 500s (tightened refine + client omits empty params). + TC-STAFF-024 cases.
+- 32.6 Integrations 500 = stale local DB missing develop IMAP migration (integration_credentials.user_id). Not a PR regression; green in CI/ephemeral.
+- 32.7 Dictionaries save verified already fixed (493346391) — 200 + persists.
+- 32.9 Codebase-wide withAtomicFlush audit: same lost-write fixed in sales(updateOrder/updateQuote/return.undo), catalog(updateVariant), directory(deleteOrganization), auth(updateSidebarVariant), resources(updateResource+undo), currencies(updateCurrency), messages(updateDraft), customers(addresses/personCompanyLinks/pipeline-stages). Introduced by atomic-writes #2337 (b46ca23da).
+- 32.10 Field-persistence integration tests for every audited command (TC-*-2453-*).
+- 32.11 Ephemeral 2-round stabilization; deferred one pre-existing flaky kanban browser test (TC-LOCK-OSS-017 CRM-08, SSE-refresh race; server 409 covered by TC-LOCK-OSS-004) via test.fixme.
+- Data Sync: working-as-intended (batchSize is a transient per-run input, not a persisted setting).
 
-## Root-cause pattern (round-6)
-The custom admin pages already SENT the version header and the server already returned 409 (round-5). The gap was client surfacing: their `apiCall` returns `{ ok:false, status:409 }` (does NOT throw), so the conflict never reached `useGuardedMutation`/CrudForm auto-surfacing and the `!call.ok` branch showed a generic toast. Fix = detect the 409 in that branch via `surfaceRecordConflict({ status: call.status, body: call.result }, t)`. Pay-links had a real server gap (delete command unguarded) on top of the client gap.
+## Root-cause pattern (round-7)
+MikroORM v7 + withAtomicFlush flushes ONCE at the end. A managed-entity scalar mutation followed by ANY query (em.find/findOne/findWithDecryption/nativeUpdate/sync helper) before that terminal flush drops the pending scalar changeset → write 200s with updated_at bumped but columns never persist. Fix: flush scalars before the interleaved read, still inside { transaction: true } (atomicity preserved). Plus a separate client dual-form-render bug on people-v2 only.
 
-## Verification (checkpoint 13)
-- typecheck (core/ui/checkout) ✅; build:packages ✅; targeted unit tests ✅ (ui conflicts 6/6, checkout lock 12/12, ft boolean 4/4, ft identifier 4/4).
-- Integration (ephemeral, OM_OPTIMISTIC_LOCK=all): TC-CHKT-039 + TC-LOCK-OSS-013/014/015 + TC-FT-003 — see checkpoint-13-checks.md.
+## Verification
+- Browser-verified #2453 (people email/status persist after reload; single form) + companies (tags) + currencies pattern.
+- Typecheck core: 0 errors. i18n: in sync.
+- Full ephemeral suite (fresh migrated Docker DB, OM_OPTIMISTIC_LOCK=all): R1 1094 passed / 0 failed; R2 1 flaky (now deferred); R3 1093 passed / 0 failed / 0 flaky. All TC-*-2453 + TC-LOCK-OSS-036 + TC-STAFF-024 green every round.
 
-## Environment / build (worktree)
-- Worktree: `.ai/tmp/auto-continue-pr/pr-2055-20260603-163832`. Build order matters: `yarn generate` then `yarn build:packages` (the ephemeral runner imports `packages/core/dist/generated/entities.ids.generated.js`).
-- Ephemeral integration: `yarn mercato test:integration <spec paths>` with `OM_OPTIMISTIC_LOCK=all`.
+## Environment / build notes
+- Worktree: `.ai/tmp/auto-continue-pr/pr-2055-20260604-044233`. @open-mercato/core/modules/* resolves to dist — rebuild core (`yarn workspace @open-mercato/core build`) after source edits before browser testing on a worktree dev server.
+- Local shared `open-mercato` DB is behind develop (missing IMAP migrations: integration_credentials.user_id, messages.idempotency_key) → integrations list + messages create 500 locally only; both work in the fresh-migrated ephemeral runner.
+- Full ephemeral suite: `OM_OPTIMISTIC_LOCK=all ENABLE_CRUD_API_CACHE=true yarn mercato test:integration`. Kill any leftover :5001 listener between runs (teardown can leak the app process → next run fails readiness).
