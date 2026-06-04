@@ -290,6 +290,10 @@ export default function MyTimesheetsPage() {
           .filter((id) => id.length > 0),
       )
 
+      const entriesParams = new URLSearchParams({ pageSize: '100', staffMemberId: memberId })
+      if (dateRange.from) entriesParams.set('from', dateRange.from)
+      if (dateRange.to) entriesParams.set('to', dateRange.to)
+
       const [projectsRes, entriesRes] = await Promise.all([
         assignedProjectIds.length > 0
           ? readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
@@ -299,7 +303,7 @@ export default function MyTimesheetsPage() {
             )
           : Promise.resolve({ items: [] as Array<Record<string, unknown>> }),
         readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-          `/api/staff/timesheets/time-entries?pageSize=100&staffMemberId=${memberId}&from=${dateRange.from}&to=${dateRange.to}`,
+          `/api/staff/timesheets/time-entries?${entriesParams.toString()}`,
           undefined,
           { errorMessage: t('staff.timesheets.my.errors.load', 'Failed to load timesheets.'), fallback: { items: [] } },
         ),

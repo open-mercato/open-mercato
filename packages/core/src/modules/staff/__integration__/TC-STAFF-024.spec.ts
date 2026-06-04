@@ -37,14 +37,61 @@ test.describe('TC-STAFF-024: time-entries list date filters', () => {
   test('malformed date filter returns 400, not 500', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
 
-    for (const badDate of ['invalid-date', '2026-13-45', 'NaN-NaN-NaN']) {
-      const res = await apiRequest(
+    // Partial/parseable-but-not-full and otherwise malformed dates must be
+    // rejected with 400 before they reach Postgres (where e.g. '2026'::date 500s).
+    for (const badDate of ['invalid-date', '2026-13-45', 'NaN-NaN-NaN', '2026', '2026-06']) {
+      const fromRes = await apiRequest(
         request,
         'GET',
         `/api/staff/timesheets/time-entries?from=${encodeURIComponent(badDate)}&pageSize=50`,
         { token },
       )
-      expect(res.status(), `from=${badDate} must not crash the route`).toBe(400)
+      expect(fromRes.status(), `from=${badDate} must not crash the route`).toBe(400)
+
+      const toRes = await apiRequest(
+        request,
+        'GET',
+        `/api/staff/timesheets/time-entries?to=${encodeURIComponent(badDate)}&pageSize=50`,
+        { token },
+      )
+      expect(toRes.status(), `to=${badDate} must not crash the route`).toBe(400)
     }
+  })
+
+  test('literal "undefined" date filter returns 400, not 500', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+
+    // Guards against clients that interpolate an unset date as the string
+    // 'undefined' (e.g. `from=${dateRange.from}` when dateRange.from is undefined).
+    const res = await apiRequest(
+      request,
+      'GET',
+      '/api/staff/timesheets/time-entries?from=undefined&to=undefined&pageSize=50',
+      { token },
+    )
+    expect(res.status(), 'from=undefined must not crash the route').toBe(400)
+  })
+
+  test('empty and omitted date filters return 200 with the paged shape', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+
+    const emptyRes = await apiRequest(
+      request,
+      'GET',
+      '/api/staff/timesheets/time-entries?from=&to=&pageSize=50',
+      { token },
+    )
+    expect(emptyRes.status(), 'empty from/to are skipped, not rejected').toBe(200)
+
+    const bareRes = await apiRequest(
+      request,
+      'GET',
+      '/api/staff/timesheets/time-entries?pageSize=50',
+      { token },
+    )
+    expect(bareRes.status(), 'bare list (no date params) must return 200').toBe(200)
+    const bareBody = (await bareRes.json()) as { items?: unknown[]; total?: number }
+    expect(Array.isArray(bareBody.items)).toBeTruthy()
+    expect(typeof bareBody.total).toBe('number')
   })
 })

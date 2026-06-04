@@ -37,8 +37,12 @@ export const metadata = routeMetadata
 
 const rawBodySchema = z.object({}).passthrough()
 
-const isParseableDateFilter = (value: string): boolean =>
-  value.trim().length === 0 || !Number.isNaN(new Date(value).getTime())
+const isParseableDateFilter = (value: string): boolean => {
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return true
+  if (!/^\d{4}-\d{2}-\d{2}([T ].*)?$/.test(trimmed)) return false
+  return !Number.isNaN(new Date(trimmed).getTime())
+}
 
 const dateFilterSchema = z
   .string()
