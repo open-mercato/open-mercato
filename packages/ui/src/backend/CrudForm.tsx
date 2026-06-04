@@ -35,6 +35,7 @@ import { FormFooter } from './forms/FormFooter'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import {
+  Check,
   Settings,
   Layers,
   Tag,
@@ -3976,7 +3977,22 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
               className={`w-full justify-start rounded-none font-normal px-3 py-2 ${isSel ? 'bg-muted' : ''}`}
             >
               <span className="inline-flex items-center gap-2">
-                <Checkbox checked={isSel} disabled tabIndex={-1} className="pointer-events-none" />
+                {/* Decorative selection indicator — NOT an interactive Checkbox.
+                    The enclosing Button owns the click; a real Radix Checkbox here
+                    nests a <button> inside a <button> (hydration error) and its
+                    Presence/ref lifecycle drives an infinite update loop when the
+                    listbox renders selected values. A plain span mirrors the DS
+                    checkbox look without any of that. */}
+                <span
+                  aria-hidden="true"
+                  className={`inline-flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${
+                    isSel
+                      ? 'border-accent-indigo bg-accent-indigo text-accent-indigo-foreground'
+                      : 'border-input bg-background'
+                  }`}
+                >
+                  {isSel ? <Check className="size-3.5" aria-hidden="true" /> : null}
+                </span>
                 <span>{opt.label}</span>
               </span>
             </Button>
