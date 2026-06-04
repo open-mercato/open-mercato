@@ -6,6 +6,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { StaffTeam, StaffTeamMember } from '../data/entities'
@@ -54,6 +55,20 @@ async function loadTeamSnapshot(em: EntityManager, id: string): Promise<TeamSnap
   }
 }
 
+function teamSeedFromSnapshot(snapshot: TeamSnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    tenantId: snapshot.tenantId,
+    organizationId: snapshot.organizationId,
+    name: snapshot.name,
+    description: snapshot.description ?? null,
+    isActive: snapshot.isActive,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    deletedAt: null,
+  }
+}
+
 async function loadTeamCustomSnapshot(em: EntityManager, snapshot: TeamSnapshot): Promise<CustomFieldSnapshot> {
   return loadCustomFieldSnapshot(em, {
     entityId: E.staff.staff_team,
@@ -62,6 +77,15 @@ async function loadTeamCustomSnapshot(em: EntityManager, snapshot: TeamSnapshot)
     organizationId: snapshot.organizationId,
   })
 }
+
+const redoTeamCreate = makeCreateRedo<StaffTeam, TeamSnapshot, StaffTeamCreateInput, { teamId: string }>({
+  entityClass: StaffTeam,
+  getSnapshotId: (snapshot) => snapshot.id,
+  seedFromSnapshot: teamSeedFromSnapshot,
+  buildResult: (entity) => ({ teamId: entity.id }),
+  events: staffTeamCrudEvents,
+  indexer: teamCrudIndexer,
+})
 
 const createTeamCommand: CommandHandler<StaffTeamCreateInput, { teamId: string }> = {
   id: 'staff.teams.create',
@@ -162,6 +186,22 @@ const createTeamCommand: CommandHandler<StaffTeamCreateInput, { teamId: string }
         indexer: teamCrudIndexer,
       })
     }
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const result = await redoTeamCreate({ input: undefined as unknown as StaffTeamCreateInput, ctx, logEntry })
+    const payload = extractUndoPayload<TeamUndoPayload>(logEntry)
+    const customAfter = payload?.customAfter
+    if (customAfter && Object.keys(customAfter).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+        entityId: E.staff.staff_team,
+        recordId: result.teamId,
+        tenantId: payload?.after?.tenantId ?? '',
+        organizationId: payload?.after?.organizationId ?? '',
+        values: customAfter,
+      })
+    }
+    return result
   },
 }
 

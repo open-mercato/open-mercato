@@ -31,6 +31,7 @@ import {
   extractUndoPayload,
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
@@ -590,6 +591,46 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         await tx.flush()
       }
     })
+  },
+  redo: async ({ ctx, logEntry }) => {
+    const after = resolveRedoSnapshot<ShipmentSnapshot>(logEntry)
+    const shipmentId = after?.id ?? logEntry.resourceId ?? null
+    if (!after || !shipmentId) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for sales.shipments.create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await em.transactional(async (tx) => {
+      await restoreShipmentSnapshot(tx, after)
+      const order = await tx.findOne(SalesOrder, { id: after.orderId })
+      await tx.flush()
+      if (order) {
+        await recomputeFulfilledQuantities(tx, order)
+        await tx.flush()
+      }
+    })
+
+    const shipment = await findOneWithDecryption(
+      em,
+      SalesShipment,
+      { id: after.id },
+      {},
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: shipment,
+      identifiers: {
+        id: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_shipment },
+      events: shipmentCrudEvents,
+    })
+
+    return { shipmentId: after.id }
   },
 }
 

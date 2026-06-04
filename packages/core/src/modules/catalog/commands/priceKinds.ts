@@ -12,6 +12,7 @@ import {
   type PriceKindUpdateInput,
 } from '../data/validators'
 import { ensureTenantScope, extractUndoPayload } from './shared'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CatalogPriceDisplayMode } from '../data/types'
 
 type PriceKindSnapshot = {
@@ -41,6 +42,24 @@ const PRICE_KIND_CHANGE_KEYS = [
   'isPromotion',
   'isActive',
 ] as const satisfies readonly string[]
+
+function priceKindSeedFromSnapshot(snapshot: PriceKindSnapshot): Record<string, unknown> {
+  const displayMode: CatalogPriceDisplayMode =
+    snapshot.displayMode === 'including-tax' ? 'including-tax' : 'excluding-tax'
+  return {
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    code: snapshot.code,
+    title: snapshot.title,
+    displayMode,
+    currencyCode: snapshot.currencyCode,
+    isPromotion: snapshot.isPromotion,
+    isActive: snapshot.isActive,
+    createdAt: new Date(snapshot.createdAt),
+    updatedAt: new Date(snapshot.updatedAt),
+  }
+}
 
 async function loadPriceKindSnapshot(em: EntityManager, id: string): Promise<PriceKindSnapshot | null> {
   const record = await em.findOne(CatalogPriceKind, { id })
@@ -123,6 +142,12 @@ const createPriceKindCommand: CommandHandler<PriceKindCreateInput, { priceKindId
     em.remove(record)
     await em.flush()
   },
+  redo: makeCreateRedo<CatalogPriceKind, PriceKindSnapshot, PriceKindCreateInput, { priceKindId: string }>({
+    entityClass: CatalogPriceKind,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: priceKindSeedFromSnapshot,
+    buildResult: (entity) => ({ priceKindId: entity.id }),
+  }),
 }
 
 const updatePriceKindCommand: CommandHandler<PriceKindUpdateInput, { priceKindId: string }> = {

@@ -15,6 +15,7 @@ import {
 } from '../data/validators'
 import { staffTeamMemberCommentCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireTeamMember } from './shared'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { E } from '#generated/entities.ids.generated'
 
 const commentCrudIndexer: CrudIndexerConfig<StaffTeamMemberComment> = {
@@ -130,6 +131,54 @@ const createCommentCommand: CommandHandler<
       em.remove(existing)
       await em.flush()
     }
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<CommentSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for comment create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const member = await requireTeamMember(em, after.memberId, 'Team member not found')
+    let comment = await em.findOne(StaffTeamMemberComment, { id: after.id })
+    if (!comment) {
+      comment = em.create(StaffTeamMemberComment, {
+        id: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        member,
+        body: after.body,
+        authorUserId: after.authorUserId,
+        appearanceIcon: after.appearanceIcon,
+        appearanceColor: after.appearanceColor,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(comment)
+    } else {
+      comment.member = member
+      comment.body = after.body
+      comment.authorUserId = after.authorUserId
+      comment.appearanceIcon = after.appearanceIcon
+      comment.appearanceColor = after.appearanceColor
+      comment.deletedAt = null
+    }
+    await em.flush()
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: comment,
+      identifiers: {
+        id: comment.id,
+        organizationId: comment.organizationId,
+        tenantId: comment.tenantId,
+      },
+      events: staffTeamMemberCommentCrudEvents,
+      indexer: commentCrudIndexer,
+    })
+
+    return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
   },
 }
 

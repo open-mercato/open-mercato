@@ -33,6 +33,7 @@ import {
   resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import {
   loadCustomFieldSnapshot,
   buildCustomFieldResetMap,
@@ -433,6 +434,120 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
       entityId: result.entityId,
       nextInteractionId: result.nextInteractionId,
     }, result.identifiers)
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<InteractionSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for interaction create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
+      const entity = await requireTimelineParentEntity(trx, after.interaction.entityId)
+      let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: after.interaction.id })
+      if (!interaction) {
+        interaction = trx.create(CustomerInteraction, {
+          id: after.interaction.id,
+          organizationId: after.interaction.organizationId,
+          tenantId: after.interaction.tenantId,
+          entity,
+          interactionType: after.interaction.interactionType,
+          title: after.interaction.title,
+          body: after.interaction.body,
+          status: after.interaction.status,
+          scheduledAt: after.interaction.scheduledAt,
+          occurredAt: after.interaction.occurredAt,
+          priority: after.interaction.priority,
+          authorUserId: after.interaction.authorUserId,
+          ownerUserId: after.interaction.ownerUserId,
+          dealId: after.interaction.dealId,
+          source: after.interaction.source,
+          appearanceIcon: after.interaction.appearanceIcon,
+          appearanceColor: after.interaction.appearanceColor,
+          durationMinutes: after.interaction.durationMinutes,
+          location: after.interaction.location,
+          allDay: after.interaction.allDay,
+          recurrenceRule: after.interaction.recurrenceRule,
+          recurrenceEnd: after.interaction.recurrenceEnd,
+          participants: after.interaction.participants,
+          reminderMinutes: after.interaction.reminderMinutes,
+          visibility: after.interaction.visibility,
+          linkedEntities: after.interaction.linkedEntities,
+          guestPermissions: after.interaction.guestPermissions,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        trx.persist(interaction)
+      } else {
+        interaction.deletedAt = null
+        interaction.entity = entity
+        interaction.interactionType = after.interaction.interactionType
+        interaction.title = after.interaction.title
+        interaction.body = after.interaction.body
+        interaction.status = after.interaction.status
+        interaction.scheduledAt = after.interaction.scheduledAt
+        interaction.occurredAt = after.interaction.occurredAt
+        interaction.priority = after.interaction.priority
+        interaction.authorUserId = after.interaction.authorUserId
+        interaction.ownerUserId = after.interaction.ownerUserId
+        interaction.dealId = after.interaction.dealId
+        interaction.source = after.interaction.source
+        interaction.appearanceIcon = after.interaction.appearanceIcon
+        interaction.appearanceColor = after.interaction.appearanceColor
+        interaction.durationMinutes = after.interaction.durationMinutes
+        interaction.location = after.interaction.location
+        interaction.allDay = after.interaction.allDay
+        interaction.recurrenceRule = after.interaction.recurrenceRule
+        interaction.recurrenceEnd = after.interaction.recurrenceEnd
+        interaction.participants = after.interaction.participants
+        interaction.reminderMinutes = after.interaction.reminderMinutes
+        interaction.visibility = after.interaction.visibility
+        interaction.linkedEntities = after.interaction.linkedEntities
+        interaction.guestPermissions = after.interaction.guestPermissions
+      }
+      await trx.flush()
+
+      const projection = await recomputeNextInteraction(trx, after.interaction.entityId)
+
+      const restoreValues = buildCustomFieldResetMap(after.custom, undefined)
+      if (Object.keys(restoreValues).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: createTransactionalDataEngine(ctx, trx),
+          entityId: INTERACTION_ENTITY_ID,
+          recordId: interaction.id,
+          organizationId: interaction.organizationId,
+          tenantId: interaction.tenantId,
+          values: restoreValues,
+          notify: false,
+        })
+      }
+
+      return { interaction, nextInteractionId: projection.nextInteractionId }
+    })
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: interaction,
+      identifiers: {
+        id: interaction.id,
+        organizationId: interaction.organizationId,
+        tenantId: interaction.tenantId,
+      },
+      syncOrigin: ctx.syncOrigin,
+      indexer: interactionCrudIndexer,
+      events: interactionCrudEvents,
+    })
+    await emitNextInteractionUpdatedEvent(ctx, {
+      entityId: after.interaction.entityId,
+      nextInteractionId,
+    }, {
+      id: interaction.id,
+      organizationId: interaction.organizationId,
+      tenantId: interaction.tenantId,
+    })
+
+    return { interactionId: interaction.id, entityId: after.interaction.entityId }
   },
 }
 

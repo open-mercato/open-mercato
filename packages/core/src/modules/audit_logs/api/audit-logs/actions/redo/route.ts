@@ -119,6 +119,7 @@ export async function POST(req: Request) {
       input: commandInput,
       ctx,
       metadata,
+      redoLogEntry: log,
     })
     await logs.markRedone(log.id)
     const actionLog = asActionLog(logEntry)

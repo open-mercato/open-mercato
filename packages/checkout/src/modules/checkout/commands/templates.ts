@@ -4,6 +4,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { buildCustomFieldResetMap, loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -187,6 +188,39 @@ const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: strin
     if (!template) return
     template.deletedAt = new Date()
     await em.flush()
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<CheckoutTemplateSnapshot>(logEntry)
+    if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for checkout template create' })
+    const em = ctx.container.resolve('em') as EntityManager
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    let template = await em.findOne(CheckoutLinkTemplate, { id: after.id })
+    if (template) {
+      restoreTemplateFromSnapshot(template, after)
+      template.deletedAt = null
+    } else {
+      template = em.create(CheckoutLinkTemplate, createTemplateFromSnapshot(after))
+      em.persist(template)
+    }
+    await em.flush()
+    const reset = buildCustomFieldResetMap(after.custom, undefined)
+    if (Object.keys(reset).length) {
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: CHECKOUT_ENTITY_IDS.template,
+        recordId: after.id,
+        tenantId: after.tenantId,
+        organizationId: after.organizationId,
+        values: reset,
+        notify: false,
+      })
+    }
+    await emitCheckoutEvent('checkout.template.created', {
+      id: template.id,
+      tenantId: after.tenantId,
+      organizationId: after.organizationId,
+    }).catch(() => undefined)
+    return { id: template.id }
   },
 }
 

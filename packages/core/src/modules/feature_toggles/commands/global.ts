@@ -7,6 +7,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { FeatureTogglesService } from '../lib/feature-flag-check'
 
 function assertGlobalToggleSuperAdmin(ctx: { auth?: { [key: string]: unknown } | null; systemActor?: boolean }): void {
@@ -122,7 +123,29 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
       const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
       await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
     }
-  }
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<ToggleSnapshot>(logEntry)
+    if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for toggle create' })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let toggle = await em.findOne(FeatureToggle, { id: after.id })
+    if (!toggle) {
+      toggle = em.create(FeatureToggle, {
+        id: after.id,
+        identifier: after.identifier,
+        name: after.name,
+        description: after.description,
+        category: after.category,
+        type: after.type,
+        defaultValue: after.defaultValue,
+      })
+      em.persist(toggle)
+      await em.flush()
+    }
+    const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+    await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
+    return { toggleId: toggle.id }
+  },
 }
 
 const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string }> = {

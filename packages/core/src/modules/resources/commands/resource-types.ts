@@ -16,6 +16,7 @@ import {
   type ResourcesResourceTypeUpdateInput,
 } from '../data/validators'
 import { resourcesResourceTypeCrudEvents } from '../lib/crud'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
@@ -169,6 +170,65 @@ const createResourceTypeCommand: CommandHandler<ResourcesResourceTypeCreateInput
       indexer: resourceTypeCrudIndexer,
       })
     }
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ResourceTypeUndoPayload>(logEntry)
+    const after = resolveRedoSnapshot<ResourceTypeSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for resource type create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let resourceType = await em.findOne(ResourcesResourceType, { id: after.id })
+    if (!resourceType) {
+      resourceType = em.create(ResourcesResourceType, {
+        id: after.id,
+        tenantId: after.tenantId,
+        organizationId: after.organizationId,
+        name: after.name,
+        description: after.description ?? null,
+        appearanceIcon: after.appearanceIcon ?? null,
+        appearanceColor: after.appearanceColor ?? null,
+        deletedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(resourceType)
+    } else {
+      resourceType.name = after.name
+      resourceType.description = after.description ?? null
+      resourceType.appearanceIcon = after.appearanceIcon ?? null
+      resourceType.appearanceColor = after.appearanceColor ?? null
+      resourceType.deletedAt = null
+      resourceType.updatedAt = new Date()
+    }
+    await em.flush()
+
+    const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+    if (payload?.customAfter) {
+      const reset = buildCustomFieldResetMap(payload.customAfter, undefined)
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: E.resources.resources_resource_type,
+        recordId: resourceType.id,
+        tenantId: resourceType.tenantId,
+        organizationId: resourceType.organizationId,
+        values: reset,
+      })
+    }
+
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: resourceType,
+      identifiers: {
+        id: resourceType.id,
+        organizationId: resourceType.organizationId,
+        tenantId: resourceType.tenantId,
+      },
+      events: resourcesResourceTypeCrudEvents,
+      indexer: resourceTypeCrudIndexer,
+    })
+    return { resourceTypeId: resourceType.id }
   },
 }
 

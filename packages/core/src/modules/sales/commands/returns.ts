@@ -13,6 +13,7 @@ import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGen
 import type { SalesCalculationService } from '../services/salesCalculationService'
 import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationResult } from '../lib/types'
 import { cloneJson, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString } from './shared'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
 import { returnCreateSchema, type ReturnCreateInput } from '../data/validators'
 import { E } from '#generated/entities.ids.generated'
@@ -547,6 +548,187 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
       ],
       { transaction: true },
     )
+  },
+  redo: async ({ ctx, logEntry }) => {
+    const after = resolveRedoSnapshot<ReturnSnapshot>(logEntry)
+    const returnId = after?.id ?? logEntry.resourceId ?? null
+    if (!after || !returnId) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for sales.returns.create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+
+    const createdLines: SalesReturnLine[] = []
+
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          const order = await findOneWithDecryption(
+            em,
+            SalesOrder,
+            { id: after.orderId, deletedAt: null },
+            {},
+            { tenantId: after.tenantId, organizationId: after.organizationId },
+          )
+          if (!order) {
+            throw new CrudHttpError(404, { error: 'sales.returns.orderMissing' })
+          }
+          ensureSameScope(order, after.organizationId, after.tenantId)
+
+          const orderLines = await findWithDecryption(
+            em,
+            SalesOrderLine,
+            { order: order.id, deletedAt: null },
+            { lockMode: LockMode.PESSIMISTIC_WRITE },
+            { tenantId: after.tenantId, organizationId: after.organizationId },
+          )
+          const lineMap = new Map(orderLines.map((line) => [line.id, line]))
+
+          const existingAdjustments = await findWithDecryption(
+            em,
+            SalesOrderAdjustment,
+            { order: order.id, deletedAt: null },
+            { orderBy: { position: 'asc' } },
+            { tenantId: after.tenantId, organizationId: after.organizationId },
+          )
+          const positionStart = existingAdjustments.reduce((acc, adj) => Math.max(acc, adj.position ?? 0), 0) + 1
+
+          const restoredHeader =
+            (await findOneWithDecryption(
+              em,
+              SalesReturn,
+              { id: after.id },
+              {},
+              { tenantId: after.tenantId, organizationId: after.organizationId },
+            )) ??
+            em.create(SalesReturn, {
+              id: after.id,
+              order,
+              organizationId: after.organizationId,
+              tenantId: after.tenantId,
+              returnNumber: after.returnNumber,
+              reason: after.reason ?? null,
+              notes: after.notes ?? null,
+              returnedAt: after.returnedAt ? new Date(after.returnedAt) : new Date(),
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            })
+          restoredHeader.order = order
+          restoredHeader.deletedAt = null
+          restoredHeader.organizationId = after.organizationId
+          restoredHeader.tenantId = after.tenantId
+          restoredHeader.returnNumber = after.returnNumber
+          restoredHeader.reason = after.reason ?? null
+          restoredHeader.notes = after.notes ?? null
+          restoredHeader.returnedAt = after.returnedAt ? new Date(after.returnedAt) : new Date()
+          restoredHeader.updatedAt = new Date()
+          em.persist(restoredHeader)
+
+          const createdAdjustments: SalesOrderAdjustment[] = []
+          after.lines.forEach((lineSnapshot, index) => {
+            const line = lineMap.get(lineSnapshot.orderLineId)
+            if (!line) return
+            const totalNet = lineSnapshot.totalNetAmount
+            const totalGross = lineSnapshot.totalGrossAmount
+            const adjustmentId = after.adjustmentIds[index] ?? randomUUID()
+
+            const returnLine = em.create(SalesReturnLine, {
+              id: lineSnapshot.id,
+              salesReturn: restoredHeader,
+              orderLine: em.getReference(SalesOrderLine, line.id),
+              organizationId: after.organizationId,
+              tenantId: after.tenantId,
+              quantityReturned: lineSnapshot.quantityReturned.toString(),
+              unitPriceNet: lineSnapshot.unitPriceNet.toString(),
+              unitPriceGross: lineSnapshot.unitPriceGross.toString(),
+              totalNetAmount: totalNet.toString(),
+              totalGrossAmount: totalGross.toString(),
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            })
+            createdLines.push(returnLine)
+            em.persist(returnLine)
+
+            const adjustment = em.create(SalesOrderAdjustment, {
+              id: adjustmentId,
+              order,
+              orderLine: em.getReference(SalesOrderLine, line.id),
+              organizationId: after.organizationId,
+              tenantId: after.tenantId,
+              scope: 'line',
+              kind: 'return',
+              rate: '0',
+              amountNet: totalNet.toString(),
+              amountGross: totalGross.toString(),
+              currencyCode: order.currencyCode,
+              metadata: { returnId, returnLineId: lineSnapshot.id },
+              position: positionStart + index,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            })
+            createdAdjustments.push(adjustment)
+            em.persist(adjustment)
+
+            line.returnedQuantity = (toNumeric(line.returnedQuantity) + lineSnapshot.quantityReturned).toString()
+            line.updatedAt = new Date()
+            em.persist(line)
+          })
+
+          const lineSnapshots: SalesLineSnapshot[] = orderLines.map(mapOrderLineEntityToSnapshot)
+          const adjustmentDrafts: SalesAdjustmentDraft[] = [...existingAdjustments, ...createdAdjustments].map(
+            mapOrderAdjustmentToDraft,
+          )
+          const calculation = await salesCalculationService.calculateDocumentTotals({
+            documentKind: 'order',
+            lines: lineSnapshots,
+            adjustments: adjustmentDrafts,
+            context: buildCalculationContext(order),
+          })
+          applyOrderTotals(order, calculation.totals, calculation.lines.length)
+          order.updatedAt = new Date()
+          em.persist(order)
+        },
+      ],
+      { transaction: true },
+    )
+
+    const header = await findOneWithDecryption(
+      em,
+      SalesReturn,
+      { id: after.id, deletedAt: null },
+      {},
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    if (!header) {
+      throw new CrudHttpError(404, { error: 'sales.returns.orderMissing' })
+    }
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: header,
+      identifiers: { id: header.id, organizationId: header.organizationId, tenantId: header.tenantId },
+      indexer: { entityType: E.sales.sales_return },
+      events: returnCrudEvents,
+    })
+
+    if (createdLines.length) {
+      await Promise.all(
+        createdLines.map((line) =>
+          emitCrudSideEffects({
+            dataEngine,
+            action: 'created',
+            entity: line,
+            identifiers: { id: line.id, organizationId: line.organizationId, tenantId: line.tenantId },
+            indexer: { entityType: E.sales.sales_return_line },
+          }),
+        ),
+      )
+    }
+
+    return { returnId: header.id }
   },
 }
 

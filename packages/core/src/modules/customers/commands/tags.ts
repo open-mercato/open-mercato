@@ -26,6 +26,7 @@ import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCustomersEvent } from '../events'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 
 const tagCrudEvents: CrudEventsConfig = {
   module: 'customers',
@@ -151,6 +152,52 @@ const createTagCommand: CommandHandler<TagCreateInput, { tagId: string }> = {
       em.remove(tag)
       await em.flush()
     }
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<TagSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for tag create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let tag = await em.findOne(CustomerTag, { id: after.id })
+    if (!tag) {
+      tag = em.create(CustomerTag, {
+        id: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        slug: after.slug,
+        label: after.label,
+        color: after.color,
+        description: after.description,
+      })
+      em.persist(tag)
+    } else {
+      tag.slug = after.slug
+      tag.label = after.label
+      tag.color = after.color
+      tag.description = after.description
+    }
+    const restoredTag = tag
+    await withAtomicFlush(em, [
+      () => {
+        em.persist(restoredTag)
+      },
+    ], { transaction: true })
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: restoredTag,
+      identifiers: {
+        id: restoredTag.id,
+        organizationId: restoredTag.organizationId,
+        tenantId: restoredTag.tenantId,
+      },
+      events: tagCrudEvents,
+    })
+
+    return { tagId: restoredTag.id }
   },
 }
 
@@ -461,6 +508,59 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
       tenantId: before.tenantId,
       organizationId: before.organizationId,
     })
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<TagAssignmentUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for tag assign' })
+    }
+    const assignmentId = logEntry?.resourceId ?? null
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const tag = await em.findOne(CustomerTag, { id: before.tagId })
+    if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
+    const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
+    ensureSameScope(entity, before.organizationId, before.tenantId)
+
+    let assignment = await em.findOne(CustomerTagAssignment, {
+      tag,
+      entity,
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+    })
+    if (!assignment) {
+      assignment = em.create(CustomerTagAssignment, {
+        ...(assignmentId ? { id: assignmentId } : {}),
+        tag,
+        entity,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+      })
+      em.persist(assignment)
+      await em.flush()
+    }
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: assignment,
+      identifiers: {
+        id: String(assignment.id),
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+      },
+    })
+
+    await emitCustomersEvent('customers.tag.assigned', {
+      id: String(assignment.id),
+      tagId: before.tagId,
+      entityId: before.entityId,
+      organizationId: before.organizationId,
+      tenantId: before.tenantId,
+    }, { persistent: true })
+
+    return { assignmentId: assignment.id }
   },
 }
 

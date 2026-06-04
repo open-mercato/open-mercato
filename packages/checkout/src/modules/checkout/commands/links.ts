@@ -4,6 +4,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { buildCustomFieldResetMap, loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -198,6 +199,53 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
     if (!link) return
     link.deletedAt = new Date()
     await em.flush()
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<CheckoutLinkSnapshot>(logEntry)
+    if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for checkout link create' })
+    const em = ctx.container.resolve('em') as EntityManager
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    let link = await em.findOne(CheckoutLink, { id: after.id })
+    if (link) {
+      restoreLinkFromSnapshot(link, after)
+      link.deletedAt = null
+      link.slug = await resolveRestoredLinkSlug(em, after)
+    } else {
+      link = em.create(CheckoutLink, {
+        ...createLinkFromSnapshot(after),
+        slug: await resolveRestoredLinkSlug(em, after),
+      })
+      em.persist(link)
+    }
+    await em.flush()
+    const reset = buildCustomFieldResetMap(after.custom, undefined)
+    if (Object.keys(reset).length) {
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: CHECKOUT_ENTITY_IDS.link,
+        recordId: after.id,
+        tenantId: after.tenantId,
+        organizationId: after.organizationId,
+        values: reset,
+        notify: false,
+      })
+    }
+    await emitCheckoutEvent('checkout.link.created', {
+      id: link.id,
+      slug: link.slug,
+      status: link.status,
+      tenantId: after.tenantId,
+      organizationId: after.organizationId,
+    }).catch(() => undefined)
+    if (link.status === 'active') {
+      await emitCheckoutEvent('checkout.link.published', {
+        id: link.id,
+        slug: link.slug,
+        tenantId: after.tenantId,
+        organizationId: after.organizationId,
+      }).catch(() => undefined)
+    }
+    return { id: link.id, slug: link.slug }
   },
 }
 

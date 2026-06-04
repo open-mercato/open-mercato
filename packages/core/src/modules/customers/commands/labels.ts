@@ -26,6 +26,7 @@ import {
   extractUndoPayload,
   resolveParentResourceKind,
 } from './shared'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 
 type LabelAssignmentSnapshot = {
   id: string
@@ -244,6 +245,49 @@ const createLabelCommand: CommandHandler<LabelCreateCommandInput, { labelId: str
       indexer: { entityType: 'customers:customer_label' },
     })
   },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<LabelSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for label create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let label = await findOneWithDecryption(
+      em,
+      CustomerLabel,
+      { id: after.id },
+      undefined,
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    if (!label) {
+      label = em.create(CustomerLabel, {
+        id: after.id,
+        tenantId: after.tenantId,
+        organizationId: after.organizationId,
+        userId: after.userId,
+        slug: after.slug,
+        label: after.label,
+      })
+      em.persist(label)
+    } else {
+      label.userId = after.userId
+      label.slug = after.slug
+      label.label = after.label
+    }
+    await em.flush()
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: label,
+      identifiers: getLabelIdentifiers(label),
+      syncOrigin: ctx.syncOrigin,
+      events: labelCrudEvents,
+      indexer: { entityType: 'customers:customer_label' },
+    })
+
+    return { labelId: label.id, slug: label.slug, label: label.label }
+  },
 }
 
 const assignLabelCommand: CommandHandler<LabelAssignCommandInput, { assignmentId: string; created: boolean; entityKind: 'person' | 'company' | null }> = {
@@ -411,6 +455,76 @@ const assignLabelCommand: CommandHandler<LabelAssignCommandInput, { assignmentId
       events: labelAssignmentCrudEvents,
       indexer: { entityType: 'customers:customer_label_assignment' },
     })
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<LabelAssignmentSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for label assign' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const label = await findOneWithDecryption(
+      em,
+      CustomerLabel,
+      { id: after.labelId, tenantId: after.tenantId, organizationId: after.organizationId },
+      undefined,
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    if (!label) {
+      throw new CrudHttpError(404, { error: 'Label not found' })
+    }
+    const entity = await findOneWithDecryption(
+      em,
+      CustomerEntity,
+      { id: after.entityId, tenantId: after.tenantId, organizationId: after.organizationId, deletedAt: null },
+      undefined,
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    if (!entity) {
+      throw new CrudHttpError(404, { error: 'Entity not found' })
+    }
+
+    let assignment = await findOneWithDecryption(
+      em,
+      CustomerLabelAssignment,
+      {
+        tenantId: after.tenantId,
+        organizationId: after.organizationId,
+        userId: after.userId,
+        label,
+        entity,
+      } as FilterQuery<CustomerLabelAssignment>,
+      undefined,
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    if (!assignment) {
+      assignment = em.create(CustomerLabelAssignment, {
+        id: after.id,
+        tenantId: after.tenantId,
+        organizationId: after.organizationId,
+        userId: after.userId,
+        label,
+        entity,
+      })
+      em.persist(assignment)
+      await em.flush()
+    }
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: assignment,
+      identifiers: getAssignmentIdentifiers(assignment),
+      syncOrigin: ctx.syncOrigin,
+      events: labelAssignmentCrudEvents,
+      indexer: { entityType: 'customers:customer_label_assignment' },
+    })
+
+    return {
+      assignmentId: assignment.id,
+      created: true,
+      entityKind: after.entityKind,
+    }
   },
 }
 
