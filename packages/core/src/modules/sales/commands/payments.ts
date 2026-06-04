@@ -757,6 +757,12 @@ const updatePaymentCommand: CommandHandler<
       }
       payment.updatedAt = new Date()
 
+      // Persist the payment scalar changes before any allocation query below.
+      // MikroORM discards pending scalar mutations when a find() runs on the
+      // same EntityManager before they are flushed, which would otherwise drop
+      // the updated amount/reference when allocations are (re)synced.
+      await tx.flush()
+
       if (input.allocations !== undefined) {
         const existingAllocations = await findWithDecryption(tx, SalesPaymentAllocation, { payment }, {}, { tenantId: payment.tenantId, organizationId: payment.organizationId })
         existingAllocations.forEach((allocation) => tx.remove(allocation))
@@ -815,6 +821,29 @@ const updatePaymentCommand: CommandHandler<
             metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
           })
           tx.persist(entity)
+        }
+      } else if (input.amount !== undefined || input.currencyCode !== undefined) {
+        // The caller changed the payment amount/currency without managing
+        // allocations explicitly. A simple payment carries a single
+        // auto-created allocation covering the full amount (see create); keep
+        // it in sync so recomputeOrderPaymentTotals — which sums allocations in
+        // preference to the payment amount — does not report a stale paid total
+        // after a payment edit (#2455).
+        const existingAllocations = await findWithDecryption(tx, SalesPaymentAllocation, { payment }, {}, { tenantId: payment.tenantId, organizationId: payment.organizationId })
+        const paymentOrderId =
+          (typeof payment.order === 'string' ? payment.order : payment.order?.id) ?? null
+        const isDefaultAllocation = (allocation: SalesPaymentAllocation): boolean => {
+          const allocationOrderId =
+            typeof allocation.order === 'string' ? allocation.order : allocation.order?.id ?? null
+          const allocationInvoiceId =
+            typeof allocation.invoice === 'string' ? allocation.invoice : allocation.invoice?.id ?? null
+          return allocationInvoiceId === null && allocationOrderId === paymentOrderId
+        }
+        if (existingAllocations.length === 1 && isDefaultAllocation(existingAllocations[0])) {
+          const [allocation] = existingAllocations
+          allocation.amount = toNumericString(toNumber(payment.amount)) ?? '0'
+          allocation.currencyCode = payment.currencyCode
+          tx.persist(allocation)
         }
       }
     })
