@@ -407,9 +407,19 @@ function readByDotPath(source: Record<string, unknown> | undefined, path: string
   return current
 }
 
+// Keys that would mutate the prototype chain if used as dot-path segments.
+// Guard against them so a declared field id such as `__proto__.polluted` can
+// never reach into Object.prototype (prototype-pollution hardening).
+const PROTO_POLLUTING_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
+
+function isProtoPollutingKey(key: string): boolean {
+  return PROTO_POLLUTING_KEYS.has(key)
+}
+
 function writeByDotPath(target: Record<string, unknown>, path: string, value: unknown): void {
   const segments = path.split('.').filter(Boolean)
   if (segments.length === 0) return
+  if (segments.some(isProtoPollutingKey)) return
   let current: Record<string, unknown> = target
   for (let index = 0; index < segments.length - 1; index++) {
     const segment = segments[index]

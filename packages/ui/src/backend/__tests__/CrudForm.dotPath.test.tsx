@@ -266,4 +266,47 @@ describe('CrudForm dot-path base fields (issue #2503)', () => {
     const submitted = JSON.parse(screen.getByTestId('submitted').textContent || 'null')
     expect(submitted.metadata).toEqual({ category: 'Sales', icon: 'shopping-cart' })
   })
+
+  it('does not pollute Object.prototype via a prototype-polluting dot-path field id', async () => {
+    const maliciousFields: CrudField[] = [
+      { id: 'workflowName', label: 'Name', type: 'text' },
+      { id: '__proto__.polluted', label: 'Evil', type: 'text' },
+    ]
+    const schema = z.object({ workflowName: z.string() }).passthrough()
+
+    function Harness() {
+      const [submitted, setSubmitted] = React.useState<Record<string, unknown> | null>(null)
+      return (
+        <>
+          <CrudForm
+            title="Edit"
+            fields={maliciousFields}
+            schema={schema as any}
+            initialValues={{ id: 'wf-1', workflowName: 'Pipeline', '__proto__.polluted': 'pwned' } as any}
+            onSubmit={(values) => setSubmitted(values as Record<string, unknown>)}
+          />
+          <div data-testid="submitted">{JSON.stringify(submitted)}</div>
+        </>
+      )
+    }
+
+    const { container } = renderWithProviders(<Harness />, { dict })
+    await flushMicrotasks()
+
+    const form = container.querySelector('form') as HTMLFormElement
+    await act(async () => {
+      fireEvent.submit(form)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    // The collapse step must skip prototype-polluting segments entirely, so
+    // neither a fresh object nor Object.prototype gains the injected key.
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+    expect((Object.prototype as Record<string, unknown>).polluted).toBeUndefined()
+    // The submit still completes for the legitimate fields.
+    const submitted = JSON.parse(screen.getByTestId('submitted').textContent || 'null')
+    expect(submitted).not.toBeNull()
+    expect(submitted.workflowName).toBe('Pipeline')
+  })
 })
