@@ -84,7 +84,10 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
       const setBaseItem = page.getByRole('menuitem').filter({ hasText: /Set as Base/ }).first();
       let setBaseClicked = false;
       for (let attempt = 0; attempt < 3; attempt += 1) {
-        await openRowActions();
+        // Only (re)open when the item isn't already showing — a blind toggle
+        // click would close a menu left open by a prior detached-click attempt.
+        const alreadyOpen = await setBaseItem.isVisible().catch(() => false);
+        if (!alreadyOpen) await openRowActions();
         const opened = await setBaseItem
           .waitFor({ state: 'visible', timeout: 5_000 })
           .then(() => true)
