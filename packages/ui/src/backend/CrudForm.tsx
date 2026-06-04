@@ -407,6 +407,44 @@ function readByDotPath(source: Record<string, unknown> | undefined, path: string
   return current
 }
 
+function writeByDotPath(target: Record<string, unknown>, path: string, value: unknown): void {
+  const segments = path.split('.').filter(Boolean)
+  if (segments.length === 0) return
+  let current: Record<string, unknown> = target
+  for (let index = 0; index < segments.length - 1; index++) {
+    const segment = segments[index]
+    const existing = current[segment]
+    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
+      const created: Record<string, unknown> = {}
+      current[segment] = created
+      current = created
+    } else {
+      current = existing as Record<string, unknown>
+    }
+  }
+  current[segments[segments.length - 1]] = value
+}
+
+// Collapse flat dot-path keys (e.g. `metadata.category`) declared as base form
+// fields into the nested object the schema expects (`{ metadata: { category } }`).
+// The flat keys are preserved alongside the nested projection so that forms whose
+// schema declares the flat keys directly keep working — CrudForm's non-strict
+// schema.safeParse retains whichever representation the schema declares and strips
+// the other. See issue #2503 ("Latent framework gap").
+function collapseDotPathFields(
+  source: Record<string, unknown>,
+  dotPathFieldIds: ReadonlySet<string>,
+): Record<string, unknown> {
+  if (!dotPathFieldIds.size) return source
+  let result: Record<string, unknown> | null = null
+  for (const fieldId of dotPathFieldIds) {
+    if (!Object.prototype.hasOwnProperty.call(source, fieldId)) continue
+    if (!result) result = { ...source }
+    writeByDotPath(result, fieldId, source[fieldId])
+  }
+  return result ?? source
+}
+
 function readInitialCustomFieldValue(
   source: Record<string, unknown> | undefined,
   key: string,
@@ -1660,6 +1698,25 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return new globalThis.Map(allFields.map((f) => [f.id, f]))
   }, [allFields])
 
+  // Declared base fields whose id is a dot-path (e.g. `metadata.category`).
+  // Injected and custom (cf) fields already get dot-path/cf-path hydration and
+  // are excluded here so their dedicated handling is preserved. CrudForm hydrates
+  // these flat keys from nested initial values on load and projects them back into
+  // nested objects before schema.safeParse on submit. See issue #2503.
+  const dotPathBaseFieldIds = React.useMemo(() => {
+    const ids = new Set<string>()
+    const cfFieldIds = new Set(cfFields.map((field) => field.id))
+    for (const field of allFields) {
+      const fieldId = field.id
+      if (!fieldId.includes('.')) continue
+      if (injectedFieldIdSet.has(fieldId)) continue
+      if (fieldId.startsWith('cf_') || fieldId.startsWith('cf:')) continue
+      if (cfFieldIds.has(fieldId)) continue
+      ids.add(fieldId)
+    }
+    return ids
+  }, [allFields, injectedFieldIdSet, cfFields])
+
   const validateFieldOnBlur = React.useCallback(async (
     fieldId: string,
     sourceValues?: CrudFormValues<TValues>,
@@ -1732,7 +1789,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       for (const injectedId of injectedFieldIdSet) {
         delete coreValues[injectedId]
       }
-      const result = schema.safeParse(coreValues)
+      const result = schema.safeParse(collapseDotPathFields(coreValues, dotPathBaseFieldIds))
       if (!result.success) {
         const schemaFieldErrors: Record<string, string> = {}
         result.error.issues.forEach((issue) => {
@@ -1772,6 +1829,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [
     cfDefinitions,
     customEntity,
+    dotPathBaseFieldIds,
     fieldById,
     formReadOnly,
     hiddenBaseFieldIds,
@@ -2177,6 +2235,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       initialValues,
       injectedFieldIds: injectedFieldDefinitions.map((definition) => definition.id),
       customFieldMappings: cfDefinitions.map((definition) => definition.key),
+      dotPathBaseFieldIds: Array.from(dotPathBaseFieldIds),
     })
     if (appliedInitialValuesSnapshotRef.current === snapshot) return
     appliedInitialValuesSnapshotRef.current = snapshot
@@ -2197,6 +2256,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         const extracted = readInitialCustomFieldValue(initialRecord, definition.key)
         if (extracted !== undefined) {
           ;(merged as Record<string, unknown>)[targetId] = extracted
+        }
+      }
+      for (const fieldId of dotPathBaseFieldIds) {
+        if (merged[fieldId] !== undefined) continue
+        const extracted = readByDotPath(initialRecord, fieldId)
+        if (extracted !== undefined) {
+          ;(merged as Record<string, unknown>)[fieldId] = extracted
         }
       }
       mergedValues = merged
@@ -2229,6 +2295,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [
     cfDefinitions,
     customEntity,
+    dotPathBaseFieldIds,
     extendedInjectionEventsEnabled,
     initialValues,
     injectedFieldDefinitions,
@@ -2426,7 +2493,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
     let parsedValues: TValues
     if (schema) {
-      const res = schema.safeParse(coreValues)
+      const res = schema.safeParse(collapseDotPathFields(coreValues, dotPathBaseFieldIds))
       if (!res.success) {
         const fieldErrors: Record<string, string> = {}
         res.error.issues.forEach((issue) => {
@@ -2456,7 +2523,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           for (const injectedId of injectedFieldIdSet) {
             delete projectedCoreValues[injectedId]
           }
-          coreSubmitValues = schema ? schema.parse(projectedCoreValues) : (projectedCoreValues as TValues)
+          coreSubmitValues = schema
+            ? schema.parse(collapseDotPathFields(projectedCoreValues, dotPathBaseFieldIds))
+            : (projectedCoreValues as TValues)
           if (result.applyToForm) {
             setValues(result.data as CrudFormValues<TValues>)
           }
