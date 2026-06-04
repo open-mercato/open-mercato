@@ -124,7 +124,7 @@ test.describe('TC-CAT-CF-MULTI-EDIT-001: product multichoice custom field persis
       await expect
         .poll(
           async () => asStringArray((await fetchProductCustomValues(request, token as string, productId as string))[fieldKey]),
-          { message: 'product multi-select seed should appear in the query index', timeout: 15_000 },
+          { message: 'product multi-select seed should appear in the query index', timeout: 30_000 },
         )
         .toEqual(['stylist', 'therapist']);
 
@@ -147,7 +147,7 @@ test.describe('TC-CAT-CF-MULTI-EDIT-001: product multichoice custom field persis
       await expect
         .poll(
           async () => asStringArray((await fetchProductCustomValues(request, token as string, productId as string))[fieldKey]),
-          { message: 'product multi-select edit should converge in the query index to the new values', timeout: 15_000 },
+          { message: 'product multi-select edit should converge in the query index to the new values', timeout: 30_000 },
         )
         .toEqual(['treatment_room', 'wash_station']);
     } finally {

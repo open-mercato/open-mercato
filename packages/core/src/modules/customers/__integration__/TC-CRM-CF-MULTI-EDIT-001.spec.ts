@@ -68,6 +68,16 @@ async function deleteDealDefinition(
   expect([200, 404]).toContain(response.status());
 }
 
+/**
+ * Reads custom-field values from the deal DETAIL endpoint, which resolves them
+ * LIVE from EAV (`loadCustomFieldValues`) and therefore reflects a write
+ * synchronously. The list endpoint serves `customValues` from the query INDEX,
+ * which is updated out-of-band (fire-and-forget `query_index.upsert_one`) and is
+ * eventually consistent — reading it immediately after a write races the async
+ * re-index and flakes to an empty value under CI load. Since this spec verifies
+ * persistence (the #issue regression: multichoice values reverting on edit), the
+ * authoritative live read is both correct and deterministic.
+ */
 async function fetchDealCustomValues(
   request: APIRequestContext,
   token: string,
@@ -76,19 +86,14 @@ async function fetchDealCustomValues(
   const response = await apiRequest(
     request,
     'GET',
-    `/api/customers/deals?id=${encodeURIComponent(dealId)}&page=1&pageSize=1`,
+    `/api/customers/deals/${encodeURIComponent(dealId)}`,
     { token },
   );
-  expect(response.ok(), `GET /api/customers/deals failed: ${response.status()}`).toBeTruthy();
-  const body = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(response);
-  const item = Array.isArray(body?.items) ? body?.items?.[0] : undefined;
-  expect(item, 'deal should be returned by list-by-id query').toBeTruthy();
-  const record = item as Record<string, unknown>;
-  const customValues =
-    record.customValues && typeof record.customValues === 'object'
-      ? (record.customValues as Record<string, unknown>)
-      : {};
-  return customValues;
+  expect(response.ok(), `GET /api/customers/deals/${dealId} failed: ${response.status()}`).toBeTruthy();
+  const body = await readJsonSafe<{ customFields?: Record<string, unknown> }>(response);
+  return body?.customFields && typeof body.customFields === 'object'
+    ? (body.customFields as Record<string, unknown>)
+    : {};
 }
 
 function asStringArray(value: unknown): string[] {
@@ -131,13 +136,9 @@ test.describe('TC-CRM-CF-MULTI-EDIT-001: deal multichoice custom field persists 
       dealId = typeof createBody?.id === 'string' ? createBody.id : null;
       expect(dealId, 'create deal should return an id').toBeTruthy();
 
-      // customValues come from the eventually-consistent query index; poll until it converges.
-      await expect
-        .poll(
-          async () => asStringArray((await fetchDealCustomValues(request, token as string, dealId as string))[fieldKey]),
-          { message: 'deal multi-select create should appear in the query index', timeout: 15_000 },
-        )
-        .toEqual(['alpha', 'beta']);
+      // Live detail read (see fetchDealCustomValues) reflects the write synchronously.
+      const afterCreate = await fetchDealCustomValues(request, token, dealId as string);
+      expect(asStringArray(afterCreate[fieldKey])).toEqual(['alpha', 'beta']);
 
       // EDIT to a DIFFERENT multi-value set using the `customFields` wrapper —
       // the shape the fixed `useDealFormHandlers` now sends.
@@ -151,18 +152,11 @@ test.describe('TC-CRM-CF-MULTI-EDIT-001: deal multichoice custom field persists 
       });
       expect(updateRes.ok(), `update deal failed: ${updateRes.status()}`).toBeTruthy();
 
-      // The deal list endpoint serves customValues from the query index, which is
-      // updated out-of-band (fire-and-forget `query_index.upsert_one`). The write
-      // itself is synchronous (live EAV reflects it immediately), but the index is
-      // eventually consistent, so a single immediate read races the async re-index
-      // and can observe an empty/stale value under load. Poll until the index
-      // converges to the new set (mirrors TC-CUR-004's expect.poll on an indexed read).
-      await expect
-        .poll(
-          async () => asStringArray((await fetchDealCustomValues(request, token as string, dealId as string))[fieldKey]),
-          { message: 'deal multi-select edit should converge in the query index to the new values', timeout: 15_000 },
-        )
-        .toEqual(['delta', 'gamma']);
+      // New set persists, and the old values (alpha/beta) are gone.
+      const afterUpdate = await fetchDealCustomValues(request, token, dealId as string);
+      expect(asStringArray(afterUpdate[fieldKey])).toEqual(['delta', 'gamma']);
+      expect(asStringArray(afterUpdate[fieldKey])).not.toContain('alpha');
+      expect(asStringArray(afterUpdate[fieldKey])).not.toContain('beta');
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
@@ -214,14 +208,8 @@ test.describe('TC-CRM-CF-MULTI-EDIT-001: deal multichoice custom field persists 
       expect(updateRes.ok(), `update deal failed: ${updateRes.status()}`).toBeTruthy();
 
       // The bare key is dropped by dealUpdateSchema.parse → custom value unchanged.
-      // Poll the eventually-consistent index; it must stay ['one'] (would converge
-      // to ['two','three'] and time out if the bare-key path wrongly persisted).
-      await expect
-        .poll(
-          async () => asStringArray((await fetchDealCustomValues(request, token as string, dealId as string))[fieldKey]),
-          { message: 'bare-key edit must not change the persisted custom value', timeout: 15_000 },
-        )
-        .toEqual(['one']);
+      const afterUpdate = await fetchDealCustomValues(request, token, dealId as string);
+      expect(asStringArray(afterUpdate[fieldKey])).toEqual(['one']);
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
