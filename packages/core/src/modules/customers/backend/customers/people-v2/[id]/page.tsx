@@ -16,6 +16,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -391,13 +392,28 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
         variant: 'destructive',
       })
       if (!approved) return
-      await runMutationWithContext(
-        () => withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(data?.person?.updatedAt ?? data?.person?.updated_at ?? null),
-          () => deleteCrud('customers/people', { id: personId }),
-        ),
-        { id: personId, operation: 'deletePerson' },
-      )
+      try {
+        await runMutationWithContext(
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(data?.person?.updatedAt ?? data?.person?.updated_at ?? null),
+            () => deleteCrud('customers/people', { id: personId }),
+          ),
+          { id: personId, operation: 'deletePerson' },
+        )
+      } catch (err) {
+        // The guarded mutation routes a 409 to the unified conflict bar; surface
+        // any other server error (e.g. a linked-records delete guard) as a flash
+        // instead of letting it crash the page.
+        if (!surfaceRecordConflict(err, t)) {
+          flash(
+            err instanceof Error && err.message.trim().length > 0
+              ? err.message
+              : t('customers.people.detail.deleteError', 'Failed to delete person.'),
+            'error',
+          )
+        }
+        return
+      }
       flash(t('customers.people.list.deleteSuccess', 'Person deleted.'), 'success')
       router.push('/backend/customers/people')
     },

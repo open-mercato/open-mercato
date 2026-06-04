@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -69,13 +70,27 @@ export function useDealFormHandlers({
       variant: 'destructive',
     })
     if (!approved) return
-    await runMutationWithContext(
-      () => withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(data.deal.updatedAt),
-        () => deleteCrud('customers/deals', currentDealId),
-      ),
-      { id: currentDealId, operation: 'deleteDeal' },
-    )
+    try {
+      await runMutationWithContext(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(data.deal.updatedAt),
+          () => deleteCrud('customers/deals', currentDealId),
+        ),
+        { id: currentDealId, operation: 'deleteDeal' },
+      )
+    } catch (err) {
+      // The guarded mutation routes a 409 to the unified conflict bar; surface
+      // any other server error as a flash instead of letting it crash the page.
+      if (!surfaceRecordConflict(err, t)) {
+        flash(
+          err instanceof Error && err.message.trim().length > 0
+            ? err.message
+            : t('customers.deals.detail.deleteError', 'Failed to delete deal.'),
+          'error',
+        )
+      }
+      return
+    }
     flash(t('customers.deals.detail.deleteSuccess', 'Deal deleted.'), 'success')
     router.push('/backend/customers/deals')
   }, [confirm, currentDealId, data, router, runMutationWithContext, t])

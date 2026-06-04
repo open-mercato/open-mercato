@@ -9,6 +9,7 @@ import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, type SectionAction } from '@open-mercato/ui/backend/detail'
@@ -325,13 +326,28 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       variant: 'destructive',
     })
     if (!approved) return
-    await runMutationWithContext(
-      () => withScopedApiRequestHeaders(
-        buildOptimisticLockHeader((data?.company as { updatedAt?: string } | undefined)?.updatedAt),
-        () => deleteCrud('customers/companies', { id: companyId }),
-      ),
-      { id: companyId, operation: 'deleteCompany' },
-    )
+    try {
+      await runMutationWithContext(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader((data?.company as { updatedAt?: string } | undefined)?.updatedAt),
+          () => deleteCrud('customers/companies', { id: companyId }),
+        ),
+        { id: companyId, operation: 'deleteCompany' },
+      )
+    } catch (err) {
+      // The guarded mutation already routes a 409 to the unified conflict bar;
+      // surface any other server error (e.g. "Cannot delete company: linked
+      // deals…") as a flash instead of letting it crash the page.
+      if (!surfaceRecordConflict(err, t)) {
+        flash(
+          err instanceof Error && err.message.trim().length > 0
+            ? err.message
+            : t('customers.companies.detail.deleteError', 'Failed to delete company.'),
+          'error',
+        )
+      }
+      return
+    }
     flash(t('customers.companies.list.deleteSuccess', 'Company deleted.'), 'success')
     router.push('/backend/customers/companies')
   }, [confirm, data?.company?.id, router, runMutationWithContext, t])
