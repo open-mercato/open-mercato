@@ -359,27 +359,6 @@ export class RbacService {
   }
 
   /**
-   * Returns the user's granted feature strings for a given scope.
-   *
-   * Used by infrastructure that needs the raw grant list rather than a yes/no
-   * authorization check (for example response enrichers gating themselves with
-   * `features: [...]`). Callers MUST apply wildcard-aware matching against the
-   * returned array — grants like `module.*` or `*` are part of the ACL contract.
-   *
-   * @param userId - The ID of the user
-   * @param scope - The tenant and organization context for ACL evaluation
-   * @returns Array of feature strings (may include wildcards); empty array when
-   *          the user has no grants in scope
-   */
-  async getGrantedFeatures(
-    userId: string,
-    scope: { tenantId: string | null; organizationId: string | null },
-  ): Promise<string[]> {
-    const acl = await this.loadAcl(userId, scope)
-    return Array.isArray(acl.features) ? acl.features : []
-  }
-
-  /**
    * Checks whether any tenant role grants a feature.
    *
    * This supports non-user runtimes such as scheduler workers that execute with

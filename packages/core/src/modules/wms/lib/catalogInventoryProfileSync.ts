@@ -1,3 +1,4 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -58,7 +59,7 @@ async function loadExistingProfile(params: {
   catalogProductId: string
   container: AwilixContainer
 }) {
-  const em = params.container.resolve('em')
+  const em = params.container.resolve('em') as EntityManager
   const scope = {
     organizationId: params.organizationId,
     tenantId: params.tenantId,
