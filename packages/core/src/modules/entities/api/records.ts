@@ -113,6 +113,23 @@ export async function GET(req: Request) {
       const found = await em.findOne(CustomEntity as any, { entityId, isActive: true })
       isCustomEntity = !!found
     } catch {}
+    // Read/write symmetry: this endpoint writes every record to custom_entities_storage
+    // via the data engine, including module-declared custom entities whose id is a
+    // frozen system id and therefore never registered in `custom_entities`. Detect
+    // those by their doc-storage rows so `mapRow` strips the `cf_` prefix and the edit
+    // form can read back the saved values (mirrors HybridQueryEngine.isCustomEntity).
+    if (!isCustomEntity) {
+      try {
+        const db = em.getKysely()
+        const row = await db
+          .selectFrom('custom_entities_storage' as any)
+          .select(['entity_id' as any])
+          .where('entity_type' as any, '=', entityId)
+          .limit(1)
+          .executeTakeFirst()
+        isCustomEntity = !!row
+      } catch {}
+    }
     if (organizationIds && organizationIds.length === 0) {
       return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 0 })
     }
