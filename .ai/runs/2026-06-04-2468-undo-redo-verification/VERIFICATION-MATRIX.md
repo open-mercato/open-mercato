@@ -35,9 +35,34 @@ these for the next-stage per-module integration tests.
 - ✅ token consumption / no double-undo (customers.people)
 - ⚠️ redo-of-create mints a NEW id (finding; all `*.create`)
 
+## Batch 2 (verified — relations, actions, documents, planner, checkout, directory)
+
+All ✅ update-undo + redo + delete-undo unless noted:
+customers.{addresses, comments, interactions, deals}, catalog.{variants, offers, prices, optionSchemas},
+sales.payments, staff.{timesheets.time_projects, timesheets.time_entries, leave-requests},
+resources.{resource-activities, resource-comments}, planner.{availability, availability-rule-sets},
+directory.organizations.
+
+Action-undo ✅ (status flip reverts): customers.interactions.complete, customers.interactions.cancel,
+staff.leave-requests.accept, staff.leave-requests.reject.
+Assign-undo ✅ (membership removed): customers.tags.assign (1→0 confirmed), customers.labels.assign,
+resources.resourceTags.assign; staff.team-members.tags.assign (undo executes; detail read-shape unverified).
+
+Findings (not full pass):
+- customers.activities.create / customers.todos.* — deprecated bridge route emits **no undo token** → #2506
+- catalog.productUnitConversions — create needs a valid UoM code (test-data; not a product defect)
+- customers.entityRoles — create needs `userId` (test-data; not a product defect)
+
+## Cross-cutting (verified)
+- ✅ X4 latest-only: undoing an older action while a newer exists → 400 "Undo token not available"
+- ✅ X5 double-undo: consumed token rejected
+- ✅ X6/X7 permission: employee undo of admin's action → 400 (no undo_tenant)
+- ⚠️ X3 redo-of-create mints a new id → #2506
+
 ## Bugs filed
 - #2498 customers.people.update undo no-op (encryption deep-decrypt re-baselines change tracking before flush; systemic class)
 - #2504 scheduler.jobs undo no-op (reads logEntry.payload not commandPayload; use extractUndoPayload)
+- #2506 medium findings (deprecated-route no token; redo-of-create new id; feature_toggles.global ACL gap; exchange_rates 409)
 
 ## TODO (remaining scenarios)
 customers: addresses, comments, activities, interactions(+complete/cancel), tags assign/unassign,
