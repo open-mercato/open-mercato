@@ -43,13 +43,22 @@ export function useDealFormHandlers({
       if (!data) return
       setIsSaving(true)
       try {
+        const body: Record<string, unknown> = {
+          id: data.deal.id,
+          ...payload.base,
+        }
+        // Custom-field values MUST travel under `customFields` (bare keys). The
+        // deal update route's `splitCustomFieldPayload` only routes
+        // `customFields`/`customValues`/`cf_`/`cf:` entries to the custom-field
+        // writer; spreading bare keys into the body would land them in `base`
+        // where `dealUpdateSchema.parse` silently drops them, so edits never
+        // persisted (boolean/select/multi all reverted on refresh).
+        if (payload.custom && Object.keys(payload.custom).length) {
+          body.customFields = payload.custom
+        }
         await withScopedApiRequestHeaders(
           buildOptimisticLockHeader(data.deal.updatedAt),
-          () => updateCrud('customers/deals', {
-            id: data.deal.id,
-            ...payload.base,
-            ...payload.custom,
-          }),
+          () => updateCrud('customers/deals', body),
         )
         flash(t('customers.deals.detail.updateSuccess', 'Deal updated.'), 'success')
         await loadData()
