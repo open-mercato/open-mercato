@@ -49,6 +49,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     tenantName: tenant.name,
     tenantId: tenant.id,
     toggleType: toggle.type,
+    updatedAt: override?.updatedAt instanceof Date ? override.updatedAt.toISOString() : null,
   }
 
   await logCrudAccess({

@@ -290,6 +290,10 @@ export default function MyTimesheetsPage() {
           .filter((id) => id.length > 0),
       )
 
+      const entriesParams = new URLSearchParams({ pageSize: '100', staffMemberId: memberId })
+      if (dateRange.from) entriesParams.set('from', dateRange.from)
+      if (dateRange.to) entriesParams.set('to', dateRange.to)
+
       const [projectsRes, entriesRes] = await Promise.all([
         assignedProjectIds.length > 0
           ? readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
@@ -299,7 +303,7 @@ export default function MyTimesheetsPage() {
             )
           : Promise.resolve({ items: [] as Array<Record<string, unknown>> }),
         readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-          `/api/staff/timesheets/time-entries?pageSize=100&staffMemberId=${memberId}&from=${dateRange.from}&to=${dateRange.to}`,
+          `/api/staff/timesheets/time-entries?${entriesParams.toString()}`,
           undefined,
           { errorMessage: t('staff.timesheets.my.errors.load', 'Failed to load timesheets.'), fallback: { items: [] } },
         ),
@@ -530,6 +534,11 @@ export default function MyTimesheetsPage() {
   // --- Add row handler ---
   const visibleProjectIds = React.useMemo(() => new Set(projects.map((p) => p.id)), [projects])
 
+  // optimistic-lock-exempt: the my-projects PATCH calls below only toggle the
+  // caller's own `showInGrid` preference on the staff.timesheets.time_project_member
+  // junction (a per-user membership flag). There is no shared, multi-user-editable
+  // state to lose, so version-locking the toggle would surface false 409s without
+  // protecting any data.
   const handleAddProject = React.useCallback(async (project: ProjectRow) => {
     try {
       const payload = { showInGrid: true }

@@ -19,9 +19,66 @@ export type AtomicFlushOptions = {
    */
   isolationLevel?: IsolationLevel
   /**
-   * Optional label for diagnostics. Currently informational only.
+   * Optional label for diagnostics. Surfaced in the commit-boundary guard's
+   * dev warning when a pending change set had to be flushed defensively, so the
+   * offending command is identifiable.
    */
   label?: string
+}
+
+type UnitOfWorkProbe = {
+  computeChangeSets?: () => void
+  getChangeSets?: () => ReadonlyArray<unknown>
+}
+
+type FlushGuardEntityManager = {
+  flush: () => Promise<void>
+  getUnitOfWork?: () => UnitOfWorkProbe | undefined
+}
+
+/**
+ * Commit-boundary safety net.
+ *
+ * After every phase has run and flushed, this asserts the UnitOfWork holds NO
+ * pending change sets before the transaction commits. If it still does — a phase
+ * mutated a managed entity AFTER its own per-phase flush boundary (the exact
+ * shape that silently drops a scalar UPDATE under MikroORM v7) — the guard
+ * flushes those changes defensively so the write can never be lost, and warns in
+ * non-production so the latent ordering bug gets fixed at the source.
+ *
+ * Detection is best-effort and fail-safe: it only issues the extra flush when it
+ * can PROVE the UnitOfWork is dirty (`computeChangeSets()` → `getChangeSets()`
+ * non-empty). On EntityManagers that don't expose a UnitOfWork (partial/mock EMs
+ * in unit tests) it does nothing — the per-phase flushes already ran — so it
+ * never double-flushes a clean unit of work and never changes flush counts for
+ * callers that were already correct.
+ */
+async function flushPendingChangesGuard(
+  em: FlushGuardEntityManager,
+  label?: string,
+): Promise<void> {
+  let pendingCount = -1
+  try {
+    const uow = typeof em.getUnitOfWork === 'function' ? em.getUnitOfWork() : undefined
+    if (uow && typeof uow.computeChangeSets === 'function' && typeof uow.getChangeSets === 'function') {
+      uow.computeChangeSets()
+      pendingCount = uow.getChangeSets().length
+    }
+  } catch {
+    // Probing the UnitOfWork must never break a command; fall back to "unknown".
+    pendingCount = -1
+  }
+
+  if (pendingCount > 0) {
+    await em.flush()
+    if (process.env.NODE_ENV !== 'production') {
+      const where = label ? ` (${label})` : ''
+      console.warn(
+        `[withAtomicFlush]${where}: ${pendingCount} pending change-set(s) remained at the commit boundary and were flushed defensively. ` +
+          'A phase mutated a managed entity after its flush boundary — split the mutation and any dependent read/sync into separate phases so the change is never at risk of being dropped.',
+      )
+    }
+  }
 }
 
 /**
@@ -67,11 +124,31 @@ export async function withAtomicFlush(
 ): Promise<void> {
   if (phases.length === 0) return
 
+  // SPEC-018: the phases ARE flush boundaries — flush AFTER EACH phase, not once
+  // at the end. A phase's scalar mutations must be persisted before the NEXT
+  // phase runs any query (em.find / findOne / nativeUpdate / a sync helper);
+  // otherwise the interleaved read resets MikroORM v7's identity-map changeset
+  // and the pending scalar UPDATE is silently dropped (the #2453 family). This
+  // is the framework-level guarantee that lets commands keep mutations and the
+  // reads that depend on them in separate phases without hand-rolled flushes.
+  //
+  // Atomicity is preserved: when `transaction: true` (or an ambient transaction
+  // is joined), each `em.flush()` only emits SQL inside the open transaction —
+  // the single commit/rollback below still spans every phase, so a later-phase
+  // failure rolls back all earlier phases. Without a transaction the helper
+  // keeps its documented "each phase flushes independently" behavior.
+  //
+  // Commit-boundary guarantee: after the last phase flush, `flushPendingChangesGuard`
+  // re-checks the UnitOfWork and flushes once more if ANY pending change set remains
+  // (a phase mutated state after its boundary). The transaction therefore can never
+  // commit with unflushed work — if a per-phase flush was missed "for some reason",
+  // the guard catches it inside the same transaction and warns in dev.
   const runPhasesAndFlush = async () => {
     for (const phase of phases) {
       await phase()
+      await em.flush()
     }
-    await em.flush()
+    await flushPendingChangesGuard(em as unknown as FlushGuardEntityManager, options?.label)
   }
 
   if (!options?.transaction) {

@@ -213,22 +213,24 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
       ensureSameScope(entity, address.organizationId, address.tenantId)
       address.entity = entity
     }
-    if (parsed.name !== undefined) address.name = parsed.name ?? null
-    if (parsed.purpose !== undefined) address.purpose = parsed.purpose ?? null
-    if (parsed.companyName !== undefined) address.companyName = parsed.companyName ?? null
-    if (parsed.addressLine1 !== undefined) address.addressLine1 = parsed.addressLine1
-    if (parsed.addressLine2 !== undefined) address.addressLine2 = parsed.addressLine2 ?? null
-    if (parsed.buildingNumber !== undefined) address.buildingNumber = parsed.buildingNumber ?? null
-    if (parsed.flatNumber !== undefined) address.flatNumber = parsed.flatNumber ?? null
-    if (parsed.city !== undefined) address.city = parsed.city ?? null
-    if (parsed.region !== undefined) address.region = parsed.region ?? null
-    if (parsed.postalCode !== undefined) address.postalCode = parsed.postalCode ?? null
-    if (parsed.country !== undefined) address.country = parsed.country ?? null
-    if (parsed.latitude !== undefined) address.latitude = parsed.latitude ?? null
-    if (parsed.longitude !== undefined) address.longitude = parsed.longitude ?? null
-    if (parsed.isPrimary !== undefined) address.isPrimary = parsed.isPrimary
 
     await withAtomicFlush(em, [
+      () => {
+        if (parsed.name !== undefined) address.name = parsed.name ?? null
+        if (parsed.purpose !== undefined) address.purpose = parsed.purpose ?? null
+        if (parsed.companyName !== undefined) address.companyName = parsed.companyName ?? null
+        if (parsed.addressLine1 !== undefined) address.addressLine1 = parsed.addressLine1
+        if (parsed.addressLine2 !== undefined) address.addressLine2 = parsed.addressLine2 ?? null
+        if (parsed.buildingNumber !== undefined) address.buildingNumber = parsed.buildingNumber ?? null
+        if (parsed.flatNumber !== undefined) address.flatNumber = parsed.flatNumber ?? null
+        if (parsed.city !== undefined) address.city = parsed.city ?? null
+        if (parsed.region !== undefined) address.region = parsed.region ?? null
+        if (parsed.postalCode !== undefined) address.postalCode = parsed.postalCode ?? null
+        if (parsed.country !== undefined) address.country = parsed.country ?? null
+        if (parsed.latitude !== undefined) address.latitude = parsed.latitude ?? null
+        if (parsed.longitude !== undefined) address.longitude = parsed.longitude ?? null
+        if (parsed.isPrimary !== undefined) address.isPrimary = parsed.isPrimary
+      },
       async () => {
         if (address.isPrimary) {
           await enforcePrimaryAddress(em, typeof address.entity === 'string' ? address.entity : address.entity.id, address.id)

@@ -126,7 +126,7 @@ export class <Entity> {
 - Table name: **plural, snake_case** — matches module ID
 - PK: always `uuid` with `v4()` default
 - MUST include `organization_id` + `tenant_id` with `@Index()`
-- MUST include `created_at`, `updated_at`, `deleted_at`, `is_active`
+- MUST include `created_at`, `updated_at`, `deleted_at`, `is_active`. The `updated_at` column is what OSS **optimistic locking** (default ON) compares — keep it on every user-editable entity, and make your CRUD GET/list responses return `updatedAt` so the UI can send the expected version.
 - Entity decorators MUST come from `@mikro-orm/decorators/legacy`
 - Cross-module references: store FK as `uuid` field (e.g., `customer_id`) — never use ORM `@ManyToOne`
 - Use `@Property({ type: 'jsonb' })` for flexible/nested data
@@ -233,6 +233,8 @@ export const openApi = {
 ## 6. Create Backend Pages
 
 Use `CrudForm` and `DataTable` from `@open-mercato/ui`. See the `backend-ui-design` skill for full component reference.
+
+> **Optimistic locking (default ON).** `CrudForm` in edit mode auto-derives the expected-version header from `initialValues.updatedAt` and applies it to **both** save and delete — so pass the loaded record's `updatedAt` into `initialValues`. For custom (non-`CrudForm`) list-row deletes or dialog mutations, wrap the call with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), () => deleteCrud(...))` and surface the 409 with `surfaceRecordConflict(err, t)` from `@open-mercato/ui/backend/conflicts`. Never leave a mutating edit/delete UI without a version header — concurrent edits would silently overwrite.
 
 ### Page Metadata & Sidebar Navigation
 

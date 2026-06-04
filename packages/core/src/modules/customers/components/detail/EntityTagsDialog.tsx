@@ -854,6 +854,7 @@ export function EntityTagsDialog({
             readApiResultOrThrow<Record<string, unknown>>(
               '/api/customers/tags',
               {
+                // optimistic-lock-exempt: tag dictionary create-only
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({
@@ -892,6 +893,7 @@ export function EntityTagsDialog({
             readApiResultOrThrow<{ id: string; slug: string; label: string }>(
               '/api/customers/labels',
               {
+                // optimistic-lock-exempt: label dictionary create-only
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify(payload),
@@ -956,6 +958,7 @@ export function EntityTagsDialog({
         await runGuardedMutation(
           () =>
             apiCallOrThrow(`/api/customers/${entityType === 'person' ? 'people' : 'companies'}`, {
+              // optimistic-lock-exempt: tag/label dictionary + custom-field selection write (assignment add/remove)
               method: 'PUT',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({
@@ -984,6 +987,7 @@ export function EntityTagsDialog({
         await runGuardedMutation(
           () =>
             apiCallOrThrow('/api/customers/tags/assign', {
+              // optimistic-lock-exempt: tag assignment add/remove
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ tagId, entityId }),
@@ -996,6 +1000,7 @@ export function EntityTagsDialog({
         await runGuardedMutation(
           () =>
             apiCallOrThrow('/api/customers/tags/unassign', {
+              // optimistic-lock-exempt: tag assignment add/remove
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ tagId, entityId }),
@@ -1016,6 +1021,7 @@ export function EntityTagsDialog({
         await runGuardedMutation(
           () =>
             apiCallOrThrow('/api/customers/labels/assign', {
+              // optimistic-lock-exempt: label assignment add/remove
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify(payload),
@@ -1031,6 +1037,7 @@ export function EntityTagsDialog({
         await runGuardedMutation(
           () =>
             apiCallOrThrow('/api/customers/labels/unassign', {
+              // optimistic-lock-exempt: label assignment add/remove
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify(payload),

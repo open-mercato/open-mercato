@@ -6,7 +6,8 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -25,6 +26,7 @@ type Row = {
   lastUsedAt: string | null
   expiresAt: string | null
   roles: RoleSummary[]
+  updatedAt?: string | null
 }
 
 type ResponsePayload = {
@@ -104,10 +106,13 @@ export default function ApiKeysListPage() {
     })
     if (!confirmed) return
     try {
-      const call = await apiCall<{ error?: string }>(
-        `/api/api_keys/keys?id=${encodeURIComponent(row.id)}`,
-        { method: 'DELETE' },
-        { fallback: null },
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(row.updatedAt),
+        () => apiCall<{ error?: string }>(
+          `/api/api_keys/keys?id=${encodeURIComponent(row.id)}`,
+          { method: 'DELETE' },
+          { fallback: null },
+        ),
       )
       if (!call.ok) {
         const errorPayload = call.result as { error?: string } | undefined

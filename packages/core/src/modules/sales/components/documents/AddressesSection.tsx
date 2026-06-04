@@ -4,7 +4,8 @@
 
 import * as React from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
@@ -691,14 +692,17 @@ export function SalesDocumentAddressesSection({
       }
       await runGuardedMutation(
         () =>
-          apiCallOrThrow(
-            '/api/sales/document-addresses',
-            {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            },
-            { errorMessage: t('sales.documents.detail.addresses.saveError', 'Failed to update addresses.') },
+          // TODO(#2373-C): thread document updatedAt
+          withScopedApiRequestHeaders(buildOptimisticLockHeader(undefined), () =>
+            apiCallOrThrow(
+              '/api/sales/document-addresses',
+              {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage: t('sales.documents.detail.addresses.saveError', 'Failed to update addresses.') },
+            ),
           ),
         payload,
       )
@@ -750,14 +754,17 @@ export function SalesDocumentAddressesSection({
         const payload = { id, documentId, documentKind: kind }
         await runGuardedMutation(
           () =>
-            apiCallOrThrow(
-              '/api/sales/document-addresses',
-              {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-              },
-              { errorMessage: t('sales.documents.detail.addresses.deleteError', 'Failed to remove address.') },
+            // TODO(#2373-C): thread document updatedAt
+            withScopedApiRequestHeaders(buildOptimisticLockHeader(undefined), () =>
+              apiCallOrThrow(
+                '/api/sales/document-addresses',
+                {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload),
+                },
+                { errorMessage: t('sales.documents.detail.addresses.deleteError', 'Failed to remove address.') },
+              ),
             ),
           payload,
         )
@@ -849,14 +856,17 @@ export function SalesDocumentAddressesSection({
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       const call = await runGuardedMutation(
         () =>
-          apiCallOrThrow<Record<string, unknown>>(
-            endpoint,
-            {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            },
-            { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') },
+          // TODO(#2373-C): thread document updatedAt
+          withScopedApiRequestHeaders(buildOptimisticLockHeader(undefined), () =>
+            apiCallOrThrow<Record<string, unknown>>(
+              endpoint,
+              {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') },
+            ),
           ),
         payload,
       )

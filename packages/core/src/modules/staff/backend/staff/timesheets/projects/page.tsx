@@ -9,7 +9,9 @@ import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/Dat
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterOverlay'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -467,15 +469,19 @@ export default function TimesheetProjectsPage() {
       })
       if (!confirmed) return
       try {
-        await deleteCrud('staff/timesheets/time-projects', entry.id, { errorMessage: labels.errors.delete })
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(entry.updatedAt),
+          () => deleteCrud('staff/timesheets/time-projects', entry.id, { errorMessage: labels.errors.delete }),
+        )
         flash(labels.messages.deleted, 'success')
         handleRefresh()
       } catch (error) {
+        if (surfaceRecordConflict(error, t)) { handleRefresh(); return }
         console.error('staff.timesheets.projects.delete', error)
         flash(labels.errors.delete, 'error')
       }
     },
-    [confirm, handleRefresh, labels.actions.deleteConfirm, labels.actions.delete, labels.errors.delete, labels.messages.deleted],
+    [confirm, handleRefresh, t, labels.actions.deleteConfirm, labels.actions.delete, labels.errors.delete, labels.messages.deleted],
   )
 
   const columns = React.useMemo<ColumnDef<ProjectRow>[]>(

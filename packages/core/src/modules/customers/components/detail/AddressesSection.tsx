@@ -107,6 +107,7 @@ export function AddressesSection({
       const response = await apiCallOrThrow<Record<string, unknown>>(
         '/api/customers/addresses',
         {
+          // optimistic-lock-exempt: address link add/remove sub-resource
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
@@ -123,6 +124,7 @@ export function AddressesSection({
       await apiCallOrThrow(
         '/api/customers/addresses',
         {
+          // optimistic-lock-exempt: address link add/remove sub-resource
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
@@ -138,6 +140,7 @@ export function AddressesSection({
       await apiCallOrThrow(
         '/api/customers/addresses',
         {
+          // optimistic-lock-exempt: address link add/remove sub-resource
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ id }),
@@ -170,6 +173,7 @@ export function AddressesSection({
       const response = await apiCallOrThrow<Record<string, unknown>>(
         '/api/customers/dictionaries/address-types',
         {
+          // optimistic-lock-exempt: address-type dictionary create-only
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ value }),

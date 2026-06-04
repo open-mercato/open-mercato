@@ -170,6 +170,10 @@ export function DictionarySortSettings() {
     setError(null)
     try {
       await runMutation({
+        // optimistic-lock-exempt: tenant-scoped settings blob (dictionary sort
+        // modes), not a versioned per-record entity — there is no `updatedAt`
+        // round-trip to lock against, and concurrent writes converge on the
+        // last-selected preference. Mirrors other singleton settings PATCHes.
         operation: async () => {
           await apiCallOrThrow(
             '/api/customers/settings/dictionary-sort-modes',

@@ -69,6 +69,8 @@ import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor
 import { mergeIdFilter, parseIdsParam } from './ids'
 import { mergeAdvancedFilters } from './advanced-filter-integration'
 import { parseExtensionHeaders } from '../umes/extension-headers'
+import { createGenericOptimisticLockReader } from './optimistic-lock'
+import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
@@ -939,6 +941,27 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   const resourceKind = resourceInfo.primary
   const resourceAliases = resourceInfo.aliases
   const resourceTargets = expandResourceAliases(resourceKind, resourceAliases)
+
+  // OSS opt-in optimistic locking — auto-register a generic reader for every
+  // CRUD entity using the factory's own ORM config (Step 13.3 of the spec at
+  // .ai/specs/2026-05-25-oss-optimistic-locking.md). Hand-wired readers
+  // registered earlier via module DI (customers/sales) always win because we
+  // use the `IfAbsent` variant. Skipped silently when the route has no
+  // resolvable resourceKind or no ORM entity class (e.g. virtual routes).
+  if (ormCfg.entity && resourceKind && resourceKind !== 'resource') {
+    const genericReader = createGenericOptimisticLockReader({
+      entity: ormCfg.entity,
+      idField: ormCfg.idField ?? 'id',
+      tenantField: ormCfg.tenantField,
+      orgField: ormCfg.orgField,
+      softDeleteField: ormCfg.softDeleteField,
+    })
+    const keysToRegister: Record<string, typeof genericReader> = { [resourceKind]: genericReader }
+    for (const alias of resourceAliases) {
+      if (alias && alias !== resourceKind) keysToRegister[alias] = genericReader
+    }
+    registerOptimisticLockReaderIfAbsent(keysToRegister)
+  }
   const defaultIdentifierResolver: CrudIdentifierResolver = (entity, _action) => {
     const id = normalizeIdentifierValue((entity as any)[ormCfg.idField!])
     const orgId = ormCfg.orgField ? normalizeIdentifierValue((entity as any)[ormCfg.orgField]) : null

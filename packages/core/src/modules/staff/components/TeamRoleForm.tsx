@@ -14,6 +14,7 @@ export type TeamRoleFormValues = {
   name: string
   description?: string | null
   appearance?: { icon?: string | null; color?: string | null }
+  updatedAt?: string | null
 } & Record<string, unknown>
 
 export type TeamRoleOption = {
@@ -152,6 +153,7 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
       groups={groups}
       entityId={E.staff.staff_team_role}
       initialValues={initialValues}
+      optimisticLockUpdatedAt={initialValues.updatedAt}
       onSubmit={onSubmit}
       onDelete={onDelete}
       isLoading={isLoading}
