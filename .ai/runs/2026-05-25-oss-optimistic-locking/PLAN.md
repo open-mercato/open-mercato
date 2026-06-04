@@ -125,8 +125,8 @@
 | 32 | 32.3 | QA round-7: audit + fix sibling customer detail commands/pages (companies-v2, deals) for the same withAtomicFlush interleaved-read write-loss and the dual-layout duplication; identify introducing commit — companies.ts had the same interleaved-read write-loss (syncEntityTags); fixed. deals.ts already guarded. companies-v2/deals pages render the form once (no dual-render). Introduced by b46ca23da (#2337) | done | ec287f3a3 |
 | 32 | 32.4 | QA round-7 (comment 4616551578): staff Job History stale DELETE shows raw `record_modified` instead of the unified conflict bar — route deleteCrud 409 through surfaceRecordConflict in JobHistorySection | done | 08be055ed |
 | 32 | 32.5 | QA round-7: GET /api/staff/timesheets/time-entries 500 on malformed date filters (`from=undefined`) — tighten date refine to full YYYY-MM-DD + omit empty client params | done | 229fc1703 |
-| 32 | 32.6 | QA round-7: GET /api/integrations 500 — harden aggregateAnalytics (graceful empty on DB error) + expose updatedAt on the list response | todo | — |
-| 32 | 32.7 | QA round-7: verify Dictionaries save 500 already fixed (493346391) on HEAD; add/confirm coverage | todo | — |
+| 32 | 32.6 | QA round-7: GET /api/integrations 500 — NOT a PR regression: GET /api/integrations 500 is `column integration_credentials.user_id does not exist` — the IMAP/email-foundation migration (Migration20260526154136, merged from develop #2424) not applied on the stale local DB. CI runs a fresh migrated DB → green. No code change | done | (env, no-code) |
+| 32 | 32.7 | QA round-7: verified Dictionaries save returns 200 + persists on HEAD (fixed by 493346391, permissive updateKeySchema + ZodError→400); no further change | done | (verified) |
 | 32 | 32.8 | QA round-7: checkpoint — full gate + integration suite + Playwright smoke; push; CI green | todo | — |
 
 ## Goal (resume)
