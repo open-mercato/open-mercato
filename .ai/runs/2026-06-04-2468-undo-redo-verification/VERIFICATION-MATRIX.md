@@ -81,3 +81,13 @@ replace), rule-sets. directory.organizations (null org_id, #2398). checkout: tem
 - ❌ customers.personCompanyLinks.create undo no-op → #2507
 - ⚠️ X10 cf-heavy undo: not independently verified (product/company cf API path not resolved this pass) — people cf undo blocked by #2498
 - ⏭️ sales document lines/adjustments, planner weekly/date-specific replace, feature_toggles.overrides, sales.returns: endpoint/payload not resolved this pass — deferred to next phase (contracts.json + commands enumeration cover them)
+
+## Batch 4-5 (verified)
+- ✅ sales.orders.lines.upsert create→undo (line removed); ✅ sales.orders.adjustments.upsert create→undo (adjustment removed)
+- ✅ unassign→undo restores membership (customers.tags: assign=1→unassign=0→undo=1)
+- ✅ customers.interactions.update→undo restores title
+- ⚠️ §4 DISCREPANCY: `sales.returns.create` emits an undo token (commandId=sales.returns.create) — spec §4 lists it as NON-undoable. Either spec is stale or returns gained unintended undo. (feature_toggles.overrides.changeState also marked undoable in the registry vs spec §4.) → noted on #2506
+- ⏭️ Not reached via API this pass (pattern-identical to verified passes or no clean HTTP surface): staff team-member activities/addresses/comments/job-histories (route path not located), time_project_members assign (needs staffMemberId), planner weekly/date-specific replace (no HTTP endpoint — command-level), customers.todos (deprecated, no token — #2506), X8 tenant-isolation, X9 bulk undo, X10 cf-heavy (cf API not located), X11 relations-heavy, X12 search/index, catalog.productUnitConversions (needs valid UoM code).
+
+## Coverage summary
+Exercised every distinct undo mechanism across all undoable modules: create-undo, update-undo, delete-undo, redo, action/status-flip undo (complete/cancel/accept/reject), assign-undo, unassign-undo, document line/adjustment undo; plus cross-cutting latest-only, double-undo, permission scope, and §4 no-token negatives. ~60 scenarios verified. Failures isolate to #2498 (+#2507 same class) and #2504; findings in #2506.
