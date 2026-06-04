@@ -44,7 +44,7 @@ function resolveDatabaseUrl(): string {
   return url;
 }
 
-async function withClient<T>(run: (client: Client) => Promise<T>): Promise<T> {
+export async function withClient<T>(run: (client: Client) => Promise<T>): Promise<T> {
   const client = new Client({ connectionString: resolveDatabaseUrl() });
   await client.connect();
   try {
