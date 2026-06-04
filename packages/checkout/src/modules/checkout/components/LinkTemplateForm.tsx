@@ -260,6 +260,7 @@ function normalizeFormValues(value: FormValues | null | undefined, t?: Translate
     primaryColor: readString(source.primaryColor).trim() || defaults.primaryColor,
     secondaryColor: readString(source.secondaryColor).trim() || defaults.secondaryColor,
     backgroundColor: readString(source.backgroundColor).trim() || defaults.backgroundColor,
+    gatewayProviderKey: readString(source.gatewayProviderKey).trim(),
     gatewaySettings: isRecord(source.gatewaySettings) ? source.gatewaySettings : {},
     customFieldsetCode: readString(source.customFieldsetCode).trim() || null,
     collectCustomerDetails: readBoolean(source.collectCustomerDetails, true),

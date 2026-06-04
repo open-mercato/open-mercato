@@ -1,4 +1,11 @@
-import { createLinkSchema, createTemplateSchema } from '../validators'
+import {
+  createLinkSchema,
+  createTemplateSchema,
+  updateLinkSchema,
+  updateTemplateSchema,
+} from '../validators'
+
+const TEMPLATE_ID = '020b29c5-db01-4ee3-8080-1d9b185c5e29'
 
 describe('checkout validators', () => {
   test('createTemplateSchema accepts payloads that omit optional normalized fields', () => {
@@ -43,5 +50,56 @@ describe('checkout validators', () => {
 
     expect(result.slug).toBeNull()
     expect(result.password).toBeNull()
+  })
+
+  test('updateTemplateSchema accepts a null gatewayProviderKey (issue #2505)', () => {
+    const result = updateTemplateSchema.parse({
+      id: TEMPLATE_ID,
+      name: 'Consulting Fee',
+      pricingMode: 'fixed',
+      fixedPriceAmount: 49.99,
+      fixedPriceCurrencyCode: 'USD',
+      gatewayProviderKey: null,
+    })
+
+    expect(result.gatewayProviderKey).toBeNull()
+  })
+
+  test('updateTemplateSchema normalizes a blank gatewayProviderKey to null (issue #2505)', () => {
+    const result = updateTemplateSchema.parse({
+      id: TEMPLATE_ID,
+      name: 'Consulting Fee',
+      pricingMode: 'fixed',
+      fixedPriceAmount: 49.99,
+      fixedPriceCurrencyCode: 'USD',
+      gatewayProviderKey: '   ',
+    })
+
+    expect(result.gatewayProviderKey).toBeNull()
+  })
+
+  test('updateLinkSchema accepts a null gatewayProviderKey (issue #2505)', () => {
+    const result = updateLinkSchema.parse({
+      id: TEMPLATE_ID,
+      name: 'Consulting Fee link',
+      pricingMode: 'fixed',
+      fixedPriceAmount: 49.99,
+      fixedPriceCurrencyCode: 'USD',
+      gatewayProviderKey: null,
+    })
+
+    expect(result.gatewayProviderKey).toBeNull()
+  })
+
+  test('createTemplateSchema still rejects a null gatewayProviderKey', () => {
+    expect(() =>
+      createTemplateSchema.parse({
+        name: 'QA template',
+        pricingMode: 'fixed',
+        fixedPriceAmount: 49.99,
+        fixedPriceCurrencyCode: 'USD',
+        gatewayProviderKey: null,
+      }),
+    ).toThrow()
   })
 })
