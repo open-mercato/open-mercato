@@ -19,7 +19,7 @@ module). Per-module coverage ships as separate stacked PRs tracked in `MODULE-LE
 | 1 | 1.1 | Run-folder plan + module ledger (seed commit) | done | seed |
 | 1 | 1.2 | Shared harness: env skip-gate + tolerant field/CF assertions + makeCrud round-trip runner | done | 2de7d217a |
 | 1 | 1.3 | Jest unit tests for harness pure logic (env parse, dual-shape CF assertion) | done | 9ebc56b66 |
-| 1 | 1.4 | Currencies reference integration spec + meta (scalar round-trip via harness) | todo | — |
+| 1 | 1.4 | Currencies reference integration spec + meta (scalar round-trip via harness) | done | 9ebdfebe5 |
 | 1 | 1.5 | Document flag + harness + re-run procedure in `.ai/qa/AGENTS.md` | todo | — |
 
 ## Goal
