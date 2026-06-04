@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveNotificationService, type NotificationService } from './notificationService'
 
 /**
@@ -18,6 +20,30 @@ export interface NotificationRequestContext {
   service: NotificationService
   scope: NotificationScope
   ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx']
+}
+
+function formatZodIssues(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => {
+      const path = issue.path.length ? `${issue.path.join('.')}: ` : ''
+      return `${path}${issue.message}`
+    })
+    .join('; ')
+}
+
+export async function notificationValidationErrorResponse(error: z.ZodError): Promise<Response> {
+  const { t } = await resolveTranslations()
+  const prefix = t('api.errors.invalidPayload', 'Invalid request body')
+  const details = formatZodIssues(error)
+  return Response.json(
+    { error: details ? `${prefix}: ${details}` : prefix },
+    { status: 400 },
+  )
+}
+
+export function notificationCrudErrorResponse(error: unknown): Response | null {
+  if (!isCrudHttpError(error)) return null
+  return Response.json(error.body ?? { error: 'Notification request failed' }, { status: error.status })
 }
 
 /**
@@ -49,15 +75,24 @@ export function createBulkNotificationRoute<TSchema extends z.ZodTypeAny>(
     const { service, scope } = await resolveNotificationContext(req)
 
     const body = await req.json().catch(() => ({}))
-    const input = schema.parse(body)
+    const parsed = schema.safeParse(body)
+    if (!parsed.success) {
+      return notificationValidationErrorResponse(parsed.error)
+    }
 
-    const notifications = await service[serviceMethod](input as never, scope)
+    try {
+      const notifications = await service[serviceMethod](parsed.data as never, scope)
 
-    return Response.json({
-      ok: true,
-      count: notifications.length,
-      ids: notifications.map((n) => n.id),
-    }, { status: 201 })
+      return Response.json({
+        ok: true,
+        count: notifications.length,
+        ids: notifications.map((n) => n.id),
+      }, { status: 201 })
+    } catch (error) {
+      const errorResponse = notificationCrudErrorResponse(error)
+      if (errorResponse) return errorResponse
+      throw error
+    }
   }
 }
 
@@ -111,7 +146,13 @@ export function createSingleNotificationActionRoute(
     const { id } = await params
     const { service, scope } = await resolveNotificationContext(req)
 
-    await service[serviceMethod](id, scope)
+    try {
+      await service[serviceMethod](id, scope)
+    } catch (error) {
+      const errorResponse = notificationCrudErrorResponse(error)
+      if (errorResponse) return errorResponse
+      throw error
+    }
 
     return Response.json({ ok: true })
   }
