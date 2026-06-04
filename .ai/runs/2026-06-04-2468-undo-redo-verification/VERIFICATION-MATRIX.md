@@ -91,3 +91,10 @@ replace), rule-sets. directory.organizations (null org_id, #2398). checkout: tem
 
 ## Coverage summary
 Exercised every distinct undo mechanism across all undoable modules: create-undo, update-undo, delete-undo, redo, action/status-flip undo (complete/cancel/accept/reject), assign-undo, unassign-undo, document line/adjustment undo; plus cross-cutting latest-only, double-undo, permission scope, and §4 no-token negatives. ~60 scenarios verified. Failures isolate to #2498 (+#2507 same class) and #2504; findings in #2506.
+
+## §5 cross-cutting — final status
+- ✅ X4 latest-only, X5 double-undo, X6/X7 permission/actor scope — verified
+- ✅ X10 custom-field restore (I4): company cf 5→10→undo→5→redo→10 — verified + green regression test
+- 🔵 X8 cross-tenant isolation — undo route enforces `target.tenantId !== auth.tenantId` and org-scope (code-verified); actor-scope rejection empirically verified (X6/X7). Full cross-tenant empirical test needs a 2-tenant fixture (admin can't list/create tenants; requires superadmin) → next phase.
+- 🔵 X9 bulk undo — individual delete→undo verified; the DataTable batch-undo banner is a UI-store concern (N tokens) → next phase (UI test).
+- 🔵 X12 search/index consistency — undo emits the same CRUD side effects + re-index (`emitCrudUndoSideEffects` + indexer, code-verified in people/companies undo); explicit search-result assertion needs the search harness → next phase.
