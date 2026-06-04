@@ -248,6 +248,56 @@ test.describe('TC-LOCK-OSS-036: staff job-history nested edit optimistic lock (S
   })
 
   /**
+   * STF-06 (delete) — a stale DELETE on the job-history surface must hit the same
+   * OSS optimistic-lock 409 contract as the stale edit. The nested
+   * `JobHistorySection.handleDelete` sends `body: { id, updatedAt }`; with a stale
+   * `updatedAt` the command's `enforceCommandOptimisticLock({ resourceKind:
+   * 'staff.jobHistory', ... })` refuses the delete with the standard
+   * `code: 'optimistic_lock_conflict'` body, which the dialog routes through
+   * `surfaceRecordConflict(...)` to raise the unified conflict bar in the browser.
+   */
+  test('stale job-history delete (body updatedAt) is refused with 409', async ({ page }) => {
+    const token = await getAuthToken(page.request, 'admin')
+    const stamp = Date.now()
+    let memberId: string | null = null
+    let jobHistoryId: string | null = null
+    try {
+      memberId = await createStaffTeamMemberFixture(page.request, token, {
+        displayName: `QA Lock 036e member ${stamp}`,
+      })
+      jobHistoryId = await createJobHistoryFixture(page.request, token, memberId, `QA Lock 036e job ${stamp}`)
+
+      const loadedUpdatedAt = await readJobHistoryUpdatedAt(page.request, token, memberId, jobHistoryId)
+
+      // Advance updated_at out-of-band so the captured `loadedUpdatedAt` is stale.
+      await bumpRecordViaApi(page.request, token, JOB_HISTORIES_API, {
+        id: jobHistoryId,
+        entityId: memberId,
+        name: `QA Lock 036e bumped ${stamp}`,
+        updatedAt: loadedUpdatedAt,
+      })
+
+      // Deleting with the now-stale body `updatedAt` must be refused with the
+      // standard 409 optimistic-lock contract.
+      const conflictResponse = await apiRequest(page.request, 'DELETE', JOB_HISTORIES_API, {
+        token,
+        data: { id: jobHistoryId, updatedAt: loadedUpdatedAt },
+      })
+      expect(
+        conflictResponse.status(),
+        'stale job-history delete (body updatedAt) should be 409',
+      ).toBe(409)
+      const conflictBody = (await conflictResponse.json()) as { code?: string }
+      expect(conflictBody.code, 'stale delete should return the optimistic-lock code').toBe(
+        'optimistic_lock_conflict',
+      )
+    } finally {
+      await deleteStaffEntityIfExists(page.request, token, JOB_HISTORIES_API, jobHistoryId)
+      await deleteStaffEntityIfExists(page.request, token, TEAM_MEMBERS_API, memberId)
+    }
+  })
+
+  /**
    * Job-history now honors the OSS optimistic-lock contract end-to-end.
    *
    * Route file: `packages/core/src/modules/staff/api/job-histories.ts`

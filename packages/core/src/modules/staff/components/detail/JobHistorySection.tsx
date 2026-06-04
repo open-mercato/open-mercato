@@ -9,6 +9,7 @@ import { LoadingMessage, ErrorMessage, TabEmptyState } from '@open-mercato/ui/ba
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
@@ -168,10 +169,10 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
       flash(labels.deleted, 'success')
       setReloadToken((prev) => prev + 1)
     } catch (error) {
-      const message = error instanceof Error && error.message.trim().length > 0 ? error.message : labels.conflict
-      flash(message, 'error')
+      if (surfaceRecordConflict(error, t)) return
+      flash(labels.errorDelete, 'error')
     }
-  }, [labels.conflict, labels.deleteConfirm, labels.deleted, labels.errorDelete, confirmDialog])
+  }, [labels.deleteConfirm, labels.deleted, labels.errorDelete, confirmDialog, t])
 
   const dialogTitle = dialogMode === 'edit' ? labels.edit : labels.add
 
