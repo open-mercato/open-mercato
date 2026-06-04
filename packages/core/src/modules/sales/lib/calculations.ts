@@ -94,14 +94,23 @@ function buildBaseLineResult(line: SalesLineSnapshot): SalesLineCalculationResul
   const netSubtotalBeforeDiscount = toNumber(unitNet, 0) * quantity
   const discountTotal = Math.min(Math.max(discountPerUnit * quantity, 0), netSubtotalBeforeDiscount)
   const netSubtotal = Math.max(netSubtotalBeforeDiscount - discountTotal, 0)
-  const taxAmount =
-    line.taxAmount !== null && line.taxAmount !== undefined
-      ? toNumber(line.taxAmount, 0)
-      : round(netSubtotal * Math.max(taxRate, 0))
+  const explicitTaxAmount = line.taxAmount !== null && line.taxAmount !== undefined
+  let taxAmount = explicitTaxAmount
+    ? toNumber(line.taxAmount, 0)
+    : round(netSubtotal * Math.max(taxRate, 0))
   const grossSubtotal =
     line.totalGrossAmount !== null && line.totalGrossAmount !== undefined
       ? toNumber(line.totalGrossAmount, 0)
       : round(netSubtotal + taxAmount)
+  // When tax was not supplied explicitly and the rate-derived tax is zero but
+  // the gross total already embeds tax (gross > net) — e.g. a tax-class-priced
+  // line whose resolved rate was not persisted — derive the tax from the
+  // net/gross delta so the document-level tax total is not silently zeroed
+  // while per-line net/gross stay correct (#2457).
+  if (!explicitTaxAmount && taxAmount <= 0) {
+    const grossNetDelta = round(grossSubtotal - netSubtotal)
+    if (grossNetDelta > 0) taxAmount = grossNetDelta
+  }
 
   return {
     line,
@@ -354,6 +363,25 @@ class SalesCalculationRegistry {
           current = next
         },
       })
+    }
+
+    // Payment totals (paid/refunded) are authoritative inputs, not derived from
+    // lines or adjustments. Totals calculators rebuild the document result from
+    // lines+adjustments and would otherwise reset paid/refunded to 0 (and
+    // outstanding back to the full grand total), producing a stale paid/
+    // outstanding display after a payment. Re-apply the input totals last and
+    // recompute outstanding against the post-calculation grand total.
+    if (existingTotals) {
+      const paidTotalAmount = Math.max(toNumber(existingTotals.paidTotalAmount, 0), 0)
+      const refundedTotalAmount = Math.max(toNumber(existingTotals.refundedTotalAmount, 0), 0)
+      current.totals = {
+        ...current.totals,
+        paidTotalAmount,
+        refundedTotalAmount,
+        outstandingAmount: round(
+          Math.max(current.totals.grandTotalGrossAmount - paidTotalAmount + refundedTotalAmount, 0)
+        ),
+      }
     }
 
     return current
