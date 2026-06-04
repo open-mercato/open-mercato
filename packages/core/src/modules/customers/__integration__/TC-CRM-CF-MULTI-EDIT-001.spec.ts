@@ -147,8 +147,16 @@ test.describe('TC-CRM-CF-MULTI-EDIT-001: deal multichoice custom field persists 
       expect(updateRes.ok(), `update deal failed: ${updateRes.status()}`).toBeTruthy();
 
       const afterUpdate = await fetchDealCustomValues(request, token, dealId as string);
+      // TEMP DIAGNOSTIC (revert): the list endpoint reads from the async query
+      // index; the detail endpoint reads LIVE from EAV (loadCustomFieldValues).
+      // Surfacing both in the assertion message reveals whether a [] result is a
+      // dropped EAV write (detail also []) or an empty/stale index (detail correct).
+      const detailRes = await apiRequest(request, 'GET', `/api/customers/deals/${encodeURIComponent(dealId as string)}`, { token });
+      const detailBody = await readJsonSafe<{ customFields?: Record<string, unknown> }>(detailRes);
+      const liveEav = detailBody?.customFields?.[fieldKey];
+      const diag = `INDEX(list)=${JSON.stringify(afterUpdate[fieldKey])} LIVE_EAV(detail status=${detailRes.status()})=${JSON.stringify(liveEav)}`;
       // New set persists, and the old values (alpha/beta) are gone.
-      expect(asStringArray(afterUpdate[fieldKey])).toEqual(['delta', 'gamma']);
+      expect(asStringArray(afterUpdate[fieldKey]), diag).toEqual(['delta', 'gamma']);
       expect(asStringArray(afterUpdate[fieldKey])).not.toContain('alpha');
       expect(asStringArray(afterUpdate[fieldKey])).not.toContain('beta');
     } finally {
