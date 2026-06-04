@@ -3,7 +3,7 @@
 **Last updated:** 2026-06-04 (resume 6 — QA round-7, Phase 32)
 **Branch:** feat/oss-optimistic-locking
 **PR:** https://github.com/open-mercato/open-mercato/pull/2055
-**Current phase/step:** COMPLETE — Phase 32 (QA round-7) done. Full ephemeral suite stable across rounds (R1 1094✓/0✗; R3 1093✓/0✗/0 flaky after deferral). Awaiting human re-QA from @alinadivante.
+**Current phase/step:** COMPLETE — Phase 32 incl. ARCH fix (withAtomicFlush per-phase). Two ephemeral rounds stable (1093 passed, 0 failed, 0 flaky each). Awaiting human re-QA from @alinadivante.
 
 ## QA round-7 sources
 - @alinadivante https://github.com/open-mercato/open-mercato/pull/2055#issuecomment-4616381470 (People-v2, Dictionaries, Timesheets, Integrations, Data Sync)

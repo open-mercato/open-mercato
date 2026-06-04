@@ -180,3 +180,8 @@ Append-only event log. Newest at the bottom.
 - Phase 32 complete. Two #2453 root causes (server interleaved-flush + client dual-form) + codebase-wide withAtomicFlush audit (11 commands) + Job History/timesheets fixes.
 - Ephemeral: R1 1094 passed/0 failed; R3 1093 passed/0 failed/0 flaky after deferring the pre-existing flaky kanban browser case CRM-08.
 - Commits: people 30feb254e/e3495e913; job-history effd5386e; companies 665100dd5; timesheets 495080b40; audit 83cd3329b; tests db84b7d3c; defer c376d2e09.
+
+##  — resume 7 close (ARCH: withAtomicFlush per-phase)
+- Root cause of the #2453 family was withAtomicFlush flushing ONCE at the end vs SPEC-018 per-phase. Fixed the helper to flush after each phase (atomic, inside the transaction); removed ALL per-command explicit-flush workarounds across 13 commands.
+- Unit: shared 1150/1150, core 5393/5393. Ephemeral ARCH: round 1 1093 passed/0 failed/0 flaky; round 2 1093 passed/0 failed/0 flaky.
+- Commit: framework fix fe22b4c8e.
