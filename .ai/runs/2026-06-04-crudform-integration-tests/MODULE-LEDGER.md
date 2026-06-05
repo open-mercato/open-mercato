@@ -21,7 +21,7 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
 | A5 | currencies | core | currency (scalars), exchange-rate | feat/crudform-integration-tests | #2548 | 🔵 currency covered in foundation PR #2548 |
 | A6 | auth | core | user (roles[] + CF + ACL), role (CF + ACL) | `feat/crudform-tests-auth` | — | ⬜ |
 | A7 | sales | core | channel (CF), channel-offer | `feat/crudform-tests-sales` | — | ⬜ |
-| A8 | workflows | core | definition (metadata.* dot-path — see #2503) | `feat/crudform-tests-workflows` | — | ⬜ |
+| A8 | workflows | core | definition (metadata.* dot-path — see #2503) | feat/crudform-tests-workflows | — | 🔵 PR open (#2559; TC-WF-CRUDFORM-001, complements TC-WF-014) |
 
 ## Tier B — hand-written / non-makeCrud saves
 
