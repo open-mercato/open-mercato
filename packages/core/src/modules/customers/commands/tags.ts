@@ -26,7 +26,7 @@ import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCustomersEvent } from '../events'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 
 const tagCrudEvents: CrudEventsConfig = {
   module: 'customers',
@@ -153,52 +153,11 @@ const createTagCommand: CommandHandler<TagCreateInput, { tagId: string }> = {
       await em.flush()
     }
   },
-  redo: async ({ logEntry, ctx }) => {
-    const after = resolveRedoSnapshot<TagSnapshot>(logEntry)
-    if (!after) {
-      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for tag create' })
-    }
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let tag = await em.findOne(CustomerTag, { id: after.id })
-    if (!tag) {
-      tag = em.create(CustomerTag, {
-        id: after.id,
-        organizationId: after.organizationId,
-        tenantId: after.tenantId,
-        slug: after.slug,
-        label: after.label,
-        color: after.color,
-        description: after.description,
-      })
-      em.persist(tag)
-    } else {
-      tag.slug = after.slug
-      tag.label = after.label
-      tag.color = after.color
-      tag.description = after.description
-    }
-    const restoredTag = tag
-    await withAtomicFlush(em, [
-      () => {
-        em.persist(restoredTag)
-      },
-    ], { transaction: true })
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudSideEffects({
-      dataEngine: de,
-      action: 'created',
-      entity: restoredTag,
-      identifiers: {
-        id: restoredTag.id,
-        organizationId: restoredTag.organizationId,
-        tenantId: restoredTag.tenantId,
-      },
-      events: tagCrudEvents,
-    })
-
-    return { tagId: restoredTag.id }
-  },
+  redo: makeCreateRedo<CustomerTag, TagSnapshot, TagCreateInput, { tagId: string }>({
+    entityClass: CustomerTag,
+    buildResult: (entity) => ({ tagId: entity.id }),
+    events: tagCrudEvents,
+  }),
 }
 
 const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
