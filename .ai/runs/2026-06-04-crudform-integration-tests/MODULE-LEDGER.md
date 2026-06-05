@@ -20,7 +20,7 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
 | A4 | customers | core | person/company/deal (inline + CF + dictionary) | `feat/crudform-tests-customers` | — | ⬜ |
 | A5 | currencies | core | currency (scalars), exchange-rate | feat/crudform-integration-tests | #2548 | 🔵 currency covered in foundation PR #2548 |
 | A6 | auth | core | user (roles[] + CF + ACL), role (CF + ACL) | `feat/crudform-tests-auth` | — | ⬜ |
-| A7 | sales | core | channel (CF), channel-offer | `feat/crudform-tests-sales` | — | ⬜ |
+| A7 | sales | core | channel (CF + multi-select), channel-offer | feat/crudform-tests-sales | #2558 | 🔵 specs written; PR pending |
 | A8 | workflows | core | definition (metadata.* dot-path — see #2503) | `feat/crudform-tests-workflows` | — | ⬜ |
 
 ## Tier B — hand-written / non-makeCrud saves
