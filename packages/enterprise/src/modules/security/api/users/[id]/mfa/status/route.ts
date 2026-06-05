@@ -2,7 +2,12 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../../../openapi'
 import { securityApiError } from '../../../../i18n'
-import { mapSecurityUsersError, resolveSecurityUsersContext } from '../../../_shared'
+import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import {
+  assertActorCanAccessSecurityUserTarget,
+  mapSecurityUsersError,
+  resolveSecurityUsersContext,
+} from '../../../_shared'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -35,7 +40,12 @@ export async function GET(req: Request, routeContext: { params: Promise<{ id: st
   }
 
   try {
-    const status = await context.mfaAdminService.getUserMfaStatus(parsedParams.data.id)
+    await assertActorCanAccessSecurityUserTarget(context, parsedParams.data.id)
+    const isSuperAdmin = await resolveIsSuperAdmin({ auth: context.auth, container: context.container })
+    const status = await context.mfaAdminService.getUserMfaStatus(parsedParams.data.id, {
+      tenantId: context.auth.tenantId ?? null,
+      isSuperAdmin,
+    })
     return NextResponse.json({
       ...status,
       methods: status.methods.map((method) => ({
@@ -60,6 +70,7 @@ export const openApi = buildSecurityOpenApi({
       errors: [
         { status: 400, description: 'Invalid user id', schema: securityErrorSchema },
         { status: 401, description: 'Unauthorized', schema: securityErrorSchema },
+        { status: 403, description: 'Not authorized to access this user', schema: securityErrorSchema },
         { status: 404, description: 'User not found', schema: securityErrorSchema },
       ],
     },

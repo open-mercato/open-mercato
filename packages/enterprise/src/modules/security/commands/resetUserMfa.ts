@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import type { MfaAdminService } from '../services/MfaAdminService'
 
 export const commandId = 'security.admin.mfa.reset'
@@ -36,8 +37,12 @@ registerCommand({
     }
 
     const mfaAdminService = ctx.container.resolve<MfaAdminService>('mfaAdminService')
+    const isSuperAdmin = await resolveIsSuperAdmin({ auth: ctx.auth, container: ctx.container })
     try {
-      await mfaAdminService.resetUserMfa(ctx.auth.sub, parsed.data.userId, parsed.data.reason)
+      await mfaAdminService.resetUserMfa(ctx.auth.sub, parsed.data.userId, parsed.data.reason, {
+        tenantId: ctx.auth.tenantId ?? null,
+        isSuperAdmin,
+      })
       return { ok: true as const }
     } catch (error) {
       if (isMfaAdminServiceError(error)) {
