@@ -3953,7 +3953,7 @@ type BusinessErrorCode =
 | 2.1 | 2025-01-23 | - | Converted to functional programming paradigm |
 | 2.2 | 2025-01-27 | Gregory (reviewed) | Integrated Gregory's spec: concurrency risks, correctness properties, journal entry types, period states, compound taxes, AR write-offs, currency rounding, SOX compliance |
 | 2.3 | 2025-01-28 | - | Added missing sections from original scope: User Stories, NFRs, Use Cases, Success Criteria, Database Schema, API Design |
-| 2.4 | 2026-06-05 | Bernard (merge) | Merged platform-grounded additions from the `2026-06-02-financial-accounting-suite.md` draft: Market Reference (Odoo deep scan), Open Mercato Platform Alignment (module placement, reuse table, convention deltas, event-driven posting), Statutory Controls (gap-free numbering, lock dates, hash-chain audit, post Undo Contract), INV-9/INV-10. Original architecture, scope, schema, and phasing retained on all conflicts. |
+| 2.4 | 2026-06-05 | Bernard (merge) | Merged platform-grounded additions from an internal accounting analysis (Odoo `account` deep scan): Market Reference, Open Mercato Platform Alignment (module placement, reuse table, convention deltas, event-driven posting), Statutory Controls (gap-free numbering, lock dates, hash-chain audit, post Undo Contract), INV-9/INV-10. Original architecture, scope, schema, and phasing retained on all conflicts. |
 
 ### Gregory Spec Integration Summary
 
@@ -3981,7 +3981,7 @@ The following items from Gregory's specification were incorporated (marked with 
 
 ### 2026-06 Accounting Draft Integration Summary
 
-The following items from the `2026-06-02-financial-accounting-suite.md` draft were incorporated (marked with "📋 Merged from 2026-06 accounting draft"):
+The following items from an internal accounting analysis (Odoo `account` deep scan, 2026-06) were incorporated (marked with "📋 Merged from 2026-06 accounting draft"):
 
 **Added:**
 - Market Reference section (Odoo `account` deep scan, Xero/QuickBooks, Medusa/Saleor; explicit rejection of polymorphic `account.move`)
