@@ -25,7 +25,7 @@ import {
   type NoteCreateInput,
   type NoteUpdateInput,
 } from '../data/validators'
-import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload } from './shared'
 
 type NoteSnapshot = {
@@ -221,66 +221,35 @@ const createNoteCommand: CommandHandler<NoteCreateInput, { noteId: string; autho
       await em.flush()
     }
   },
-  redo: async ({ ctx, logEntry }) => {
-    const after = resolveRedoSnapshot<NoteSnapshot>(logEntry)
-    const noteId = after?.id ?? logEntry.resourceId ?? null
-    if (!after || !noteId) {
-      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for sales.notes.create' })
-    }
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const context = await requireContext(em, after.contextType, after.contextId).catch(() => null)
-    if (!context) {
-      throw new CrudHttpError(404, { error: 'sales.notes.context_not_found' })
-    }
-    let note = await em.findOne(SalesNote, { id: after.id })
-    if (!note) {
-      note = em.create(SalesNote, {
-        id: after.id,
-        organizationId: after.organizationId,
-        tenantId: after.tenantId,
-        contextType: after.contextType,
-        contextId: after.contextId,
-        order: after.orderId ? context.order ?? null : null,
-        quote: after.quoteId ? context.quote ?? null : null,
-        body: after.body,
-        authorUserId: after.authorUserId,
-        appearanceIcon: after.appearanceIcon,
-        appearanceColor: after.appearanceColor,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(note)
-    }
-    note.deletedAt = null
-    note.organizationId = after.organizationId
-    note.tenantId = after.tenantId
-    note.contextType = after.contextType
-    note.contextId = after.contextId
-    note.order = after.orderId ? context.order ?? null : null
-    note.quote = after.quoteId ? context.quote ?? null : null
-    note.body = after.body
-    note.authorUserId = after.authorUserId
-    note.appearanceIcon = after.appearanceIcon
-    note.appearanceColor = after.appearanceColor
-    note.updatedAt = new Date()
-    await em.flush()
-
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    await emitCrudSideEffects({
-      dataEngine,
-      action: 'created',
-      entity: note,
-      identifiers: {
-        id: note.id,
-        organizationId: note.organizationId,
-        tenantId: note.tenantId,
-      },
-      indexer: noteCrudIndexer,
-      events: noteCrudEvents,
-    })
-
-    return { noteId: note.id, authorUserId: note.authorUserId ?? null }
-  },
+  redo: makeCreateRedo<SalesNote, NoteSnapshot, NoteCreateInput, { noteId: string; authorUserId: string | null }>({
+    entityClass: SalesNote,
+    indexer: noteCrudIndexer,
+    events: noteCrudEvents,
+    seedFromSnapshot: (snapshot) => ({
+      id: snapshot.id,
+      organizationId: snapshot.organizationId,
+      tenantId: snapshot.tenantId,
+      contextType: snapshot.contextType,
+      contextId: snapshot.contextId,
+      body: snapshot.body,
+      authorUserId: snapshot.authorUserId,
+      appearanceIcon: snapshot.appearanceIcon,
+      appearanceColor: snapshot.appearanceColor,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }),
+    beforeRestore: async ({ em, snapshot }) => {
+      const context = await requireContext(em, snapshot.contextType, snapshot.contextId).catch(() => null)
+      if (!context) {
+        throw new CrudHttpError(404, { error: 'sales.notes.context_not_found' })
+      }
+      return {
+        order: snapshot.orderId ? context.order ?? null : null,
+        quote: snapshot.quoteId ? context.quote ?? null : null,
+      }
+    },
+    buildResult: (entity) => ({ noteId: entity.id, authorUserId: entity.authorUserId ?? null }),
+  }),
 }
 
 const updateNoteCommand: CommandHandler<NoteUpdateInput, { noteId: string }> = {
