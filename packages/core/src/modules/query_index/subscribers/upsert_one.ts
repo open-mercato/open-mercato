@@ -1,5 +1,5 @@
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
-import { upsertIndexRow } from '../lib/indexer'
+import { upsertIndexRow, reindexSearchTokensForRecord } from '../lib/indexer'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '../lib/coverage'
 import { loadQueryIndexRowScope, resolveQueryIndexRecordScope } from '../lib/subscriber-scope'
 
@@ -28,14 +28,18 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     organizationId = resolvedScope.organizationId
     tenantId = resolvedScope.tenantId
 
+    const searchTokenDoc = typeof payload?.searchTokenDoc === 'object' && payload.searchTokenDoc && !Array.isArray(payload.searchTokenDoc)
+      ? (payload.searchTokenDoc as Record<string, unknown>)
+      : null
+    // Update the projection row synchronously so list reads (`customValues`) are
+    // consistent the moment the write returns; defer the heavy search-token rebuild.
     const result = await upsertIndexRow(em, {
       entityType,
       recordId,
       organizationId,
       tenantId,
-      searchTokenDoc: typeof payload?.searchTokenDoc === 'object' && payload.searchTokenDoc && !Array.isArray(payload.searchTokenDoc)
-        ? payload.searchTokenDoc
-        : null,
+      searchTokenDoc,
+      deferSearchTokens: true,
     })
     if (!suppressCoverage) {
       const doc = result.doc
@@ -84,16 +88,33 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
         } catch {}
       }
     }
-    // Kick off secondary pass (vectorize) asynchronously
-    try {
-      const bus = ctx.resolve<any>('eventBus')
-      await bus.emitEvent('query_index.vectorize_one', { entityType, recordId, organizationId, tenantId })
-    } catch {}
-    // Emit search indexing event
-    try {
-      const bus = ctx.resolve<any>('eventBus')
-      await bus.emitEvent('search.index_record', { entityId: entityType, recordId, organizationId, tenantId })
-    } catch {}
+    // Defer the heavy, eventually-consistent tail: search-token rebuild + vectorize +
+    // fulltext indexing. The data engine awaits this subscriber for projection
+    // consistency, so this work runs fire-and-forget to keep write latency bounded.
+    const deferredScope = { entityType, recordId, organizationId, tenantId }
+    const resolvedDoc = result.doc
+    void (async () => {
+      try {
+        await reindexSearchTokensForRecord(em, { ...deferredScope, doc: resolvedDoc, searchTokenDoc })
+        const bus = ctx.resolve<any>('eventBus')
+        await bus.emitEvent('query_index.vectorize_one', deferredScope)
+        await bus.emitEvent('search.index_record', { entityId: entityType, recordId, organizationId, tenantId })
+      } catch (error) {
+        await recordIndexerError(
+          { em },
+          {
+            source: 'query_index',
+            handler: 'event:query_index.upsert_one:search_tokens',
+            error,
+            entityType,
+            recordId,
+            tenantId: tenantId ?? null,
+            organizationId: organizationId ?? null,
+            payload,
+          },
+        ).catch(() => {})
+      }
+    })()
   } catch (error) {
     await recordIndexerError(
       { em },

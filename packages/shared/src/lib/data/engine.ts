@@ -572,10 +572,12 @@ export class DefaultDataEngine implements DataEngine {
         enrichedPayload.crudAction = action
         if (coverageBaseDelta !== undefined) enrichedPayload.coverageBaseDelta = coverageBaseDelta
         if (ctx.syncOrigin) enrichedPayload.syncOrigin = ctx.syncOrigin
-        // Fire-and-forget: token reindexing runs DELETE + chunked INSERT against
-        // search_tokens and would otherwise block the HTTP response on every write.
-        // Surrender control after queueing the emit; index updates settle out-of-band.
-        void bus.emitEvent('query_index.delete_one', enrichedPayload).catch((err: unknown) => {
+        // Await the index update so query-index reads (the `customValues`/scalar
+        // projection that list endpoints serve) are consistent the moment the write
+        // returns. Deletion only removes rows (the projection row + a bounded token
+        // DELETE, no chunked INSERT), so the whole subscriber stays cheap to await.
+        // Errors are logged, not thrown — index drift never fails the originating write.
+        await bus.emitEvent('query_index.delete_one', enrichedPayload).catch((err: unknown) => {
           console.error('[data-engine] query_index.delete_one emit failed', err)
         })
       } else {
@@ -591,10 +593,11 @@ export class DefaultDataEngine implements DataEngine {
         enrichedPayload.crudAction = action
         if (coverageBaseDelta !== undefined) enrichedPayload.coverageBaseDelta = coverageBaseDelta
         if (ctx.syncOrigin) enrichedPayload.syncOrigin = ctx.syncOrigin
-        // Fire-and-forget: see delete_one above. Token reindexing pipeline
-        // (build doc + encrypt + decrypt + tokenize + DELETE + chunked INSERT)
-        // would otherwise serialize into write request latency.
-        void bus.emitEvent('query_index.upsert_one', enrichedPayload).catch((err: unknown) => {
+        // Await the projection upsert so list reads observe the new doc immediately
+        // (see delete_one above). The subscriber updates `entity_indexes` synchronously
+        // and defers the heavy token-reindex pipeline (build doc + encrypt + decrypt +
+        // tokenize + DELETE + chunked INSERT) so write latency stays bounded.
+        await bus.emitEvent('query_index.upsert_one', enrichedPayload).catch((err: unknown) => {
           console.error('[data-engine] query_index.upsert_one emit failed', err)
         })
       }
