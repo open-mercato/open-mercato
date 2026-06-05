@@ -7,7 +7,7 @@
 | Module ID | plural, snake_case | `fleet_vehicles`, `loyalty_points` |
 | Module folder | same as module ID | `src/modules/fleet_vehicles/` |
 | Entity class | PascalCase, singular | `FleetVehicle`, `LoyaltyPoint` |
-| Entity file | PascalCase, singular | `entities/FleetVehicle.ts` |
+| Entity file | single `data/entities.ts` (one class per entity) | `data/entities.ts` → `class FleetVehicle` |
 | Table name | plural, snake_case | `fleet_vehicles`, `loyalty_points` |
 | Column name | snake_case | `vehicle_type`, `point_balance` |
 
@@ -17,7 +17,7 @@
 |---------|-----------|---------|
 | JS/TS fields | camelCase | `vehicleType`, `pointBalance` |
 | Event ID | `module.entity.action` (dots, singular entity, past tense) | `fleet_vehicles.vehicle.created` |
-| Feature ID | `module.action` | `fleet_vehicles.view`, `fleet_vehicles.create` |
+| Feature ID | `module.entity.action` (per-entity; use `view` / `manage`) | `fleet_vehicles.vehicle.view`, `fleet_vehicles.vehicle.manage` |
 | Enricher ID | `module.enricher-name` | `fleet_vehicles.maintenance-stats` |
 | Widget ID | `module.injection.widget-name` | `fleet_vehicles.injection.status-column` |
 | Interceptor ID | `module.interceptor-name` | `fleet_vehicles.validate-vin` |
@@ -39,12 +39,11 @@ deleted_at: Date | null // Soft delete timestamp
 
 ## API Routes
 
-| Method | File Path | URL |
-|--------|----------|-----|
-| GET | `api/get/<entities>.ts` | `GET /api/<module>/<entities>` |
-| POST | `api/post/<entities>.ts` | `POST /api/<module>/<entities>` |
-| PUT | `api/put/<entities>.ts` | `PUT /api/<module>/<entities>` |
-| DELETE | `api/delete/<entities>.ts` | `DELETE /api/<module>/<entities>` |
+All HTTP methods live in a **single** `api/<entities>/route.ts` that exports named handlers `{ GET, POST, PUT, DELETE }` + `metadata` + `openApi` (not separate `api/get/`, `api/post/` files).
+
+| File Path | Methods | URL |
+|-----------|---------|-----|
+| `api/<entities>/route.ts` | `GET` / `POST` / `PUT` / `DELETE` | `/api/<module>/<entities>` |
 
 ## Backend Pages
 
