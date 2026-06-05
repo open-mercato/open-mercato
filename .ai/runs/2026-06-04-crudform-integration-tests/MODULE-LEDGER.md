@@ -29,7 +29,7 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
 |-------|--------|---------|----------|--------|----|--------|
 | B1 | business_rules | core | rule, rule-set (+members[]) | `feat/crudform-tests-business-rules` | — | ⬜ |
 | B2 | integrations | core | credentials (secret/text/select round-trip) | `feat/crudform-tests-integrations` | — | ⬜ |
-| B3 | customer_accounts | core | customer-role (+portal perms), customer-user | `feat/crudform-tests-customer-accounts` | — | ⬜ |
+| B3 | customer_accounts | core | customer-role (+portal perms), customer-user · TC-CACC-CRUDFORM-001/002 | feat/crudform-tests-customer-accounts | — | 🔵 PR open (#2562) |
 | B4 | planner | core | availability-ruleset | `feat/crudform-tests-planner` | — | ⬜ |
 | B5 | webhooks | webhooks | webhook (events multiselect + headers JSON) | `feat/crudform-tests-webhooks` | — | ⬜ |
 | B6 | scheduler | scheduler | scheduled-job (scope/target/payload JSON) | `feat/crudform-tests-scheduler` | — | ⬜ |
