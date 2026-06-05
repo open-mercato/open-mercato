@@ -33,12 +33,22 @@ No existing spec directly covers this CodeQL remediation. This is a narrow secur
 - The random value remains non-user-facing test data, but CodeQL treats the flow as security-sensitive because it reaches login credentials.
 - No tenant isolation, RBAC, DB schema, or public contract surfaces are changed.
 
+## Validation Notes
+
+- `rg "Math\.random\(" packages/core/src/modules/entities/__integration__/TC-ENTITIES-007.spec.ts packages/core/src/helpers/integration/api.ts -n` — no matches.
+- `git diff --check` — passed.
+- `yarn workspace @open-mercato/core typecheck` — failed before validation because the workspace script cannot resolve `tsc` directly.
+- `yarn typecheck --filter=@open-mercato/core` — initially failed because generated `#generated/*` shims were missing in the clean worktree.
+- `yarn build:packages` — passed.
+- `yarn generate` — passed; emitted generated local artifacts and one non-fatal structural-cache warning.
+- `yarn typecheck --filter=@open-mercato/core` — passed after generation.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append `— <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Remediate Alert Source
 
-- [ ] 1.1 Replace insecure test stamp randomness
-- [ ] 1.2 Validate affected test surface
-- [ ] 1.3 Complete self-review and BC review
+- [x] 1.1 Replace insecure test stamp randomness — c9b71a97a
+- [x] 1.2 Validate affected test surface — c9b71a97a
+- [x] 1.3 Complete self-review and BC review — c9b71a97a
