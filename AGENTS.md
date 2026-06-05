@@ -52,7 +52,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Task | Guide |
 |------|-------|
 | **Module Development** | |
-| Creating a new module, scaffolding module files, auto-discovery paths | `packages/core/AGENTS.md` + [`.ai/docs/module-development.md`](.ai/docs/module-development.md). **Standalone apps**: the `module-scaffold` skill scaffolds a module end-to-end (routes, pages, DI, ACL, events, search) — great to use here. |
+| Creating a new module, scaffolding module files, auto-discovery paths | `packages/core/AGENTS.md` + [`.ai/docs/module-development.md`](.ai/docs/module-development.md). **Standalone apps**: the `om-module-scaffold` skill scaffolds a module end-to-end (routes, pages, DI, ACL, events, search) — great to use here. |
 | Working on official modules via the `external/official-modules` submodule, activating them (`yarn official-modules`, `official-modules.json`), committing to the submodule's git | this file → `external/official-modules/` (git submodule) |
 | Building CRUD API routes, adding OpenAPI specs, using `makeCrudRoute`, query engine integration | `packages/core/AGENTS.md` → API Routes |
 | Adding `setup.ts` for tenant init, declaring role features, syncing new ACL grants to roles, seeding defaults/examples | `packages/core/AGENTS.md` → Module Setup |
