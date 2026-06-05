@@ -4,6 +4,7 @@ import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/he
 import {
   createCurrencyFixture,
   deleteCurrenciesEntityIfExists,
+  generateUniqueCurrencyCode,
 } from '@open-mercato/core/modules/core/__integration__/helpers/currenciesFixtures'
 import {
   bumpRecordViaApi,
@@ -44,12 +45,7 @@ import { fillControlledInput } from '@open-mercato/core/modules/core/__integrati
 
 const CURRENCY_API_BASE = '/api/currencies/currencies'
 
-function randomCode(): string {
-  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-  let out = ''
-  for (let i = 0; i < 3; i += 1) out += letters[Math.floor(Math.random() * letters.length)]
-  return out
-}
+const randomCode = generateUniqueCurrencyCode
 
 /**
  * Create a currency fixture with a unique three-letter code, retrying on the
