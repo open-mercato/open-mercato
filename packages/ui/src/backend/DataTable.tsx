@@ -3,7 +3,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn, type VisibilityState, type RowSelectionState } from '@tanstack/react-table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronsUpDown, Check } from 'lucide-react'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronsUpDown, Check, Inbox } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Checkbox } from '../primitives/checkbox'
@@ -2899,22 +2899,29 @@ export function DataTable<T>({
                         canRemoveLast={filterAwareEmptyState.canRemoveLast}
                         onClearAll={filterAwareEmptyState.onClearAll}
                         onRemoveLast={filterAwareEmptyState.onRemoveLast}
+                        onClearSearch={searchValue && searchValue.trim().length > 0 && onSearchChange ? () => onSearchChange('') : undefined}
                       />
-                    ) : emptyState && typeof emptyState !== 'string' ? (
-                      emptyState
                     ) : searchValue && searchValue.trim().length > 0 && onSearchChange ? (
                       <SearchEmptyResults
                         query={searchValue.trim()}
                         entityNamePlural={filterAwareEmptyState?.entityNamePlural}
                         onClearSearch={() => onSearchChange('')}
                       />
+                    ) : emptyState && typeof emptyState !== 'string' ? (
+                      emptyState
                     ) : (
                       <EmptyState
-                        size="sm"
+                        variant="subtle"
+                        icon={<Inbox className="size-6" aria-hidden />}
                         title={
                           typeof emptyState === 'string'
                             ? emptyState
                             : t('ui.dataTable.emptyState.default', 'No results.')
+                        }
+                        description={
+                          typeof emptyState === 'string'
+                            ? undefined
+                            : t('ui.dataTable.emptyState.defaultDescription', 'Items will appear here once added.')
                         }
                       />
                     )}

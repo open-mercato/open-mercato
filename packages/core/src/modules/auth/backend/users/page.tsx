@@ -17,6 +17,7 @@ import { buildOrganizationTreeOptions, formatOrganizationTreeLabel, type Organiz
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type Row = {
   id: string
@@ -428,6 +429,13 @@ export default function UsersListPage() {
           sorting={sorting}
           onSortingChange={setSorting}
           perspective={{ tableId: 'auth.users.list' }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('auth.users.list.title', 'Users')}
+              createHref="/backend/users/create"
+              createLabel={t('common.create', 'Create')}
+            />
+          )}
           rowActions={(row) => (
             <RowActions items={[
               { id: 'edit', label: t('common.edit', 'Edit'), href: `/backend/users/${row.id}/edit` },
