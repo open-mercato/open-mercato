@@ -16,6 +16,51 @@ type ScopedSoftDeletable = {
   isActive?: boolean
 }
 
+/** Snapshot keys revived from ISO strings to `Date` when no explicit `dateFields` is given. */
+const DEFAULT_SNAPSHOT_DATE_FIELDS = ['createdAt', 'updatedAt', 'deletedAt'] as const
+
+/**
+ * Turn an after-snapshot into a create seed by shallow-cloning it and reviving the
+ * declared date fields from ISO strings back to `Date`. Single-row snapshots are a
+ * faithful serialized row whose keys already equal entity property names, so the
+ * snapshot doubles as the seed once dates are revived — no per-command mapping needed.
+ */
+export function reviveSnapshotSeed(
+  snapshot: Record<string, unknown>,
+  dateFields: readonly string[] = DEFAULT_SNAPSHOT_DATE_FIELDS,
+): Record<string, unknown> {
+  const seed: Record<string, unknown> = { ...snapshot }
+  for (const field of dateFields) {
+    const value = seed[field]
+    if (typeof value === 'string') seed[field] = new Date(value)
+  }
+  return seed
+}
+
+/**
+ * Serialize a persisted row into a plain after-snapshot object: pick `fields` from
+ * the entity and convert the declared `dateFields` from `Date` to ISO strings. Use
+ * for single-row snapshot loaders that are a clean 1:1 column copy; loaders that
+ * shape nested/related data keep their bespoke mapping.
+ */
+export function serializeRowSnapshot<TEntity extends Record<string, unknown>>(
+  entity: TEntity,
+  fields: readonly string[],
+  dateFields: readonly string[] = DEFAULT_SNAPSHOT_DATE_FIELDS,
+): Record<string, unknown> {
+  const snapshot: Record<string, unknown> = {}
+  const dateFieldSet = new Set(dateFields)
+  for (const field of fields) {
+    const value = entity[field]
+    if (dateFieldSet.has(field)) {
+      snapshot[field] = value instanceof Date ? value.toISOString() : (value ?? null)
+    } else {
+      snapshot[field] = value ?? null
+    }
+  }
+  return snapshot
+}
+
 /**
  * Resolve the after-snapshot a create command persisted for its action log, so a
  * `redo` handler can re-materialize the original record. Reads the `undo.after`
@@ -56,10 +101,25 @@ export async function restoreCreatedRow<TEntity extends ScopedSoftDeletable>(
 
 export type CreateRedoConfig<TEntity extends ScopedSoftDeletable, TSnapshot, TResult> = {
   entityClass: EntityClass<TEntity>
-  /** Pulls the original primary id out of the after-snapshot (e.g. `(s) => s.id`). */
-  getSnapshotId: (snapshot: TSnapshot) => string | null | undefined
-  /** Maps the after-snapshot back to a create seed; MUST include the original id. */
-  seedFromSnapshot: (snapshot: TSnapshot) => Record<string, unknown>
+  /**
+   * Pulls the original primary id out of the after-snapshot. Defaults to
+   * `(snapshot) => snapshot.id`, which fits single-row snapshots whose top-level
+   * `id` is the row's primary key. Override only when the id lives elsewhere.
+   */
+  getSnapshotId?: (snapshot: TSnapshot) => string | null | undefined
+  /**
+   * Maps the after-snapshot back to a create seed; MUST include the original id.
+   * Defaults to {@link reviveSnapshotSeed} — the snapshot itself with `dateFields`
+   * revived to `Date`. Override only when the snapshot keys diverge from entity
+   * columns (e.g. nested shapes or derived columns).
+   */
+  seedFromSnapshot?: (snapshot: TSnapshot) => Record<string, unknown>
+  /**
+   * Snapshot keys to revive from ISO string to `Date` for the default seed.
+   * Defaults to `['createdAt', 'updatedAt', 'deletedAt']`; list additional date
+   * columns (e.g. `effectiveAt`, `returnedAt`) when the entity has them.
+   */
+  dateFields?: readonly string[]
   /** Builds the command result (mirrors `execute`'s return), e.g. `(e) => ({ currencyId: e.id })`. */
   buildResult: (entity: TEntity, snapshot: TSnapshot) => TResult
   events?: CrudEventsConfig<any>
@@ -85,14 +145,17 @@ export function makeCreateRedo<
   TInput = unknown,
   TResult = unknown,
 >(config: CreateRedoConfig<TEntity, TSnapshot, TResult>) {
+  const getSnapshotId = config.getSnapshotId ?? ((snapshot: TSnapshot) => (snapshot as { id?: string | null }).id ?? null)
+  const seedFromSnapshot =
+    config.seedFromSnapshot ?? ((snapshot: TSnapshot) => reviveSnapshotSeed(snapshot as Record<string, unknown>, config.dateFields))
   return async ({ ctx, logEntry }: { input: TInput; ctx: CommandRuntimeContext; logEntry: CommandUndoLogEntry }): Promise<TResult> => {
     const snapshot = resolveRedoSnapshot<TSnapshot>(logEntry)
-    const id = snapshot ? config.getSnapshotId(snapshot) : (logEntry.resourceId ?? null)
+    const id = snapshot ? getSnapshotId(snapshot) : (logEntry.resourceId ?? null)
     if (!snapshot || !id) {
       throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for create command' })
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await restoreCreatedRow(em, config.entityClass, id, () => config.seedFromSnapshot(snapshot))
+    const entity = await restoreCreatedRow(em, config.entityClass, id, () => seedFromSnapshot(snapshot))
     await em.flush()
     if (config.afterRestore) {
       await config.afterRestore({ em, ctx, entity, snapshot })
