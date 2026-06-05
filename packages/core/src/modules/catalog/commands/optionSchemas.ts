@@ -61,22 +61,6 @@ async function loadOptionSchemaSnapshot(
   }
 }
 
-function optionSchemaSeedFromSnapshot(snapshot: OptionSchemaSnapshot): Record<string, unknown> {
-  return {
-    id: snapshot.id,
-    organizationId: snapshot.organizationId,
-    tenantId: snapshot.tenantId,
-    name: snapshot.name,
-    code: snapshot.code,
-    description: snapshot.description ?? null,
-    schema: cloneJson(snapshot.schema),
-    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
-    isActive: snapshot.isActive,
-    createdAt: new Date(snapshot.createdAt),
-    updatedAt: new Date(snapshot.updatedAt),
-  }
-}
-
 function applyOptionSchemaSnapshot(
   record: CatalogOptionSchemaTemplate,
   snapshot: OptionSchemaSnapshot,
@@ -163,8 +147,6 @@ const createOptionSchemaCommand: CommandHandler<
     { schemaId: string }
   >({
     entityClass: CatalogOptionSchemaTemplate,
-    getSnapshotId: (snapshot) => snapshot.id,
-    seedFromSnapshot: optionSchemaSeedFromSnapshot,
     buildResult: (entity) => ({ schemaId: entity.id }),
   }),
 }

@@ -43,24 +43,6 @@ const PRICE_KIND_CHANGE_KEYS = [
   'isActive',
 ] as const satisfies readonly string[]
 
-function priceKindSeedFromSnapshot(snapshot: PriceKindSnapshot): Record<string, unknown> {
-  const displayMode: CatalogPriceDisplayMode =
-    snapshot.displayMode === 'including-tax' ? 'including-tax' : 'excluding-tax'
-  return {
-    id: snapshot.id,
-    organizationId: snapshot.organizationId,
-    tenantId: snapshot.tenantId,
-    code: snapshot.code,
-    title: snapshot.title,
-    displayMode,
-    currencyCode: snapshot.currencyCode,
-    isPromotion: snapshot.isPromotion,
-    isActive: snapshot.isActive,
-    createdAt: new Date(snapshot.createdAt),
-    updatedAt: new Date(snapshot.updatedAt),
-  }
-}
-
 async function loadPriceKindSnapshot(em: EntityManager, id: string): Promise<PriceKindSnapshot | null> {
   const record = await em.findOne(CatalogPriceKind, { id })
   if (!record) return null
@@ -144,8 +126,6 @@ const createPriceKindCommand: CommandHandler<PriceKindCreateInput, { priceKindId
   },
   redo: makeCreateRedo<CatalogPriceKind, PriceKindSnapshot, PriceKindCreateInput, { priceKindId: string }>({
     entityClass: CatalogPriceKind,
-    getSnapshotId: (snapshot) => snapshot.id,
-    seedFromSnapshot: priceKindSeedFromSnapshot,
     buildResult: (entity) => ({ priceKindId: entity.id }),
   }),
 }

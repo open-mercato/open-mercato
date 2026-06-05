@@ -55,20 +55,6 @@ async function loadTeamSnapshot(em: EntityManager, id: string): Promise<TeamSnap
   }
 }
 
-function teamSeedFromSnapshot(snapshot: TeamSnapshot): Record<string, unknown> {
-  return {
-    id: snapshot.id,
-    tenantId: snapshot.tenantId,
-    organizationId: snapshot.organizationId,
-    name: snapshot.name,
-    description: snapshot.description ?? null,
-    isActive: snapshot.isActive,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    deletedAt: null,
-  }
-}
-
 async function loadTeamCustomSnapshot(em: EntityManager, snapshot: TeamSnapshot): Promise<CustomFieldSnapshot> {
   return loadCustomFieldSnapshot(em, {
     entityId: E.staff.staff_team,
@@ -80,8 +66,6 @@ async function loadTeamCustomSnapshot(em: EntityManager, snapshot: TeamSnapshot)
 
 const redoTeamCreate = makeCreateRedo<StaffTeam, TeamSnapshot, StaffTeamCreateInput, { teamId: string }>({
   entityClass: StaffTeam,
-  getSnapshotId: (snapshot) => snapshot.id,
-  seedFromSnapshot: teamSeedFromSnapshot,
   buildResult: (entity) => ({ teamId: entity.id }),
   events: staffTeamCrudEvents,
   indexer: teamCrudIndexer,

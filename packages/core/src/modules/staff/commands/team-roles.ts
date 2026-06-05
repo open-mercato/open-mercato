@@ -71,26 +71,8 @@ async function loadTeamRoleCustomSnapshot(
   })
 }
 
-function teamRoleSeedFromSnapshot(snapshot: TeamRoleSnapshot): Record<string, unknown> {
-  return {
-    id: snapshot.id,
-    tenantId: snapshot.tenantId,
-    organizationId: snapshot.organizationId,
-    teamId: snapshot.teamId ?? null,
-    name: snapshot.name,
-    description: snapshot.description ?? null,
-    appearanceIcon: snapshot.appearanceIcon ?? null,
-    appearanceColor: snapshot.appearanceColor ?? null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    deletedAt: null,
-  }
-}
-
 const redoTeamRoleCreate = makeCreateRedo<StaffTeamRole, TeamRoleSnapshot, StaffTeamRoleCreateInput, { roleId: string }>({
   entityClass: StaffTeamRole,
-  getSnapshotId: (snapshot) => snapshot.id,
-  seedFromSnapshot: teamRoleSeedFromSnapshot,
   buildResult: (entity) => ({ roleId: entity.id }),
   events: staffTeamRoleCrudEvents,
   indexer: teamRoleCrudIndexer,
