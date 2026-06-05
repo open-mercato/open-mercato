@@ -6,6 +6,7 @@ import {
   expectConflictBanner,
   expectNoConflictBanner,
 } from '@open-mercato/core/modules/core/__integration__/helpers/optimisticLockUi'
+import { isStandaloneIntegration } from '@open-mercato/core/helpers/integration/standaloneEnv'
 import { fillControlledInput } from '@open-mercato/core/modules/core/__integration__/helpers/ui'
 
 /**
@@ -70,6 +71,8 @@ async function deleteIfExists(
 
 test.describe('TC-LOCK-OSS-037: resources edit/delete optimistic-lock conflict bar', () => {
   test('stale resource edit shows the conflict bar; clean edit does not', async ({ page }) => {
+    test.skip(isStandaloneIntegration(), 'Standalone smoke runs omit this monorepo-only resource conflict choreography.')
+
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let resourceId: string | null = null
