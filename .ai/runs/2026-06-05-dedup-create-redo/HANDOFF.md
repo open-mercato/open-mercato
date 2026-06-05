@@ -102,3 +102,11 @@ Further dedup of these would require either accepting behavior changes or larger
 - `yarn build:packages`, `yarn generate`, `yarn typecheck` ✓ (typecheck currently green), `yarn lint`, `yarn i18n:check-sync`/`usage`, `yarn test`.
 - Integration specs (need live ephemeral app): `currencies/__integration__/TC-CUR-REDO-409.spec.ts`, `customers/__integration__/TC-UNDO-003-redo-keeps-id.spec.ts`, `customers/__integration__/TC-UNDO-004-bridge-undo.spec.ts`.
 - Merge conflict with `develop` was already resolved earlier in this branch (returns.ts import merge).
+
+## Risk fixes (post-review hardening)
+Adversarial risk analysis surfaced issues; fixed via workflow:
+- **409 on redo conflict** (`83dbcf720`) — `makeCreateRedo` maps Postgres unique violations on the restore flush to 409 (was a raw 500). + unit tests (shared 1168).
+- **directory.tenants id-preserving redo** (`71d5dea62`) — had `buildLog` but no redo (would mint a new tenant id on redo); wired after-snapshot + `makeCreateRedo`.
+- **Redo integration coverage** (`66abe61bd`) — new specs for the 10 previously-untested converted commands (catalog/staff/resources/sales/customers). **9/9 pass on ephemeral.**
+
+Intentionally NOT changed: redo-404-when-parent-deleted (correct behavior), CI lint env crash (tooling, out of scope), tags/labels no-`deletedAt` tolerance (proven harmless).
