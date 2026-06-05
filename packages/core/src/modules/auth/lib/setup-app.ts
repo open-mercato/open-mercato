@@ -122,11 +122,17 @@ export type SetupInitialTenantOptions = {
    */
   orgSlug?: string
   /**
-   * Opt-in flag that allows seeding the derived admin/employee accounts with
-   * randomly generated passwords when the OM_INIT_ADMIN_PASSWORD /
-   * OM_INIT_EMPLOYEE_PASSWORD env vars are unset. When false/unset in
-   * production, missing env vars cause `DerivedUserPasswordRequiredError`
-   * to be thrown instead of silently seeding well-known-password accounts.
+   * Opt-in flag that allows seeding the derived admin/employee accounts when
+   * the OM_INIT_ADMIN_PASSWORD / OM_INIT_EMPLOYEE_PASSWORD env vars are unset.
+   *
+   * - In non-production (`NODE_ENV !== 'production'`): the demo accounts are
+   *   seeded with the well-known `'secret'` password so local dev workflows
+   *   (e.g. `mercato init`) stay predictable for developers.
+   * - In production: the fallback uses a randomly generated 96-bit password
+   *   (printed once by the CLI) so an operator who deliberately opts in still
+   *   avoids the historical hardcoded credential. When this flag is false/unset
+   *   in production and the env vars are missing, `DerivedUserPasswordRequiredError`
+   *   is thrown instead of silently seeding any account.
    */
   allowDemoDerivedPasswords?: boolean
 }
@@ -264,8 +270,17 @@ export async function setupInitialTenant(
           throw new DerivedUserPasswordRequiredError(missing)
         }
       }
-      const adminPasswordPlain = envAdminPwd ?? generateDerivedPassword()
-      const employeePasswordPlain = envEmployeePwd ?? generateDerivedPassword()
+      // In non-production, fall back to the well-known DEMO_DERIVED_PASSWORD so
+      // local dev workflows stay predictable (admin@/employee@ login with the
+      // documented demo password). In production we either have env-supplied
+      // values, or — for opt-in --include-demo-users flows — we generate a
+      // random one-time password and surface it via `generatedPassword` so the
+      // operator can capture it. Production callers without env vars and
+      // without the opt-in already threw above.
+      const fallbackAdminPwd = isProduction ? generateDerivedPassword() : DEMO_DERIVED_PASSWORD
+      const fallbackEmployeePwd = isProduction ? generateDerivedPassword() : DEMO_DERIVED_PASSWORD
+      const adminPasswordPlain = envAdminPwd ?? fallbackAdminPwd
+      const employeePasswordPlain = envEmployeePwd ?? fallbackEmployeePwd
       const adminPasswordHash = await hash(adminPasswordPlain, 10)
       const employeePasswordHash = await hash(employeePasswordPlain, 10)
       addUniqueBaseUser(baseUsers, {
@@ -466,8 +481,18 @@ function addUniqueBaseUser(
 }
 
 /**
+ * Well-known demo password seeded for derived admin@/employee@ accounts in
+ * non-production (`NODE_ENV !== 'production'`) when no env override is set.
+ * Keeps the documented `yarn dev` / `mercato init` DX predictable. Never used
+ * in production: the production branch either consumes env-supplied values or
+ * falls back to `generateDerivedPassword()` so credentials remain non-guessable.
+ */
+const DEMO_DERIVED_PASSWORD = 'secret'
+
+/**
  * Generate a 16-character base64url password (96 bits of entropy) for a derived
- * demo user when no env override is provided. Surfaced via the
+ * demo user in production when no env override is provided AND the caller
+ * explicitly opted in via `allowDemoDerivedPasswords`. Surfaced via the
  * `users[].generatedPassword` snapshot so CLI callers can print it to the
  * operator — there is no other recovery path for these credentials.
  */

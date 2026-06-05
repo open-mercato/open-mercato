@@ -1,12 +1,23 @@
 import { resolveInitDerivedSecrets } from '../init-secrets'
 
 describe('resolveInitDerivedSecrets', () => {
-  it('generates random derived passwords when no env overrides are set', () => {
+  it("seeds the well-known 'secret' password in non-production when no env overrides are set", () => {
     const env: NodeJS.ProcessEnv = {}
     const result = resolveInitDerivedSecrets({ email: 'piotr@gmail.com', env })
     expect(result.adminEmail).toBe('admin@gmail.com')
     expect(result.employeeEmail).toBe('employee@gmail.com')
-    // Never the historical hardcoded default — that was the bug we fixed.
+    // Dev/test default: the documented demo password, so `yarn dev` /
+    // `mercato init` workflows stay predictable across runs.
+    expect(result.adminPassword).toBe('secret')
+    expect(result.employeePassword).toBe('secret')
+  })
+
+  it('generates random derived passwords in production when no env overrides are set', () => {
+    const env: NodeJS.ProcessEnv = { NODE_ENV: 'production' }
+    const result = resolveInitDerivedSecrets({ email: 'piotr@gmail.com', env })
+    expect(result.adminEmail).toBe('admin@gmail.com')
+    expect(result.employeeEmail).toBe('employee@gmail.com')
+    // Production must never seed the hardcoded default — that was the bug.
     expect(result.adminPassword).not.toBe('secret')
     expect(result.employeePassword).not.toBe('secret')
     expect(typeof result.adminPassword).toBe('string')
@@ -31,8 +42,8 @@ describe('resolveInitDerivedSecrets', () => {
     expect(result.employeePassword).toBe('EmployeeSecret')
   })
 
-  it('uses the provided randomSource (base64url-encoded 12 bytes)', () => {
-    const env: NodeJS.ProcessEnv = {}
+  it('uses the provided randomSource (base64url-encoded 12 bytes) in production', () => {
+    const env: NodeJS.ProcessEnv = { NODE_ENV: 'production' }
     const randomBuffer = Buffer.from('abcdefghijkl')
     const randomSource = () => randomBuffer
     const expected = randomBuffer.toString('base64url')
@@ -41,13 +52,13 @@ describe('resolveInitDerivedSecrets', () => {
     expect(result.employeePassword).toBe(expected)
   })
 
-  it('ignores the deprecated OM_INIT_GENERATE_RANDOM_PASSWORD toggle (randomization is unconditional)', () => {
+  it('ignores the deprecated OM_INIT_GENERATE_RANDOM_PASSWORD toggle in production (randomization is unconditional)', () => {
     // The toggle was a partial mitigation when 'secret' was still the default.
-    // Now that randomization is always-on when env vars are unset, the flag is
-    // a no-op — setting it should not change the output shape.
+    // Now production randomization is always-on when env vars are unset, so the
+    // flag is a no-op — setting it should not change the output shape.
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
     try {
-      const env: NodeJS.ProcessEnv = { OM_INIT_GENERATE_RANDOM_PASSWORD: 'true' }
+      const env: NodeJS.ProcessEnv = { NODE_ENV: 'production', OM_INIT_GENERATE_RANDOM_PASSWORD: 'true' }
       const result = resolveInitDerivedSecrets({ email: 'boss@acme.com', env })
       expect(result.adminPassword).not.toBe('secret')
       expect(typeof result.adminPassword).toBe('string')
