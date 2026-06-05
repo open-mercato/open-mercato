@@ -175,6 +175,7 @@ export function useResourcesResourceFormConfig(options: {
             <Select
               value={typeof value === 'string' ? value : ''}
               onValueChange={(next) => {
+                if (!next) return
                 const value = next || ''
                 setValue(value)
                 if (setFormValue) {

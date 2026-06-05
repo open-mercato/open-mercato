@@ -290,7 +290,10 @@ export function DictionaryEntrySelect({
       <div className="flex items-center gap-2">
         <Select
           value={value ?? ''}
-          onValueChange={(next) => onChange(next || undefined)}
+          onValueChange={(next) => {
+            if (!next) return
+            onChange(next)
+          }}
           disabled={disabled}
         >
           <SelectTrigger
