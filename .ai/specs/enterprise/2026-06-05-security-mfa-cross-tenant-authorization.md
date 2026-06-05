@@ -1,6 +1,6 @@
 # Enterprise Security — MFA Admin & Enforcement Cross-Tenant Authorization
 
-> **Status:** Draft — ready for implementation review
+> **Status:** Implemented 2026-06-06 (branch `fix/2612-enterprise-security-mfa`, stacked on the OSS branch) — all phases landed; see Final Compliance Report + Changelog
 > **Issue:** [open-mercato#2612](https://github.com/open-mercato/open-mercato/issues/2612) (comment 3 — enterprise variants)
 > **Scope:** Enterprise — `security` module (`packages/enterprise/src/modules/security`)
 > **Parent OSS spec:** [`.ai/specs/2026-06-05-tenant-ownership-and-module-acl-authorization.md`](../2026-06-05-tenant-ownership-and-module-acl-authorization.md)
@@ -137,17 +137,20 @@ _No open questions remain blocking._
 
 ## Final Compliance Report
 
-_To be completed during implementation (per spec-writing checklist)._ Gates to verify before merge:
-- [ ] `scope=PLATFORM` and arbitrary `tenantId`/`scopeId` rejected for non-superadmins at the route handler (unfiltered `em.find(User, …)` never reached).
-- [ ] Target-user guard on `mfa/status` + `mfa/reset`; `404` cross-tenant even with valid sudo.
-- [ ] All four policy-CRUD methods enforce scope ownership (list/create/update/delete).
-- [ ] Services take an actor-context backstop; `findUserById` uses `findOneWithDecryption` with non-superadmin tenant criteria.
-- [ ] `TC-SEC-007` fixtures made same-tenant + cross-tenant negative case added; `TC-SEC-005` still green (superadmin).
-- [ ] Reused `enforceTenantSelection`/`resolveIsSuperAdmin` imported from `@open-mercato/core/modules/auth/lib/tenantAccess` (no hand-rolled superadmin checks).
-- [ ] Enterprise RELEASE_NOTES entry (platform/cross-tenant views now superadmin-only); merge order coordinated with parent OSS spec.
-- [ ] `yarn typecheck`, `yarn lint`, `yarn test`, enterprise integration specs green.
+Implemented 2026-06-06 on branch `fix/2612-enterprise-security-mfa` (stacked on the OSS branch). Gate status:
+- [x] `scope=PLATFORM` and arbitrary `tenantId`/`scopeId` rejected for non-superadmins at the route handler via `assertActorOwnsEnforcementScope`; the service backstop (`assertActorOwnsScopeFilters`) guards before `em.find(User, …)`, so the unfiltered PLATFORM query is unreachable for non-superadmins.
+- [x] Target-user guard `assertActorCanAccessSecurityUserTarget` on `mfa/status` + `mfa/reset`; `404` cross-tenant even with valid sudo (guard runs independently of sudo).
+- [x] All four policy-CRUD methods enforce scope ownership: route-level (`create` pre-dispatch, `update`/`delete` load-then-assert via new `getPolicyById`) + `MfaEnforcementService` actor-context backstop; `listPolicies` constrains non-superadmins to their own tenant.
+- [x] Services take an optional, backward-compatible actor-context backstop (`{ tenantId, isSuperAdmin }`); `MfaAdminService.findUserById` uses `findOneWithDecryption` (global load) with the actor-context tenant comparison enforcing ownership.
+- [x] `TC-SEC-007` positive path is same-tenant (documented); cross-tenant negatives covered by route/service unit tests (harness provisions no 2nd tenant). `TC-SEC-005` unchanged — superadmin token, stays green.
+- [x] Reused `enforceTenantSelection`/`resolveIsSuperAdmin` from `@open-mercato/core/modules/auth/lib/tenantAccess` (no hand-rolled superadmin checks).
+- [x] Breaking-change entry added to `UPGRADE_NOTES.md` (`0.6.4 → 0.6.5`). Stacked on the OSS branch; merge after the parent OSS PR (#2636) or rebase onto `develop` once it lands.
+- [x] `yarn workspace @open-mercato/enterprise build` + `typecheck` green (zero errors); full security suite **171 tests** green. (No `lint` script in the enterprise workspace; the TS build is the authoritative gate.)
+
+> **Note on enum spelling:** the module uses British `EnforcementScope.ORGANISATION` (`'organisation'`) — reflected in the guards and tests.
 
 ## Changelog
 
 - 2026-06-05 — Initial draft from issue #2612 comment 3 (all enterprise variants verified in code). Split from the parent OSS spec per spec-separation rules and the issue's own follow-up suggestion.
 - 2026-06-05 — Applied pre-implementation analysis remediations (`.ai/specs/analysis/ANALYSIS-2026-06-05-security-mfa-cross-tenant-authorization.md`): enumerated the four policy-CRUD methods + the unfiltered `PLATFORM` query in § C; resolved Open Questions #1 (404/403 convention) and #2 (explicit actor-context); added the `TC-SEC-007` same-tenant + negative-test note and existing-test impact to § Test Plan; added Risks & Impact Review and Final Compliance Report sections.
+- 2026-06-06 — Implemented (branch `fix/2612-enterprise-security-mfa`, stacked on the OSS branch). **Users-MFA vertical:** added `assertActorCanAccessSecurityUserTarget` + `assertActorOwnsTenantScope` to `api/users/_shared.ts`; wired target-user guards into `mfa/status` + `mfa/reset` (404 cross-tenant even with sudo) and `enforceTenantSelection` into `mfa/compliance`; `MfaAdminService.findUserById` → `findOneWithDecryption` + optional `{ tenantId, isSuperAdmin }` actor-context backstop on status/reset/compliance; actor-context threaded through the reset command. **Enforcement vertical:** added `assertActorOwnsEnforcementScope` (PLATFORM→superadmin, TENANT/ORGANISATION ownership) to `api/enforcement/_shared.ts`; wired it into compliance + list/create/update/delete (the latter two load the policy via new `getPolicyById` then assert current+new scope ownership); `MfaEnforcementService` gained an actor-context backstop on `getComplianceReport`/`listPolicies`/`createPolicy`/`updatePolicy`/`deletePolicy` with the unfiltered PLATFORM `em.find` guarded behind it; actor-context threaded through the create/update/delete commands. Added route + service unit tests; full `security` suite green (171). Enterprise build + typecheck green (zero errors). `UPGRADE_NOTES.md` updated.
