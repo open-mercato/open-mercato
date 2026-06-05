@@ -68,24 +68,6 @@ async function loadCurrencySnapshot(em: EntityManager, id: string): Promise<Curr
   }
 }
 
-function currencySeedFromSnapshot(snapshot: CurrencySnapshot): Record<string, unknown> {
-  return {
-    id: snapshot.id,
-    organizationId: snapshot.organizationId,
-    tenantId: snapshot.tenantId,
-    code: snapshot.code,
-    name: snapshot.name,
-    symbol: snapshot.symbol ?? null,
-    decimalPlaces: snapshot.decimalPlaces,
-    thousandsSeparator: snapshot.thousandsSeparator ?? null,
-    decimalSeparator: snapshot.decimalSeparator ?? null,
-    isBase: snapshot.isBase,
-    isActive: snapshot.isActive,
-    createdAt: new Date(snapshot.createdAt),
-    updatedAt: new Date(snapshot.updatedAt),
-  }
-}
-
 async function enforceBaseCurrency(
   em: EntityManager,
   currencyId: string,
@@ -206,8 +188,6 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
   },
   redo: makeCreateRedo<Currency, CurrencySnapshot, CurrencyCreateInput, { currencyId: string }>({
     entityClass: Currency,
-    getSnapshotId: (snapshot) => snapshot.id,
-    seedFromSnapshot: currencySeedFromSnapshot,
     buildResult: (entity) => ({ currencyId: entity.id }),
     events: currencyCrudEvents,
     afterRestore: async ({ em, entity }) => {

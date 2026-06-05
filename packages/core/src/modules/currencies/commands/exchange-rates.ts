@@ -46,23 +46,6 @@ type ExchangeRateSnapshot = {
 
 type ExchangeRateUndoPayload = UndoPayload<ExchangeRateSnapshot>
 
-function exchangeRateSeedFromSnapshot(snapshot: ExchangeRateSnapshot): Record<string, unknown> {
-  return {
-    id: snapshot.id,
-    organizationId: snapshot.organizationId,
-    tenantId: snapshot.tenantId,
-    fromCurrencyCode: snapshot.fromCurrencyCode,
-    toCurrencyCode: snapshot.toCurrencyCode,
-    rate: snapshot.rate,
-    date: new Date(snapshot.date),
-    source: snapshot.source,
-    type: snapshot.type ?? null,
-    isActive: snapshot.isActive,
-    createdAt: new Date(snapshot.createdAt),
-    updatedAt: new Date(snapshot.updatedAt),
-  }
-}
-
 async function loadExchangeRateSnapshot(em: EntityManager, id: string): Promise<ExchangeRateSnapshot | null> {
   const record = await em.findOne(ExchangeRate, { id })
   if (!record) return null
@@ -204,8 +187,7 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
   },
   redo: makeCreateRedo<ExchangeRate, ExchangeRateSnapshot, ExchangeRateCreateInput, { exchangeRateId: string }>({
     entityClass: ExchangeRate,
-    getSnapshotId: (snapshot) => snapshot.id,
-    seedFromSnapshot: exchangeRateSeedFromSnapshot,
+    dateFields: ['createdAt', 'updatedAt', 'deletedAt', 'date'],
     buildResult: (entity) => ({ exchangeRateId: entity.id }),
     events: exchangeRateCrudEvents,
   }),
