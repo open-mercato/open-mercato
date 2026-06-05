@@ -30,6 +30,9 @@ Stabilize the develop branch feeding PR #2425 by fixing the failures observed in
 - Full ephemeral proof run 1 log: `/tmp/ci-2425-full-ephemeral-run-1-after-eav.log` on app `http://127.0.0.1:46227`, DB `localhost:32865`, `--retries=0`: 1421 passed, 70 skipped, 0 failed in 20.9m. Included in-suite passes for `TC-CAT-CF-MULTI-EDIT-001`, `TC-CRM-CF-MULTI-EDIT-001`, `TC-LOCK-OSS-014`, and catalog AI sheet specs.
 - Full ephemeral proof run 2 attempt log: `/tmp/ci-2425-full-ephemeral-run-2-after-eav.log` on app `http://127.0.0.1:45155`, DB `localhost:32866`, invalid/not counted: `TC-AUTH-003` and `TC-AUTH-007` exposed auth form hydration races where the first filled field was reset before submit, so no valid login/reset POST could complete.
 - Auth hydration targeted rerun log after reset form readiness marker: `/tmp/ci-2425-auth-targeted.log` (2/2 passed with `--retries=0`: `TC-AUTH-003`, `TC-AUTH-007`) on fresh app `http://127.0.0.1:45035`, DB `localhost:32868`.
+- PR #2606 merged into `develop`; follow-up branch continues from merged `origin/develop` with only the remaining stabilization alignments.
+- Diagnostic full ephemeral run after PR #2606 fixes: `/tmp/ci-2425-full-ephemeral-run-2-after-auth.log` on app `http://127.0.0.1:45819`, DB `localhost:32870`, invalid/not counted because it used a pre-follow-up app bundle. It ended with exactly 3 failures (`TC-INT-004`, `TC-LOCK-OSS-014` CRM-01, `TC-LOCK-OSS-015` stale person edit) and 1419 passed / 69 skipped. This run proved the merged fixes held for auth reset, multi-value custom fields, catalog AI sheet specs, and the other OSS lock suites.
+- Follow-up targeted rerun log after `CrudForm` dirty-state and `TC-INT-004` login synchronization fixes: `/tmp/ci-2425-followup-targeted.log` (6 passed, 1 intentionally skipped, `--retries=0`) on fresh rebuilt app `http://127.0.0.1:45367`, DB `localhost:32872`.
 
 ## Implementation Plan
 
@@ -70,9 +73,11 @@ Stabilize the develop branch feeding PR #2425 by fixing the failures observed in
 - [x] 2.3 Stabilize catalog AI sheet integration flake — 0556a3127
 - [x] 2.4 Stabilize shared EAV multi-value replacement after PR #2606 CI failure — 881d42dcc
 - [x] 2.4a Stabilize auth form hydration interactions exposed by full proof run 2 — 92ebbb417
+- [x] 2.4b Stabilize late `CrudForm` initialValues refresh and raw login synchronization after diagnostic full run — pending follow-up commit
 - [ ] 2.5 Run two independent full ephemeral integration runs
 
 ### Phase 3: PR
 
 - [x] 3.1 Open stabilization PR against develop — 2606
 - [x] 3.2 Apply PR labels and summary comment — c03f44479
+- [ ] 3.3 Open follow-up stabilization PR after #2606 merge

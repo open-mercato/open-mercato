@@ -931,6 +931,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const clearDirtyState = React.useCallback((snapshotSource?: Record<string, unknown>) => {
     const source = snapshotSource ?? (valuesRef.current as Record<string, unknown>)
     dirtyBaselineSnapshotRef.current = createDirtySnapshot(source)
+    userEditedFieldIdsRef.current.clear()
     isDirtyRef.current = false
     setHasUnsavedChanges(false)
   }, [])
@@ -2212,8 +2213,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const setValue = React.useCallback((id: string, nextValue: unknown) => {
     let nextData: CrudFormValues<TValues> | null = null
     let nextDirty: boolean | null = null
+    const currentValue = (valuesRef.current as Record<string, unknown>)[id]
+    if (!Object.is(currentValue, nextValue)) {
+      userEditedFieldIdsRef.current.add(id)
+    }
     setValues((prev) => {
       if (Object.is(prev[id], nextValue)) return prev
+      userEditedFieldIdsRef.current.add(id)
       nextData = { ...prev, [id]: nextValue } as CrudFormValues<TValues>
       valuesRef.current = nextData
       if (!(embedded && !trackDirtyWhenEmbedded)) {
@@ -2319,6 +2325,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const appliedInitialValuesSnapshotRef = React.useRef<string | undefined>(undefined)
   const dirtyBaselineSnapshotRef = React.useRef<string | undefined>(undefined)
+  const userEditedFieldIdsRef = React.useRef<Set<string>>(new Set())
   React.useLayoutEffect(() => {
     if (!initialValues) return
     const snapshot = JSON.stringify({
@@ -2340,10 +2347,17 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     let hadUnsavedEdits = false
     setValues((prev) => {
       const priorBaseline = dirtyBaselineSnapshotRef.current
+      const editedFieldIds = userEditedFieldIdsRef.current
       hadUnsavedEdits =
+        editedFieldIds.size > 0 ||
         priorBaseline !== undefined &&
         createDirtySnapshot(prev as Record<string, unknown>) !== priorBaseline
-      const merged = { ...prev, ...initialValues } as CrudFormValues<TValues>
+      const merged = { ...prev } as CrudFormValues<TValues>
+      const mergedRecord = merged as Record<string, unknown>
+      for (const [key, value] of Object.entries(initialValues as Record<string, unknown>)) {
+        if (editedFieldIds.has(key)) continue
+        mergedRecord[key] = value
+      }
       for (const definition of injectedFieldDefinitions) {
         if (merged[definition.id] !== undefined) continue
         const extracted = readByDotPath(initialRecord, definition.id)
