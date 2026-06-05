@@ -51,7 +51,7 @@
     },
     "infra": {
       "description": "Rare, special-case skills.",
-      "skills": ["dev-container-maintenance", "integration-builder"]
+      "skills": ["dev-container-maintenance", "integration-builder", "tvet-erp-builder"]
     }
   }
 }
