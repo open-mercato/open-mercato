@@ -178,8 +178,25 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
         defaultValue: after.defaultValue,
       })
       em.persist(toggle)
-      await em.flush()
+    } else {
+      toggle.deletedAt = null
+      toggle.identifier = after.identifier
+      toggle.name = after.name
+      toggle.description = after.description
+      toggle.category = after.category
+      toggle.type = after.type
+      toggle.defaultValue = after.defaultValue
     }
+    await em.flush()
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: toggle,
+      identifiers: featureToggleIdentifiers(toggle, ctx),
+      syncOrigin: ctx.syncOrigin,
+      indexer: featureToggleCrudIndexer,
+    })
     const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
     await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
     return { toggleId: toggle.id }

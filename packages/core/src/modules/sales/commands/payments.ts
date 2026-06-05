@@ -253,6 +253,8 @@ async function recomputeOrderPaymentTotals(
   const scope = { organizationId: order.organizationId, tenantId: order.tenantId }
 
   if (options?.lock) {
+    // Raw findOne is intentional: this acquires a row lock only — no encrypted
+    // SalesOrder field is read, so decryption (findOneWithDecryption) is unnecessary.
     await em.findOne(SalesOrder, { id: orderId }, { lockMode: LockMode.PESSIMISTIC_WRITE })
   }
 
@@ -661,6 +663,8 @@ const createPaymentCommand: CommandHandler<
       if (recomputed && (!totals || orderId === after.orderId)) {
         totals = recomputed
       }
+      // Raw findOne is intentional: the order is fetched only to read its id/scope
+      // for cache invalidation — no encrypted field is read, so decryption is unnecessary.
       const target = await em.findOne(SalesOrder, { id: orderId })
       if (target) await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)
     }
@@ -932,6 +936,8 @@ const updatePaymentCommand: CommandHandler<
         return result
       })
       if (totals) {
+        // Raw findOne is intentional: the order is fetched only to read its id/scope
+        // for cache invalidation — no encrypted field is read, so decryption is unnecessary.
         const nextOrder = await em.findOne(SalesOrder, { id: nextOrderId })
         if (nextOrder) await invalidateOrderCache(ctx.container, nextOrder, ctx.auth?.tenantId ?? null)
       }
@@ -1072,6 +1078,8 @@ const deletePaymentCommand: CommandHandler<
       if (recomputed && (!totals || (primaryOrderId && orderId === primaryOrderId))) {
         totals = recomputed
       }
+      // Raw findOne is intentional: the order is fetched only to read its id/scope
+      // for cache invalidation — no encrypted field is read, so decryption is unnecessary.
       const target = await em.findOne(SalesOrder, { id: orderId })
       if (target) await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)
     }

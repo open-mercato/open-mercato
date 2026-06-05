@@ -181,6 +181,30 @@ describe('makeCreateRedo defaults', () => {
     expect(order).not.toContain('rollback')
   })
 
+  it('runs afterRestore inside the transaction before commit when transaction is true', async () => {
+    const order: string[] = []
+    const forked = {
+      isInTransaction: () => false,
+      begin: async () => { order.push('begin') },
+      commit: async () => { order.push('commit') },
+      rollback: async () => { order.push('rollback') },
+      getUnitOfWork: () => ({ getChangeSets: () => [] }),
+      findOne: async () => null,
+      create: (_cls: unknown, data: Record<string, unknown>) => { order.push('create'); return { ...data } },
+      persist: () => undefined,
+      flush: async () => { order.push('flush') },
+    }
+    const em = { fork: () => forked }
+    const redo = makeCreateRedo<{ id: string }, { id: string }>({
+      entityClass: class {} as never,
+      buildResult: (entity) => ({ id: entity.id }),
+      transaction: true,
+      afterRestore: async () => { order.push('afterRestore') },
+    })
+    await redo({ input: {}, ctx: buildContext(em), logEntry: { snapshotAfter: { id: 'row-1' } } as never })
+    expect(order).toEqual(['begin', 'create', 'flush', 'afterRestore', 'flush', 'commit'])
+  })
+
   it('maps a Postgres unique-constraint violation thrown during flush to a 409 conflict', async () => {
     const uniqueError = Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' })
     const forked = {

@@ -191,25 +191,31 @@ export function makeCreateRedo<
       ? (forkedEm: EntityManager, rowId: string) => config.findRow!({ em: forkedEm, ctx, id: rowId, snapshot })
       : undefined
     let entity!: TEntity
+    const restorePhase = async () => {
+      entity = await restoreCreatedRow(em, config.entityClass, id, buildSeed, findRow)
+    }
+    const afterRestorePhase = async () => {
+      if (config.afterRestore) {
+        await config.afterRestore({ em, ctx, entity, snapshot, logEntry })
+      }
+    }
     try {
       if (config.transaction) {
-        await withAtomicFlush(
-          em,
-          [async () => { entity = await restoreCreatedRow(em, config.entityClass, id, buildSeed, findRow) }],
-          { transaction: true },
-        )
+        const phases = config.afterRestore ? [restorePhase, afterRestorePhase] : [restorePhase]
+        await withAtomicFlush(em, phases, { transaction: true })
       } else {
-        entity = await restoreCreatedRow(em, config.entityClass, id, buildSeed, findRow)
+        await restorePhase()
         await em.flush()
+        await afterRestorePhase()
       }
     } catch (err) {
       if (isUniqueViolation(err)) {
-        throw conflict('Cannot redo: a record with the same unique key already exists.')
+        // [internal] prefix: this shared-lib helper has no `t(...)` context; the
+        // redo unique-collision is a rare developer-facing edge (the after-snapshot's
+        // unique key was re-taken since undo), surfaced via normal error handling.
+        throw conflict('[internal] Cannot redo: a record with the same unique key already exists.')
       }
       throw err
-    }
-    if (config.afterRestore) {
-      await config.afterRestore({ em, ctx, entity, snapshot, logEntry })
     }
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({

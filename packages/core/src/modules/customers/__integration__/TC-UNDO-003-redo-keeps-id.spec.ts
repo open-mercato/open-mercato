@@ -50,10 +50,12 @@ test.describe('TC-UNDO-003: redo of *.create restores the original id', () => {
     try {
       token = await getAuthToken(request, 'admin');
       const { organizationId, tenantId } = getTokenContext(token);
+      const firstName = 'QA';
+      const lastName = `Redo ${stamp()}`;
 
       const createRes = await apiRequest(request, 'POST', '/api/customers/people', {
         token,
-        data: { organizationId, tenantId, firstName: 'QA', lastName: `Redo ${stamp()}` },
+        data: { organizationId, tenantId, firstName, lastName },
       });
       expect(createRes.status(), 'create person 201').toBe(201);
       const created = (await createRes.json()) as { id?: string; entityId?: string };
@@ -70,6 +72,8 @@ test.describe('TC-UNDO-003: redo of *.create restores the original id', () => {
       const restored = await getOne(request, token, '/api/customers/people', id);
       expect(restored, 'person exists again after redo').toBeTruthy();
       expect(restored!.id, 'redo restored the SAME person id').toBe(id);
+      expect(restored!.firstName ?? restored!.first_name, 'redo preserves decrypted firstName').toBe(firstName);
+      expect(restored!.lastName ?? restored!.last_name, 'redo preserves decrypted lastName').toBe(lastName);
     } finally {
       if (token && id) {
         try { await apiRequest(request, 'DELETE', `/api/customers/people?id=${encodeURIComponent(id)}`, { token }); } catch { /* ignore */ }
