@@ -7,6 +7,7 @@ import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CheckoutLink, CheckoutLinkTemplate, CheckoutTransaction } from '../data/entities'
@@ -282,6 +283,12 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
       deletedAt: null,
     }, undefined, scope)
     if (!link) throw new CrudHttpError(404, { error: 'Link not found' })
+    enforceCommandOptimisticLock({
+      resourceKind: 'checkout.link',
+      resourceId: link.id,
+      current: link.updatedAt ?? null,
+      request: ctx.request ?? null,
+    })
     if (link.isLocked) {
       throw new CrudHttpError(422, { error: 'This link has active transactions and cannot be edited' })
     }
@@ -428,6 +435,12 @@ const deleteLinkCommand: CommandHandler<Record<string, unknown>, { ok: true }> =
       deletedAt: null,
     }, undefined, scope)
     if (!link) throw new CrudHttpError(404, { error: 'Link not found' })
+    enforceCommandOptimisticLock({
+      resourceKind: 'checkout.link',
+      resourceId: link.id,
+      current: link.updatedAt ?? null,
+      request: ctx.request ?? null,
+    })
     const activeCount = await em.count(CheckoutTransaction, {
       linkId: link.id,
       organizationId: scope.organizationId,

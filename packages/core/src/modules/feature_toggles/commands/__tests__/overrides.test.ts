@@ -1,8 +1,6 @@
 
 export { }
 
-import { FeatureToggle, FeatureToggleOverride } from '../../data/entities'
-
 const registerCommand = jest.fn()
 const invalidateIsEnabledCacheByKey = jest.fn().mockResolvedValue(undefined)
 
@@ -46,8 +44,8 @@ describe('feature_toggles.overrides commands', () => {
                 fork: jest.fn().mockReturnThis(),
                 nativeDelete: jest.fn(),
                 flush: jest.fn().mockResolvedValue(undefined),
-                findOne: jest.fn((entity, query) => {
-                    if (query.id && Object.keys(query).length === 1) {
+                findOne: jest.fn((_entity, query) => {
+                    if (query.id === existingToggle.id && query.deletedAt === null) {
                         return existingToggle
                     }
                     return null
@@ -100,10 +98,15 @@ describe('feature_toggles.overrides commands', () => {
                 tenantId: 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
                 value: 'enabled',
             }
+            const existingToggle = existingOverride.toggle
 
             const em = {
                 fork: jest.fn().mockReturnThis(),
-                findOne: jest.fn().mockResolvedValue(existingOverride),
+                findOne: jest.fn((_entity, query) => {
+                    if (query.id === existingToggle.id && query.deletedAt === null) return Promise.resolve(existingToggle)
+                    if (query.toggle === existingToggle.id && query.tenantId === existingOverride.tenantId) return Promise.resolve(existingOverride)
+                    return Promise.resolve(null)
+                }),
                 flush: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -139,17 +142,23 @@ describe('feature_toggles.overrides commands', () => {
             })
             expect(changeStateCommand).toBeDefined()
 
+            const existingToggle = {
+                id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+                identifier: 'test_feature',
+            }
             const newOverride = {
                 id: 'c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
-                toggle: {
-                    identifier: 'test_feature'
-                },
+                toggle: existingToggle,
                 tenantId: 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22'
             }
 
             const em = {
                 fork: jest.fn().mockReturnThis(),
-                findOne: jest.fn().mockResolvedValue(null),
+                findOne: jest.fn((_entity, query) => {
+                    if (query.id === existingToggle.id && query.deletedAt === null) return Promise.resolve(existingToggle)
+                    if (query.toggle === existingToggle.id) return Promise.resolve(null)
+                    return Promise.resolve(null)
+                }),
                 create: jest.fn().mockReturnValue(newOverride),
                 flush: jest.fn().mockResolvedValue(undefined),
             }
@@ -175,7 +184,7 @@ describe('feature_toggles.overrides commands', () => {
 
             expect(result).toEqual({ overrideToggleId: 'c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33' })
             expect(em.create).toHaveBeenCalledWith(expect.any(Function), {
-                toggle: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+                toggle: existingToggle,
                 tenantId: 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
                 value: 'enabled'
             })

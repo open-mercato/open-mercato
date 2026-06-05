@@ -37,7 +37,10 @@ import { Spinner } from "@open-mercato/ui/primitives/spinner";
 import {
   apiCall,
   readApiResultOrThrow,
+  withScopedApiRequestHeaders,
 } from "@open-mercato/ui/backend/utils/apiCall";
+import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
+import { surfaceRecordConflict } from "@open-mercato/ui/backend/conflicts";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { E } from "#generated/entities.ids.generated";
@@ -157,6 +160,8 @@ type VariantSummaryApi = {
   default_media_id?: string | null;
   defaultMediaId?: string | null;
   metadata?: Record<string, unknown> | null;
+  updated_at?: string | null;
+  updatedAt?: string | null;
 };
 
 type AttachmentListResponse = {
@@ -181,6 +186,7 @@ type VariantSummary = {
   defaultMediaId: string | null;
   prices: VariantPriceSummary[];
   optionValues: Record<string, string> | null;
+  updatedAt: string | null;
 };
 
 type VariantPriceListResponse = {
@@ -221,6 +227,7 @@ type OfferSnapshot = {
   isActive: boolean;
   channelName: string | null;
   channelCode: string | null;
+  updatedAt: string | null;
 };
 
 function mapVariantPriceSummary(
@@ -273,7 +280,7 @@ function readProductConversionRows(
 ): ProductUnitConversionDraft[] {
   const rows = Array.isArray(items) ? items : [];
   return rows
-    .map((item) => {
+    .map((item): ProductUnitConversionDraft | null => {
       const id = toTrimmedOrNull(item.id);
       const unitCode = canonicalizeUnitCode(item.unit_code ?? item.unitCode);
       const factor = toPositiveNumberOrNull(
@@ -298,6 +305,12 @@ function readProductConversionRows(
         toBaseFactor: String(factor),
         sortOrder: String(sortOrderRaw),
         isActive,
+        updatedAt:
+          typeof item.updated_at === "string"
+            ? item.updated_at
+            : typeof item.updatedAt === "string"
+              ? item.updatedAt
+              : null,
       } satisfies ProductUnitConversionDraft;
     })
     .filter((entry): entry is ProductUnitConversionDraft => Boolean(entry));
@@ -405,6 +418,12 @@ export default function EditCatalogProductPage({
                   : null,
             prices: priceMap[variantId] ?? [],
             optionValues,
+            updatedAt:
+              typeof variant.updatedAt === "string"
+                ? variant.updatedAt
+                : typeof variant.updated_at === "string"
+                  ? variant.updated_at
+                  : null,
           };
         })
         .filter((entry): entry is VariantSummary => Boolean(entry));
@@ -712,6 +731,12 @@ export default function EditCatalogProductPage({
           categoryIds,
           channelIds,
           tags: tagValues,
+          updatedAt:
+            typeof record.updatedAt === "string"
+              ? record.updatedAt
+              : typeof record.updated_at === "string"
+                ? record.updated_at
+                : null,
         };
         if (!cancelled) {
           setInitialValues({ ...initial, ...customValues });
@@ -1225,12 +1250,18 @@ export default function EditCatalogProductPage({
         try {
           for (const offer of removedOffers) {
             if (!offer.id) continue;
-            await deleteCrud("catalog/offers", offer.id, {
-              errorMessage: t(
-                "catalog.products.edit.offers.deleteError",
-                "Failed to remove sales channel offer.",
-              ),
-            });
+            const offerId = offer.id;
+            // Send the offer's own version, overriding the product header the
+            // parent CrudForm submit scope put on the stack (#2055).
+            await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(offer.updatedAt),
+              () => deleteCrud("catalog/offers", offerId, {
+                errorMessage: t(
+                  "catalog.products.edit.offers.deleteError",
+                  "Failed to remove sales channel offer.",
+                ),
+              }),
+            );
           }
         } catch (err) {
           console.error("catalog.products.edit.offers.delete", err);
@@ -1248,6 +1279,15 @@ export default function EditCatalogProductPage({
           .map((entry) => toTrimmedOrNull(entry.id))
           .filter((id): id is string => Boolean(id)),
       );
+      // Loaded conversion id → version, so the sync sends each row's own
+      // optimistic-lock version (overriding the product header leaked by the
+      // parent CrudForm submit scope onto the catalog/product-unit-conversions
+      // guard) (#2055).
+      const conversionVersions = new Map<string, string | null>();
+      for (const entry of initialConversionsRef.current) {
+        const cid = toTrimmedOrNull(entry.id);
+        if (cid) conversionVersions.set(cid, entry.updatedAt ?? null);
+      }
       const nextConversionIds = new Set(
         conversionInputs
           .map((entry) =>
@@ -1259,23 +1299,30 @@ export default function EditCatalogProductPage({
         (id) => !nextConversionIds.has(id),
       );
       for (const conversionId of removedConversionIds) {
-        await deleteCrud("catalog/product-unit-conversions", conversionId, {
-          errorMessage: t(
-            "catalog.products.uom.errors.sync",
-            "Failed to synchronize product conversions.",
-          ),
-        });
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(conversionVersions.get(conversionId) ?? null),
+          () => deleteCrud("catalog/product-unit-conversions", conversionId, {
+            errorMessage: t(
+              "catalog.products.uom.errors.sync",
+              "Failed to synchronize product conversions.",
+            ),
+          }),
+        );
       }
       const persistedConversions: ProductUnitConversionDraft[] = [];
       for (const conversion of conversionInputs) {
         if (conversion.id) {
-          await updateCrud("catalog/product-unit-conversions", {
-            id: conversion.id,
-            unitCode: conversion.unitCode,
-            toBaseFactor: conversion.toBaseFactor,
-            sortOrder: conversion.sortOrder,
-            isActive: conversion.isActive,
-          });
+          const conversionId = conversion.id;
+          await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(conversionVersions.get(conversionId) ?? null),
+            () => updateCrud("catalog/product-unit-conversions", {
+              id: conversionId,
+              unitCode: conversion.unitCode,
+              toBaseFactor: conversion.toBaseFactor,
+              sortOrder: conversion.sortOrder,
+              isActive: conversion.isActive,
+            }),
+          );
           persistedConversions.push({
             id: conversion.id,
             unitCode: conversion.unitCode,
@@ -1766,23 +1813,29 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
 
   const handleDeleteSchema = React.useCallback(
     async (id: string) => {
+      const target = schemaTemplates.find((entry) => entry.id === id);
+      const lockVersion = target?.updatedAt ?? target?.updated_at ?? null;
       try {
-        await deleteCrud("catalog/option-schemas", id, {
-          errorMessage: t(
-            "catalog.products.edit.schemas.deleteError",
-            "Failed to delete schema.",
-          ),
-        });
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(lockVersion),
+          () => deleteCrud("catalog/option-schemas", id, {
+            errorMessage: t(
+              "catalog.products.edit.schemas.deleteError",
+              "Failed to delete schema.",
+            ),
+          }),
+        );
         flash(
           t("catalog.products.edit.schemas.deleted", "Schema deleted."),
           "success",
         );
         void loadSchemas();
       } catch (err) {
+        if (surfaceRecordConflict(err, t)) { void loadSchemas(); return; }
         console.error("catalog.option-schemas.delete failed", err);
       }
     },
-    [loadSchemas, t],
+    [loadSchemas, schemaTemplates, t],
   );
 
   const handleSaveSchema = React.useCallback(
@@ -1814,8 +1867,25 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
         isActive: true,
       };
       if (schemaToEdit?.id) payload.id = schemaToEdit.id;
-      if (schemaToEdit?.id) await updateCrud("catalog/option-schemas", payload);
-      else await createCrud("catalog/option-schemas", payload);
+      try {
+        if (schemaToEdit?.id) {
+          const lockVersion = schemaToEdit.updatedAt ?? schemaToEdit.updated_at ?? null;
+          await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(lockVersion),
+            () => updateCrud("catalog/option-schemas", payload),
+          );
+        } else {
+          await createCrud("catalog/option-schemas", payload);
+        }
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) {
+          setSaveSchemaOpen(false);
+          setSchemaToEdit(null);
+          void loadSchemas();
+          return;
+        }
+        throw err;
+      }
       flash(
         t("catalog.products.edit.schemas.saved", "Schema saved."),
         "success",
@@ -2138,18 +2208,23 @@ function ProductVariantsSection({
       if (!confirmed) return;
       setDeletingId(variant.id);
       try {
-        await deleteCrud("catalog/variants", variant.id, {
-          errorMessage: t(
-            "catalog.variants.form.deleteError",
-            "Failed to delete variant.",
-          ),
-        });
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(variant.updatedAt),
+          () =>
+            deleteCrud("catalog/variants", variant.id, {
+              errorMessage: t(
+                "catalog.variants.form.deleteError",
+                "Failed to delete variant.",
+              ),
+            }),
+        );
         flash(
           t("catalog.variants.form.deleted", "Variant deleted."),
           "success",
         );
         onVariantDeleted(variant.id);
       } catch (err) {
+        if (surfaceRecordConflict(err, t)) return;
         console.error("catalog.products.edit.variants.delete", err);
         flash(
           t("catalog.variants.form.deleteError", "Failed to delete variant."),
@@ -2767,6 +2842,7 @@ function readOfferSnapshots(record: Record<string, unknown>): OfferSnapshot[] {
         getString(offer.channelName) ?? getString(offer.channel_name),
       channelCode:
         getString(offer.channelCode) ?? getString(offer.channel_code),
+      updatedAt: getString(offer.updatedAt) ?? getString(offer.updated_at) ?? null,
     });
   }
   return snapshots;
@@ -2867,6 +2943,7 @@ function mergeOfferSnapshots(
       isActive: entry.isActive ?? previous?.isActive ?? true,
       channelName: previous?.channelName ?? null,
       channelCode: previous?.channelCode ?? null,
+      updatedAt: previous?.updatedAt ?? null,
     };
   });
 }

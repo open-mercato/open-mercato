@@ -783,7 +783,9 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     })
     await emitQueryIndexUpsertEvents(ctx, [companyEntityIndexEntry(record)])
 
-    return { entityId: record.id }
+    // Expose the freshly-bumped updatedAt so the CRUD update response can hand it to
+    // inline-edit detail pages for sequential-save lock-token refresh (#2055).
+    return { entityId: record.id, updatedAt: record.updatedAt }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()

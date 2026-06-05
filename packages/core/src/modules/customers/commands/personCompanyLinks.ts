@@ -442,6 +442,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
     const profile = await requirePersonProfile(em, person)
     const linkedCompany = await requireCompanyEntity(em, companyId, parsed.tenantId, parsed.organizationId)
 
+    const linkWasPrimary = link.isPrimary
     await withAtomicFlush(em, [
       async () => {
         if (parsed.isPrimary) {
@@ -449,14 +450,16 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
           link.isPrimary = true
           profile.company = linkedCompany
         } else if (!parsed.isPrimary) {
-          const linkWasPrimary = link.isPrimary
           link.isPrimary = false
-          if (linkWasPrimary) {
-            const remainingLinks = (await loadPersonCompanyLinks(em, person)).filter((entry) => entry.id !== link.id)
-            await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, companyId)
-          } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === companyId) {
+          if (!linkWasPrimary && profile.company && typeof profile.company !== 'string' && profile.company.id === companyId) {
             profile.company = null
           }
+        }
+      },
+      async () => {
+        if (!parsed.isPrimary && linkWasPrimary) {
+          const remainingLinks = (await loadPersonCompanyLinks(em, person)).filter((entry) => entry.id !== link.id)
+          await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, companyId)
         }
       },
     ], { transaction: true })

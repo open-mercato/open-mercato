@@ -499,6 +499,8 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     waitForSignal: t('workflows.nodeTypes.waitForSignal'),
     waitForTimer: t('workflows.nodeTypes.waitForTimer'),
     subWorkflow: t('workflows.nodeTypes.subWorkflow'),
+    parallelFork: t('workflows.nodeTypes.parallelFork'),
+    parallelJoin: t('workflows.nodeTypes.parallelJoin'),
   }[node.type || 'automated']
 
   // START nodes are partially editable (pre-conditions only), END nodes are not editable

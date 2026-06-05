@@ -296,6 +296,7 @@ jobs:
           AUTO_SPAWN_WORKERS=false
           AUTO_SPAWN_SCHEDULER=false
           CACHE_STRATEGY=memory
+          OM_OPTIMISTIC_LOCK=all
           EOF
 
       - name: Install standalone app dependencies

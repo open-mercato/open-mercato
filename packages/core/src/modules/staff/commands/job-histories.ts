@@ -20,8 +20,14 @@ import {
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  enforceCommandOptimisticLock,
+  enforceRecordGoneIsConflict,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
+
+const JOB_HISTORY_LOCK_RESOURCE_KIND = 'staff.jobHistory'
 
 const jobHistoryCrudIndexer: CrudIndexerConfig<StaffTeamMemberJobHistory> = {
   entityType: E.staff.staff_team_member_job_history,
@@ -37,6 +43,7 @@ type JobHistorySnapshot = {
   description: string | null
   startDate: string
   endDate: string | null
+  updatedAt: string
 }
 
 type JobHistoryUndoPayload = {
@@ -57,6 +64,7 @@ async function loadJobHistorySnapshot(em: EntityManager, id: string): Promise<Jo
     description: record.description ?? null,
     startDate: record.startDate.toISOString(),
     endDate: record.endDate ? record.endDate.toISOString() : null,
+    updatedAt: record.updatedAt.toISOString(),
   }
 }
 
@@ -199,9 +207,24 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
     const parsed = staffTeamMemberJobHistoryUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(StaffTeamMemberJobHistory, { id: parsed.id })
-    if (!record) throw new CrudHttpError(404, { error: 'Job history entry not found' })
+    if (!record) {
+      enforceRecordGoneIsConflict({
+        resourceKind: JOB_HISTORY_LOCK_RESOURCE_KIND,
+        resourceId: parsed.id,
+        expected: parsed.updatedAt ?? null,
+        request: ctx.request ?? null,
+      })
+      throw new CrudHttpError(404, { error: 'Job history entry not found' })
+    }
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
+    enforceCommandOptimisticLock({
+      resourceKind: JOB_HISTORY_LOCK_RESOURCE_KIND,
+      resourceId: record.id,
+      current: record.updatedAt ?? null,
+      expected: parsed.updatedAt ?? null,
+      request: ctx.request ?? null,
+    })
 
     if (parsed.entityId !== undefined) {
       const member = await requireTeamMember(em, parsed.entityId, 'Team member not found')
@@ -318,7 +341,7 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
   },
 }
 
-const deleteJobHistoryCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { jobHistoryId: string }> =
+const deleteJobHistoryCommand: CommandHandler<{ id?: string; updatedAt?: string; body?: Record<string, unknown>; query?: Record<string, unknown> }, { jobHistoryId: string }> =
   {
     id: 'staff.team-member-job-histories.delete',
     async prepare(input, ctx) {
@@ -329,11 +352,27 @@ const deleteJobHistoryCommand: CommandHandler<{ body?: Record<string, unknown>; 
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Job history id required')
+      const expectedUpdatedAt = typeof input.updatedAt === 'string' ? input.updatedAt : undefined
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const record = await em.findOne(StaffTeamMemberJobHistory, { id })
-      if (!record) throw new CrudHttpError(404, { error: 'Job history entry not found' })
+      if (!record) {
+        enforceRecordGoneIsConflict({
+          resourceKind: JOB_HISTORY_LOCK_RESOURCE_KIND,
+          resourceId: id,
+          expected: expectedUpdatedAt ?? null,
+          request: ctx.request ?? null,
+        })
+        throw new CrudHttpError(404, { error: 'Job history entry not found' })
+      }
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
+      enforceCommandOptimisticLock({
+        resourceKind: JOB_HISTORY_LOCK_RESOURCE_KIND,
+        resourceId: record.id,
+        current: record.updatedAt ?? null,
+        expected: expectedUpdatedAt ?? null,
+        request: ctx.request ?? null,
+      })
       em.remove(record)
       await em.flush()
 

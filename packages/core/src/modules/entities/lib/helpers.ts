@@ -186,6 +186,23 @@ export async function setRecordCustomFields(
 
   if (toPersist.length) em.persist(toPersist)
   await em.flush()
+  if (process.env.OM_CF_DEBUG) {
+    try {
+      const conn = em.getConnection()
+      for (const fieldKey of keys) {
+        if (values[fieldKey] === undefined) continue
+        const rows = await conn.execute(
+          'select value_text, value_multiline, value_int, value_float, value_bool from custom_field_values where entity_id = ? and record_id = ? and field_key = ? and ((organization_id is null and ? is null) or organization_id = ?) and ((tenant_id is null and ? is null) or tenant_id = ?)',
+          [entityId, recordId, fieldKey, organizationId, organizationId, tenantId, tenantId],
+          'all',
+        ) as Array<Record<string, unknown>>
+        const persisted = rows.map((row) => row.value_text ?? row.value_multiline ?? row.value_int ?? row.value_float ?? row.value_bool)
+        console.warn(`[CF_DEBUG] setRecordCustomFields entityId=${entityId} recordId=${recordId} fieldKey=${fieldKey} input=${JSON.stringify(values[fieldKey])} persistedRows=${rows.length} persisted=${JSON.stringify(persisted)}`)
+      }
+    } catch (err) {
+      console.warn(`[CF_DEBUG] re-query failed: ${(err as Error)?.message ?? String(err)}`)
+    }
+  }
   // Emit hook for indexing if requested (outside CRUD flows)
   try {
     if (typeof opts.onChanged === 'function') {

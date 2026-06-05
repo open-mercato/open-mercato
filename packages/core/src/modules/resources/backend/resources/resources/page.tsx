@@ -9,8 +9,9 @@ import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/Dat
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { FilterDef, FilterOption, FilterValues } from '@open-mercato/ui/backend/FilterOverlay'
 import type { TagOption } from '@open-mercato/ui/backend/detail'
@@ -31,6 +32,7 @@ type ResourceRow = {
   isActive: boolean
   appearanceIcon?: string | null
   appearanceColor?: string | null
+  updatedAt?: string | null
 }
 
 type ResourceTypeRow = {
@@ -349,9 +351,12 @@ export default function ResourcesResourcesPage() {
     })
     if (!confirmed) return
     try {
-      await deleteCrud('resources/resources', row.id, {
-        errorMessage: t('resources.resources.list.error.delete', 'Failed to delete resource.'),
-      })
+      const headers = buildOptimisticLockHeader(row.updatedAt)
+      await withScopedApiRequestHeaders(headers, () => (
+        deleteCrud('resources/resources', row.id, {
+          errorMessage: t('resources.resources.list.error.delete', 'Failed to delete resource.'),
+        })
+      ))
       flash(t('resources.resources.list.flash.deleted', 'Resource deleted.'), 'success')
       setPage(1)
       router.refresh()
@@ -536,6 +541,11 @@ function mapApiResource(item: Record<string, unknown>): ResourceRow {
       ? item.appearance_color
       : null
   const tags = Array.isArray(item.tags) ? item.tags as TagOption[] : []
+  const updatedAt = typeof item.updatedAt === 'string'
+    ? item.updatedAt
+    : typeof item.updated_at === 'string'
+      ? item.updated_at
+      : null
   return withDataTableNamespaces({
     id,
     name,
@@ -545,5 +555,6 @@ function mapApiResource(item: Record<string, unknown>): ResourceRow {
     isActive,
     appearanceIcon,
     appearanceColor,
+    updatedAt,
   }, item)
 }

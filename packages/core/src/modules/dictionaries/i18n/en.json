@@ -109,6 +109,7 @@
   "dictionaries.errors.entry_not_found": "Dictionary entry not found",
   "dictionaries.errors.entry_required": "Value is required",
   "dictionaries.errors.entry_update_failed": "Failed to update dictionary entry.",
+  "dictionaries.errors.invalid_key": "Use lowercase letters, numbers, hyphen, or underscore.",
   "dictionaries.errors.not_found": "Dictionary not found",
   "dictionaries.errors.organization_required": "Organization context is required",
   "dictionaries.errors.unauthorized": "Unauthorized",

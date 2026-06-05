@@ -702,6 +702,7 @@
   "staff.teamMembers.detail.inline.urlInvalid": "Wprowadź prawidłowy adres URL",
   "staff.teamMembers.detail.jobHistory.add": "Dodaj stanowisko",
   "staff.teamMembers.detail.jobHistory.cancel": "Anuluj",
+  "staff.teamMembers.detail.jobHistory.conflict": "Ten rekord został zmieniony przez inną osobę. Odśwież i spróbuj ponownie.",
   "staff.teamMembers.detail.jobHistory.deleteConfirm": "Usunąć ten wpis historii zatrudnienia?",
   "staff.teamMembers.detail.jobHistory.deleted": "Wpis historii zatrudnienia usunięty.",
   "staff.teamMembers.detail.jobHistory.edit": "Edytuj stanowisko",

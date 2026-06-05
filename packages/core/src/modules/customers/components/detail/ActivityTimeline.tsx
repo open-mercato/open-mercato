@@ -18,7 +18,7 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
 interface ActivityTimelineProps {
   activities: InteractionSummary[]
   onEdit?: (activity: InteractionSummary) => void
-  onMarkDone?: (activityId: string) => void | Promise<void>
+  onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
 }
 
 export function ActivityTimeline({ activities, onEdit, onMarkDone }: ActivityTimelineProps) {
@@ -77,7 +77,7 @@ function TimelineEntry({
   t: TranslateFn
   withBorder: boolean
   onEdit?: (activity: InteractionSummary) => void
-  onMarkDone?: (activityId: string) => void | Promise<void>
+  onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
 }) {
   const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
   const TypeIcon = TYPE_ICONS[activity.interactionType]
@@ -91,7 +91,7 @@ function TimelineEntry({
     if (!onMarkDone || markingDone) return
     setMarkingDone(true)
     try {
-      await onMarkDone(activity.id)
+      await onMarkDone(activity.id, activity.updatedAt)
     } finally {
       setMarkingDone(false)
     }

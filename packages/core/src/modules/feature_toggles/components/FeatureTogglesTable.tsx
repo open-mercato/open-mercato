@@ -2,7 +2,8 @@
 import { DataTable } from "@open-mercato/ui/backend/DataTable";
 import { RowActions } from "@open-mercato/ui/backend/RowActions";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
@@ -23,6 +24,7 @@ type Row = {
   description: string
   category?: string
   type: FeatureToggleType
+  updatedAt?: string | null
 }
 
 type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline' | 'muted'
@@ -126,7 +128,10 @@ export function FeatureTogglesTable() {
 
   const deleteFeatureToggleMutation = useMutation({
     mutationFn: async (row: Row) => {
-      await deleteCrud('feature_toggles/global', row.id)
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(row.updatedAt),
+        () => deleteCrud('feature_toggles/global', row.id),
+      )
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['feature_toggles'] })

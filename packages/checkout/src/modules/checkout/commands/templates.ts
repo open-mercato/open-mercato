@@ -6,6 +6,7 @@ import { buildCustomFieldResetMap, loadCustomFieldSnapshot } from '@open-mercato
 import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CheckoutLink, CheckoutLinkTemplate } from '../data/entities'
@@ -260,6 +261,12 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
       deletedAt: null,
     }, undefined, scope)
     if (!template) throw new CrudHttpError(404, { error: 'Template not found' })
+    enforceCommandOptimisticLock({
+      resourceKind: 'checkout.template',
+      resourceId: template.id,
+      current: template.updatedAt ?? null,
+      request: ctx.request ?? null,
+    })
     const beforeCustom = await loadCustomFieldSnapshot(em, {
       entityId: CHECKOUT_ENTITY_IDS.template,
       recordId: template.id,
@@ -410,6 +417,12 @@ const deleteTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
       deletedAt: null,
     }, undefined, scope)
     if (!template) throw new CrudHttpError(404, { error: 'Template not found' })
+    enforceCommandOptimisticLock({
+      resourceKind: 'checkout.template',
+      resourceId: template.id,
+      current: template.updatedAt ?? null,
+      request: ctx.request ?? null,
+    })
     template.deletedAt = new Date()
     await em.flush()
     await emitCheckoutEvent('checkout.template.deleted', {
