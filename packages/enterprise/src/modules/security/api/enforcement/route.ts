@@ -5,7 +5,13 @@ import { enforcementPolicySchema } from '../../data/validators'
 import { EnforcementScope } from '../../data/entities'
 import { buildSecurityOpenApi, securityErrorSchema } from '../openapi'
 import { securityApiError } from '../i18n'
-import { attachPolicyScopeNames, mapEnforcementError, resolveEnforcementContext } from './_shared'
+import {
+  assertActorOwnsEnforcementScope,
+  attachPolicyScopeNames,
+  mapEnforcementError,
+  resolveActorContext,
+  resolveEnforcementContext,
+} from './_shared'
 
 const enforcementPolicyResponseSchema = z.object({
   id: z.string().uuid(),
@@ -52,7 +58,8 @@ export async function GET(req: Request) {
       return securityApiError(400, 'Invalid query parameters', { issues: parsedQuery.error.issues })
     }
 
-    const policies = await context.enforcementService.listPolicies(parsedQuery.data)
+    const actor = await resolveActorContext(context)
+    const policies = await context.enforcementService.listPolicies(parsedQuery.data, actor)
     return NextResponse.json({
       items: await attachPolicyScopeNames(context.container, policies),
     })
@@ -78,6 +85,11 @@ export async function POST(req: Request) {
   }
 
   try {
+    await assertActorOwnsEnforcementScope(
+      context,
+      parsedBody.data.scope,
+      scopeIdFromPolicyInput(parsedBody.data),
+    )
     const commandBus = context.container.resolve<CommandBus>('commandBus')
     const { result } = await commandBus.execute('security.enforcement.create', {
       input: parsedBody.data,
@@ -87,6 +99,21 @@ export async function POST(req: Request) {
   } catch (error) {
     return await mapEnforcementError(error)
   }
+}
+
+function scopeIdFromPolicyInput(data: {
+  scope: EnforcementScope
+  tenantId?: string | null
+  organizationId?: string | null
+}): string | null {
+  if (data.scope === EnforcementScope.TENANT) {
+    return data.tenantId ?? null
+  }
+  if (data.scope === EnforcementScope.ORGANISATION) {
+    if (!data.tenantId || !data.organizationId) return null
+    return `${data.tenantId}:${data.organizationId}`
+  }
+  return null
 }
 
 export const openApi = buildSecurityOpenApi({
@@ -115,6 +142,7 @@ export const openApi = buildSecurityOpenApi({
       errors: [
         { status: 400, description: 'Invalid payload', schema: securityErrorSchema },
         { status: 401, description: 'Unauthorized', schema: securityErrorSchema },
+        { status: 403, description: 'Not authorized for the requested scope', schema: securityErrorSchema },
         { status: 409, description: 'Conflict', schema: securityErrorSchema },
       ],
     },

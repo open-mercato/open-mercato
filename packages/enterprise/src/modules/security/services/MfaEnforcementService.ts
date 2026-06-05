@@ -28,6 +28,11 @@ type EnforcementPolicyListFilters = {
   scope?: EnforcementScope
 }
 
+export type EnforcementActorContext = {
+  tenantId: string | null
+  isSuperAdmin: boolean
+}
+
 type UserCompliance = {
   compliant: boolean
   deadline?: Date
@@ -65,12 +70,21 @@ export class MfaEnforcementService {
     return { enforced: true, policy }
   }
 
-  async listPolicies(filters?: EnforcementPolicyListFilters): Promise<MfaEnforcementPolicy[]> {
+  async getPolicyById(id: string): Promise<MfaEnforcementPolicy | null> {
+    return this.em.findOne(MfaEnforcementPolicy, { id, deletedAt: null })
+  }
+
+  async listPolicies(
+    filters?: EnforcementPolicyListFilters,
+    actor?: EnforcementActorContext,
+  ): Promise<MfaEnforcementPolicy[]> {
+    const tenantConstraint = actor && !actor.isSuperAdmin ? { tenantId: actor.tenantId } : {}
     return this.em.find(
       MfaEnforcementPolicy,
       {
         deletedAt: null,
         ...(filters?.scope ? { scope: filters.scope } : {}),
+        ...tenantConstraint,
       },
       {
         orderBy: { updatedAt: 'desc' },
@@ -81,8 +95,10 @@ export class MfaEnforcementService {
   async getComplianceReport(
     scope: EnforcementScope,
     scopeId?: string,
+    actor?: EnforcementActorContext,
   ): Promise<ComplianceReport> {
     const { tenantId, organizationId } = this.resolveScopeFilters(scope, scopeId)
+    this.assertActorOwnsScopeFilters(actor, scope, tenantId)
     const users = await this.em.find(User, {
       deletedAt: null,
       ...(tenantId ? { tenantId } : {}),
@@ -123,8 +139,10 @@ export class MfaEnforcementService {
   async createPolicy(
     data: EnforcementPolicyInput,
     adminId: string,
+    actor?: EnforcementActorContext,
   ): Promise<MfaEnforcementPolicy> {
     const normalized = this.normalizePolicyInput(data)
+    this.assertActorOwnsScopeFilters(actor, normalized.scope, normalized.tenantId)
     const existing = await this.findPolicyByScope(
       normalized.scope,
       normalized.tenantId ?? undefined,
@@ -176,6 +194,7 @@ export class MfaEnforcementService {
     id: string,
     data: UpdateEnforcementPolicyInput,
     adminId: string,
+    actor?: EnforcementActorContext,
   ): Promise<MfaEnforcementPolicy> {
     const policy = await this.em.findOne(MfaEnforcementPolicy, {
       id,
@@ -184,6 +203,7 @@ export class MfaEnforcementService {
     if (!policy) {
       throw new MfaEnforcementServiceError('Enforcement policy not found', 404)
     }
+    this.assertActorOwnsScopeFilters(actor, policy.scope, policy.tenantId ?? null)
 
     const mergedInput = this.normalizePolicyInput({
       scope: data.scope ?? policy.scope,
@@ -196,6 +216,8 @@ export class MfaEnforcementService {
           ? (policy.enforcementDeadline ?? null)
           : data.enforcementDeadline,
     })
+
+    this.assertActorOwnsScopeFilters(actor, mergedInput.scope, mergedInput.tenantId)
 
     if (
       mergedInput.scope !== policy.scope ||
@@ -231,7 +253,7 @@ export class MfaEnforcementService {
     return policy
   }
 
-  async deletePolicy(id: string): Promise<void> {
+  async deletePolicy(id: string, actor?: EnforcementActorContext): Promise<void> {
     const policy = await this.em.findOne(MfaEnforcementPolicy, {
       id,
       deletedAt: null,
@@ -239,6 +261,7 @@ export class MfaEnforcementService {
     if (!policy) {
       throw new MfaEnforcementServiceError('Enforcement policy not found', 404)
     }
+    this.assertActorOwnsScopeFilters(actor, policy.scope, policy.tenantId ?? null)
 
     const now = new Date()
     policy.deletedAt = now
@@ -312,6 +335,23 @@ export class MfaEnforcementService {
         orderBy: { updatedAt: 'desc' },
       },
     )
+  }
+
+  private assertActorOwnsScopeFilters(
+    actor: EnforcementActorContext | undefined,
+    scope: EnforcementScope,
+    tenantId: string | null | undefined,
+  ): void {
+    if (!actor || actor.isSuperAdmin) return
+    if (scope === EnforcementScope.PLATFORM) {
+      throw new MfaEnforcementServiceError(
+        'Platform scope requires platform administrator privileges.',
+        403,
+      )
+    }
+    if (!tenantId || tenantId !== actor.tenantId) {
+      throw new MfaEnforcementServiceError('Not authorized for the requested scope.', 403)
+    }
   }
 
   private resolveScopeFilters(
