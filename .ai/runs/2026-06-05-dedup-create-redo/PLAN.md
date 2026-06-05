@@ -41,9 +41,9 @@ internal refactor — same ids, side effects, snapshots, undo tokens, tests.
 - [~] `yarn lint` — app-level ESLint rule-loading crash is pre-existing/env (unrelated; changes are in core/shared)
 - [ ] `yarn i18n:check-sync` && `yarn i18n:check-usage`
 - [x] unit tests ✓ — core 5428, shared 1162 (enterprise flaky worker-exit, green on re-run)
-- [ ] `currencies/__integration__/TC-CUR-REDO-409.spec.ts`
-- [ ] `customers/__integration__/TC-UNDO-003-redo-keeps-id.spec.ts`
-- [ ] `customers/__integration__/TC-UNDO-004-bridge-undo.spec.ts`
+- [x] `currencies/__integration__/TC-CUR-REDO-409.spec.ts` ✓ 4/4 (ephemeral)
+- [x] `customers/__integration__/TC-UNDO-003-redo-keeps-id.spec.ts` ✓ (ephemeral)
+- [x] `customers/__integration__/TC-UNDO-004-bridge-undo.spec.ts` ✓ (ephemeral)
 
 ## Progress
 
