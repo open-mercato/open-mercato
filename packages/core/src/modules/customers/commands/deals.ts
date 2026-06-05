@@ -73,8 +73,26 @@ type DealStageTransitionSnapshot = {
   stageId: string
   stageLabel: string
   stageOrder: number
-  transitionedAt: Date
+  transitionedAt: Date | string
   transitionedByUserId: string | null
+}
+
+function coerceSnapshotDate(value: Date | string | null | undefined, fieldName: string): Date | null {
+  if (value === undefined || value === null) return null
+  if (value instanceof Date) return value
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`[internal] Invalid ${fieldName} undo snapshot date: ${value}`)
+  }
+  return date
+}
+
+function coerceRequiredSnapshotDate(value: Date | string, fieldName: string): Date {
+  const date = coerceSnapshotDate(value, fieldName)
+  if (!date) {
+    throw new Error(`[internal] Missing ${fieldName} undo snapshot date`)
+  }
+  return date
 }
 
 async function loadPipelineStageSnapshot(
@@ -220,7 +238,7 @@ async function restoreDealStageTransitions(
       stageId: transitionSnapshot.stageId,
       stageLabel: transitionSnapshot.stageLabel,
       stageOrder: transitionSnapshot.stageOrder,
-      transitionedAt: transitionSnapshot.transitionedAt,
+      transitionedAt: coerceRequiredSnapshotDate(transitionSnapshot.transitionedAt, 'transitionedAt'),
       transitionedByUserId: transitionSnapshot.transitionedByUserId,
       isActive: true,
     })
@@ -242,7 +260,7 @@ type DealSnapshot = {
     valueAmount: string | null
     valueCurrency: string | null
     probability: number | null
-    expectedCloseAt: Date | null
+    expectedCloseAt: Date | string | null
     ownerUserId: string | null
     source: string | null
     closureOutcome: string | null
@@ -744,7 +762,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         valueAmount: before.deal.valueAmount,
         valueCurrency: before.deal.valueCurrency,
         probability: before.deal.probability,
-        expectedCloseAt: before.deal.expectedCloseAt,
+        expectedCloseAt: coerceSnapshotDate(before.deal.expectedCloseAt, 'expectedCloseAt'),
         ownerUserId: before.deal.ownerUserId,
         source: before.deal.source,
         closureOutcome: before.deal.closureOutcome,
@@ -776,7 +794,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         deal.valueAmount = before.deal.valueAmount
         deal.valueCurrency = before.deal.valueCurrency
         deal.probability = before.deal.probability
-        deal.expectedCloseAt = before.deal.expectedCloseAt
+        deal.expectedCloseAt = coerceSnapshotDate(before.deal.expectedCloseAt, 'expectedCloseAt')
         deal.ownerUserId = before.deal.ownerUserId
         deal.source = before.deal.source
         deal.closureOutcome = before.deal.closureOutcome
@@ -914,7 +932,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           valueAmount: before.deal.valueAmount,
           valueCurrency: before.deal.valueCurrency,
           probability: before.deal.probability,
-          expectedCloseAt: before.deal.expectedCloseAt,
+          expectedCloseAt: coerceSnapshotDate(before.deal.expectedCloseAt, 'expectedCloseAt'),
           ownerUserId: before.deal.ownerUserId,
           source: before.deal.source,
           closureOutcome: before.deal.closureOutcome,
