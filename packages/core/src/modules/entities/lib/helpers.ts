@@ -128,9 +128,7 @@ export async function setRecordCustomFields(
     // When array: remove existing values for key and create multiple rows
     if (isArray) {
       const arr = raw as Primitive[]
-      // Clear existing for this key
-      const existing = await em.find(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey })
-      if (existing.length) existing.forEach((e) => em.remove(e))
+      const replacements: CustomFieldValue[] = []
       for (const val of arr) {
         const col: keyof CustomFieldValue = encrypted ? 'valueText' : def ? columnFromKind(def.kind) : columnFromJsValue(val)
         const cf = em.create(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey, createdAt: new Date() })
@@ -146,8 +144,10 @@ export async function setRecordCustomFields(
           case 'valueBool': cf.valueBool = stored == null ? null : Boolean(stored); break
           default: cf.valueText = stored == null ? null : String(stored); break
         }
-        toPersist.push(cf)
+        replacements.push(cf)
       }
+      await em.nativeDelete(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey })
+      toPersist.push(...replacements)
       continue
     }
 
