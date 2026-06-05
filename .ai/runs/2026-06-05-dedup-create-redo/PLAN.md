@@ -51,10 +51,10 @@ internal refactor — same ids, side effects, snapshots, undo tokens, tests.
 
 ### Phase 1: Framework — snapshot-as-seed in `makeCreateRedo`
 
-- [ ] 1.1 Make `seedFromSnapshot` and `getSnapshotId` optional in `CreateRedoConfig`; default `getSnapshotId` to `(s) => s.id`.
-- [ ] 1.2 Add `dateFields?: string[]` and a default date-reviving seed (clone snapshot, convert declared/common date keys from ISO string to `Date`); override wins when `seedFromSnapshot` is provided.
-- [ ] 1.3 Add `serializeRowSnapshot(entity, { dateFields })` helper for clean 1:1 column-copy loaders.
-- [ ] 1.4 Add shared unit tests for the default seed, `dateFields`, and `getSnapshotId` default. Gate: `build:packages` + shared unit + typecheck.
+- [x] 1.1 Make `seedFromSnapshot` and `getSnapshotId` optional in `CreateRedoConfig`; default `getSnapshotId` to `(s) => s.id`. — 74219116d
+- [x] 1.2 Add `dateFields?: string[]` and a default date-reviving seed (clone snapshot, convert declared/common date keys from ISO string to `Date`); override wins when `seedFromSnapshot` is provided. — 74219116d
+- [x] 1.3 Add `serializeRowSnapshot(entity, { dateFields })` helper for clean 1:1 column-copy loaders. — 74219116d
+- [x] 1.4 Add shared unit tests for the default seed, `dateFields`, and `getSnapshotId` default. Gate: `build:packages` + shared unit + typecheck. — 74219116d
 
 ### Phase 2: Single-row migration — existing `makeCreateRedo` callers
 
