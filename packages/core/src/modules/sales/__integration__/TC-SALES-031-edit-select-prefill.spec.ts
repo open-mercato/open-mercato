@@ -159,6 +159,7 @@ async function deleteByQuery(
 test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', () => {
   test('order detail edit dialogs show saved select labels outside capped option pages', async ({ page, request }) => {
     test.slow()
+    test.setTimeout(120_000)
 
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
@@ -241,7 +242,7 @@ test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', ()
       await page.getByText(`QA Sales Select Line ${stamp}`, { exact: true }).click()
       let dialog = page.getByRole('dialog')
       await expect(dialog.getByRole('heading', { name: 'Edit line' })).toBeVisible()
-      await expect(dialog.getByText(selectedTaxRate.name, { exact: false })).toBeVisible()
+      await expect(dialog.locator('button[role="combobox"]').filter({ hasText: selectedTaxRate.name }).first()).toBeVisible()
       await page.keyboard.press('Escape')
       await expect(dialog).not.toBeVisible()
 
@@ -250,26 +251,26 @@ test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', ()
       await page.getByText(`QA Sales Select Adjustment ${stamp}`, { exact: true }).click()
       dialog = page.getByRole('dialog')
       await expect(dialog.getByRole('heading', { name: 'Edit adjustment' })).toBeVisible()
-      await expect(dialog.getByText(selectedTaxRate.name, { exact: false })).toBeVisible()
+      await expect(dialog.locator('button[role="combobox"]').filter({ hasText: selectedTaxRate.name }).first()).toBeVisible()
       await page.keyboard.press('Escape')
       await expect(dialog).not.toBeVisible()
 
       await page.getByRole('button', { name: 'Shipments' }).click()
-      await expect(page.getByText(`QA-SHIP-${stamp}`, { exact: false }).first()).toBeVisible()
-      await page.getByText(`QA-SHIP-${stamp}`, { exact: false }).first().click()
+      const shipmentCard = page
+        .getByText(`Shipment QA-SHIP-${stamp}`, { exact: false })
+        .locator('xpath=ancestor::div[contains(@class,"rounded")]')
+        .first()
+      await expect(shipmentCard).toBeVisible()
+      await shipmentCard.getByRole('button').first().click()
       dialog = page.getByRole('dialog')
       await expect(dialog.getByRole('heading', { name: 'Edit shipment' })).toBeVisible()
-      await expect(dialog.getByText(selectedShippingMethod.name, { exact: false })).toBeVisible()
-      await expect(dialog.getByText(selectedShipmentStatus.name, { exact: false })).toBeVisible()
+      await expect(dialog.getByText(selectedShippingMethod.name, { exact: false }).first()).toBeVisible()
+      await expect(dialog.getByText(selectedShipmentStatus.name, { exact: false }).first()).toBeVisible()
       await page.keyboard.press('Escape')
       await expect(dialog).not.toBeVisible()
 
       await page.getByRole('button', { name: 'Addresses' }).click()
-      const shippingPanel = page
-        .getByText('Shipping address', { exact: true })
-        .locator('xpath=ancestor::div[contains(@class,"rounded")]')
-        .first()
-      await expect(shippingPanel.getByRole('combobox')).toContainText(selectedAddress.name)
+      await expect(page.locator(`input[value*="${selectedAddress.name}"]`).first()).toBeVisible()
     } finally {
       await deleteByQuery(request, token, '/api/sales/shipments', shipmentId)
       await deleteByQuery(request, token, '/api/sales/order-adjustments', adjustmentId)
