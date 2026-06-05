@@ -73,11 +73,11 @@ Stabilize the develop branch feeding PR #2425 by fixing the failures observed in
 - [x] 2.3 Stabilize catalog AI sheet integration flake — 0556a3127
 - [x] 2.4 Stabilize shared EAV multi-value replacement after PR #2606 CI failure — 881d42dcc
 - [x] 2.4a Stabilize auth form hydration interactions exposed by full proof run 2 — 92ebbb417
-- [x] 2.4b Stabilize late `CrudForm` initialValues refresh and raw login synchronization after diagnostic full run — pending follow-up commit
+- [x] 2.4b Stabilize late `CrudForm` initialValues refresh and raw login synchronization after diagnostic full run — feee7b679
 - [ ] 2.5 Run two independent full ephemeral integration runs
 
 ### Phase 3: PR
 
 - [x] 3.1 Open stabilization PR against develop — 2606
 - [x] 3.2 Apply PR labels and summary comment — c03f44479
-- [ ] 3.3 Open follow-up stabilization PR after #2606 merge
+- [x] 3.3 Open follow-up stabilization PR after #2606 merge — 2613
