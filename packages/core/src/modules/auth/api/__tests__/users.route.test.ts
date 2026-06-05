@@ -961,7 +961,7 @@ describe('GET /api/auth/users', () => {
 
   test('allows super admin actors to edit a super admin target user', async () => {
     const superAdminUserId = '523e4567-e89b-12d3-a456-426614174999'
-    mockLoadAcl.mockResolvedValueOnce({
+    mockLoadAcl.mockResolvedValue({
       isSuperAdmin: true,
       features: ['*'],
       organizations: null,
