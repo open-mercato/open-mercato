@@ -132,6 +132,7 @@
   "scheduler.loading": "Loading schedule...",
   "scheduler.module.description": "Manage automated scheduled jobs with cron expressions or simple intervals.",
   "scheduler.module.title": "Scheduled Jobs",
+  "scheduler.nav.backToList": "Back to scheduled jobs",
   "scheduler.scope.organization": "Organization",
   "scheduler.scope.system": "System",
   "scheduler.scope.tenant": "Tenant",

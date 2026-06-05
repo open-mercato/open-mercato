@@ -137,13 +137,14 @@ test.describe('TC-UNDO-005: bespoke create redo restores original ids', () => {
         },
       })
 
+      const createdCompanyId = companyId
       const title = `QA Redo Interaction ${stamp()}`
       interactionId = await expectCreateRedoKeepsId({
         request,
         token,
         createPath: '/api/customers/interactions',
-        readPath: () => `/api/customers/interactions?entityId=${encodeURIComponent(companyId)}&limit=100`,
-        data: { organizationId, tenantId, entityId: companyId, interactionType: 'note', title, body: 'Redo body', status: 'done' },
+        readPath: () => `/api/customers/interactions?entityId=${encodeURIComponent(createdCompanyId)}&limit=100`,
+        data: { organizationId, tenantId, entityId: createdCompanyId, interactionType: 'note', title, body: 'Redo body', status: 'done' },
         assertRestored: (restored) => {
           expect(restored.title, 'redo preserves interaction title').toBe(title)
         },
@@ -199,15 +200,16 @@ test.describe('TC-UNDO-005: bespoke create redo restores original ids', () => {
     let returnId: string | null = null
     try {
       orderId = await createSalesOrderFixture(request, token)
-      const orderLineId = await createOrderLineFixture(request, token, orderId, { quantity: 2, name: 'QA Returnable' })
+      const createdOrderId = orderId
+      const orderLineId = await createOrderLineFixture(request, token, createdOrderId, { quantity: 2, name: 'QA Returnable' })
       const reason = `QA Redo Return ${stamp()}`
 
       returnId = await expectCreateRedoKeepsId({
         request,
         token,
         createPath: '/api/sales/returns',
-        readPath: () => `/api/sales/returns?orderId=${encodeURIComponent(orderId)}&pageSize=100`,
-        data: { orderId, reason, lines: [{ orderLineId, quantity: 1 }] },
+        readPath: () => `/api/sales/returns?orderId=${encodeURIComponent(createdOrderId)}&pageSize=100`,
+        data: { orderId: createdOrderId, reason, lines: [{ orderLineId, quantity: 1 }] },
         assertRestored: (restored) => {
           expect(restored.reason, 'redo preserves return reason').toBe(reason)
           expect(
