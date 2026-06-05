@@ -50,6 +50,10 @@ No existing spec directly covers this CodeQL remediation. This is a narrow secur
 - `yarn build:app` — passed, with existing dynamic import/NFT tracing warnings.
 - `yarn template:sync` — failed on unrelated existing template drift in the example module and dependency versions.
 
+## Changelog
+
+- 2026-06-05 — Opened PR #2607 against `develop`.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append `— <commit sha>` when a step lands. Do not rename step titles.
