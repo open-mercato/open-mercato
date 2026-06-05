@@ -251,3 +251,11 @@ preserved.
   customers.people multi-row materializer). Remaining single-row/multi-row commands
   and discovered `makeCreateRedo` limitations tracked in
   `.ai/runs/2026-06-05-dedup-create-redo/HANDOFF.md`. Status: in-progress.
+- 2026-06-05 (rev 2): Extended `makeCreateRedo` with additive hooks (`findRow`,
+  `beforeRestore`, `logEntry`→`afterRestore`, `transaction`) and converted 5 more
+  hand-rolled redos (resource-types, customers/resources comments, sales.notes,
+  staff.comments). Total: **15 commands deduped + framework**. Remaining create
+  redos are genuinely not convertible (multi-entity / already-factored / no
+  deletedAt column / no created side effects / in-tx fixup / syncOrigin / bridges)
+  — enumerated in HANDOFF.md. Gate: build ✓, generate ✓, typecheck ✓ (21/21),
+  unit ✓ (core 5428, shared 1166). Integration specs still owed a live-app run.

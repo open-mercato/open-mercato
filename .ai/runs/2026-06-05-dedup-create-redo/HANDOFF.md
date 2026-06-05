@@ -28,8 +28,12 @@ Removes the create↔redo code duplication introduced by PR #2552, with **zero b
 | `145061e7f` | Single-row A: `catalog.priceKinds`, `catalog.optionSchemas`, `staff.teams`, `staff.team-roles` |
 | `579711fe2` | Single-row factory: `customers.tags`, `customers.labels` |
 | `5f67773ff` | Multi-row: `customers.interactions` → `buildInteractionGraph` |
+| `95e1a88fe` | Framework hooks: `findRow`, `beforeRestore`, `logEntry`→`afterRestore`, `transaction` + tests |
+| `0193cd400` | Hook-based: `resources.resource-types` (afterRestore custom fields) |
+| `9bd75469e` | Hook-based: `customers.comments`, `resources.comments` (beforeRestore validation) |
+| `ee848785b` | Hook-based: `sales.notes`, `staff.comments` (beforeRestore validation) |
 
-Net: duplicated mapping removed across **10 commands** + framework (additive/BC-safe).
+Net: duplicated mapping removed across **15 commands** + framework (additive/BC-safe). Two framework batches of unit tests (redo.test.ts → 10 cases).
 
 ## Verification (this session)
 - `yarn build:packages` ✓ · `yarn generate` ✓ · `yarn typecheck` ✓ (21/21)
@@ -72,13 +76,27 @@ Not yet evaluated: `customers.todos`, `customers.personCompanyLinks`, `customers
 ### Phase 4 — multi-row materializer (biggest remaining duplication)
 `customers.companies`, `customers.interactions`, `catalog.products`, `catalog.variants`, `sales.returns`, `staff.team-members`. Follow the `buildPersonGraph` pattern.
 
-## Factory limitations discovered (candidate follow-up enhancements)
+## Factory hooks — IMPLEMENTED (commit `95e1a88fe`)
 
-These block converting several hand-rolled redos; enhancing `makeCreateRedo` would unlock them:
-1. `afterRestore` receives `{ em, ctx, entity, snapshot }` only — NOT `logEntry`/full undo payload. Custom-field restore that reads `payload.customAfter` can't run. → pass `logEntry` to `afterRestore`.
-2. Internal find uses plain `em.findOne`, not `findOneWithDecryption` — encrypted entities can't use the factory. → optional `findRow` override.
-3. No pre-create relation existence/scope validation hook (handlers that `requireX(...)` + throw 404 before create). → optional `beforeRestore`/validate hook.
-4. No transaction-wrapping option for the restore flush.
+The limitations found earlier are now addressed (all additive/BC-safe):
+1. ✅ `afterRestore` now receives `logEntry` — custom-field restore from the undo payload works (used by `resources.resource-types`).
+2. ✅ `findRow` override — decryption-aware lookup for encrypted entities.
+3. ✅ `beforeRestore` — pre-create relation validation (throws preserved) + returns seed overrides to inject resolved relations (used by `customers.comments`, `resources.comments`, `sales.notes`, `staff.comments`).
+4. ✅ `transaction: true` — atomic restore via `withAtomicFlush`.
+
+## Residual blockers (genuinely NOT convertible — left hand-rolled by design)
+
+After the hooks, the remaining create redos still can't adopt the factory without a behavior change. These are correct to leave as-is:
+- **Multi-entity create graphs**: `customers.companies` (create interleaved with surviving-row update), `sales.returns` (recompute-vs-snapshot + find-or-create header), `sales.payments`, `sales.shipments`, `directory.organizations`, `resources.resources` (in-tx tag sync), `customers.personCompanyLinks`.
+- **Already factored via seed helper** (no duplication to remove): `catalog.products`, `catalog.variants`, `staff.team-members`, `staff.timesheets-projects`, `staff.timesheets-entries`, `staff.leave-requests`.
+- **Entity has no `deletedAt` column** (factory injects `deletedAt: null`): `staff.activities`, `staff.addresses`, `staff.job-histories`, `resources.activities`, `resources.tag-assignments`.
+- **Emits no `created` side effects / upsert / computed result**: `customers.dictionaries`, `feature_toggles.global`, `planner.availability`.
+- **Surviving-row re-applies scalar fields + `syncOrigin`**: `customers.entity-roles`.
+- **In-transaction post-create fixup** (factory's `afterRestore` runs post-commit): `customers.addresses` (`enforcePrimaryAddress`).
+- **Non-1:1 seeds** (cloneJson / mergeProviderSettings / fresh-ts-without-onCreate / non-column `custom` key): `sales.configuration` (×5), `planner.availability-rule-sets`, `scheduler.jobs`.
+- **Deprecated bridge** (delegates to another command's redo): `customers.todos`, `customers.activities`.
+
+Further dedup of these would require either accepting behavior changes or larger factory additions (in-transaction post-create hook, surviving-row field re-apply, `syncOrigin` passthrough, soft-delete-aware seed) with diminishing returns. Recommend stopping here.
 
 ## Verification still owed before marking PR complete
 - `yarn build:packages`, `yarn generate`, `yarn typecheck` ✓ (typecheck currently green), `yarn lint`, `yarn i18n:check-sync`/`usage`, `yarn test`.

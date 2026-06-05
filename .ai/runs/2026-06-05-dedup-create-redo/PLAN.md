@@ -65,6 +65,8 @@ internal refactor — same ids, side effects, snapshots, undo tokens, tests.
 
 ### Phase 3: Single-row migration — convertible hand-rolled redos → factory
 
+_Status: framework hooks added (`95e1a88fe`). Converted: tags, labels, resource-types, customers/comments, resources/comments, sales/notes, staff/comments. All other hand-rolled redos enumerated as residual blockers in HANDOFF.md (multi-entity / no-deletedAt / no-side-effects / in-tx fixup / syncOrigin / bridges) — left as-is by design._
+
 - [~] 3.1 `customers`: `tags`, `labels` → factory (Option A / explicit seed). `dictionaries` (upsert), `deals` (multi-entity), `comments`/`addresses`/`entity-roles`/`activities` left hand-rolled (relation validation, encryption, custom-field payload, deprecated bridge — see HANDOFF). `personCompanyLinks`, `todos` not yet evaluated. — 579711fe2
 - [~] 3.2 `resources`: `comments`/`resource-types` evaluated, left hand-rolled (relation validation; custom-field on undo payload). `activities`/`resources`/`tag-assignments` not yet evaluated.
 - [ ] 3.3 `staff`: `activities`, `addresses`, `comments`, `job-histories`, `tag-assignments` (single-row ones).
