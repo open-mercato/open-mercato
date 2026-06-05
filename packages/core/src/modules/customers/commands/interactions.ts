@@ -38,6 +38,7 @@ import {
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceRecordGoneIsConflict, enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { recomputeNextInteraction } from '../lib/interactionProjection'
@@ -451,9 +452,24 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
-      if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
+      if (!interaction) {
+        enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
+        throw new CrudHttpError(404, { error: 'Interaction not found' })
+      }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
+
+      // Concurrent-edit guard for command-driven callers (e.g. the legacy
+      // /api/customers/todos route, which bypasses the makeCrudRoute lock guard):
+      // when the client opted into optimistic locking, a stale edit fails with the
+      // unified 409 instead of silently overwriting (#2055). Strictly additive —
+      // no-op when no expected-version header is present.
+      enforceCommandOptimisticLock({
+        resourceKind: 'customers.interaction',
+        resourceId: interaction.id,
+        current: interaction.updatedAt,
+        request: ctx.request ?? null,
+      })
 
       // Email visibility is an access-controlled field: only the interaction's
       // author may change a
@@ -709,9 +725,19 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
-      if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
+      if (!interaction) {
+        enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
+        throw new CrudHttpError(404, { error: 'Interaction not found' })
+      }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
+
+      enforceCommandOptimisticLock({
+        resourceKind: 'customers.interaction',
+        resourceId: interaction.id,
+        current: interaction.updatedAt,
+        request: ctx.request ?? null,
+      })
 
       interaction.status = 'done'
       interaction.occurredAt = parsed.occurredAt ?? new Date()
@@ -839,9 +865,19 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
-      if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
+      if (!interaction) {
+        enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
+        throw new CrudHttpError(404, { error: 'Interaction not found' })
+      }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
+
+      enforceCommandOptimisticLock({
+        resourceKind: 'customers.interaction',
+        resourceId: interaction.id,
+        current: interaction.updatedAt,
+        request: ctx.request ?? null,
+      })
 
       interaction.status = 'canceled'
       await trx.flush()
@@ -967,9 +1003,19 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
         const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id, deletedAt: null })
-        if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
+        if (!interaction) {
+          enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: id, request: ctx.request ?? null })
+          throw new CrudHttpError(404, { error: 'Interaction not found' })
+        }
         ensureTenantScope(ctx, interaction.tenantId)
         ensureOrganizationScope(ctx, interaction.organizationId)
+
+        enforceCommandOptimisticLock({
+          resourceKind: 'customers.interaction',
+          resourceId: interaction.id,
+          current: interaction.updatedAt,
+          request: ctx.request ?? null,
+        })
 
         const entityId = typeof interaction.entity === 'string' ? interaction.entity : interaction.entity.id
         interaction.deletedAt = new Date()

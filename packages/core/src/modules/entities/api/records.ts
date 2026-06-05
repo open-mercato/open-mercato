@@ -10,6 +10,34 @@ import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared
 import { setRecordCustomFields } from '../lib/helpers'
 import { CustomFieldValue } from '../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+
+const CUSTOM_ENTITY_RECORD_RESOURCE_KIND = 'entities.record'
+
+async function readCustomEntityRecordUpdatedAt(
+  em: any,
+  input: { entityType: string; entityId: string; organizationId: string | null },
+): Promise<string | null> {
+  try {
+    const db = em.getKysely()
+    let query = db
+      .selectFrom('custom_entities_storage' as any)
+      .select(['updated_at' as any])
+      .where('entity_type' as any, '=', input.entityType)
+      .where('entity_id' as any, '=', input.entityId)
+    query = input.organizationId === null
+      ? query.where('organization_id' as any, 'is', null as any)
+      : query.where('organization_id' as any, '=', input.organizationId)
+    const row = await query.executeTakeFirst()
+    const value = (row as any)?.updated_at
+    if (value instanceof Date) return value.toISOString()
+    if (typeof value === 'string' && value.length > 0) return value
+    return null
+  } catch {
+    return null
+  }
+}
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['entities.records.view'] },
@@ -85,6 +113,23 @@ export async function GET(req: Request) {
       const found = await em.findOne(CustomEntity as any, { entityId, isActive: true })
       isCustomEntity = !!found
     } catch {}
+    // Read/write symmetry: this endpoint writes every record to custom_entities_storage
+    // via the data engine, including module-declared custom entities whose id is a
+    // frozen system id and therefore never registered in `custom_entities`. Detect
+    // those by their doc-storage rows so `mapRow` strips the `cf_` prefix and the edit
+    // form can read back the saved values (mirrors HybridQueryEngine.isCustomEntity).
+    if (!isCustomEntity) {
+      try {
+        const db = em.getKysely()
+        const row = await db
+          .selectFrom('custom_entities_storage' as any)
+          .select(['entity_id' as any])
+          .where('entity_type' as any, '=', entityId)
+          .limit(1)
+          .executeTakeFirst()
+        isCustomEntity = !!row
+      } catch {}
+    }
     if (organizationIds && organizationIds.length === 0) {
       return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 0 })
     }
@@ -164,6 +209,41 @@ export async function GET(req: Request) {
     const rawItems = res.items || []
     const viewPageItems = rawItems.map(mapRow)
     const fullPageItems = rawItems.map(mapFullRow)
+
+    // Expose `updated_at` on custom-entity records. The query engine returns only
+    // the `doc` fields + `id`, dropping the base `updated_at` column — which made
+    // optimistic locking impossible end-to-end (no version for the edit page to
+    // round-trip as the lock header). Batch-read it from storage and merge it in.
+    if (isCustomEntity && viewPageItems.length) {
+      try {
+        const recordIds = viewPageItems
+          .map((it: any) => it?.id)
+          .filter((v: any): v is string => typeof v === 'string' && v.length > 0)
+        if (recordIds.length) {
+          const db = em.getKysely()
+          const rows = await db
+            .selectFrom('custom_entities_storage' as any)
+            .select(['entity_id' as any, 'updated_at' as any])
+            .where('entity_type' as any, '=', entityId)
+            .where('entity_id' as any, 'in', recordIds as any)
+            .execute()
+          const updatedById = new Map<string, string>()
+          for (const row of rows as any[]) {
+            const value = row?.updated_at
+            const iso = value instanceof Date ? value.toISOString() : (typeof value === 'string' && value.length > 0 ? value : null)
+            if (iso && row?.entity_id) updatedById.set(String(row.entity_id), iso)
+          }
+          for (const item of viewPageItems as any[]) {
+            const iso = updatedById.get(String(item?.id))
+            if (iso) {
+              item.updated_at = iso
+              item.updatedAt = iso
+            }
+          }
+        }
+      } catch { /* best-effort: locking simply will not engage if storage is unavailable */ }
+    }
+
     const total = typeof res.total === 'number' ? res.total : rawItems.length
     const effectivePageSize = res.pageSize || pageSize
     const payload = {
@@ -341,6 +421,25 @@ export async function PUT(req: Request) {
         values: norm,
       })
       return NextResponse.json({ ok: true, item: { entityId, recordId: created.id } })
+    }
+
+    try {
+      const currentUpdatedAt = await readCustomEntityRecordUpdatedAt(em, {
+        entityType: entityId,
+        entityId: rid,
+        organizationId: targetOrgId,
+      })
+      enforceCommandOptimisticLock({
+        resourceKind: CUSTOM_ENTITY_RECORD_RESOURCE_KIND,
+        resourceId: rid,
+        current: currentUpdatedAt,
+        request: req,
+      })
+    } catch (lockError) {
+      if (isCrudHttpError(lockError)) {
+        return NextResponse.json(lockError.body, { status: lockError.status })
+      }
+      throw lockError
     }
 
     await de.updateCustomEntityRecord({

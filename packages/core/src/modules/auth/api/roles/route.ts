@@ -43,6 +43,7 @@ const roleListItemSchema = z.object({
   tenantId: z.string().uuid().nullable(),
   tenantIds: z.array(z.string().uuid()).optional(),
   tenantName: z.string().nullable(),
+  updatedAt: z.string().nullable().optional(),
 })
 
 const roleListResponseSchema = z.object({
@@ -223,6 +224,7 @@ export async function GET(req: Request) {
       tenantId: tenantId ?? null,
       tenantIds: exposeTenant && tenantId ? [tenantId] : [],
       tenantName: exposeTenant ? tenantName : null,
+      updatedAt: r.updatedAt instanceof Date ? r.updatedAt.toISOString() : null,
       ...(cfByRole[idStr] || {}),
     }
   })

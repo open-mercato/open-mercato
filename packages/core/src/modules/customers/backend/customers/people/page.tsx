@@ -461,6 +461,7 @@ export default function CustomersPeoplePage() {
     try {
       await runSingleMutation({
         operation: async () => {
+          // optimistic-lock-exempt: delete-only mutation — no field-level lost-update
           await apiCallOrThrow(
             `/api/customers/people?id=${encodeURIComponent(person.id)}`,
             {
@@ -500,6 +501,7 @@ export default function CustomersPeoplePage() {
         runBulkDelete(
           selectedRows,
           async (row) => {
+            // optimistic-lock-exempt: bulk delete-only mutation — no field-level lost-update
             await apiCallOrThrow(`/api/customers/people?id=${encodeURIComponent(row.id)}`, {
               method: 'DELETE',
               headers: { 'content-type': 'application/json' },

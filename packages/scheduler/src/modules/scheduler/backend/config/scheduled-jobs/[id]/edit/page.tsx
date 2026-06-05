@@ -88,7 +88,7 @@ export default function EditSchedulePage({ params }: { params: { id: string } })
   const formSchema = React.useMemo(() => scheduledJobFormSchema(t), [t])
 
   const fields = React.useMemo(
-    () => scheduledJobFields(t, { loadQueueOptions, loadCommandOptions, loadTimezoneOptions }),
+    () => scheduledJobFields(t, { loadQueueOptions, loadCommandOptions, loadTimezoneOptions }, { lockScope: true }),
     [t, loadQueueOptions, loadCommandOptions]
   )
 

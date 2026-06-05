@@ -99,6 +99,7 @@ type ManageCategoryRow = {
   childCount: number
   descendantCount: number
   isActive: boolean
+  updatedAt: string | null
   organizationId: string
   tenantId: string
 }
@@ -262,6 +263,7 @@ export async function GET(req: Request) {
       childCount: node.childIds.length,
       descendantCount: node.descendantIds.length,
       isActive: node.isActive,
+      updatedAt: category?.updatedAt ? new Date(category.updatedAt).toISOString() : null,
       organizationId,
       tenantId,
       ...(cfValues[recordId] ?? {}),
@@ -297,6 +299,7 @@ const categoryListItemSchema = z.object({
   childCount: z.number(),
   descendantCount: z.number(),
   isActive: z.boolean(),
+  updatedAt: z.string().nullable().optional(),
   organizationId: z.string().uuid(),
   tenantId: z.string().uuid(),
 })

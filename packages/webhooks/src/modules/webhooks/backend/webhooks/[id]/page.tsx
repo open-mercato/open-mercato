@@ -16,6 +16,8 @@ import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import {
   buildWebhookFormContentHeader,
@@ -362,10 +364,14 @@ export default function WebhookDetailPage() {
   const handleDelete = React.useCallback(async () => {
     if (!webhook) return
     try {
-      await deleteCrud(`webhooks/${encodeURIComponent(webhook.id)}`, { fallbackResult: null })
+      await deleteCrud(`webhooks/${encodeURIComponent(webhook.id)}`, {
+        fallbackResult: null,
+        headers: buildOptimisticLockHeader(webhook.updatedAt),
+      })
       flash(t('webhooks.list.deleteSuccess'), 'success')
       router.push('/backend/webhooks')
-    } catch {
+    } catch (error) {
+      if (surfaceRecordConflict(error, t)) return
       flash(t('webhooks.list.deleteError'), 'error')
     }
   }, [router, t, webhook])
@@ -497,6 +503,7 @@ export default function WebhookDetailPage() {
             fields={fields}
             groups={groups}
             initialValues={createWebhookInitialValues(webhook)}
+            optimisticLockUpdatedAt={webhook.updatedAt}
             submitLabel={t('common.save')}
             cancelHref={`/backend/webhooks/${webhook.id}`}
             contentHeader={contentHeader}

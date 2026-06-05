@@ -12,7 +12,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import type { SalesCalculationService } from '../services/salesCalculationService'
 import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationResult } from '../lib/types'
-import { cloneJson, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString } from './shared'
+import { cloneJson, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER } from './shared'
 import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
 import { returnCreateSchema, type ReturnCreateInput } from '../data/validators'
 import { E } from '#generated/entities.ids.generated'
@@ -286,6 +286,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         throw new CrudHttpError(404, { error: translate('sales.returns.orderMissing', 'Order not found.') })
       }
       ensureSameScope(order, input.organizationId, input.tenantId)
+      enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
 
       const orderLines = await findWithDecryption(
         tx,
@@ -476,11 +477,12 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
     // Line reversals, adjustment/return removals, and the order-total recompute
     // interleave queries on the same EntityManager with scalar mutations, so they
     // must run inside an atomic flush to avoid lost updates and partial commits.
+    let lines: SalesOrderLine[] = []
     await withAtomicFlush(
       em,
       [
         async () => {
-          const lines = await findWithDecryption(
+          lines = await findWithDecryption(
             em,
             SalesOrderLine,
             { order: order.id, deletedAt: null },
@@ -496,7 +498,14 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
             line.updatedAt = new Date()
             em.persist(line)
           })
-
+        },
+        // The line returnedQuantity reversals above are persisted by
+        // withAtomicFlush's per-phase flush boundary before the adjustment /
+        // header / return-line lookups below run any query on this
+        // EntityManager. MikroORM v7 would otherwise silently discard the pending
+        // scalar changes on the managed `lines` when the next read resets the
+        // changeset (see SPEC-018).
+        async () => {
           if (after.adjustmentIds.length) {
             const adjustments = await findWithDecryption(
               em,

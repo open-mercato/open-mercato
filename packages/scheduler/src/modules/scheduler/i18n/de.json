@@ -99,6 +99,7 @@
   "scheduler.form.schedule_value.description": "Für Cron: verwenden Sie Cron-Ausdruck (z.B. \"0 0 * * *\"). Für Intervall: verwenden Sie Format wie \"15m\", \"2h\", \"1d\" (s=Sekunden, m=Minuten, h=Stunden, d=Tage)",
   "scheduler.form.schedule_value.placeholder": "z.B. 0 */6 * * * oder 15m",
   "scheduler.form.scope_type": "Bereich",
+  "scheduler.form.scope_type.locked_description": "Der Bereich wird bei der Erstellung des Zeitplans festgelegt und kann danach nicht mehr geändert werden.",
   "scheduler.form.submit": "Zeitplan erstellen",
   "scheduler.form.target_command": "Zielbefehl",
   "scheduler.form.target_command.placeholder": "Befehle suchen...",

@@ -168,7 +168,9 @@ describe('messages.messages.update_draft command send transition', () => {
     expect(draft.status).toBe('sent')
     expect(draft.sentAt).toBeInstanceOf(Date)
     expect(draft.threadId).toBe(messageId)
-    expect(emFork.flush).toHaveBeenCalledTimes(1)
+    // withAtomicFlush flushes per phase (SPEC-018): phase 1 (scalars) + phase 2
+    // (recipients/attachments/send-status) → two boundary flushes.
+    expect(emFork.flush).toHaveBeenCalledTimes(2)
     expect(eventBus.emitEvent).toHaveBeenCalledWith(
       'query_index.upsert_one',
       expect.objectContaining({

@@ -7,7 +7,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -43,6 +44,7 @@ type IntegrationItem = {
   hasCredentials: boolean
   healthStatus: 'healthy' | 'degraded' | 'unhealthy' | 'unconfigured'
   analytics: IntegrationAnalytics
+  updatedAt?: string | null
 }
 
 type BundleItem = {
@@ -198,13 +200,16 @@ export default function IntegrationsMarketplacePage() {
     setPage(1)
   }, [debouncedSearch, filterValues, selectedCategory, sortField, sortOrder])
 
-  const handleToggle = React.useCallback(async (integrationId: string, enabled: boolean) => {
+  const handleToggle = React.useCallback(async (integrationId: string, enabled: boolean, updatedAt?: string | null) => {
     setTogglingIds((prev) => new Set(prev).add(integrationId))
-    const call = await apiCall(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isEnabled: enabled }),
-    }, { fallback: null })
+    const call = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(updatedAt),
+      () => apiCall(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isEnabled: enabled }),
+      }, { fallback: null }),
+    )
 
     if (!call.ok) {
       flash(t('integrations.detail.stateError'), 'error')
@@ -439,7 +444,7 @@ export default function IntegrationsMarketplacePage() {
                         <Switch
                           checked={item.isEnabled}
                           disabled={togglingIds.has(item.id)}
-                          onCheckedChange={(checked) => void handleToggle(item.id, checked)}
+                          onCheckedChange={(checked) => void handleToggle(item.id, checked, item.updatedAt)}
                           className="shrink-0"
                         />
                       </div>

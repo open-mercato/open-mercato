@@ -7,7 +7,8 @@ import { CrudForm, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
@@ -26,6 +27,8 @@ type CurrencyData = {
   isActive: boolean
   organizationId: string
   tenantId: string
+  updatedAt?: string | null
+  updated_at?: string | null
 }
 
 export default function EditCurrencyPage({ params }: { params?: { id?: string } }) {
@@ -141,11 +144,14 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
     if (!confirmed) return
 
     try {
-      await apiCall('/api/currencies/currencies', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: currency.id, organizationId: currency.organizationId, tenantId: currency.tenantId }),
-      })
+      const headers = buildOptimisticLockHeader(currency.updatedAt ?? currency.updated_at ?? null)
+      await withScopedApiRequestHeaders(headers, () => (
+        apiCall('/api/currencies/currencies', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: currency.id, organizationId: currency.organizationId, tenantId: currency.tenantId }),
+        })
+      ))
 
       flash(t('currencies.flash.deleted'), 'success')
       router.push('/backend/currencies')
@@ -221,6 +227,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
           )}
           fields={[]}
           groups={groups}
+          optimisticLockUpdatedAt={currency.updatedAt ?? currency.updated_at ?? null}
           initialValues={{
             code: currency.code,
             name: currency.name,

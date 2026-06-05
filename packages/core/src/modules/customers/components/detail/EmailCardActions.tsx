@@ -190,6 +190,11 @@ export function EmailCardActions({ data }: EmailCardActionsProps) {
             const next = data.currentVisibility === 'private' ? 'shared' : 'private'
             try {
               await runMutation({
+                // optimistic-lock-exempt: dedicated single-field visibility
+                // action endpoint (shared/private toggle), not a full-record
+                // edit. The canonical interaction edit/delete is version-locked
+                // at the command layer (customers.interactions.* commands); this
+                // idempotent toggle derives `next` from freshly-loaded state.
                 operation: async () => {
                   const r = await apiCall<{ ok?: boolean }>(
                     `/api/customers/interactions/${interactionId}/visibility`,

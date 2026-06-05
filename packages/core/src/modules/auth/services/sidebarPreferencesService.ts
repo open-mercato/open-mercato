@@ -54,6 +54,38 @@ export async function loadSidebarPreference(
   return normalizeSidebarSettings(existing?.settingsJson as SidebarPreferencesSettings | undefined)
 }
 
+export async function loadSidebarPreferenceUpdatedAt(
+  em: EntityManager,
+  scope: SidebarPreferenceScope,
+): Promise<{ id: string; updatedAt: Date | null } | null> {
+  const { userId, tenantId, organizationId } = normalizeScope(scope)
+  const existing = await findOneWithDecryption(
+    em,
+    UserSidebarPreference,
+    { user: userId, tenantId, organizationId },
+    undefined,
+    { tenantId, organizationId },
+  )
+  if (!existing) return null
+  return { id: existing.id, updatedAt: existing.updatedAt ?? null }
+}
+
+export async function loadRoleSidebarPreferenceUpdatedAt(
+  em: EntityManager,
+  scope: RoleSidebarPreferenceScope,
+): Promise<{ id: string; updatedAt: Date | null } | null> {
+  const { roleId, tenantId } = normalizeRoleScope(scope)
+  const existing = await findOneWithDecryption(
+    em,
+    RoleSidebarPreference,
+    { role: roleId, tenantId },
+    undefined,
+    { tenantId, organizationId: null },
+  )
+  if (!existing) return null
+  return { id: existing.id, updatedAt: existing.updatedAt ?? null }
+}
+
 export async function saveSidebarPreference(
   em: EntityManager,
   scope: SidebarPreferenceScope,
@@ -389,7 +421,7 @@ export async function updateSidebarVariant(
   if (!variant) return null
   const target = variant
   await withAtomicFlush(em, [
-    async () => {
+    () => {
       if (typeof input.name === 'string' && input.name.trim().length > 0) {
         target.name = input.name.trim()
       }
@@ -400,10 +432,12 @@ export async function updateSidebarVariant(
         })
       }
       if (typeof input.isActive === 'boolean') {
-        if (input.isActive) {
-          await deactivateAllVariants(em, scope, variantId)
-        }
         target.isActive = input.isActive
+      }
+    },
+    async () => {
+      if (input.isActive === true) {
+        await deactivateAllVariants(em, scope, variantId)
       }
     },
   ], { transaction: true })

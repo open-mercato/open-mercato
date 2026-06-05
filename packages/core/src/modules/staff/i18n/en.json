@@ -702,6 +702,7 @@
   "staff.teamMembers.detail.inline.urlInvalid": "Enter a valid URL",
   "staff.teamMembers.detail.jobHistory.add": "Add job",
   "staff.teamMembers.detail.jobHistory.cancel": "Cancel",
+  "staff.teamMembers.detail.jobHistory.conflict": "This record was modified by someone else. Refresh and try again.",
   "staff.teamMembers.detail.jobHistory.deleteConfirm": "Delete this job history entry?",
   "staff.teamMembers.detail.jobHistory.deleted": "Job history deleted.",
   "staff.teamMembers.detail.jobHistory.edit": "Edit job",
