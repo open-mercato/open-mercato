@@ -76,6 +76,23 @@ type UserSnapshots = {
   undo: UserUndoSnapshot
 }
 
+function resolveActorTenantScope(ctx: CommandRuntimeContext): string | null {
+  if (ctx.systemActor === true) return null
+  const auth = ctx.auth
+  if (!auth) return null
+  if ((auth as { isSuperAdmin?: boolean }).isSuperAdmin === true) return null
+  const actorTenantId = normalizeTenantId(auth.tenantId ?? null) ?? null
+  return actorTenantId
+}
+
+function assertTargetTenantInScope(actorTenantScope: string | null, targetTenantId: unknown, notFoundError: string): void {
+  if (!actorTenantScope) return
+  const targetTenant = normalizeTenantId(targetTenantId) ?? null
+  if (!targetTenant || targetTenant !== actorTenantScope) {
+    throw new CrudHttpError(404, { error: notFoundError })
+  }
+}
+
 const passwordSchema = buildPasswordSchema()
 
 const displayNameSchema = z.preprocess(
@@ -483,6 +500,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const em = (ctx.container.resolve('em') as EntityManager)
     const existing = await findOneWithDecryption(em, User, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
     if (!existing) throw new CrudHttpError(404, { error: 'User not found' })
+    assertTargetTenantInScope(resolveActorTenantScope(ctx), existing.tenantId, 'User not found')
     const roles = await loadUserRoleNames(em, parsed.id)
     const acls = await loadUserAclSnapshots(em, parsed.id)
     const custom = await loadUserCustomSnapshot(
@@ -539,12 +557,16 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
     }
 
+    const actorTenantScope = resolveActorTenantScope(ctx)
+    const updateWhere: Record<string, unknown> = { id: parsed.id, deletedAt: null }
+    if (actorTenantScope) updateWhere.tenantId = actorTenantScope
+
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let user: User | null
     try {
       user = await de.updateOrmEntity({
         entity: User,
-        where: { id: parsed.id, deletedAt: null } as FilterQuery<User>,
+        where: updateWhere as FilterQuery<User>,
         apply: (entity) => {
           if (parsed.email !== undefined) {
             entity.email = parsed.email
@@ -724,6 +746,11 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const em = (ctx.container.resolve('em') as EntityManager)
     const existing = await findOneWithDecryption(em, User, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
     if (!existing) return {}
+    const actorTenantScope = resolveActorTenantScope(ctx)
+    if (actorTenantScope) {
+      const targetTenant = normalizeTenantId(existing.tenantId) ?? null
+      if (!targetTenant || targetTenant !== actorTenantScope) return {}
+    }
     const roles = await loadUserRoleNames(em, id)
     const acls = await loadUserAclSnapshots(em, id)
     const custom = await loadUserCustomSnapshot(
@@ -738,6 +765,9 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const id = requireId(input, 'User id required')
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    const actorTenantScope = resolveActorTenantScope(ctx)
+    const deleteWhere: Record<string, unknown> = { id, deletedAt: null }
+    if (actorTenantScope) deleteWhere.tenantId = actorTenantScope
 
     let user!: User
     await withAtomicFlush(em, [
@@ -748,7 +778,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         await em.nativeDelete(PasswordReset, { user: id })
         const removed = await de.deleteOrmEntity({
           entity: User,
-          where: { id, deletedAt: null } as FilterQuery<User>,
+          where: deleteWhere as FilterQuery<User>,
           soft: false,
         })
         if (!removed) throw new CrudHttpError(404, { error: 'User not found' })

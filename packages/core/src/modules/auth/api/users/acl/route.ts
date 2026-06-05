@@ -8,7 +8,10 @@ import { forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { UserAcl } from '@open-mercato/core/modules/auth/data/entities'
-import { assertActorCanModifySuperAdminUserTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import {
+  assertActorCanAccessUserTarget,
+  assertActorCanModifySuperAdminUserTarget,
+} from '@open-mercato/core/modules/auth/lib/grantChecks'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -55,6 +58,15 @@ export async function GET(req: Request) {
   if (!actorAcl?.isSuperAdmin && auth.sub) {
     try {
       await assertActorCanModifySuperAdminUserTarget({
+        em: em as EntityManager,
+        rbacService: rbacService as RbacService,
+        actorUserId: auth.sub,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        targetUserId: parsed.data.userId,
+        actorIsSuperAdmin: false,
+      })
+      await assertActorCanAccessUserTarget({
         em: em as EntityManager,
         rbacService: rbacService as RbacService,
         actorUserId: auth.sub,
@@ -113,6 +125,15 @@ export async function PUT(req: Request) {
   if (!actorIsSuperAdmin && auth.sub) {
     try {
       await assertActorCanModifySuperAdminUserTarget({
+        em: em as EntityManager,
+        rbacService: rbacService as RbacService,
+        actorUserId: auth.sub,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        targetUserId: parsed.data.userId,
+        actorIsSuperAdmin: false,
+      })
+      await assertActorCanAccessUserTarget({
         em: em as EntityManager,
         rbacService: rbacService as RbacService,
         actorUserId: auth.sub,
