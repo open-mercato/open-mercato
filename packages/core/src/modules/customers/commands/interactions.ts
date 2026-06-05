@@ -12,7 +12,7 @@ import {
 import { DefaultDataEngine, type DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CustomerInteraction } from '../data/entities'
+import { CustomerInteraction, CustomerEntity } from '../data/entities'
 import {
   interactionCreateSchema,
   interactionUpdateSchema,
@@ -297,6 +297,75 @@ async function emitNextInteractionUpdatedEvent(
 
 // ─── Create ─────────────────────────────────────────────────────────
 
+type InteractionGraphValues = {
+  id?: string
+  organizationId: string
+  tenantId: string
+  entity: CustomerEntity
+  interactionType: string
+  title: string | null
+  body: string | null
+  status: string
+  scheduledAt: Date | null
+  occurredAt: Date | null
+  priority: number | null
+  authorUserId: string | null
+  ownerUserId: string | null
+  dealId: string | null
+  source: string | null
+  appearanceIcon: string | null
+  appearanceColor: string | null
+  durationMinutes: number | null
+  location: string | null
+  allDay: boolean | null
+  recurrenceRule: string | null
+  recurrenceEnd: Date | null
+  participants: InteractionSnapshot['interaction']['participants']
+  reminderMinutes: number | null
+  visibility: string | null
+  linkedEntities: InteractionSnapshot['interaction']['linkedEntities']
+  guestPermissions: InteractionSnapshot['interaction']['guestPermissions']
+}
+
+// Single source of truth for the interaction row mapping, shared by `execute`
+// (values from validated input) and `redo` (values from the after-snapshot,
+// carrying the original id). Keeps create and id-preserving redo from drifting
+// field-by-field. Caller owns the surrounding transaction, persist, projection
+// recompute, and custom-field handling.
+function buildInteractionGraph(em: EntityManager, values: InteractionGraphValues): CustomerInteraction {
+  return em.create(CustomerInteraction, {
+    ...(values.id ? { id: values.id } : {}),
+    organizationId: values.organizationId,
+    tenantId: values.tenantId,
+    entity: values.entity,
+    interactionType: values.interactionType,
+    title: values.title,
+    body: values.body,
+    status: values.status,
+    scheduledAt: values.scheduledAt,
+    occurredAt: values.occurredAt,
+    priority: values.priority,
+    authorUserId: values.authorUserId,
+    ownerUserId: values.ownerUserId,
+    dealId: values.dealId,
+    source: values.source,
+    appearanceIcon: values.appearanceIcon,
+    appearanceColor: values.appearanceColor,
+    durationMinutes: values.durationMinutes,
+    location: values.location,
+    allDay: values.allDay,
+    recurrenceRule: values.recurrenceRule,
+    recurrenceEnd: values.recurrenceEnd,
+    participants: values.participants,
+    reminderMinutes: values.reminderMinutes,
+    visibility: values.visibility,
+    linkedEntities: values.linkedEntities,
+    guestPermissions: values.guestPermissions,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  })
+}
+
 const createInteractionCommand: CommandHandler<InteractionCreateInput, { interactionId: string; entityId: string }> = {
   id: 'customers.interactions.create',
   async execute(rawInput, ctx) {
@@ -313,7 +382,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         await requireDealInScope(trx, parsed.dealId, entity.tenantId, entity.organizationId)
       }
 
-      const interaction = trx.create(CustomerInteraction, {
+      const interaction = buildInteractionGraph(trx, {
         ...(parsed.id ? { id: parsed.id } : {}),
         organizationId: entity.organizationId,
         tenantId: entity.tenantId,
@@ -341,8 +410,6 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         visibility: parsed.visibility ?? null,
         linkedEntities: parsed.linkedEntities ?? null,
         guestPermissions: parsed.guestPermissions ?? null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
       })
       trx.persist(interaction)
       await trx.flush()
@@ -446,7 +513,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
       const entity = await requireTimelineParentEntity(trx, after.interaction.entityId)
       let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: after.interaction.id })
       if (!interaction) {
-        interaction = trx.create(CustomerInteraction, {
+        interaction = buildInteractionGraph(trx, {
           id: after.interaction.id,
           organizationId: after.interaction.organizationId,
           tenantId: after.interaction.tenantId,
@@ -474,8 +541,6 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
           visibility: after.interaction.visibility,
           linkedEntities: after.interaction.linkedEntities,
           guestPermissions: after.interaction.guestPermissions,
-          createdAt: new Date(),
-          updatedAt: new Date(),
         })
         trx.persist(interaction)
       } else {
