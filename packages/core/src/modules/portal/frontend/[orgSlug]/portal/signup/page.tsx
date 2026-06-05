@@ -34,7 +34,7 @@ export default function PortalSignupPage({ params }: Props) {
       event.preventDefault()
       setError(null)
 
-      if (!tenant.tenantId || !tenant.organizationId) {
+      if (!tenant.organizationId) {
         setError(t('portal.org.invalid', 'Organization not found.'))
         return
       }
@@ -44,7 +44,7 @@ export default function PortalSignupPage({ params }: Props) {
         const result = await apiCall<SignupResponse>('/api/customer_accounts/signup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, displayName, tenantId: tenant.tenantId, organizationId: tenant.organizationId }),
+          body: JSON.stringify({ email, password, displayName, organizationId: tenant.organizationId }),
         })
 
         if (result.status === 202 && result.result?.ok) {
@@ -59,7 +59,7 @@ export default function PortalSignupPage({ params }: Props) {
         setSubmitting(false)
       }
     },
-    [displayName, email, password, tenant.tenantId, tenant.organizationId, t],
+    [displayName, email, password, tenant.organizationId, t],
   )
 
   const injectionContext = useMemo(

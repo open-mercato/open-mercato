@@ -38,7 +38,9 @@ export async function POST(req: Request) {
   const { email, password } = parsed.data
   let tenantId: string
   try {
-    const context = await resolveTenantContext(req, parsed.data.tenantId)
+    const context = await resolveTenantContext(req, parsed.data.tenantId, {
+      organizationId: parsed.data.organizationId ?? null,
+    })
     tenantId = context.tenantId
   } catch (err) {
     if (err instanceof TenantResolutionError) {

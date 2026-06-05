@@ -30,7 +30,7 @@ export default function PortalLoginPage({ params }: Props) {
       event.preventDefault()
       setError(null)
 
-      if (!tenant.tenantId) {
+      if (!tenant.organizationId) {
         setError(t('portal.org.invalid', 'Organization not found.'))
         return
       }
@@ -41,7 +41,7 @@ export default function PortalLoginPage({ params }: Props) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ email, password, tenantId: tenant.tenantId }),
+          body: JSON.stringify({ email, password, organizationId: tenant.organizationId }),
         })
 
         if (result.ok && result.result?.ok) {
@@ -69,7 +69,7 @@ export default function PortalLoginPage({ params }: Props) {
         setSubmitting(false)
       }
     },
-    [email, password, tenant.tenantId, orgSlug, t],
+    [email, password, tenant.organizationId, orgSlug, t],
   )
 
   const injectionContext = useMemo(
