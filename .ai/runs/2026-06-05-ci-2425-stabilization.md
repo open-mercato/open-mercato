@@ -63,5 +63,5 @@ Stabilize the develop branch feeding PR #2425 by fixing the failures observed in
 
 ### Phase 3: PR
 
-- [ ] 3.1 Open stabilization PR against develop
+- [x] 3.1 Open stabilization PR against develop — 2606
 - [ ] 3.2 Apply PR labels and summary comment
