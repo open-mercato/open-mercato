@@ -86,7 +86,7 @@ Turbopack's compiled-chunk cache is keyed by file fingerprint (mtime + size). Wh
 5. `yarn typecheck`
 6. `yarn test`
 7. `yarn build:app`
-8. Self-review against `code-review` skill + `BACKWARD_COMPATIBILITY.md`.
+8. Self-review against `om-code-review` skill + `BACKWARD_COMPATIBILITY.md`.
 9. Open PR with labels `bug`, `needs-qa`, `review`.
 
 ## Risks

@@ -155,7 +155,7 @@ If a future spec decides to *actually* move the file, the migration plan must:
 ### Phase 3 — Validation
 
 1. Run the targeted test: `node --test scripts/__tests__/official-modules.test.mjs` — confirm the banner regex still matches.
-2. Run the full validation gate per `auto-create-pr` step 7.
+2. Run the full validation gate per `om-auto-create-pr` step 7.
 
 ### Testing Strategy
 

@@ -16,7 +16,7 @@
 
 ## Blockers / open questions
 - Targeted validation (typecheck/unit tests/integration tests) is **deferred to the final gate** because the worktree's `yarn install --mode=skip-build` did not populate `node_modules` in this dispatcher run. The Phase 0 changes are mechanical (test seam already existed; no new module structure), so the deferral is low-risk. Reviewers SHOULD run `yarn test --selectProjects=ai-assistant --testPathPattern="model-factory"` locally before approving.
-- Scope risk: the run owner authorized landing all ~80 Steps from specs #1780 + #1782 in a single PR despite both spec authors planning "1 PR per phase". Phase 0 of #1780 is intentionally landed first because every later phase depends on it; the `auto-continue-pr-loop` flow will resume from Phase 1780-1 Step 1.1.
+- Scope risk: the run owner authorized landing all ~80 Steps from specs #1780 + #1782 in a single PR despite both spec authors planning "1 PR per phase". Phase 0 of #1780 is intentionally landed first because every later phase depends on it; the `om-auto-continue-pr-loop` flow will resume from Phase 1780-1 Step 1.1.
 
 ## Environment caveats
 - Dev runtime runnable: not exercised this checkpoint (no UI Step landed).
@@ -27,7 +27,7 @@
 - Path: `/Users/piotrkarwatka/Projects/mercato-development/.ai/tmp/auto-create-pr/ai-agents-runtime-overrides-and-loop-controls-20260508-122505`
 - Created this run: yes
 
-## Resume contract for `auto-continue-pr-loop`
+## Resume contract for `om-auto-continue-pr-loop`
 - The first row in PLAN.md's Tasks table whose `Status` is not `done` is **Phase 1780-1 Step 1.1** ("Add `defaultProvider?: string` to canonical `AiAgentDefinition`").
 - Step ids are immutable; only the `Status` and `Commit` columns may change.
 - 73 Steps remain across Phases 1780-1, 1780-2, 1780-3, 1780-4a, 1780-4b, 1782-0, 1782-1, 1782-2, 1782-3, 1782-4, 1782-5, 1782-6.
