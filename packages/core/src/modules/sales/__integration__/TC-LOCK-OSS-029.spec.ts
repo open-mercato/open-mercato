@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test'
+import { test, expect, type APIRequestContext } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { createProductFixture, deleteCatalogProductIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures'
@@ -110,24 +110,6 @@ async function deleteIfExists(
   }
 }
 
-/**
- * The offers-list RowActions kebab trigger ("Open actions") opens its menu on
- * CLICK (its `onClick` sets the menu open), which is far more deterministic than
- * the hover affordance. The menu renders in a portal on `document.body`, so the
- * "Delete" menuitem is queried from the page (not scoped to the row). Click the
- * trigger until the destructive "Delete" menu item is actually visible, then
- * return it for the caller to click.
- */
-async function openListDeleteItem(page: Page, row: Locator): Promise<Locator> {
-  const actionsTrigger = row.getByRole('button', { name: /open actions/i })
-  const deleteItem = page.getByRole('menuitem', { name: /^delete$/i })
-  await expect(async () => {
-    await expect(actionsTrigger).toBeVisible({ timeout: 2_000 })
-    await actionsTrigger.click()
-    await expect(deleteItem).toBeVisible({ timeout: 1_500 })
-  }).toPass({ timeout: 20_000 })
-  return deleteItem
-}
 
 async function offerStillExists(
   request: ApiRequest,
@@ -266,15 +248,29 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
       // `surfaceRecordConflict(err, t)` on the raw error, so the bar surfaces.
       // Await the refused DELETE (409) alongside the click so the conflict is
       // proven deterministically before asserting the bar — no banner-timing race.
-      const deleteItem = await openListDeleteItem(page, row)
+      // Set up the DELETE wait BEFORE interacting, then retry (re)open-menu +
+      // click-Delete atomically: the RowActions menu is portalled to document.body
+      // and the offers list re-renders as data settles, so it can detach between
+      // "menu open" and "click", swallowing the click and the DELETE — the previous
+      // open-then-click split flaked this way under CI load. Retrying the click
+      // inside toPass re-opens a detached menu and clicks again; a refused stale
+      // delete is a 409 that leaves the offer intact, so a repeated click is safe.
       const refusedDelete = page.waitForResponse(
         (response) =>
           response.request().method() === 'DELETE' &&
           response.url().includes(OFFERS_API_BASE) &&
           response.url().includes(offerId as string),
-        { timeout: 20_000 },
+        { timeout: 30_000 },
       )
-      await deleteItem.click()
+      const actionsTrigger = row.getByRole('button', { name: /open actions/i })
+      const deleteItem = page.getByRole('menuitem', { name: /^delete$/i })
+      await expect(async () => {
+        if (!(await deleteItem.isVisible().catch(() => false))) {
+          await actionsTrigger.click({ timeout: 2_000 }).catch(() => {})
+          await expect(deleteItem).toBeVisible({ timeout: 1_500 })
+        }
+        await deleteItem.click({ timeout: 2_000 })
+      }).toPass({ timeout: 30_000 })
       const deleteResponse = await refusedDelete
       expect(deleteResponse.status(), 'stale list-delete should be refused with 409').toBe(409)
 
