@@ -525,6 +525,86 @@ async function setCustomFieldsForPerson(
   }
 }
 
+type PersonGraphValues = {
+  entityId?: string
+  profileId?: string
+  organizationId: string
+  tenantId: string
+  displayName: string
+  description: string | null
+  ownerUserId: string | null
+  primaryEmail: string | null
+  primaryPhone: string | null
+  status: string | null
+  lifecycleStage: string | null
+  source: string | null
+  nextInteractionAt: Date | null
+  nextInteractionName: string | null
+  nextInteractionRefId: string | null
+  nextInteractionIcon: string | null
+  nextInteractionColor: string | null
+  isActive: boolean
+  firstName: string | null
+  lastName: string | null
+  preferredName: string | null
+  jobTitle: string | null
+  department: string | null
+  seniority: string | null
+  timezone: string | null
+  linkedInUrl: string | null
+  twitterUrl: string | null
+}
+
+// Single source of truth for the person entity+profile row mapping, shared by
+// `execute` (values from validated input) and `redo` (values from the after-
+// snapshot, carrying the original ids). Keeps create and id-preserving redo from
+// drifting field-by-field. Caller owns the surrounding flush, dictionary upserts,
+// tag/company-link sync, and custom-field restore.
+function buildPersonGraph(
+  em: EntityManager,
+  values: PersonGraphValues,
+): { entity: CustomerEntity; profile: CustomerPersonProfile } {
+  const entity = em.create(CustomerEntity, {
+    ...(values.entityId ? { id: values.entityId } : {}),
+    organizationId: values.organizationId,
+    tenantId: values.tenantId,
+    kind: 'person',
+    displayName: values.displayName,
+    description: values.description,
+    ownerUserId: values.ownerUserId,
+    primaryEmail: values.primaryEmail,
+    primaryPhone: values.primaryPhone,
+    status: values.status,
+    lifecycleStage: values.lifecycleStage,
+    source: values.source,
+    nextInteractionAt: values.nextInteractionAt,
+    nextInteractionName: values.nextInteractionName,
+    nextInteractionRefId: values.nextInteractionRefId,
+    nextInteractionIcon: values.nextInteractionIcon,
+    nextInteractionColor: values.nextInteractionColor,
+    isActive: values.isActive,
+  })
+  const profile = em.create(CustomerPersonProfile, {
+    ...(values.profileId ? { id: values.profileId } : {}),
+    organizationId: values.organizationId,
+    tenantId: values.tenantId,
+    entity,
+    firstName: values.firstName,
+    lastName: values.lastName,
+    preferredName: values.preferredName,
+    jobTitle: values.jobTitle,
+    department: values.department,
+    seniority: values.seniority,
+    timezone: values.timezone,
+    linkedInUrl: values.linkedInUrl,
+    twitterUrl: values.twitterUrl,
+    company: null,
+  })
+  em.persist(entity)
+  em.persist(profile)
+  return { entity, profile }
+}
+
 const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string; personId: string }> = {
   id: 'customers.people.create',
   async execute(rawInput, ctx) {
@@ -567,10 +647,9 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     let profile!: CustomerPersonProfile
     await withAtomicFlush(em, [
       () => {
-        entity = em.create(CustomerEntity, {
+        const graph = buildPersonGraph(em, {
           organizationId: parsed.organizationId,
           tenantId: parsed.tenantId,
-          kind: 'person',
           displayName,
           description,
           ownerUserId: parsed.ownerUserId ?? null,
@@ -585,12 +664,6 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
           nextInteractionIcon,
           nextInteractionColor,
           isActive: parsed.isActive ?? true,
-        })
-
-        profile = em.create(CustomerPersonProfile, {
-          organizationId: parsed.organizationId,
-          tenantId: parsed.tenantId,
-          entity,
           firstName,
           lastName,
           preferredName,
@@ -600,11 +673,9 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
           timezone,
           linkedInUrl,
           twitterUrl,
-          company: null,
         })
-
-        em.persist(entity)
-        em.persist(profile)
+        entity = graph.entity
+        profile = graph.profile
       },
       async () => {
         if (status) {
@@ -729,11 +800,11 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       let newProfile!: CustomerPersonProfile
       await withAtomicFlush(em, [
         () => {
-          newEntity = em.create(CustomerEntity, {
-            id: after.entity.id,
+          const graph = buildPersonGraph(em, {
+            entityId: after.entity.id,
+            profileId: after.profile.id,
             organizationId: after.entity.organizationId,
             tenantId: after.entity.tenantId,
-            kind: 'person',
             displayName: after.entity.displayName,
             description: after.entity.description,
             ownerUserId: after.entity.ownerUserId,
@@ -748,13 +819,6 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
             nextInteractionIcon: after.entity.nextInteractionIcon,
             nextInteractionColor: after.entity.nextInteractionColor,
             isActive: after.entity.isActive,
-          })
-          em.persist(newEntity)
-          newProfile = em.create(CustomerPersonProfile, {
-            id: after.profile.id,
-            organizationId: after.entity.organizationId,
-            tenantId: after.entity.tenantId,
-            entity: newEntity,
             firstName: after.profile.firstName,
             lastName: after.profile.lastName,
             preferredName: after.profile.preferredName,
@@ -764,9 +828,9 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
             timezone: after.profile.timezone,
             linkedInUrl: after.profile.linkedInUrl,
             twitterUrl: after.profile.twitterUrl,
-            company: null,
           })
-          em.persist(newProfile)
+          newEntity = graph.entity
+          newProfile = graph.profile
         },
         () => syncLegacyPrimaryCompanyLink(em, newEntity, newProfile, after.profile.companyEntityId),
         () => syncEntityTags(em, newEntity, after.tagIds),
