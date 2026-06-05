@@ -181,6 +181,42 @@ describe('makeCreateRedo defaults', () => {
     expect(order).not.toContain('rollback')
   })
 
+  it('maps a Postgres unique-constraint violation thrown during flush to a 409 conflict', async () => {
+    const uniqueError = Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' })
+    const forked = {
+      findOne: async () => null,
+      create: (_cls: unknown, data: Record<string, unknown>) => ({ ...data }),
+      persist: () => undefined,
+      flush: async () => { throw uniqueError },
+    }
+    const em = { fork: () => forked }
+    const redo = makeCreateRedo<{ id: string }, { id: string }>({
+      entityClass: class {} as never,
+      buildResult: (entity) => ({ id: entity.id }),
+    })
+    const logEntry = { snapshotAfter: { id: 'row-1' } }
+    await expect(redo({ input: {}, ctx: buildContext(em), logEntry: logEntry as never })).rejects.toMatchObject({
+      status: 409,
+    })
+  })
+
+  it('propagates a non-unique flush error unchanged', async () => {
+    const otherError = Object.assign(new Error('some other failure'), { code: '23503' })
+    const forked = {
+      findOne: async () => null,
+      create: (_cls: unknown, data: Record<string, unknown>) => ({ ...data }),
+      persist: () => undefined,
+      flush: async () => { throw otherError },
+    }
+    const em = { fork: () => forked }
+    const redo = makeCreateRedo<{ id: string }, { id: string }>({
+      entityClass: class {} as never,
+      buildResult: (entity) => ({ id: entity.id }),
+    })
+    const logEntry = { snapshotAfter: { id: 'row-1' } }
+    await expect(redo({ input: {}, ctx: buildContext(em), logEntry: logEntry as never })).rejects.toBe(otherError)
+  })
+
   it('defaults getSnapshotId to snapshot.id and restores a surviving row in place', async () => {
     const surviving: Record<string, unknown> = { id: 'row-1', deletedAt: new Date(), isActive: false }
     const forked = {

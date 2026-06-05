@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext, CommandUndoLogEntry } from './types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { extractUndoPayload, type UndoPayload } from './undo'
 import { emitCrudSideEffects } from './helpers'
 import { withAtomicFlush } from './flush'
@@ -191,15 +191,22 @@ export function makeCreateRedo<
       ? (forkedEm: EntityManager, rowId: string) => config.findRow!({ em: forkedEm, ctx, id: rowId, snapshot })
       : undefined
     let entity!: TEntity
-    if (config.transaction) {
-      await withAtomicFlush(
-        em,
-        [async () => { entity = await restoreCreatedRow(em, config.entityClass, id, buildSeed, findRow) }],
-        { transaction: true },
-      )
-    } else {
-      entity = await restoreCreatedRow(em, config.entityClass, id, buildSeed, findRow)
-      await em.flush()
+    try {
+      if (config.transaction) {
+        await withAtomicFlush(
+          em,
+          [async () => { entity = await restoreCreatedRow(em, config.entityClass, id, buildSeed, findRow) }],
+          { transaction: true },
+        )
+      } else {
+        entity = await restoreCreatedRow(em, config.entityClass, id, buildSeed, findRow)
+        await em.flush()
+      }
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw conflict('Cannot redo: a record with the same unique key already exists.')
+      }
+      throw err
     }
     if (config.afterRestore) {
       await config.afterRestore({ em, ctx, entity, snapshot, logEntry })
