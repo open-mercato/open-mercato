@@ -27,6 +27,9 @@ Stabilize the develop branch feeding PR #2425 by fixing the failures observed in
 - PR #2606 CI run `27023888378`, job `79760208071`: `ephemeral-integration (8/15)` still failed `TC-CRM-CF-MULTI-EDIT-001` with updated multi-select values reading back as `[]`.
 - Manual catalog reproduction on fresh app `http://127.0.0.1:45643`: first product multi-select PUT read back values, second PUT left zero `custom_field_values` rows for the field, proving the defect was the shared EAV array replacement write, not the catalog route or query-index read path.
 - Custom-field targeted rerun log after shared EAV replacement fix: `/tmp/ci-2425-cf-multi-targeted.log` (3/3 passed with `--retries=0`: catalog product multi-select, CRM deal multi-select, CRM legacy bare-key negative contract).
+- Full ephemeral proof run 1 log: `/tmp/ci-2425-full-ephemeral-run-1-after-eav.log` on app `http://127.0.0.1:46227`, DB `localhost:32865`, `--retries=0`: 1421 passed, 70 skipped, 0 failed in 20.9m. Included in-suite passes for `TC-CAT-CF-MULTI-EDIT-001`, `TC-CRM-CF-MULTI-EDIT-001`, `TC-LOCK-OSS-014`, and catalog AI sheet specs.
+- Full ephemeral proof run 2 attempt log: `/tmp/ci-2425-full-ephemeral-run-2-after-eav.log` on app `http://127.0.0.1:45155`, DB `localhost:32866`, invalid/not counted: `TC-AUTH-003` and `TC-AUTH-007` exposed auth form hydration races where the first filled field was reset before submit, so no valid login/reset POST could complete.
+- Auth hydration targeted rerun log after reset form readiness marker: `/tmp/ci-2425-auth-targeted.log` (2/2 passed with `--retries=0`: `TC-AUTH-003`, `TC-AUTH-007`) on fresh app `http://127.0.0.1:45035`, DB `localhost:32868`.
 
 ## Implementation Plan
 
@@ -66,6 +69,7 @@ Stabilize the develop branch feeding PR #2425 by fixing the failures observed in
 - [x] 2.2 Run relevant unit/type checks — afd6a28e4
 - [x] 2.3 Stabilize catalog AI sheet integration flake — 0556a3127
 - [x] 2.4 Stabilize shared EAV multi-value replacement after PR #2606 CI failure — 881d42dcc
+- [x] 2.4a Stabilize auth form hydration interactions exposed by full proof run 2 — pending commit
 - [ ] 2.5 Run two independent full ephemeral integration runs
 
 ### Phase 3: PR
