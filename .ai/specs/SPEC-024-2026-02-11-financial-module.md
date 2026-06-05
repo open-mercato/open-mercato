@@ -6,8 +6,6 @@
 
 > **Note:** This specification documents the **planned Financial Management module** for the Open Mercato ERP system. It defines a three-layer architecture (Core Engine, Localization Contracts, Country Plugins) to support multi-country financial operations with country-specific tax, invoicing, payroll, and compliance requirements.
 
-> **Merge note (2026-06-05):** Reconciled with the platform-grounded draft `2026-06-02-financial-accounting-suite.md` (Odoo `account` deep-scan analysis). This document remains authoritative on every conflict; the draft contributed only material this spec lacked, marked with "📋 Merged from 2026-06 accounting draft". See [Open Mercato Platform Alignment](#open-mercato-platform-alignment) and Document History v2.4 for the adopted/not-adopted breakdown.
-
 ## Overview
 
 The Financial Management module serves as the backbone of the ERP system, centralizing all monetary transactions, providing real-time visibility into financial health, and ensuring regulatory compliance across multiple jurisdictions.
