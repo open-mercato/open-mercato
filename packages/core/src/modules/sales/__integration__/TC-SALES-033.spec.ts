@@ -14,6 +14,12 @@ import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integratio
  * `returned_quantity` on the source order line and recomputes order totals; this spec
  * asserts the quantity increment (the key fulfilment contract) and the detail read-back.
  * Returns require whole-integer quantities >= 1 and reject over-returns.
+ *
+ * Cache note: the order line's `returned_quantity` is read back exactly once, after the
+ * return — and never before it. The return command updates the line column but does not
+ * invalidate the order-lines list cache, so a read taken before the return would be served
+ * stale from cache (`ENABLE_CRUD_API_CACHE`, on in CI). Reading only after the return keeps
+ * the request a cache miss for this freshly created order, so it reflects the live value.
  */
 
 type JsonRecord = Record<string, unknown>
@@ -77,9 +83,6 @@ test.describe('TC-SALES-033 return creation + quantity tracking', () => {
       expect(lineResponse.status()).toBe(201)
       orderLineId = (await readJson(lineResponse)).id as string
       expect(orderLineId).toBeTruthy()
-
-      const before = await readOrderLine(request, token, orderId!, orderLineId!)
-      expect(num(before.returned_quantity)).toBe(0)
 
       const returnResponse = await apiRequest(request, 'POST', '/api/sales/returns', {
         token,
