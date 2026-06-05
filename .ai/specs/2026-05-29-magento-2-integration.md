@@ -36,6 +36,8 @@
 
 Magento 2.4 is a widely deployed eCommerce platform. Merchants using Open Mercato as their PIM/OMS backend need a reliable, automated path to push product catalog and inventory to Magento and receive orders back into OM for fulfillment.
 
+**Pre-implementation analysis**: `.ai/specs/analysis/ANALYSIS-009-magento2-integration.md` — feasibility study covering entity mapping matrix (products/sales/customers/inventory), key challenge gaps (EAV, MSI, multi-store, deletion detection, rate limiting), and the phasing rationale this spec was built on.
+
 **Market Reference: Akeneo Connector for Magento (AKENEO-MAGENTO)**
 - Adopted: cursor-based export with `updated_at` filter, attribute set auto-provisioning from attribute group definitions, configurable-product child linking via SKU, image gallery sync with existing media detection.
 - Adapted: OM uses its own DataSyncAdapter streaming contract instead of Akeneo's event-queue model.
@@ -56,7 +58,7 @@ Merchants managing products in OM need to publish them to a Magento storefront a
 
 ## Proposed Solution
 
-An Integration Bundle (`sync_magento`) with three specialized child adapters, each implementing the `DataSyncAdapter` contract registered in the `data_sync` hub.
+An Integration Bundle (`sync_magento`) with four specialized child adapters, each implementing the `DataSyncAdapter` contract registered in the `data_sync` hub.
 
 ```
 OM Catalog ──────export──────▶ sync_magento_products ──REST──▶ Magento Products
@@ -103,7 +105,7 @@ Each child uses the existing `data_sync` run/cursor/progress infrastructure. Att
 ```
 packages/sync-magento/
 └── src/modules/sync_magento/
-    ├── integration.ts                    # Bundle + 3 children
+    ├── integration.ts                    # Bundle + 4 children
     ├── index.ts                          # Module metadata
     ├── acl.ts                            # Features
     ├── setup.ts                          # Tenant init + env preset
@@ -300,7 +302,7 @@ DataSyncAdapter.streamExport('products', cursor, config)
 │   ├── For each OM custom field → ensure regular Magento attribute exists (Class A)
 │   └── For each OM option schema field → ensure configurable Magento attribute exists (Class B)
 │
-├── Fetch OM products where updated_at > cursor, in batches of 50
+├── Fetch OM products where updated_at > cursor, in batches of 50 (OM DB page size — distinct from the Magento async-bulk batch size of 150 configured via `input.batchSize`)
 │
 └── For each product:
     ├── CategoryService.ensureCategoryTree(product.categoryIds)
@@ -493,7 +495,7 @@ class MagentoSyncSettings {
   attribute_code_overrides: AttributeCodeOverride[] | null
 
   // Image sync options
-  // When false: images are skipped in product sync; run sync_magento_images child separately
+  // When false: images are skipped in product sync entirely (use for onboarding or catalogs managed directly in Magento)
   @Property({ default: true })
   image_sync_enabled: boolean
 
@@ -562,6 +564,8 @@ export const syncSettingsSchema = z.object({
 ### `MagentoPendingPush` (new entity for debounce accumulator)
 
 ```typescript
+// Ephemeral accumulator: rows are consumed and deleted atomically by the worker.
+// No updated_at/deleted_at columns are needed — this is intentional, not an oversight.
 @Entity({ tableName: 'sync_magento_pending_push' })
 @Index({ properties: ['tenant_id', 'organization_id', 'entity_type', 'product_id'], options: { unique: true } })
 class MagentoPendingPush {
@@ -598,7 +602,7 @@ The existing `SyncExternalIdMapping` entity from `packages/core/src/modules/inte
 
 | `integrationId` | `internalEntityType` | `internalEntityId` | `externalId` | Notes |
 |---|---|---|---|---|
-| `sync_magento` | `catalog.product` | OM product UUID | Magento `entity_id` | — |
+| `sync_magento` | `catalog.product` | OM product UUID | Magento sanitized SKU | Used as the lookup key for all SKU-keyed bulk calls (prices, inventory, order line resolution) |
 | `sync_magento` | `catalog.category` | OM category UUID | Magento category ID | — |
 | `sync_magento` | `catalog.attachment` | OM attachment UUID | Magento media entry ID | Image re-upload avoidance |
 | `sync_magento` | `sales.order` | OM order UUID | Magento `increment_id` | Order deduplication |
@@ -617,7 +621,7 @@ lookupLocalId(integrationId, internalEntityType, externalId, { organizationId, t
 storeExternalIdMapping(integrationId, internalEntityType, localId, externalId, { organizationId, tenantId }): Promise<SyncExternalIdMapping>
 ```
 
-There is **no `delete` method** on the service. For the `type_id` mismatch case (delete mapping after Magento product deletion), use `em.nativeDelete(SyncExternalIdMapping, { integrationId: 'sync_magento', internalEntityType: 'catalog.product', internalEntityId: productId, organizationId, tenantId })` directly.
+There is **no `delete` method** on the service. **This is a gap that must be resolved before implementation.** A `deleteExternalIdMapping(integrationId, internalEntityType, localId, scope)` method must be added to `externalIdMappingService` in `data_sync/di.ts`. All three deletion sites in this spec (Step 3.1a `type_id` mismatch handler, Phase 7 delete worker, Phase 7 attachment cleanup) must route through this service method — using raw `em.nativeDelete(SyncExternalIdMapping, ...)` directly from `sync_magento` would violate module isolation (Root AGENTS: "NO direct ORM relationships between modules").
 
 ---
 
@@ -856,7 +860,7 @@ Images cannot use the bulk API. Mitigation via controlled parallelism:
 - **Intra-product**: images within a single product uploaded sequentially (Magento uses upload order for gallery position assignment).
 - **Skip unchanged**: `SyncExternalIdMapping` for `catalog.attachment` ensures already-uploaded images are never re-sent.
 
-**Effect**: 10 000 products × 3 images × 500ms, concurrency 5 → ~5 000 sequential batches of 5 × 500ms × 3 = **~25 min** (vs 4h sequential).
+**Effect**: 10 000 products / 5 concurrency = 2 000 rounds × (3 images × 500ms per product) = **~50 min** (vs 4h sequential). Consistent with the performance table estimate of ~60–90 min total (data + images).
 
 ### Strategy 3: Decoupled Image Sync Phase
 
@@ -1074,7 +1078,7 @@ All changes are additive:
 #### Step 3.1a: `type_id` Immutability Handling
 Magento's `type_id` (`simple` vs `configurable`) is **immutable after creation**. If an OM product gains variants after its initial export as a simple product, the mapper must:
 1. Check existing Magento product `type_id` via `GET /rest/V1/products/{sku}`
-2. If `type_id` mismatch (e.g. existing is `simple`, expected is `configurable`): log a warning to `integrationLogService`, delete the Magento product (`DELETE /rest/V1/products/{sku}`), remove the stale mapping via `em.nativeDelete(SyncExternalIdMapping, { integrationId: 'sync_magento', internalEntityType: 'catalog.product', internalEntityId: productId, organizationId, tenantId })` (no delete method on service), then proceed with fresh creation as configurable
+2. If `type_id` mismatch (e.g. existing is `simple`, expected is `configurable`): log a warning to `integrationLogService`, delete the Magento product (`DELETE /rest/V1/products/{sku}`), remove the stale mapping via `externalIdMappingService.deleteExternalIdMapping('sync_magento', 'catalog.product', productId, { organizationId, tenantId })` (see data-model note — this method must be added to the service before implementation), then proceed with fresh creation as configurable
 3. Note: deletion also removes associated images and Magento-side metadata — document this trade-off for operators
 
 This check runs as part of `product-mapper.ts` before any upsert call.
@@ -1180,7 +1184,7 @@ This check runs as part of `product-mapper.ts` before any upsert call.
   - Fetch current OM prices at execution time (not from enqueued payload)
   - Dispatch to same bulk API calls as adapter
 
-**Testable:** Price event subscriber skips unmapped products. Subscriber enqueues without field-change detection. Worker fetches current prices at execution time. Duplicate enqueues with same jobId are no-ops (or accumulator deduplicates).
+**Testable:** Price event subscriber skips unmapped products. Subscriber enqueues without field-change detection. Worker fetches current prices at execution time. DB accumulator unique constraint prevents duplicate pending rows for the same product.
 
 #### Step 3.6.3: Special Price Deletion
 - When OM product has no special price (or special price expired), send `POST /rest/V1/products/special-prices-delete` per store view
@@ -1232,7 +1236,7 @@ This check runs as part of `product-mapper.ts` before any upsert call.
   - MSI mode: `PUT /rest/V1/inventory/source-items` batch ≤500
   - Legacy mode: sequential `PUT /rest/V1/stockItems/{sku}` per SKU, 10ms delay
 
-**Testable:** Subscriber enqueues without field-change detection. Mapped product check uses `externalIdMappingService`. Worker fetches current stock at execution time. BullMQ jobId prevents duplicate jobs.
+**Testable:** Subscriber enqueues without field-change detection. Mapped product check uses `externalIdMappingService`. Worker fetches current stock at execution time. DB accumulator unique constraint prevents duplicate pending rows for the same product.
 
 ---
 
@@ -1281,13 +1285,13 @@ This check runs as part of `product-mapper.ts` before any upsert call.
 
 #### Step 5.2: Order Mapper
 - `lib/order-mapper.ts` — `mapMagentoOrderToOm(magentoOrder, omProductMap, settings)`:
-  - **Configurable item filtering**: discard items where `product_type === 'configurable'` or `parent_item_id !== null` is the parent record — keep only child simples to avoid double-counting lines
+  - **Configurable item filtering**: discard items where `product_type === 'configurable'`. In Magento order items the configurable parent has `parent_item_id === null` and carries no usable SKU/quantity; child simples have `parent_item_id` set and carry the actual SKU and quantity. Filter only by `product_type === 'configurable'` — filtering on `parent_item_id !== null` would drop the children (the opposite of the intent).
   - **Guest orders**: `customer_id === 0` or `null` → always use create-or-link flow by `customer_email`
   - Customer: resolve by email (case-insensitive) via customers API; create if `create_or_link` or `create_only`; skip order with warning if `skip` strategy and customer not found
   - Addresses: map `billing_address` / `shipping_address`; `firstname + ' ' + lastname` → OM `name` field; map all address fields (street array → join with newline, region → state)
   - Lines: SKU lookup (for each filtered item):
     1. `externalIdMappingService` lookup: `{ integrationId: 'sync_magento', internalEntityType: 'catalog.product', externalId: sanitizedSku }`
-    2. Fallback: `em.findOne(CatalogProduct, { sku: item.sku, organizationId, tenantId })` — catches products existing in OM but not yet exported to Magento
+    2. Fallback: `catalogProductService.findBySku(item.sku, { organizationId, tenantId })` — catches products in OM not yet exported to Magento. **Note**: accessing `CatalogProduct` via raw `em.findOne` from `sync_magento` violates module isolation; the catalog module must expose a service method for cross-module SKU lookups before Phase 5 can be implemented.
     3. If still not found: store as unresolved line with raw `sku`, `name`, `price` from Magento — never drop the line
   - **Amounts**: use `base_grand_total`, `base_subtotal`, `base_tax_amount`, `base_shipping_amount` (store base currency). Store `order_currency_code` and `grand_total` as order metadata for reference.
   - Channel: `default_order_channel_id` from settings
@@ -1298,10 +1302,12 @@ This check runs as part of `product-mapper.ts` before any upsert call.
 |---|---|---|
 | `base_currency_code` | `currencyCode` | Required |
 | `increment_id` | `externalReference` | For dedup reference |
-| `base_grand_total` | `total` / totals fields | Use base currency |
-| `base_subtotal` | subtotal field | |
-| `base_tax_amount` | tax amount field | |
-| `base_shipping_amount` | shipping amount | |
+| `base_grand_total` | `totalGrossAmount` | Final total incl. tax, shipping, discounts |
+| `base_grand_total - base_tax_amount` | `totalNetAmount` | Derived; assumes tax-exclusive Magento pricing (default) |
+| `base_subtotal` | `subtotalNetAmount` | Pre-tax product subtotal after discounts |
+| `base_subtotal + base_tax_amount` | `subtotalGrossAmount` | Approximation — item subtotal gross |
+| `base_shipping_amount` | `shippingNetAmount` | Shipping before tax |
+| `base_tax_amount` | `taxAmount` | Total order tax |
 | resolved customer UUID | `customerEntityId` | From email lookup |
 | `billing_address` JSON | `billingAddressSnapshot` | Full JSON snapshot (not address ID) |
 | `shipping_address` JSON | `shippingAddressSnapshot` | Full JSON snapshot |
@@ -1311,14 +1317,21 @@ This check runs as part of `product-mapper.ts` before any upsert call.
 | `{ order_currency_code, grand_total }` | `metadata` | For reference |
 | `organizationId`, `tenantId` | scope fields | Required on command |
 
-**Testable:** Configurable parent items filtered out. Guest order handled. Address `firstname+lastname` concatenated. SKU fallback via `em.findOne` finds unsynced products. Base currency amounts used. Unresolved lines preserved. `OrderCreateInput` scope fields populated.
+**Tax mode assumption**: Magento stores `base_subtotal` as a pre-tax amount in its default configuration (tax-exclusive pricing). The net/gross derivations above use this assumption. A future `tax_mode: 'exclusive' | 'inclusive'` setting in `MagentoSyncSettings` should be added if merchants with tax-inclusive storefronts require accurate gross subtotals.
+
+**Customer PII** (name, email, billing/shipping addresses) written to the sales module is covered by the sales module's existing `defaultEncryptionMaps` — no separate `encryption.ts` entry is needed in `sync_magento`.
+
+**Testable:** Configurable parent items filtered out (filter is `product_type === 'configurable'` only, not `parent_item_id`). Guest order handled. Address `firstname+lastname` concatenated. SKU fallback via `catalogProductService.findBySku` finds unsynced products. Base currency amounts used. Unresolved lines preserved. `OrderCreateInput` scope fields populated.
 
 #### Step 5.3: Order Deduplication & Command
 - Dedup is handled in `streamImport` via `action: 'skip'` (Step 5.1) — orders already in `externalIdMappingService` produce `action: 'skip'` items and are not passed to the mapper
-- For items with `action: 'create'`: call `sales.order.create` command with mapped payload (including `organizationId`, `tenantId` scope)
-- After successful creation: store mapping via `externalIdMappingService.storeExternalIdMapping('sync_magento', 'sales.order', omOrderId, magentoOrder.increment_id, { organizationId, tenantId })`
+- For items with `action: 'create'`:
+  - **Crash-recovery pre-check** (atomicity guard): before calling the create command, query `salesOrderService.findByExternalReference(magentoOrder.increment_id, { organizationId, tenantId })`. If an order already exists (created in a previous run that crashed before `storeExternalIdMapping` was called), skip the command and call `storeExternalIdMapping` directly with the recovered ID. This prevents the non-atomic create+map sequence from producing duplicates on retry.
+  - Call `sales.orders.create` command with mapped payload (including `organizationId`, `tenantId` scope)
+  - After successful creation: store mapping via `externalIdMappingService.storeExternalIdMapping('sync_magento', 'sales.order', omOrderId, magentoOrder.increment_id, { organizationId, tenantId })`
+  - **Note**: `salesOrderService.findByExternalReference` is a cross-module call — the sales module must expose this method before Phase 5 can be implemented.
 
-**Testable:** Re-running import does not create duplicate orders. Idempotent. Mapping stored after creation.
+**Testable:** Re-running import does not create duplicate orders. Crash-recovery: if an order with the same `externalReference` exists before the create command fires, the command is skipped and the mapping is stored directly. Idempotent. Mapping stored after creation.
 
 ---
 
@@ -1356,8 +1369,8 @@ This check runs as part of `product-mapper.ts` before any upsert call.
   - `DELETE /rest/V1/products/{magentoSku}`
   - On 404: log info (already deleted in Magento) — treat as success
   - On success:
-    - `em.nativeDelete(SyncExternalIdMapping, { integrationId: 'sync_magento', internalEntityType: 'catalog.product', internalEntityId: productId, organizationId, tenantId })` — removes product mapping
-    - Also clean up `catalog.attachment` mappings for the same product: `em.nativeDelete(SyncExternalIdMapping, { integrationId: 'sync_magento', internalEntityType: 'catalog.attachment', internalEntityId: { $in: productAttachmentIds }, organizationId, tenantId })`
+    - `externalIdMappingService.deleteExternalIdMapping('sync_magento', 'catalog.product', productId, { organizationId, tenantId })` — removes product mapping
+    - Also clean up `catalog.attachment` mappings: `externalIdMappingService.deleteExternalIdMappings('sync_magento', 'catalog.attachment', productAttachmentIds, { organizationId, tenantId })` (batch delete variant — must be added to the service alongside the single-record delete method)
     - Emit `sync_magento.product.deleted` event
   - **Warning**: Magento cascades the deletion — all child simples (for configurable products), Magento-side media entries, and customer reviews are permanently removed. Log a warning with the SKU before executing.
 
@@ -1408,7 +1421,7 @@ For internalEntityType 'catalog.product':
     ├── Log warning via integrationLogService: { action: 'deleted_externally', magentoSku, productId }
     ├── Emit sync_magento.product.deleted_externally event
     └── If deleted_externally_action = 'disable_product':
-            Update OM product is_active → false via catalog.product.update command
+            Update OM product is_active → false via catalog.products.update command
             (does NOT remove the SyncExternalIdMapping row — product may be re-activated and re-exported)
 ```
 
@@ -1666,7 +1679,7 @@ The implementation MUST ship with integration coverage for the following paths.
 - `packages/ui/AGENTS.md` — CrudForm, DataTable, design system
 - `packages/queue/AGENTS.md` — background workers, concurrency
 - `packages/events/AGENTS.md` — event bus, SSE, subscribers
-- `.ai/skills/integration-builder/SKILL.md` — provider scaffolding guide
+- `.ai/skills/om-integration-builder/SKILL.md` — provider scaffolding guide
 - `AGENTS.md` (root) → `external/official-modules/` section — official module workflow, activation, submodule git rules
 - `BACKWARD_COMPATIBILITY.md` — 13 contract surfaces
 
@@ -1674,7 +1687,7 @@ The implementation MUST ship with integration coverage for the following paths.
 
 | Rule Source | Rule | Status | Notes |
 |---|---|---|---|
-| Root AGENTS | No direct ORM relationships between modules | ✅ PASS | `MagentoSyncSettings` uses FK IDs (`tenant_id`, `organization_id`, `default_order_channel_id`) not ORM relations |
+| Root AGENTS | No direct ORM relationships between modules | ⚠️ PENDING | `MagentoSyncSettings` uses FK IDs — PASS. Three cross-module gaps require resolution before implementation: (1) `externalIdMappingService` needs a `deleteExternalIdMapping` method (data-sync module, see data-model note); (2) catalog module needs `catalogProductService.findBySku` for order-line fallback (Step 5.2); (3) sales module needs `salesOrderService.findByExternalReference` for atomicity guard (Step 5.3) |
 | Root AGENTS | Filter by `organization_id` | ✅ PASS | All settings queries scope by `tenant_id + organization_id` |
 | Root AGENTS | Validate all inputs with Zod | ✅ PASS | `syncSettingsSchema`, `channelStockMappingSchema`, `channelStoreMappingSchema` declared |
 | Root AGENTS | API routes MUST export `openApi` | ✅ PASS | Settings GET/PUT and validate route all export `openApi` |
@@ -1683,9 +1696,9 @@ The implementation MUST ship with integration coverage for the following paths.
 | Root AGENTS | Use `findWithDecryption` for encrypted data | ✅ PASS | Credentials read via `integrationCredentialsService` (existing encrypted credential store) |
 | Root AGENTS | Never log credentials | ✅ PASS | Client factory resolves credentials per call; integration log service strips secrets |
 | Root AGENTS | Every dialog: `Cmd+Enter` submit, `Escape` cancel | ✅ PASS | Settings form in widget follows convention |
-| Root AGENTS | Keep `pageSize ≤ 100` | ✅ PASS | Order import pages at 100; product batches at 50 |
+| Root AGENTS | Keep `pageSize ≤ 100` | ✅ PASS | Order import pages at 100; OM DB product fetch at 50 per page (Magento async-bulk batch is 150 — a separate, outbound layer) |
 | Root AGENTS | No hardcoded user-facing strings | ✅ PASS | All strings via `i18n/en.json` |
-| Root AGENTS | Design System — semantic tokens only | ✅ PASS | Settings UI uses `<CrudForm>`, `<DataTable>`, `<Alert>`, `<StatusBadge>`; no hardcoded status colors |
+| Root AGENTS | Design System — semantic tokens only | ✅ PASS | Settings UI uses `<CrudForm>` and dropdowns — no hardcoded status colors in the described UI; `<Alert>`/`<StatusBadge>` not used in this spec's UI section and removed from the claim |
 | official-modules | Module lives in `open-mercato/official-modules`; no core changes required → single PR | ✅ PASS | All platform contracts consumed as-is; no core module modified |
 | official-modules | Activated via `official-modules.json`, NOT via manual `modules.ts` edit | ✅ PASS | `"sync_magento": "activated"` entry; `official-modules.generated.ts` regenerated by postinstall |
 | Integration Builder | New provider in own npm workspace | ✅ PASS | `packages/sync-magento/` workspace in `open-mercato/official-modules` repo |
@@ -1710,8 +1723,8 @@ The implementation MUST ship with integration coverage for the following paths.
 |---|---|---|
 | Data models match API contracts | ✅ Pass | `MagentoSyncSettings` fields match settings API request/response |
 | API contracts match UI/UX section | ✅ Pass | Settings UI consumes `GET/PUT /api/sync-magento/settings` and `POST /api/sync-magento/validate` |
-| Risks cover all write operations | ✅ Pass | Magento product upsert, configurable product linking, inventory push, order import, attribute creation all covered |
-| Commands defined for all mutations | ✅ Pass | Order creation via `sales.order.create` command; product export mutations go through `DataSyncAdapter`/queue (batch operation pattern, not CRUD) |
+| Risks cover all write operations | ⚠️ PENDING | Magento product upsert, configurable linking, inventory push, attribute creation covered. Gap added: duplicate-order risk from non-atomic create+map (Step 5.3 crash-recovery guard addresses this) |
+| Commands defined for all mutations | ⚠️ PENDING | Order creation via `sales.orders.create` command (corrected from `sales.order.create`); reconciliation disable via `catalog.products.update` (corrected from `catalog.product.update`). Both command IDs verified against origin/develop |
 | Class A vs Class B attribute distinction explicit | ✅ Pass | Separate provisioning paths documented; configurable attribute requirements (`scope: global`, `is_configurable: true`, `frontend_input: select`) spelled out |
 | Image dedup strategy documented | ✅ Pass | `SyncExternalIdMapping` + `updated_at` comparison |
 | Order deduplication strategy documented | ✅ Pass | `SyncExternalIdMapping` by `increment_id` |
@@ -1723,17 +1736,17 @@ The implementation MUST ship with integration coverage for the following paths.
 | `DataSyncAdapter.getMapping()` implemented | ✅ Pass | All 4 adapters implement required `getMapping()` returning minimal DataMapping |
 | `ExportBatch`/`ImportBatch` contract | ✅ Pass | All adapters yield correct shapes; Steps 3.1, 3.6.1, 4.1, 5.1 |
 | `SyncExternalIdMapping` correct field names | ✅ Pass | All references use `internalEntityType`/`internalEntityId`/`integrationId: 'sync_magento'` |
-| `externalIdMappingService` via DI | ✅ Pass | No raw ORM queries on SyncExternalIdMapping; DI service used throughout |
+| `externalIdMappingService` via DI | ⚠️ PENDING | Service used for all lookups/creates — PASS. Three deletion sites previously instructed `em.nativeDelete` (module-isolation violation); spec now routes all deletions through `externalIdMappingService.deleteExternalIdMapping` which must be added to the service |
 | `POST /api/data_sync/run` correct schema | ✅ Pass | Full schema with `entityType`+`direction` documented; entityType registry table added |
 | Debounce/coalesce implementable | ✅ Pass | DB accumulator table `sync_magento_pending_push` + delayed worker; `jobId` not used (verified: not in queue EnqueueOptions) |
 | Subscriber field-change detection removed | ✅ Pass | Subscribers enqueue on any product update; workers fetch current values |
-| `sales.order.create` field mapping | ✅ Pass | Full `OrderCreateInput` mapping table in Step 5.2; scope fields included |
+| `sales.orders.create` field mapping | ⚠️ PENDING | Command ID corrected to `sales.orders.create`. Totals mapping corrected to use actual `orderTotalsSchema` fields (`totalGrossAmount`, `totalNetAmount`, `subtotalNetAmount`, `subtotalGrossAmount`, `shippingNetAmount`, `taxAmount`). Tax-mode assumption documented. |
 | Async bulk polling non-blocking | ✅ Pass | Re-enqueue pattern with `magento-bulk-poll` deferred job; no thread-blocking poll loops |
 | `deleted_at` + `msi_mode_detected` on entity | ✅ Pass | Both columns added to `MagentoSyncSettings` |
 | `sync_magento.view` ACL feature | ✅ Pass | Declared in `acl.ts`; granted to employee+admin in `defaultRoleFeatures`; Step 1.1 |
 | `sharp` optional dependency | ✅ Pass | `optionalDependency`; graceful fallback when not installed |
 | `p-limit` explicit dependency | ✅ Pass | Listed in Step 1.1 package.json |
-| `productRepository.findBySku()` removed | ✅ Pass | Replaced with `em.findOne(CatalogProduct, { sku, organizationId, tenantId })` |
+| Cross-module product SKU lookup | ⚠️ PENDING | `em.findOne(CatalogProduct)` (module-isolation violation) replaced with `catalogProductService.findBySku()` — service method to be added to catalog module |
 | Option ID lookup (select attrs) | ✅ Pass | Provisioning cache built after each select/multiselect/configurable attribute; used in product-mapper |
 | attribute_code sanitization rules | ✅ Pass | Sanitization function + collision detection documented in Architecture and Step 2.1 |
 | Product visibility flags | ✅ Pass | Parent configurable `visibility:4`; child simples `visibility:1`; Step 3.2/3.3 |
@@ -1742,7 +1755,7 @@ The implementation MUST ship with integration coverage for the following paths.
 | MSI detection logic | ✅ Pass | `GET /rest/V1/inventory/sources` probe with 404→legacy fallback; Step 4.1 |
 | Order configurable item dedup | ✅ Pass | Filter `product_type==='configurable'` items in Step 5.2 |
 | Order currency (base vs order) | ✅ Pass | `base_*` amounts used; `order_currency_code` stored as metadata; Step 5.2 |
-| SKU fallback lookup in order import | ✅ Pass | Step 5.2: externalIdMappingService.lookupLocalId → em.findOne(CatalogProduct) fallback |
+| SKU fallback lookup in order import | ⚠️ PENDING | Step 5.2: `externalIdMappingService.lookupLocalId` → `catalogProductService.findBySku` fallback (module-isolation-compliant replacement; catalog module must expose the method) |
 | Guest order handling | ✅ Pass | `customer_id=0/null` → create-or-link by email; Step 5.2 |
 | Address name field mapping | ✅ Pass | `firstname + ' ' + lastname` → OM `name`; Step 5.2 |
 | Root category ID detection | ✅ Pass | `GET /rest/V1/store/storeGroups` probe; Step 2.3 |
@@ -1752,17 +1765,44 @@ The implementation MUST ship with integration coverage for the following paths.
 
 ### Non-Compliant Items
 
-None.
+| Item | Severity | Resolution required before implementation |
+|---|---|---|
+| `externalIdMappingService` missing `deleteExternalIdMapping` / `deleteExternalIdMappings` | High | Add methods to `data_sync` service — all 3 deletion sites (Step 3.1a, Phase 7 delete worker, Phase 7 attachment cleanup) must route through them |
+| `catalogProductService.findBySku` not exposed | High | Catalog module must expose a cross-module-safe SKU lookup method before Phase 5 |
+| `salesOrderService.findByExternalReference` not exposed | High | Sales module must expose this method for the Step 5.3 crash-recovery pre-check |
+| `externalId` for `catalog.product` was documented as `entity_id` | High | Corrected to sanitized SKU — already fixed in this review pass |
+| Configurable item filter was inverted | High | Corrected to `product_type === 'configurable'` only — already fixed |
+| Command IDs `sales.order.create` / `catalog.product.update` | High | Corrected to `sales.orders.create` / `catalog.products.update` — already fixed |
+| `OrderCreateInput` totals used non-existent `total` field | Medium | Corrected to `orderTotalsSchema` fields with tax-mode assumption — already fixed |
+| No Undo/rollback contract; duplicate-order hole | Medium | Step 5.3 crash-recovery guard specified; `salesOrderService.findByExternalReference` pre-check required |
+| Stale `jobId` assertions in Testable sections | Medium | Removed — already fixed in this review pass |
+| "three" child adapters in Proposed Solution | Low | Corrected to "four" — already fixed |
+| Image-throughput math (~25 min) inconsistent with performance table | Low | Corrected to ~50 min — already fixed |
 
 ### Verdict
 
-**Fully compliant** — ready for implementation.
+**Implementation-blocked on three cross-module service method gaps** — `deleteExternalIdMapping` in `data_sync`, `catalogProductService.findBySku` in `catalog`, and `salesOrderService.findByExternalReference` in `sales`. Spec is otherwise architecturally sound and correct. All other findings from the spec review have been resolved in this pass.
 
 ---
 
 ## Changelog
 
-### 2026-06-05
+### 2026-06-05 (spec review pass — low findings)
+- L1: "Bundle + 3 children" comment in Component Layout corrected to 4 (Proposed Solution was already fixed; this was the last stale reference)
+- L2: Skill path corrected: `.ai/skills/integration-builder/SKILL.md` → `.ai/skills/om-integration-builder/SKILL.md`
+- L3: `image_sync_enabled` entity comment reworded — removed reference to out-of-scope `sync_magento_images` child
+- L4: Batch-size ambiguity resolved — flow diagram and compliance matrix now clarify "50" is the OM DB fetch page size, distinct from the Magento async-bulk batch size of 150
+- Cross-link to `.ai/specs/analysis/ANALYSIS-009-magento2-integration.md` added to Overview section for traceability
+
+### 2026-06-05 (spec review pass)
+- Spec review findings resolved: (A1) `externalId` for `catalog.product` corrected to sanitized SKU (was `entity_id` — would have broken all SKU-keyed bulk calls); (A2) configurable item filter corrected to `product_type === 'configurable'` only (inverted filter would have dropped child simples); (A3) command ID `sales.order.create` → `sales.orders.create` (verified against origin/develop); (A4) command ID `catalog.product.update` → `catalog.products.update`; (A5) `OrderCreateInput` totals corrected to actual `orderTotalsSchema` fields (`totalGrossAmount`, `totalNetAmount`, `subtotalNetAmount`, `subtotalGrossAmount`, `shippingNetAmount`, `taxAmount`) with tax-mode assumption documented; (A6/A7) stale `jobId` assertions removed from Testable sections for price-push and inventory-push; (A7) "three" → "four" child adapters; (A8) image-throughput math corrected to ~50 min
+- Module isolation fixes: `em.nativeDelete(SyncExternalIdMapping)` replaced throughout with `externalIdMappingService.deleteExternalIdMapping()` (service method to be added); `em.findOne(CatalogProduct)` replaced with `catalogProductService.findBySku()` (catalog module to expose); data-model note updated to document the service gap; compliance rows updated to ⚠️ PENDING for all three cross-module gaps
+- Order import atomicity: Step 5.3 crash-recovery pre-check added (`salesOrderService.findByExternalReference` before `sales.orders.create`); duplicate-order risk documented; sales module must expose the method
+- Tax/PII: `OrderCreateInput` tax-mode assumption note added; customer PII note added (covered by sales module encryption maps)
+- `MagentoPendingPush` ephemeral comment added explaining intentional absence of `updated_at`/`deleted_at`
+- Non-Compliant Items table added; verdict updated to reflect three implementation-blocking cross-module service gaps
+
+### 2026-06-05 (official-modules deployment model)
 - Official-modules deployment model: module lives in `open-mercato/official-modules` repo (not in the main monorepo); added "Repository & Activation" section with submodule setup, `official-modules.json` activation, and post-activation commands; updated Phase 1 Step 1.1 to use `yarn official-modules add` + `official-modules.json` instead of manual `apps/mercato` edits; anchored component layout and file manifest paths to the official-modules repo root; added official-modules compliance rows to the compliance matrix; noted single-repo PR workflow (no cross-cutting core changes required)
 - Phase 7 (Deletion Detection): Step 7.1 — event-driven OM→Magento deletion push (`catalog.product.deleted` subscriber + `magento-product-delete` worker, cleans up all SyncExternalIdMapping rows); Step 7.2 — opt-in daily Magento→OM reconciliation scan (paginated SKU fetch + diff, configurable `deleted_externally_action: log_only|disable_product`); new settings fields `reconciliation_enabled`, `reconciliation_frequency_days`, `deleted_externally_action`; new events `sync_magento.product.deleted` + `sync_magento.product.deleted_externally`; 3 new files in manifest; deletion-not-propagated risk entry
 - Strategy 1 clarification: Magento 2.4.3+ global array input limit of 20 items/request on synchronous endpoints — documents why async bulk API is used for products and why dedicated bulk-by-design endpoints (base-prices, source-items) can safely use larger batch sizes
