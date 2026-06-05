@@ -6,7 +6,15 @@ import { loadQueryIndexRowScope, resolveQueryIndexRecordScope } from '../lib/sub
 export const metadata = { event: 'query_index.upsert_one', persistent: false }
 
 export default async function handle(payload: any, ctx: { resolve: <T=any>(name: string) => T }) {
-  const em = ctx.resolve<any>('em')
+  // Run index maintenance on a FORKED EntityManager (fresh identity map + UnitOfWork)
+  // so it can never disturb the originating CRUD write's `em`. The data engine awaits
+  // this emit for read-your-writes consistency, which means the subscriber runs
+  // synchronously on the request `em`; sharing it would let our `em.find` / raw
+  // `getKysely()` queries reset the caller's UoW change-tracking and silently drop the
+  // caller's pending write (e.g. the deal's `setCustomFields` insert). The fork reads
+  // the same committed DB rows via the shared connection but keeps its own UoW.
+  const baseEm = ctx.resolve<any>('em')
+  const em = typeof baseEm?.fork === 'function' ? baseEm.fork() : baseEm
   const entityType = String(payload?.entityType || '')
   const recordId = String(payload?.recordId || '')
   if (!entityType || !recordId) return

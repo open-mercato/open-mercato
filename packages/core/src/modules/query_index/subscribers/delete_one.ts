@@ -8,7 +8,11 @@ import { loadQueryIndexRowScope, resolveQueryIndexRecordScope } from '../lib/sub
 export const metadata = { event: 'query_index.delete_one', persistent: false }
 
 export default async function handle(payload: any, ctx: { resolve: <T=any>(name: string) => T }) {
-  const em = ctx.resolve<any>('em')
+  // Forked EntityManager — this awaited subscriber runs synchronously on the request
+  // `em`; isolating it prevents our queries/writes from resetting the originating CRUD
+  // write's UnitOfWork and dropping its pending changes. See upsert_one.ts for detail.
+  const baseEm = ctx.resolve<any>('em')
+  const em = typeof baseEm?.fork === 'function' ? baseEm.fork() : baseEm
   const entityType = String(payload?.entityType || '')
   const recordId = String(payload?.recordId || '')
   if (!entityType || !recordId) return

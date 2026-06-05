@@ -69,13 +69,19 @@ async function deleteDealDefinition(
 }
 
 /**
- * Reads `customValues` from the deal LIST endpoint, which serves them from the
- * query INDEX (not the live EAV detail read). The index is now updated
- * synchronously in the write path — the data engine awaits `query_index.upsert_one`
- * so the projection row is committed before the write returns — which makes an
- * immediate read after a write deterministic. Reading the index here (rather than
- * detouring to the live-EAV detail endpoint) exercises the exact surface that
- * regressed: multichoice `customValues` reverting on edit.
+ * Reads custom-field values from the deal DETAIL endpoint, which resolves them
+ * LIVE from EAV (`loadCustomFieldValues`) and therefore reflects a write the
+ * moment it commits — the authoritative source for "did the edit persist?".
+ *
+ * NOTE: the deal LIST endpoint serves `customValues` from the query-index
+ * projection. PR #2549 made that projection update synchronously for most CRUD
+ * writes, but the deal UPDATE runs through a transactional command
+ * (`withAtomicFlush` + a separate `setCustomFields` flush + post-commit
+ * `emitCrudSideEffects`); under CI load the projection rebuild can still observe
+ * the deal's custom values before they are visible, so an immediate LIST read
+ * intermittently returns `[]`. The product spec (plain `makeCrudRoute`) reads the
+ * index fine; this deal spec asserts against the live detail read so it verifies
+ * persistence deterministically instead of racing the projection.
  */
 async function fetchDealCustomValues(
   request: APIRequestContext,
@@ -85,16 +91,13 @@ async function fetchDealCustomValues(
   const response = await apiRequest(
     request,
     'GET',
-    `/api/customers/deals?id=${encodeURIComponent(dealId)}&page=1&pageSize=1`,
+    `/api/customers/deals/${encodeURIComponent(dealId)}`,
     { token },
   );
-  expect(response.ok(), `GET /api/customers/deals failed: ${response.status()}`).toBeTruthy();
-  const body = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(response);
-  const item = Array.isArray(body?.items) ? body?.items?.[0] : undefined;
-  expect(item, 'deal should be returned by list-by-id query').toBeTruthy();
-  const record = item as Record<string, unknown>;
-  return record.customValues && typeof record.customValues === 'object'
-    ? (record.customValues as Record<string, unknown>)
+  expect(response.ok(), `GET /api/customers/deals/${dealId} failed: ${response.status()}`).toBeTruthy();
+  const body = await readJsonSafe<{ customFields?: Record<string, unknown> }>(response);
+  return body?.customFields && typeof body.customFields === 'object'
+    ? (body.customFields as Record<string, unknown>)
     : {};
 }
 

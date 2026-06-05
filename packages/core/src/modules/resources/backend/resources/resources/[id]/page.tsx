@@ -85,6 +85,13 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   const searchParams = useSearchParams()
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
+  // Capture the record (incl. its optimistic-lock `updatedAt`) exactly ONCE per
+  // resource. The load effect's deps include identity-unstable values (`t`,
+  // `resolveFieldsetCode`), so without this guard a re-render would re-fetch and
+  // overwrite `initialValues.updatedAt` with a newer server value mid-edit —
+  // silently defeating optimistic locking (a concurrent change would no longer be
+  // detected) and making the conflict flaky.
+  const loadedResourceIdRef = React.useRef<string | null>(null)
   const [tags, setTags] = React.useState<TagOption[]>([])
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
   const [activeDetailTab, setActiveDetailTab] = React.useState<'notes' | 'activities'>('notes')
@@ -413,6 +420,9 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
 
   React.useEffect(() => {
     if (!resourceId || !resourceTypesLoaded) return
+    // Load once per resource — never re-fetch (and thereby refresh the captured
+    // optimistic-lock token) on subsequent re-renders. See loadedResourceIdRef.
+    if (loadedResourceIdRef.current === resourceId) return
     setIsNotFound(false)
     let cancelled = false
     async function loadResource() {
@@ -429,6 +439,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
           return
         }
         if (!cancelled) {
+          loadedResourceIdRef.current = resourceId ?? null
           const customValues = extractCustomFieldEntries(resource)
           setTags(Array.isArray(resource.tags) ? resource.tags : [])
           setAvailabilityRuleSetId(
