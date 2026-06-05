@@ -139,7 +139,14 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
             return { id, name }
           })
           .filter((entry): entry is TeamRoleOption => entry !== null)
-        if (!cancelled) setTeams(options)
+        if (!cancelled) {
+          setTeams((previous) => {
+            if (!previous.length) return options
+            const seen = new Set(options.map((team) => team.id))
+            const preservedSelected = previous.filter((team) => !seen.has(team.id))
+            return [...preservedSelected, ...options]
+          })
+        }
       } catch {
         if (!cancelled) setTeams([])
       }

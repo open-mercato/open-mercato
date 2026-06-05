@@ -929,3 +929,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When an integration test "times out," read the trace to find which await actually blocked before reaching for a bigger number. Make UI interactions deterministic: after a keyboard-driven menu open, assert the target item is visible with a *bounded* budget and fall back to a pointer click, so a missed keypress fails fast instead of hanging until the suite timeout. Make `finally` teardown best-effort (`.catch(() => {})`) so it cannot mask the real failure with a "context closed" error. Only after removing the hang should you align the per-test budget with the established login+nav convention. Prefer fixing the interaction over inflating the clock.
 
 **Applies to**: every Playwright spec under `**/__integration__/*.spec.ts` that drives `RowActions`/dropdown menus via keyboard, and any spec whose `finally` block issues API calls after the body may have failed.
+
+## Async edit selects must be hydrated as value-plus-options
+
+**Context**: Several edit forms saved relation/dictionary/select values correctly but reopened with the select trigger showing the placeholder. The saved value arrived before or after the option list depending on the page: staff team roles, resources, dictionary-backed capacity units, checkout gateway settings, and example TODO custom fields exposed variants of the same failure.
+
+**Problem**: A controlled Radix Select can stay visually unresolved when the selected value and its matching `SelectItem` are registered in separate async renders. Page-level loaders also often fetch by `ids=...`; if the API only supports singular `id`, the edit form may hydrate from the wrong first-page record while still appearing to load successfully.
+
+**Rule**: Edit forms must hydrate selects with both the saved scalar value and a matching option label. If the saved option may be outside the first page, fetch it by id and seed/prepend it. Generic select controls should remount or otherwise re-resolve when either the selected value or option set changes. For list APIs used by edit loaders, support the shared `ids` filter contract and cover it with browser integration tests that create their own fixture records.
+
+**Applies to**: `CrudForm` select fields, relation/dictionary selects, edit-page option loaders, `makeCrudRoute` list APIs, and every browser test that verifies edit forms open with saved select values populated.

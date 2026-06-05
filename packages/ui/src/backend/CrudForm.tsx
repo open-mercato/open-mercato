@@ -4155,6 +4155,18 @@ const FieldControl = React.memo(function FieldControlImpl({
   const placeholder = builtin?.placeholder
   const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
   const validateOnWrapperBlur = supportsWrapperBlurValidation(field)
+  const singleSelectValue = Array.isArray(value)
+    ? String(value[0] ?? '')
+    : value == null
+      ? ''
+      : String(value)
+  const singleSelectOptionsKey = React.useMemo(
+    () => options.map((opt) => `${opt.value}:${opt.label}`).join('\0'),
+    [options],
+  )
+  const singleSelectLabel = singleSelectValue
+    ? options.find((option) => option.value === singleSelectValue)?.label
+    : undefined
 
   return (
     <div
@@ -4353,19 +4365,14 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'select' && !builtin?.multiple && (
         <Select
+          key={`${field.id}:${singleSelectValue}:${singleSelectOptionsKey}`}
           // Radix Select MUST be either always-controlled or always-uncontrolled.
           // Passing `value={undefined}` on first render and a string later trips
           // React's "uncontrolled → controlled" warning and breaks Radix's
           // internal state (dropdown flashes / selections no-op). Use empty
           // string for "no selection" instead — Radix treats it the same as
           // undefined for matching SelectItems but keeps the prop type stable.
-          value={
-            Array.isArray(value)
-              ? String(value[0] ?? '')
-              : value == null
-                ? ''
-                : String(value)
-          }
+          value={singleSelectValue}
           onValueChange={(next) => {
             // Custom field clears must be explicit nulls; normal optional
             // fields keep the existing undefined clear semantics.
@@ -4379,7 +4386,9 @@ const FieldControl = React.memo(function FieldControlImpl({
           disabled={disabled}
         >
           <SelectTrigger data-crud-focus-target="">
-            <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
+            <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')}>
+              {singleSelectLabel}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {!field.required && value != null && value !== '' && (
