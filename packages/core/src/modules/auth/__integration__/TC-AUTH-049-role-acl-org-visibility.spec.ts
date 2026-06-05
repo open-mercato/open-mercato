@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { randomInt } from 'node:crypto';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
@@ -30,7 +31,7 @@ const sorted = (values: string[]): string[] => [...values].sort();
 test.describe('TC-AUTH-049: role ACL organization visibility (#2464)', () => {
   test('persists and round-trips the org visibility list; directory list stays tenant-scoped', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
-    const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`;
     const userEmail = `qa-tc-auth-049-${stamp}@example.com`;
     const userPassword = 'StrongSecret123!';
     let org1Id: string | null = null;

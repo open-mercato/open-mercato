@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { randomInt } from 'node:crypto';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
@@ -33,7 +34,7 @@ test.describe('TC-AUTH-045: user consent records (#2464)', () => {
   test('returns an empty audit trail for a new user and enforces auth/feature gates', async ({ request, playwright }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const { organizationId } = getTokenContext(superadminToken);
-    const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`;
     const deniedEmail = `qa-tc-auth-045-denied-${stamp}@example.com`;
     const deniedPassword = 'StrongSecret123!';
     let userId: string | null = null;

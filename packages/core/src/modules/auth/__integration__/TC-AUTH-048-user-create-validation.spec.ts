@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { randomInt } from 'node:crypto';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { getTokenContext, readJsonSafe, expectId } from '@open-mercato/core/helpers/integration/generalFixtures';
 import { deleteUserIfExists } from '@open-mercato/core/helpers/integration/authFixtures';
@@ -20,7 +21,7 @@ test.describe('TC-AUTH-048: user creation validation (#2464)', () => {
   test('enforces password-or-invite and email format, and accepts valid payloads', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const { organizationId } = getTokenContext(superadminToken);
-    const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`;
     const createdUserIds: string[] = [];
 
     const createUser = async (data: Record<string, unknown>) =>

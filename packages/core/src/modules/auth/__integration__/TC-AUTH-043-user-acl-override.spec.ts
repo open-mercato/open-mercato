@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { randomInt } from 'node:crypto';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
@@ -26,7 +27,7 @@ test.describe('TC-AUTH-043: user ACL override grants a feature (#2464)', () => {
   test('granting a user-level feature takes effect for feature-check and guarded routes', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const { organizationId } = getTokenContext(superadminToken);
-    const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`;
     const userEmail = `qa-tc-auth-043-${stamp}@example.com`;
     const userPassword = 'StrongSecret123!';
     let roleId: string | null = null;

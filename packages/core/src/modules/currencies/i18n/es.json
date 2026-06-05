@@ -95,7 +95,7 @@
   "exchangeRates.flash.updated": "Tipo de cambio actualizado correctamente",
   "exchangeRates.form.action.create": "Crear Tipo de Cambio",
   "exchangeRates.form.action.save": "Guardar Cambios",
-  "exchangeRates.form.actions.backToList": "Back to exchange rates",
+  "exchangeRates.form.actions.backToList": "Volver a tipos de cambio",
   "exchangeRates.form.errors.currencyCodeFormat": "Debe ser exactamente 3 letras mayúsculas",
   "exchangeRates.form.errors.fromCurrencyFormat": "Código de moneda de origen inválido",
   "exchangeRates.form.errors.invalidDate": "La fecha y hora son requeridas",

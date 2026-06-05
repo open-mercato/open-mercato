@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { getTokenContext, readJsonSafe, expectId } from '@open-mercato/core/helpers/integration/generalFixtures';
@@ -21,7 +21,7 @@ test.describe('TC-AUTH-044: resend user invitation (#2464)', () => {
   test('resends invites for invited users and rejects ineligible targets', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const { organizationId } = getTokenContext(superadminToken);
-    const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`;
     let invitedUserId: string | null = null;
     let passwordUserId: string | null = null;
 
