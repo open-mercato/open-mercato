@@ -518,6 +518,7 @@ MikroORM's identity-map and subscriber infrastructure can silently discard pendi
 - Enable `{ transaction: true }` when atomicity matters (all-or-nothing semantics).
 - Keep `emitCrudSideEffects` / `emitCrudUndoSideEffects` calls **OUTSIDE** `withAtomicFlush`
   — side effects should only fire after the DB changes are committed.
+- Cache invalidation follows the same rule as side effects: invalidate **after** the DB write commits, never inside the `withAtomicFlush` block. For the opt-in always-consistent read-projection tail (`OM_CACHE_SAFETY_ALWAYS_CONSISTENT`, default OFF) see `.ai/specs/2026-06-05-cache-safety-always-consistent.md`.
 - This applies to **both** `execute` methods (update commands) and `undo` handlers.
 
 ### Commit-boundary guarantee (defense in depth)

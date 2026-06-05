@@ -268,6 +268,28 @@ Practical consequences:
   4. Re-apply (`yarn db:migrate`) and commit.
 - Never hand-edit historical migrations that have shipped; add a **new** migration that performs the correction instead.
 
+## Entity Update Safety / Transaction Safety
+
+MikroORM v7 can silently drop a pending scalar UPDATE when a query (`em.find`, `em.findOne`, or a sync helper) runs on the same `EntityManager` between the scalar mutation and `em.flush()`. For commands that mutate entities across multiple phases:
+
+- Use `withAtomicFlush(em, phases, { transaction: true })` from `@open-mercato/shared/lib/commands/flush` for multi-phase scalar + relation mutations.
+- Never interleave `em.find`/`em.findOne` between a scalar mutation and `em.flush()` without `withAtomicFlush`.
+- Keep `emitCrudSideEffects` and cache invalidation OUTSIDE the `withAtomicFlush` block — they run only AFTER the DB write commits.
+
+```ts
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+
+await withAtomicFlush(em, [
+  () => { record.name = 'New Name'; record.status = 'active' },
+  () => syncEntityTags(em, record, tags),
+], { transaction: true })
+
+// Cache invalidation + side effects AFTER commit
+await emitCrudSideEffects({ /* ... */ })
+```
+
+Cache invalidation running post-commit means reads can briefly observe a query-index convergence window. The opt-in `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` env flag (default OFF, backward compatible) is planned to make the query-index read-projection tail converge synchronously on write, at a write-latency cost — opt-in/forthcoming, not on by default.
+
 ## AI Assistant — adding agents, tools, UI parts, and overrides
 
 Standalone apps consume the AI framework from `@open-mercato/ai-assistant` (in `node_modules/`). The same conventions used in the monorepo apply here:

@@ -154,11 +154,34 @@ When the user asks to **create a new application** or a **new module**, do not i
 | **Multi-tenant scoping (default for every entity)** | Every tenant-scoped entity MUST include indexed `organization_id` and `tenant_id` columns and every read/write MUST filter by them. The CRUD factory injects scope automatically — do NOT bypass it. For ad-hoc queries use `withScopedPayload` from `@open-mercato/shared/lib/api/scoped` | `.ai/skills/om-data-model-design/SKILL.md`; <https://docs.open-mercato.dev/architecture/system-overview> |
 | **Encryption maps for sensitive data** | Declare a module-level `<module>/encryption.ts` exporting `defaultEncryptionMaps: ModuleEncryptionMap[]` from `@open-mercato/shared/modules/encryption`. Read encrypted columns via `findWithDecryption` / `findOneWithDecryption` from `@open-mercato/shared/lib/encryption/find`. NEVER hand-roll AES/KMS, NEVER use `em.find` on encrypted columns | `.ai/skills/om-data-model-design/SKILL.md` → Sensitive Data and Encryption Maps; <https://docs.open-mercato.dev/user-guide/encryption> |
 | **Cache** | Resolve the cache from DI (`container.resolve('cache')`) — never `new Redis(...)` or raw SQLite. Tag with `tenant:<id>` / `org:<id>` and the entity-type tag so invalidation stays tenant-scoped | `.ai/guides/cache.md`; <https://docs.open-mercato.dev/user-guide/cache-management> |
+| **Entity update safety** | Multi-phase scalar + relation mutations use `withAtomicFlush(em, phases, { transaction: true })` from `@open-mercato/shared/lib/commands/flush` — never interleave `em.find`/`em.findOne` between a scalar mutation and `em.flush()`. Keep `emitCrudSideEffects` + cache invalidation OUTSIDE it (they fire after commit) | See **Entity Update Safety** section below |
 | **Background workers** | `src/modules/<id>/workers/*.ts` exporting `metadata: { queue, id?, concurrency? }` + default handler. Never spin up custom queues | `.ai/guides/queue.md`; <https://docs.open-mercato.dev/framework/events/queue-workers> |
 | **Events between modules** | `<module>/events.ts` with `createModuleEvents({ moduleId, events } as const)`. Subscribers in `subscribers/*.ts`. Never call other modules' services directly across module boundaries | `.ai/guides/events.md`; <https://docs.open-mercato.dev/framework/events/overview> |
 | **i18n (every user-facing string)** | `useT()` client-side from `@open-mercato/shared/lib/i18n/context`, `resolveTranslations()` server-side from `@open-mercato/shared/lib/i18n/server`; keys in `src/i18n/<locale>.json`. Never hard-code labels in components | `.ai/guides/shared.md` → i18n |
 
 > Rule of thumb: if you find yourself reaching for raw `fetch`, raw `<form>`, ad-hoc `crypto`, ad-hoc `Redis`, or a manual `m2m` join across modules, stop and check the row above — there is a canonical helper.
+
+## Entity Update Safety
+
+MikroORM v7 can silently discard pending scalar changes when a query (`em.find`, `em.findOne`, sync helper) runs on the same `EntityManager` between a scalar mutation and `em.flush()`. For any command in `{{PROJECT_NAME}}` that mutates entities across multiple phases:
+
+- MUST use `withAtomicFlush(em, phases, { transaction: true })` from `@open-mercato/shared/lib/commands/flush`.
+- NEVER interleave `em.find`/`em.findOne`/sync helpers between a scalar mutation and `em.flush()` on the same `EntityManager` without `withAtomicFlush` — the UPDATE is dropped.
+- Keep `emitCrudSideEffects` (and `emitCrudUndoSideEffects`) AND cache invalidation OUTSIDE the `withAtomicFlush` block — they fire only AFTER the DB write commits.
+
+```typescript
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+
+await withAtomicFlush(em, [
+  () => { record.name = 'New Name'; record.status = 'active' },
+  () => syncEntityTags(em, record, tags),
+], { transaction: true, label: '<module>.<command>' })
+
+// Side effects + cache invalidation AFTER the atomic flush (post-commit)
+await emitCrudSideEffects({ /* ... */ })
+```
+
+Because invalidation runs post-commit and the query-index read-projection tail (search tokens, vectors, fulltext, coverage) converges asynchronously, reads can briefly see a convergence window after a write. An opt-in env flag, `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` (default OFF, backward compatible), is planned to make that tail converge synchronously on write at a write-latency cost — treat it as opt-in/forthcoming, not on by default.
 
 ## CRITICAL rules — always follow without exception
 
