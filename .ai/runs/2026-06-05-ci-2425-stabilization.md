@@ -52,12 +52,12 @@ Stabilize the develop branch feeding PR #2425 by fixing the failures observed in
 
 ### Phase 1: Root-Cause Requested Failures
 
-- [ ] 1.1 Fix deal custom-field update persistence
-- [ ] 1.2 Fix CRM company clean-save optimistic-lock flow
+- [x] 1.1 Fix deal custom-field update persistence — afd6a28e4
+- [x] 1.2 Fix CRM company clean-save optimistic-lock flow — afd6a28e4
 
 ### Phase 2: Verification
 
-- [ ] 2.1 Run targeted integration specs
+- [x] 2.1 Run targeted integration specs — afd6a28e4
 - [ ] 2.2 Run relevant unit/type checks
 - [ ] 2.3 Run two independent full ephemeral integration runs
 
