@@ -433,6 +433,14 @@ export async function executeWorkflow(
             console.error(`[WORKFLOW] Transition rejected (instance: ${currentInstance.id}, workflow: ${currentInstance.workflowId}, step: ${currentInstance.currentStepId} → ${selectedTransition.toStepId}): ${rejectionMessage}`)
             errors.push(rejectionMessage)
 
+            await completeWorkflow(trx, container, instanceId, 'FAILED', {
+              error: rejectionMessage,
+            })
+            events.push({
+              eventType: 'WORKFLOW_FAILED',
+              occurredAt: new Date(),
+            })
+
             return {
               status: 'FAILED',
               currentStep: currentInstance.currentStepId,
@@ -499,6 +507,15 @@ export async function executeWorkflow(
               transitionId: selectedTransition.transitionId,
               error: errorMessage,
             },
+          })
+
+          await completeWorkflow(trx, container, instanceId, 'FAILED', {
+            error: errorMessage,
+            details: error instanceof WorkflowExecutionError ? error.details : undefined,
+          })
+          events.push({
+            eventType: 'WORKFLOW_FAILED',
+            occurredAt: new Date(),
           })
 
           return {
