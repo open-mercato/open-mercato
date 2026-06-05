@@ -35,5 +35,5 @@ bound write latency.
 
 ### Phase 3: Cleanup + validation
 
-- [ ] 3.1 Confirm CI `OM_CF_DEBUG` env + `helpers.ts` debug block removal (already in branch); sweep for any remaining diag
-- [ ] 3.2 Full validation gate + targeted integration specs
+- [x] 3.1 Confirm CI `OM_CF_DEBUG` env + `helpers.ts` debug block removal (already in branch); sweep for any remaining diag
+- [x] 3.2 Full validation gate + targeted integration specs
