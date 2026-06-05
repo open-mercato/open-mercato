@@ -58,7 +58,7 @@ Stabilize the develop branch feeding PR #2425 by fixing the failures observed in
 ### Phase 2: Verification
 
 - [x] 2.1 Run targeted integration specs — afd6a28e4
-- [ ] 2.2 Run relevant unit/type checks
+- [x] 2.2 Run relevant unit/type checks — afd6a28e4
 - [ ] 2.3 Run two independent full ephemeral integration runs
 
 ### Phase 3: PR
