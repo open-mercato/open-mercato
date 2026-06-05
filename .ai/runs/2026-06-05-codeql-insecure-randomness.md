@@ -42,6 +42,13 @@ No existing spec directly covers this CodeQL remediation. This is a narrow secur
 - `yarn build:packages` — passed.
 - `yarn generate` — passed; emitted generated local artifacts and one non-fatal structural-cache warning.
 - `yarn typecheck --filter=@open-mercato/core` — passed after generation.
+- `yarn build:packages` (post-generate rebuild) — passed.
+- `yarn i18n:check-sync` — passed.
+- `yarn i18n:check-usage` — failed on 10 unrelated missing baseline keys in webhooks, scheduler, sso, integrations, inbox_ops, data_sync, and currencies pages; no changed files use translations.
+- `yarn typecheck` — passed.
+- `yarn test` — passed.
+- `yarn build:app` — passed, with existing dynamic import/NFT tracing warnings.
+- `yarn template:sync` — failed on unrelated existing template drift in the example module and dependency versions.
 
 ## Progress
 
