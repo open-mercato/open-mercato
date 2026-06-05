@@ -88,6 +88,11 @@ Commands (`commands/people.ts`) demonstrate:
 4. Side effects with `emitCrudSideEffects` and `emitCrudUndoSideEffects`
 5. Include `indexer: { entityType, cacheAliases }` in both directions
 
+## Transaction Safety
+
+- Multi-phase scalar + relation mutations (e.g. update commands that also sync tags) use `withAtomicFlush(em, phases, { transaction: true })` from `@open-mercato/shared/lib/commands/flush` — never interleave `em.find`/`em.findOne` between a scalar mutation and `em.flush()`.
+- Side effects (`emitCrudSideEffects`) and cache invalidation fire **after** commit, outside the `withAtomicFlush` block. See `packages/core/AGENTS.md` → "Entity Update Safety — `withAtomicFlush`" and `.ai/specs/2026-06-05-cache-safety-always-consistent.md`.
+
 ## Custom Field Integration
 
 Use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`:

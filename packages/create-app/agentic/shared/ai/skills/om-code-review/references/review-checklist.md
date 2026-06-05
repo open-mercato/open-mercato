@@ -25,6 +25,8 @@
 - [ ] UUID primary keys with standard columns (`id`, `created_at`, `updated_at`)
 - [ ] Soft delete via `deleted_at` where applicable
 - [ ] Atomic transactions for multi-step writes
+- [ ] `withAtomicFlush(em, phases, { transaction: true })` used when mutating across phases that include queries on the same `EntityManager`
+- [ ] No `em.find`/`em.findOne`/sync helpers between a scalar mutation and `em.flush()` without `withAtomicFlush`
 
 ## 4. API Routes
 
@@ -42,6 +44,7 @@
 - [ ] Workers export `metadata` with `{ queue, id?, concurrency? }`
 - [ ] All mutations implemented as commands with undo logic
 - [ ] Side effects outside `withAtomicFlush`
+- [ ] Cache invalidation and side effects (`emitCrudSideEffects`) fire AFTER the DB write commits — never inside the `withAtomicFlush` block
 
 ## 6. UI & Backend Pages
 
