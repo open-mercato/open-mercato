@@ -20,7 +20,7 @@ Status legend: `⬜ todo` · `🟡 in-progress` · `✅ fixed` · `🟢 verified
 | 11 | ✅ fixed | updatePolicy allows tenant admin to take over or escalate any policy by id | `packages/enterprise/src/modules/security/services/MfaEnforcementService.ts` |
 | 12 | ✅ fixed | deletePolicy soft-deletes any policy by id without tenant scope checks | `packages/enterprise/src/modules/security/services/MfaEnforcementService.ts` |
 | 13 | ✅ fixed | Cross-account MFA verification: challenge not bound to authenticated user | `packages/enterprise/src/modules/security/services/MfaVerificationService.ts` |
-| 14 | ⬜ todo | Hardcoded fallback secret enables sudo token forgery if env vars unset | `packages/enterprise/src/modules/security/services/SudoChallengeService.ts` |
+| 14 | ✅ fixed | Hardcoded fallback secret enables sudo token forgery if env vars unset | `packages/enterprise/src/modules/security/services/SudoChallengeService.ts` |
 | 15 | ⬜ todo | User-controlled Ollama base URL can drive server-side requests | `packages/search/src/vector/services/embedding.ts` |
 | 16 | ⬜ todo | Unauthenticated splash bootstrap token can authorize GitHub publish actions | `scripts/dev-splash-git-repo-flow.mjs` |
 
@@ -240,9 +240,9 @@ deletePolicy(id) (lines 234-247) takes only the id, with no admin/scope paramete
 
 ## 14. Hardcoded fallback secret enables sudo token forgery if env vars unset
 
-- **Status:** ⬜ todo
-- **PR / commit:** _TBD_
-- **Notes:** _TBD_
+- **Status:** ✅ fixed
+- **PR / commit:** `40b6fe077`
+- **Notes:** Removed literal `'open-mercato-sudo-secret'` fallback from `SudoChallengeService.getSudoSecret()`. New file-private `readTrimmedEnv` helper rejects empty/whitespace env values; chain now walks `OM_SECURITY_SUDO_SECRET → AUTH_JWT_SECRET → AUTH_SECRET → JWT_SECRET` (extended with `AUTH_SECRET` to mirror sibling `readSecuritySetupTokenSecret` so `AUTH_SECRET`-only NextAuth-style deployments documented in `.env.example` stay supported) and throws a descriptive `Error` naming all four vars when every fallback is unset. Lazy fail-fast (matches `readSecuritySetupTokenSecret` pattern) so read-only sudo endpoints that never sign/verify still work. Tests: `SudoChallengeService.test.ts` adds `describe('sudo secret resolution')` with 7 cases (verify throws on all-unset, validateToken throws on all-unset, empty/whitespace env throws, OM precedence, AUTH_JWT precedence, AUTH_SECRET precedence, JWT-only happy-path round-trip) + hoists `process.env.OM_SECURITY_SUDO_SECRET='unit-test-sudo-secret'` into outer `beforeEach` (with `ORIGINAL_*` snapshot + `afterAll` restore) so the existing 11 round-trip tests still pass after the literal fallback is removed; 18/18 pass via targeted `jest`. Local `test` leg still blocked by pre-existing `ai-assistant/chat-route-ownership.test.ts` failures (same blocker noted in #1–#13 notes); `build:packages` + `generate` + `i18n:check-sync` + `i18n:check-usage` + `typecheck` (21/21) + `build:app` all pass. Code-review: 0 Medium+, 7 Low (deferred — separate tracker entries: (a) `readTrimmedEnv` duplicates file-private `readText` in `security-config.ts:229`; (b) thrown error is plain `Error` not `SudoChallengeServiceError` — acceptable because misconfig correctly maps to 500 via existing error mappers, but inconsistent with the rest of the service; (c) `ORIGINAL_*` env snapshot captured at `describe`-eval time, not at first `beforeEach` — minor fixture-hygiene; (d) `signToken` atomicity in `verify()` — MFA challenge consumed before secret check, pre-existing, not introduced here; (e) whitespace-trim semantics could diverge from peer signers that don't trim — speculative; (f) `OM_SECURITY_SUDO_SECRET` not yet documented in `apps/mercato/.env.example` or `packages/create-app/template/.env.example`; (g) `docker-compose.fullapp*.yml` default `JWT_SECRET:-JWT` makes the literal `'JWT'` the sudo signing key for unparameterized compose deployments — pre-existing, broader scope). BC: behavior change is the security fix itself — deployments that silently relied on the public hardcoded fallback in production will now throw at the first sudo sign/verify. `AUTH_SECRET` added to the fallback chain is additive and prevents an unintended regression for `.env.example`-following deployments.
 
 - **File:** `packages/enterprise/src/modules/security/services/SudoChallengeService.ts`
 - **Lines:** 676–681

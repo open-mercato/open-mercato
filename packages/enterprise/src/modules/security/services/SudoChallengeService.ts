@@ -69,6 +69,11 @@ type DeveloperDefaultPayload = {
   challengeMethod?: ChallengeMethod
 }
 
+function readTrimmedEnv(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : undefined
+}
+
 export class SudoChallengeServiceError extends Error {
   constructor(
     message: string,
@@ -694,10 +699,15 @@ export class SudoChallengeService {
   }
 
   private getSudoSecret(): string {
-    return process.env.OM_SECURITY_SUDO_SECRET
-      ?? process.env.AUTH_JWT_SECRET
-      ?? process.env.JWT_SECRET
-      ?? 'open-mercato-sudo-secret'
+    const secret =
+      readTrimmedEnv(process.env.OM_SECURITY_SUDO_SECRET)
+      ?? readTrimmedEnv(process.env.AUTH_JWT_SECRET)
+      ?? readTrimmedEnv(process.env.AUTH_SECRET)
+      ?? readTrimmedEnv(process.env.JWT_SECRET)
+    if (secret) return secret
+    throw new Error(
+      'Sudo step-up tokens require OM_SECURITY_SUDO_SECRET, AUTH_JWT_SECRET, AUTH_SECRET, or JWT_SECRET to be set.',
+    )
   }
 
   private toChallengeMethod(
