@@ -90,6 +90,10 @@ import {
   type CatalogProductOptionSchema,
   type CatalogProductType,
 } from "@open-mercato/core/modules/catalog/data/types";
+import {
+  normalizeTaxRateSummary,
+  useEnsureSelectedTaxRates,
+} from "@open-mercato/core/modules/catalog/components/products/taxRateOptions";
 import { MetadataEditor } from "@open-mercato/core/modules/catalog/components/products/MetadataEditor";
 import {
   buildAttachmentImageUrl,
@@ -519,35 +523,14 @@ export default function EditCatalogProductPage({
           fallback: { items: [] },
         });
         const items = Array.isArray(payload.items) ? payload.items : [];
+        const unnamedLabel = t(
+          "catalog.products.create.taxRates.unnamed",
+          "Untitled tax rate",
+        );
         setTaxRates(
-          items.map((item) => {
-            const rawRate =
-              typeof item.rate === "number"
-                ? item.rate
-                : Number(item.rate ?? Number.NaN);
-            return {
-              id: String(item.id),
-              name:
-                typeof item.name === "string" && item.name.trim().length
-                  ? item.name
-                  : t(
-                      "catalog.products.create.taxRates.unnamed",
-                      "Untitled tax rate",
-                    ),
-              code:
-                typeof item.code === "string" && item.code.trim().length
-                  ? item.code
-                  : null,
-              rate: Number.isFinite(rawRate) ? rawRate : null,
-              isDefault: Boolean(
-                typeof item.isDefault === "boolean"
-                  ? item.isDefault
-                  : typeof item.is_default === "boolean"
-                    ? item.is_default
-                    : false,
-              ),
-            };
-          }),
+          items
+            .map((item) => normalizeTaxRateSummary(item, unnamedLabel))
+            .filter((rate): rate is TaxRateSummary => rate !== null),
         );
       } catch (err) {
         console.error("sales.tax-rates.fetch failed", err);
@@ -556,6 +539,20 @@ export default function EditCatalogProductPage({
     };
     loadTaxRates().catch(() => {});
   }, [t]);
+
+  useEnsureSelectedTaxRates({
+    taxRates,
+    setTaxRates,
+    selectedIds: [initialValues?.taxRateId ?? null],
+    unnamedLabel: t(
+      "catalog.products.create.taxRates.unnamed",
+      "Untitled tax rate",
+    ),
+    errorMessage: t(
+      "catalog.products.create.taxRates.error",
+      "Failed to load tax rates.",
+    ),
+  });
 
   React.useEffect(() => {
     if (!productId) {

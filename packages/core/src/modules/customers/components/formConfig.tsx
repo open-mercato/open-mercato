@@ -474,11 +474,13 @@ function normalizeCompanyOption(raw: unknown): CompanyOption | null {
 
 export function CompanySelectField({ value, onChange, labels }: CompanySelectFieldProps) {
   const [options, setOptions] = React.useState<CompanyOption[]>([])
+  const [seededOptions, setSeededOptions] = React.useState<CompanyOption[]>([])
   const [loading, setLoading] = React.useState(true)
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [newCompany, setNewCompany] = React.useState('')
   const [saving, setSaving] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
+  const requestedSeedRef = React.useRef<Set<string>>(new Set())
 
   const loadOptions = React.useCallback(async () => {
     setLoading(true)
@@ -508,6 +510,61 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
   React.useEffect(() => {
     loadOptions().catch(() => {})
   }, [loadOptions])
+
+  // Persisted selections can sort past the capped option page. When the saved
+  // company is missing from the loaded list, fetch it by id and merge it so the
+  // controlled Select renders the saved label instead of a blank trigger.
+  React.useEffect(() => {
+    if (loading) return
+    if (!value) return
+    if (options.some((option) => option.value === value)) return
+    if (seededOptions.some((option) => option.value === value)) return
+    if (requestedSeedRef.current.has(value)) return
+    requestedSeedRef.current.add(value)
+    let cancelled = false
+    void (async () => {
+      try {
+        const payload = await readApiResultOrThrow<{ items?: unknown[] }>(
+          `/api/customers/companies?ids=${encodeURIComponent(value)}&pageSize=1`,
+          undefined,
+          { errorMessage: labels.errorLoad, fallback: { items: [] } },
+        )
+        const items = Array.isArray(payload?.items) ? payload.items : []
+        const normalized = items
+          .map((item: unknown) => normalizeCompanyOption(item))
+          .filter((item: CompanyOption | null): item is CompanyOption => item !== null)
+        if (!cancelled && normalized.length) {
+          setSeededOptions((prev) => {
+            const seen = new Set(prev.map((option) => option.value))
+            const next = [...prev]
+            for (const option of normalized) {
+              if (!seen.has(option.value)) {
+                seen.add(option.value)
+                next.push(option)
+              }
+            }
+            return next
+          })
+        }
+      } catch (err) {
+        console.error('customers.companies.seed-selected failed', err)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [loading, value, options, seededOptions, labels.errorLoad])
+
+  const displayOptions = React.useMemo(() => {
+    const merged: CompanyOption[] = []
+    const seen = new Set<string>()
+    for (const option of [...seededOptions, ...options]) {
+      if (seen.has(option.value)) continue
+      seen.add(option.value)
+      merged.push(option)
+    }
+    return merged
+  }, [options, seededOptions])
 
   const handleDialogChange = React.useCallback((open: boolean) => {
     setDialogOpen(open)
@@ -582,7 +639,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
             <SelectValue placeholder={labels.placeholder} />
           </SelectTrigger>
           <SelectContent>
-            {options.map((option) => (
+            {displayOptions.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>
