@@ -52,7 +52,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Task | Guide |
 |------|-------|
 | **Module Development** | |
-| Creating a new module, scaffolding module files, auto-discovery paths | `packages/core/AGENTS.md` |
+| Creating a new module, scaffolding module files, auto-discovery paths | `packages/core/AGENTS.md` + [`.ai/docs/module-development.md`](.ai/docs/module-development.md). **Standalone apps**: the `module-scaffold` skill scaffolds a module end-to-end (routes, pages, DI, ACL, events, search) — great to use here. |
 | Working on official modules via the `external/official-modules` submodule, activating them (`yarn official-modules`, `official-modules.json`), committing to the submodule's git | this file → `external/official-modules/` (git submodule) |
 | Building CRUD API routes, adding OpenAPI specs, using `makeCrudRoute`, query engine integration | `packages/core/AGENTS.md` → API Routes |
 | Adding `setup.ts` for tenant init, declaring role features, syncing new ACL grants to roles, seeding defaults/examples | `packages/core/AGENTS.md` → Module Setup |
@@ -76,7 +76,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Filtering CRUD list APIs by multiple IDs (`?ids=uuid1,uuid2`), including interceptor-driven ID narrowing | `packages/core/AGENTS.md` → API Interceptors + `packages/shared/AGENTS.md` |
 | Preventing silent lost updates on concurrent CRUD edits (optimistic locking via `updated_at`, **default ON** across every `makeCrudRoute` entity, opt out with `OM_OPTIMISTIC_LOCK=off`); structured 409 conflict body and client helpers (`buildOptimisticLockHeader`, `extractOptimisticLockConflict`). For Command-pattern / non-`makeCrudRoute` writes (sales document sub-resources, action endpoints), enforce the same check in the handler with `enforceCommandOptimisticLock` (document-aggregate: guard the parent order/quote) or the DI-overridable `createCommandOptimisticLockGuardService({ resolveExpected? })` (enterprise seam, #2232). Surface the 409 via the unified conflict bar with `surfaceRecordConflict(err, t)` from `@open-mercato/ui/backend/conflicts` (`CrudForm`/`useGuardedMutation` do it automatically) | `apps/docs/docs/framework/data-integrity/concurrency-locking.mdx` (§ Protecting command/action endpoints) + `.ai/specs/2026-05-25-oss-optimistic-locking.md` + `.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md` + `packages/shared/src/lib/crud/optimistic-lock.ts` + `packages/shared/src/lib/crud/optimistic-lock-command.ts` (command-level + `createCommandOptimisticLockGuardService` seam) + `packages/ui/src/backend/conflicts/` (unified conflict bar) + `packages/shared/src/lib/di/container.ts` (default service) + `packages/core/src/modules/customers/di.ts` (polymorphic-table override) + `packages/core/src/modules/sales/commands/shared.ts` (sales wrapper) |
 | Adding DOM Event Bridge (SSE-based real-time events to browser), `useAppEvent`, `useOperationProgress` | `packages/events/AGENTS.md` → DOM Event Bridge |
-| Building customer portal pages, portal auth, portal nav injection, portal event bridge | `packages/ui/AGENTS.md` → Portal Extension |
+| Building customer portal pages, portal auth, portal nav injection, portal event bridge | `packages/ui/AGENTS.md` → Portal Extension + `om-backend-ui-design` skill |
 | Adding new widget event handlers (`onFieldChange`, `onBeforeNavigate`, transformers) | `packages/ui/AGENTS.md` |
 | Building AI agents/tools (`ai-agents.ts`, `ai-tools.ts`, tool packs, mutation approval via `prepareMutation`, attachments, provider/model selection) | `.ai/skills/om-create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/*.mdx` |
 | AI agent loop controls + overrides (`loop.stopWhen/prepareStep/budget`, per-tenant settings, replacing/disabling agents/tools, module-level `entry.overrides`) | `packages/ai-assistant/AGENTS.md` → Loop controls + How to Override + `.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md` + `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` + `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` |
@@ -86,8 +86,8 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Building a new integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `packages/core/src/modules/integrations/AGENTS.md` + `packages/core/src/modules/data_sync/AGENTS.md` |
 | **Packages** | |
 | Adding reusable utilities, encryption helpers, i18n translations (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `packages/shared/AGENTS.md` |
-| Building forms (`CrudForm`), data tables (`DataTable`), loading/error states, flash messages, `FormHeader`/`FormFooter`, dialog UX (`Cmd+Enter`/`Escape`) | `packages/ui/AGENTS.md` |
-| Backend page components, `apiCall` usage, `RowActions` ids, `LoadingMessage`/`ErrorMessage` | `packages/ui/src/backend/AGENTS.md` |
+| Building forms (`CrudForm`), data tables (`DataTable`), loading/error states, flash messages, `FormHeader`/`FormFooter`, dialog UX (`Cmd+Enter`/`Escape`) | `packages/ui/AGENTS.md` + `om-backend-ui-design` skill (+ `om-ds-guardian` skill for DS-token compliance) |
+| Backend page components, `apiCall` usage, `RowActions` ids, `LoadingMessage`/`ErrorMessage` | `packages/ui/src/backend/AGENTS.md` + `om-backend-ui-design` skill |
 | Configuring fulltext/vector/token search, writing `search.ts`, reindexing entities, debugging search, search CLI commands | `packages/search/AGENTS.md` |
 | Adding MCP tools (`registerMcpTool`), modifying OpenCode config, debugging AI chat, session tokens, command palette, two-tier auth | `packages/ai-assistant/AGENTS.md` |
 | Running generators (`yarn generate`), creating database migrations (`yarn db:generate`), scaffolding modules, build order | `packages/cli/AGENTS.md` |
@@ -105,7 +105,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | **Testing** | |
 | Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.ai/skills/om-integration-tests/SKILL.md` |
 | **Spec & PR Automation** | |
-| Spec lifecycle (pre-implement → implement → write/update), code review, DS review | Browse `.ai/skills/{om-pre-implement-spec,om-implement-spec,om-code-review,om-ds-guardian}/SKILL.md` + `.ai/specs/AGENTS.md` + `.ai/ds-rules.md` |
+| Spec lifecycle (pre-implement → implement → write/update), code review, DS review | Browse `.ai/skills/{om-spec-writing,om-pre-implement-spec,om-implement-spec,om-code-review,om-ds-guardian}/SKILL.md` + `.ai/specs/AGENTS.md` + `.ai/ds-rules.md` |
 | PR/issue automation (one-shot auto-PR, resumable loop variants, review/merge-buddy, post-merge sync, changelog). **Default for one-off bug fixes / small features:** `om-auto-create-pr` | Browse `.ai/skills/{om-auto-create-pr,om-auto-continue-pr,om-auto-create-pr-loop,om-auto-continue-pr-loop,om-auto-review-pr,om-merge-buddy,om-review-prs,om-sync-merged-pr-issues,om-auto-update-changelog}/SKILL.md` |
 
 ## Core Principles
