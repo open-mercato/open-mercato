@@ -10,7 +10,10 @@ import {
   expectConflictBanner,
   expectNoConflictBanner,
 } from '@open-mercato/core/modules/core/__integration__/helpers/optimisticLockUi'
-import { fillControlledInput } from '@open-mercato/core/modules/core/__integration__/helpers/ui'
+import {
+  fillControlledInput,
+  waitForApiMutation,
+} from '@open-mercato/core/modules/core/__integration__/helpers/ui'
 
 /**
  * TC-LOCK-OSS-014 (browser UI) — manual cases CRM-01 / CRM-02 / CRM-03.
@@ -99,14 +102,23 @@ test.describe('TC-LOCK-OSS-014: CRM v2 company edit + delete optimistic-lock con
 
       const nameInput = await revealDisplayNameInput(page)
 
-      const putPromise = page.waitForResponse(
-        (response) =>
-          response.request().method() === 'PUT' && response.url().includes(COMPANIES_API_BASE),
-        { timeout: 15_000 },
-      )
       await fillControlledInput(nameInput, `QA Lock 014b saved ${stamp}`)
-      await page.getByRole('button', { name: /save/i }).first().click()
-      const settled = await putPromise
+      const form = nameInput.locator('xpath=ancestor::form[1]')
+      await expect(form).toHaveCount(1)
+
+      const settled = await waitForApiMutation(
+        page,
+        COMPANIES_API_BASE,
+        () =>
+          form.evaluate((node) => {
+            if (!(node instanceof HTMLFormElement)) {
+              throw new Error('displayName input is not inside a form')
+            }
+            node.requestSubmit()
+          }),
+        'PUT',
+        15_000,
+      )
       expect(settled.status(), 'clean save should not 409').toBeLessThan(400)
       await expectNoConflictBanner(page)
     } finally {

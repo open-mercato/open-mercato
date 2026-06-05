@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { skipIfUndoTestsDisabled } from '@open-mercato/core/helpers/integration/undoHarness'
 
 /**
  * TC-UNDO-002 — Regression for issue #2498: `customers.people.update` undo silently did nothing.
@@ -48,6 +49,10 @@ async function undoOk(request: APIRequestContext, token: string, undoToken: stri
 }
 
 test.describe('TC-UNDO-002 customers.people.update undo restores scalars (#2498)', () => {
+  test.beforeAll(() => {
+    skipIfUndoTestsDisabled()
+  })
+
   test('update → undo restores displayName and primaryEmail', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
