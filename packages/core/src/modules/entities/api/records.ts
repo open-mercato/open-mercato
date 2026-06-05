@@ -12,8 +12,28 @@ import { CustomFieldValue } from '../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { assertEntityAclForRequest } from '../lib/entityAcl'
 
 const CUSTOM_ENTITY_RECORD_RESOURCE_KIND = 'entities.record'
+
+async function detectCustomEntity(em: any, entityId: string): Promise<boolean> {
+  try {
+    const { CustomEntity } = await import('../data/entities')
+    const found = await em.findOne(CustomEntity as any, { entityId, isActive: true })
+    if (found) return true
+  } catch {}
+  try {
+    const db = em.getKysely()
+    const row = await db
+      .selectFrom('custom_entities_storage' as any)
+      .select(['entity_id' as any])
+      .where('entity_type' as any, '=', entityId)
+      .limit(1)
+      .executeTakeFirst()
+    return !!row
+  } catch {}
+  return false
+}
 
 async function readCustomEntityRecordUpdatedAt(
   em: any,
@@ -130,6 +150,7 @@ export async function GET(req: Request) {
         isCustomEntity = !!row
       } catch {}
     }
+    await assertEntityAclForRequest({ auth, entityId, action: 'view', isCustomEntity, rbac })
     if (organizationIds && organizationIds.length === 0) {
       return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 0 })
     }
@@ -290,6 +311,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json(payload)
   } catch (e) {
+    if (isCrudHttpError(e)) return NextResponse.json(e.body, { status: e.status })
     try { console.error('[entities.records.GET] Error', e) } catch {}
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
@@ -336,6 +358,8 @@ export async function POST(req: Request) {
     const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
     const targetOrgId = scope.selectedId ?? auth.orgId
     if (!targetOrgId) return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
+    const isCustomEntity = await detectCustomEntity(em, entityId)
+    await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, rbac })
     const norm = normalizeValues(values)
 
     // Validate against custom field definitions
@@ -364,6 +388,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, item: { entityId, recordId: id } })
   } catch (e) {
+    if (isCrudHttpError(e)) return NextResponse.json(e.body, { status: e.status })
     try { console.error('[entities.records.POST] Error', e) } catch {}
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
@@ -397,6 +422,8 @@ export async function PUT(req: Request) {
     const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
     const targetOrgId = scope.selectedId ?? auth.orgId
     if (!targetOrgId) return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
+    const isCustomEntity = await detectCustomEntity(em, entityId)
+    await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, rbac })
     const norm = normalizeValues(values)
 
     // Validate against custom field definitions
@@ -451,6 +478,7 @@ export async function PUT(req: Request) {
     })
     return NextResponse.json({ ok: true, item: { entityId, recordId: rid } })
   } catch (e) {
+    if (isCrudHttpError(e)) return NextResponse.json(e.body, { status: e.status })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -483,9 +511,12 @@ export async function DELETE(req: Request) {
     const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
     const targetOrgId = scope.selectedId ?? auth.orgId
     if (!targetOrgId) return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
+    const isCustomEntity = await detectCustomEntity(em, entityId)
+    await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, rbac })
     await de.deleteCustomEntityRecord({ entityId, recordId, organizationId: targetOrgId, tenantId: auth.tenantId!, soft: true })
     return NextResponse.json({ ok: true })
   } catch (e) {
+    if (isCrudHttpError(e)) return NextResponse.json(e.body, { status: e.status })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
