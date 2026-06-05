@@ -46,6 +46,10 @@
       "types": "./src/backend/confirm-dialog/index.ts",
       "default": "./dist/backend/confirm-dialog/index.js"
     },
+    "./backend/conflicts": {
+      "types": "./src/backend/conflicts/index.ts",
+      "default": "./dist/backend/conflicts/index.js"
+    },
     "./backend/charts": {
       "types": "./src/backend/charts/index.ts",
       "default": "./dist/backend/charts/index.js"

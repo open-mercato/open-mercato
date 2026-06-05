@@ -31,7 +31,9 @@ import { useAppEvent } from './injection/useAppEvent'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
-import { apiCall } from './utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from './utils/apiCall'
+import { buildOptimisticLockHeader } from './utils/optimisticLock'
+import { surfaceRecordConflict } from './conflicts'
 import { raiseCrudError } from './utils/serverErrors'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
 import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
@@ -1716,13 +1718,19 @@ export function DataTable<T>({
         // eslint-disable-next-line no-console
         console.debug('[DataTable] perspective payload', payload)
       }
-      const call = await apiCall<PerspectiveSaveResponse>(
-        `/api/perspectives/${encodeURIComponent(perspectiveTableId)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        },
+      const existing = input.perspectiveId
+        ? perspectiveData?.perspectives.find((p) => p.id === input.perspectiveId) ?? null
+        : null
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(existing?.updatedAt ?? null),
+        () => apiCall<PerspectiveSaveResponse>(
+          `/api/perspectives/${encodeURIComponent(perspectiveTableId)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+        ),
       )
       if (call.status === 404) {
         throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` to regenerate module routes and restart the dev server.'))
@@ -1741,6 +1749,12 @@ export function DataTable<T>({
       if (data.perspective) {
         applyPerspectiveSettings(data.perspective.settings, data.perspective.id)
       }
+    },
+    onError: (error) => {
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+      }
+      surfaceRecordConflict(error, t)
     },
   })
 

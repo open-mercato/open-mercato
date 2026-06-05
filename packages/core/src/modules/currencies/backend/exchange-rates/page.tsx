@@ -10,7 +10,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Plus } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -108,11 +109,14 @@ export default function ExchangeRatesPage() {
       if (!confirmed) return
 
       try {
-        const call = await apiCall(`/api/currencies/exchange-rates`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: row.id, organizationId: row.organizationId, tenantId: row.tenantId }),
-        })
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(row.updatedAt),
+          () => apiCall(`/api/currencies/exchange-rates`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: row.id, organizationId: row.organizationId, tenantId: row.tenantId }),
+          }),
+        )
 
         if (!call.ok) {
           flash(t('exchangeRates.flash.deleteError'), 'error')

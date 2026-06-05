@@ -171,6 +171,7 @@ export async function GET(req: Request) {
     customerEntityId: user.customerEntityId || null,
     personEntityId: user.personEntityId || null,
     createdAt: user.createdAt,
+    updatedAt: user.updatedAt || null,
     roles: rolesByUserId.get(user.id) ?? [],
   }))
 
@@ -286,6 +287,7 @@ const userSchema = z.object({
   customerEntityId: z.string().uuid().nullable(),
   personEntityId: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime().nullable(),
   roles: z.array(roleSchema),
 })
 

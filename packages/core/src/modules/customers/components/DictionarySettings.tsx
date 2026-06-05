@@ -8,7 +8,8 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -220,10 +221,12 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
     })
     if (!confirmed) return
     try {
-      await apiCallOrThrow(
-        `/api/customers/dictionaries/${kind}/${encodeURIComponent(entry.id)}`,
-        { method: 'DELETE' },
-        { errorMessage: errorDelete },
+      await withScopedApiRequestHeaders(buildOptimisticLockHeader(entry.updatedAt), () =>
+        apiCallOrThrow(
+          `/api/customers/dictionaries/${kind}/${encodeURIComponent(entry.id)}`,
+          { method: 'DELETE' },
+          { errorMessage: errorDelete },
+        ),
       )
       flash(successDelete, 'success')
       await loadEntries()
@@ -281,14 +284,16 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
           closeDialog()
           return
         }
-        await apiCallOrThrow(
-          `/api/customers/dictionaries/${kind}/${encodeURIComponent(target.id)}`,
-          {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(body),
-          },
-          { errorMessage: errorSave },
+        await withScopedApiRequestHeaders(buildOptimisticLockHeader(target.updatedAt), () =>
+          apiCallOrThrow(
+            `/api/customers/dictionaries/${kind}/${encodeURIComponent(target.id)}`,
+            {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(body),
+            },
+            { errorMessage: errorSave },
+          ),
         )
         flash(successSave, 'success')
       }

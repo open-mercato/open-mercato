@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { perspectiveSaveSchema } from '@open-mercato/core/modules/perspectives/data/validators'
 import {
   loadPerspectivesState,
@@ -199,12 +200,14 @@ export async function POST(req: Request, ctx: { params: { tableId: string } }) {
   let saved: Awaited<ReturnType<typeof saveUserPerspective>> | null = null
   let updatedRolePerspectives: Awaited<ReturnType<typeof saveRolePerspectives>> | null = null
 
-  await withAtomicFlush(em, [
+  try {
+    await withAtomicFlush(em, [
     async () => {
       saved = await saveUserPerspective(em, cache, {
         scope,
         tableId,
         input: parsed.data,
+        request: req,
       })
     },
     async () => {
@@ -232,7 +235,13 @@ export async function POST(req: Request, ctx: { params: { tableId: string } }) {
         })
       }
     },
-  ], { transaction: true })
+    ], { transaction: true })
+  } catch (err) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    throw err
+  }
 
   return NextResponse.json({
     perspective: saved,

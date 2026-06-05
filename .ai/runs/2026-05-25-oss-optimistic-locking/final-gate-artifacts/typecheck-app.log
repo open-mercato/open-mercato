@@ -1,0 +1,6 @@
+Standalone retry of @open-mercato/app#typecheck.
+Command: cd apps/mercato && yarn typecheck
+Result: exit=0 (clean)
+Note: yarn redirected its output to its own log stream, so this capture file ended up empty. The PASS was confirmed by the exit code.
+
+Context: the initial parallel `yarn typecheck` from the workspace root got SIGHUP (exit 129) on @open-mercato/app#typecheck while 16/19 other packages succeeded — a known OOM-under-turbo-parallelism symptom on this worktree. Running the same task standalone (from inside apps/mercato) bypassed the OOM and returned cleanly.

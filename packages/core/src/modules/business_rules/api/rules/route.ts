@@ -4,6 +4,8 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { BusinessRule } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -277,6 +279,20 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: 'Rule not found' }, { status: 404 })
   }
 
+  try {
+    enforceCommandOptimisticLock({
+      resourceKind: 'business_rules.rule',
+      resourceId: rule.id,
+      current: rule.updatedAt ?? null,
+      request: req,
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    throw err
+  }
+
   em.assign(rule, parsed.data)
 
   try {
@@ -319,6 +335,20 @@ export async function DELETE(req: Request) {
 
   if (!rule) {
     return NextResponse.json({ error: 'Rule not found' }, { status: 404 })
+  }
+
+  try {
+    enforceCommandOptimisticLock({
+      resourceKind: 'business_rules.rule',
+      resourceId: rule.id,
+      current: rule.updatedAt ?? null,
+      request: req,
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    throw err
   }
 
   rule.deletedAt = new Date()

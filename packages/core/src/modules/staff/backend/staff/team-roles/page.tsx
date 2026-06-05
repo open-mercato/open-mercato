@@ -9,8 +9,9 @@ import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/Dat
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { MarkdownPreview } from '@open-mercato/ui/backend/markdown/MarkdownContent'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Pencil, Users } from 'lucide-react'
@@ -277,7 +278,10 @@ export default function StaffTeamRolesPage() {
     })
     if (!confirmed) return
     try {
-      await deleteCrud('staff/team-roles', entry.id, { errorMessage: labels.errors.delete })
+      const headers = buildOptimisticLockHeader(entry.updatedAt)
+      await withScopedApiRequestHeaders(headers, () => (
+        deleteCrud('staff/team-roles', entry.id, { errorMessage: labels.errors.delete })
+      ))
       flash(labels.messages.deleted, 'success')
       handleRefresh()
     } catch (error) {

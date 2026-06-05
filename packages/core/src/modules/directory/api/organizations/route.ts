@@ -446,8 +446,10 @@ export async function GET(req: Request) {
   const orgs = await em.find(Organization, orgListFilter, { orderBy: { name: 'ASC' } })
   const hierarchy = computeHierarchyForOrganizations(orgs, tenantId)
   const slugByOrgId = new Map<string, string | null>()
+  const updatedAtByOrgId = new Map<string, string | null>()
   for (const org of orgs) {
     slugByOrgId.set(String(org.id), org.slug ?? null)
+    updatedAtByOrgId.set(String(org.id), org.updatedAt instanceof Date ? org.updatedAt.toISOString() : null)
   }
 
   // Manage view: paginated flat list for a single tenant
@@ -510,6 +512,7 @@ export async function GET(req: Request) {
       id: node.id,
       name: node.name,
       slug: slugByOrgId.get(recordId) ?? null,
+      updatedAt: updatedAtByOrgId.get(recordId) ?? null,
       tenantId: node.tenantId,
       tenantName,
       parentId: node.parentId,

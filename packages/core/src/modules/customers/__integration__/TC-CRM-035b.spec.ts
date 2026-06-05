@@ -48,7 +48,9 @@ test.describe('TC-CRM-035b: Nested profile payload normalization', () => {
       });
       expect(putResponse.ok(), `PUT failed: ${putResponse.status()}`).toBeTruthy();
       const putBody = await readJsonSafe<Record<string, unknown>>(putResponse);
-      expect(putBody).toEqual({ ok: true });
+      // The update response is `{ ok: true }` plus an additive `updatedAt` (the
+      // freshly-bumped optimistic-lock token used for sequential inline edits, #2055).
+      expect(putBody).toMatchObject({ ok: true });
 
       const getResponse = await apiRequest(request, 'GET', `/api/customers/people/${personId}`, { token });
       expect(getResponse.ok(), `GET failed: ${getResponse.status()}`).toBeTruthy();
@@ -224,7 +226,9 @@ test.describe('TC-CRM-035b: Nested profile payload normalization', () => {
       });
       expect(putResponse.ok(), `PUT failed: ${putResponse.status()}`).toBeTruthy();
       const putBody = await readJsonSafe<Record<string, unknown>>(putResponse);
-      expect(putBody).toEqual({ ok: true });
+      // The update response is `{ ok: true }` plus an additive `updatedAt` (the
+      // freshly-bumped optimistic-lock token used for sequential inline edits, #2055).
+      expect(putBody).toMatchObject({ ok: true });
 
       const getResponse = await apiRequest(request, 'GET', `/api/customers/companies/${companyId}`, { token });
       expect(getResponse.ok(), `GET failed: ${getResponse.status()}`).toBeTruthy();

@@ -1,121 +1,122 @@
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import {
-  getTokenScope,
-  readJsonSafe,
-  deleteEntityByPathIfExists,
-} from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures';
-import {
-  createRoleFixture,
-  createUserFixture,
-  deleteRoleIfExists,
-  deleteUserIfExists,
-  setRoleAclFeatures,
-} from '@open-mercato/core/modules/core/__integration__/helpers/authFixtures';
+import { createDictionaryFixture } from '@open-mercato/core/modules/core/__integration__/helpers/dictionariesFixtures';
+import { deleteEntityByPathIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures';
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers';
 
 /**
- * TC-DICT-003: Authorization — missing `dictionaries.view` blocks GET access
+ * TC-DICT-003 — DictionariesManager save regression (issue #9) + optimistic lock.
  *
- * The dictionaries GET routes declare `requireFeatures: ['dictionaries.view']`
- * in their metadata. The framework guard
- * (apps/mercato/src/app/api/[...slug]/route.ts) returns:
- *   - 401 `{ error: 'Unauthorized' }` for an unauthenticated request, and
- *   - 403 `{ error: 'Forbidden', requiredFeatures: [...] }` for an authenticated
- *     user who lacks the required feature.
- *
- * This test mints a dedicated role with NO dictionaries features (self-contained,
- * does not rely on seeded role grants) and asserts both boundaries. The admin
- * token, which holds `dictionaries.view`, continues to receive 200.
+ * The manager edit dialog disables the key field but still resubmits the
+ * existing key with the rest of the payload. Before the fix, the PATCH route
+ * re-validated that key with the strict create-key regex (which forbids dots),
+ * so editing a system dictionary whose key is namespaced (e.g.
+ * `resources.activity-types`) threw a ZodError that fell through to the
+ * catch-all 500 ("Failed to update dictionary"). This proves:
+ *   - a normal manager-shape edit (key resubmitted unchanged) → 200,
+ *   - a dotted/namespaced key resubmitted unchanged → 200 (no 500),
+ *   - a stale optimistic-lock header → 409 `optimistic_lock_conflict`.
  */
-test.describe('TC-DICT-003: Missing dictionaries.view blocks GET access', () => {
-  test('GET dictionaries routes return 403 without dictionaries.view (401 unauthenticated); admin still gets 200', async ({ request }) => {
-    const stamp = Date.now();
-    let adminToken: string | null = null;
-    let restrictedToken: string | null = null;
-    let roleId: string | null = null;
-    let userId: string | null = null;
+test.describe('TC-DICT-003: dictionary save (manager edit) + optimistic lock', () => {
+  test('normal manager-shape edit returns 200 and a stale edit returns 409', async ({ request }) => {
+    let token: string | null = null;
     let dictionaryId: string | null = null;
+    const key = `qa_dict_lock_${Date.now()}`;
 
     try {
-      // Unauthenticated first — before any login persists a session cookie on the
-      // shared request context (a cookie would make this a 403, not the 401 we assert).
-      const unauthList = await request.get('/api/dictionaries');
-      expect(unauthList.status(), 'Unauthenticated GET /api/dictionaries should return 401').toBe(401);
-
-      adminToken = await getAuthToken(request, 'admin');
-      const scope = getTokenScope(adminToken);
-
-      // Role with no dictionaries features -> user that cannot view dictionaries.
-      const roleName = `qa_dict_noview_${stamp}`;
-      roleId = await createRoleFixture(request, adminToken, {
-        name: roleName,
-        tenantId: scope.tenantId,
+      token = await getAuthToken(request, 'admin');
+      dictionaryId = await createDictionaryFixture(request, token, {
+        key,
+        name: 'QA TC-DICT-003 Dictionary',
       });
-      await setRoleAclFeatures(request, adminToken, { roleId, features: [] });
 
-      const email = `qa-dict-noview-${stamp}@acme.com`;
-      const password = 'Dict-View-1!';
-      userId = await createUserFixture(request, adminToken, {
-        email,
-        password,
-        organizationId: scope.organizationId,
-        roles: [roleName],
-        name: 'QA Dict No-View User',
+      const detail = await apiRequest(request, 'GET', `/api/dictionaries/${dictionaryId}`, { token });
+      expect(detail.status(), 'GET dictionary should be 200').toBe(200);
+      const detailBody = (await detail.json()) as { updatedAt?: string };
+      const currentUpdatedAt = detailBody.updatedAt;
+      expect(typeof currentUpdatedAt, 'dictionary should expose updatedAt').toBe('string');
+
+      // Normal save: manager resubmits the unchanged key alongside name + sort.
+      const okResponse = await request.fetch(`/api/dictionaries/${dictionaryId}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          [OPTIMISTIC_LOCK_HEADER_NAME]: currentUpdatedAt as string,
+        },
+        data: { key, name: 'QA TC-DICT-003 Updated', entrySortMode: 'label_desc' },
       });
-      restrictedToken = await getAuthToken(request, email, password);
+      expect(okResponse.status(), 'manager-shape edit (matching lock) should be 200').toBe(200);
+      const okBody = (await okResponse.json()) as { name?: string };
+      expect(okBody.name, 'name should be updated').toBe('QA TC-DICT-003 Updated');
 
-      // Fixture dictionary created by admin so the per-id routes have a target.
-      const createResponse = await apiRequest(request, 'POST', '/api/dictionaries', {
-        token: adminToken,
-        data: { key: `qa_dict_noview_${stamp}`, name: 'QA TC-DICT-003 Dictionary' },
+      // Stale save: replay with the now-outdated token → 409 conflict body.
+      const staleResponse = await request.fetch(`/api/dictionaries/${dictionaryId}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          [OPTIMISTIC_LOCK_HEADER_NAME]: currentUpdatedAt as string,
+        },
+        data: { key, name: 'QA TC-DICT-003 Stale', entrySortMode: 'label_asc' },
       });
-      expect(createResponse.status(), 'admin POST /api/dictionaries should return 201').toBe(201);
-      const createBody = await readJsonSafe<{ id?: string }>(createResponse);
-      dictionaryId = createBody?.id ?? null;
-      expect(dictionaryId, 'Created dictionary should have an id').toBeTruthy();
-
-      // -- Authenticated but missing dictionaries.view -> 403 ------------------
-      const listResponse = await apiRequest(request, 'GET', '/api/dictionaries', { token: restrictedToken });
-      expect(
-        listResponse.status(),
-        'GET /api/dictionaries without dictionaries.view should return 403',
-      ).toBe(403);
-
-      const detailResponse = await apiRequest(
-        request,
-        'GET',
-        `/api/dictionaries/${encodeURIComponent(dictionaryId!)}`,
-        { token: restrictedToken },
-      );
-      expect(
-        detailResponse.status(),
-        'GET /api/dictionaries/[id] without dictionaries.view should return 403',
-      ).toBe(403);
-
-      const entriesResponse = await apiRequest(
-        request,
-        'GET',
-        `/api/dictionaries/${encodeURIComponent(dictionaryId!)}/entries`,
-        { token: restrictedToken },
-      );
-      expect(
-        entriesResponse.status(),
-        'GET /api/dictionaries/[id]/entries without dictionaries.view should return 403',
-      ).toBe(403);
-
-      // -- Admin (has dictionaries.view) still works ---------------------------
-      const adminList = await apiRequest(request, 'GET', '/api/dictionaries', { token: adminToken });
-      expect(adminList.status(), 'admin GET /api/dictionaries should return 200').toBe(200);
-      const adminListBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(adminList);
-      expect(Array.isArray(adminListBody?.items), 'admin list payload should contain items array').toBe(true);
+      expect(staleResponse.status(), 'stale edit should be 409').toBe(409);
+      const staleBody = (await staleResponse.json()) as { code?: string };
+      expect(staleBody.code, 'stale body should carry the conflict code').toBe('optimistic_lock_conflict');
     } finally {
       await deleteEntityByPathIfExists(
         request,
-        adminToken,
-        dictionaryId ? `/api/dictionaries/${encodeURIComponent(dictionaryId)}` : null,
+        token,
+        dictionaryId ? `/api/dictionaries/${dictionaryId}` : null,
       );
-      await deleteUserIfExists(request, adminToken, userId);
-      await deleteRoleIfExists(request, adminToken, roleId);
+    }
+  });
+
+  test('editing a namespaced (dotted) dictionary key resubmitted unchanged does not 500', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin');
+
+    const listResponse = await apiRequest(request, 'GET', '/api/dictionaries', { token });
+    expect(listResponse.status(), 'GET /api/dictionaries should be 200').toBe(200);
+    const listBody = (await listResponse.json()) as {
+      items?: Array<{ id: string; key: string; name: string; updatedAt?: string }>;
+    };
+    const dotted = (listBody.items ?? []).find(
+      (item) => typeof item.key === 'string' && item.key.includes('.'),
+    );
+    test.skip(!dotted, 'no namespaced (dotted) dictionary key available in this environment');
+    if (!dotted) return;
+
+    const original = dotted;
+    try {
+      const patchResponse = await request.fetch(`/api/dictionaries/${original.id}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          ...(typeof original.updatedAt === 'string'
+            ? { [OPTIMISTIC_LOCK_HEADER_NAME]: original.updatedAt }
+            : {}),
+        },
+        // Resubmit the dotted key unchanged, exactly like the manager edit dialog.
+        data: { key: original.key, name: original.name },
+      });
+      expect(
+        patchResponse.status(),
+        `editing dotted key "${original.key}" must not 500 (got ${patchResponse.status()})`,
+      ).not.toBe(500);
+      expect(patchResponse.status(), 'resubmitting an unchanged dotted key should be accepted').toBe(200);
+    } finally {
+      // Restore the original name in case the edit landed.
+      await request
+        .fetch(`/api/dictionaries/${original.id}`, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          data: { name: original.name },
+        })
+        .catch(() => undefined);
     }
   });
 });

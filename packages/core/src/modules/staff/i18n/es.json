@@ -702,6 +702,7 @@
   "staff.teamMembers.detail.inline.urlInvalid": "Introduce una URL válida",
   "staff.teamMembers.detail.jobHistory.add": "Agregar empleo",
   "staff.teamMembers.detail.jobHistory.cancel": "Cancelar",
+  "staff.teamMembers.detail.jobHistory.conflict": "Otro usuario modificó este registro. Actualiza e inténtalo de nuevo.",
   "staff.teamMembers.detail.jobHistory.deleteConfirm": "¿Eliminar esta entrada de historial laboral?",
   "staff.teamMembers.detail.jobHistory.deleted": "Historial laboral eliminado.",
   "staff.teamMembers.detail.jobHistory.edit": "Editar empleo",

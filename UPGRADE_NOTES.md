@@ -24,6 +24,78 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.3 → 0.6.4 (2026-06-02)
 
+### OSS optimistic locking default-ON (2026-05-27)
+
+The `updated_at`-based optimistic-locking guard introduced in
+[`#1981`](https://github.com/open-mercato/open-mercato/pull/2055) is now
+**default ON** for every CRUD entity exposed via `makeCrudRoute`. The
+runtime behavior is strictly additive — clients that do not send the
+`x-om-ext-optimistic-lock-expected-updated-at` header continue to pass
+through unchanged — but downstream operators and module authors should
+review the following before deploying:
+
+#### What changed
+
+- `parseOptimisticLockEnv(undefined | '' | '   ')` now returns
+  `{ mode: 'all' }` (previously `{ mode: 'off' }`). The platform DI
+  bootstrap registers a default `crudMutationGuardService` that consults
+  the global reader store, which the CRUD factory's
+  `registerOptimisticLockReaderIfAbsent` populates at module-load time.
+- `OM_OPTIMISTIC_LOCK=off` (case-insensitive; also `false` / `0` /
+  `no` / `disabled` / `none`) now disables the guard explicitly.
+  Allow-list values (`OM_OPTIMISTIC_LOCK=customers.company,sales.order`)
+  continue to work; they narrow coverage to the listed `resourceKind`s.
+- `packages/core/src/modules/customers/di.ts` and
+  `packages/core/src/modules/sales/di.ts` no longer register their own
+  `crudMutationGuardService` — the platform default suffices. They keep
+  the hand-wired `registerOptimisticLockReaders(...)` call (companies/
+  people use a `kind` discriminator on the polymorphic
+  `customer_entities` table, so the generic reader cannot match).
+
+#### When you might see a change in behavior
+
+Only when *all four* of these are true:
+
+1. Your deployment has not set `OM_OPTIMISTIC_LOCK` explicitly.
+2. A page issues `PUT` / `PATCH` / `DELETE` with the optimistic-lock
+   header set (via `CrudForm` with `optimisticLockUpdatedAt`, or by
+   calling `buildOptimisticLockHeader(...)` directly).
+3. The header's timestamp does not match the row's current `updated_at`.
+4. The route is registered through `makeCrudRoute` (i.e. it picks up
+   the auto-registered generic reader).
+
+In that case the mutation now responds with `409` and the structured
+body `{ error: 'record_modified', code: 'optimistic_lock_conflict',
+currentUpdatedAt, expectedUpdatedAt }` instead of silently winning the
+race. Pages built on `CrudForm` already render the localized
+`ui.forms.flash.recordModified` flash; custom callers should pin against
+`code: 'optimistic_lock_conflict'` (via `extractOptimisticLockConflict`).
+
+#### How to opt out
+
+Set the env var explicitly:
+
+```bash
+OM_OPTIMISTIC_LOCK=off
+```
+
+Restart the app/dev server — the env is read once at module-load time.
+
+#### Custom modules that registered their own `crudMutationGuardService`
+
+If you wrote a custom module that registers `crudMutationGuardService`
+in its `di.ts`, your registration still wins (Awilix replaces same-key
+registrations, and module DI runs after the platform default in
+`createRequestContainer`). No changes required.
+
+#### Custom modules that built on the old `parseOptimisticLockEnv` default
+
+If your code branches on `parseOptimisticLockEnv(undefined).mode === 'off'`
+to short-circuit, that branch now returns `'all'`. Audit any
+`if (config.mode === 'off')` paths that fed off the parser default; the
+guard's own runtime check (`config.mode === 'off' → PASS`) is unchanged
+and still does the right thing.
+
 ### Deprecations
 
 #### `GET /api/customers/assignable-staff` → `GET /api/staff/team-members/assignable`

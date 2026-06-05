@@ -10,8 +10,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -138,12 +139,26 @@ export default function SalesChannelsPage() {
 
   const handleDelete = React.useCallback(async (row: ChannelRow) => {
     try {
-      await deleteCrud('sales/channels', row.id, {
-        errorMessage: t('sales.channels.table.errors.delete', 'Failed to delete channel.'),
-      })
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(row.updatedAt),
+        () => deleteCrud('sales/channels', row.id, {
+          errorMessage: t('sales.channels.table.errors.delete', 'Failed to delete channel.'),
+        }),
+      )
       flash(t('sales.channels.table.messages.deleted', 'Channel deleted.'), 'success')
       handleRefresh()
     } catch (err) {
+      if (extractOptimisticLockConflict(err)) {
+        // Someone edited the channel after this list loaded — refuse the
+        // stale delete, surface the conflict, and reload so the row reflects
+        // the latest server state (QA #2055 channel edit/delete broken state).
+        flash(
+          t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.'),
+          'error',
+        )
+        handleRefresh()
+        return
+      }
       console.error('sales.channels.delete', err)
     }
   }, [handleRefresh, t])
