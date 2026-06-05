@@ -165,6 +165,7 @@ export function generateShared(config: AgenticConfig): void {
     'om-auto-continue-pr-loop',
     'om-auto-review-pr',
     'om-auto-fix-github',
+    'om-prepare-issue',
   ]) {
     if (!existsSync(join(AGENTIC_DIR, 'ai', 'skills', autoSkill, 'SKILL.md'))) {
       continue
