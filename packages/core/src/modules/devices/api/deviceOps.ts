@@ -6,6 +6,7 @@ import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { UserDevice } from '../data/entities'
 import type {
@@ -124,6 +125,16 @@ export async function executeUpdate(
   device: UserDevice,
   body: Omit<UpdateDeviceCommandInput, 'id' | 'tenantId' | 'userId' | 'organizationId'>,
 ): Promise<NextResponse> {
+  // Device metadata edits carry lost-update risk (unlike the idempotent soft-delete deactivate), so
+  // enforce OSS optimistic locking when the caller sends the expected-version header. No-ops when the
+  // header is absent (e.g. mobile self-update clients), keeping the contract backward-compatible.
+  enforceCommandOptimisticLock({
+    resourceKind: RESOURCE_KIND,
+    resourceId: device.id,
+    current: device.updatedAt,
+    request: mctx.request,
+  })
+
   const guardResult = await runGuards(mctx, 'update', device.id, redactMutationPayload(body))
   if (guardResult && !guardResult.ok) return NextResponse.json(guardResult.body, { status: guardResult.status })
 

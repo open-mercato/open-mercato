@@ -45,6 +45,7 @@ function serializeDevice(device: UserDevice) {
     push_token_updated_at: device.pushTokenUpdatedAt ? device.pushTokenUpdatedAt.toISOString() : null,
     last_seen_at: device.lastSeenAt ? device.lastSeenAt.toISOString() : null,
     created_at: device.createdAt ? device.createdAt.toISOString() : null,
+    updated_at: device.updatedAt ? device.updatedAt.toISOString() : null,
   }
 }
 
@@ -182,6 +183,7 @@ const detailResponseSchema = z.object({
     push_token_updated_at: z.string().nullable(),
     last_seen_at: z.string().nullable(),
     created_at: z.string().nullable(),
+    updated_at: z.string().nullable(),
   }),
 })
 

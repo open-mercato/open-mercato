@@ -159,6 +159,7 @@ export default function DevicesAdminListPage() {
     })
     if (!confirmed) return
     try {
+      // optimistic-lock-exempt: device deactivate is an idempotent soft-delete of a registry row, not a concurrent field edit
       const call = await apiCall<{ error?: string }>(
         `/api/devices/admin/devices/${encodeURIComponent(row.id)}`,
         { method: 'DELETE' },

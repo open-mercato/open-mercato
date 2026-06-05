@@ -18,6 +18,7 @@ type DeviceDetail = {
   client_app_version: string | null
   os_version: string | null
   push_provider: string | null
+  updated_at: string | null
 }
 
 type FormValues = {
@@ -111,6 +112,7 @@ export default function DeviceAdminEditPage({ params }: { params?: { id?: string
           backHref="/backend/devices"
           fields={fields}
           groups={groups}
+          optimisticLockUpdatedAt={device.updated_at}
           initialValues={{
             clientAppVersion: device.client_app_version ?? '',
             osVersion: device.os_version ?? '',
