@@ -118,6 +118,30 @@ export async function setRecordCustomFields(
     throw new Error(TOO_MANY_CUSTOM_FIELDS_ERROR)
   }
 
+  // Run the per-key delete+insert work inside ONE database transaction so a
+  // multi-value replacement is atomic and isolated. The array branch deletes the
+  // existing rows for a key and inserts the replacements; without an enclosing
+  // transaction those can land in separate commit boundaries under MikroORM's
+  // FlushMode.AUTO (a query elsewhere in the unit auto-flushes part of the work),
+  // which intermittently left the field with the delete applied but the inserts
+  // missing — the multi-select EDIT reverted to []. The single commit below makes
+  // it all-or-nothing. We only open our own transaction when the caller has not
+  // already started one (commands fork the request em and may run setCustomFields
+  // outside their own withAtomicFlush tx); join an ambient transaction otherwise.
+  const txEm = em as {
+    begin?: () => Promise<void>
+    commit?: () => Promise<void>
+    rollback?: () => Promise<void>
+    isInTransaction?: () => boolean
+  }
+  const txCapable =
+    typeof txEm.begin === 'function' &&
+    typeof txEm.commit === 'function' &&
+    typeof txEm.rollback === 'function' &&
+    typeof txEm.isInTransaction === 'function'
+  const ownCustomFieldTransaction = txCapable && !txEm.isInTransaction!()
+  if (ownCustomFieldTransaction) await txEm.begin!()
+  try {
   for (const fieldKey of keys) {
     const raw = values[fieldKey]
     if (raw === undefined) continue
@@ -193,7 +217,15 @@ export async function setRecordCustomFields(
 
   if (toPersist.length) em.persist(toPersist)
   await em.flush()
-  // Emit hook for indexing if requested (outside CRUD flows)
+    if (ownCustomFieldTransaction) await txEm.commit!()
+  } catch (err) {
+    if (ownCustomFieldTransaction) {
+      try { await txEm.rollback!() } catch { /* surface the original error, not a rollback failure */ }
+    }
+    throw err
+  }
+  // Emit hook for indexing if requested (outside CRUD flows). Runs AFTER the
+  // transaction commits so consumers observe the persisted rows.
   try {
     if (typeof opts.onChanged === 'function') {
       await opts.onChanged({ entityId, recordId, organizationId, tenantId })
