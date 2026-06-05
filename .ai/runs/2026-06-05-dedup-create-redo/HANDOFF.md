@@ -27,8 +27,24 @@ Removes the create↔redo code duplication introduced by PR #2552, with **zero b
 | `319676f23` | Multi-row: `customers.people` → `buildPersonGraph` (execute + redo) |
 | `145061e7f` | Single-row A: `catalog.priceKinds`, `catalog.optionSchemas`, `staff.teams`, `staff.team-roles` |
 | `579711fe2` | Single-row factory: `customers.tags`, `customers.labels` |
+| `5f67773ff` | Multi-row: `customers.interactions` → `buildInteractionGraph` |
 
-Net so far: ~230 lines of duplicated mapping removed across 9 commands; framework is additive/BC-safe.
+Net: duplicated mapping removed across **10 commands** + framework (additive/BC-safe).
+
+## Verification (this session)
+- `yarn build:packages` ✓ · `yarn generate` ✓ · `yarn typecheck` ✓ (21/21)
+- Unit tests ✓ — **core 5428**, **shared 1162** (enterprise had a flaky worker-exit; green on re-run)
+- `yarn lint` — app-level ESLint rule-loading crash is **pre-existing/environmental** (`react/no-direct-mutation-state` plugin vs ESLint version); unrelated to the core/shared changes here.
+- Integration specs (TC-CUR-REDO-409 / TC-UNDO-003 / TC-UNDO-004) — NOT re-run (need live ephemeral app).
+
+## Safe ceiling reached
+Every remaining create command was evaluated and **intentionally left as-is** because the current `makeCreateRedo` cannot preserve its behavior, OR it already factors redo via a seed helper (no duplication to remove):
+- Already factored (no dup): `catalog.products`, `catalog.variants`, `staff.team-members`, `staff.timesheets-projects`, `staff.timesheets-entries`, `staff.leave-requests`.
+- Genuinely different execute-vs-redo logic: `sales.returns` (recompute-vs-snapshot + find-or-create header), `customers.companies` (create interleaved with surviving-row update).
+- Non-1:1 seeds (cloneJson / mergeProviderSettings / fresh ts / non-column `custom` key): `sales.configuration` (×5), `planner.availability-rule-sets`, `scheduler.jobs`.
+- Factory-capability blockers (see below): `customers.dictionaries`, `customers.comments`, `customers.addresses`, `customers.entity-roles`, `customers.activities` (deprecated bridge), `resources.comments`, `resources.resource-types`.
+
+To go further requires the factory enhancements listed next.
 
 ## Decision rule used (apply for remaining work)
 
