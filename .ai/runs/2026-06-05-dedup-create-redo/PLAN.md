@@ -65,8 +65,8 @@ internal refactor — same ids, side effects, snapshots, undo tokens, tests.
 
 ### Phase 3: Single-row migration — convertible hand-rolled redos → factory
 
-- [ ] 3.1 `customers`: `tags`, `labels`, `dictionaries`, `entity-roles`, `deals`, `comments`, `addresses`, `personCompanyLinks`, `activities` (only where single-row + clean snapshot).
-- [ ] 3.2 `resources`: `activities`, `comments`, `resource-types`, `resources`, `tag-assignments` (single-row ones).
+- [~] 3.1 `customers`: `tags`, `labels` → factory (Option A / explicit seed). `dictionaries` (upsert), `deals` (multi-entity), `comments`/`addresses`/`entity-roles`/`activities` left hand-rolled (relation validation, encryption, custom-field payload, deprecated bridge — see HANDOFF). `personCompanyLinks`, `todos` not yet evaluated. — 579711fe2
+- [~] 3.2 `resources`: `comments`/`resource-types` evaluated, left hand-rolled (relation validation; custom-field on undo payload). `activities`/`resources`/`tag-assignments` not yet evaluated.
 - [ ] 3.3 `staff`: `activities`, `addresses`, `comments`, `job-histories`, `tag-assignments` (single-row ones).
 - [ ] 3.4 `sales`: `notes`, `payments`, `shipments`; `directory.organizations`, `feature_toggles.global` (only if cleanly single-row). Leave non-convertible cases as-is with a one-line note. Gate: typecheck.
 

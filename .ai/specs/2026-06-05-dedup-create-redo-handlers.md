@@ -245,3 +245,9 @@ preserved.
 ## Changelog
 
 - 2026-06-05: Initial spec authored for the PR #2552 dedup refactor.
+- 2026-06-05: Partial implementation landed on `fix/issue-2506-redo-create-keep-id`.
+  Framework (snapshot-as-seed) + 9 commands deduped (currencies, exchange_rates,
+  catalog priceKinds/optionSchemas, staff teams/team-roles, customers tags/labels,
+  customers.people multi-row materializer). Remaining single-row/multi-row commands
+  and discovered `makeCreateRedo` limitations tracked in
+  `.ai/runs/2026-06-05-dedup-create-redo/HANDOFF.md`. Status: in-progress.
