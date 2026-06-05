@@ -284,11 +284,16 @@ export function DictionaryEntrySelect({
     () => buildHrefWithReturnTo(manageLink, returnTo),
     [manageLink, returnTo],
   )
+  const optionsKey = React.useMemo(
+    () => displayOptions.map((option) => `${option.value}:${option.label}`).join('\0'),
+    [displayOptions],
+  )
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <Select
+          key={`dictionary-entry:${value ?? ''}:${optionsKey}`}
           value={value ?? ''}
           onValueChange={(next) => {
             if (!next) return
@@ -301,7 +306,9 @@ export function DictionaryEntrySelect({
             className={selectClassName}
             title={activeOption?.label ?? undefined}
           >
-            <SelectValue placeholder={labels.placeholder} />
+            <SelectValue placeholder={labels.placeholder}>
+              {activeOption?.label}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {displayOptions.map((option) => (

@@ -170,61 +170,69 @@ export function useResourcesResourceFormConfig(options: {
         id: 'resourceTypeId',
         label: t('resources.resources.form.fields.type', 'Resource type'),
         type: 'custom',
-        component: ({ value, setValue, setFormValue, disabled }) => (
-          <div className="flex items-center gap-2">
-            <Select
-              value={typeof value === 'string' ? value : ''}
-              onValueChange={(next) => {
-                if (!next) return
-                const value = next || ''
-                setValue(value)
-                if (setFormValue) {
-                  setFormValue('customFieldsetCode', resolveFieldsetCode(value || null))
-                }
-              }}
-              disabled={disabled}
-            >
-              <SelectTrigger data-crud-focus-target="">
-                <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
-              </SelectTrigger>
-              <SelectContent>
-                {resourceTypes.map((type) => (
-                  <SelectItem key={type.id} value={type.id}>
-                    {type.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              asChild
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="shrink-0"
-              title={t('resources.resources.form.fields.type.manage', 'Manage resource types')}
-              aria-label={t('resources.resources.form.fields.type.manage', 'Manage resource types')}
-              disabled={disabled}
-            >
-              <Link href="/backend/resources/resource-types">
-                <Settings className="h-4 w-4" aria-hidden />
-              </Link>
-            </Button>
-            <Button
-              asChild
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="shrink-0"
-              title={t('resources.resources.form.fields.type.add', 'Add resource type')}
-              aria-label={t('resources.resources.form.fields.type.add', 'Add resource type')}
-              disabled={disabled}
-            >
-              <Link href="/backend/resources/resource-types/create">
-                <Plus className="h-4 w-4" aria-hidden />
-              </Link>
-            </Button>
-          </div>
-        ),
+        component: ({ value, setValue, setFormValue, disabled }) => {
+          const selectedValue = typeof value === 'string' ? value : ''
+          const selectedOption = resourceTypes.find((type) => type.id === selectedValue)
+          const optionsKey = resourceTypes.map((type) => `${type.id}:${type.name}`).join('\0')
+
+          return (
+            <div className="flex items-center gap-2">
+              <Select
+                key={`resource-type:${selectedValue}:${optionsKey}`}
+                value={selectedValue}
+                onValueChange={(next) => {
+                  const value = next || ''
+                  setValue(value)
+                  if (setFormValue) {
+                    setFormValue('customFieldsetCode', resolveFieldsetCode(value || null))
+                  }
+                }}
+                disabled={disabled}
+              >
+                <SelectTrigger data-crud-focus-target="">
+                  <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')}>
+                    {selectedOption?.name}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {resourceTypes.map((type) => (
+                    <SelectItem key={type.id} value={type.id}>
+                      {type.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                asChild
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="shrink-0"
+                title={t('resources.resources.form.fields.type.manage', 'Manage resource types')}
+                aria-label={t('resources.resources.form.fields.type.manage', 'Manage resource types')}
+                disabled={disabled}
+              >
+                <Link href="/backend/resources/resource-types">
+                  <Settings className="h-4 w-4" aria-hidden />
+                </Link>
+              </Button>
+              <Button
+                asChild
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="shrink-0"
+                title={t('resources.resources.form.fields.type.add', 'Add resource type')}
+                aria-label={t('resources.resources.form.fields.type.add', 'Add resource type')}
+                disabled={disabled}
+              >
+                <Link href="/backend/resources/resource-types/create">
+                  <Plus className="h-4 w-4" aria-hidden />
+                </Link>
+              </Button>
+            </div>
+          )
+        },
       },
       {
         id: 'capacity',
