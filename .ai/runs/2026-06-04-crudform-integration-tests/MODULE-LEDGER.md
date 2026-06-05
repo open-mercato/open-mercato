@@ -33,7 +33,7 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
 | B4 | planner | core | availability-ruleset | `feat/crudform-tests-planner` | — | ⬜ |
 | B5 | webhooks | webhooks | webhook (events multiselect + headers JSON) | `feat/crudform-tests-webhooks` | — | ⬜ |
 | B6 | scheduler | scheduler | scheduled-job (scope/target/payload JSON) | `feat/crudform-tests-scheduler` | — | ⬜ |
-| B7 | checkout | checkout | link-template, pay-link | `feat/crudform-tests-checkout` | — | ⬜ |
+| B7 | checkout | checkout | link-template (TC-CHK-CRUDFORM-001), pay-link (TC-CHK-CRUDFORM-002) | `feat/crudform-tests-checkout` | #2566 | 🔵 PR open (stacked on #2548) |
 
 ## Tier C — remaining makeCrud / scalar surfaces
 
