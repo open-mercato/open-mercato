@@ -81,18 +81,14 @@ describe('setRecordCustomFields', () => {
       updatedAt: new Date('2026-06-05T00:00:00.000Z'),
       configJson: { multi: true },
     }
-    const staleRows = [
-      { id: 'old-alpha', fieldKey: 'segments', valueText: 'alpha' },
-      { id: 'old-beta', fieldKey: 'segments', valueText: 'beta' },
-    ]
     const persist = jest.fn()
     const remove = jest.fn()
-    const nativeDelete = jest.fn()
+    const nativeDelete = jest.fn(async () => 2)
     const create = jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity }))
     const emMock = {
       find: jest.fn(async (entity: unknown) => {
         if (entity === CustomFieldDef) return [definition]
-        if (entity === CustomFieldValue) return staleRows
+        if (entity === CustomFieldValue) return []
         return []
       }),
       findOne: jest.fn(async () => null),
@@ -116,15 +112,21 @@ describe('setRecordCustomFields', () => {
       values: { segments: ['gamma', 'delta'] },
     })
 
-    expect(remove).toHaveBeenCalledTimes(2)
-    expect(remove).toHaveBeenCalledWith(staleRows[0])
-    expect(remove).toHaveBeenCalledWith(staleRows[1])
-    expect(nativeDelete).not.toHaveBeenCalled()
+    expect(remove).not.toHaveBeenCalled()
+    expect(nativeDelete).toHaveBeenCalledTimes(1)
+    expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, {
+      entityId: 'customers:customer_deal',
+      recordId: 'deal-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      fieldKey: 'segments',
+    })
     expect(persist).toHaveBeenCalledTimes(1)
     expect(persist).toHaveBeenCalledWith([
       expect.objectContaining({ fieldKey: 'segments', valueText: 'gamma' }),
       expect.objectContaining({ fieldKey: 'segments', valueText: 'delta' }),
     ])
+    expect(nativeDelete.mock.invocationCallOrder[0]).toBeLessThan(create.mock.invocationCallOrder[0])
     expect(emMock.flush).toHaveBeenCalledTimes(1)
     expect(emMock.begin).toHaveBeenCalledTimes(1)
     expect(emMock.commit).toHaveBeenCalledTimes(1)
