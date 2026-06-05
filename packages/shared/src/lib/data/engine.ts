@@ -574,8 +574,8 @@ export class DefaultDataEngine implements DataEngine {
         if (ctx.syncOrigin) enrichedPayload.syncOrigin = ctx.syncOrigin
         // Await the index update so query-index reads (the `customValues`/scalar
         // projection that list endpoints serve) are consistent the moment the write
-        // returns. Deletion only removes rows (the projection row + a bounded token
-        // DELETE, no chunked INSERT), so the whole subscriber stays cheap to await.
+        // returns. The subscriber removes the projection row + tokens synchronously and
+        // defers the coverage recompute + fulltext delete, so this stays bounded.
         // Errors are logged, not thrown — index drift never fails the originating write.
         await bus.emitEvent('query_index.delete_one', enrichedPayload).catch((err: unknown) => {
           console.error('[data-engine] query_index.delete_one emit failed', err)
