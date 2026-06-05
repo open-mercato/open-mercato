@@ -68,8 +68,8 @@ jest.mock('@open-mercato/core/modules/auth/data/entities', () => ({
   UserRole: class UserRole {},
 }))
 
-jest.mock('../../lib/opencode-handlers', () => {
-  const actual = jest.requireActual('../../lib/opencode-handlers')
+jest.mock('../lib/opencode-handlers', () => {
+  const actual = jest.requireActual('../lib/opencode-handlers')
   return {
     __esModule: true,
     ...actual,
@@ -78,7 +78,7 @@ jest.mock('../../lib/opencode-handlers', () => {
   }
 })
 
-jest.mock('../../lib/opencode-client', () => ({
+jest.mock('../lib/opencode-client', () => ({
   __esModule: true,
   createOpenCodeClient: () => ({
     getPendingQuestions: (...args: unknown[]) => mockClientGetPendingQuestions(...args),
