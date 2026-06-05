@@ -16,7 +16,7 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
 |-------|--------|---------|-------------------|--------|----|--------|
 | A1 | resources | core | resource (CF text/number/select/boolean), resource-type · capacityUnit dict deferred (example-seeded) | feat/crudform-tests-resources | #2551 | 🔵 PR open (stacked on #2548) |
 | A2 | staff | core | team-member (role_ids/tags multiselect + 6-kind CF), team, team-role, timesheet-project | feat/crudform-tests-staff | #2553 | 🔵 PR open (stacked on #2548) |
-| A3 | catalog | core | product (multichoice CF), variant (prices), category | `feat/crudform-tests-catalog` | — | ⬜ |
+| A3 | catalog | core | product (multichoice CF), variant (prices), category | feat/2555-crudform-tests-catalog | — | 🔵 specs ready (TC-CAT-CRUDFORM-001..003, #2555); off develop (#2548 merged); PR pending |
 | A4 | customers | core | person/company/deal (inline + CF + dictionary) | `feat/crudform-tests-customers` | — | ⬜ |
 | A5 | currencies | core | currency (scalars), exchange-rate | feat/crudform-integration-tests | #2548 | 🔵 currency covered in foundation PR #2548 |
 | A6 | auth | core | user (roles[] + CF + ACL), role (CF + ACL) | `feat/crudform-tests-auth` | — | ⬜ |
