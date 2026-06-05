@@ -14,7 +14,7 @@ import {
   type ResourcesResourceCommentUpdateInput,
 } from '../data/validators'
 import { resourcesResourceCommentCrudEvents } from '../lib/crud'
-import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireResource } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
@@ -133,53 +133,25 @@ const createCommentCommand: CommandHandler<
       await em.flush()
     }
   },
-  redo: async ({ logEntry, ctx }) => {
-    const after = resolveRedoSnapshot<CommentSnapshot>(logEntry)
-    if (!after) {
-      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for comment create' })
-    }
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const resource = await requireResource(em, after.resourceId, 'Resource not found')
-    let comment = await em.findOne(ResourcesResourceComment, { id: after.id })
-    if (!comment) {
-      comment = em.create(ResourcesResourceComment, {
-        id: after.id,
-        organizationId: after.organizationId,
-        tenantId: after.tenantId,
-        resource,
-        body: after.body,
-        authorUserId: after.authorUserId,
-        appearanceIcon: after.appearanceIcon,
-        appearanceColor: after.appearanceColor,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(comment)
-    } else {
-      comment.resource = resource
-      comment.body = after.body
-      comment.authorUserId = after.authorUserId
-      comment.appearanceIcon = after.appearanceIcon
-      comment.appearanceColor = after.appearanceColor
-    }
-    await em.flush()
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudSideEffects({
-      dataEngine: de,
-      action: 'created',
-      entity: comment,
-      identifiers: {
-        id: comment.id,
-        organizationId: comment.organizationId,
-        tenantId: comment.tenantId,
-      },
-      events: resourcesResourceCommentCrudEvents,
-      indexer: commentCrudIndexer,
-    })
-
-    return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
-  },
+  redo: makeCreateRedo<ResourcesResourceComment, CommentSnapshot, ResourcesResourceCommentCreateInput, { commentId: string; authorUserId: string | null }>({
+    entityClass: ResourcesResourceComment,
+    seedFromSnapshot: (after) => ({
+      id: after.id,
+      organizationId: after.organizationId,
+      tenantId: after.tenantId,
+      body: after.body,
+      authorUserId: after.authorUserId,
+      appearanceIcon: after.appearanceIcon,
+      appearanceColor: after.appearanceColor,
+    }),
+    beforeRestore: async ({ em, snapshot }) => {
+      const resource = await requireResource(em, snapshot.resourceId, 'Resource not found')
+      return { resource }
+    },
+    buildResult: (entity) => ({ commentId: entity.id, authorUserId: entity.authorUserId ?? null }),
+    events: resourcesResourceCommentCrudEvents,
+    indexer: commentCrudIndexer,
+  }),
 }
 
 const updateCommentCommand: CommandHandler<ResourcesResourceCommentUpdateInput, { commentId: string }> = {
