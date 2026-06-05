@@ -110,6 +110,7 @@
   "data_sync.runs.detail.logs.message": "Wiadomość",
   "data_sync.runs.detail.logs.time": "Czas",
   "data_sync.runs.detail.noLogs": "Brak wpisów w logach",
+  "data_sync.runs.detail.notFound": "Nie znaleziono przebiegu synchronizacji.",
   "data_sync.runs.detail.progress": "Postęp",
   "data_sync.runs.detail.progress.batches": "{count} partii",
   "data_sync.runs.detail.progress.eta": "Pozostało {eta}",

@@ -1,4 +1,5 @@
 import { type APIRequestContext, type APIResponse, expect, test } from '@playwright/test'
+import { randomInt } from 'node:crypto'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { apiRequest } from './api'
 import { expectId, readJsonSafe } from './generalFixtures'
@@ -177,7 +178,7 @@ export async function runCrudUndoRoundTrip(
   token: string,
   entity: CrudUndoEntityConfig,
 ): Promise<void> {
-  const stamp = `${Date.now()}${Math.floor(Math.random() * 1000)}`
+  const stamp = `${Date.now()}${randomInt(1000)}`
   let createUndoId: string | null = null
   let cycleId: string | null = null
 

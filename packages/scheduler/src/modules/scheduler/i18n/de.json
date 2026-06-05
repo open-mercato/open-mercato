@@ -132,6 +132,7 @@
   "scheduler.loading": "Zeitplan wird geladen...",
   "scheduler.module.description": "Verwalten Sie automatisierte geplante Aufgaben mit Cron-Ausdrücken oder einfachen Intervallen.",
   "scheduler.module.title": "Geplante Aufgaben",
+  "scheduler.nav.backToList": "Zurück zu geplanten Aufgaben",
   "scheduler.scope.organization": "Organisation",
   "scheduler.scope.system": "System",
   "scheduler.scope.tenant": "Mandant",
