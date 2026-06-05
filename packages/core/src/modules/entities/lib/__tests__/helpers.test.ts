@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import type { EntityManager } from '@mikro-orm/core'
+import { CustomFieldDef, CustomFieldValue } from '../../data/entities'
 import { setRecordCustomFields } from '../helpers'
 
 describe('setRecordCustomFields', () => {
@@ -69,5 +70,66 @@ describe('setRecordCustomFields', () => {
       }),
     ).rejects.toThrow()
     expect(persist).not.toHaveBeenCalled()
+  })
+
+  it('replaces multi-value custom fields without deleting the replacement rows', async () => {
+    const definition = {
+      key: 'segments',
+      kind: 'select',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      updatedAt: new Date('2026-06-05T00:00:00.000Z'),
+      configJson: { multi: true },
+    }
+    const persist = jest.fn()
+    const remove = jest.fn()
+    const nativeDelete = jest.fn(async () => 2)
+    const create = jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity }))
+    const emMock = {
+      find: jest.fn(async (entity: unknown) => {
+        if (entity === CustomFieldDef) return [definition]
+        if (entity === CustomFieldValue) return []
+        return []
+      }),
+      findOne: jest.fn(async () => null),
+      create,
+      remove,
+      nativeDelete,
+      persist,
+      flush: jest.fn(async () => undefined),
+      begin: jest.fn(async () => undefined),
+      commit: jest.fn(async () => undefined),
+      rollback: jest.fn(async () => undefined),
+      isInTransaction: jest.fn(() => false),
+    }
+    const em = emMock as unknown as EntityManager
+
+    await setRecordCustomFields(em, {
+      entityId: 'customers:customer_deal',
+      recordId: 'deal-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      values: { segments: ['gamma', 'delta'] },
+    })
+
+    expect(remove).not.toHaveBeenCalled()
+    expect(nativeDelete).toHaveBeenCalledTimes(1)
+    expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, {
+      entityId: 'customers:customer_deal',
+      recordId: 'deal-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      fieldKey: 'segments',
+    })
+    expect(persist).toHaveBeenCalledTimes(1)
+    expect(persist).toHaveBeenCalledWith([
+      expect.objectContaining({ fieldKey: 'segments', valueText: 'gamma' }),
+      expect.objectContaining({ fieldKey: 'segments', valueText: 'delta' }),
+    ])
+    expect(nativeDelete.mock.invocationCallOrder[0]).toBeLessThan(create.mock.invocationCallOrder[0])
+    expect(emMock.flush).toHaveBeenCalledTimes(1)
+    expect(emMock.begin).toHaveBeenCalledTimes(1)
+    expect(emMock.commit).toHaveBeenCalledTimes(1)
+    expect(emMock.rollback).not.toHaveBeenCalled()
   })
 })

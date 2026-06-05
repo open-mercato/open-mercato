@@ -62,6 +62,32 @@ describe('CrudForm unsaved navigation guard', () => {
     expect(event.returnValue).toBe('')
   })
 
+  it('marks the form dirty on the first edit even when no baseline has been initialized yet', async () => {
+    const onDirtyChange = jest.fn()
+    const { container } = renderWithProviders(
+      <CrudForm title="Form" fields={fields} onSubmit={() => {}} onDirtyChange={onDirtyChange} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.confirmUnsavedChanges': 'Unsaved changes',
+        },
+      },
+    )
+
+    const input = container.querySelector('[data-crud-field-id="name"] input[type="text"]') as HTMLInputElement
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'Alice updated' } })
+    })
+
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+
+    const event = new Event('beforeunload', { cancelable: true }) as BeforeUnloadEvent
+    Object.defineProperty(event, 'returnValue', { writable: true, value: undefined })
+    window.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+  })
+
   it('blocks router-driven history pushes until the user confirms leaving', async () => {
     confirmDialogMock.mockResolvedValueOnce(false)
 

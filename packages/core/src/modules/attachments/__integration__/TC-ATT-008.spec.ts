@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, request as playwrightRequest, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
   getTokenContext,
@@ -27,7 +27,7 @@ const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
  * validity is irrelevant for the negative cases.
  */
 test.describe('TC-ATT-008: Attachment RBAC and feature gates', () => {
-  test('should enforce 401 without auth and 403 without attachments features', async ({ request }) => {
+  test('should enforce 401 without auth and 403 without attachments features', async ({ request, baseURL }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const { organizationId } = getTokenContext(adminToken)
     const stamp = Date.now()
@@ -60,20 +60,25 @@ test.describe('TC-ATT-008: Attachment RBAC and feature gates', () => {
       const detailPath = `/api/attachments/library/${encodeURIComponent(attachmentId)}`
 
       // GET /api/attachments without any token → 401.
-      const recordListNoAuth = await request.fetch(`${BASE_URL}/api/attachments?${recordQuery}`, {
-        method: 'GET',
-      })
-      expect(recordListNoAuth.status(), 'GET /api/attachments without auth should be 401').toBe(401)
+      const anonymous = await playwrightRequest.newContext({ baseURL: baseURL ?? BASE_URL })
+      try {
+        const recordListNoAuth = await anonymous.fetch(`/api/attachments?${recordQuery}`, {
+          method: 'GET',
+        })
+        expect(recordListNoAuth.status(), 'GET /api/attachments without auth should be 401').toBe(401)
+
+        // GET /api/attachments/library without any token → 401.
+        const libraryNoAuth = await anonymous.fetch('/api/attachments/library', { method: 'GET' })
+        expect(libraryNoAuth.status(), 'GET /api/attachments/library without auth should be 401').toBe(401)
+      } finally {
+        await anonymous.dispose()
+      }
 
       // GET /api/attachments with an unprivileged user (lacks attachments.view) → 403.
       const recordListForbidden = await apiRequest(request, 'GET', `/api/attachments?${recordQuery}`, {
         token: unprivilegedToken,
       })
       expect(recordListForbidden.status(), 'GET /api/attachments without attachments.view should be 403').toBe(403)
-
-      // GET /api/attachments/library without any token → 401.
-      const libraryNoAuth = await request.fetch(`${BASE_URL}/api/attachments/library`, { method: 'GET' })
-      expect(libraryNoAuth.status(), 'GET /api/attachments/library without auth should be 401').toBe(401)
 
       // GET /api/attachments/library with unprivileged user (lacks attachments.view) → 403.
       const libraryForbidden = await apiRequest(request, 'GET', '/api/attachments/library', {

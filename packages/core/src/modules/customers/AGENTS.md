@@ -87,6 +87,12 @@ Commands (`commands/people.ts`) demonstrate:
 3. Restore via `buildCustomFieldResetMap(before.custom, after.custom)` in undo
 4. Side effects with `emitCrudSideEffects` and `emitCrudUndoSideEffects`
 5. Include `indexer: { entityType, cacheAliases }` in both directions
+6. **Prefer `runCrudCommandWrite` for new commands** that combine entity writes + custom fields + side effects in one logical step. Reference: the migrated `updateDealCommand.execute` in `commands/deals.ts`. See `packages/core/AGENTS.md` → Entity Update Safety for the contract and `packages/shared/AGENTS.md` → `commands/runCrudCommandWrite` for the import.
+
+## Transaction Safety
+
+- Multi-phase scalar + relation mutations (e.g. update commands that also sync tags) use `withAtomicFlush(em, phases, { transaction: true })` from `@open-mercato/shared/lib/commands/flush` — never interleave `em.find`/`em.findOne` between a scalar mutation and `em.flush()`.
+- Side effects (`emitCrudSideEffects`) and cache invalidation fire **after** commit, outside the `withAtomicFlush` block. See `packages/core/AGENTS.md` → "Entity Update Safety — `withAtomicFlush`" and `.ai/specs/2026-06-05-cache-safety-always-consistent.md`.
 
 ## Custom Field Integration
 

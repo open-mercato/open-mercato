@@ -2,47 +2,47 @@
 
 ## TLDR
 **Key Points:**
-- New orchestrator skill that takes an existing spec from `.ai/specs/` and drives it to completion across multiple sessions by dispatching `auto-create-pr` (new phases) and `auto-continue-pr` (unfinished phases).
+- New orchestrator skill that takes an existing spec from `.ai/specs/` and drives it to completion across multiple sessions by dispatching `om-auto-create-pr` (new phases) and `om-auto-continue-pr` (unfinished phases).
 - Developer repeats `/auto-implement-spec <spec-path>` until all phases are done. One command, no need to remember PR numbers or decide where to cut.
 
 **Scope:**
-- New skill file: `.ai/skills/auto-implement-spec/SKILL.md`
+- New skill file: `.ai/skills/om-auto-implement-spec/SKILL.md`
 - Registration in `.ai/skills/README.md` and root `AGENTS.md` Task Router
 
 **Concerns:**
-- Must not break or duplicate existing `implement-spec` (interactive) or `auto-create-pr` (autonomous executor)
+- Must not break or duplicate existing `om-implement-spec` (interactive) or `om-auto-create-pr` (autonomous executor)
 
 ---
 
 ## Overview
 
-The auto-* skill family (`auto-create-pr`, `auto-continue-pr`, `auto-fix-github`, `auto-review-pr`) provides autonomous agent execution with worktree isolation, PR delivery, and resumability. However, there is no auto-* skill for the most common OM workflow: **implementing an existing spec from `.ai/specs/`**.
+The auto-* skill family (`om-auto-create-pr`, `om-auto-continue-pr`, `om-auto-fix-github`, `om-auto-review-pr`) provides autonomous agent execution with worktree isolation, PR delivery, and resumability. However, there is no auto-* skill for the most common OM workflow: **implementing an existing spec from `.ai/specs/`**.
 
 Today a developer with a large spec (e.g. WMS with 5 phases, 13 entities) faces a gap:
-- `implement-spec` works interactively but has no PR delivery, no worktree isolation, no resumability
-- `auto-create-pr` has all of that but expects a free-form brief and creates a new execution plan — it doesn't consume existing specs
+- `om-implement-spec` works interactively but has no PR delivery, no worktree isolation, no resumability
+- `om-auto-create-pr` has all of that but expects a free-form brief and creates a new execution plan — it doesn't consume existing specs
 
 `auto-implement-spec` bridges this gap as a thin orchestrator. It reads the spec, checks readiness, builds state from GitHub PRs, and dispatches the right auto-* skill for the next phase. It owns no implementation logic itself.
 
 ### Design Decisions
 | Decision | Rationale |
 |----------|-----------|
-| Orchestrator only — no implementation logic | Reuse `auto-create-pr` and `auto-continue-pr` as-is. One thing to maintain. |
+| Orchestrator only — no implementation logic | Reuse `om-auto-create-pr` and `om-auto-continue-pr` as-is. One thing to maintain. |
 | One PR per spec phase | Natural boundary. Phases are designed to be independently testable and deployable. |
-| Dispatch via `Agent` tool, worktree managed by `auto-create-pr` | `auto-create-pr` already manages its own worktree isolation. No need to duplicate that with `isolation: "worktree"` on the Agent call. |
-| Parallel dispatch for independent phases | If Phase 3 and Phase 4 have no dependency, dispatch both as parallel `Agent` calls in a single message. Each invokes `auto-create-pr` which creates its own worktree independently. |
-| `implement-spec` stays unchanged | Different use case: interactive, developer-in-the-loop. Not deprecated. |
+| Dispatch via `Agent` tool, worktree managed by `om-auto-create-pr` | `om-auto-create-pr` already manages its own worktree isolation. No need to duplicate that with `isolation: "worktree"` on the Agent call. |
+| Parallel dispatch for independent phases | If Phase 3 and Phase 4 have no dependency, dispatch both as parallel `Agent` calls in a single message. Each invokes `om-auto-create-pr` which creates its own worktree independently. |
+| `om-implement-spec` stays unchanged | Different use case: interactive, developer-in-the-loop. Not deprecated. |
 | State tracked via GitHub PRs | No new state files. Use GitHub as source of truth — match PRs to phases via `Tracking plan:` + `Source spec:` in PR body. |
 | No `--phase` argument | Skill auto-detects which phase is next. Developer shouldn't need to know phase numbers. |
 | Execution plans go to `.ai/runs/` | Architectural specs stay clean in `.ai/specs/`. Execution plans (progress checklists) are a separate artifact in `.ai/runs/` (see PR #1531). |
 
 ## Problem Statement
 
-1. **Developer doesn't know what to give `auto-create-pr`** — it expects a free-form brief, but the spec already exists with all the details. Developer must manually extract and reformulate phase scope into a brief. This is error-prone and feels redundant.
+1. **Developer doesn't know what to give `om-auto-create-pr`** — it expects a free-form brief, but the spec already exists with all the details. Developer must manually extract and reformulate phase scope into a brief. This is error-prone and feels redundant.
 
-2. **No single command to drive a spec to completion** — developer must manually track which phases have PRs, which PRs are merged, which are in progress, and invoke the right skill (`auto-create-pr` vs `auto-continue-pr`) with the right arguments each time.
+2. **No single command to drive a spec to completion** — developer must manually track which phases have PRs, which PRs are merged, which are in progress, and invoke the right skill (`om-auto-create-pr` vs `om-auto-continue-pr`) with the right arguments each time.
 
-3. **`implement-spec` lacks autonomous delivery** — it implements code but doesn't create PRs, doesn't use worktree isolation, and can't be resumed across sessions.
+3. **`om-implement-spec` lacks autonomous delivery** — it implements code but doesn't create PRs, doesn't use worktree isolation, and can't be resumed across sessions.
 
 ## Proposed Solution
 
@@ -52,8 +52,8 @@ A new skill `auto-implement-spec` that:
 2. **Runs a readiness check** before coding — validates the next phase has enough detail to implement
 3. **Scans GitHub for existing PRs** linked to this spec to build phase state
 4. **Dispatches the right action** per phase:
-   - Phase not started → `auto-create-pr` via `Agent` (manages its own worktree)
-   - Phase has open PR, incomplete → `auto-continue-pr` via `Agent` (manages its own worktree)
+   - Phase not started → `om-auto-create-pr` via `Agent` (manages its own worktree)
+   - Phase has open PR, incomplete → `om-auto-continue-pr` via `Agent` (manages its own worktree)
    - Phase PR merged → skip
    - All phases done → report completion
 5. **Parallelizes independent phases** — if multiple not-started phases have no dependency on each other, dispatches them as parallel `Agent` calls, each on its own worktree
@@ -62,8 +62,8 @@ A new skill `auto-implement-spec` that:
 ### Alternatives Considered
 | Alternative | Why Rejected |
 |-------------|-------------|
-| Merge `auto-create-pr` into `implement-spec` | Breaks interactive use case. Two different developer workflows. |
-| Make `auto-create-pr` accept `--spec` flag | Overloads its purpose. It's an executor, not an orchestrator. |
+| Merge `om-auto-create-pr` into `om-implement-spec` | Breaks interactive use case. Two different developer workflows. |
+| Make `om-auto-create-pr` accept `--spec` flag | Overloads its purpose. It's an executor, not an orchestrator. |
 | Implement all phases in one session | Unrealistic for large specs. Sessions have context/time limits. |
 
 ## User Stories / Use Cases
@@ -129,13 +129,13 @@ Dispatch rules:
 - **Parallel**: multiple phases have all dependencies met and are not started → dispatch all as parallel `Agent` calls with `isolation: "worktree"`
 - **Continue**: phase has an open, incomplete PR → single `Agent` call to resume
 
-Each parallel agent invokes `auto-create-pr` or `auto-continue-pr` which manages its own worktree internally. They produce separate PRs. Multiple `Agent` calls in a single message run in parallel.
+Each parallel agent invokes `om-auto-create-pr` or `om-auto-continue-pr` which manages its own worktree internally. They produce separate PRs. Multiple `Agent` calls in a single message run in parallel.
 
-**Why this works**: `auto-create-pr` already creates an isolated worktree, implements, and cleans up. Dispatching two agents in one message means two `auto-create-pr` runs in parallel, each with its own worktree. No conflicts, no shared state. No changes to `auto-create-pr` needed.
+**Why this works**: `om-auto-create-pr` already creates an isolated worktree, implements, and cleans up. Dispatching two agents in one message means two `om-auto-create-pr` runs in parallel, each with its own worktree. No conflicts, no shared state. No changes to `om-auto-create-pr` needed.
 
 ### How phase-to-PR matching works
 
-When `auto-create-pr` is dispatched by this skill, the structured brief includes a marker that ends up in the execution plan and PR body:
+When `om-auto-create-pr` is dispatched by this skill, the structured brief includes a marker that ends up in the execution plan and PR body:
 
 ```
 Source spec: .ai/specs/wms.md
@@ -152,7 +152,7 @@ Then parses the `Phase:` line from each PR body to map phases to PRs. `--state a
 
 ### How readiness check works
 
-Before dispatching `auto-create-pr` for a new phase, the skill validates:
+Before dispatching `om-auto-create-pr` for a new phase, the skill validates:
 
 1. **Phase exists in the spec** with named steps
 2. **Entities referenced in the phase are defined** in the spec's Data Models section (if applicable)
@@ -190,7 +190,7 @@ Implement Phase {N}: {phase name} from spec {spec-path}.
 - Phase: {N}
 ```
 
-This gives `auto-create-pr` everything it needs without the developer writing anything. The execution plan created by `auto-create-pr` goes to `.ai/runs/`, keeping `.ai/specs/` clean.
+This gives `om-auto-create-pr` everything it needs without the developer writing anything. The execution plan created by `om-auto-create-pr` goes to `.ai/runs/`, keeping `.ai/specs/` clean.
 
 ## Data Models
 N/A — docs-only change.
@@ -204,29 +204,29 @@ N/A — CLI skill, no UI.
 ## Migration & Compatibility
 - No database changes
 - No breaking changes to existing skills
-- `implement-spec` remains unchanged — different use case (interactive)
-- `auto-create-pr` remains unchanged — consumed as-is
-- `auto-continue-pr` remains unchanged — consumed as-is
+- `om-implement-spec` remains unchanged — different use case (interactive)
+- `om-auto-create-pr` remains unchanged — consumed as-is
+- `om-auto-continue-pr` remains unchanged — consumed as-is
 - Purely additive: one new skill folder + README/AGENTS.md registration
 
 ## Implementation Plan
 
 ### Phase 1: Skill file
-1. Create `.ai/skills/auto-implement-spec/SKILL.md` with full workflow
+1. Create `.ai/skills/om-auto-implement-spec/SKILL.md` with full workflow
 2. Register in `.ai/skills/README.md`
 3. Register in root `AGENTS.md` Task Router
 
 ### Phase 2: Validation
 1. Smoke test: invoke skill against an existing spec, verify it reads phases and builds state correctly
 2. Verify readiness check catches incomplete phases
-3. Verify PR matching works with `auto-create-pr` PRs
+3. Verify PR matching works with `om-auto-create-pr` PRs
 
 ## Risks & Impact Review
 
 ### Risk: Brief construction loses nuance
 - **Scenario**: Structured brief extracted from spec misses inter-phase context that a human would include
 - **Severity**: Medium
-- **Affected area**: Implementation quality of dispatched `auto-create-pr`
+- **Affected area**: Implementation quality of dispatched `om-auto-create-pr`
 - **Mitigation**: Brief includes full phase text + referenced data models + API contracts from spec. Developer reviews PRs before merge.
 - **Residual risk**: Edge cases where cross-phase context is needed. Acceptable — developer can add notes to the spec's phase description.
 
@@ -245,10 +245,10 @@ N/A — CLI skill, no UI.
 - **Residual risk**: Race condition if approved PR gets changes-requested. Acceptable — caught by validation gate.
 
 ### Risk: auto-create-pr session timeout mid-phase
-- **Scenario**: `auto-create-pr` times out before finishing the phase
+- **Scenario**: `om-auto-create-pr` times out before finishing the phase
 - **Severity**: Low
 - **Affected area**: Developer needs to re-run
-- **Mitigation**: This is the designed flow — developer runs `/auto-implement-spec` again, skill detects the open PR and dispatches `auto-continue-pr`. No manual intervention needed beyond re-running the command.
+- **Mitigation**: This is the designed flow — developer runs `/auto-implement-spec` again, skill detects the open PR and dispatches `om-auto-continue-pr`. No manual intervention needed beyond re-running the command.
 - **Residual risk**: None — this is the happy path for resumability.
 
 ### Risk: Parallel phases touch the same files
@@ -278,7 +278,7 @@ N/A — CLI skill, no UI.
 | root AGENTS.md | Spec-first for non-trivial tasks | Compliant | This is the spec |
 | root AGENTS.md | Task Router registration | Compliant | Included in Phase 1 |
 | .ai/specs/AGENTS.md | Spec naming convention | Compliant | `{date}-{title}.md`, no SPEC- prefix |
-| .ai/specs/AGENTS.md | No execution artifacts in .ai/specs/ | Compliant | Execution plans go to `.ai/runs/` via `auto-create-pr` |
+| .ai/specs/AGENTS.md | No execution artifacts in .ai/specs/ | Compliant | Execution plans go to `.ai/runs/` via `om-auto-create-pr` |
 
 ### Internal Consistency Check
 
@@ -296,4 +296,4 @@ N/A — CLI skill, no UI.
 ### 2026-04-15
 - Initial specification
 - Updated after review: removed superpowers dependencies (om-cto, Extension Mode Decision), removed --phase flag (auto-detect), added session timeout risk, clarified "too large" warning behavior, aligned with .ai/runs/ separation (PR #1531)
-- Added parallel dispatch: dispatch independent phases as parallel `Agent` calls, each invoking `auto-create-pr` which manages its own worktree. No `isolation: "worktree"` needed — reuse existing worktree management in auto-create-pr. Added dependency graph analysis, parallel dispatch strategy, and risks for parallel execution.
+- Added parallel dispatch: dispatch independent phases as parallel `Agent` calls, each invoking `om-auto-create-pr` which manages its own worktree. No `isolation: "worktree"` needed — reuse existing worktree management in auto-create-pr. Added dependency graph analysis, parallel dispatch strategy, and risks for parallel execution.

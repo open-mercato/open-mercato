@@ -1,6 +1,6 @@
 ---
 name: backend-ui-design-codex
-description: Internal Codex-flavored copy of the backend UI design guidance for `@open-mercato/ui`. Prefer the main `backend-ui-design` skill for normal backend page, CRUD, table, and form work.
+description: Internal Codex-flavored copy of the backend UI design guidance for `@open-mercato/ui`. Prefer the main `om-backend-ui-design` skill for normal backend page, CRUD, table, and form work.
 metadata:
   short-description: Backend UI design using @open-mercato/ui
   author: Open Mercato

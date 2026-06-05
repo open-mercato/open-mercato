@@ -11,7 +11,7 @@
 > Authoritative status table. `Status` is one of `todo` or `done`. On landing a
 > Step, flip `Status` to `done` and fill the `Commit` column with the short SHA.
 > The first row whose `Status` is not `done` is the resume point for
-> `auto-continue-pr`. Step ids are immutable once a Step has a commit.
+> `om-auto-continue-pr`. Step ids are immutable once a Step has a commit.
 >
 > Phase 1 (this PR's foundation) is done and rolled up. Phases 2–5 map one-to-one
 > to the source spec's own Phase 0–3 and are split into commit-sized Steps
@@ -105,15 +105,15 @@ single Step (1.1) in the Tasks table for clarity:
   <30 seconds; `NOTIFY.md` is an append-only UTC-timestamped log.
 - Subagent parallelism capped at 2 (dev + reviewer), conflict avoidance over
   speed.
-- Three-signal `in-progress` lock in `auto-create-pr` (assignee + label +
+- Three-signal `in-progress` lock in `om-auto-create-pr` (assignee + label +
   claim comment) held throughout the run, temporarily released around
-  `auto-review-pr`, and released in a trap/finally.
+  `om-auto-review-pr`, and released in a trap/finally.
 - Top-of-file `## Tasks` markdown table in `PLAN.md` (Phase | Step | Title |
   Status | Commit) as the authoritative status source, replacing the legacy
   bottom-of-file `## Progress` checklist. Legacy Progress section tolerated
   as a one-shot fallback for pre-migration PRs.
-- Sibling skills (`auto-sec-report`, `auto-qa-scenarios`,
-  `auto-update-changelog`) migrated or confirmed compatible with the new
+- Sibling skills (`om-auto-sec-report`, `om-auto-qa-scenarios`,
+  `om-auto-update-changelog`) migrated or confirmed compatible with the new
   layout. `.ai/runs/README.md` documents the full contract.
 
 ## Scope (Phases 2–5, spec-driven)
@@ -270,12 +270,12 @@ mutation policy; all spec-defined integration tests pass.
 - **Step 1.1** Skill harness foundation. Landed as five incremental commits
   to keep review easy; rolled up as one Step in the Tasks table for
   readability. Commit breadcrumbs (newest last):
-  - `bacbc59ec` — initial rework of `auto-create-pr` / `auto-continue-pr`
+  - `bacbc59ec` — initial rework of `om-auto-create-pr` / `om-auto-continue-pr`
     and sibling skills to per-spec run folders.
   - `4a782bbd1` — repair placeholder UTC timestamps in `NOTIFY.md` /
     `HANDOFF.md` to match real session time.
   - `98ec6abb2` — add three-signal `in-progress` lock discipline to
-    `auto-create-pr`; dogfooded on this PR.
+    `om-auto-create-pr`; dogfooded on this PR.
   - `6a1afab69` — flatten verification layout: `step-<X.Y>-checks.md` +
     optional `step-<X.Y>-artifacts/` replace the `proofs/<step-id>/` nest.
   - `93440ec79` — introduce the top-of-file `## Tasks` table in `PLAN.md`

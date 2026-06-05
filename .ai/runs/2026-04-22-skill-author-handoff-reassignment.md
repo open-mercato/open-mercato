@@ -6,8 +6,8 @@ Update the GitHub automation skills so PRs that receive `changes-requested` are 
 
 ## Scope
 
-- Update `.ai/skills/auto-review-pr/SKILL.md`
-- Update `.ai/skills/auto-fix-github/SKILL.md`
+- Update `.ai/skills/om-auto-review-pr/SKILL.md`
+- Update `.ai/skills/om-auto-fix-github/SKILL.md`
 - Keep the change limited to skill instructions and comment templates
 
 ## Non-goals
@@ -20,8 +20,8 @@ Update the GitHub automation skills so PRs that receive `changes-requested` are 
 
 ### Phase 1: Review Handoff Rules
 
-1. Update `auto-review-pr` so every `changes-requested` outcome reassigns the PR to the original author and posts a clear handoff comment for the next action.
-2. Update `auto-fix-github` so a fixed issue is reassigned to the issue author and gets a verification handoff comment after the fix PR is opened.
+1. Update `om-auto-review-pr` so every `changes-requested` outcome reassigns the PR to the original author and posts a clear handoff comment for the next action.
+2. Update `om-auto-fix-github` so a fixed issue is reassigned to the issue author and gets a verification handoff comment after the fix PR is opened.
 
 ### Phase 2: Validation And Delivery
 
@@ -30,8 +30,8 @@ Update the GitHub automation skills so PRs that receive `changes-requested` are 
 
 ## Risks
 
-- `auto-review-pr` already has carry-forward logic for fork PRs, so the new reassignment wording must not conflict with the replacement-PR flow.
-- `auto-fix-github` currently treats the current user as the long-term owner of the issue, so the new handoff must be explicit enough to avoid ambiguity about who verifies the fix next.
+- `om-auto-review-pr` already has carry-forward logic for fork PRs, so the new reassignment wording must not conflict with the replacement-PR flow.
+- `om-auto-fix-github` currently treats the current user as the long-term owner of the issue, so the new handoff must be explicit enough to avoid ambiguity about who verifies the fix next.
 
 ## Progress
 
@@ -39,8 +39,8 @@ Update the GitHub automation skills so PRs that receive `changes-requested` are 
 
 ### Phase 1: Review Handoff Rules
 
-- [x] 1.1 Update `auto-review-pr` handoff rules and comment templates — ca98c4969
-- [x] 1.2 Update `auto-fix-github` handoff rules and comment templates — ca98c4969
+- [x] 1.1 Update `om-auto-review-pr` handoff rules and comment templates — ca98c4969
+- [x] 1.2 Update `om-auto-fix-github` handoff rules and comment templates — ca98c4969
 
 ### Phase 2: Validation And Delivery
 

@@ -1077,7 +1077,7 @@ Before pushing for PR:
 1. `yarn lint` clean.
 2. `yarn test` (unit) clean — every new primitive has its test file.
 3. `yarn build` clean.
-4. DS Guardian baseline: `.ai/skills/ds-guardian/scripts/ds-health-check.sh` shows no regression.
+4. DS Guardian baseline: `.ai/skills/om-ds-guardian/scripts/ds-health-check.sh` shows no regression.
 5. `yarn test:integration:ephemeral` (full suite, no `--filter`) clean — per `feedback_pre_pr_review_checklist.md`.
 6. Local check-and-commit skill review.
 

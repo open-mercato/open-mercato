@@ -1,6 +1,10 @@
 import { executeActionSchema } from '../../../data/validators'
 import { actionResultResponseSchema, errorResponseSchema } from '../../openapi'
-import { resolveNotificationContext } from '../../../lib/routeHelpers'
+import {
+  notificationCrudErrorResponse,
+  notificationValidationErrorResponse,
+  resolveNotificationContext,
+} from '../../../lib/routeHelpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {
@@ -12,7 +16,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { service, scope } = await resolveNotificationContext(req)
 
   const body = await req.json().catch(() => ({}))
-  const input = executeActionSchema.parse(body)
+  const parsed = executeActionSchema.safeParse(body)
+  if (!parsed.success) {
+    return notificationValidationErrorResponse(parsed.error)
+  }
+  const input = parsed.data
 
   try {
     const { notification, result } = await service.executeAction(id, input, scope)
@@ -26,6 +34,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       href,
     })
   } catch (error) {
+    const errorResponse = notificationCrudErrorResponse(error)
+    if (errorResponse) return errorResponse
+
     const { t } = await resolveTranslations()
     const fallback = t('notifications.error.action', 'Failed to execute action')
     const message = error instanceof Error && error.message ? error.message : fallback
