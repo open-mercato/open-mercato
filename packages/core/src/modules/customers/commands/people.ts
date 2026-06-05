@@ -793,7 +793,13 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for person create' })
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let entity = await em.findOne(CustomerEntity, { id: after.entity.id })
+    let entity = await findOneWithDecryption(
+      em,
+      CustomerEntity,
+      { id: after.entity.id },
+      undefined,
+      { tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
+    )
     let profile!: CustomerPersonProfile
     if (!entity) {
       let newEntity!: CustomerEntity

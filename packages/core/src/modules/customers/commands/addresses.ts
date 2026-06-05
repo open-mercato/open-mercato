@@ -19,6 +19,7 @@ import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/l
 import { E } from '#generated/entities.ids.generated'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const addressCrudIndexer: CrudIndexerConfig<CustomerAddress> = {
   entityType: E.customers.customer_address,
@@ -198,7 +199,13 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await requireCustomerEntity(em, after.entityId, undefined, 'Customer not found')
-    let address = await em.findOne(CustomerAddress, { id: after.id })
+    let address = await findOneWithDecryption(
+      em,
+      CustomerAddress,
+      { id: after.id },
+      undefined,
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
     if (!address) {
       address = em.create(CustomerAddress, {
         id: after.id,

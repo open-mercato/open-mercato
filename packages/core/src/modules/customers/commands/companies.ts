@@ -606,7 +606,13 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for company create' })
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let entity = await em.findOne(CustomerEntity, { id: after.entity.id })
+    let entity = await findOneWithDecryption(
+      em,
+      CustomerEntity,
+      { id: after.entity.id },
+      undefined,
+      { tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
+    )
     if (!entity) {
       entity = em.create(CustomerEntity, {
         id: after.entity.id,
@@ -652,7 +658,13 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     entity.isActive = after.entity.isActive
 
     const restoredEntity = entity
-    let profile = await em.findOne(CustomerCompanyProfile, { entity: restoredEntity })
+    let profile = await findOneWithDecryption(
+      em,
+      CustomerCompanyProfile,
+      { entity: restoredEntity },
+      undefined,
+      { tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
+    )
     if (!profile) {
       profile = em.create(CustomerCompanyProfile, {
         id: after.profile.id,

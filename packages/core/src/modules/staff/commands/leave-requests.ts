@@ -375,6 +375,14 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
     entityClass: StaffLeaveRequest,
     getSnapshotId: (snapshot) => snapshot.id,
     seedFromSnapshot: leaveRequestSeedFromSnapshot,
+    findRow: ({ em, id, snapshot }) =>
+      findOneWithDecryption(
+        em,
+        StaffLeaveRequest,
+        { id },
+        undefined,
+        { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+      ),
     buildResult: (entity) => ({ requestId: entity.id }),
     events: staffLeaveRequestCrudEvents,
     indexer: leaveRequestCrudIndexer,

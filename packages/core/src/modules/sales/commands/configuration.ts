@@ -12,6 +12,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -708,6 +709,14 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
     entityClass: SalesChannel,
     getSnapshotId: (snapshot) => snapshot.id,
     seedFromSnapshot: channelSeedFromSnapshot,
+    findRow: ({ em, id, snapshot }) =>
+      findOneWithDecryption(
+        em,
+        SalesChannel,
+        { id },
+        undefined,
+        { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+      ),
     buildResult: (entity) => ({ channelId: entity.id }),
     events: channelCrudEvents,
     indexer: channelCrudIndexer,

@@ -19,6 +19,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const commentCrudIndexer: CrudIndexerConfig<CustomerComment> = {
   entityType: E.customers.customer_comment,
@@ -157,6 +158,14 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
     entityClass: CustomerComment,
     indexer: commentCrudIndexer,
     events: commentCrudEvents,
+    findRow: ({ em, id, snapshot }) =>
+      findOneWithDecryption(
+        em,
+        CustomerComment,
+        { id },
+        undefined,
+        { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+      ),
     seedFromSnapshot: (snapshot) => ({
       id: snapshot.id,
       organizationId: snapshot.organizationId,

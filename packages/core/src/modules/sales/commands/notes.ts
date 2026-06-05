@@ -26,6 +26,7 @@ import {
   type NoteUpdateInput,
 } from '../data/validators'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload } from './shared'
 
 type NoteSnapshot = {
@@ -225,6 +226,14 @@ const createNoteCommand: CommandHandler<NoteCreateInput, { noteId: string; autho
     entityClass: SalesNote,
     indexer: noteCrudIndexer,
     events: noteCrudEvents,
+    findRow: ({ em, id, snapshot }) =>
+      findOneWithDecryption(
+        em,
+        SalesNote,
+        { id },
+        undefined,
+        { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+      ),
     seedFromSnapshot: (snapshot) => ({
       id: snapshot.id,
       organizationId: snapshot.organizationId,

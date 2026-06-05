@@ -195,7 +195,13 @@ const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: strin
     if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for checkout template create' })
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    let template = await em.findOne(CheckoutLinkTemplate, { id: after.id })
+    let template = await findOneWithDecryption(
+      em,
+      CheckoutLinkTemplate,
+      { id: after.id },
+      {},
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
     if (template) {
       restoreTemplateFromSnapshot(template, after)
       template.deletedAt = null

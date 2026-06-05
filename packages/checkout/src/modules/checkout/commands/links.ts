@@ -206,7 +206,13 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
     if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for checkout link create' })
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    let link = await em.findOne(CheckoutLink, { id: after.id })
+    let link = await findOneWithDecryption(
+      em,
+      CheckoutLink,
+      { id: after.id },
+      {},
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
     if (link) {
       restoreLinkFromSnapshot(link, after)
       link.deletedAt = null
