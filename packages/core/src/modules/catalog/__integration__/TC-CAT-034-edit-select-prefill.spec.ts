@@ -32,16 +32,24 @@ async function createTaxRates(
   count: number,
 ): Promise<TaxRateFixture[]> {
   const fixtures: TaxRateFixture[] = []
-  for (let index = 0; index < count; index += 1) {
-    const padded = String(index).padStart(3, '0')
-    const name = `QA Select Tax ${stamp} ${padded}`
-    const id = await createEntity(request, token, '/api/sales/tax-rates', {
-      name,
-      code: `qa-select-tax-${stamp}-${padded}`,
-      rate: 17,
-      priority: index % 10,
-    })
-    fixtures.push({ id, name })
+  const batchSize = 12
+  for (let index = 0; index < count; index += batchSize) {
+    const batch = Array.from({ length: Math.min(batchSize, count - index) }, (_, offset) => index + offset)
+    fixtures.push(
+      ...(await Promise.all(
+        batch.map(async (entry) => {
+          const padded = String(entry).padStart(3, '0')
+          const name = `QA Select Tax ${stamp} ${padded}`
+          const id = await createEntity(request, token, '/api/sales/tax-rates', {
+            name,
+            code: `qa-select-tax-${stamp}-${padded}`,
+            rate: 17,
+            priority: entry % 10,
+          })
+          return { id, name }
+        }),
+      )),
+    )
   }
   return fixtures
 }
@@ -81,6 +89,8 @@ async function deleteTaxRateIfExists(
 
 test.describe('TC-CAT-034: Catalog edit forms prefill saved async selects', () => {
   test('product and variant edit show saved tax class outside the first async page', async ({ page, request }) => {
+    test.slow()
+
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     const taxRates: TaxRateFixture[] = []
@@ -113,7 +123,7 @@ test.describe('TC-CAT-034: Catalog edit forms prefill saved async selects', () =
 
       await login(page, 'admin')
       await page.goto(`/backend/catalog/products/${encodeURIComponent(productId)}`)
-      await expect(page.getByText(`QA Select Product ${stamp}`, { exact: true }).first()).toBeVisible()
+      await expect(page.locator(`input[value="QA Select Product ${stamp}"]`).first()).toBeVisible()
       const productTaxField = page
         .getByText('Tax class', { exact: true })
         .locator('xpath=ancestor::div[contains(@class,"space-y-2")]')
@@ -123,7 +133,7 @@ test.describe('TC-CAT-034: Catalog edit forms prefill saved async selects', () =
       await page.goto(
         `/backend/catalog/products/${encodeURIComponent(variantProductId)}/variants/${encodeURIComponent(variantId)}`,
       )
-      await expect(page.getByText(`QA Select Variant ${stamp}`, { exact: true }).first()).toBeVisible()
+      await expect(page.locator(`input[value="QA Select Variant ${stamp}"]`).first()).toBeVisible()
       const pricesSection = page
         .getByText('Prices', { exact: true })
         .locator('xpath=ancestor::div[contains(@class,"space-y-4")]')

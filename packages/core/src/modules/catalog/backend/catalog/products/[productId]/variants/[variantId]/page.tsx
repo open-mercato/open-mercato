@@ -305,6 +305,18 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             }
           }
         }
+        const variantTaxRateId =
+          typeof (record as any).tax_rate_id === 'string'
+            ? (record as any).tax_rate_id
+            : typeof (record as any).taxRateId === 'string'
+              ? (record as any).taxRateId
+              : null
+        if (variantTaxRateId) {
+          const selectedVariantTaxRate = await fetchTaxRateById(variantTaxRateId).catch(() => null)
+          if (selectedVariantTaxRate && !cancelled) {
+            setTaxRates((current) => mergeTaxRateSummaries(current, selectedVariantTaxRate))
+          }
+        }
         if (!cancelled) {
           const optionValues =
             typeof record.option_values === 'object' && record.option_values
@@ -328,6 +340,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
           const base = createVariantInitialValues()
           setInitialValues({
             ...base,
+            id: variantId!,
             mediaDraftId: variantId!,
             name: typeof record.name === 'string' ? record.name : '',
             sku: typeof record.sku === 'string' ? record.sku : '',
@@ -340,12 +353,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             defaultMediaId,
             defaultMediaUrl,
             prices: priceDrafts,
-            taxRateId:
-              typeof (record as any).tax_rate_id === 'string'
-                ? (record as any).tax_rate_id
-                : typeof (record as any).taxRateId === 'string'
-                  ? (record as any).taxRateId
-                  : null,
+            taxRateId: variantTaxRateId,
             customFieldsetCode:
               typeof record.custom_fieldset_code === 'string'
                 ? record.custom_fieldset_code
@@ -373,7 +381,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     }
     load()
     return () => { cancelled = true }
-  }, [variantId, t, currentProductId, priceKinds])
+  }, [variantId, t, currentProductId, fetchTaxRateById, priceKinds])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     const list: CrudFormGroup[] = [

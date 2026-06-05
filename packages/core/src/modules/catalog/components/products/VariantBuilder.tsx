@@ -295,6 +295,20 @@ export function VariantPricesSection({
   const selectedTaxRate = values.taxRateId
     ? taxRates.find((rate) => rate.id === values.taxRateId) ?? null
     : null
+  const fallbackSelectedTaxRate =
+    values.taxRateId && !selectedTaxRate
+      ? {
+          id: values.taxRateId,
+          name: values.taxRateId,
+          code: null,
+          rate: null,
+          isDefault: false,
+        }
+      : null
+  const displayedSelectedTaxRate = selectedTaxRate ?? fallbackSelectedTaxRate
+  const displayedTaxRates = fallbackSelectedTaxRate
+    ? [fallbackSelectedTaxRate, ...taxRates]
+    : taxRates
 
   return (
     <div className={containerClass}>
@@ -309,15 +323,17 @@ export function VariantPricesSection({
           <div className="flex items-center gap-2">
             <Select
               value={values.taxRateId || undefined}
-              onValueChange={(value) => setValue('taxRateId', value || null)}
+              onValueChange={(value) => {
+                if (value) setValue('taxRateId', value)
+              }}
             >
               <SelectTrigger>
                 <SelectValue placeholder={t('catalog.variants.form.pricesTaxNone', 'No tax override')}>
-                  {selectedTaxRate ? formatTaxRateLabel(selectedTaxRate) : undefined}
+                  {displayedSelectedTaxRate ? formatTaxRateLabel(displayedSelectedTaxRate) : undefined}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {taxRates.map((rate) => (
+                {displayedTaxRates.map((rate) => (
                   <SelectItem key={rate.id} value={rate.id}>
                     {formatTaxRateLabel(rate)}
                   </SelectItem>
@@ -330,15 +346,17 @@ export function VariantPricesSection({
         <div className="flex justify-end">
           <Select
             value={values.taxRateId || undefined}
-            onValueChange={(value) => setValue('taxRateId', value || null)}
+            onValueChange={(value) => {
+              if (value) setValue('taxRateId', value)
+            }}
           >
             <SelectTrigger>
               <SelectValue placeholder={t('catalog.variants.form.pricesTaxNone', 'No tax override')}>
-                {selectedTaxRate ? formatTaxRateLabel(selectedTaxRate) : undefined}
+                {displayedSelectedTaxRate ? formatTaxRateLabel(displayedSelectedTaxRate) : undefined}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {taxRates.map((rate) => (
+              {displayedTaxRates.map((rate) => (
                 <SelectItem key={rate.id} value={rate.id}>
                   {formatTaxRateLabel(rate)}
                 </SelectItem>
