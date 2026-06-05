@@ -19,7 +19,11 @@ import {
   postAction,
   toNumber,
 } from './helpers/wmsFixtures'
-import { fillCombobox, WMS_INVENTORY_MUTATION_FEATURES } from './helpers/wmsUi'
+import {
+  fillCombobox,
+  waitForInventoryMutationScope,
+  WMS_INVENTORY_MUTATION_FEATURES,
+} from './helpers/wmsUi'
 
 export const integrationMeta = {
   dependsOnModules: ['wms', 'catalog'],
@@ -100,6 +104,7 @@ test.describe('TC-WMS-INVENTORY-UI-001: Inventory console mutations', () => {
 
       await login(page, 'admin')
       await page.goto('/backend/wms/inventory')
+      await waitForInventoryMutationScope(page)
 
       await page.getByRole('button', { name: 'Adjust inventory' }).click()
       const adjustDialog = page.getByRole('dialog').filter({ hasText: /Adjust inventory/i }).first()
@@ -234,6 +239,7 @@ test.describe('TC-WMS-INVENTORY-UI-001: Inventory console mutations', () => {
 
       await login(page, 'admin')
       await page.goto('/backend/wms/inventory')
+      await waitForInventoryMutationScope(page)
 
       await page.getByRole('button', { name: 'Cycle count' }).click()
       const cycleDialog = page.getByRole('dialog').filter({ hasText: /Cycle count/i }).first()

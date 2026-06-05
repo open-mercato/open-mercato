@@ -455,7 +455,8 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
         'success',
       )
     }
-    await queryClient.invalidateQueries({ queryKey: ['wms'] })
+    await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
+    await queryClient.invalidateQueries({ queryKey: ['wms-sku-detail'] })
     closeDialog()
   }, [
     access.organizationId,
