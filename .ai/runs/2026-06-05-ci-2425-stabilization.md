@@ -65,7 +65,7 @@ Stabilize the develop branch feeding PR #2425 by fixing the failures observed in
 - [x] 2.1 Run targeted integration specs — afd6a28e4
 - [x] 2.2 Run relevant unit/type checks — afd6a28e4
 - [x] 2.3 Stabilize catalog AI sheet integration flake — 0556a3127
-- [x] 2.4 Stabilize shared EAV multi-value replacement after PR #2606 CI failure — pending commit
+- [x] 2.4 Stabilize shared EAV multi-value replacement after PR #2606 CI failure — 881d42dcc
 - [ ] 2.5 Run two independent full ephemeral integration runs
 
 ### Phase 3: PR
