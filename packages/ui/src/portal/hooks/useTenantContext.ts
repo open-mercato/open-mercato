@@ -3,6 +3,11 @@ import { useEffect, useState } from 'react'
 import { apiCall } from '../../backend/utils/apiCall'
 
 type OrgContext = {
+  /**
+   * @deprecated The public org lookup no longer returns a tenant id; portal
+   * flows send `organizationId` and the server resolves the tenant. Always
+   * `undefined` — kept for backward compatibility with existing consumers.
+   */
   tenantId: string | undefined
   organizationId: string | undefined
   organizationName: string | undefined
@@ -49,7 +54,7 @@ export function useTenantContext(orgSlug: string): OrgContext {
       }
 
       try {
-        const { ok, result: data } = await apiCall<{ ok: boolean; organization: { id: string; tenantId: string; name: string }; error?: string }>(`/api/directory/organizations/lookup?slug=${encodeURIComponent(orgSlug)}`)
+        const { ok, result: data } = await apiCall<{ ok: boolean; organization: { id: string; name: string }; error?: string }>(`/api/directory/organizations/lookup?slug=${encodeURIComponent(orgSlug)}`)
         if (cancelled) return
 
         if (!ok || !data?.ok || !data.organization) {
@@ -62,7 +67,7 @@ export function useTenantContext(orgSlug: string): OrgContext {
         }
 
         setState({
-          tenantId: data.organization.tenantId ?? undefined,
+          tenantId: undefined,
           organizationId: data.organization.id,
           organizationName: data.organization.name,
           loading: false,
