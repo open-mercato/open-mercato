@@ -2211,12 +2211,22 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const setValue = React.useCallback((id: string, nextValue: unknown) => {
     let nextData: CrudFormValues<TValues> | null = null
+    let nextDirty: boolean | null = null
     setValues((prev) => {
       if (Object.is(prev[id], nextValue)) return prev
       nextData = { ...prev, [id]: nextValue } as CrudFormValues<TValues>
       valuesRef.current = nextData
+      if (!(embedded && !trackDirtyWhenEmbedded)) {
+        const baseline = dirtyBaselineSnapshotRef.current ?? createDirtySnapshot(prev as Record<string, unknown>)
+        dirtyBaselineSnapshotRef.current = baseline
+        nextDirty = createDirtySnapshot(nextData as Record<string, unknown>) !== baseline
+      }
       return nextData
     })
+    if (nextDirty !== null) {
+      isDirtyRef.current = nextDirty
+      setHasUnsavedChanges(nextDirty)
+    }
     const clearedMessages: string[] = []
     setErrors((prev) => {
       if (!Object.keys(prev).length) return prev
@@ -2281,7 +2291,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }).catch((err) => {
       console.error('[CrudForm] Error in onFieldChange:', err)
     })
-  }, [extendedInjectionEventsEnabled, flash, t, translateValidationMessage, triggerInjectionEvent])
+  }, [embedded, extendedInjectionEventsEnabled, flash, t, trackDirtyWhenEmbedded, translateValidationMessage, triggerInjectionEvent])
 
   const onBlurRequest = React.useCallback((fieldId: string) => {
     void validateFieldOnBlur(fieldId)
