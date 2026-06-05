@@ -30,6 +30,8 @@ import {
   type PriceKindApiPayload,
   type TaxRateSummary,
   normalizePriceKindSummary,
+  normalizeTaxRateSummary,
+  mergeTaxRateSummaries,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
 import { parseNumericInput } from '@open-mercato/core/modules/catalog/components/products/productFormUtils'
 import {
@@ -118,6 +120,32 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   const [productTaxRateId, setProductTaxRateId] = React.useState<string | null>(null)
   const [productTaxRate, setProductTaxRate] = React.useState<number | null>(null)
 
+  const parseTaxRateSummary = React.useCallback(
+    (item: Record<string, unknown>) =>
+      normalizeTaxRateSummary(
+        item,
+        t('catalog.products.create.taxRates.unnamed', 'Untitled tax rate'),
+      ),
+    [t],
+  )
+
+  const fetchTaxRateById = React.useCallback(
+    async (taxRateId: string): Promise<TaxRateSummary | null> => {
+      const payload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/tax-rates?id=${encodeURIComponent(taxRateId)}&pageSize=1`,
+        undefined,
+        { errorMessage: t('catalog.products.create.taxRates.error', 'Failed to load tax rates.'), fallback: { items: [] } },
+      )
+      const items = Array.isArray(payload.items) ? payload.items : []
+      return (
+        items
+          .map((item) => parseTaxRateSummary(item))
+          .find((item): item is TaxRateSummary => item?.id === taxRateId) ?? null
+      )
+    },
+    [parseTaxRateSummary, t],
+  )
+
   React.useEffect(() => {
     const loadPriceKinds = async () => {
       try {
@@ -146,25 +174,9 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
         )
         const items = Array.isArray(payload.items) ? payload.items : []
         setTaxRates(
-          items.map((item) => {
-            const rawRate = typeof item.rate === 'number' ? item.rate : Number(item.rate ?? Number.NaN)
-            return {
-              id: String(item.id),
-              name:
-                typeof item.name === 'string' && item.name.trim().length
-                  ? item.name
-                  : t('catalog.products.create.taxRates.unnamed', 'Untitled tax rate'),
-              code: typeof item.code === 'string' && item.code.trim().length ? item.code : null,
-              rate: Number.isFinite(rawRate) ? rawRate : null,
-              isDefault: Boolean(
-                typeof item.isDefault === 'boolean'
-                  ? item.isDefault
-                  : typeof item.is_default === 'boolean'
-                    ? item.is_default
-                    : false,
-              ),
-            }
-          }),
+          items
+            .map((item) => parseTaxRateSummary(item))
+            .filter((item): item is TaxRateSummary => item !== null),
         )
       } catch (err) {
         console.error('sales.tax-rates.fetch failed', err)
@@ -172,7 +184,25 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
       }
     }
     loadTaxRates().catch(() => {})
-  }, [t])
+  }, [parseTaxRateSummary, t])
+
+  React.useEffect(() => {
+    const ids = [initialValues?.taxRateId, productTaxRateId].filter(
+      (value): value is string => typeof value === 'string' && value.length > 0,
+    )
+    const missingIds = ids.filter((id) => !taxRates.some((rate) => rate.id === id))
+    if (!missingIds.length) return
+    Promise.all(missingIds.map((id) => fetchTaxRateById(id).catch(() => null)))
+      .then((selectedRates) => {
+        setTaxRates((current) =>
+          selectedRates.reduce(
+            (next, selected) => mergeTaxRateSummaries(next, selected),
+            current,
+          ),
+        )
+      })
+      .catch(() => {})
+  }, [fetchTaxRateById, initialValues?.taxRateId, productTaxRateId, taxRates])
 
   React.useEffect(() => {
     if (!variantId || isCreateSentinel || priceKinds.length === 0) return

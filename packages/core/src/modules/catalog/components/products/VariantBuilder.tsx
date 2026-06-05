@@ -292,6 +292,9 @@ export function VariantPricesSection({
   )
 
   const containerClass = embedded ? 'space-y-4' : 'space-y-4 rounded-lg border p-4'
+  const selectedTaxRate = values.taxRateId
+    ? taxRates.find((rate) => rate.id === values.taxRateId) ?? null
+    : null
 
   return (
     <div className={containerClass}>
@@ -309,7 +312,9 @@ export function VariantPricesSection({
               onValueChange={(value) => setValue('taxRateId', value || null)}
             >
               <SelectTrigger>
-                <SelectValue placeholder={t('catalog.variants.form.pricesTaxNone', 'No tax override')} />
+                <SelectValue placeholder={t('catalog.variants.form.pricesTaxNone', 'No tax override')}>
+                  {selectedTaxRate ? formatTaxRateLabel(selectedTaxRate) : undefined}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {taxRates.map((rate) => (
@@ -328,7 +333,9 @@ export function VariantPricesSection({
             onValueChange={(value) => setValue('taxRateId', value || null)}
           >
             <SelectTrigger>
-              <SelectValue placeholder={t('catalog.variants.form.pricesTaxNone', 'No tax override')} />
+              <SelectValue placeholder={t('catalog.variants.form.pricesTaxNone', 'No tax override')}>
+                {selectedTaxRate ? formatTaxRateLabel(selectedTaxRate) : undefined}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {taxRates.map((rate) => (

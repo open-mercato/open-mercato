@@ -157,6 +157,12 @@ function mapApiAddress(item: Record<string, unknown>, format: AddressFormatStrat
   return { id, label, summary, value, name: name || null, purpose: purpose || null }
 }
 
+function mergeAddressOption(options: AddressOption[], selected: AddressOption | null): AddressOption[] {
+  if (!selected) return options
+  if (options.some((option) => option.id === selected.id)) return options
+  return [selected, ...options]
+}
+
 function draftFromDocumentAddress(entry: DocumentAddressAssignment): AddressEditorDraft {
   return {
     name: entry.name ?? '',
@@ -448,9 +454,42 @@ export function SalesDocumentAddressesSection({
     [addressFormat, t]
   )
 
+  const loadAddressOptionById = React.useCallback(
+    async (addressId: string): Promise<AddressOption | null> => {
+      const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/customers/addresses?id=${encodeURIComponent(addressId)}&pageSize=1`
+      )
+      const items = Array.isArray(call.result?.items) ? call.result.items : []
+      return (
+        items
+          .map((item) => mapApiAddress(item, addressFormat))
+          .find((entry): entry is AddressOption => entry?.id === addressId) ?? null
+      )
+    },
+    [addressFormat]
+  )
+
   React.useEffect(() => {
     loadAddresses(customerId).catch(() => {})
   }, [customerId, loadAddresses])
+
+  React.useEffect(() => {
+    const selectedIds = [shippingAddressIdState, billingAddressIdState].filter(
+      (id): id is string => typeof id === 'string' && id.length > 0
+    )
+    const missingIds = selectedIds.filter((id) => !addressOptions.some((option) => option.id === id))
+    if (!missingIds.length) return
+    Promise.all(missingIds.map((id) => loadAddressOptionById(id).catch(() => null)))
+      .then((selectedOptions) => {
+        setAddressOptions((current) =>
+          selectedOptions.reduce(
+            (next, selected) => mergeAddressOption(next, selected),
+            current
+          )
+        )
+      })
+      .catch(() => {})
+  }, [addressOptions, billingAddressIdState, loadAddressOptionById, shippingAddressIdState])
 
   const guardLocked = React.useCallback(() => {
     if (!locked) return false

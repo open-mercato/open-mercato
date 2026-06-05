@@ -2,12 +2,14 @@ import { expect, test } from '@playwright/test'
 import {
   createCompanyFixture,
   createDealFixture,
+  createPersonFixture,
   createPipelineFixture,
   createPipelineStageFixture,
   deleteEntityByBody,
   deleteEntityIfExists,
-} from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
-import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+  readJsonSafe,
+} from '@open-mercato/core/helpers/integration/crmFixtures'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 
 test.describe('TC-CRM-075: Customer edit forms prefill saved selects', () => {
@@ -48,6 +50,65 @@ test.describe('TC-CRM-075: Customer edit forms prefill saved selects', () => {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
       await deleteEntityByBody(request, token, '/api/customers/pipeline-stages', stageId)
       await deleteEntityByBody(request, token, '/api/customers/pipelines', pipelineId)
+    }
+  })
+
+  test('person detail company edit shows a saved company outside the first async page', async ({ page, request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = Date.now()
+    const companyIds: string[] = []
+    let personId: string | null = null
+    let selectedCompanyId: string | null = null
+    let selectedCompanyName = ''
+
+    try {
+      for (let index = 0; index < 105; index += 1) {
+        const name = `QA Select Company ${stamp} ${String(index).padStart(3, '0')}`
+        const id = await createCompanyFixture(request, token, name)
+        companyIds.push(id)
+      }
+
+      const listResponse = await apiRequest(
+        request,
+        'GET',
+        '/api/customers/companies?page=1&pageSize=100&sortField=displayName&sortDir=asc',
+        { token },
+      )
+      expect(listResponse.ok(), `Failed to list companies: ${listResponse.status()}`).toBeTruthy()
+      const listBody = await readJsonSafe(listResponse)
+      const firstPageIds = new Set(
+        (Array.isArray((listBody as any).items) ? (listBody as any).items : [])
+          .map((item: Record<string, unknown>) => (typeof item.id === 'string' ? item.id : null))
+          .filter((id: string | null): id is string => Boolean(id)),
+      )
+
+      selectedCompanyId = companyIds.find((id) => !firstPageIds.has(id)) ?? companyIds.at(-1) ?? null
+      expect(selectedCompanyId, 'Expected one created company to be outside the first company page').toBeTruthy()
+      selectedCompanyName = `QA Select Company ${stamp} ${String(companyIds.indexOf(selectedCompanyId as string)).padStart(3, '0')}`
+
+      personId = await createPersonFixture(request, token, {
+        firstName: 'QA',
+        lastName: `Select ${stamp}`,
+        displayName: `QA Select Person ${stamp}`,
+        companyEntityId: selectedCompanyId as string,
+      })
+
+      await login(page, 'admin')
+      await page.goto(`/backend/customers/people/${encodeURIComponent(personId)}`)
+      await expect(page.getByText(`QA Select Person ${stamp}`, { exact: true }).first()).toBeVisible()
+
+      const companyPanel = page
+        .getByText('Company', { exact: true })
+        .locator('xpath=ancestor::div[contains(@class,"group")]')
+        .first()
+      await expect(companyPanel.getByText(selectedCompanyName, { exact: true })).toBeVisible()
+      await companyPanel.getByRole('button', { name: 'Edit' }).click({ force: true })
+      await expect(companyPanel.getByRole('combobox')).toContainText(selectedCompanyName)
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+      for (const companyId of companyIds.reverse()) {
+        await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+      }
     }
   })
 })

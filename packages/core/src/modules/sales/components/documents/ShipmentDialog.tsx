@@ -67,6 +67,34 @@ type StatusOption = {
   color: string | null
 }
 
+function mergeShippingMethodOptions(
+  options: ShippingMethodOption[],
+  selected: ShippingMethodOption | null,
+): ShippingMethodOption[] {
+  if (!selected) return options
+  if (options.some((option) => option.id === selected.id)) return options
+  return [selected, ...options]
+}
+
+function mergeStatusOptions(options: StatusOption[], selected: StatusOption | null): StatusOption[] {
+  if (!selected) return options
+  if (options.some((option) => option.id === selected.id)) return options
+  return [selected, ...options]
+}
+
+function mapStatusOption(entry: Record<string, unknown>): StatusOption | null {
+  const id = typeof entry.id === 'string' ? entry.id : null
+  const value = typeof entry.value === 'string' ? entry.value : null
+  if (!id || !value) return null
+  const label =
+    typeof entry.label === 'string' && entry.label.trim().length
+      ? entry.label
+      : value
+  const color =
+    typeof entry.color === 'string' && entry.color.trim().length ? entry.color : null
+  return { id, value, label, color }
+}
+
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
 const ADDRESS_FORMAT: AddressFormatStrategy = 'line_first'
 const SHIPPING_ADJUSTMENT_TOGGLE_ID = 'shipment-add-shipping-adjustment'
@@ -526,7 +554,12 @@ export function ShipmentDialog({
           .map((item) => mapShippingMethod(item))
           .filter((entry): entry is ShippingMethodOption => !!entry)
         if (!query) {
-          setShippingMethods(options)
+          setShippingMethods((current) =>
+            current.reduce(
+              (next, selected) => mergeShippingMethodOptions(next, selected),
+              options,
+            ),
+          )
         }
         return options
       } catch (err) {
@@ -671,20 +704,14 @@ export function ShipmentDialog({
       )
       const items = Array.isArray(response.result?.items) ? response.result.items : []
       const mapped = items
-        .map((entry) => {
-          const id = typeof entry.id === 'string' ? entry.id : null
-          const value = typeof entry.value === 'string' ? entry.value : null
-          if (!id || !value) return null
-          const label =
-            typeof entry.label === 'string' && entry.label.trim().length
-              ? entry.label
-              : value
-          const color =
-            typeof entry.color === 'string' && entry.color.trim().length ? entry.color : null
-          return { id, value, label, color }
-        })
+        .map((entry) => mapStatusOption(entry))
         .filter((entry): entry is StatusOption => Boolean(entry))
-      setShipmentStatuses(mapped)
+      setShipmentStatuses((current) =>
+        current.reduce(
+          (next, selected) => mergeStatusOptions(next, selected),
+          mapped,
+        ),
+      )
       return mapped
     } catch (err) {
       console.error('sales.shipments.statuses.load', err)
@@ -693,6 +720,20 @@ export function ShipmentDialog({
     } finally {
       setShipmentStatusLoading(false)
     }
+  }, [])
+
+  const loadShipmentStatusById = React.useCallback(async (statusEntryId: string): Promise<StatusOption | null> => {
+    const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+      `/api/sales/shipment-statuses?id=${encodeURIComponent(statusEntryId)}&pageSize=1`,
+      undefined,
+      { fallback: { items: [] } },
+    )
+    const items = Array.isArray(response.result?.items) ? response.result.items : []
+    return (
+      items
+        .map((entry) => mapStatusOption(entry))
+        .find((entry): entry is StatusOption => entry?.id === statusEntryId) ?? null
+    )
   }, [])
 
   const fetchDocumentStatusItems = React.useCallback(
@@ -814,6 +855,32 @@ export function ShipmentDialog({
     shipment?.shippingMethodCode,
     shipment?.shippingMethodId,
     shipment?.shippingMethodName,
+  ])
+
+  React.useEffect(() => {
+    const statusEntryId = shipment?.statusEntryId
+    if (!statusEntryId || shipmentStatuses.some((status) => status.id === statusEntryId)) return
+    const fallback =
+      shipment.status || shipment.statusLabel
+        ? {
+            id: statusEntryId,
+            value: shipment.status ?? statusEntryId,
+            label: shipment.statusLabel ?? shipment.status ?? statusEntryId,
+            color: null,
+          }
+        : null
+    setShipmentStatuses((current) => mergeStatusOptions(current, fallback))
+    loadShipmentStatusById(statusEntryId)
+      .then((selected) => {
+        setShipmentStatuses((current) => mergeStatusOptions(current, selected))
+      })
+      .catch(() => {})
+  }, [
+    loadShipmentStatusById,
+    shipment?.status,
+    shipment?.statusEntryId,
+    shipment?.statusLabel,
+    shipmentStatuses,
   ])
 
   React.useEffect(() => {
