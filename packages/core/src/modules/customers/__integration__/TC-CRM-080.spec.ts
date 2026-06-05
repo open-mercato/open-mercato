@@ -36,10 +36,13 @@ test.describe('TC-CRM-080: Interaction cancellation and conflict detection', () 
 
       companyId = await createCompanyFixture(request, token, `TC-CRM-080 Co ${stamp}`);
 
-      // A fixed, far-future UTC slot keeps the conflict-window math deterministic.
-      const scheduledDate = '2030-06-17';
-      const scheduledTime = '10:00';
-      const scheduledAt = `${scheduledDate}T${scheduledTime}:00.000Z`;
+      // A future UTC slot computed at runtime (no static date literal / time-bomb)
+      // while keeping the conflict-window math deterministic within the run.
+      const slot = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      slot.setUTCHours(10, 0, 0, 0);
+      const scheduledAt = slot.toISOString();
+      const scheduledDate = scheduledAt.slice(0, 10);
+      const scheduledTime = scheduledAt.slice(11, 16);
 
       const createResp = await apiRequest(request, 'POST', '/api/customers/interactions', {
         token,
