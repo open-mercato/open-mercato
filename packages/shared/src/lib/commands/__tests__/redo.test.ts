@@ -93,6 +93,94 @@ describe('makeCreateRedo defaults', () => {
     expect(created[0].createdAt).toBeInstanceOf(Date)
   })
 
+  it('merges beforeRestore overrides into the create seed and runs before restore', async () => {
+    const created: Array<Record<string, unknown>> = []
+    const calls: string[] = []
+    const forked = {
+      findOne: async () => { calls.push('find'); return null },
+      create: (_cls: unknown, data: Record<string, unknown>) => { created.push(data); return { ...data } },
+      persist: () => undefined,
+      flush: async () => undefined,
+    }
+    const em = { fork: () => forked }
+    const resolvedRelation = { id: 'rel-1' }
+    const redo = makeCreateRedo<{ id: string }, { id: string; relationId: string }>({
+      entityClass: class {} as never,
+      buildResult: (entity) => ({ id: entity.id }),
+      beforeRestore: async ({ snapshot }) => { calls.push('before'); return { relation: resolvedRelation, relationId: undefined } },
+    })
+    const logEntry = { snapshotAfter: { id: 'row-1', relationId: 'rel-1' } }
+    await redo({ input: {}, ctx: buildContext(em), logEntry: logEntry as never })
+    expect(calls).toEqual(['before', 'find'])
+    expect(created[0].relation).toBe(resolvedRelation)
+    expect(created[0].relationId).toBeUndefined()
+  })
+
+  it('uses the findRow override instead of em.findOne', async () => {
+    const surviving: Record<string, unknown> = { id: 'row-1', deletedAt: new Date() }
+    let findRowCalled = false
+    const forked = {
+      findOne: async () => { throw new Error('default findOne must not run when findRow is set') },
+      create: () => { throw new Error('should not create when findRow returns a row') },
+      persist: () => undefined,
+      flush: async () => undefined,
+    }
+    const em = { fork: () => forked }
+    const redo = makeCreateRedo<{ id: string; deletedAt?: Date | null }, { id: string }>({
+      entityClass: class {} as never,
+      buildResult: (entity) => ({ id: entity.id }),
+      findRow: async ({ id }) => { findRowCalled = true; return id === 'row-1' ? (surviving as never) : null },
+    })
+    await redo({ input: {}, ctx: buildContext(em), logEntry: { snapshotAfter: { id: 'row-1' } } as never })
+    expect(findRowCalled).toBe(true)
+    expect(surviving.deletedAt).toBeNull()
+  })
+
+  it('passes logEntry to afterRestore', async () => {
+    let seenLogEntry: unknown = null
+    const forked = {
+      findOne: async () => null,
+      create: (_cls: unknown, data: Record<string, unknown>) => ({ ...data }),
+      persist: () => undefined,
+      flush: async () => undefined,
+    }
+    const em = { fork: () => forked }
+    const redo = makeCreateRedo<{ id: string }, { id: string }>({
+      entityClass: class {} as never,
+      buildResult: (entity) => ({ id: entity.id }),
+      afterRestore: async ({ logEntry }) => { seenLogEntry = logEntry },
+    })
+    const logEntry = { snapshotAfter: { id: 'row-1' }, resourceId: 'row-1' }
+    await redo({ input: {}, ctx: buildContext(em), logEntry: logEntry as never })
+    expect(seenLogEntry).toBe(logEntry)
+  })
+
+  it('wraps the restore in a transaction when transaction is true', async () => {
+    const order: string[] = []
+    const forked = {
+      isInTransaction: () => false,
+      begin: async () => { order.push('begin') },
+      commit: async () => { order.push('commit') },
+      rollback: async () => { order.push('rollback') },
+      getUnitOfWork: () => ({ getChangeSets: () => [] }),
+      findOne: async () => null,
+      create: (_cls: unknown, data: Record<string, unknown>) => { order.push('create'); return { ...data } },
+      persist: () => undefined,
+      flush: async () => { order.push('flush') },
+    }
+    const em = { fork: () => forked }
+    const redo = makeCreateRedo<{ id: string }, { id: string }>({
+      entityClass: class {} as never,
+      buildResult: (entity) => ({ id: entity.id }),
+      transaction: true,
+    })
+    await redo({ input: {}, ctx: buildContext(em), logEntry: { snapshotAfter: { id: 'row-1' } } as never })
+    expect(order[0]).toBe('begin')
+    expect(order).toContain('create')
+    expect(order[order.length - 1]).toBe('commit')
+    expect(order).not.toContain('rollback')
+  })
+
   it('defaults getSnapshotId to snapshot.id and restores a surviving row in place', async () => {
     const surviving: Record<string, unknown> = { id: 'row-1', deletedAt: new Date(), isActive: false }
     const forked = {

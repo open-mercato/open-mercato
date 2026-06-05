@@ -5,6 +5,7 @@ import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/l
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { extractUndoPayload, type UndoPayload } from './undo'
 import { emitCrudSideEffects } from './helpers'
+import { withAtomicFlush } from './flush'
 
 type EntityClass<T> = abstract new (...args: never[]) => T
 
@@ -86,8 +87,11 @@ export async function restoreCreatedRow<TEntity extends ScopedSoftDeletable>(
   entityClass: EntityClass<TEntity>,
   id: string,
   seedFromSnapshot: () => Record<string, unknown>,
+  findRow?: (em: EntityManager, id: string) => Promise<TEntity | null>,
 ): Promise<TEntity> {
-  const existing = (await em.findOne(entityClass as never, { id } as never)) as TEntity | null
+  const existing = findRow
+    ? await findRow(em, id)
+    : ((await em.findOne(entityClass as never, { id } as never)) as TEntity | null)
   if (existing) {
     existing.deletedAt = null
     const seed = seedFromSnapshot()
@@ -124,13 +128,39 @@ export type CreateRedoConfig<TEntity extends ScopedSoftDeletable, TSnapshot, TRe
   buildResult: (entity: TEntity, snapshot: TSnapshot) => TResult
   events?: CrudEventsConfig<any>
   indexer?: CrudIndexerConfig<any>
-  /** Optional extra side effects after the row is restored (e.g. query-index upserts). */
+  /**
+   * Override how the existing row is looked up before restore. Defaults to
+   * `em.findOne(entityClass, { id })`. Pass a decryption-aware finder
+   * (`findOneWithDecryption`) for encrypted entities so the revive-in-place path
+   * sees the same row the rest of the module does.
+   */
+  findRow?: (args: { em: EntityManager; ctx: CommandRuntimeContext; id: string; snapshot: TSnapshot }) => Promise<TEntity | null>
+  /**
+   * Runs after the em fork, before the row is restored. Use to validate
+   * referenced relations (throw `CrudHttpError` to fail the redo) or resolve
+   * relation entities. Anything it returns is shallow-merged into the create
+   * seed (e.g. `{ entity: resolvedEntity }`), letting the seed reference a live
+   * relation instead of a raw id.
+   */
+  beforeRestore?: (args: {
+    em: EntityManager
+    ctx: CommandRuntimeContext
+    snapshot: TSnapshot
+  }) => Promise<Record<string, unknown> | void> | Record<string, unknown> | void
+  /** Optional extra side effects after the row is restored (e.g. query-index upserts, custom-field restore). */
   afterRestore?: (args: {
     em: EntityManager
     ctx: CommandRuntimeContext
     entity: TEntity
     snapshot: TSnapshot
+    logEntry: CommandUndoLogEntry
   }) => Promise<void> | void
+  /**
+   * Wrap the restore (create/revive + flush) in a single transaction via
+   * {@link withAtomicFlush}. Use when the create participated in a multi-phase
+   * atomic flush in `execute` and partial commits must be impossible.
+   */
+  transaction?: boolean
 }
 
 /**
@@ -155,10 +185,24 @@ export function makeCreateRedo<
       throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for create command' })
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await restoreCreatedRow(em, config.entityClass, id, () => seedFromSnapshot(snapshot))
-    await em.flush()
+    const overrides = config.beforeRestore ? await config.beforeRestore({ em, ctx, snapshot }) : undefined
+    const buildSeed = () => (overrides ? { ...seedFromSnapshot(snapshot), ...overrides } : seedFromSnapshot(snapshot))
+    const findRow = config.findRow
+      ? (forkedEm: EntityManager, rowId: string) => config.findRow!({ em: forkedEm, ctx, id: rowId, snapshot })
+      : undefined
+    let entity!: TEntity
+    if (config.transaction) {
+      await withAtomicFlush(
+        em,
+        [async () => { entity = await restoreCreatedRow(em, config.entityClass, id, buildSeed, findRow) }],
+        { transaction: true },
+      )
+    } else {
+      entity = await restoreCreatedRow(em, config.entityClass, id, buildSeed, findRow)
+      await em.flush()
+    }
     if (config.afterRestore) {
-      await config.afterRestore({ em, ctx, entity, snapshot })
+      await config.afterRestore({ em, ctx, entity, snapshot, logEntry })
     }
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
