@@ -387,6 +387,63 @@ Rules:
 - If the author cannot be assigned (bot/deleted account/permission issue), keep the current assignee and leave the same handoff comment without the reassignment claim.
 - The handoff comment is separate from the short pipeline-label comment; keep both.
 
+#### 8a. Manual-QA instructions on the `needs-qa → qa` transition
+
+When the verdict is approved AND the PR carries `needs-qa` without `skip-qa` — i.e. you just set the `qa` pipeline label per the rules above — you MUST also post a **manual QA test-instructions comment** so the human QA tester knows exactly what to exercise. This is an ADDITIVE step: it does not replace the short pipeline-label comment, the claim comment, or the completion comment — keep all of them.
+
+Build the instructions from the actual diff, not from generic boilerplate:
+
+- Scope the changed surfaces with `gh pr diff {prNumber} --name-only` and the PR title/body.
+- Translate each customer-facing change into concrete click paths (`/backend/...` routes, portal routes), the exact actions to take, and the expected outcome to verify.
+- Reuse the house QA route format from `.ai/skills/om-auto-qa-scenarios/SKILL.md`: priority tags (**P0** auth/sessions/tenant scope/money/event reliability, **P1** CRM/catalog/UI/custom fields, **P2** docs/tooling/DX), and the three-block layout **Where QA should click** / **What human QA should verify** / **What can go wrong** per area.
+- For PRs touching Next.js/UI surfaces, add the perceived-performance checks called out in `om-auto-qa-scenarios` (cold-load the changed route with screenshot evidence, first useful shell/loading state, interaction responsiveness, mobile viewport).
+- Call out edge cases and tenant/permission boundaries explicitly (cross-org isolation, RBAC-gated actions, empty/error states).
+
+Post it as a single comment so multi-line formatting survives:
+
+```bash
+gh pr comment {prNumber} --body-file <(cat <<'EOF'
+## 🧪 Manual QA instructions (routed to `qa`)
+
+This PR is approved and requires manual QA (`needs-qa`, no `skip-qa`). QA tester: run the routes below before moving it to `merge-queue`.
+
+### P0 — {area}
+**Where to click**
+- `/backend/...`
+- `/backend/...`
+
+**What to verify**
+- {concrete action → expected outcome}
+- {concrete action → expected outcome}
+
+**What can go wrong**
+- {concrete regression symptom}
+- {tenant/permission/edge-case to probe}
+
+### P1 — {area}
+**Where to click**
+- `/backend/...`
+
+**What to verify**
+- {concrete action → expected outcome}
+
+**What can go wrong**
+- {concrete regression symptom}
+
+### Pass/fail
+- All routes pass → `gh pr edit {prNumber} --remove-label qa --add-label merge-queue`
+- Any route fails → `gh pr edit {prNumber} --remove-label qa --add-label qa-failed` with a comment describing the failure.
+EOF
+)
+```
+
+Rules for this comment:
+
+- Only post it on the `needs-qa → qa` transition (approved + `needs-qa` + no `skip-qa`). Never post it when routing to `merge-queue`, `changes-requested`, or any other state.
+- Never invent routes, fields, or behavior that the diff does not contain. If a change is hard to exercise manually, say so and give the closest observable check.
+- Keep it scoped to THIS PR's changes; do not turn it into a full-app regression script.
+- Never paste secrets, tokens, `.env` content, or real credentials into the instructions.
+
 ### 9. Autonomous autofix flow
 
 After posting a `changes_requested` review, **immediately proceed to fix all actionable findings** without asking the user. The auto-review-pr skill must be fully autonomous — it reviews, fixes, re-reviews, and iterates until the PR is merge-ready or a truly critical blocker remains.
@@ -564,6 +621,7 @@ If a critical blocker remains that requires human judgment, the summary must des
 - Always add a short PR comment explaining why the chosen pipeline label was applied
 - Always hand `changes-requested` PRs back to the original author with an explicit reassignment/comment handoff when possible
 - Approved PRs with `needs-qa` and without `skip-qa` must land in `qa`, not `merge-queue`
+- On every `needs-qa → qa` transition, also post a manual-QA instructions comment (step 8a) with concrete click paths, verification points, and edge cases derived from the diff, using the `om-auto-qa-scenarios` P0/P1/P2 route format; this is additive and does not replace the pipeline-label or completion comments
 - Approved PRs without a QA requirement must land in `merge-queue`
 - When a review starts on an unlabeled PR, apply `review` before continuing
 - Always use the GraphQL API for label operations

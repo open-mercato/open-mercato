@@ -190,6 +190,7 @@ function generateShared(config: AgenticConfig): void {
     'om-auto-continue-pr-loop',
     'om-auto-review-pr',
     'om-auto-fix-github',
+    'om-prepare-issue',
   ]) {
     copyFile(
       srcDir,

@@ -122,6 +122,7 @@ function printSummary(selectedIds: string[]): void {
     console.log('      /om-auto-continue-pr <PR#>    — resume an in-progress agent PR')
     console.log('      /om-auto-review-pr   <PR#>    — automated code review (optional autofix)')
     console.log('      /om-auto-fix-github  <issue#> — fix a GitHub issue and open a PR')
+    console.log('      /om-prepare-issue    <idea>   — spec out deferred work + open a tracking issue (no build)')
     console.log('      /om-trim-unused-modules       — slim classic-mode defaults after adding your own module')
     console.log('      See .ai/skills/om-auto-create-pr/STANDALONE.md for portability notes')
     console.log('      (base-branch discovery, opt-in pipeline labels, script probing).')
