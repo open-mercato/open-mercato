@@ -1,7 +1,7 @@
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Locator } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
-import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   createCompanyFixture,
   deleteEntityIfExists,
@@ -14,6 +14,11 @@ import {
 type FixtureOption = {
   id: string
   name: string
+}
+
+type FixtureScope = {
+  organizationId: string
+  tenantId: string
 }
 
 async function createEntity(
@@ -104,11 +109,14 @@ async function createAddresses(
   token: string,
   customerId: string,
   stamp: number,
+  scope: FixtureScope,
 ): Promise<FixtureOption[]> {
   return createBatched(55, async (index) => {
     const padded = String(index).padStart(3, '0')
     const name = `QA Address ${stamp} ${padded}`
     const id = await createEntity(request, token, '/api/customers/addresses', {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
       entityId: customerId,
       name,
       addressLine1: `${padded} Select Street`,
@@ -156,17 +164,63 @@ async function deleteByQuery(
   }
 }
 
+async function setUserAclFeatures(
+  request: APIRequestContext,
+  token: string,
+  userId: string,
+  features: string[],
+  scope?: FixtureScope,
+): Promise<void> {
+  const response = await apiRequest(request, 'PUT', '/api/auth/users/acl', {
+    token,
+    data: {
+      userId,
+      features,
+      ...(scope && features.length > 0 ? { organizations: [scope.organizationId] } : {}),
+    },
+  })
+  expect(response.ok(), `Failed to update test user ACL: ${response.status()}`).toBeTruthy()
+}
+
+async function mintAdminToken(request: APIRequestContext): Promise<string> {
+  const form = new URLSearchParams()
+  form.set('email', 'admin@acme.com')
+  form.set('password', 'secret')
+  const response = await request.post('/api/auth/login', {
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    data: form.toString(),
+  })
+  expect(response.ok(), `Failed to refresh admin token: ${response.status()}`).toBeTruthy()
+  const payload = await readJsonSafe(response)
+  const token = typeof (payload as Record<string, unknown> | null)?.token === 'string'
+    ? ((payload as Record<string, unknown>).token as string)
+    : null
+  expect(token, 'Admin login response should include a token').toBeTruthy()
+  return token as string
+}
+
+async function expectDialogComboboxLabel(dialog: Locator, label: string): Promise<void> {
+  await expect(dialog.getByRole('combobox').filter({ hasText: label }).first()).toBeVisible()
+}
+
+async function expectDialogLookupLabel(dialog: Locator, label: string): Promise<void> {
+  await expect(dialog.getByRole('button').filter({ hasText: label }).first()).toBeVisible()
+}
+
 test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', () => {
   test('order detail edit dialogs show saved select labels outside capped option pages', async ({ page, request }) => {
     test.slow()
     test.setTimeout(120_000)
 
-    const token = await getAuthToken(request, 'admin')
+    const bootstrapToken = await getAuthToken(request, 'admin')
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    const adminScope = getTokenScope(bootstrapToken)
     const stamp = Date.now()
     const taxRates: FixtureOption[] = []
     const shippingMethods: FixtureOption[] = []
     const shipmentStatuses: FixtureOption[] = []
     const addresses: FixtureOption[] = []
+    let token: string | null = null
     let customerId: string | null = null
     let orderId: string | null = null
     let orderLineId: string | null = null
@@ -174,8 +228,10 @@ test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', ()
     let shipmentId: string | null = null
 
     try {
+      await setUserAclFeatures(request, superadminToken, adminScope.userId, ['customers.*', 'sales.*'], adminScope)
+      token = await mintAdminToken(request)
       customerId = await createCompanyFixture(request, token, `QA Sales Select Customer ${stamp}`)
-      addresses.push(...(await createAddresses(request, token, customerId, stamp)))
+      addresses.push(...(await createAddresses(request, token, customerId, stamp, adminScope)))
       const selectedAddress = await pickOutsideFirstPage(
         request,
         token,
@@ -242,7 +298,7 @@ test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', ()
       await page.getByText(`QA Sales Select Line ${stamp}`, { exact: true }).click()
       let dialog = page.getByRole('dialog')
       await expect(dialog.getByRole('heading', { name: 'Edit line' })).toBeVisible()
-      await expect(dialog.locator('button[role="combobox"]').filter({ hasText: selectedTaxRate.name }).first()).toBeVisible()
+      await expectDialogComboboxLabel(dialog, selectedTaxRate.name)
       await page.keyboard.press('Escape')
       await expect(dialog).not.toBeVisible()
 
@@ -251,7 +307,7 @@ test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', ()
       await page.getByText(`QA Sales Select Adjustment ${stamp}`, { exact: true }).click()
       dialog = page.getByRole('dialog')
       await expect(dialog.getByRole('heading', { name: 'Edit adjustment' })).toBeVisible()
-      await expect(dialog.locator('button[role="combobox"]').filter({ hasText: selectedTaxRate.name }).first()).toBeVisible()
+      await expectDialogComboboxLabel(dialog, selectedTaxRate.name)
       await page.keyboard.press('Escape')
       await expect(dialog).not.toBeVisible()
 
@@ -264,31 +320,40 @@ test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', ()
       await shipmentCard.getByRole('button').first().click()
       dialog = page.getByRole('dialog')
       await expect(dialog.getByRole('heading', { name: 'Edit shipment' })).toBeVisible()
-      await expect(dialog.getByText(selectedShippingMethod.name, { exact: false }).first()).toBeVisible()
-      await expect(dialog.getByText(selectedShipmentStatus.name, { exact: false }).first()).toBeVisible()
+      await expectDialogLookupLabel(dialog, selectedShippingMethod.name)
+      await expectDialogLookupLabel(dialog, selectedShipmentStatus.name)
       await page.keyboard.press('Escape')
       await expect(dialog).not.toBeVisible()
 
       await page.getByRole('button', { name: 'Addresses' }).click()
-      await expect(page.locator(`input[value*="${selectedAddress.name}"]`).first()).toBeVisible()
+      const shippingPanel = page
+        .getByText('Shipping address', { exact: true })
+        .locator('xpath=ancestor::div[contains(@class,"rounded")]')
+        .first()
+      await expect(shippingPanel.getByRole('switch', { name: 'Define new address' })).toBeChecked()
+      await shippingPanel.getByRole('switch', { name: 'Define new address' }).click()
+      await expect(shippingPanel.getByRole('combobox').filter({ hasText: selectedAddress.name }).first()).toBeVisible()
     } finally {
-      await deleteByQuery(request, token, '/api/sales/shipments', shipmentId)
-      await deleteByQuery(request, token, '/api/sales/order-adjustments', adjustmentId)
-      await deleteByQuery(request, token, '/api/sales/order-lines', orderLineId)
-      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
-      for (const address of addresses.reverse()) {
-        await deleteEntityIfExists(request, token, '/api/customers/addresses', address.id)
+      if (token) {
+        await deleteByQuery(request, token, '/api/sales/shipments', shipmentId)
+        await deleteByQuery(request, token, '/api/sales/order-adjustments', adjustmentId)
+        await deleteByQuery(request, token, '/api/sales/order-lines', orderLineId)
+        await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+        for (const address of addresses.reverse()) {
+          await deleteEntityIfExists(request, token, '/api/customers/addresses', address.id)
+        }
+        await deleteEntityIfExists(request, token, '/api/customers/companies', customerId)
+        for (const status of shipmentStatuses.reverse()) {
+          await deleteByQuery(request, token, '/api/sales/shipment-statuses', status.id)
+        }
+        for (const method of shippingMethods.reverse()) {
+          await deleteByQuery(request, token, '/api/sales/shipping-methods', method.id)
+        }
+        for (const taxRate of taxRates.reverse()) {
+          await deleteByQuery(request, token, '/api/sales/tax-rates', taxRate.id)
+        }
       }
-      await deleteEntityIfExists(request, token, '/api/customers/companies', customerId)
-      for (const status of shipmentStatuses.reverse()) {
-        await deleteByQuery(request, token, '/api/sales/shipment-statuses', status.id)
-      }
-      for (const method of shippingMethods.reverse()) {
-        await deleteByQuery(request, token, '/api/sales/shipping-methods', method.id)
-      }
-      for (const taxRate of taxRates.reverse()) {
-        await deleteByQuery(request, token, '/api/sales/tax-rates', taxRate.id)
-      }
+      await setUserAclFeatures(request, superadminToken, adminScope.userId, [])
     }
   })
 })

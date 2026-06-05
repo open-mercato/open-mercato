@@ -958,29 +958,48 @@ export function SalesDocumentAddressesSection({
     options: AddressOption[],
     onChange: (next: string | null) => void,
     disabled: boolean
-  ) => (
-    <Select value={value || undefined} onValueChange={(next) => onChange(next || null)} disabled={disabled}>
-      <SelectTrigger>
-        <SelectValue
-          placeholder={
-            addressesLoading
-              ? t('sales.documents.form.address.loading', 'Loading addresses…')
-              : t('sales.documents.form.address.placeholder', 'Select address')
-          }
-        />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((addr) => {
-          const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
-          return (
-            <SelectItem key={addr.id} value={addr.id}>
-              {optionLabel}
-            </SelectItem>
-          )
-        })}
-      </SelectContent>
-    </Select>
-  )
+  ) => {
+    const selectedOption = options.find((addr) => addr.id === value) ?? null
+    const selectedLabel = selectedOption
+      ? selectedOption.summary
+        ? `${selectedOption.label} — ${selectedOption.summary}`
+        : selectedOption.label
+      : null
+    const optionsKey = options
+      .map((addr) => `${addr.id}:${addr.summary ? `${addr.label} — ${addr.summary}` : addr.label}`)
+      .join('\0')
+
+    return (
+      <Select
+        key={`address:${value}:${optionsKey}`}
+        value={value || undefined}
+        onValueChange={(next) => onChange(next || null)}
+        disabled={disabled}
+      >
+        <SelectTrigger>
+          <SelectValue
+            placeholder={
+              addressesLoading
+                ? t('sales.documents.form.address.loading', 'Loading addresses…')
+                : t('sales.documents.form.address.placeholder', 'Select address')
+            }
+          >
+            {selectedLabel ?? undefined}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((addr) => {
+            const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
+            return (
+              <SelectItem key={addr.id} value={addr.id}>
+                {optionLabel}
+              </SelectItem>
+            )
+          })}
+        </SelectContent>
+      </Select>
+    )
+  }
 
   return (
     <div className="space-y-4">

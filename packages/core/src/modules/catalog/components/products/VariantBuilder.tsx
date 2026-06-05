@@ -309,6 +309,8 @@ export function VariantPricesSection({
   const displayedTaxRates = fallbackSelectedTaxRate
     ? [fallbackSelectedTaxRate, ...taxRates]
     : taxRates
+  const taxRateOptionsKey = displayedTaxRates.map((rate) => `${rate.id}:${formatTaxRateLabel(rate)}`).join('\0')
+  const taxRateSelectKey = `variant-tax-rate:${values.taxRateId ?? ''}:${taxRateOptionsKey}`
 
   return (
     <div className={containerClass}>
@@ -322,6 +324,7 @@ export function VariantPricesSection({
           </div>
           <div className="flex items-center gap-2">
             <Select
+              key={taxRateSelectKey}
               value={values.taxRateId || undefined}
               onValueChange={(value) => {
                 if (value) setValue('taxRateId', value)
@@ -345,6 +348,7 @@ export function VariantPricesSection({
       ) : (
         <div className="flex justify-end">
           <Select
+            key={taxRateSelectKey}
             value={values.taxRateId || undefined}
             onValueChange={(value) => {
               if (value) setValue('taxRateId', value)

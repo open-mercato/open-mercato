@@ -623,6 +623,21 @@ export function ShipmentDialog({
     [],
   )
 
+  const shippingMethodLookupOptions = React.useMemo<LookupSelectItem[]>(
+    () =>
+      shippingMethods.map((option) => ({
+        id: option.id,
+        title: option.name,
+        subtitle: [option.code, buildPriceSubtitle(option)].filter(Boolean).join(' • ') || undefined,
+        icon: (
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <Truck className="h-4 w-4" />
+          </div>
+        ),
+      })),
+    [buildPriceSubtitle, shippingMethods],
+  )
+
   const loadDocumentStatuses = React.useCallback(async (): Promise<StatusOption[]> => {
     setDocumentStatusLoading(true)
     try {
@@ -799,6 +814,17 @@ export function ShipmentDialog({
         }))
     },
     [loadShipmentStatuses, renderStatusIcon, shipmentStatuses],
+  )
+
+  const shipmentStatusLookupOptions = React.useMemo<LookupSelectItem[]>(
+    () =>
+      shipmentStatuses.map((option) => ({
+        id: option.id,
+        title: option.label,
+        subtitle: option.value,
+        icon: renderStatusIcon(option.color),
+      })),
+    [renderStatusIcon, shipmentStatuses],
   )
 
   React.useEffect(() => {
@@ -1375,6 +1401,7 @@ export function ShipmentDialog({
               value={currentValue}
               onChange={(next) => setValue(next ?? '')}
               fetchItems={fetchShippingMethodItems}
+              options={shippingMethodLookupOptions}
               placeholder={t('sales.documents.shipments.shippingMethodPlaceholder', 'Select method')}
               loading={shippingMethodLoading}
               minQuery={0}
@@ -1393,6 +1420,7 @@ export function ShipmentDialog({
               value={currentValue}
               onChange={(next) => setValue(next ?? '')}
               fetchItems={fetchShipmentStatusItems}
+              options={shipmentStatusLookupOptions}
               placeholder={t('sales.documents.shipments.statusPlaceholder', 'Select shipment status')}
               loading={shipmentStatusLoading}
               minQuery={0}
