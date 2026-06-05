@@ -440,6 +440,275 @@ describe('MfaEnforcementService', () => {
     expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
   })
 
+  function seedTenantPolicy(
+    policies: PolicyRow[],
+    overrides: Partial<PolicyRow> = {},
+  ): PolicyRow {
+    const row: PolicyRow = {
+      id: 'policy-1',
+      scope: EnforcementScope.TENANT,
+      tenantId: 'tenant-1',
+      organizationId: null,
+      isEnforced: true,
+      allowedMethods: ['totp'],
+      enforcementDeadline: null,
+      enforcedBy: 'admin-1',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+      ...overrides,
+    }
+    policies.push(row)
+    return row
+  }
+
+  function snapshotPolicy(row: PolicyRow): Omit<PolicyRow, 'createdAt' | 'updatedAt'> {
+    const { createdAt: _createdAt, updatedAt: _updatedAt, ...rest } = row
+    return { ...rest }
+  }
+
+  test('updatePolicy updates own-tenant TENANT policy and emits updated event (same-tenant non-superadmin)', async () => {
+    const { service, policies } = createContext()
+    const seeded = seedTenantPolicy(policies)
+
+    const result = await service.updatePolicy(
+      seeded.id,
+      { isEnforced: false, allowedMethods: ['passkey'] },
+      'admin-2',
+      { tenantId: 'tenant-1', organizationId: null, isSuperAdmin: false },
+    )
+
+    expect(result.id).toBe(seeded.id)
+    expect(result.isEnforced).toBe(false)
+    expect(result.allowedMethods).toEqual(['passkey'])
+    expect(mockedEmitSecurityEvent).toHaveBeenCalledWith(
+      'security.enforcement.updated',
+      expect.objectContaining({ adminId: 'admin-2', policyId: seeded.id }),
+    )
+  })
+
+  test('updatePolicy rejects non-superadmin updating cross-tenant policy with 403 and persists nothing', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies, { tenantId: 'tenant-2' })
+    const before = snapshotPolicy(seeded)
+
+    await expect(
+      service.updatePolicy(
+        seeded.id,
+        { isEnforced: false },
+        'admin-1',
+        { tenantId: 'tenant-1', organizationId: null, isSuperAdmin: false },
+      ),
+    ).rejects.toMatchObject({
+      name: 'MfaEnforcementServiceError',
+      statusCode: 403,
+      message: 'Insufficient scope for enforcement policy',
+    } satisfies Partial<MfaEnforcementServiceError>)
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+    expect(snapshotPolicy(policies[0])).toEqual(before)
+  })
+
+  test('updatePolicy rejects non-superadmin escalation to PLATFORM with 403 and persists nothing', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies)
+    const before = snapshotPolicy(seeded)
+
+    await expect(
+      service.updatePolicy(
+        seeded.id,
+        { scope: EnforcementScope.PLATFORM },
+        'admin-1',
+        { tenantId: 'tenant-1', organizationId: null, isSuperAdmin: false },
+      ),
+    ).rejects.toMatchObject({
+      name: 'MfaEnforcementServiceError',
+      statusCode: 403,
+      message: 'Insufficient scope for enforcement policy',
+    } satisfies Partial<MfaEnforcementServiceError>)
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+    expect(snapshotPolicy(policies[0])).toEqual(before)
+  })
+
+  test('updatePolicy rejects non-superadmin reassigning tenantId with 403', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies)
+    const before = snapshotPolicy(seeded)
+
+    await expect(
+      service.updatePolicy(
+        seeded.id,
+        { tenantId: 'tenant-2' },
+        'admin-1',
+        { tenantId: 'tenant-1', organizationId: null, isSuperAdmin: false },
+      ),
+    ).rejects.toMatchObject({
+      name: 'MfaEnforcementServiceError',
+      statusCode: 403,
+      message: 'Insufficient scope for enforcement policy',
+    } satisfies Partial<MfaEnforcementServiceError>)
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+    expect(snapshotPolicy(policies[0])).toEqual(before)
+  })
+
+  test('updatePolicy rejects non-superadmin updating ORGANISATION policy for different org with 403', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies, {
+      scope: EnforcementScope.ORGANISATION,
+      organizationId: 'org-2',
+    })
+    const before = snapshotPolicy(seeded)
+
+    await expect(
+      service.updatePolicy(
+        seeded.id,
+        { isEnforced: false },
+        'admin-1',
+        { tenantId: 'tenant-1', organizationId: 'org-1', isSuperAdmin: false },
+      ),
+    ).rejects.toMatchObject({
+      name: 'MfaEnforcementServiceError',
+      statusCode: 403,
+      message: 'Insufficient scope for enforcement policy',
+    } satisfies Partial<MfaEnforcementServiceError>)
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(snapshotPolicy(policies[0])).toEqual(before)
+  })
+
+  test('updatePolicy rejects non-superadmin attempting to move ORGANISATION policy to a different org with 403', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies, {
+      scope: EnforcementScope.ORGANISATION,
+      organizationId: 'org-1',
+    })
+    const before = snapshotPolicy(seeded)
+
+    await expect(
+      service.updatePolicy(
+        seeded.id,
+        { organizationId: 'org-2' },
+        'admin-1',
+        { tenantId: 'tenant-1', organizationId: 'org-1', isSuperAdmin: false },
+      ),
+    ).rejects.toMatchObject({
+      name: 'MfaEnforcementServiceError',
+      statusCode: 403,
+      message: 'Insufficient scope for enforcement policy',
+    } satisfies Partial<MfaEnforcementServiceError>)
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(snapshotPolicy(policies[0])).toEqual(before)
+  })
+
+  test('updatePolicy rejects non-superadmin updating PLATFORM-scoped policy with 403', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies, {
+      scope: EnforcementScope.PLATFORM,
+      tenantId: null,
+      organizationId: null,
+    })
+    const before = snapshotPolicy(seeded)
+
+    await expect(
+      service.updatePolicy(
+        seeded.id,
+        { isEnforced: false },
+        'admin-1',
+        { tenantId: 'tenant-1', organizationId: null, isSuperAdmin: false },
+      ),
+    ).rejects.toMatchObject({
+      name: 'MfaEnforcementServiceError',
+      statusCode: 403,
+      message: 'Insufficient scope for enforcement policy',
+    } satisfies Partial<MfaEnforcementServiceError>)
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(snapshotPolicy(policies[0])).toEqual(before)
+  })
+
+  test('updatePolicy allows superadmin to update any tenant policy', async () => {
+    const { service, policies } = createContext()
+    const seeded = seedTenantPolicy(policies, { tenantId: 'tenant-2' })
+
+    const result = await service.updatePolicy(
+      seeded.id,
+      { isEnforced: false },
+      'root-1',
+      { tenantId: 'tenant-root', organizationId: null, isSuperAdmin: true },
+    )
+
+    expect(result.isEnforced).toBe(false)
+    expect(mockedEmitSecurityEvent).toHaveBeenCalledWith(
+      'security.enforcement.updated',
+      expect.objectContaining({ adminId: 'root-1', policyId: seeded.id }),
+    )
+  })
+
+  test('updatePolicy allows superadmin to promote TENANT to PLATFORM', async () => {
+    const { service, policies } = createContext()
+    const seeded = seedTenantPolicy(policies)
+
+    const result = await service.updatePolicy(
+      seeded.id,
+      { scope: EnforcementScope.PLATFORM, tenantId: null },
+      'root-1',
+      { tenantId: null, organizationId: null, isSuperAdmin: true },
+    )
+
+    expect(result.scope).toBe(EnforcementScope.PLATFORM)
+    expect(result.tenantId).toBeNull()
+    expect(mockedEmitSecurityEvent).toHaveBeenCalledWith(
+      'security.enforcement.updated',
+      expect.objectContaining({ adminId: 'root-1', policyId: seeded.id }),
+    )
+  })
+
+  test('updatePolicy deprecated no-scope overload rejects with 403 and persists nothing', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies)
+    const before = snapshotPolicy(seeded)
+
+    await expect(
+      service.updatePolicy(seeded.id, { isEnforced: false }, 'admin-1'),
+    ).rejects.toMatchObject({
+      name: 'MfaEnforcementServiceError',
+      statusCode: 403,
+      message: 'Insufficient scope for enforcement policy',
+    } satisfies Partial<MfaEnforcementServiceError>)
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+    expect(snapshotPolicy(policies[0])).toEqual(before)
+  })
+
+  test('updatePolicy rejects non-superadmin scope without tenantId with 403', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies)
+    const before = snapshotPolicy(seeded)
+
+    await expect(
+      service.updatePolicy(
+        seeded.id,
+        { isEnforced: false },
+        'admin-1',
+        { tenantId: null, organizationId: null, isSuperAdmin: false },
+      ),
+    ).rejects.toMatchObject({
+      name: 'MfaEnforcementServiceError',
+      statusCode: 403,
+      message: 'Insufficient scope for enforcement policy',
+    } satisfies Partial<MfaEnforcementServiceError>)
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(snapshotPolicy(policies[0])).toEqual(before)
+  })
+
   test('getComplianceReport returns overdue unenrolled users after deadline', async () => {
     const { service, policies, users, methods } = createContext()
     policies.push({

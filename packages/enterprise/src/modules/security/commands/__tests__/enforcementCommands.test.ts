@@ -2,17 +2,22 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { EnforcementScope } from '../../data/entities'
 import '../createEnforcementPolicy'
+import '../updateEnforcementPolicy'
 
 function buildContext(opts: {
   auth: Record<string, unknown>
-  createPolicy: jest.Mock
+  createPolicy?: jest.Mock
+  updatePolicy?: jest.Mock
 }) {
   return {
     auth: opts.auth,
     container: {
       resolve: (name: string) => {
         if (name === 'mfaEnforcementService') {
-          return { createPolicy: opts.createPolicy }
+          return {
+            ...(opts.createPolicy ? { createPolicy: opts.createPolicy } : {}),
+            ...(opts.updatePolicy ? { updatePolicy: opts.updatePolicy } : {}),
+          }
         }
         throw new Error(`Unexpected dependency: ${name}`)
       },
@@ -153,5 +158,152 @@ describe('security enforcement commands', () => {
       status: 401,
     })
     expect(createPolicy).not.toHaveBeenCalled()
+  })
+
+  const policyId = '55555555-5555-4555-8555-555555555555'
+
+  test('update command forwards a scope built from ctx.auth to the service', async () => {
+    const handler = commandRegistry.get('security.enforcement.update')
+    expect(handler).toBeTruthy()
+
+    const updatePolicy = jest.fn().mockResolvedValue({ id: policyId })
+
+    await handler!.execute(
+      {
+        id: policyId,
+        data: { isEnforced: false },
+      },
+      buildContext({
+        auth: {
+          sub: 'admin-1',
+          tenantId: '11111111-1111-4111-8111-111111111111',
+          orgId: '22222222-2222-4222-8222-222222222222',
+          isSuperAdmin: false,
+        },
+        updatePolicy,
+      }),
+    )
+
+    expect(updatePolicy).toHaveBeenCalledTimes(1)
+    expect(updatePolicy).toHaveBeenCalledWith(
+      policyId,
+      expect.objectContaining({ isEnforced: false }),
+      'admin-1',
+      {
+        tenantId: '11111111-1111-4111-8111-111111111111',
+        organizationId: '22222222-2222-4222-8222-222222222222',
+        isSuperAdmin: false,
+      },
+    )
+  })
+
+  test('update command treats missing isSuperAdmin as false and missing orgId as null', async () => {
+    const handler = commandRegistry.get('security.enforcement.update')
+    const updatePolicy = jest.fn().mockResolvedValue({ id: policyId })
+
+    await handler!.execute(
+      {
+        id: policyId,
+        data: { isEnforced: true },
+      },
+      buildContext({
+        auth: {
+          sub: 'admin-2',
+          tenantId: '33333333-3333-4333-8333-333333333333',
+          // orgId and isSuperAdmin omitted
+        },
+        updatePolicy,
+      }),
+    )
+
+    expect(updatePolicy).toHaveBeenCalledWith(
+      policyId,
+      expect.any(Object),
+      'admin-2',
+      { tenantId: '33333333-3333-4333-8333-333333333333', organizationId: null, isSuperAdmin: false },
+    )
+  })
+
+  test('update command builds superadmin scope when ctx.auth.isSuperAdmin is true', async () => {
+    const handler = commandRegistry.get('security.enforcement.update')
+    const updatePolicy = jest.fn().mockResolvedValue({ id: policyId })
+
+    await handler!.execute(
+      {
+        id: policyId,
+        data: { scope: EnforcementScope.PLATFORM, tenantId: null },
+      },
+      buildContext({
+        auth: {
+          sub: 'root-1',
+          tenantId: null,
+          orgId: null,
+          isSuperAdmin: true,
+        },
+        updatePolicy,
+      }),
+    )
+
+    expect(updatePolicy).toHaveBeenCalledWith(
+      policyId,
+      expect.any(Object),
+      'root-1',
+      { tenantId: null, organizationId: null, isSuperAdmin: true },
+    )
+  })
+
+  test('update command maps service 403 error to CrudHttpError', async () => {
+    const handler = commandRegistry.get('security.enforcement.update')
+    const error = Object.assign(new Error('Insufficient scope for enforcement policy'), {
+      name: 'MfaEnforcementServiceError',
+      statusCode: 403,
+    })
+    const updatePolicy = jest.fn().mockRejectedValue(error)
+
+    await expect(
+      handler!.execute(
+        { id: policyId, data: { scope: EnforcementScope.PLATFORM } },
+        buildContext({
+          auth: { sub: 'admin-1', tenantId: 'tenant-1', orgId: null, isSuperAdmin: false },
+          updatePolicy,
+        }),
+      ),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({
+      status: 403,
+      body: { error: 'Insufficient scope for enforcement policy' },
+    })
+  })
+
+  test('update command rejects with 401 when ctx.auth.sub is missing', async () => {
+    const handler = commandRegistry.get('security.enforcement.update')
+    const updatePolicy = jest.fn()
+
+    await expect(
+      handler!.execute(
+        { id: policyId, data: { isEnforced: false } },
+        buildContext({ auth: {}, updatePolicy }),
+      ),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({
+      status: 401,
+    })
+    expect(updatePolicy).not.toHaveBeenCalled()
+  })
+
+  test('update command rejects with 400 when input fails commandSchema validation', async () => {
+    const handler = commandRegistry.get('security.enforcement.update')
+    const updatePolicy = jest.fn()
+
+    await expect(
+      handler!.execute(
+        { id: 'not-a-uuid', data: {} },
+        buildContext({
+          auth: { sub: 'admin-1', tenantId: 'tenant-1', orgId: null, isSuperAdmin: false },
+          updatePolicy,
+        }),
+      ),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({
+      status: 400,
+    })
+    expect(updatePolicy).not.toHaveBeenCalled()
   })
 })
