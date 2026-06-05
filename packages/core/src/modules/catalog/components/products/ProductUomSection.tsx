@@ -326,7 +326,7 @@ export function ProductUomSection({
         <div className="space-y-2">
           <Label htmlFor="catalog-product-uom-base-unit">{t("catalog.products.uom.baseUnit", "Base unit")}</Label>
           <Select
-            value={defaultUnit || undefined}
+            value={defaultUnit ?? ''}
             onValueChange={(value) => setValue("defaultUnit", value || null)}
             disabled={loadingUnits}
           >
@@ -351,7 +351,7 @@ export function ProductUomSection({
             {t("catalog.products.uom.defaultSalesUnit", "Default sales unit")}
           </Label>
           <Select
-            value={defaultSalesUnit || undefined}
+            value={defaultSalesUnit ?? ''}
             onValueChange={(value) => setValue("defaultSalesUnit", value || null)}
             disabled={loadingUnits}
           >
@@ -503,7 +503,7 @@ export function ProductUomSection({
                 )}
               </Label>
               <Select
-                value={unitPriceReferenceUnit || undefined}
+                value={unitPriceReferenceUnit ?? ''}
                 onValueChange={(value) => setValue("unitPriceReferenceUnit", value || null)}
               >
                 <SelectTrigger id="catalog-product-uom-reference-unit">
@@ -618,7 +618,7 @@ export function ProductUomSection({
                     {t("catalog.products.uom.conversionUnit", "Sales unit")}
                   </Label>
                   <Select
-                    value={entry.unitCode || undefined}
+                    value={entry.unitCode ?? ''}
                     onValueChange={(value) => updateConversion(index, { unitCode: value ?? '' })}
                     disabled={loadingUnits}
                   >

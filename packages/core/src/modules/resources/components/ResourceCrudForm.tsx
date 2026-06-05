@@ -52,8 +52,9 @@ export type ResourcesResourceFormConfig = {
 
 export function useResourcesResourceFormConfig(options: {
   tagsSection?: ResourceTagsSectionConfig
+  selectedResourceTypeId?: string | null
 } = {}): ResourcesResourceFormConfig {
-  const { tagsSection } = options
+  const { selectedResourceTypeId, tagsSection } = options
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
   const [resourceTypes, setResourceTypes] = React.useState<ResourceTypeRow[]>([])
@@ -79,6 +80,37 @@ export function useResourcesResourceFormConfig(options: {
     loadResourceTypes()
     return () => { cancelled = true }
   }, [scopeVersion])
+
+  React.useEffect(() => {
+    const selectedId = typeof selectedResourceTypeId === 'string' && selectedResourceTypeId.trim().length
+      ? selectedResourceTypeId.trim()
+      : null
+    if (!selectedId) return
+    if (resourceTypes.some((type) => type.id === selectedId)) return
+    const selectedResourceTypeLookupId = selectedId
+    let cancelled = false
+    async function loadSelectedResourceType() {
+      try {
+        const call = await apiCall<ResourceTypesResponse>(
+          `/api/resources/resource-types?ids=${encodeURIComponent(selectedResourceTypeLookupId)}&pageSize=1`,
+        )
+        const entry = Array.isArray(call.result?.items) ? call.result.items[0] : null
+        const entryId = typeof entry?.id === 'string' ? entry.id : null
+        const entryName = typeof entry?.name === 'string' ? entry.name : null
+        if (!entryId || !entryName) return
+        if (!cancelled) {
+          setResourceTypes((prev) => {
+            if (prev.some((type) => type.id === entryId)) return prev
+            return [{ id: entryId, name: entryName }, ...prev]
+          })
+        }
+      } catch {
+        if (!cancelled) setResourceTypes((prev) => prev)
+      }
+    }
+    loadSelectedResourceType()
+    return () => { cancelled = true }
+  }, [resourceTypes, selectedResourceTypeId])
 
   React.useEffect(() => {
     let cancelled = false
@@ -140,7 +172,7 @@ export function useResourcesResourceFormConfig(options: {
         component: ({ value, setValue, setFormValue, disabled }) => (
           <div className="flex items-center gap-2">
             <Select
-              value={typeof value === 'string' && value ? value : undefined}
+              value={typeof value === 'string' ? value : ''}
               onValueChange={(next) => {
                 const value = next || ''
                 setValue(value)

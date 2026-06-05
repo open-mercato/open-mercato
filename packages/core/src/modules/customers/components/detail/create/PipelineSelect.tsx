@@ -31,7 +31,7 @@ export function PipelineSelect({
 }: PipelineSelectProps) {
   return (
     <Select
-      value={typeof value === 'string' && value ? value : undefined}
+      value={typeof value === 'string' ? value : ''}
       onValueChange={(next) => onChange(next ?? '')}
       disabled={disabled}
     >

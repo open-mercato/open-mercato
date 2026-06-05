@@ -158,6 +158,18 @@ export function DictionaryEntrySelect({
     () => options.find((option) => option.value === value) ?? null,
     [options, value],
   )
+  const displayOptions = React.useMemo(() => {
+    if (!value || activeOption) return options
+    return [
+      {
+        value,
+        label: value,
+        color: null,
+        icon: null,
+      },
+      ...options,
+    ]
+  }, [activeOption, options, value])
 
   const handleCreate = React.useCallback(async () => {
     if (!createOption) return
@@ -258,7 +270,7 @@ export function DictionaryEntrySelect({
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <Select
-          value={value || undefined}
+          value={value ?? ''}
           onValueChange={(next) => onChange(next || undefined)}
           disabled={disabled}
         >
@@ -270,7 +282,7 @@ export function DictionaryEntrySelect({
             <SelectValue placeholder={labels.placeholder} />
           </SelectTrigger>
           <SelectContent>
-            {options.map((option) => (
+            {displayOptions.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>

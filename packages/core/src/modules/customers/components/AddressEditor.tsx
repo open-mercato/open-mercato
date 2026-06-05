@@ -176,7 +176,7 @@ export function AddressEditor({
         />
         <div className="flex gap-2">
           <Select
-            value={current.purpose || undefined}
+            value={current.purpose ?? ''}
             onValueChange={(next) => update('purpose', next ?? '')}
             disabled={disabled}
           >

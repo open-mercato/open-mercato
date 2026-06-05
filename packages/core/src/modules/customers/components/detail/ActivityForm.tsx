@@ -158,7 +158,7 @@ export function ActivityForm({
             typeof value === 'string' && value.length ? value : normalizedEntityOptions[0]?.id ?? ''
           return (
             <Select
-              value={currentValue || undefined}
+              value={currentValue}
               onValueChange={(next) => setValue(next ?? '')}
             >
               <SelectTrigger>
@@ -187,7 +187,7 @@ export function ActivityForm({
           const currentValue = typeof value === 'string' ? value : ''
           return (
             <Select
-              value={currentValue || undefined}
+              value={currentValue}
               onValueChange={(next) => setValue(next ?? '')}
             >
               <SelectTrigger>

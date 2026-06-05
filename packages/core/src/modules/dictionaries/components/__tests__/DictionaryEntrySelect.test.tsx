@@ -118,4 +118,19 @@ describe('DictionaryEntrySelect', () => {
 
     await waitFor(() => expect(optionLabels()).toEqual(['Alpha', 'Beta']))
   })
+
+  it('keeps the selected value visible when it is missing from fetched options', async () => {
+    render(
+      <DictionaryEntrySelect
+        value="legacy"
+        onChange={jest.fn()}
+        fetchOptions={fetchOptions}
+        labels={labels}
+        allowInlineCreate={false}
+        showManage={false}
+      />,
+    )
+
+    await waitFor(() => expect(optionLabels()).toEqual(['legacy', 'Alpha', 'Beta']))
+  })
 })

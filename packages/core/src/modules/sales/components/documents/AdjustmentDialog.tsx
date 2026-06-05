@@ -534,7 +534,7 @@ export function AdjustmentDialog({
           return (
             <div className="flex items-center gap-2">
               <Select
-                value={rateId || undefined}
+                value={rateId ?? ''}
                 onValueChange={(value) => handleChange({ target: { value } } as React.ChangeEvent<HTMLSelectElement>)}
                 disabled={!taxRates.length}
               >

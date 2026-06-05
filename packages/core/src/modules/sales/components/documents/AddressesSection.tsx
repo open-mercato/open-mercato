@@ -920,7 +920,7 @@ export function SalesDocumentAddressesSection({
     onChange: (next: string | null) => void,
     disabled: boolean
   ) => (
-    <Select value={value || undefined} onValueChange={(next) => onChange(next || null)} disabled={disabled}>
+    <Select value={value ?? ''} onValueChange={(next) => onChange(next || null)} disabled={disabled}>
       <SelectTrigger>
         <SelectValue
           placeholder={

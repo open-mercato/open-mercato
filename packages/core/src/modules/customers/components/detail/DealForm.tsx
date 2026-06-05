@@ -807,7 +807,7 @@ export function DealForm({
       layout: 'half',
       component: ({ value, setValue, setFormValue }) => (
         <Select
-          value={typeof value === 'string' && value ? value : undefined}
+          value={typeof value === 'string' ? value : ''}
           onValueChange={(next) => {
             setValue(next ?? '')
             setFormValue?.('pipelineStageId', '')
@@ -833,7 +833,7 @@ export function DealForm({
       layout: 'half',
       component: ({ value, setValue }) => (
         <Select
-          value={typeof value === 'string' && value ? value : undefined}
+          value={typeof value === 'string' ? value : ''}
           onValueChange={(next) => setValue(next ?? '')}
           disabled={disabled || !pipelineStages.length}
         >

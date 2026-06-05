@@ -71,7 +71,7 @@ export function MobileTaskForm({
           </Label>
           {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
           <Select
-            value={fieldValue(fieldName) ? String(fieldValue(fieldName)) : undefined}
+            value={fieldValue(fieldName) ? String(fieldValue(fieldName)) : ''}
             onValueChange={(value) => onFieldChange(fieldName, value ?? '')}
           >
             <SelectTrigger id={fieldName} size="lg" aria-required={required}>

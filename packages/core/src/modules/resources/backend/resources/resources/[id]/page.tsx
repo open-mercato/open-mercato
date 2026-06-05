@@ -415,7 +415,11 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
     [createTag, handleTagsSave, loadTagOptions, t, tagLabels, tags],
   )
 
-  const formConfig = useResourcesResourceFormConfig({ tagsSection })
+  const formConfig = useResourcesResourceFormConfig({
+    tagsSection,
+    selectedResourceTypeId:
+      typeof initialValues?.resourceTypeId === 'string' ? initialValues.resourceTypeId : null,
+  })
   const { resourceTypesLoaded, resolveFieldsetCode } = formConfig
 
   React.useEffect(() => {
