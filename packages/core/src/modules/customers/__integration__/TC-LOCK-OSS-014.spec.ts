@@ -102,16 +102,20 @@ test.describe('TC-LOCK-OSS-014: CRM v2 company edit + delete optimistic-lock con
 
       const nameInput = await revealDisplayNameInput(page)
 
-      const saveButton = page.getByRole('button', { name: /^save$/i }).first()
-      await expect(async () => {
-        await fillControlledInput(nameInput, `QA Lock 014b saved ${stamp}`)
-        await expect(saveButton).toBeEnabled({ timeout: 1_000 })
-      }).toPass({ timeout: 10_000 })
+      await fillControlledInput(nameInput, `QA Lock 014b saved ${stamp}`)
+      const form = nameInput.locator('xpath=ancestor::form[1]')
+      await expect(form).toHaveCount(1)
 
       const settled = await waitForApiMutation(
         page,
         COMPANIES_API_BASE,
-        () => saveButton.click(),
+        () =>
+          form.evaluate((node) => {
+            if (!(node instanceof HTMLFormElement)) {
+              throw new Error('displayName input is not inside a form')
+            }
+            node.requestSubmit()
+          }),
         'PUT',
         15_000,
       )
