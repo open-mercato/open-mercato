@@ -2349,7 +2349,19 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       return mergedValues
     })
     if (mergedValues) {
-      dirtyBaselineSnapshotRef.current = createDirtySnapshot(mergedValues as Record<string, unknown>)
+      // Do not absorb an in-progress edit into the pristine baseline. This effect
+      // re-runs whenever the snapshot changes — which includes custom-field
+      // definitions and injected fields loading ASYNCHRONOUSLY after mount. If the
+      // user has already started editing by the time they arrive, recomputing the
+      // baseline from the current (merged) values would set the baseline equal to
+      // the edited values, silently clearing dirty (header Save disables, the edit
+      // looks pristine) and discarding the unsaved change. Only (re)establish the
+      // baseline when the form is not currently dirty; while dirty, keep the
+      // baseline captured at load so the edit stays dirty until save/discard.
+      // Root cause of the flaky people-v2 stale-edit conflict (#2055 / TC-LOCK-OSS-015).
+      if (!isDirtyRef.current) {
+        dirtyBaselineSnapshotRef.current = createDirtySnapshot(mergedValues as Record<string, unknown>)
+      }
     }
     if (!extendedInjectionEventsEnabled || !mergedValues) return
     let cancelled = false
@@ -2362,6 +2374,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         )
         const transformed = result.data
         if (cancelled || !transformed) return
+        // As above: never re-apply transformed display data over an in-progress
+        // edit — it would overwrite the user's unsaved changes and reset dirty.
+        if (isDirtyRef.current) return
         dirtyBaselineSnapshotRef.current = createDirtySnapshot(transformed as Record<string, unknown>)
         setValues(transformed as CrudFormValues<TValues>)
       } catch (err) {
