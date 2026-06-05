@@ -52,11 +52,18 @@ const COMPANIES_API_BASE = '/api/customers/companies'
  */
 async function revealDisplayNameInput(page: Page): Promise<Locator> {
   const nameInput = page.locator('[data-crud-field-id="displayName"] input').first()
-  if (await nameInput.isVisible().catch(() => false)) return nameInput
-  const identitySection = page.getByRole('button', { name: /^identity$/i }).first()
-  await expect(identitySection).toBeVisible({ timeout: 15_000 })
-  await identitySection.click()
+  if (!(await nameInput.isVisible().catch(() => false))) {
+    const identitySection = page.getByRole('button', { name: /^identity$/i }).first()
+    await expect(identitySection).toBeVisible({ timeout: 15_000 })
+    await identitySection.click()
+  }
   await expect(nameInput).toBeVisible({ timeout: 15_000 })
+  // Wait until the embedded CrudForm has hydrated its loaded value before any edit.
+  // Editing while the field is still empty (form mounted but initialValues not yet
+  // applied) would make the typed value the dirty baseline, so the form never
+  // registers dirty and the header Save stays disabled — the load-race behind this
+  // test's CI flakiness. A created company always has a non-empty display name.
+  await expect(nameInput).not.toHaveValue('', { timeout: 15_000 })
   return nameInput
 }
 

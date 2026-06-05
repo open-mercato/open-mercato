@@ -27,7 +27,7 @@ import { getTokenScope } from '@open-mercato/core/modules/core/__integration__/h
  * allowed on the route its single feature covers.
  */
 const PASSWORD = 'Qa!2026Pgwy'
-const unique = () => `${Date.now()}-${Math.floor(Math.random() * 1_000_000_000)}`
+const unique = () => `${Date.now()}-${randomUUID().slice(0, 12)}`
 
 test.describe('TC-PGWY-014: RBAC feature gates (403)', () => {
   test('enforces per-feature access across payment_gateways routes', async ({ request }) => {
