@@ -14,6 +14,7 @@ import {
   expectConflictBody,
   CONFLICT_BANNER_TESTID,
 } from '@open-mercato/core/modules/core/__integration__/helpers/optimisticLockUi'
+import { isStandaloneIntegration } from '@open-mercato/core/helpers/integration/standaloneEnv'
 import { fillControlledInput } from '@open-mercato/core/modules/core/__integration__/helpers/ui'
 
 /**
@@ -196,6 +197,8 @@ test.describe('TC-LOCK-OSS-045: conflict-bar UX suite (currencies)', () => {
   })
 
   test('UX-06: de locale renders the translated bar title, not the en string or raw token', async ({ page }) => {
+    test.skip(isStandaloneIntegration(), 'Standalone smoke runs do not publish the de UI dictionary bundle.')
+
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let currencyId: string | null = null
