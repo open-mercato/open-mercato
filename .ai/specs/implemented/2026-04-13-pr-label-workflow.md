@@ -621,6 +621,12 @@ echo "Done. Labels cleaned up."
 | 20 | `priority-high` | Priority | 🟠 orange |
 | 21 | `priority-extreme` | Priority | 🔴 deep red |
 
+## 2026-06-05 Follow-Up: CI Phase Labels
+
+[Phased Integration CI](../2026-06-05-phased-integration-ci.md) proposes one additional additive CI meta label: `extended-integration`.
+
+This label is deliberately outside the 21-label PR workflow state machine above. It does not replace `needs-qa`, `skip-qa`, `qa`, `review`, or `merge-queue`; it only asks GitHub Actions to run the extended integration phase for a trusted non-fork PR. Release PRs targeting `main` do not need this label because they must run full monorepo and standalone coverage automatically.
+
 ## Implementation Status
 
 | Phase | Status | Date | Notes |
