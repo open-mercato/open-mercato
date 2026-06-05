@@ -58,7 +58,7 @@ internal refactor — same ids, side effects, snapshots, undo tokens, tests.
 
 ### Phase 2: Single-row migration — existing `makeCreateRedo` callers
 
-- [ ] 2.1 `currencies.currencies`, `currencies.exchange_rates` — drop `seedFromSnapshot`; verify snapshot keys == entity columns; keep `afterRestore`.
+- [x] 2.1 `currencies.currencies`, `currencies.exchange_rates` — dropped `seedFromSnapshot` (exchange_rates declares `date`). — 5e81e2454
 - [ ] 2.2 `catalog.prices`, `catalog.priceKinds`, `catalog.offers`, `catalog.categories`, `catalog.optionSchemas`, `catalog.productUnitConversions`.
 - [ ] 2.3 `staff.teams`, `staff.team-roles`, `staff.leave-requests`, `staff.timesheets-projects`, `staff.timesheets-entries`.
 - [ ] 2.4 `sales.configuration`, `planner.availability-rule-sets`, `scheduler.jobs`. Gate: typecheck + affected unit tests.
