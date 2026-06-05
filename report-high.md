@@ -18,7 +18,7 @@ Status legend: `⬜ todo` · `🟡 in-progress` · `✅ fixed` · `🟢 verified
 | 9 | ✅ fixed | bulkComplianceCheck enumerates user emails from any tenant | `packages/enterprise/src/modules/security/services/MfaAdminService.ts` |
 | 10 | ✅ fixed | createPolicy lets any admin create platform-wide or other-tenant MFA policies | `packages/enterprise/src/modules/security/services/MfaEnforcementService.ts` |
 | 11 | ✅ fixed | updatePolicy allows tenant admin to take over or escalate any policy by id | `packages/enterprise/src/modules/security/services/MfaEnforcementService.ts` |
-| 12 | ⬜ todo | deletePolicy soft-deletes any policy by id without tenant scope checks | `packages/enterprise/src/modules/security/services/MfaEnforcementService.ts` |
+| 12 | ✅ fixed | deletePolicy soft-deletes any policy by id without tenant scope checks | `packages/enterprise/src/modules/security/services/MfaEnforcementService.ts` |
 | 13 | ⬜ todo | Cross-account MFA verification: challenge not bound to authenticated user | `packages/enterprise/src/modules/security/services/MfaVerificationService.ts` |
 | 14 | ⬜ todo | Hardcoded fallback secret enables sudo token forgery if env vars unset | `packages/enterprise/src/modules/security/services/SudoChallengeService.ts` |
 | 15 | ⬜ todo | User-controlled Ollama base URL can drive server-side requests | `packages/search/src/vector/services/embedding.ts` |
@@ -208,9 +208,9 @@ updatePolicy(id, data, adminId) (lines 175-232) loads the policy by id alone (li
 
 ## 12. deletePolicy soft-deletes any policy by id without tenant scope checks
 
-- **Status:** ⬜ todo
-- **PR / commit:** _TBD_
-- **Notes:** _TBD_
+- **Status:** ✅ fixed
+- **PR / commit:** `5104856f5`
+- **Notes:** Reused `MfaEnforcementAuthScope` type from #10/#11. Added overloaded `deletePolicy(id, scope: MfaEnforcementAuthScope)` plus private `assertDeletePolicyScope` mirroring the existing-row half of `assertUpdatePolicyScope`. Rejection rules for non-superadmins: missing `scope.tenantId` → 403; existing policy is PLATFORM or `existing.tenantId !== scope.tenantId` → 403; existing ORGANISATION row with `scope.organizationId` set and `existing.organizationId !== scope.organizationId` → 403. Assertion runs after 404 load-miss but before any mutation/flush, so rejections leave the row byte-identical. Unified message `'Insufficient scope for enforcement policy'` reusing existing i18n key `security.api.errors.enforcementInsufficientScope`. Preserved 1-arg overload with `@deprecated` JSDoc; it now fails closed (treated as non-superadmin with `tenantId=null`, rejecting every delete as 403). Command `deleteEnforcementPolicy` builds scope from `ctx.auth.tenantId/orgId/isSuperAdmin` and forwards it; route DELETE openApi grows a 403 entry. Tests: `MfaEnforcementService.test.ts` (9 new — own-tenant success, cross-tenant 403, PLATFORM 403, ORGANISATION wrong-org 403, superadmin any-tenant success, superadmin PLATFORM success, deprecated no-scope 403, scope-without-tenantId 403, 404-not-found; rejection tests assert `em.flush` not called + snapshot-equal row state via existing `seedTenantPolicy`/`snapshotPolicy` helpers) + `enforcementCommands.test.ts` (6 new — scope forwarded from `ctx.auth`, defaults missing flags, superadmin scope, 403 mapping to `CrudHttpError`, 401 on missing `sub`, 400 on invalid commandSchema). Targeted `yarn jest` on `MfaEnforcementService` + `enforcementCommands` suites passes 50/50 (was 35 pre-change). Full CI gate passes: `yarn build:packages`, `yarn generate`, `yarn i18n:check-sync`, `yarn typecheck`, `yarn test`, `yarn build:app` all green; `yarn i18n:check-usage` advisory unchanged. Code-review: 0 Medium+, 0 Low. BC: additive only (new 2-arg overload signature; deprecated 1-arg overload preserved). Runtime behavior change on the deprecated 1-arg path (now 403 instead of silent cross-tenant delete) is the security fix itself. Deferred follow-up tracked in earlier findings: combine RELEASE_NOTES.md entry with #8/#9/#10/#11; sibling pre-existing ai-assistant test-import path bug from #11 not touched here.
 
 - **File:** `packages/enterprise/src/modules/security/services/MfaEnforcementService.ts`
 - **Lines:** 234–247

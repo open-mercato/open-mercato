@@ -709,6 +709,183 @@ describe('MfaEnforcementService', () => {
     expect(snapshotPolicy(policies[0])).toEqual(before)
   })
 
+  test('deletePolicy soft-deletes own-tenant TENANT policy (same-tenant non-superadmin)', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies)
+
+    await service.deletePolicy(seeded.id, {
+      tenantId: 'tenant-1',
+      organizationId: null,
+      isSuperAdmin: false,
+    })
+
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(policies[0].deletedAt).toBeInstanceOf(Date)
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+  })
+
+  test('deletePolicy rejects non-superadmin deleting cross-tenant policy with 403 and persists nothing', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies, { tenantId: 'tenant-2' })
+    const before = snapshotPolicy(seeded)
+
+    await expect(
+      service.deletePolicy(seeded.id, {
+        tenantId: 'tenant-1',
+        organizationId: null,
+        isSuperAdmin: false,
+      }),
+    ).rejects.toMatchObject({
+      name: 'MfaEnforcementServiceError',
+      statusCode: 403,
+      message: 'Insufficient scope for enforcement policy',
+    } satisfies Partial<MfaEnforcementServiceError>)
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+    expect(snapshotPolicy(policies[0])).toEqual(before)
+  })
+
+  test('deletePolicy rejects non-superadmin deleting PLATFORM-scope policy with 403 and persists nothing', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies, {
+      scope: EnforcementScope.PLATFORM,
+      tenantId: null,
+      organizationId: null,
+    })
+    const before = snapshotPolicy(seeded)
+
+    await expect(
+      service.deletePolicy(seeded.id, {
+        tenantId: 'tenant-1',
+        organizationId: null,
+        isSuperAdmin: false,
+      }),
+    ).rejects.toMatchObject({
+      name: 'MfaEnforcementServiceError',
+      statusCode: 403,
+      message: 'Insufficient scope for enforcement policy',
+    } satisfies Partial<MfaEnforcementServiceError>)
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+    expect(snapshotPolicy(policies[0])).toEqual(before)
+  })
+
+  test('deletePolicy rejects non-superadmin deleting ORGANISATION policy for different org with 403', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies, {
+      scope: EnforcementScope.ORGANISATION,
+      tenantId: 'tenant-1',
+      organizationId: 'org-2',
+    })
+    const before = snapshotPolicy(seeded)
+
+    await expect(
+      service.deletePolicy(seeded.id, {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        isSuperAdmin: false,
+      }),
+    ).rejects.toMatchObject({
+      name: 'MfaEnforcementServiceError',
+      statusCode: 403,
+      message: 'Insufficient scope for enforcement policy',
+    } satisfies Partial<MfaEnforcementServiceError>)
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+    expect(snapshotPolicy(policies[0])).toEqual(before)
+  })
+
+  test('deletePolicy allows superadmin to delete any tenant policy', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies, { tenantId: 'tenant-2' })
+
+    await service.deletePolicy(seeded.id, {
+      tenantId: 'tenant-root',
+      organizationId: null,
+      isSuperAdmin: true,
+    })
+
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(policies[0].deletedAt).toBeInstanceOf(Date)
+  })
+
+  test('deletePolicy allows superadmin to delete PLATFORM policy', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies, {
+      scope: EnforcementScope.PLATFORM,
+      tenantId: null,
+      organizationId: null,
+    })
+
+    await service.deletePolicy(seeded.id, {
+      tenantId: null,
+      organizationId: null,
+      isSuperAdmin: true,
+    })
+
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(policies[0].deletedAt).toBeInstanceOf(Date)
+    expect(seeded.id).toBe(policies[0].id)
+  })
+
+  test('deletePolicy deprecated no-scope overload rejects with 403 and persists nothing', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies)
+    const before = snapshotPolicy(seeded)
+
+    await expect(service.deletePolicy(seeded.id)).rejects.toMatchObject({
+      name: 'MfaEnforcementServiceError',
+      statusCode: 403,
+      message: 'Insufficient scope for enforcement policy',
+    } satisfies Partial<MfaEnforcementServiceError>)
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+    expect(snapshotPolicy(policies[0])).toEqual(before)
+  })
+
+  test('deletePolicy rejects non-superadmin scope without tenantId with 403', async () => {
+    const { service, policies, em } = createContext()
+    const seeded = seedTenantPolicy(policies)
+    const before = snapshotPolicy(seeded)
+
+    await expect(
+      service.deletePolicy(seeded.id, {
+        tenantId: null,
+        organizationId: null,
+        isSuperAdmin: false,
+      }),
+    ).rejects.toMatchObject({
+      name: 'MfaEnforcementServiceError',
+      statusCode: 403,
+      message: 'Insufficient scope for enforcement policy',
+    } satisfies Partial<MfaEnforcementServiceError>)
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(snapshotPolicy(policies[0])).toEqual(before)
+  })
+
+  test('deletePolicy returns 404 when policy not found', async () => {
+    const { service, em } = createContext()
+
+    await expect(
+      service.deletePolicy('missing-policy-id', {
+        tenantId: 'tenant-1',
+        organizationId: null,
+        isSuperAdmin: false,
+      }),
+    ).rejects.toMatchObject({
+      name: 'MfaEnforcementServiceError',
+      statusCode: 404,
+      message: 'Enforcement policy not found',
+    } satisfies Partial<MfaEnforcementServiceError>)
+
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
   test('getComplianceReport returns overdue unenrolled users after deadline', async () => {
     const { service, policies, users, methods } = createContext()
     policies.push({

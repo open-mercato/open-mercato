@@ -297,7 +297,18 @@ export class MfaEnforcementService {
     return policy
   }
 
-  async deletePolicy(id: string, actor?: EnforcementActorContext): Promise<void> {
+  /**
+   * @deprecated Since 0.6 — pass an {@link MfaEnforcementAuthScope} so the policy
+   *   delete is enforced against the caller's actual tenant/organization scope
+   *   rather than the caller-supplied id alone. The no-scope overload now treats
+   *   the caller as a non-superadmin with unknown tenant and rejects every delete
+   *   with 403; it will be removed in a future release.
+   */
+  async deletePolicy(id: string): Promise<void>
+  async deletePolicy(id: string, scope: MfaEnforcementAuthScope): Promise<void>
+  async deletePolicy(id: string, scope?: MfaEnforcementAuthScope): Promise<void> {
+    const effectiveScope: MfaEnforcementAuthScope = scope ?? { tenantId: null, isSuperAdmin: false }
+
     const policy = await this.em.findOne(MfaEnforcementPolicy, {
       id,
       deletedAt: null,
@@ -305,7 +316,8 @@ export class MfaEnforcementService {
     if (!policy) {
       throw new MfaEnforcementServiceError('Enforcement policy not found', 404)
     }
-    this.assertActorOwnsScopeFilters(actor, policy.scope, policy.tenantId ?? null)
+
+    this.assertDeletePolicyScope(policy, effectiveScope)
 
     const now = new Date()
     policy.deletedAt = now
@@ -432,6 +444,33 @@ export class MfaEnforcementService {
       && scope.organizationId !== undefined
       && scope.organizationId !== null
       && proposed.organizationId !== scope.organizationId
+    ) {
+      throw new MfaEnforcementServiceError('Insufficient scope for enforcement policy', 403)
+    }
+
+    if (
+      existing.scope === EnforcementScope.ORGANISATION
+      && scope.organizationId !== undefined
+      && scope.organizationId !== null
+      && existing.organizationId !== scope.organizationId
+    ) {
+      throw new MfaEnforcementServiceError('Insufficient scope for enforcement policy', 403)
+    }
+  }
+
+  private assertDeletePolicyScope(
+    existing: MfaEnforcementPolicy,
+    scope: MfaEnforcementAuthScope,
+  ): void {
+    if (scope.isSuperAdmin) return
+
+    if (!scope.tenantId) {
+      throw new MfaEnforcementServiceError('Insufficient scope for enforcement policy', 403)
+    }
+
+    if (
+      existing.scope === EnforcementScope.PLATFORM
+      || existing.tenantId !== scope.tenantId
     ) {
       throw new MfaEnforcementServiceError('Insufficient scope for enforcement policy', 403)
     }

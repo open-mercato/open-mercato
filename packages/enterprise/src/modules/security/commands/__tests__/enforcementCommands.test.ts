@@ -3,11 +3,13 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { EnforcementScope } from '../../data/entities'
 import '../createEnforcementPolicy'
 import '../updateEnforcementPolicy'
+import '../deleteEnforcementPolicy'
 
 function buildContext(opts: {
   auth: Record<string, unknown>
   createPolicy?: jest.Mock
   updatePolicy?: jest.Mock
+  deletePolicy?: jest.Mock
 }) {
   return {
     auth: opts.auth,
@@ -17,6 +19,7 @@ function buildContext(opts: {
           return {
             ...(opts.createPolicy ? { createPolicy: opts.createPolicy } : {}),
             ...(opts.updatePolicy ? { updatePolicy: opts.updatePolicy } : {}),
+            ...(opts.deletePolicy ? { deletePolicy: opts.deletePolicy } : {}),
           }
         }
         throw new Error(`Unexpected dependency: ${name}`)
@@ -305,5 +308,128 @@ describe('security enforcement commands', () => {
       status: 400,
     })
     expect(updatePolicy).not.toHaveBeenCalled()
+  })
+
+  test('delete command forwards a scope built from ctx.auth to the service', async () => {
+    const handler = commandRegistry.get('security.enforcement.delete')
+    expect(handler).toBeTruthy()
+
+    const deletePolicy = jest.fn().mockResolvedValue(undefined)
+
+    await handler!.execute(
+      { id: policyId },
+      buildContext({
+        auth: {
+          sub: 'admin-1',
+          tenantId: '11111111-1111-4111-8111-111111111111',
+          orgId: '22222222-2222-4222-8222-222222222222',
+          isSuperAdmin: false,
+        },
+        deletePolicy,
+      }),
+    )
+
+    expect(deletePolicy).toHaveBeenCalledTimes(1)
+    expect(deletePolicy).toHaveBeenCalledWith(policyId, {
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      organizationId: '22222222-2222-4222-8222-222222222222',
+      isSuperAdmin: false,
+    })
+  })
+
+  test('delete command treats missing isSuperAdmin as false and missing orgId as null', async () => {
+    const handler = commandRegistry.get('security.enforcement.delete')
+    const deletePolicy = jest.fn().mockResolvedValue(undefined)
+
+    await handler!.execute(
+      { id: policyId },
+      buildContext({
+        auth: {
+          sub: 'admin-2',
+          tenantId: '33333333-3333-4333-8333-333333333333',
+        },
+        deletePolicy,
+      }),
+    )
+
+    expect(deletePolicy).toHaveBeenCalledWith(policyId, {
+      tenantId: '33333333-3333-4333-8333-333333333333',
+      organizationId: null,
+      isSuperAdmin: false,
+    })
+  })
+
+  test('delete command builds superadmin scope when ctx.auth.isSuperAdmin is true', async () => {
+    const handler = commandRegistry.get('security.enforcement.delete')
+    const deletePolicy = jest.fn().mockResolvedValue(undefined)
+
+    await handler!.execute(
+      { id: policyId },
+      buildContext({
+        auth: { sub: 'root-1', tenantId: null, orgId: null, isSuperAdmin: true },
+        deletePolicy,
+      }),
+    )
+
+    expect(deletePolicy).toHaveBeenCalledWith(policyId, {
+      tenantId: null,
+      organizationId: null,
+      isSuperAdmin: true,
+    })
+  })
+
+  test('delete command maps service 403 error to CrudHttpError', async () => {
+    const handler = commandRegistry.get('security.enforcement.delete')
+    const error = Object.assign(new Error('Insufficient scope for enforcement policy'), {
+      name: 'MfaEnforcementServiceError',
+      statusCode: 403,
+    })
+    const deletePolicy = jest.fn().mockRejectedValue(error)
+
+    await expect(
+      handler!.execute(
+        { id: policyId },
+        buildContext({
+          auth: { sub: 'admin-1', tenantId: 'tenant-1', orgId: null, isSuperAdmin: false },
+          deletePolicy,
+        }),
+      ),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({
+      status: 403,
+      body: { error: 'Insufficient scope for enforcement policy' },
+    })
+  })
+
+  test('delete command rejects with 401 when ctx.auth.sub is missing', async () => {
+    const handler = commandRegistry.get('security.enforcement.delete')
+    const deletePolicy = jest.fn()
+
+    await expect(
+      handler!.execute(
+        { id: policyId },
+        buildContext({ auth: {}, deletePolicy }),
+      ),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({
+      status: 401,
+    })
+    expect(deletePolicy).not.toHaveBeenCalled()
+  })
+
+  test('delete command rejects with 400 when input fails commandSchema validation', async () => {
+    const handler = commandRegistry.get('security.enforcement.delete')
+    const deletePolicy = jest.fn()
+
+    await expect(
+      handler!.execute(
+        { id: 'not-a-uuid' },
+        buildContext({
+          auth: { sub: 'admin-1', tenantId: 'tenant-1', orgId: null, isSuperAdmin: false },
+          deletePolicy,
+        }),
+      ),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({
+      status: 400,
+    })
+    expect(deletePolicy).not.toHaveBeenCalled()
   })
 })
