@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getStatusSchema } from '../../data/validators'
 import type { PaymentGatewayService } from '../../lib/gateway-service'
 import { paymentGatewaysTag } from '../openapi'
 
@@ -19,6 +20,10 @@ export async function GET(req: Request) {
   const transactionId = url.searchParams.get('transactionId')
   if (!transactionId) {
     return NextResponse.json({ error: 'transactionId is required' }, { status: 400 })
+  }
+  const parsedTransactionId = getStatusSchema.safeParse({ transactionId })
+  if (!parsedTransactionId.success) {
+    return NextResponse.json({ error: 'Invalid transactionId', details: parsedTransactionId.error.flatten() }, { status: 400 })
   }
 
   const container = await createRequestContainer()
@@ -62,6 +67,7 @@ export const openApi = {
       tags: [paymentGatewaysTag],
       responses: [
         { status: 200, description: 'Transaction status' },
+        { status: 400, description: 'Missing or malformed transactionId' },
         { status: 404, description: 'Transaction not found' },
       ],
     },
