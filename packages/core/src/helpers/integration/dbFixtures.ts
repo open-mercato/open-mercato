@@ -44,7 +44,7 @@ function resolveDatabaseUrl(): string {
   return url;
 }
 
-async function withClient<T>(run: (client: Client) => Promise<T>): Promise<T> {
+export async function withClient<T>(run: (client: Client) => Promise<T>): Promise<T> {
   const client = new Client({ connectionString: resolveDatabaseUrl() });
   await client.connect();
   try {
@@ -140,5 +140,19 @@ export async function deleteOrganizationInDb(organizationId: string | null): Pro
   if (!organizationId) return;
   await withClient(async (client) => {
     await client.query('delete from organizations where id = $1', [organizationId]);
+  });
+}
+
+/**
+ * Hard-deletes integration credential rows for an organization (best-effort test
+ * cleanup). Integration credentials are stored per (integration_id,
+ * organization_id, tenant_id, user_id) with no FK to organizations, so a
+ * throwaway org's credential rows must be removed explicitly when the org row is
+ * torn down.
+ */
+export async function deleteIntegrationCredentialsInDb(organizationId: string | null): Promise<void> {
+  if (!organizationId) return;
+  await withClient(async (client) => {
+    await client.query('delete from integration_credentials where organization_id = $1', [organizationId]);
   });
 }

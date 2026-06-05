@@ -3,7 +3,7 @@
 > Append-only log. Every entry is UTC-timestamped. Never rewrite prior entries.
 
 ## 2026-04-18T07:40:00Z — run started
-- Brief: AI framework unification. First task of this PR: rework `auto-create-pr` + `auto-continue-pr` skills (and siblings) to use per-spec run folders with PLAN/HANDOFF/NOTIFY + per-commit proofs + 2-subagent cap.
+- Brief: AI framework unification. First task of this PR: rework `om-auto-create-pr` + `om-auto-continue-pr` skills (and siblings) to use per-spec run folders with PLAN/HANDOFF/NOTIFY + per-commit proofs + 2-subagent cap.
 - External skill URLs: none.
 - Phase 2+ scope: deferred until Phase 1 lands and the user provides direction.
 
@@ -12,7 +12,7 @@
 - Typecheck + unit tests are likewise N/A because no TypeScript/JS source changed. Proof for Step 1.1 is the diff itself plus a short `proofs/1.1/notes.md` summary.
 
 ## 2026-04-18T08:15:00Z — decision: run in primary worktree
-- The updated `auto-create-pr` skill requires an isolated worktree. The user explicitly asked to continue working in the primary worktree ("we'll continue in this branch").
+- The updated `om-auto-create-pr` skill requires an isolated worktree. The user explicitly asked to continue working in the primary worktree ("we'll continue in this branch").
 - Decision: honor the user's direction. Treat this as a one-time dogfooding deviation. Future runs that follow the skill by the book will use `.ai/tmp/auto-create-pr/`.
 - Mitigation: documented in `PLAN.md` Risks; no data loss risk because the only edits are under `.ai/skills/` and `.ai/runs/`.
 
@@ -54,7 +54,7 @@
 
 ## 2026-04-18T08:31:30Z — Step 1.3 committed (98ec6abb2)
 - `docs(skills): require auto-create-pr to hold the three-signal in-progress lock`
-- Files touched: `.ai/skills/auto-create-pr/SKILL.md` (step 9b added; steps 11 and 13 extended; Rules updated).
+- Files touched: `.ai/skills/om-auto-create-pr/SKILL.md` (step 9b added; steps 11 and 13 extended; Rules updated).
 - Proof notes: `proofs/1.3/notes.md`.
 
 ## 2026-04-18T08:32:00Z — Phase 1 complete (second pass)
@@ -70,14 +70,14 @@
 ## 2026-04-18T08:44:00Z — Step 1.4 committed (6a1afab69)
 - `docs(skills): flatten run-folder verification layout to step-<X.Y>-checks.md + optional artifacts`
 - Removed `proofs/` nested layout. Migrated `proofs/1.1/notes.md` and `proofs/1.3/notes.md` to `step-1.1-checks.md` / `step-1.3-checks.md`; backfilled `step-1.2-checks.md` retroactively. Added `step-1.4-checks.md` for this Step.
-- Updated `.ai/runs/README.md`, `auto-create-pr`, `auto-continue-pr`, `auto-sec-report`. `auto-qa-scenarios` inherits by reference and needed no edit.
+- Updated `.ai/runs/README.md`, `om-auto-create-pr`, `om-auto-continue-pr`, `om-auto-sec-report`. `om-auto-qa-scenarios` inherits by reference and needed no edit.
 
 ## 2026-04-18T08:45:00Z — Phase 1 complete (third pass)
 - Steps 1.1 / 1.2 / 1.3 / 1.4 all [x]. Next: push and release lock on #1593, wait for Phase 2 scope.
 
 ## 2026-04-18T08:50:00Z — user asked: top-of-file Tasks table in PLAN.md
 - Request: keep a table at the top of `PLAN.md` showing task status (done / not done) as the authoritative source; modify all skills to enforce it.
-- Decision: promote to Step 1.5 under Phase 1. Replace the bottom-of-file `## Progress` checkbox section with a top-of-file `## Tasks` markdown table (Phase | Step | Title | Status | Commit) using only `todo` / `done` statuses. Keep a legacy `## Progress` fallback in `auto-continue-pr` so pre-migration PRs still resume and migrate to the table on the first resume commit.
+- Decision: promote to Step 1.5 under Phase 1. Replace the bottom-of-file `## Progress` checkbox section with a top-of-file `## Tasks` markdown table (Phase | Step | Title | Status | Commit) using only `todo` / `done` statuses. Keep a legacy `## Progress` fallback in `om-auto-continue-pr` so pre-migration PRs still resume and migrate to the table on the first resume commit.
 
 ## 2026-04-18T08:50:30Z — dogfood: reclaimed in-progress on PR #1593
 - Applied `in-progress` label and posted claim comment, per the three-signal rule added in Step 1.3.
@@ -88,7 +88,7 @@
 ## 2026-04-18T08:54:00Z — Step 1.5 committed (93440ec79)
 - `docs(skills): make PLAN.md's top-of-file Tasks table the authoritative status source`
 - `PLAN.md` now opens with the `## Tasks` table (6 rows: 1.1–1.5 + 2.1). Old `## Progress` section removed.
-- `.ai/runs/README.md`, `auto-create-pr`, `auto-continue-pr` updated. Sibling skills inherit by reference.
+- `.ai/runs/README.md`, `om-auto-create-pr`, `om-auto-continue-pr` updated. Sibling skills inherit by reference.
 
 ## 2026-04-18T08:55:00Z — Phase 1 complete (fourth pass)
 - Steps 1.1 / 1.2 / 1.3 / 1.4 / 1.5 all done. Next: push and release lock on #1593, wait for Phase 2 scope.

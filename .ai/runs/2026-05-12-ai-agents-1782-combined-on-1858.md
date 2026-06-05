@@ -3,7 +3,7 @@
 Date: 2026-05-12
 Slug: ai-agents-1782-combined-on-1858
 Owner: pkarw
-Run kind: `auto-create-pr` (re-stack / consolidation, **not** new feature work)
+Run kind: `om-auto-create-pr` (re-stack / consolidation, **not** new feature work)
 
 ## Goal
 
@@ -21,7 +21,7 @@ and re-stack them, as a single PR, on top of PR #1858's branch `feat/ai-agents-p
 
 PR #1858 is in CI and cannot be merged to `develop` yet. The 1782 stack was originally based on `feat/ai-agents-phase-1780-4b` (an ancestor of `feat/ai-agents-phase-1780-1`). Without this re-stack, the user cannot exercise the 1782 work in isolation against the latest 1780-1 state. This PR provides a single, mergeable consolidation that follows the natural cherry-pickable rebase path.
 
-> The standard `auto-create-pr` rule "base branch is always `develop`" is intentionally overridden here per user request. This run is a re-stack of already-reviewed PRs, not a fresh feature.
+> The standard `om-auto-create-pr` rule "base branch is always `develop`" is intentionally overridden here per user request. This run is a re-stack of already-reviewed PRs, not a fresh feature.
 
 ## Scope
 
@@ -35,7 +35,7 @@ PR #1858 is in CI and cannot be merged to `develop` yet. The 1782 stack was orig
 - No new feature work. No behavior changes beyond what the source PRs already introduced.
 - Do **not** delete the source branches — they may still be wanted for history/archaeology.
 - No attempt to merge the combined PR into `develop` directly; the merge target is `feat/ai-agents-phase-1780-1`.
-- No `auto-review-pr` autofix pass — every source PR was already reviewed/merged-queue-ready. Re-running review here would be redundant work and would just generate review noise on the stacked PR.
+- No `om-auto-review-pr` autofix pass — every source PR was already reviewed/merged-queue-ready. Re-running review here would be redundant work and would just generate review noise on the stacked PR.
 
 ## Risks
 
@@ -75,7 +75,7 @@ PR #1858 is in CI and cannot be merged to `develop` yet. The 1782 stack was orig
 - 4.2 Open PR with `--base feat/ai-agents-phase-1780-1`; body lists the five source PRs and explains the stack.
 - 4.3 Label `review` + `feature`; add `needs-qa` because Phase 1782 includes UI (Usage tab, Loop panel, deal_analyzer page) and the demo touches customer-facing flows.
 - 4.4 Close #1866, #1867, #1868, #1869, #1871 with a "superseded by" comment.
-- 4.5 Post the comprehensive `auto-create-pr` summary comment.
+- 4.5 Post the comprehensive `om-auto-create-pr` summary comment.
 
 ## Progress
 

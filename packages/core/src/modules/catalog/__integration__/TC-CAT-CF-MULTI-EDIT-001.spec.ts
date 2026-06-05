@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import {
   createProductFixture,
@@ -90,7 +91,7 @@ function asStringArray(value: unknown): string[] {
 
 test.describe('TC-CAT-CF-MULTI-EDIT-001: product multichoice custom field persists on edit', () => {
   test('updating a product multi-select replaces the old values', async ({ request }) => {
-    const stamp = Date.now();
+    const stamp = `${Date.now()}_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
     const fieldKey = `qa_prod_multi_${stamp}`;
     const fieldLabel = `QA Resources ${stamp}`;
     const options = ['stylist', 'therapist', 'treatment_room', 'wash_station'];

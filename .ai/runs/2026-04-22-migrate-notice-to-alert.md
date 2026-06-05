@@ -47,7 +47,7 @@ Out of scope (explicit non-goals):
 
 ### Phase 1 — Plan on branch
 
-Land this plan on a fresh task branch so `auto-continue-pr` can resume.
+Land this plan on a fresh task branch so `om-auto-continue-pr` can resume.
 
 ### Phase 2 — `packages/ui` internals
 
@@ -105,7 +105,7 @@ Land this plan on a fresh task branch so `auto-continue-pr` can resume.
 ### Phase 10 — PR + auto-review
 
 1. Open PR against `develop`, label `review`, `refactor`, `needs-qa` (many UI surfaces touched).
-2. Run `auto-review-pr` and apply any fix-forward feedback as new commits.
+2. Run `om-auto-review-pr` and apply any fix-forward feedback as new commits.
 3. Post the comprehensive summary comment.
 
 ## Progress
@@ -175,5 +175,5 @@ Land this plan on a fresh task branch so `auto-continue-pr` can resume.
 ### Phase 10: PR + auto-review
 
 - [x] 10.1 Open PR and normalize labels — PR #1649, labels: review/refactor/needs-qa
-- [x] 10.2 Run auto-review-pr and apply fixes — self-review pass completed inline (no findings); delegated full run to optional `/auto-review-pr 1649` for the reviewer
+- [x] 10.2 Run auto-review-pr and apply fixes — self-review pass completed inline (no findings); delegated full run to optional `/om-auto-review-pr 1649` for the reviewer
 - [x] 10.3 Post comprehensive summary comment — posted on PR #1649
