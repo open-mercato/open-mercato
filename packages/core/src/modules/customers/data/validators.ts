@@ -14,6 +14,27 @@ const phoneSchema = z.string().trim().max(50).refine((val) => {
   return isValidPhoneNumber(val)
 }, { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY }).optional()
 
+// Optional URL/email fields map to nullable DB columns. Treat both '' and null as an
+// explicit "clear this value" signal (both coerce to null) so a previously-set value can
+// be removed via update; without this `''` fails `.url()/.email()` and `null` fails the
+// string type, leaving the columns effectively write-once-non-empty. The command layer
+// already persists null. See #2526.
+const emptyStringToNull = (value: unknown): unknown => {
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : null
+}
+
+const clearableEmailSchema = z.preprocess(
+  emptyStringToNull,
+  z.string().email().max(320).nullable().optional(),
+)
+
+const clearableUrlSchema = z.preprocess(
+  emptyStringToNull,
+  z.string().url().max(300).nullable().optional(),
+)
+
 const interactionPhoneNumberSchema = z.string().trim().max(50).optional().nullable()
 
 const scopedSchema = z.object({
@@ -42,12 +63,7 @@ const baseEntitySchema = {
   displayName: displayNameSchema,
   description: z.string().trim().max(4000).optional(),
   ownerUserId: uuid().optional(),
-  primaryEmail: z
-    .string()
-    .trim()
-    .email()
-    .max(320)
-    .optional(),
+  primaryEmail: clearableEmailSchema,
   primaryPhone: phoneSchema,
   status: z.string().trim().max(100).optional(),
   lifecycleStage: z.string().trim().max(100).optional(),
@@ -65,8 +81,8 @@ const personDetailsSchema = {
   department: z.string().trim().max(150).optional(),
   seniority: z.string().trim().max(100).optional(),
   timezone: z.string().trim().max(120).optional(),
-  linkedInUrl: z.string().trim().url().max(300).optional(),
-  twitterUrl: z.string().trim().url().max(300).optional(),
+  linkedInUrl: clearableUrlSchema,
+  twitterUrl: clearableUrlSchema,
   companyEntityId: uuid().nullable().optional(),
 }
 
@@ -77,7 +93,7 @@ const companyDetailsSchema = {
   legalName: z.string().trim().max(200).optional(),
   brandName: z.string().trim().max(200).optional(),
   domain: z.string().trim().max(200).optional(),
-  websiteUrl: z.string().trim().url().max(300).optional(),
+  websiteUrl: clearableUrlSchema,
   industry: z.string().trim().max(150).optional(),
   sizeBucket: z.string().trim().max(100).optional(),
   annualRevenue: z.coerce.number().min(0).optional(),
