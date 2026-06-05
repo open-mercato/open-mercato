@@ -101,7 +101,7 @@ export async function fillCombobox(
   },
 ) {
   const root = options?.scope ?? page
-  const input = root.getByPlaceholder(placeholder)
+  const input = root.getByPlaceholder(placeholder, { exact: true })
   await expect(input).toBeEnabled({ timeout: 10_000 })
   await input.click()
 
@@ -160,7 +160,9 @@ export async function fillCombobox(
   }
 
   if (options?.waitForEnabledPlaceholder) {
-    await expect(root.getByPlaceholder(options.waitForEnabledPlaceholder)).toBeEnabled({
+    await expect(
+      root.getByPlaceholder(options.waitForEnabledPlaceholder, { exact: true }),
+    ).toBeEnabled({
       timeout: 10_000,
     })
   }

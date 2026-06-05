@@ -25,6 +25,39 @@ type ImportRouteOptions = {
   mode: 'validate' | 'apply'
 }
 
+/**
+ * Fail-closed scope guard for inventory import payloads. Unlike the shared
+ * `ensureOrganizationScope` (which short-circuits for tenant-wide admins with
+ * `allowedIds === null`), this rejects payloads whose `organizationId`/`tenantId`
+ * fall outside the caller's actively selected scope so cross-organization imports
+ * cannot be smuggled through the request body.
+ */
+function assertImportScope(
+  ctx: CommandRuntimeContext,
+  input: { organizationId: string; tenantId: string },
+  translate: (key: string, fallback?: string) => string,
+): void {
+  const forbidden = () =>
+    new CrudHttpError(403, { error: translate('wms.errors.forbidden', 'Forbidden') })
+  if (ctx.auth?.isSuperAdmin === true) return
+
+  const actorTenantId = ctx.auth?.tenantId ?? null
+  if (!actorTenantId || actorTenantId !== input.tenantId) {
+    throw forbidden()
+  }
+
+  const allowedIds = ctx.organizationScope?.allowedIds ?? null
+  if (Array.isArray(allowedIds)) {
+    if (!allowedIds.includes(input.organizationId)) throw forbidden()
+    return
+  }
+
+  const selectedOrganizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  if (!selectedOrganizationId || selectedOrganizationId !== input.organizationId) {
+    throw forbidden()
+  }
+}
+
 async function buildImportContext(request: Request): Promise<CommandRuntimeContext> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(request)
@@ -95,6 +128,7 @@ export async function executeWmsInventoryImportRoute(options: ImportRouteOptions
 
     if (options.mode === 'validate') {
       const parsed = await parseValidatePayload(options.request)
+      assertImportScope(ctx, parsed, translate)
       const result = await validateInventoryImport(ctx, parsed)
       return NextResponse.json(result)
     }
@@ -102,6 +136,7 @@ export async function executeWmsInventoryImportRoute(options: ImportRouteOptions
     const parsed = inventoryImportApplySchema.parse(
       (await readJsonSafe<Record<string, unknown>>(options.request, {})) ?? {},
     )
+    assertImportScope(ctx, parsed, translate)
     const guardResult = await validateCrudMutationGuard(ctx.container, {
       tenantId: auth.tenantId,
       organizationId: ctx.selectedOrganizationId,

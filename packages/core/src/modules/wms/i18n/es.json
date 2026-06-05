@@ -806,6 +806,7 @@
   "wms.backend.zones.nav.title": "Zones",
   "wms.common.active": "Active",
   "wms.common.inactive": "Inactive",
+  "wms.errors.forbidden": "Acceso denegado",
   "wms.errors.internalServerError": "Internal server error",
   "wms.errors.unauthorized": "Unauthorized",
   "wms.nav.group": "WMS",

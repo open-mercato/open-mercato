@@ -2,10 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
-  createFeatureToggleFixture,
-  deleteFeatureToggleIfExists,
-} from '@open-mercato/core/helpers/integration/featureTogglesFixtures'
-import {
   deleteGeneralEntityIfExists,
   expectId,
   getTokenScope,
@@ -15,6 +11,7 @@ import {
   createSalesOrderFixture,
   deleteSalesEntityIfExists,
 } from '@open-mercato/core/helpers/integration/salesFixtures'
+import { ensureBooleanFeatureToggle } from './helpers/wmsFixtures'
 
 export const integrationMeta = {
   dependsOnModules: ['wms', 'sales'],
@@ -121,6 +118,7 @@ async function createCrudFixture(
 test.describe('TC-WMS-004 sales order warehouse assignment', () => {
   test('should assign, read, enrich, and clear explicit warehouse assignment', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
+    const superadminToken = await getAuthToken(request, 'superadmin')
     const scope = getTokenScope(adminToken)
     const stamp = randomUUID().slice(0, 8)
 
@@ -132,12 +130,14 @@ test.describe('TC-WMS-004 sales order warehouse assignment', () => {
       ['wms.view', 'wms.manage_reservations', 'wms.manage_warehouses', 'sales.orders.view'],
     )
 
-    const toggleId = await createFeatureToggleFixture(request, adminToken, {
-      id: 'wms_integration_sales_order_inventory',
-      tenantId: scope.tenantId,
-      label: 'Allows WMS to reserve and release inventory from sales order lifecycle events.',
-      isEnabled: true,
-    })
+    const restoreSalesOrderToggle = await ensureBooleanFeatureToggle(
+      request,
+      superadminToken,
+      'wms_integration_sales_order_inventory',
+      'Sales Order Inventory Reservation',
+      'Allows WMS to reserve and release inventory from sales order lifecycle events.',
+      'wms',
+    )
 
     let orderId: string | null = null
     let warehouseId: string | null = null
@@ -228,7 +228,7 @@ test.describe('TC-WMS-004 sales order warehouse assignment', () => {
     } finally {
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/warehouses', warehouseId)
       await deleteSalesEntityIfExists(request, adminToken, '/api/sales/orders', orderId)
-      await deleteFeatureToggleIfExists(request, adminToken, toggleId)
+      await restoreSalesOrderToggle()
       await restoreAdminAcl()
     }
   })

@@ -187,7 +187,10 @@ test.describe('TC-WMS-DASHBOARD-UI-001: Operational dashboard UI', () => {
       await expect(page.getByText(warehouseName).first()).toBeVisible()
       await expect(page.getByRole('link', { name: 'View past due' }).first()).toBeVisible()
 
-      const pastDueCard = page.locator('section').filter({ hasText: 'Past due' }).first()
+      const pastDueCard = page
+        .locator('section')
+        .filter({ hasText: 'Expired lots with on-hand stock' })
+        .last()
       await expect.poll(
         async () => {
           const cardText = await pastDueCard.textContent()
