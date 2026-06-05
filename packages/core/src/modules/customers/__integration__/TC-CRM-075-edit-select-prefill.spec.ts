@@ -54,6 +54,9 @@ test.describe('TC-CRM-075: Customer edit forms prefill saved selects', () => {
   })
 
   test('person detail company edit shows a saved company outside the first async page', async ({ page, request }) => {
+    test.slow()
+    test.setTimeout(120_000)
+
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     const companyIds: string[] = []
@@ -62,10 +65,17 @@ test.describe('TC-CRM-075: Customer edit forms prefill saved selects', () => {
     let selectedCompanyName = ''
 
     try {
-      for (let index = 0; index < 105; index += 1) {
-        const name = `QA Select Company ${stamp} ${String(index).padStart(3, '0')}`
-        const id = await createCompanyFixture(request, token, name)
-        companyIds.push(id)
+      const batchSize = 12
+      for (let index = 0; index < 105; index += batchSize) {
+        const batch = Array.from({ length: Math.min(batchSize, 105 - index) }, (_, offset) => index + offset)
+        companyIds.push(
+          ...(await Promise.all(
+            batch.map((entry) => {
+              const name = `QA Select Company ${stamp} ${String(entry).padStart(3, '0')}`
+              return createCompanyFixture(request, token, name)
+            }),
+          )),
+        )
       }
 
       const listResponse = await apiRequest(
