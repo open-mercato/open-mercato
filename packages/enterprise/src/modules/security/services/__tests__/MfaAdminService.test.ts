@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitSecurityEvent } from '../../events'
 import { MfaAdminService, MfaAdminServiceError } from '../MfaAdminService'
 
@@ -9,6 +9,7 @@ jest.mock('../../events', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
+  findOneWithDecryption: jest.fn(),
 }))
 
 type MockMethod = {
@@ -29,10 +30,28 @@ type MockRecoveryCode = {
   usedAt?: Date | null
 }
 
+type MockUser = {
+  id: string
+  tenantId: string
+  organizationId: string
+  email: string
+  deletedAt: null
+}
+
 function createContext() {
   const methods: MockMethod[] = []
   const recoveryCodes: MockRecoveryCode[] = []
-  const users = new Set<string>(['user-1'])
+  const users = new Map<string, MockUser>([
+    ['user-1', { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', email: 'user@example.com', deletedAt: null }],
+  ])
+
+  mockedFindOneWithDecryption.mockImplementation(async (_em, _entity, query) => {
+    const id = (query as { id?: string }).id
+    if (typeof id === 'string' && users.has(id)) {
+      return users.get(id) as never
+    }
+    return null as never
+  })
 
   const em = {
     find: jest.fn(async (_entity: unknown, query: Record<string, unknown>) => {
@@ -57,13 +76,7 @@ function createContext() {
     }),
     findOne: jest.fn(async (_entity: unknown, query: Record<string, unknown>) => {
       if (typeof query.id === 'string' && users.has(query.id) && query.deletedAt === null) {
-        return {
-          id: query.id,
-          tenantId: 'tenant-1',
-          organizationId: 'org-1',
-          email: 'user@example.com',
-          deletedAt: null,
-        }
+        return users.get(query.id) ?? null
       }
       return null
     }),
@@ -96,6 +109,7 @@ function createContext() {
 }
 
 const mockedFindWithDecryption = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
+const mockedFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 const mockedEmitSecurityEvent = emitSecurityEvent as jest.MockedFunction<typeof emitSecurityEvent>
 
 describe('MfaAdminService', () => {
@@ -184,7 +198,7 @@ describe('MfaAdminService', () => {
 
   test('bulkComplianceCheck returns compliance data for all tenant users', async () => {
     const { service, methods, users, mfaEnforcementService } = createContext()
-    users.add('user-2')
+    users.set('user-2', { id: 'user-2', tenantId: 'tenant-1', organizationId: 'org-2', email: 'two@example.com', deletedAt: null })
     mockedFindWithDecryption.mockResolvedValue([
       {
         id: 'user-1',
@@ -251,5 +265,56 @@ describe('MfaAdminService', () => {
       statusCode: 400,
       message: 'Tenant ID is required',
     } satisfies Partial<MfaAdminServiceError>)
+  })
+
+  test('getUserMfaStatus rejects a foreign-tenant target for a non-superadmin actor with 404', async () => {
+    const { service } = createContext()
+    await expect(
+      service.getUserMfaStatus('user-1', { tenantId: 'tenant-2', isSuperAdmin: false }),
+    ).rejects.toMatchObject({
+      name: 'MfaAdminServiceError',
+      statusCode: 404,
+      message: 'User not found',
+    } satisfies Partial<MfaAdminServiceError>)
+  })
+
+  test('getUserMfaStatus allows a same-tenant target for a non-superadmin actor', async () => {
+    const { service } = createContext()
+    const status = await service.getUserMfaStatus('user-1', { tenantId: 'tenant-1', isSuperAdmin: false })
+    expect(status.enrolled).toBe(false)
+  })
+
+  test('getUserMfaStatus allows a superadmin actor regardless of tenant', async () => {
+    const { service } = createContext()
+    const status = await service.getUserMfaStatus('user-1', { tenantId: 'tenant-2', isSuperAdmin: true })
+    expect(status.enrolled).toBe(false)
+  })
+
+  test('resetUserMfa rejects a foreign-tenant target for a non-superadmin actor with 404', async () => {
+    const { service } = createContext()
+    await expect(
+      service.resetUserMfa('admin-1', 'user-1', 'security incident', { tenantId: 'tenant-2', isSuperAdmin: false }),
+    ).rejects.toMatchObject({
+      name: 'MfaAdminServiceError',
+      statusCode: 404,
+      message: 'User not found',
+    } satisfies Partial<MfaAdminServiceError>)
+  })
+
+  test('bulkComplianceCheck rejects a foreign tenant for a non-superadmin actor with 403', async () => {
+    const { service } = createContext()
+    await expect(
+      service.bulkComplianceCheck('tenant-2', { tenantId: 'tenant-1', isSuperAdmin: false }),
+    ).rejects.toMatchObject({
+      name: 'MfaAdminServiceError',
+      statusCode: 403,
+    } satisfies Partial<MfaAdminServiceError>)
+  })
+
+  test('bulkComplianceCheck allows a superadmin actor to query any tenant', async () => {
+    const { service } = createContext()
+    mockedFindWithDecryption.mockResolvedValue([] as never)
+    const result = await service.bulkComplianceCheck('tenant-2', { tenantId: 'tenant-1', isSuperAdmin: true })
+    expect(result).toEqual([])
   })
 })

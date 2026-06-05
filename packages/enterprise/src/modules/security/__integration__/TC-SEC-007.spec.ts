@@ -8,6 +8,13 @@ import {
   loginViaApi,
 } from './helpers/securityFixtures'
 
+// Positive path (admin + target/control users) is intentionally same-tenant: every
+// fixture user is created with the same admin token, so the tenant-ownership guard
+// added for issue #2612 passes and the 200 assertions below remain valid.
+// The cross-tenant negative case (tenant-A admin -> tenant-B user => 404, and
+// foreign-tenant compliance => 403) is covered by the route/service unit tests
+// (mfa-status.route.test.ts, mfa-reset.route.test.ts, mfa-compliance.route.test.ts,
+// MfaAdminService.test.ts) because this harness does not provision a second tenant.
 test.describe('TC-SEC-007: Admin MFA reset and status reporting', () => {
   let adminToken: string
   let targetUserId: string | null = null
