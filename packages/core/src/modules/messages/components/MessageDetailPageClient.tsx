@@ -2,9 +2,12 @@
 
 import * as React from 'react'
 import { MessageComposer } from '@open-mercato/ui/backend/messages'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+// UMES extension surface — message detail injection spots (SPEC-045d §9.3a)
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import {
   getMessageUiComponentRegistry,
 } from './utils/typeUiRegistry'
@@ -29,6 +32,7 @@ function MessageConversationDetailItem({
   onToggle,
   onReply,
   onForward,
+  userFeatures,
 }: {
   messageId: string
   isCollapsible: boolean
@@ -36,6 +40,7 @@ function MessageConversationDetailItem({
   onToggle: () => void
   onReply: (messageId: string) => void
   onForward: (messageId: string) => void
+  userFeatures: string[]
 }) {
   const state = useMessageDetails(messageId)
   const messageUiRegistry = React.useMemo(() => getMessageUiComponentRegistry(), [])
@@ -87,7 +92,23 @@ function MessageConversationDetailItem({
             ContentComponent={ContentComponent}
           />
 
+          {/* UMES — channel payload renderer mounts here (channel-linked emails, Slack blocks, etc.). */}
+          <InjectionSpot
+            spotId="detail:messages:message:body:after"
+            context={{ messageId }}
+            data={state.detail}
+          />
+
           <MessageDetailMetaSection detail={state.detail} />
+
+          {/* UMES — channel sidebar widgets (channel info panel, contact preview, delivery status).
+              `userFeatures` lets feature-gated widgets (e.g. the channel reassignment editor,
+              gated on `communication_channels.assign`) render their controls for permitted users. */}
+          <InjectionSpot
+            spotId="detail:messages:message:sidebar"
+            context={{ messageId, userFeatures }}
+            data={state.detail}
+          />
         </section>
 
         <MessageDetailActionsSection
@@ -138,6 +159,27 @@ function MessageConversationDetailItem({
 
 export function MessageDetailPageClient({ id }: { id: string }) {
   const state = useMessageDetails(id)
+  // Resolve the viewer's feature grants once and forward them into the sidebar
+  // injection spot so feature-gated widgets (channel reassignment editor) can
+  // render their controls. Without this, hub widgets that gate on
+  // `context.userFeatures` (e.g. `communication_channels.assign`) stay read-only.
+  const [userFeatures, setUserFeatures] = React.useState<string[]>([])
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const res = await apiCall<{ ok: boolean; granted?: string[] }>('/api/auth/feature-check', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ features: ['communication_channels.assign'] }),
+      }).catch(() => null)
+      if (!cancelled && res?.ok && Array.isArray(res.result?.granted)) {
+        setUserFeatures(res.result.granted)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [activeInlineComposer, setActiveInlineComposer] = React.useState<{
     variant: 'reply' | 'forward'
     messageId: string
@@ -234,6 +276,7 @@ export function MessageDetailPageClient({ id }: { id: string }) {
               <MessageConversationDetailItem
                 key={item.id}
                 messageId={item.id}
+                userFeatures={userFeatures}
                 isCollapsible={!isForcedExpanded}
                 isExpanded
                 onToggle={() => state.toggleConversationItem(item.id)}

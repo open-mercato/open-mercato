@@ -448,18 +448,19 @@ test.describe('TC-SALES-ATOMIC-VERIFY: atomic-write backward-compat & data safet
       expect(payment.order_id).toBe(orderId)
       expect(payment.currency_code).toBe('USD')
 
-      // Order header totals stay non-negative and internally consistent on read.
+      // Order header totals reflect the recorded payment on read (#2455).
+      // The single-document read recomputes display totals through the sales
+      // calculation pipeline; the provider totals calculator must not reset the
+      // payment totals back to the pre-payment snapshot.
       const order = await readSingleDocument(request, token, 'orders', orderId!)
       const grand = num(order.grandTotalGrossAmount)
       const paid = num(order.paidTotalAmount)
       const refunded = num(order.refundedTotalAmount)
       const outstanding = num(order.outstandingAmount)
       expect(grand).toBe(100)
-      expect(paid).toBeGreaterThanOrEqual(0)
-      expect(refunded).toBeGreaterThanOrEqual(0)
-      expect(outstanding).toBeGreaterThanOrEqual(0)
-      // Outstanding never exceeds the grand total.
-      expect(outstanding).toBeLessThanOrEqual(grand)
+      expect(paid).toBe(75)
+      expect(refunded).toBe(0)
+      expect(outstanding).toBe(25)
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/payments', paymentId)
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)

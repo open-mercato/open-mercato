@@ -657,11 +657,17 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         : null
       const normalizedItems = validatedItems?.items ?? null
       const lineMap = validatedItems?.lineMap ?? new Map<string, SalesOrderLine>()
+      // Resolve the status label BEFORE mutating shipment scalars so this
+      // dictionary read does not interleave with (and drop) the pending
+      // shipment changeset under MikroORM v7 (SPEC-018 / #2453 class).
+      const resolvedShipmentStatus = input.statusEntryId !== undefined
+        ? await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null)
+        : undefined
       if (input.shipmentNumber !== undefined) shipmentEntity.shipmentNumber = input.shipmentNumber ?? null
       if (input.shippingMethodId !== undefined) shipmentEntity.shippingMethodId = input.shippingMethodId ?? null
       if (input.statusEntryId !== undefined) {
         shipmentEntity.statusEntryId = input.statusEntryId ?? null
-        shipmentEntity.status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null)
+        shipmentEntity.status = resolvedShipmentStatus ?? null
       }
       if (input.carrierName !== undefined) shipmentEntity.carrierName = input.carrierName ?? null
       if (input.trackingNumbers !== undefined) shipmentEntity.trackingNumbers = parseTrackingNumbers(input.trackingNumbers)
@@ -684,6 +690,13 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         )
       }
       shipmentEntity.updatedAt = new Date()
+
+      // Persist the shipment scalar mutations before the item reads below run on
+      // the same EntityManager. Under MikroORM v7 an interleaved query (the
+      // findWithDecryption on SalesShipmentItem here and in the snapshot step)
+      // resets the identity-map changeset, so shippingMethodId/status/carrier/etc.
+      // would silently not persist even though the write returns 200 (#2453).
+      await tx.flush()
 
       const shouldLoadItems = Boolean(normalizedItems || input.lineStatusEntryId !== undefined)
       const existingItems = shouldLoadItems ? await findWithDecryption(tx, SalesShipmentItem, { shipment: shipmentEntity }, {}, { tenantId: shipmentEntity.tenantId, organizationId: shipmentEntity.organizationId }) : []
@@ -758,6 +771,9 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         }
       }
 
+      // Flush any order/line status mutations applied above before the snapshot
+      // read below queries the same EntityManager (same interleaved-read hazard).
+      await tx.flush()
       const itemsForSnapshot =
         normalizedItems || shouldLoadItems
           ? (normalizedItems ? newItems : existingItems)

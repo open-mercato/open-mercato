@@ -4,6 +4,11 @@ jest.mock('@open-mercato/cache', () => ({
 
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
+import {
+  clearOptimisticLockReadersForTests,
+  getAllOptimisticLockReaders,
+  registerOptimisticLockReaders,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
 import { z } from 'zod'
 
@@ -752,5 +757,106 @@ describe('CRUD Factory', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body._interceptor).toEqual({ ok: true, count: 1 })
+  })
+})
+
+describe('CRUD Factory — optimistic-lock auto-registration', () => {
+  beforeEach(() => {
+    clearOptimisticLockReadersForTests()
+  })
+
+  afterAll(() => {
+    clearOptimisticLockReadersForTests()
+  })
+
+  function makeMinimalRoute(opts: { eventsResource: string; entity: any }) {
+    return makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: opts.entity, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+      events: { module: opts.eventsResource.split('.')[0], entity: opts.eventsResource.split('.')[1], persistent: false } as any,
+      list: { schema: z.object({}).passthrough() as any },
+      create: {
+        commandId: `${opts.eventsResource}.create`,
+        schema: z.object({}).passthrough() as any,
+      },
+      update: {
+        commandId: `${opts.eventsResource}.update`,
+        schema: z.object({ id: z.string() }).passthrough() as any,
+      },
+      del: {
+        commandId: `${opts.eventsResource}.delete`,
+        schema: z.object({ id: z.string() }).passthrough() as any,
+      },
+    })
+  }
+
+  it('auto-registers a reader for the route resourceKind at factory call time', () => {
+    expect(getAllOptimisticLockReaders()).toEqual({})
+    makeMinimalRoute({ eventsResource: 'example.todo', entity: Todo })
+    const all = getAllOptimisticLockReaders()
+    expect(Object.keys(all)).toContain('example.todo')
+    expect(typeof all['example.todo']).toBe('function')
+  })
+
+  it('does NOT override an existing hand-wired reader (IfAbsent semantics)', () => {
+    const handWired = async () => 'hand-wired'
+    registerOptimisticLockReaders({ 'example.todo': handWired })
+    makeMinimalRoute({ eventsResource: 'example.todo', entity: Todo })
+    expect(getAllOptimisticLockReaders()['example.todo']).toBe(handWired)
+  })
+
+  it('skips registration when the entity has no resolvable resourceKind', () => {
+    expect(getAllOptimisticLockReaders()).toEqual({})
+    // Route with no events.module + no command IDs → resourceKind falls back to 'resource'
+    makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo },
+      list: { schema: z.object({}).passthrough() as any },
+    } as any)
+    // 'resource' is filtered out by the auto-registration guard
+    expect(getAllOptimisticLockReaders()['resource']).toBeUndefined()
+  })
+
+  it('the registered reader projects only updatedAt and fails open on schema mismatch', async () => {
+    makeMinimalRoute({ eventsResource: 'example.todo', entity: Todo })
+    const reader = getAllOptimisticLockReaders()['example.todo']
+    expect(reader).toBeDefined()
+    let captured: { entity: unknown; filter: Record<string, unknown>; options?: Record<string, unknown> } | null = null
+    const fakeEm = {
+      async findOne(entity: unknown, filter: Record<string, unknown>, options?: Record<string, unknown>) {
+        captured = { entity, filter, options }
+        return { updatedAt: new Date('2026-05-26T07:30:00.000Z') }
+      },
+    } as never
+    const out = await reader!(fakeEm, {
+      resourceKind: 'example.todo',
+      resourceId: 'todo-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(out).toBe('2026-05-26T07:30:00.000Z')
+    expect(captured).not.toBeNull()
+    expect(captured!.entity).toBe(Todo)
+    expect(captured!.filter).toEqual({
+      id: 'todo-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      deletedAt: null,
+    })
+    expect(captured!.options).toEqual({ fields: ['updatedAt'] })
+
+    // Fail-open contract: throwing findOne yields null, not a re-thrown error.
+    const throwingEm = {
+      async findOne() {
+        throw new Error('schema mismatch')
+      },
+    } as never
+    const safe = await reader!(throwingEm, {
+      resourceKind: 'example.todo',
+      resourceId: 'todo-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(safe).toBeNull()
   })
 })

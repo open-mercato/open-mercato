@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from 'react'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InteractionSummary } from '../types'
 
@@ -226,87 +228,126 @@ export function useInteractions({
   const updateInteraction = React.useCallback(
     async (id: string, payload: InteractionUpdatePayload) => {
       setIsMutating(true)
+      // Send the optimistic-lock header (target's loaded `updatedAt`) so a stale
+      // edit — including a task/activity edited from another tab — surfaces the
+      // conflict bar instead of silently overwriting (#2055). A stale edit after
+      // the record was deleted elsewhere maps to the same 409 via the server's
+      // enforceRecordGoneIsConflict, instead of a bare "Interaction not found" 404.
+      const target = interactions.find((entry) => entry.id === id)
       try {
-        await apiCallOrThrow(
-          '/api/customers/interactions',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id, ...payload }),
-          },
-          { errorMessage: t('customers.interactions.update.error', 'Failed to update interaction.') },
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(target?.updatedAt ?? null),
+          () => apiCallOrThrow(
+            '/api/customers/interactions',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id, ...payload }),
+            },
+            { errorMessage: t('customers.interactions.update.error', 'Failed to update interaction.') },
+          ),
         )
         await refresh()
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) { await refresh(); return }
+        throw err
       } finally {
         setIsMutating(false)
       }
     },
-    [refresh, t],
+    [interactions, refresh, t],
   )
 
   const completeInteraction = React.useCallback(
     async (id: string) => {
       setIsMutating(true)
       setPendingId(id)
+      const target = interactions.find((entry) => entry.id === id)
       try {
-        await apiCallOrThrow(
-          '/api/customers/interactions/complete',
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id }),
-          },
-          { errorMessage: t('customers.interactions.complete.error', 'Failed to complete interaction.') },
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(target?.updatedAt ?? null),
+          () => apiCallOrThrow(
+            '/api/customers/interactions/complete',
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id }),
+            },
+            { errorMessage: t('customers.interactions.complete.error', 'Failed to complete interaction.') },
+          ),
         )
         await refresh()
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) { await refresh(); return }
+        throw err
       } finally {
         setPendingId(null)
         setIsMutating(false)
       }
     },
-    [refresh, t],
+    [interactions, refresh, t],
   )
 
   const cancelInteraction = React.useCallback(
     async (id: string) => {
       setIsMutating(true)
       setPendingId(id)
+      const target = interactions.find((entry) => entry.id === id)
       try {
-        await apiCallOrThrow(
-          '/api/customers/interactions/cancel',
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id }),
-          },
-          { errorMessage: t('customers.interactions.cancel.error', 'Failed to cancel interaction.') },
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(target?.updatedAt ?? null),
+          () => apiCallOrThrow(
+            '/api/customers/interactions/cancel',
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id }),
+            },
+            { errorMessage: t('customers.interactions.cancel.error', 'Failed to cancel interaction.') },
+          ),
         )
         await refresh()
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) { await refresh(); return }
+        throw err
       } finally {
         setPendingId(null)
         setIsMutating(false)
       }
     },
-    [refresh, t],
+    [interactions, refresh, t],
   )
 
   const deleteInteraction = React.useCallback(
     async (id: string) => {
       setIsMutating(true)
+      const target = interactions.find((entry) => entry.id === id)
       try {
-        await apiCallOrThrow(
-          `/api/customers/interactions?id=${encodeURIComponent(id)}`,
-          {
-            method: 'DELETE',
-          },
-          { errorMessage: t('customers.interactions.delete.error', 'Failed to delete interaction.') },
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(target?.updatedAt ?? null),
+          () =>
+            apiCallOrThrow(
+              `/api/customers/interactions?id=${encodeURIComponent(id)}`,
+              {
+                method: 'DELETE',
+              },
+              { errorMessage: t('customers.interactions.delete.error', 'Failed to delete interaction.') },
+            ),
         )
         await refresh()
+      } catch (err) {
+        // A stale delete (the record was changed/deleted in another tab) surfaces
+        // the unified conflict bar and re-syncs the list instead of a raw error (#2055).
+        if (surfaceRecordConflict(err, t)) {
+          await refresh()
+          return
+        }
+        throw err
       } finally {
         setIsMutating(false)
       }
     },
-    [refresh, t],
+    [interactions, refresh, t],
   )
 
   const hasMore = entityId != null && nextCursor != null

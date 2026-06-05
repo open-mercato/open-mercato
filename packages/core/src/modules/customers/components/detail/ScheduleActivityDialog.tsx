@@ -5,7 +5,8 @@ import { Users, Phone, Check, Mail, Calendar, AlertTriangle, X, StickyNote } fro
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { validatePhoneNumber } from '@open-mercato/shared/lib/phone'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -13,6 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { PhoneNumberField, SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -410,12 +412,19 @@ export function ScheduleActivityDialog({
         ...(Object.keys(customValues).length > 0 ? { customValues } : {}),
       }
       await runGuardedMutation(
-        () =>
-          apiCallOrThrow('/api/customers/interactions', {
-            method: isSaveEdit ? 'PUT' : 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          }),
+        () => {
+          const call = () =>
+            apiCallOrThrow('/api/customers/interactions', {
+              method: isSaveEdit ? 'PUT' : 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            })
+          // Optimistic lock only applies to edits — a stale modal save against a
+          // concurrently changed/deleted activity surfaces the conflict bar (#2055).
+          return isSaveEdit
+            ? withScopedApiRequestHeaders(buildOptimisticLockHeader(editData?.updatedAt), call)
+            : call()
+        },
         {
           operation: isSaveEdit ? 'updateActivity' : 'createActivity',
           interactionId: editData?.id ?? null,
@@ -427,6 +436,14 @@ export function ScheduleActivityDialog({
       // Delay data reload so the dialog can unmount cleanly and Radix restores body scroll
       requestAnimationFrame(() => { onActivityCreated?.() })
     } catch (err) {
+      // An optimistic-lock 409 was already surfaced as the persistent conflict
+      // bar by `runGuardedMutation` (useGuardedMutation → surfaceRecordConflict).
+      // Do NOT additionally flash the raw `record_modified` code here — that
+      // showed an untranslated toast on top of the localized bar (#2055 QA).
+      if (extractOptimisticLockConflict(err)) {
+        onClose()
+        return
+      }
       const { message, fieldErrors } = mapCrudServerErrorToFormErrors(err)
       const phoneFieldError = fieldErrors?.phoneNumber
       if (state.activityType === 'call' && phoneFieldError) {
@@ -444,12 +461,7 @@ export function ScheduleActivityDialog({
     }
   }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, isDateMissing, isTimeMissing, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleKeyDown = React.useCallback((e: React.KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault()
-      handleSave()
-    }
-  }, [handleSave])
+  const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave })
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) void guardedClose() }}>

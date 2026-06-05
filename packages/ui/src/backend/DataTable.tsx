@@ -31,7 +31,9 @@ import { useAppEvent } from './injection/useAppEvent'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
-import { apiCall } from './utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from './utils/apiCall'
+import { buildOptimisticLockHeader } from './utils/optimisticLock'
+import { surfaceRecordConflict } from './conflicts'
 import { raiseCrudError } from './utils/serverErrors'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
 import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
@@ -250,6 +252,15 @@ export type DataTableProps<T> = {
   injectionSpotId?: string
   injectionContext?: Record<string, unknown>
   replacementHandle?: string
+  /**
+   * Stable id used to derive the `data-table:<id>:*` widget injection spots
+   * (`:columns`, `:row-actions`, `:bulk-actions`, `:filters`, `:toolbar`,
+   * `:search-trailing`, `:header`, `:footer`) when the host does not need a
+   * full perspective config. Cheaper than wiring a perspective just to enable
+   * widget injection. Falls back to `perspective?.tableId` and `injectionSpotId`
+   * if not provided.
+   */
+  extensionTableId?: string
   stickyFirstColumn?: boolean
   stickyActionsColumn?: boolean
   virtualized?: boolean
@@ -985,6 +996,7 @@ export function DataTable<T>({
   injectionSpotId,
   injectionContext,
   replacementHandle,
+  extensionTableId: extensionTableIdProp,
   stickyFirstColumn = false,
   stickyActionsColumn = false,
   virtualized = false,
@@ -1181,14 +1193,34 @@ export function DataTable<T>({
 
   const extensionTableId = React.useMemo(() => {
     if (perspective?.tableId) return perspective.tableId
+    if (extensionTableIdProp) return extensionTableIdProp
     if (injectionSpotId?.startsWith('data-table:')) return injectionSpotId.slice('data-table:'.length)
     return null
-  }, [injectionSpotId, perspective?.tableId])
-  const resolvedInjectionSpotId = injectionSpotId ?? (perspective?.tableId ? `data-table:${perspective.tableId}` : null)
+  }, [injectionSpotId, perspective?.tableId, extensionTableIdProp])
+  const resolvedInjectionSpotId =
+    injectionSpotId
+    ?? (perspective?.tableId ? `data-table:${perspective.tableId}` : null)
+    ?? (extensionTableIdProp ? `data-table:${extensionTableIdProp}` : null)
   const resolvedReplacementHandle = replacementHandle ?? ComponentReplacementHandles.dataTable(extensionTableId ?? 'unknown')
   const baseInjectionContext = React.useMemo(
-    () => injectionContext ?? { tableId: perspective?.tableId ?? null, title: typeof title === 'string' ? title : undefined },
-    [injectionContext, perspective?.tableId, title]
+    () => {
+      // R2-M2 / F9 (2026-05-26): the default injection context now derives
+      // `tableId` from `extensionTableId ?? perspective?.tableId` (was
+      // `perspective?.tableId` only). Note `extensionTableId` itself now falls
+      // back to the `data-table:` suffix of `injectionSpotId` (see the memo
+      // above), so a caller passing only `injectionSpotId="data-table:foo"`
+      // (no `injectionContext`/`perspective`) now receives
+      // `context.tableId = "foo"` instead of the previous `null`. This only
+      // populates a field that was null before, so toolbar/header/footer/
+      // search-trailing widgets that read `tableId` get a value while widgets
+      // that ignore it are unaffected. Explicit `injectionContext` from the
+      // caller still wins as-is — preserves the existing public contract.
+      if (injectionContext) return injectionContext
+      const resolvedTableId = extensionTableId ?? perspective?.tableId ?? null
+      const baseTitle = typeof title === 'string' ? title : undefined
+      return { tableId: resolvedTableId, title: baseTitle }
+    },
+    [injectionContext, perspective?.tableId, extensionTableId, title]
   )
   const headerInjectionSpotId = React.useMemo(
     () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : null),
@@ -1686,13 +1718,19 @@ export function DataTable<T>({
         // eslint-disable-next-line no-console
         console.debug('[DataTable] perspective payload', payload)
       }
-      const call = await apiCall<PerspectiveSaveResponse>(
-        `/api/perspectives/${encodeURIComponent(perspectiveTableId)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        },
+      const existing = input.perspectiveId
+        ? perspectiveData?.perspectives.find((p) => p.id === input.perspectiveId) ?? null
+        : null
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(existing?.updatedAt ?? null),
+        () => apiCall<PerspectiveSaveResponse>(
+          `/api/perspectives/${encodeURIComponent(perspectiveTableId)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+        ),
       )
       if (call.status === 404) {
         throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` to regenerate module routes and restart the dev server.'))
@@ -1711,6 +1749,12 @@ export function DataTable<T>({
       if (data.perspective) {
         applyPerspectiveSettings(data.perspective.settings, data.perspective.id)
       }
+    },
+    onError: (error) => {
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+      }
+      surfaceRecordConflict(error, t)
     },
   })
 

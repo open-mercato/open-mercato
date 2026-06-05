@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { getOverrides } from '../../lib/queries'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
+import { FeatureToggleOverride } from '../../data/entities'
 import { buildContext } from '../../lib/utils'
 import { resolveFeatureCheckContext } from "@open-mercato/core/modules/directory/utils/organizationScope"
 import { ProcessedChangeOverrideStateInput } from '../../data/validators'
@@ -21,18 +22,17 @@ import {
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 
 export async function GET(req: Request) {
-  const { auth } = await buildContext(req)
+  const { auth, ctx, scope } = await buildContext(req)
 
   const url = new URL(req.url)
   const parsed = overrideListQuerySchema.safeParse(Object.fromEntries(url.searchParams.entries()))
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid query parameters' }, { status: 400 })
   }
-  const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
+  const em = ctx.container.resolve('em') as EntityManager
 
   const tenant = await em.findOne(Tenant, {
-    id: auth?.tenantId,
+    id: scope.tenantId,
   })
 
   if (!tenant) {
@@ -44,13 +44,13 @@ export async function GET(req: Request) {
   const result = await getOverrides(em, tenant, parsed.data)
 
   await logCrudAccess({
-    container,
+    container: ctx.container,
     auth,
     request: req,
     items: [...result.raw.toggles, ...result.raw.overrides],
     idField: 'id',
     resourceKind: 'feature_toggles.override_list',
-    tenantId: auth.tenantId ?? null,
+    tenantId: scope.tenantId ?? null,
     query: parsed.data,
     accessType: 'read:list',
     fields: ['id', 'toggleId', 'tenantId', 'identifier', 'name', 'category']
@@ -85,6 +85,23 @@ export async function PUT(req: Request) {
       return NextResponse.json({
         error: 'Tenant context required. Please select a tenant.'
       }, { status: 400 })
+    }
+
+    // Optimistic lock: refuse a stale override overwrite when two admins edit the
+    // same global toggle override in parallel. Only enforced when an override row
+    // already exists (first set has no prior version). Strictly additive.
+    const em = ctx.container.resolve('em') as EntityManager
+    const existingOverride = await em.findOne(FeatureToggleOverride, {
+      tenantId: scope.tenantId,
+      toggle: { id: parsed.data.toggleId },
+    })
+    if (existingOverride) {
+      enforceCommandOptimisticLock({
+        resourceKind: 'feature_toggles.feature_toggle_override',
+        resourceId: existingOverride.id,
+        current: existingOverride.updatedAt ?? null,
+        request: req,
+      })
     }
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus

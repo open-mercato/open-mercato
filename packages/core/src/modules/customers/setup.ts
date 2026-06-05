@@ -102,6 +102,7 @@ export const setup: ModuleSetupConfig = {
       'customers.widgets.new-deals',
       'customers.roles.view',
       'customers.roles.manage',
+      'customers.email.compose',
     ],
   },
 }

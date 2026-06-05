@@ -85,11 +85,16 @@ export function LookupSelect({
   const [fetchKey, setFetchKey] = React.useState(0)
   const fetchItemsRef = React.useRef(fetchItems ?? fetchOptions)
   const setQueryRef = React.useRef(setQuery)
+  const onReadyRef = React.useRef(onReady)
   const optionsWasArrayRef = React.useRef(Array.isArray(options))
 
   React.useEffect(() => {
     fetchItemsRef.current = fetchItems ?? fetchOptions
   }, [fetchItems, fetchOptions])
+
+  React.useEffect(() => {
+    onReadyRef.current = onReady
+  }, [onReady])
 
   React.useEffect(() => {
     if (Array.isArray(options)) {
@@ -103,8 +108,8 @@ export function LookupSelect({
 
   React.useEffect(() => {
     setQueryRef.current = setQuery
-    if (onReady) onReady({ setQuery })
-  }, [onReady, setQuery])
+    if (onReadyRef.current) onReadyRef.current({ setQuery })
+  }, [setQuery])
 
   const shouldSearch =
     defaultOpen || query.trim().length >= minQuery || Boolean(value && (options?.length ?? 0) > 0)

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
+import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 
 const uuid = () => z.string().uuid()
 
@@ -12,6 +13,27 @@ export const ACTIVITY_PHONE_INVALID_MESSAGE_KEY = 'customers.activities.errors.p
 const phoneSchema = z.string().trim().max(50).refine((val) => {
   return isValidPhoneNumber(val)
 }, { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY }).optional()
+
+// Optional URL/email fields map to nullable DB columns. Treat both '' and null as an
+// explicit "clear this value" signal (both coerce to null) so a previously-set value can
+// be removed via update; without this `''` fails `.url()/.email()` and `null` fails the
+// string type, leaving the columns effectively write-once-non-empty. The command layer
+// already persists null. See #2526.
+const emptyStringToNull = (value: unknown): unknown => {
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : null
+}
+
+const clearableEmailSchema = z.preprocess(
+  emptyStringToNull,
+  z.string().email().max(320).nullable().optional(),
+)
+
+const clearableUrlSchema = z.preprocess(
+  emptyStringToNull,
+  z.string().url().max(300).nullable().optional(),
+)
 
 const interactionPhoneNumberSchema = z.string().trim().max(50).optional().nullable()
 
@@ -41,12 +63,7 @@ const baseEntitySchema = {
   displayName: displayNameSchema,
   description: z.string().trim().max(4000).optional(),
   ownerUserId: uuid().optional(),
-  primaryEmail: z
-    .string()
-    .trim()
-    .email()
-    .max(320)
-    .optional(),
+  primaryEmail: clearableEmailSchema,
   primaryPhone: phoneSchema,
   status: z.string().trim().max(100).optional(),
   lifecycleStage: z.string().trim().max(100).optional(),
@@ -64,8 +81,8 @@ const personDetailsSchema = {
   department: z.string().trim().max(150).optional(),
   seniority: z.string().trim().max(100).optional(),
   timezone: z.string().trim().max(120).optional(),
-  linkedInUrl: z.string().trim().url().max(300).optional(),
-  twitterUrl: z.string().trim().url().max(300).optional(),
+  linkedInUrl: clearableUrlSchema,
+  twitterUrl: clearableUrlSchema,
   companyEntityId: uuid().nullable().optional(),
 }
 
@@ -76,7 +93,7 @@ const companyDetailsSchema = {
   legalName: z.string().trim().max(200).optional(),
   brandName: z.string().trim().max(200).optional(),
   domain: z.string().trim().max(200).optional(),
-  websiteUrl: z.string().trim().url().max(300).optional(),
+  websiteUrl: clearableUrlSchema,
   industry: z.string().trim().max(150).optional(),
   sizeBucket: z.string().trim().max(100).optional(),
   annualRevenue: z.coerce.number().min(0).optional(),
@@ -530,6 +547,12 @@ export const customerStuckThresholdUpsertSchema = scopedSchema.extend({
   stuckThresholdDays: z.number().int().min(1).max(365),
 })
 
+export const customerDictionarySortModesSchema = z.record(z.string(), dictionaryEntrySortModeSchema)
+
+export const customerDictionarySortModesUpsertSchema = scopedSchema.extend({
+  dictionarySortModes: customerDictionarySortModesSchema,
+})
+
 export type PersonCreateInput = z.infer<typeof personCreateSchema>
 export type PersonUpdateInput = z.infer<typeof personUpdateSchema>
 export type CompanyCreateInput = z.infer<typeof companyCreateSchema>
@@ -549,6 +572,7 @@ export type TodoLinkCreateInput = z.infer<typeof todoLinkCreateSchema>
 export type TodoLinkWithTodoCreateInput = z.infer<typeof todoLinkWithTodoCreateSchema>
 export type CustomerSettingsUpsertInput = z.infer<typeof customerSettingsUpsertSchema>
 export type CustomerStuckThresholdUpsertInput = z.infer<typeof customerStuckThresholdUpsertSchema>
+export type CustomerDictionarySortModesUpsertInput = z.infer<typeof customerDictionarySortModesUpsertSchema>
 export type CustomerAddressFormatInput = z.infer<typeof customerAddressFormatSchema>
 export type InteractionCompleteInput = z.infer<typeof interactionCompleteSchema>
 export type InteractionCancelInput = z.infer<typeof interactionCancelSchema>
@@ -580,16 +604,16 @@ export const pipelineStageCreateSchema = scopedSchema.extend({
   pipelineId: uuid(),
   label: z.string().trim().min(1).max(200),
   order: z.number().int().min(0).optional(),
-  color: z.string().trim().max(20).optional(),
-  icon: z.string().trim().max(100).optional(),
+  color: z.string().trim().max(20).nullish(),
+  icon: z.string().trim().max(100).nullish(),
 })
 
 export const pipelineStageUpdateSchema = z.object({
   id: uuid(),
   label: z.string().trim().min(1).max(200).optional(),
   order: z.number().int().min(0).optional(),
-  color: z.string().trim().max(20).optional(),
-  icon: z.string().trim().max(100).optional(),
+  color: z.string().trim().max(20).nullish(),
+  icon: z.string().trim().max(100).nullish(),
 })
 
 export const pipelineStageDeleteSchema = z.object({

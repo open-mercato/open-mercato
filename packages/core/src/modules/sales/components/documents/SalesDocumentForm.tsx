@@ -841,6 +841,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
           allowInlineCreate={false}
           manageHref="/backend/config/dictionaries?key=currency"
           selectClassName="w-full"
+          sortOptions="none"
           labels={currencyLabels}
         />
       ),

@@ -135,6 +135,22 @@
           "comment": null,
           "enumItems": [],
           "mappedType": "datetime"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
         }
       },
       "indexes": [
@@ -159,6 +175,15 @@
           "keyName": "integration_credentials_pkey",
           "primary": true,
           "unique": true
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "integration_credentials_user_lookup_idx",
+          "primary": false,
+          "unique": true,
+          "expression": "create unique index \"integration_credentials_user_lookup_idx\" on \"integration_credentials\" (\"integration_id\", \"organization_id\", \"tenant_id\", \"user_id\") where \"user_id\" is not null and \"deleted_at\" is null"
         }
       ],
       "checks": [],

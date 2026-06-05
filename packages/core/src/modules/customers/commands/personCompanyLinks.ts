@@ -294,33 +294,38 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
     )
     if (!link) return
 
+    let person: CustomerEntity | null = null
+    let profile: CustomerPersonProfile | null = null
+    let remainingLinks: CustomerPersonCompanyLink[] = []
+
     await withAtomicFlush(em, [
       async () => {
-        link.isPrimary = false
-        link.deletedAt = new Date()
-        const person = await findOneWithDecryption(
+        person = await findOneWithDecryption(
           em,
           CustomerEntity,
           { id: after.personEntityId, kind: 'person', tenantId: after.tenantId, organizationId: after.organizationId, deletedAt: null },
           undefined,
           { tenantId: after.tenantId, organizationId: after.organizationId },
         )
-        if (person) {
-          const profile = await findOneWithDecryption(
-            em,
-            CustomerPersonProfile,
-            { entity: person },
-            { populate: ['company'] },
-            { tenantId: person.tenantId, organizationId: person.organizationId },
-          )
-          if (profile) {
-            const remainingLinks = await loadPersonCompanyLinks(em, person)
-            if (after.isPrimary) {
-              await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, after.companyEntityId)
-            } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === after.companyEntityId) {
-              profile.company = null
-            }
-          }
+        if (!person) return
+        profile = await findOneWithDecryption(
+          em,
+          CustomerPersonProfile,
+          { entity: person },
+          { populate: ['company'] },
+          { tenantId: person.tenantId, organizationId: person.organizationId },
+        )
+        if (!profile) return
+        remainingLinks = (await loadPersonCompanyLinks(em, person)).filter((entry) => entry.id !== link.id)
+      },
+      async () => {
+        link.isPrimary = false
+        link.deletedAt = new Date()
+        if (!person || !profile) return
+        if (after.isPrimary) {
+          await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, after.companyEntityId)
+        } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === after.companyEntityId) {
+          profile.company = null
         }
       },
     ], { transaction: true })
@@ -377,6 +382,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
     const profile = await requirePersonProfile(em, person)
     const linkedCompany = await requireCompanyEntity(em, companyId, parsed.tenantId, parsed.organizationId)
 
+    const linkWasPrimary = link.isPrimary
     await withAtomicFlush(em, [
       async () => {
         if (parsed.isPrimary) {
@@ -384,14 +390,16 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
           link.isPrimary = true
           profile.company = linkedCompany
         } else if (!parsed.isPrimary) {
-          const linkWasPrimary = link.isPrimary
           link.isPrimary = false
-          if (linkWasPrimary) {
-            const remainingLinks = (await loadPersonCompanyLinks(em, person)).filter((entry) => entry.id !== link.id)
-            await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, companyId)
-          } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === companyId) {
+          if (!linkWasPrimary && profile.company && typeof profile.company !== 'string' && profile.company.id === companyId) {
             profile.company = null
           }
+        }
+      },
+      async () => {
+        if (!parsed.isPrimary && linkWasPrimary) {
+          const remainingLinks = (await loadPersonCompanyLinks(em, person)).filter((entry) => entry.id !== link.id)
+          await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, companyId)
         }
       },
     ], { transaction: true })
@@ -453,39 +461,44 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
     )
     if (!link) return
 
+    let person: CustomerEntity | null = null
+    let profile: CustomerPersonProfile | null = null
+    let company: CustomerEntity | null = null
+
     await withAtomicFlush(em, [
       async () => {
-        const person = await findOneWithDecryption(
+        person = await findOneWithDecryption(
           em,
           CustomerEntity,
           { id: before.personEntityId, kind: 'person', tenantId: before.tenantId, organizationId: before.organizationId, deletedAt: null },
           undefined,
           { tenantId: before.tenantId, organizationId: before.organizationId },
         )
-        if (person) {
-          const profile = await findOneWithDecryption(
-            em,
-            CustomerPersonProfile,
-            { entity: person },
-            { populate: ['company'] },
-            { tenantId: person.tenantId, organizationId: person.organizationId },
-          )
-          if (profile) {
-            if (before.isPrimary) {
-              await clearPrimaryFlagsForPerson(em, person)
-              link.isPrimary = true
-              const company = await findOneWithDecryption(
-                em,
-                CustomerEntity,
-                { id: before.companyEntityId, kind: 'company', tenantId: before.tenantId, organizationId: before.organizationId, deletedAt: null },
-                undefined,
-                { tenantId: before.tenantId, organizationId: before.organizationId },
-              )
-              if (company) profile.company = company
-            } else {
-              link.isPrimary = false
-            }
-          }
+        if (!person) return
+        profile = await findOneWithDecryption(
+          em,
+          CustomerPersonProfile,
+          { entity: person },
+          { populate: ['company'] },
+          { tenantId: person.tenantId, organizationId: person.organizationId },
+        )
+        if (!profile || !before.isPrimary) return
+        company = await findOneWithDecryption(
+          em,
+          CustomerEntity,
+          { id: before.companyEntityId, kind: 'company', tenantId: before.tenantId, organizationId: before.organizationId, deletedAt: null },
+          undefined,
+          { tenantId: before.tenantId, organizationId: before.organizationId },
+        )
+      },
+      async () => {
+        if (!person || !profile) return
+        if (before.isPrimary) {
+          await clearPrimaryFlagsForPerson(em, person)
+          link.isPrimary = true
+          if (company) profile.company = company
+        } else {
+          link.isPrimary = false
         }
       },
     ], { transaction: true })
@@ -610,38 +623,43 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
     )
     if (!link) return
 
+    let person: CustomerEntity | null = null
+    let profile: CustomerPersonProfile | null = null
+    let company: CustomerEntity | null = null
+
     await withAtomicFlush(em, [
       async () => {
-        link.deletedAt = null
-        link.isPrimary = before.isPrimary
-
-        const person = await findOneWithDecryption(
+        person = await findOneWithDecryption(
           em,
           CustomerEntity,
           { id: before.personEntityId, kind: 'person', tenantId: before.tenantId, organizationId: before.organizationId, deletedAt: null },
           undefined,
           { tenantId: before.tenantId, organizationId: before.organizationId },
         )
+        if (!person || !before.isPrimary) return
+        profile = await findOneWithDecryption(
+          em,
+          CustomerPersonProfile,
+          { entity: person },
+          { populate: ['company'] },
+          { tenantId: person.tenantId, organizationId: person.organizationId },
+        )
+        if (!profile) return
+        company = await findOneWithDecryption(
+          em,
+          CustomerEntity,
+          { id: before.companyEntityId, kind: 'company', tenantId: before.tenantId, organizationId: before.organizationId, deletedAt: null },
+          undefined,
+          { tenantId: before.tenantId, organizationId: before.organizationId },
+        )
+      },
+      async () => {
+        link.deletedAt = null
+        link.isPrimary = before.isPrimary
         if (person && before.isPrimary) {
           await clearPrimaryFlagsForPerson(em, person)
           link.isPrimary = true
-          const profile = await findOneWithDecryption(
-            em,
-            CustomerPersonProfile,
-            { entity: person },
-            { populate: ['company'] },
-            { tenantId: person.tenantId, organizationId: person.organizationId },
-          )
-          if (profile) {
-            const company = await findOneWithDecryption(
-              em,
-              CustomerEntity,
-              { id: before.companyEntityId, kind: 'company', tenantId: before.tenantId, organizationId: before.organizationId, deletedAt: null },
-              undefined,
-              { tenantId: before.tenantId, organizationId: before.organizationId },
-            )
-            if (company) profile.company = company
-          }
+          if (profile && company) profile.company = company
         }
       },
     ], { transaction: true })

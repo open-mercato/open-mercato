@@ -1,0 +1,219 @@
+---
+title: Set up Gmail
+description: Administrator guide — create the Google Cloud OAuth app, register it in Open Mercato, connect mailboxes, and optionally enable real-time push delivery with Cloud Pub/Sub.
+sidebar_label: Gmail
+---
+
+# Set up Gmail
+
+This is the **administrator** guide for enabling Gmail in Open Mercato. You do the Google Cloud parts **once per workspace**; after that, each user connects their own mailbox from their profile page (see the [Communication Channels](communication-channels.mdx) end-user guide).
+
+There are two layers:
+
+1. **OAuth (required)** — lets users connect their Gmail and gives Open Mercato send + receive access. Inbound arrives by **polling** (every ~60s).
+2. **Pub/Sub push (optional)** — replaces polling with near-real-time delivery (5–15s). Everything works without it; add it later if you want.
+
+:::info Who connects what
+The Client ID / Secret you create here is **tenant-wide** — one OAuth app serves every user in the workspace. Individual users never see it; they just click **Connect Gmail**.
+:::
+
+## Prerequisites
+
+- A [Google Cloud](https://console.cloud.google.com/) project (create one if you don't have it — it's free).
+- Admin access to Open Mercato → **Integrations**.
+- Your Open Mercato base URL, e.g. `https://app.example.com` (or `http://localhost:3000` for local dev).
+
+---
+
+## Part 1 — Create the Google Cloud OAuth app
+
+### 1. Enable the Gmail API
+
+Google Cloud Console → search **"Gmail API"** → **Enable**. (This is separate from OAuth; if it's off you'll get a `SERVICE_DISABLED` error after connecting.)
+
+### 2. Configure the OAuth consent screen
+
+**APIs & Services → OAuth consent screen** (newer console: **Google Auth Platform → Branding / Audience**).
+
+- **User type:** *External* (use *Internal* only if every user is in the same Google Workspace org).
+- **App information:** app name, support email, developer contact.
+- **Scopes → Add or remove scopes** — add exactly these three:
+
+  | Scope | Why |
+  |---|---|
+  | `https://www.googleapis.com/auth/gmail.modify` | Read, send, and label mail |
+  | `https://www.googleapis.com/auth/userinfo.email` | Identify the connected address |
+  | `https://www.googleapis.com/auth/userinfo.profile` | Display name |
+
+- **Test users** — while the app is in *Testing* status, **only listed test users can connect**. Add every email that will connect a mailbox (yourself included).
+
+:::warning gmail.modify is a *restricted* scope
+Restricted scopes have two consequences:
+- **Testing mode:** fine for dev/pilot, but refresh tokens **expire after 7 days**, so each connected mailbox needs reconnecting weekly. Open Mercato shows a *Needs reconnection* prompt when this happens.
+- **Production:** to lift the 7-day limit and let any user connect, you must **Publish** the app and pass Google's [OAuth verification](https://support.google.com/cloud/answer/13463073) — for `gmail.modify` that includes a CASA security assessment. Budget weeks for the review.
+:::
+
+### 3. Create the OAuth Client ID
+
+**APIs & Services → Credentials → Create credentials → OAuth client ID**.
+
+- **Application type:** *Web application*.
+- **Authorized redirect URIs** — add your callback URL **exactly**:
+
+  ```
+  https://app.example.com/api/communication_channels/oauth/gmail/callback
+  ```
+
+  For local dev also add:
+
+  ```
+  http://localhost:3000/api/communication_channels/oauth/gmail/callback
+  ```
+
+- **Create**, then copy the **Client ID** and **Client secret**.
+
+---
+
+## Part 2 — Register the credentials in Open Mercato
+
+In Open Mercato: **Integrations → Gmail → Credentials** (or **Configure**).
+
+| Field | Value |
+|---|---|
+| **OAuth Client ID** | The Client ID from Part 1, step 3 |
+| **OAuth Client Secret** | The Client secret |
+| **OAuth Scopes** | **Leave blank** — uses the `gmail.modify` defaults. Only set this if you deliberately requested different scopes on the consent screen. |
+
+Save. The Gmail integration should now show **Healthy**.
+
+:::tip "This provider is not configured yet" on connect?
+That error means the Client ID/Secret aren't saved (or were saved under a different organization). Re-open **Integrations → Gmail → Credentials**, confirm both fields are filled, and save again while scoped to the workspace your users belong to.
+:::
+
+---
+
+## Part 3 — Connect a mailbox
+
+Each user: **Profile → My communication channels → Connect Gmail** → approve the consent screen.
+
+:::warning Approve the Gmail permission
+On the consent screen, **grant the Gmail access** (not just basic profile). If only profile is granted, the channel comes up in **Error** with *"insufficient authentication scopes"*. The fix is to **Disconnect** and **Connect Gmail** again, approving the Gmail permission. (Open Mercato sends `prompt=consent`, so Google always re-shows the screen.)
+:::
+
+While the app is unverified you'll see a **"Google hasn't verified this app"** screen → **Advanced → Go to … (unsafe) → Continue**. That's expected in Testing mode.
+
+Once connected the channel shows **Connected**, and new inbox mail appears within ~60s. That's a complete, working setup — **Part 4 is optional**.
+
+---
+
+## Part 4 — Real-time push delivery with Cloud Pub/Sub (optional)
+
+By default inbound mail arrives by **polling** (~60s). Push delivery uses Gmail → Cloud Pub/Sub → an Open Mercato webhook to cut that to **5–15s**. It's more moving parts; skip it unless you want real-time.
+
+:::caution Push needs a public HTTPS URL
+Google's Pub/Sub cannot deliver to `localhost`. For local testing, expose your dev server with a tunnel like [ngrok](https://ngrok.com/) (`ngrok http 3000`) and use the public URL below — see [Local development](#local-development-with-ngrok).
+:::
+
+Throughout, your **webhook URL** is:
+
+```
+https://app.example.com/api/communication_channels/webhooks/gmail
+```
+
+### 1. Create a Pub/Sub topic
+
+Google Cloud Console → search **"Pub/Sub"** (it's a separate product from the OAuth screens) → **Topics → Create topic**, e.g. `gmail-inbound`. Its full name is `projects/<PROJECT_ID>/topics/gmail-inbound`.
+
+### 2. Let Gmail publish to the topic
+
+On the topic → **Permissions → Add principal**:
+
+- **Principal:** `gmail-api-push@system.gserviceaccount.com` (this is Gmail itself)
+- **Role:** **Pub/Sub Publisher** → Save.
+
+Without this grant, **Re-register push** fails — `gmail.users.watch` can't publish to your topic.
+
+### 3. Create a service account for the webhook
+
+**IAM & Admin → Service Accounts → Create service account**, e.g. `gmail-push-invoker`. No project roles are needed. Note its email — `gmail-push-invoker@<PROJECT_ID>.iam.gserviceaccount.com`.
+
+This is the identity Pub/Sub uses to call your webhook; Open Mercato verifies it.
+
+### 4. Create the push subscription
+
+Pub/Sub → **Subscriptions → Create subscription** (or from the topic):
+
+| Field | Value |
+|---|---|
+| **Topic** | `projects/<PROJECT_ID>/topics/gmail-inbound` |
+| **Delivery type** | **Push** |
+| **Endpoint URL** | `https://app.example.com/api/communication_channels/webhooks/gmail` |
+| **Enable authentication** | ✅ Yes |
+| **Service account** | `gmail-push-invoker@<PROJECT_ID>.iam.gserviceaccount.com` (from step 3) |
+| **Audience** | the **same** webhook URL as Endpoint URL |
+
+If prompted to grant the Pub/Sub service agent the *Service Account Token Creator* role, **accept it** — Pub/Sub needs it to mint the OIDC token.
+
+### 5. Set the environment variables
+
+In your app environment (e.g. `apps/mercato/.env`):
+
+```env
+OM_GMAIL_PUBSUB_TOPIC=projects/<PROJECT_ID>/topics/gmail-inbound
+OM_GMAIL_PUBSUB_AUDIENCE=https://app.example.com/api/communication_channels/webhooks/gmail
+OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL=gmail-push-invoker@<PROJECT_ID>.iam.gserviceaccount.com
+```
+
+| Variable | Must equal |
+|---|---|
+| `OM_GMAIL_PUBSUB_TOPIC` | The topic from step 1 — passed to `gmail.users.watch` |
+| `OM_GMAIL_PUBSUB_AUDIENCE` | The **Audience** you set on the subscription (step 4) — **byte-for-byte identical** |
+| `OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL` | The subscription's service-account email (step 3) |
+
+Restart the app so the variables load.
+
+### 6. Register push on the channel
+
+When `OM_GMAIL_PUBSUB_TOPIC` is set, **new connections auto-register push**. For an already-connected mailbox, open **Profile → My communication channels** and click **Re-register push**. On success the channel shows **Push active**.
+
+:::info Watch renewal is automatic
+A Gmail watch expires after ~7 days. Open Mercato renews it daily (a background job re-issues `gmail.users.watch` before expiry, tuned by `OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS`). You don't renew it manually. If push ever fails, the channel silently falls back to polling so mail still flows.
+:::
+
+### Local development with ngrok
+
+1. `ngrok http 3000` → copy the `https://<random>.ngrok-free.app` URL.
+2. Use `https://<random>.ngrok-free.app/api/communication_channels/webhooks/gmail` as **both** the subscription Endpoint URL **and** the Audience **and** `OM_GMAIL_PUBSUB_AUDIENCE`.
+3. Keep ngrok running. On the free tier the URL **changes when ngrok restarts** — if it does, update the subscription (endpoint + audience) and the env var, then restart the app.
+4. OAuth itself stays on `localhost` (your redirect URI is `localhost:3000/...`); ngrok is only for the inbound webhook.
+
+---
+
+## Troubleshooting
+
+### "Access blocked: … has not completed the Google verification process" (Error 403: access_denied)
+The OAuth consent screen is in *Testing* and your address isn't a test user. **OAuth consent screen → Test users → Add users** → add the connecting email → retry.
+
+### Channel shows **Error** — *"insufficient authentication scopes"*
+The granted token is missing the Gmail scope. **Disconnect** the channel, then **Connect Gmail** again and **approve the Gmail permission** on the consent screen. Confirm `gmail.modify` is added under the consent screen's scopes.
+
+### "This provider is not configured yet" when clicking Connect
+The Client ID/Secret aren't resolvable. Re-save them in **Integrations → Gmail → Credentials** (Part 2).
+
+### **Push failed — using polling** (`missing_topic`)
+`OM_GMAIL_PUBSUB_TOPIC` isn't set. This is **harmless** — polling delivers mail anyway. Complete Part 4 only if you want real-time push.
+
+### Push webhook rejected — `wrong_audience` (403)
+The subscription's **Audience** and `OM_GMAIL_PUBSUB_AUDIENCE` differ. Make them byte-for-byte identical (both equal to the full webhook URL).
+
+### Push webhook rejected — 401
+The subscription's service account doesn't match `OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL`. Align them (step 3 ↔ step 5).
+
+### **Re-register push** fails
+Almost always the missing Publisher grant — confirm `gmail-api-push@system.gserviceaccount.com` has **Pub/Sub Publisher** on the topic (Part 4, step 2).
+
+## Related
+
+- [Communication Channels](communication-channels.mdx) — the end-user connect / send / receive guide
+- [Set up IMAP + SMTP](communication-channels-imap.mdx) — for non-Gmail mailboxes
+- [Communications Hub architecture](../framework/modules/communication-channels.mdx) — developer reference

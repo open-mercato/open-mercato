@@ -170,6 +170,7 @@ export default function CategoriesDataTable() {
     })
     if (!confirmed) return
     try {
+      // optimistic-lock-exempt: delete-only mutation — no field-level lost-update
       await apiCallOrThrow(
         `/api/catalog/categories?id=${encodeURIComponent(category.id)}`,
         { method: 'DELETE' },

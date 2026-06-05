@@ -12,15 +12,18 @@ import {
   type CrudCustomFieldRenderProps,
 } from "@open-mercato/ui/backend/CrudForm";
 import { collectCustomFieldValues } from "@open-mercato/ui/backend/utils/customFieldValues";
-import { apiCall } from "@open-mercato/ui/backend/utils/apiCall";
+import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
+import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { createCrud, updateCrud } from "@open-mercato/ui/backend/utils/crud";
 import { createCrudFormError } from "@open-mercato/ui/backend/utils/serverErrors";
+import { handleSectionMutationError } from "./optimisticLock";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@open-mercato/ui/primitives/dialog";
+import { useDialogKeyHandler } from "@open-mercato/ui/hooks/useDialogKeyHandler";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { Input } from "@open-mercato/ui/primitives/input";
 import {
@@ -232,6 +235,7 @@ type SalesLineDialogProps = {
   kind: "order" | "quote";
   documentId: string;
   currencyCode: string | null | undefined;
+  documentUpdatedAt?: string | null;
   organizationId: string | null;
   tenantId: string | null;
   initialLine?: SalesLineRecord | null;
@@ -425,6 +429,7 @@ export function LineItemDialog({
   kind,
   documentId,
   currencyCode,
+  documentUpdatedAt,
   organizationId,
   tenantId,
   initialLine,
@@ -1444,21 +1449,33 @@ export function LineItemDialog({
 
       try {
         const action = editingId ? updateCrud : createCrud;
-        const result = await action(
-          resourcePath,
-          editingId ? { id: editingId, ...payload } : payload,
-          {
-            errorMessage: t(
-              "sales.documents.items.errorSave",
-              "Failed to save line.",
+        const result = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(documentUpdatedAt),
+          () =>
+            action(
+              resourcePath,
+              editingId ? { id: editingId, ...payload } : payload,
+              {
+                errorMessage: t(
+                  "sales.documents.items.errorSave",
+                  "Failed to save line.",
+                ),
+              },
             ),
-          },
         );
         if (result.ok) {
           if (onSaved) await onSaved();
           closeDialog();
         }
       } catch (err) {
+        if (
+          handleSectionMutationError(err, t, () => {
+            if (onSaved) void onSaved();
+          })
+        ) {
+          closeDialog();
+          return;
+        }
         throw err;
       }
     },
@@ -1466,6 +1483,7 @@ export function LineItemDialog({
       currencyCode,
       documentId,
       documentKey,
+      documentUpdatedAt,
       editingId,
       priceOptions,
       productOption,
@@ -2795,6 +2813,15 @@ export function LineItemDialog({
     resetForm,
   ]);
 
+  const handleSubmitForm = React.useCallback(
+    () => dialogContentRef.current?.querySelector("form")?.requestSubmit(),
+    [],
+  )
+  const handleKeyDown = useDialogKeyHandler({
+    onConfirm: handleSubmitForm,
+    onCancel: closeDialog,
+  })
+
   return (
     <Dialog
       open={open}
@@ -2803,16 +2830,7 @@ export function LineItemDialog({
       <DialogContent
         className="sm:max-w-5xl"
         ref={dialogContentRef}
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-            event.preventDefault();
-            dialogContentRef.current?.querySelector("form")?.requestSubmit();
-          }
-          if (event.key === "Escape") {
-            event.preventDefault();
-            closeDialog();
-          }
-        }}
+        onKeyDown={handleKeyDown}
       >
         <DialogHeader>
           <DialogTitle>

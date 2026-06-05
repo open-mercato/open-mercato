@@ -316,6 +316,7 @@ export type ResourcesResourceFormProps = {
   embedded?: boolean
   successRedirect?: string
   initialValues?: Record<string, unknown>
+  optimisticLockUpdatedAt?: string | null
   onSubmit: (values: Record<string, unknown>) => Promise<void>
   onDelete?: () => Promise<void>
   isLoading?: boolean
@@ -332,6 +333,7 @@ export function ResourcesResourceForm(props: ResourcesResourceFormProps) {
     embedded = false,
     successRedirect,
     initialValues,
+    optimisticLockUpdatedAt,
     onSubmit,
     onDelete,
     isLoading,
@@ -368,6 +370,7 @@ export function ResourcesResourceForm(props: ResourcesResourceFormProps) {
       fields={formConfig.fields}
       groups={groups}
       initialValues={initialValues}
+      optimisticLockUpdatedAt={optimisticLockUpdatedAt}
       entityId={E.resources.resources_resource}
       customFieldsetBindings={{ [E.resources.resources_resource]: { valueKey: 'customFieldsetCode' } }}
       onSubmit={onSubmit}

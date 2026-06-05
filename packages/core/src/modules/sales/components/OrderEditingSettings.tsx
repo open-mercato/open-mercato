@@ -121,6 +121,7 @@ export function OrderEditingSettings() {
         orderCustomerEditableStatuses: customerStatuses,
         orderAddressEditableStatuses: addressStatuses,
       }
+      // optimistic-lock-exempt: single-row tenant order-editing settings blob — no per-record version / concurrent record edit
       const call = await apiCall<SettingsResponse>('/api/sales/settings/order-editing', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },

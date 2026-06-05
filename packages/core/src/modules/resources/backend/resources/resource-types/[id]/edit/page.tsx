@@ -54,8 +54,13 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
                 ? item.appearanceColor
                 : typeof item.appearance_color === 'string'
                   ? item.appearance_color
-                  : null,
+                : null,
             },
+            updatedAt: typeof item.updatedAt === 'string'
+              ? item.updatedAt
+              : typeof item.updated_at === 'string'
+                ? item.updated_at
+                : null,
             ...customValues,
           })
           setResourceCount(typeof item.resourceCount === 'number'
@@ -104,6 +109,7 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
         {error ? (
           <ErrorMessage label={error} />
         ) : null}
+        {/* optimistic-lock: ResourceTypeCrudForm forwards optimisticLockUpdatedAt from initialValues.updatedAt (auto-derives the header on save + delete). */}
         <ResourceTypeCrudForm
           mode="edit"
           initialValues={initialValues ?? { id: resourceTypeId, name: '', description: '', appearance: { icon: null, color: null } }}

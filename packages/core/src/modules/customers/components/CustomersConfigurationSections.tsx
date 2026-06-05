@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { AddressFormatSettings } from './AddressFormatSettings'
 import PipelineSettings from './PipelineSettings'
+import DictionarySortSettings from './DictionarySortSettings'
 import DictionarySettings from './DictionarySettings'
 
 function SettingsSectionSkeleton() {
@@ -22,6 +23,7 @@ export default function CustomersConfigurationSections() {
         <SettingsSectionSkeleton />
         <SettingsSectionSkeleton />
         <SettingsSectionSkeleton />
+        <SettingsSectionSkeleton />
       </>
     )
   }
@@ -30,6 +32,7 @@ export default function CustomersConfigurationSections() {
     <>
       <AddressFormatSettings />
       <PipelineSettings />
+      <DictionarySortSettings />
       <DictionarySettings />
     </>
   )

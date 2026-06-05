@@ -118,10 +118,9 @@ test.describe('TC-CRM-023: Deal Pipeline Stage Assignment', () => {
     }
   });
 
-  test('should allow deal creation with mismatched pipelineId and pipelineStageId (no server-side validation)', async ({ request }) => {
+  test('should reject deal creation with mismatched pipelineId and pipelineStageId', async ({ request }) => {
     let pipeline1Id: string | null = null;
     let pipeline2Id: string | null = null;
-    let dealId: string | null = null;
     try {
       const ts = `${Date.now()}`;
       const { pipelineId: pid1 } = await createPipelineWithStage(request, token, `${ts}A`);
@@ -137,10 +136,48 @@ test.describe('TC-CRM-023: Deal Pipeline Stage Assignment', () => {
           pipelineStageId: stageFromPipeline2,
         },
       });
-      expect(dealRes.ok(), `deal creation should succeed: ${dealRes.status()}`).toBeTruthy();
-      const body = await dealRes.json() as Record<string, unknown>;
-      dealId = body.id as string;
-      expect(typeof dealId).toBe('string');
+      expect(dealRes.status()).toBe(400);
+    } finally {
+      if (pipeline1Id) {
+        await apiRequest(request, 'DELETE', '/api/customers/pipelines', { token, data: { id: pipeline1Id } }).catch(() => {});
+      }
+      if (pipeline2Id) {
+        await apiRequest(request, 'DELETE', '/api/customers/pipelines', { token, data: { id: pipeline2Id } }).catch(() => {});
+      }
+    }
+  });
+
+  test('should reject deal update with mismatched pipelineId and pipelineStageId', async ({ request }) => {
+    let pipeline1Id: string | null = null;
+    let pipeline2Id: string | null = null;
+    let dealId: string | null = null;
+    try {
+      const ts = `${Date.now()}`;
+      const { pipelineId: pid1, stageId: stageFromPipeline1 } = await createPipelineWithStage(request, token, `${ts}A`);
+      pipeline1Id = pid1;
+      const { pipelineId: pid2, stageId: stageFromPipeline2 } = await createPipelineWithStage(request, token, `${ts}B`);
+      pipeline2Id = pid2;
+
+      const dealRes = await apiRequest(request, 'POST', '/api/customers/deals', {
+        token,
+        data: {
+          title: `TC-CRM-023 Update Mismatch ${ts}`,
+          pipelineId: pipeline1Id,
+          pipelineStageId: stageFromPipeline1,
+        },
+      });
+      const dealBody = await dealRes.json() as Record<string, unknown>;
+      dealId = dealBody.id as string;
+
+      const updateRes = await apiRequest(request, 'PUT', '/api/customers/deals', {
+        token,
+        data: {
+          id: dealId,
+          pipelineId: pipeline1Id,
+          pipelineStageId: stageFromPipeline2,
+        },
+      });
+      expect(updateRes.status()).toBe(400);
     } finally {
       if (dealId) {
         await apiRequest(request, 'DELETE', '/api/customers/deals', { token, data: { id: dealId } }).catch(() => {});

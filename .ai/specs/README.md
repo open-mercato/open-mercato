@@ -55,6 +55,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [SPEC-021](SPEC-021-2026-02-07-compound-commands-graph-save.md) | 2026-02-07 | Compound Commands & Graph Save | Graph-save pattern for aggregate roots and compound command wrapper for atomic multi-command operations |
 | [SPEC-022](SPEC-022-2026-02-07-pos-module.md) | 2026-02-07 | POS Module | Point of Sale module for in-store retail operations |
 | [SPEC-022a](SPEC-022a-2026-02-09-pos-tile-browsing.md) | 2026-02-09 | POS Tile Browsing | Tile-based product browsing UI for POS checkout |
+| [SPEC-024](SPEC-024-2026-02-11-financial-module.md) | 2026-02-11 | ERP Financial Modules | ERP financial modules specification (epic-level; not yet implemented) |
 | [SPEC-025](SPEC-025-2026-02-12-ai-assisted-business-rules.md) | 2026-02-12 | AI-Assisted Business Rules | AI-assisted business rule editing |
 | [SPEC-029](SPEC-029-2026-02-17-ecommerce-storefront-module.md) | 2026-02-17 | Ecommerce Storefront Module | Dedicated `ecommerce` core module + `apps/storefront` starter with org-scoped stores, localized catalog APIs, faceted filters, and workflow-driven checkout |
 | [SPEC-033](SPEC-033-2026-02-18-omnibus-price-tracking.md) | 2026-02-18 | Omnibus Price Tracking | EU Omnibus compliance with append-only catalog price history, lowest-price lookback resolution, and admin configuration |
@@ -93,6 +94,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Sync Excel Customers Import Foundation](2026-03-29-sync-excel-customers-import-foundation.md) | 2026-03-29 | Sync Excel Customers Import Foundation | Partially implemented `sync_excel` CSV import provider for `customers.person`, including upload/preview/import flow, integration-detail UI, and an explicit pending DB migration blocker |
 | [API Key Error](2026-04-16-actionable-missing-api-key-error.md) | 2026-04-16 | Actionable Missing API Key Error | Include expected env var names in missing AI provider API key error (#1433) |
 | [Harness Validation Gate](2026-05-28-harness-validation-gate.md) | 2026-05-28 | Harness Validation Gate + Module Scaffold Template Fixes | Correct stale API patterns in module-scaffold skill template; add a SKILL-level post-scaffold validation gate (yarn generate → structural cache purge → ACL sync → typecheck → /login check) in `module-scaffold/SKILL.md` §12 (#2209) |
+| [Dictionary Entry Sort Mode](2026-06-02-dictionary-entry-sort-mode.md) | 2026-06-02 | Dictionary Entry Sort Mode | Configurable server-side dictionary entry ordering for generic and customer dictionaries |
 
 ### Implemented Specifications
 
@@ -118,7 +120,6 @@ Fully implemented and deployed. Canonical files live in [`implemented/`](impleme
 | [SPEC-019](implemented/SPEC-019-2026-02-05-two-factor-authentication.md) | 2026-02-05 | Two-Factor Authentication | Legacy OSS placeholder; enterprise implementation maintained separately |
 | [SPEC-020](implemented/SPEC-020-2026-02-07-related-entity-version-history.md) | 2026-02-07 | Related Entity Version History | Show child entity changes in parent entity version history panel |
 | [SPEC-023](implemented/SPEC-023-2026-02-11-confirmation-dialog-migration.md) | 2026-02-11 | ConfirmDialog Refactor | Native `<dialog>` migration and `window.confirm` elimination |
-| [SPEC-024](implemented/SPEC-024-2026-02-11-financial-module.md) | 2026-02-11 | ERP Financial Modules | ERP financial modules specification |
 | [SPEC-026](implemented/SPEC-026-2026-02-11-catalog-localization.md) | 2026-02-11 | System-Wide Entity Translations | Dedicated `entity_translations` table, global locale support, `applyLocalizedContent` helper |
 | [SPEC-026a](implemented/SPEC-026a-2026-02-15-entity-translations-phase2.md) | 2026-02-15 | Entity Translations Phase 2 | TranslationManager UI, search indexer `l10n:*` fields, per-entity translatable field definitions |
 | [SPEC-027](implemented/SPEC-027-2026-02-08-integration-testing-automation.md) | 2026-02-08 | Integration Testing Automation | Integration testing automation specification |

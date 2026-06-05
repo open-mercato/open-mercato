@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -446,6 +447,12 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
             capacityUnitValue: resource.capacityUnitValue ?? '',
             appearance: { icon: resource.appearanceIcon ?? null, color: resource.appearanceColor ?? null },
             isActive: resource.isActive ?? true,
+            updatedAt:
+              typeof resource.updatedAt === 'string'
+                ? resource.updatedAt
+                : typeof resource.updated_at === 'string'
+                  ? resource.updated_at
+                  : null,
             customFieldsetCode: resource.resourceTypeId
               ? resolveFieldsetCode(resource.resourceTypeId)
               : RESOURCES_RESOURCE_FIELDSET_DEFAULT,
@@ -472,12 +479,20 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
 
   const handleRulesetChange = React.useCallback(async (nextId: string | null) => {
     if (!resourceId) return
-    await updateCrud('resources/resources', { id: resourceId, availabilityRuleSetId: nextId }, {
+    const updateSchedule = () => updateCrud('resources/resources', { id: resourceId, availabilityRuleSetId: nextId }, {
       errorMessage: t('resources.resources.availability.ruleset.updateError', 'Failed to update schedule.'),
     })
+    const resourceOptimisticLockHeader = buildOptimisticLockHeader(
+      typeof initialValues?.updatedAt === 'string' ? initialValues.updatedAt : null,
+    )
+    if (Object.keys(resourceOptimisticLockHeader).length > 0) {
+      await withScopedApiRequestHeaders(resourceOptimisticLockHeader, updateSchedule)
+    } else {
+      await updateSchedule()
+    }
     setAvailabilityRuleSetId(nextId)
     flash(t('resources.resources.availability.ruleset.updateSuccess', 'Schedule updated.'), 'success')
-  }, [resourceId, t])
+  }, [initialValues?.updatedAt, resourceId, t])
 
   const resourceTitle =
     typeof initialValues?.name === 'string' && initialValues.name.trim().length > 0
@@ -647,6 +662,11 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
                   successRedirect="/backend/resources/resources"
                   formConfig={formConfig}
                   initialValues={initialValues ?? undefined}
+                  optimisticLockUpdatedAt={
+                    typeof initialValues?.updatedAt === 'string'
+                      ? initialValues.updatedAt
+                      : null
+                  }
                   onSubmit={handleSubmit}
                   onDelete={handleDelete}
                   isLoading={!initialValues}

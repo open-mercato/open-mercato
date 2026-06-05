@@ -7,9 +7,11 @@ import { CrudForm, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { E } from '#generated/entities.ids.generated'
@@ -67,6 +69,17 @@ type AttachmentListResponse = {
   items?: ProductMediaItem[]
 }
 
+export function handleVariantDeleteError(
+  err: unknown,
+  t: (key: string, fallback?: string) => string,
+): void {
+  if (surfaceRecordConflict(err, t)) return
+  const message = err instanceof Error && err.message
+    ? err.message
+    : t('catalog.variants.form.deleteError', 'Failed to delete variant.')
+  flash(message, 'error')
+}
+
 function resolveVariantPriceLabel(prices: Record<string, VariantPriceDraft> | undefined): string | null {
   if (!prices || typeof prices !== 'object') return null
   const entries = Object.values(prices)
@@ -93,8 +106,13 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   const [optionDefinitions, setOptionDefinitions] = React.useState<OptionDefinition[]>([])
   const [initialValues, setInitialValues] = React.useState<VariantFormValues | null>(null)
   const [existingPriceIds, setExistingPriceIds] = React.useState<Record<string, string>>({})
+  // price-kind id → loaded price `updatedAt`, so the price sync sends each price's
+  // own optimistic-lock version (the variant CrudForm submit scope would otherwise
+  // leak the variant's version onto the catalog/prices guard) (#2055).
+  const [existingPriceVersions, setExistingPriceVersions] = React.useState<Record<string, string | null>>({})
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [currentProductId, setCurrentProductId] = React.useState<string | null>(productId)
   const [productTitle, setProductTitle] = React.useState<string>('')
   const [productTaxRateId, setProductTaxRateId] = React.useState<string | null>(null)
@@ -162,13 +180,23 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     async function load() {
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
         const variantRes = await apiCall<VariantResponse>(
           `/api/catalog/variants?id=${encodeURIComponent(variantId!)}&page=1&pageSize=1`,
         )
-        if (!variantRes.ok) throw new Error(t('catalog.variants.form.errors.load', 'Failed to load variant.'))
+        if (!variantRes.ok) {
+          if (variantRes.status === 404) {
+            if (!cancelled) setIsNotFound(true)
+            return
+          }
+          throw new Error(t('catalog.variants.form.errors.load', 'Failed to load variant.'))
+        }
         const record = Array.isArray(variantRes.result?.items) ? variantRes.result?.items?.[0] : undefined
-        if (!record) throw new Error(t('catalog.variants.form.errors.notFound', 'Variant not found.'))
+        if (!record) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         const resolvedProductId =
           typeof record.product_id === 'string'
             ? record.product_id
@@ -180,10 +208,15 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
         const attachments = await fetchVariantAttachments(variantId!)
         const priceDrafts = await loadVariantPrices(variantId!, priceKinds)
         const priceIdMap: Record<string, string> = {}
+        const priceVersionMap: Record<string, string | null> = {}
         Object.entries(priceDrafts).forEach(([kindId, draft]) => {
-          if (draft.priceId) priceIdMap[kindId] = draft.priceId
+          if (draft.priceId) {
+            priceIdMap[kindId] = draft.priceId
+            priceVersionMap[kindId] = draft.updatedAt ?? null
+          }
         })
         setExistingPriceIds(priceIdMap)
+        setExistingPriceVersions(priceVersionMap)
         const customDefaults = extractCustomFieldEntries(record)
         let loadedOptionDefinitions: OptionDefinition[] = []
         if (resolvedProductId) {
@@ -288,6 +321,12 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
                 ? record.custom_fieldset_code
                 : typeof record.customFieldsetCode === 'string'
                   ? record.customFieldsetCode
+                  : null,
+            updatedAt:
+              typeof record.updatedAt === 'string'
+                ? record.updatedAt
+                : typeof record.updated_at === 'string'
+                  ? record.updated_at
                   : null,
             ...customDefaults,
           })
@@ -418,12 +457,36 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     : t('catalog.variants.form.editTitle', 'Edit variant')
   const productVariantsHref = `/backend/catalog/products/${currentProductId}#variants`
 
+  // When the variant was deleted (e.g. concurrently in another tab) the GET
+  // returns no record. Render a dedicated not-found state with a recovery link
+  // instead of an empty CrudForm that throws runtime errors (#2055 QA).
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('catalog.variants.form.errors.notFound', 'Variant not found.')}
+            backHref={productVariantsHref}
+            backLabel={t('catalog.variants.form.actions.backToProduct', 'Back to product variants')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error && !loading) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
-        {error ? (
-          <ErrorMessage label={error} className="mb-4" />
-        ) : null}
         <CrudForm<VariantFormValues>
           title={formTitle}
           backHref={productVariantsHref}
@@ -517,6 +580,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               priceKinds,
               priceDrafts: values.prices ?? {},
               existingPriceIds,
+              existingPriceVersions,
               productId: currentProductId,
               variantId,
               taxRates,
@@ -528,9 +592,14 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             router.push(productVariantsHref)
           }}
           onDelete={async () => {
-            await deleteCrud('catalog/variants', variantId!, {
-              errorMessage: t('catalog.variants.form.deleteError', 'Failed to delete variant.'),
-            })
+            try {
+              await deleteCrud('catalog/variants', variantId!, {
+                errorMessage: t('catalog.variants.form.deleteError', 'Failed to delete variant.'),
+              })
+            } catch (err) {
+              handleVariantDeleteError(err, t)
+              throw err
+            }
             flash(t('catalog.variants.form.deleted', 'Variant deleted.'), 'success')
             router.push(productVariantsHref)
           }}
@@ -637,6 +706,7 @@ async function syncVariantPricesUpdate({
   priceKinds,
   priceDrafts,
   existingPriceIds,
+  existingPriceVersions,
   productId,
   variantId,
   taxRates,
@@ -647,6 +717,7 @@ async function syncVariantPricesUpdate({
   priceKinds: PriceKindSummary[]
   priceDrafts: Record<string, VariantPriceDraft>
   existingPriceIds: Record<string, string>
+  existingPriceVersions: Record<string, string | null>
   productId: string
   variantId: string
   taxRates: TaxRateSummary[]
@@ -668,10 +739,17 @@ async function syncVariantPricesUpdate({
     const draft = priceDrafts?.[kind.id]
     const amount = typeof draft?.amount === 'string' ? draft.amount.trim() : ''
     const existingId = draft?.priceId ?? existingPriceIds[kind.id]
+    // The price's own version — overrides the variant header the parent CrudForm
+    // submit scope put on the stack, so the catalog/prices guard compares the
+    // right row (otherwise a stale/false 409). #2055.
+    const lockVersion = draft?.updatedAt ?? existingPriceVersions[kind.id] ?? null
     if (!amount) {
       if (existingId) {
         try {
-          await deleteCrud('catalog/prices', existingId)
+          await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(lockVersion),
+            () => deleteCrud('catalog/prices', existingId),
+          )
         } catch (err) {
           console.error('catalog.prices.delete', err)
         }
@@ -691,7 +769,10 @@ async function syncVariantPricesUpdate({
     if (kind.displayMode === 'including-tax') payload.unitPriceGross = numeric
     else payload.unitPriceNet = numeric
     if (existingId) {
-      await updateCrud('catalog/prices', { id: existingId, ...payload })
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(lockVersion),
+        () => updateCrud('catalog/prices', { id: existingId, ...payload }),
+      )
     } else {
       await createCrud('catalog/prices', payload)
     }

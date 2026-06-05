@@ -35,6 +35,7 @@ import { FormFooter } from './forms/FormFooter'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import {
+  Check,
   Settings,
   Layers,
   Tag,
@@ -85,6 +86,8 @@ import { TimePicker } from './inputs/TimePicker'
 import { DatePicker } from './inputs/DatePicker'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
 import { withScopedApiRequestHeaders } from './utils/apiCall'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from './utils/optimisticLock'
+import { surfaceRecordConflict } from './conflicts'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
@@ -307,6 +310,30 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   onDelete?: () => Promise<void> | void
   // When true, shows Delete button whenever onDelete is provided, even without an id
   deleteVisible?: boolean
+  /**
+   * OSS opt-in optimistic locking (spec: .ai/specs/2026-05-25-oss-optimistic-locking.md).
+   *
+   * When set to a non-empty ISO-8601 string (typically `record.updatedAt`
+   * from the API response), the form auto-injects the
+   * `x-om-ext-optimistic-lock-expected-updated-at` extension header on
+   * every PUT / PATCH / DELETE issued through the underlying `onSubmit` /
+   * `onDelete` callbacks (via `withScopedApiRequestHeaders`). When the
+   * server-side guard is opted in for the resource and the timestamp is
+   * stale, the API responds with a structured 409 conflict body.
+   *
+   * Strictly additive: when the prop is absent / null / empty, the form
+   * behaves exactly as before (no header injected).
+   */
+  optimisticLockUpdatedAt?: string | null
+  /**
+   * Opt out of optimistic locking entirely for this form. When `true`, the
+   * extension header is never attached, regardless of `optimisticLockUpdatedAt`
+   * or the value auto-derived from `initialValues.updatedAt`. Use for forms
+   * whose locking is owned elsewhere (e.g. sales document sub-resources guarded
+   * at the command layer against the parent aggregate) or for entities without
+   * an `updated_at` column.
+   */
+  disableOptimisticLock?: boolean
   // Legacy field-only grid toggle. Use `groups` for advanced layout.
   twoColumn?: boolean
   title?: string
@@ -407,6 +434,62 @@ function readByDotPath(source: Record<string, unknown> | undefined, path: string
   return current
 }
 
+// Keys that would mutate the prototype chain if used as dot-path segments.
+// Guard against them so a declared field id such as `__proto__.polluted` can
+// never reach into Object.prototype (prototype-pollution hardening).
+const PROTO_POLLUTING_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
+
+function isProtoPollutingKey(key: string): boolean {
+  return PROTO_POLLUTING_KEYS.has(key)
+}
+
+function writeByDotPath(target: Record<string, unknown>, path: string, value: unknown): void {
+  const segments = path.split('.').filter(Boolean)
+  if (segments.length === 0) return
+  if (segments.some(isProtoPollutingKey)) return
+  let current: Record<string, unknown> = target
+  for (let index = 0; index < segments.length - 1; index++) {
+    const segment = segments[index]
+    const existing = current[segment]
+    const isSafeObject =
+      !!existing &&
+      typeof existing === 'object' &&
+      !Array.isArray(existing) &&
+      (Object.getPrototypeOf(existing) === Object.prototype || Object.getPrototypeOf(existing) === null)
+
+    if (!isSafeObject) {
+      const created = Object.create(null) as Record<string, unknown>
+      current[segment] = created
+      current = created
+    } else {
+      current = existing as Record<string, unknown>
+    }
+  }
+  const finalSegment = segments[segments.length - 1]
+  if (isProtoPollutingKey(finalSegment)) return
+  current[finalSegment] = value
+}
+
+// Collapse flat dot-path keys (e.g. `metadata.category`) declared as base form
+// fields into the nested object the schema expects (`{ metadata: { category } }`).
+// The flat keys are preserved alongside the nested projection so that forms whose
+// schema declares the flat keys directly keep working — CrudForm's non-strict
+// schema.safeParse retains whichever representation the schema declares and strips
+// the other. See issue #2503 ("Latent framework gap").
+function collapseDotPathFields(
+  source: Record<string, unknown>,
+  dotPathFieldIds: ReadonlySet<string>,
+): Record<string, unknown> {
+  if (!dotPathFieldIds.size) return source
+  let result: Record<string, unknown> | null = null
+  for (const fieldId of dotPathFieldIds) {
+    if (!Object.prototype.hasOwnProperty.call(source, fieldId)) continue
+    if (!result) result = { ...source }
+    writeByDotPath(result, fieldId, source[fieldId])
+  }
+  return result ?? source
+}
+
 function readInitialCustomFieldValue(
   source: Record<string, unknown> | undefined,
   key: string,
@@ -449,6 +532,32 @@ function serializeIssuePath(path: ReadonlyArray<string | number | symbol>): stri
     })
     .filter((segment): segment is string => segment !== null)
   return segments.length > 0 ? segments.join('.') : null
+}
+
+function normalizeDirtySnapshotValue(value: unknown): unknown {
+  if (value === undefined || value === null || value === '') return undefined
+  if (Array.isArray(value)) {
+    const normalized = value
+      .map((entry) => normalizeDirtySnapshotValue(entry))
+      .filter((entry) => entry !== undefined)
+    return normalized.length ? normalized : undefined
+  }
+  if (typeof value !== 'object') return value
+
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype !== Object.prototype && prototype !== null) return value
+
+  const normalized: Record<string, unknown> = {}
+  const record = value as Record<string, unknown>
+  for (const key of Object.keys(record).sort()) {
+    const nextValue = normalizeDirtySnapshotValue(record[key])
+    if (nextValue !== undefined) normalized[key] = nextValue
+  }
+  return Object.keys(normalized).length ? normalized : undefined
+}
+
+function createDirtySnapshot(source: Record<string, unknown>): string {
+  return JSON.stringify(normalizeDirtySnapshotValue(source) ?? {})
 }
 
 const FIELDSET_ICON_COMPONENTS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -583,6 +692,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   onSubmit,
   onDelete,
   deleteVisible,
+  optimisticLockUpdatedAt,
+  disableOptimisticLock = false,
   twoColumn = false,
   title,
   backHref,
@@ -706,6 +817,28 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   )
 
   const operation = recordId ? 'update' : 'create'
+
+  // Resolve the optimistic-lock version used to build the extension header.
+  // Explicit `optimisticLockUpdatedAt` (including `null`) always wins. When the
+  // prop is absent, auto-derive from the loaded record's `updatedAt`/`updated_at`
+  // so every edit CrudForm enforces optimistic locking by default without
+  // per-form wiring. Presence of a loaded `updatedAt` — NOT the create/update
+  // heuristic — drives this: some edit pages keep the record id outside form
+  // values (so `operation` reads as `create`), while a genuine create has no
+  // `updatedAt` in `initialValues`. Even a "duplicate"-style create that carries
+  // one is harmless — the server ignores the header on inserts (no candidate id).
+  // `disableOptimisticLock` always wins; an explicit prop (incl. `null`) wins next.
+  const resolvedOptimisticLockUpdatedAt = React.useMemo<string | null | undefined>(() => {
+    if (disableOptimisticLock) return null
+    if (optimisticLockUpdatedAt !== undefined) return optimisticLockUpdatedAt
+    const source = initialValues as Record<string, unknown> | undefined
+    const camel = source?.updatedAt
+    if (typeof camel === 'string' && camel.length > 0) return camel
+    const snake = source?.updated_at
+    if (typeof snake === 'string' && snake.length > 0) return snake
+    return null
+  }, [disableOptimisticLock, optimisticLockUpdatedAt, initialValues])
+
   const injectionContext = React.useMemo(() => ({
     formId,
     entityId: primaryEntityId,
@@ -750,7 +883,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       setHasUnsavedChanges(false)
       return
     }
-    const currentSnapshot = JSON.stringify(values)
+    const currentSnapshot = createDirtySnapshot(values as Record<string, unknown>)
     const dirty = currentSnapshot !== snapshot
     isDirtyRef.current = dirty
     setHasUnsavedChanges(dirty)
@@ -797,7 +930,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const clearDirtyState = React.useCallback((snapshotSource?: Record<string, unknown>) => {
     const source = snapshotSource ?? (valuesRef.current as Record<string, unknown>)
-    dirtyBaselineSnapshotRef.current = JSON.stringify(source)
+    dirtyBaselineSnapshotRef.current = createDirtySnapshot(source)
     isDirtyRef.current = false
     setHasUnsavedChanges(false)
   }, [])
@@ -842,7 +975,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (!target) return
       if (shouldBypassUnsavedChangesGuardRef.current?.(target)) return
       const baselineSnapshot = dirtyBaselineSnapshotRef.current
-      if (baselineSnapshot && JSON.stringify(valuesRef.current) === baselineSnapshot) {
+      if (baselineSnapshot && createDirtySnapshot(valuesRef.current as Record<string, unknown>) === baselineSnapshot) {
         isDirtyRef.current = false
         setHasUnsavedChanges(false)
         return
@@ -874,7 +1007,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           return original(data, unused, url)
         }
         const baselineSnapshot = dirtyBaselineSnapshotRef.current
-        if (baselineSnapshot && JSON.stringify(valuesRef.current) === baselineSnapshot) {
+        if (baselineSnapshot && createDirtySnapshot(valuesRef.current as Record<string, unknown>) === baselineSnapshot) {
           isDirtyRef.current = false
           setHasUnsavedChanges(false)
           return original(data, unused, url)
@@ -1183,8 +1316,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         }
       }
 
-      if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
-        await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
+      const optimisticLockHeader = buildOptimisticLockHeader(resolvedOptimisticLockUpdatedAt)
+      const mergedDeleteHeaders = {
+        ...(injectionRequestHeaders ?? {}),
+        ...optimisticLockHeader,
+      }
+      if (Object.keys(mergedDeleteHeaders).length > 0) {
+        await withScopedApiRequestHeaders(mergedDeleteHeaders, async () => {
           await onDelete()
         })
       } else {
@@ -1228,8 +1366,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       } catch {
         // ignore event dispatch failures
       }
-      const message = err instanceof Error && err.message ? err.message : deleteErrorMessage
-      try { flash(message, 'error') } catch {}
+      const optimisticLockConflict = extractOptimisticLockConflict(err)
+      if (optimisticLockConflict) {
+        // Surface on the unified, persistent conflict bar instead of a toast.
+        try { surfaceRecordConflict(err, t) } catch {}
+      } else {
+        const message = err instanceof Error && err.message ? err.message : deleteErrorMessage
+        try { flash(message, 'error') } catch {}
+      }
     } finally {
       deletingRef.current = false
       setPending(false)
@@ -1634,6 +1778,25 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return new globalThis.Map(allFields.map((f) => [f.id, f]))
   }, [allFields])
 
+  // Declared base fields whose id is a dot-path (e.g. `metadata.category`).
+  // Injected and custom (cf) fields already get dot-path/cf-path hydration and
+  // are excluded here so their dedicated handling is preserved. CrudForm hydrates
+  // these flat keys from nested initial values on load and projects them back into
+  // nested objects before schema.safeParse on submit. See issue #2503.
+  const dotPathBaseFieldIds = React.useMemo(() => {
+    const ids = new Set<string>()
+    const cfFieldIds = new Set(cfFields.map((field) => field.id))
+    for (const field of allFields) {
+      const fieldId = field.id
+      if (!fieldId.includes('.')) continue
+      if (injectedFieldIdSet.has(fieldId)) continue
+      if (fieldId.startsWith('cf_') || fieldId.startsWith('cf:')) continue
+      if (cfFieldIds.has(fieldId)) continue
+      ids.add(fieldId)
+    }
+    return ids
+  }, [allFields, injectedFieldIdSet, cfFields])
+
   const validateFieldOnBlur = React.useCallback(async (
     fieldId: string,
     sourceValues?: CrudFormValues<TValues>,
@@ -1706,7 +1869,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       for (const injectedId of injectedFieldIdSet) {
         delete coreValues[injectedId]
       }
-      const result = schema.safeParse(coreValues)
+      const result = schema.safeParse(collapseDotPathFields(coreValues, dotPathBaseFieldIds))
       if (!result.success) {
         const schemaFieldErrors: Record<string, string> = {}
         result.error.issues.forEach((issue) => {
@@ -1746,6 +1909,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [
     cfDefinitions,
     customEntity,
+    dotPathBaseFieldIds,
     fieldById,
     formReadOnly,
     hiddenBaseFieldIds,
@@ -2151,6 +2315,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       initialValues,
       injectedFieldIds: injectedFieldDefinitions.map((definition) => definition.id),
       customFieldMappings: cfDefinitions.map((definition) => definition.key),
+      dotPathBaseFieldIds: Array.from(dotPathBaseFieldIds),
     })
     if (appliedInitialValuesSnapshotRef.current === snapshot) return
     appliedInitialValuesSnapshotRef.current = snapshot
@@ -2173,11 +2338,18 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           ;(merged as Record<string, unknown>)[targetId] = extracted
         }
       }
+      for (const fieldId of dotPathBaseFieldIds) {
+        if (merged[fieldId] !== undefined) continue
+        const extracted = readByDotPath(initialRecord, fieldId)
+        if (extracted !== undefined) {
+          ;(merged as Record<string, unknown>)[fieldId] = extracted
+        }
+      }
       mergedValues = merged
       return mergedValues
     })
     if (mergedValues) {
-      dirtyBaselineSnapshotRef.current = JSON.stringify(mergedValues)
+      dirtyBaselineSnapshotRef.current = createDirtySnapshot(mergedValues as Record<string, unknown>)
     }
     if (!extendedInjectionEventsEnabled || !mergedValues) return
     let cancelled = false
@@ -2190,7 +2362,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         )
         const transformed = result.data
         if (cancelled || !transformed) return
-        dirtyBaselineSnapshotRef.current = JSON.stringify(transformed as Record<string, unknown>)
+        dirtyBaselineSnapshotRef.current = createDirtySnapshot(transformed as Record<string, unknown>)
         setValues(transformed as CrudFormValues<TValues>)
       } catch (err) {
         console.error('[CrudForm] Error in transformDisplayData:', err)
@@ -2203,6 +2375,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [
     cfDefinitions,
     customEntity,
+    dotPathBaseFieldIds,
     extendedInjectionEventsEnabled,
     initialValues,
     injectedFieldDefinitions,
@@ -2259,7 +2432,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
     // Update the dirty baseline so the form doesn't appear dirty from defaults
     if (mergedValues) {
-      dirtyBaselineSnapshotRef.current = JSON.stringify(mergedValues)
+      dirtyBaselineSnapshotRef.current = createDirtySnapshot(mergedValues as Record<string, unknown>)
     }
   }, [isLoading, initialValuesHasId, cfDefinitions, customEntity])
 
@@ -2400,7 +2573,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
     let parsedValues: TValues
     if (schema) {
-      const res = schema.safeParse(coreValues)
+      const res = schema.safeParse(collapseDotPathFields(coreValues, dotPathBaseFieldIds))
       if (!res.success) {
         const fieldErrors: Record<string, string> = {}
         res.error.issues.forEach((issue) => {
@@ -2430,7 +2603,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           for (const injectedId of injectedFieldIdSet) {
             delete projectedCoreValues[injectedId]
           }
-          coreSubmitValues = schema ? schema.parse(projectedCoreValues) : (projectedCoreValues as TValues)
+          coreSubmitValues = schema
+            ? schema.parse(collapseDotPathFields(projectedCoreValues, dotPathBaseFieldIds))
+            : (projectedCoreValues as TValues)
           if (result.applyToForm) {
             setValues(result.data as CrudFormValues<TValues>)
           }
@@ -2518,8 +2693,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     
     try {
       submitNavigationBypassRef.current = true
-      if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
-        await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
+      const optimisticLockHeader = buildOptimisticLockHeader(resolvedOptimisticLockUpdatedAt)
+      const mergedSubmitHeaders = {
+        ...(injectionRequestHeaders ?? {}),
+        ...optimisticLockHeader,
+      }
+      if (Object.keys(mergedSubmitHeaders).length > 0) {
+        await withScopedApiRequestHeaders(mergedSubmitHeaders, async () => {
           await onSubmit?.(coreSubmitValues, submitContext)
         })
       } else {
@@ -2577,7 +2757,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         }
       }
 
-      let displayMessage = typeof helperMessage === 'string' && helperMessage.trim() ? helperMessage.trim() : ''
+      const optimisticLockConflict = extractOptimisticLockConflict(err)
+      let displayMessage = optimisticLockConflict
+        ? t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.')
+        : typeof helperMessage === 'string' && helperMessage.trim() ? helperMessage.trim() : ''
       if (hasFieldErrors) {
         const lowered = displayMessage.toLowerCase()
         const highlightedLower = highlightedMessage.toLowerCase()
@@ -2592,7 +2775,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         displayMessage = hasFieldErrors ? highlightedMessage : saveErrorMessage
       }
       displayMessage = parseServerMessage(displayMessage)
-      if (!hasFieldErrors) {
+      if (optimisticLockConflict) {
+        // Primary surface for the conflict is the persistent, error-styled
+        // RecordConflictBanner (unified across all forms). Keep the inline
+        // form error too, but suppress the redundant transient toast.
+        try { surfaceRecordConflict(err, t) } catch {}
+      } else if (!hasFieldErrors) {
         flash(displayMessage, 'error')
       }
       setFormError(displayMessage)
@@ -3876,7 +4064,22 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
               className={`w-full justify-start rounded-none font-normal px-3 py-2 ${isSel ? 'bg-muted' : ''}`}
             >
               <span className="inline-flex items-center gap-2">
-                <Checkbox checked={isSel} disabled tabIndex={-1} className="pointer-events-none" />
+                {/* Decorative selection indicator — NOT an interactive Checkbox.
+                    The enclosing Button owns the click; a real Radix Checkbox here
+                    nests a <button> inside a <button> (hydration error) and its
+                    Presence/ref lifecycle drives an infinite update loop when the
+                    listbox renders selected values. A plain span mirrors the DS
+                    checkbox look without any of that. */}
+                <span
+                  aria-hidden="true"
+                  className={`inline-flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${
+                    isSel
+                      ? 'border-accent-indigo bg-accent-indigo text-accent-indigo-foreground'
+                      : 'border-input bg-background'
+                  }`}
+                >
+                  {isSel ? <Check className="size-3.5" aria-hidden="true" /> : null}
+                </span>
                 <span>{opt.label}</span>
               </span>
             </Button>

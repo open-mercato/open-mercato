@@ -21,7 +21,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../primitives/select'
-import { apiCall } from '../utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '../utils/apiCall'
+import { buildOptimisticLockHeader } from '../utils/optimisticLock'
+import { surfaceRecordConflict } from '../conflicts'
 import { flash } from '../FlashMessages'
 import { Page, PageBody } from '../Page'
 import { useBackendChrome } from '../BackendChromeProvider'
@@ -231,6 +233,9 @@ export function SidebarCustomizationEditor({
   const [addDialogError, setAddDialogError] = React.useState<string | null>(null)
   const baseSnapshotRef = React.useRef<SidebarGroup[] | null>(null)
   const hasInitializedRef = React.useRef(false)
+  // Tracks the user-scope sidebar-preference version so concurrent edits from another
+  // tab are caught by the server's optimistic-lock guard (409 → conflict bar).
+  const preferencesUpdatedAtRef = React.useRef<string | null>(null)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -285,11 +290,12 @@ export function SidebarCustomizationEditor({
   }, [variantsApiPath])
 
   const loadRolesPayload = React.useCallback(async (): Promise<{ canApplyToRoles: boolean; roles: RoleTarget[] }> => {
-    const call = await apiCall<{ canApplyToRoles?: boolean; roles?: Array<{ id?: string; name?: string; hasPreference?: boolean }> }>(preferencesApiPath)
+    const call = await apiCall<{ canApplyToRoles?: boolean; roles?: Array<{ id?: string; name?: string; hasPreference?: boolean }>; updatedAt?: string | null }>(preferencesApiPath)
     if (!call.ok) {
       return { canApplyToRoles: false, roles: [] }
     }
     const data = call.result ?? null
+    preferencesUpdatedAtRef.current = typeof data?.updatedAt === 'string' ? data.updatedAt : null
     const can = data?.canApplyToRoles === true
     const roles = Array.isArray(data?.roles)
       ? (data!.roles as Array<{ id?: string; name?: string; hasPreference?: boolean }>)
@@ -695,19 +701,37 @@ export function SidebarCustomizationEditor({
       }
       const preferencesCall = await runMutation({
         operation: () =>
-          apiCall(preferencesApiPath, {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(preferencesPayload),
-          }),
+          withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(preferencesUpdatedAtRef.current),
+            () =>
+              apiCall<{ updatedAt?: string | null }>(preferencesApiPath, {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(preferencesPayload),
+              }),
+          ),
         context: buildMutationContext('savePreferences', selectedVariantId),
         mutationPayload: preferencesPayload,
       })
+      if (preferencesCall.ok) {
+        preferencesUpdatedAtRef.current =
+          typeof preferencesCall.result?.updatedAt === 'string' ? preferencesCall.result.updatedAt : null
+      }
       if (!preferencesCall.ok) {
-        // The variant entity is the canonical layout; the preferences sync is what the
-        // AppShell sidebar actually reads. A failed sync would leave the saved variant
-        // not reflected live, so surface it as a save error rather than flashing success.
-        setError(formatVariantApiError(preferencesCall, t))
+        // A stale save (another tab changed the sidebar customization first) returns a
+        // 409 with `code: 'optimistic_lock_conflict'`. apiCall does not throw, so surface
+        // the conflict explicitly on the shared, persistent conflict bar instead of a
+        // generic save error.
+        const surfaced = surfaceRecordConflict(
+          { status: preferencesCall.status, body: preferencesCall.result },
+          t,
+        )
+        if (!surfaced) {
+          // The variant entity is the canonical layout; the preferences sync is what the
+          // AppShell sidebar actually reads. A failed sync would leave the saved variant
+          // not reflected live, so surface it as a save error rather than flashing success.
+          setError(formatVariantApiError(preferencesCall, t))
+        }
         return
       }
       try { window.dispatchEvent(new Event(REFRESH_SIDEBAR_EVENT)) } catch { /* no listener attached — fine, AppShell will refresh on next navigation */ }

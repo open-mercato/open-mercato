@@ -4,7 +4,7 @@
 import type React from 'react'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import ProductsDataTable from '../../../../components/products/ProductsDataTable'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud, buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
@@ -65,6 +65,7 @@ jest.mock('@open-mercato/ui/backend/RowActions', () => ({
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
   readApiResultOrThrow: jest.fn(),
+  withScopedApiRequestHeaders: jest.fn((_headers: Record<string, string>, run: () => Promise<unknown>) => run()),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
@@ -137,6 +138,7 @@ describe('ProductsDataTable', () => {
       },
     })
     ;(readApiResultOrThrow as jest.Mock).mockResolvedValue({ items: [{ id: 'channel-1', name: 'Retail' }] })
+    ;(withScopedApiRequestHeaders as jest.Mock).mockImplementation((_headers: Record<string, string>, run: () => Promise<unknown>) => run())
     ;(deleteCrud as jest.Mock).mockResolvedValue(undefined)
     ;(buildCrudExportUrl as jest.Mock).mockImplementation((_path: string, params: Record<string, string>) =>
       `export?${new URLSearchParams(params).toString()}`,

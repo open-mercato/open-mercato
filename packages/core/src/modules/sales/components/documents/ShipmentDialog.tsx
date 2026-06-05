@@ -3,16 +3,19 @@
 import * as React from 'react'
 import { MapPin, Truck } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { CrudForm, type CrudCustomFieldRenderProps, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { handleSectionMutationError, rowOptimisticVersion } from './optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
@@ -972,13 +975,25 @@ export function ShipmentDialog({
       }
 
       const action = shipment?.id ? updateCrud : createCrud
-      const result = await action(
-        'sales/shipments',
-        shipment?.id ? { id: shipment.id, ...payload } : payload,
-        {
-          errorMessage: t('sales.documents.shipments.errorSave', 'Failed to save shipment.'),
-        },
-      )
+      let result
+      try {
+        result = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(shipment?.id ? rowOptimisticVersion(shipment) : undefined),
+          () =>
+            action(
+              'sales/shipments',
+              shipment?.id ? { id: shipment.id, ...payload } : payload,
+              {
+                errorMessage: t('sales.documents.shipments.errorSave', 'Failed to save shipment.'),
+              },
+            ),
+        )
+      } catch (err) {
+        if (handleSectionMutationError(err, t, () => void onSaved())) {
+          return
+        }
+        throw err
+      }
       if (result.ok) {
         const shipmentId = ((result.result as any)?.id as string | undefined) ?? shipment?.id ?? null
         const shouldAddShippingAdjustment =
@@ -1100,6 +1115,7 @@ export function ShipmentDialog({
       orderId,
       organizationId,
       shipment?.id,
+      shipment?.updatedAt,
       addressOptions,
       addressOptionsMap,
       shippingMethods,
@@ -1109,13 +1125,14 @@ export function ShipmentDialog({
     ],
   )
 
-  const handleShortcutSubmit = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-      event.preventDefault()
-      const form = dialogContentRef.current?.querySelector('form')
-      form?.requestSubmit()
-    }
-  }, [])
+  const handleSubmitForm = React.useCallback(
+    () => dialogContentRef.current?.querySelector('form')?.requestSubmit(),
+    [],
+  )
+  const handleKeyDown = useDialogKeyHandler({
+    onConfirm: handleSubmitForm,
+    onCancel: onClose,
+  })
 
   const fields = React.useMemo<CrudField[]>(() => {
     const shippingAdjustmentLabel = t(
@@ -1523,13 +1540,7 @@ export function ShipmentDialog({
       <DialogContent
         ref={dialogContentRef}
         className="sm:max-w-5xl"
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            onClose()
-          }
-          handleShortcutSubmit(event)
-        }}
+        onKeyDown={handleKeyDown}
       >
         <DialogHeader>
           <DialogTitle>
