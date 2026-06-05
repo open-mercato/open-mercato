@@ -120,13 +120,11 @@ test.describe('TC-CAT-CF-MULTI-EDIT-001: product multichoice custom field persis
       });
       expect(seedRes.ok(), `seed update failed: ${seedRes.status()}`).toBeTruthy();
 
-      // customValues come from the eventually-consistent query index; poll until it converges.
-      await expect
-        .poll(
-          async () => asStringArray((await fetchProductCustomValues(request, token as string, productId as string))[fieldKey]),
-          { message: 'product multi-select seed should appear in the query index', timeout: 30_000 },
-        )
-        .toEqual(['stylist', 'therapist']);
+      // customValues come from the query index, which the data engine now updates
+      // synchronously (awaited `query_index.upsert_one`), so an immediate read after
+      // the write is consistent — no polling needed.
+      const afterSeed = await fetchProductCustomValues(request, token, productId as string);
+      expect(asStringArray(afterSeed[fieldKey])).toEqual(['stylist', 'therapist']);
 
       // EDIT to a different multi-value set.
       const updateRes = await apiRequest(request, 'PUT', '/api/catalog/products', {
@@ -138,18 +136,14 @@ test.describe('TC-CAT-CF-MULTI-EDIT-001: product multichoice custom field persis
       });
       expect(updateRes.ok(), `update failed: ${updateRes.status()}`).toBeTruthy();
 
-      // The product list endpoint serves customValues from the query index, which is
-      // updated out-of-band (fire-and-forget `query_index.upsert_one`). The write is
-      // synchronous (live EAV reflects it immediately) but the index is eventually
-      // consistent, so a single immediate read races the async re-index and can
-      // observe an empty/stale value under load. Poll until the index converges
-      // (mirrors TC-CUR-004's expect.poll on an indexed read).
-      await expect
-        .poll(
-          async () => asStringArray((await fetchProductCustomValues(request, token as string, productId as string))[fieldKey]),
-          { message: 'product multi-select edit should converge in the query index to the new values', timeout: 30_000 },
-        )
-        .toEqual(['treatment_room', 'wash_station']);
+      // The product list endpoint serves customValues from the query index. The index
+      // is updated synchronously in the write path (the data engine awaits
+      // `query_index.upsert_one` before the PUT returns), so the new values are visible
+      // on an immediate read and the old ones are gone — deterministically.
+      const afterUpdate = await fetchProductCustomValues(request, token, productId as string);
+      expect(asStringArray(afterUpdate[fieldKey])).toEqual(['treatment_room', 'wash_station']);
+      expect(asStringArray(afterUpdate[fieldKey])).not.toContain('stylist');
+      expect(asStringArray(afterUpdate[fieldKey])).not.toContain('therapist');
     } finally {
       await deleteCatalogProductIfExists(request, token, productId);
       await deleteProductDefinition(request, token, fieldKey);

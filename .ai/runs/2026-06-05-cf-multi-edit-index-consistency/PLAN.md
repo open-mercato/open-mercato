@@ -29,8 +29,8 @@ bound write latency.
 
 ### Phase 2: Tests prove consistency (remove the workaround)
 
-- [ ] 2.1 `TC-CRM-CF-MULTI-EDIT-001.spec.ts`: read `customValues` from the query INDEX (list endpoint) with immediate reads — no live-EAV detour, no poll
-- [ ] 2.2 `TC-CAT-CF-MULTI-EDIT-001.spec.ts`: immediate query-index reads — drop `expect.poll`
+- [x] 2.1 `TC-CRM-CF-MULTI-EDIT-001.spec.ts`: read `customValues` from the query INDEX (list endpoint) with immediate reads — no live-EAV detour, no poll
+- [x] 2.2 `TC-CAT-CF-MULTI-EDIT-001.spec.ts`: immediate query-index reads — drop `expect.poll`
 - [x] 2.3 Unit coverage for the indexer split (`deferSearchTokens` skips tokens; `reindexSearchTokensForRecord` writes them)
 
 ### Phase 3: Cleanup + validation

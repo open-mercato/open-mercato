@@ -69,14 +69,13 @@ async function deleteDealDefinition(
 }
 
 /**
- * Reads custom-field values from the deal DETAIL endpoint, which resolves them
- * LIVE from EAV (`loadCustomFieldValues`) and therefore reflects a write
- * synchronously. The list endpoint serves `customValues` from the query INDEX,
- * which is updated out-of-band (fire-and-forget `query_index.upsert_one`) and is
- * eventually consistent — reading it immediately after a write races the async
- * re-index and flakes to an empty value under CI load. Since this spec verifies
- * persistence (the #issue regression: multichoice values reverting on edit), the
- * authoritative live read is both correct and deterministic.
+ * Reads `customValues` from the deal LIST endpoint, which serves them from the
+ * query INDEX (not the live EAV detail read). The index is now updated
+ * synchronously in the write path — the data engine awaits `query_index.upsert_one`
+ * so the projection row is committed before the write returns — which makes an
+ * immediate read after a write deterministic. Reading the index here (rather than
+ * detouring to the live-EAV detail endpoint) exercises the exact surface that
+ * regressed: multichoice `customValues` reverting on edit.
  */
 async function fetchDealCustomValues(
   request: APIRequestContext,
@@ -86,13 +85,16 @@ async function fetchDealCustomValues(
   const response = await apiRequest(
     request,
     'GET',
-    `/api/customers/deals/${encodeURIComponent(dealId)}`,
+    `/api/customers/deals?id=${encodeURIComponent(dealId)}&page=1&pageSize=1`,
     { token },
   );
-  expect(response.ok(), `GET /api/customers/deals/${dealId} failed: ${response.status()}`).toBeTruthy();
-  const body = await readJsonSafe<{ customFields?: Record<string, unknown> }>(response);
-  return body?.customFields && typeof body.customFields === 'object'
-    ? (body.customFields as Record<string, unknown>)
+  expect(response.ok(), `GET /api/customers/deals failed: ${response.status()}`).toBeTruthy();
+  const body = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(response);
+  const item = Array.isArray(body?.items) ? body?.items?.[0] : undefined;
+  expect(item, 'deal should be returned by list-by-id query').toBeTruthy();
+  const record = item as Record<string, unknown>;
+  return record.customValues && typeof record.customValues === 'object'
+    ? (record.customValues as Record<string, unknown>)
     : {};
 }
 
@@ -136,7 +138,7 @@ test.describe('TC-CRM-CF-MULTI-EDIT-001: deal multichoice custom field persists 
       dealId = typeof createBody?.id === 'string' ? createBody.id : null;
       expect(dealId, 'create deal should return an id').toBeTruthy();
 
-      // Live detail read (see fetchDealCustomValues) reflects the write synchronously.
+      // Immediate query-index read (see fetchDealCustomValues) — consistent post-write.
       const afterCreate = await fetchDealCustomValues(request, token, dealId as string);
       expect(asStringArray(afterCreate[fieldKey])).toEqual(['alpha', 'beta']);
 
