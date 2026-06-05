@@ -155,6 +155,8 @@
   "inbox_ops.preview.sku": "SKU",
   "inbox_ops.processing_log": "Processing Log",
   "inbox_ops.proposal": "Proposal",
+  "inbox_ops.proposal.backToList": "Back to inbox",
+  "inbox_ops.proposal.notFound": "Proposal not found.",
   "inbox_ops.recategorize": "Change Category",
   "inbox_ops.received_at": "Received",
   "inbox_ops.reply.send": "Send Reply",

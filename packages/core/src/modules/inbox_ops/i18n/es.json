@@ -155,6 +155,8 @@
   "inbox_ops.preview.sku": "SKU",
   "inbox_ops.processing_log": "Registro de procesamiento",
   "inbox_ops.proposal": "Propuesta",
+  "inbox_ops.proposal.backToList": "Volver a la bandeja de entrada",
+  "inbox_ops.proposal.notFound": "Propuesta no encontrada.",
   "inbox_ops.recategorize": "Cambiar categor\u00eda",
   "inbox_ops.received_at": "Recibido",
   "inbox_ops.reply.send": "Enviar respuesta",

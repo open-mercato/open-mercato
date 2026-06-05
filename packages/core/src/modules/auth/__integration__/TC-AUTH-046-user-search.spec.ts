@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { randomInt } from 'node:crypto';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
@@ -31,7 +32,7 @@ test.describe('TC-AUTH-046: user search and filtering (#2464)', () => {
   test('matches users by display name (case-insensitive) and by shared role via search', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const { organizationId } = getTokenContext(superadminToken);
-    const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`;
     const alphaName = `QaAlpha${stamp}`;
     const betaName = `QaBeta${stamp}`;
     const sharedRoleName = `QaSearchRole-${stamp}`;
