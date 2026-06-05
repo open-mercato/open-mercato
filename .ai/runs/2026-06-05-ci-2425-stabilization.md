@@ -22,6 +22,8 @@ Stabilize the develop branch feeding PR #2425 by fixing the failures observed in
 - Failed shards: `ephemeral-integration (8/15)`, `ephemeral-integration (9/15)`
 - Snapshot standalone run: `27017594026`
 - Downloaded artifacts: `/tmp/open-mercato-ci-2549`
+- Full ephemeral run attempt 1 log: `/tmp/ci-2425-full-ephemeral-run-1.log` (invalid: exposed a retry in `TC-AI-INJECT-013`)
+- Catalog AI targeted rerun log: `/tmp/ci-2425-ai-merch-targeted.log` (7/7 passed with `--retries=0`)
 
 ## Implementation Plan
 
@@ -59,7 +61,8 @@ Stabilize the develop branch feeding PR #2425 by fixing the failures observed in
 
 - [x] 2.1 Run targeted integration specs — afd6a28e4
 - [x] 2.2 Run relevant unit/type checks — afd6a28e4
-- [ ] 2.3 Run two independent full ephemeral integration runs
+- [x] 2.3 Stabilize catalog AI sheet integration flake — pending commit
+- [ ] 2.4 Run two independent full ephemeral integration runs
 
 ### Phase 3: PR
 
