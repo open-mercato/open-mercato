@@ -947,7 +947,7 @@ function ChannelSelectInput({
     )
   }
   return (
-    <Select value={value ?? ''} onValueChange={(next) => onChange(next || null)}>
+    <Select value={value || undefined} onValueChange={(next) => onChange(next || null)}>
       <SelectTrigger>
         <SelectValue placeholder={t('sales.channels.offers.form.channelPlaceholder', 'Select channel')} />
       </SelectTrigger>
@@ -1831,7 +1831,7 @@ function PriceOverridesEditor({
           {values.map((row) => (
             <div key={row.tempId} className="grid gap-2 rounded border p-3 md:grid-cols-3">
               <Select
-                value={row.priceKindId ?? ''}
+                value={row.priceKindId || undefined}
                 onValueChange={(value) => {
                   const next = priceKinds.find((kind) => kind.id === value)
                   updateRow(row.tempId, {

@@ -903,7 +903,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
             </div>
             {!useCustom ? (
               <Select
-                value={selectedId ?? ''}
+                value={selectedId || undefined}
                 onValueChange={(value) => updateValue('shippingAddressId', value || null)}
                 disabled={addressesLoading || customerRequired}
               >
@@ -1036,7 +1036,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
               <>
                 {!useCustom ? (
                   <Select
-                    value={selectedId ?? ''}
+                    value={selectedId || undefined}
                     onValueChange={(value) => updateValue('billingAddressId', value || null)}
                     disabled={addressesLoading || customerRequired}
                   >

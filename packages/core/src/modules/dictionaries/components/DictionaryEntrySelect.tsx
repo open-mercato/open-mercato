@@ -78,6 +78,7 @@ export type DictionaryEntrySelectProps = {
   labels: DictionarySelectLabels
   manageHref?: string
   selectClassName?: string
+  seedOptions?: DictionaryOption[]
   allowInlineCreate?: boolean
   allowAppearance?: boolean
   appearanceLabels?: AppearanceSelectorLabels
@@ -103,6 +104,7 @@ export function DictionaryEntrySelect({
   labels,
   manageHref,
   selectClassName,
+  seedOptions,
   allowInlineCreate = true,
   allowAppearance = false,
   appearanceLabels,
@@ -154,12 +156,29 @@ export function DictionaryEntrySelect({
     if (!dialogOpen) resetDialogState()
   }, [dialogOpen, resetDialogState])
 
+  const mergedOptions = React.useMemo(() => {
+    if (!Array.isArray(seedOptions) || !seedOptions.length) return options
+    const merged: DictionaryOption[] = []
+    const seen = new Set<string>()
+    for (const option of seedOptions) {
+      if (!option.value || seen.has(option.value)) continue
+      seen.add(option.value)
+      merged.push(option)
+    }
+    for (const option of options) {
+      if (seen.has(option.value)) continue
+      seen.add(option.value)
+      merged.push(option)
+    }
+    return merged
+  }, [options, seedOptions])
+
   const activeOption = React.useMemo(
-    () => options.find((option) => option.value === value) ?? null,
-    [options, value],
+    () => mergedOptions.find((option) => option.value === value) ?? null,
+    [mergedOptions, value],
   )
   const displayOptions = React.useMemo(() => {
-    if (!value || activeOption) return options
+    if (!value || activeOption) return mergedOptions
     return [
       {
         value,
@@ -167,9 +186,9 @@ export function DictionaryEntrySelect({
         color: null,
         icon: null,
       },
-      ...options,
+      ...mergedOptions,
     ]
-  }, [activeOption, options, value])
+  }, [activeOption, mergedOptions, value])
 
   const handleCreate = React.useCallback(async () => {
     if (!createOption) return

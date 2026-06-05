@@ -54,7 +54,7 @@ export function renderProviderFieldInput(opts: {
     case 'select':
       return (
         <Select
-          value={typeof value === 'string' ? value : ''}
+          value={typeof value === 'string' && value ? value : undefined}
           onValueChange={(next) => onChange(next ?? '')}
         >
           <SelectTrigger {...common}>

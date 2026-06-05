@@ -152,7 +152,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             <p className="text-xs text-muted-foreground">{fieldDescription}</p>
           )}
           <Select
-            value={fieldValue(fieldName) ? String(fieldValue(fieldName)) : ''}
+            value={fieldValue(fieldName) ? String(fieldValue(fieldName)) : undefined}
             onValueChange={(value) => handleFieldChange(fieldName, value ?? '')}
           >
             <SelectTrigger

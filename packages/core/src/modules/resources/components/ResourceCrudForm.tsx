@@ -53,8 +53,9 @@ export type ResourcesResourceFormConfig = {
 export function useResourcesResourceFormConfig(options: {
   tagsSection?: ResourceTagsSectionConfig
   selectedResourceTypeId?: string | null
+  selectedCapacityUnit?: { value: string; label: string; color?: string | null; icon?: string | null } | null
 } = {}): ResourcesResourceFormConfig {
-  const { selectedResourceTypeId, tagsSection } = options
+  const { selectedCapacityUnit, selectedResourceTypeId, tagsSection } = options
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
   const [resourceTypes, setResourceTypes] = React.useState<ResourceTypeRow[]>([])
@@ -251,6 +252,7 @@ export function useResourcesResourceFormConfig(options: {
               value={typeof value === 'string' ? value : null}
               onChange={(next) => setValue(next ?? '')}
               selectClassName="w-full"
+              seedOptions={selectedCapacityUnit ? [selectedCapacityUnit] : undefined}
             />
           )
         },
@@ -289,6 +291,7 @@ export function useResourcesResourceFormConfig(options: {
     capacityUnitDictionaryId,
     resolveFieldsetCode,
     resourceTypes,
+    selectedCapacityUnit,
     t,
   ])
 

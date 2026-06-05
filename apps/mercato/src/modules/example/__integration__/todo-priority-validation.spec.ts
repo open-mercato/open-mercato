@@ -168,11 +168,12 @@ test.describe('Todo priority validation', () => {
       await login(page, 'admin')
       await page.goto(`/backend/todos/${encodeURIComponent(todoId!)}/edit`, { waitUntil: 'commit' })
 
-      await expect(page.getByRole('heading', { name: 'Edit Todo' })).toBeVisible()
+      await expect(page.locator('main').getByText('Edit Todo').first()).toBeVisible()
+      await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue(title)
       const severityField = page.locator('[data-crud-field-id="cf_severity"]').first()
       const severitySelect = severityField.getByRole('combobox').first()
       await expect(severitySelect).toBeVisible()
-      await expect(severitySelect).toContainText('Medium')
+      await expect(severitySelect).toContainText(/medium/i)
     } finally {
       await deleteEntityIfExists(request, adminToken, '/api/example/todos', todoId)
     }

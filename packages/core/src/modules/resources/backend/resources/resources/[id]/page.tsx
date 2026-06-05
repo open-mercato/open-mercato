@@ -97,6 +97,12 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   const [activeDetailTab, setActiveDetailTab] = React.useState<'notes' | 'activities'>('notes')
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
+  const [selectedCapacityUnit, setSelectedCapacityUnit] = React.useState<{
+    value: string
+    label: string
+    color?: string | null
+    icon?: string | null
+  } | null>(null)
   const [activityDictionaryId, setActivityDictionaryId] = React.useState<string | null>(null)
   const [activityTypeEntries, setActivityTypeEntries] = React.useState<DictionaryEntryOption[]>([])
   const flashShownRef = React.useRef(false)
@@ -419,6 +425,10 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
     tagsSection,
     selectedResourceTypeId:
       typeof initialValues?.resourceTypeId === 'string' ? initialValues.resourceTypeId : null,
+    selectedCapacityUnit:
+      typeof initialValues?.capacityUnitValue === 'string' && initialValues.capacityUnitValue.length > 0
+        ? selectedCapacityUnit
+        : null,
   })
   const { resourceTypesLoaded, resolveFieldsetCode } = formConfig
 
@@ -452,6 +462,19 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
               : typeof resource.availability_rule_set_id === 'string'
                 ? resource.availability_rule_set_id
                 : null,
+          )
+          setSelectedCapacityUnit(
+            typeof resource.capacityUnitValue === 'string' && resource.capacityUnitValue.length > 0
+              ? {
+                  value: resource.capacityUnitValue,
+                  label:
+                    typeof resource.capacityUnitName === 'string' && resource.capacityUnitName.length > 0
+                      ? resource.capacityUnitName
+                      : resource.capacityUnitValue,
+                  color: typeof resource.capacityUnitColor === 'string' ? resource.capacityUnitColor : null,
+                  icon: typeof resource.capacityUnitIcon === 'string' ? resource.capacityUnitIcon : null,
+                }
+              : null,
           )
           setInitialValues({
             id: resource.id,

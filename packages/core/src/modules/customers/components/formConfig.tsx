@@ -574,7 +574,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <Select
-          value={value ?? ''}
+          value={value || undefined}
           onValueChange={(next) => onChange(next || undefined)}
           disabled={loading}
         >

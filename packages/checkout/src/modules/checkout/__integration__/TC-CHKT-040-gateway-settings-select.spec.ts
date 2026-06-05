@@ -25,7 +25,7 @@ test.describe('TC-CHKT-040: Gateway setting selects round-trip through template 
       await login(page, 'admin')
       await page.goto(`/backend/checkout/templates/${encodeURIComponent(templateId)}`, { waitUntil: 'commit' })
 
-      await expect(page.getByRole('heading', { name: 'Edit Template' })).toBeVisible()
+      await expect(page.locator('main').getByText('Edit Template').first()).toBeVisible()
       const captureMethodField = page.getByText('Capture method').locator('xpath=ancestor::div[contains(@class, "space-y-2")]').first()
       const captureMethodSelect = captureMethodField.getByRole('combobox').first()
       await expect(captureMethodSelect).toBeVisible()
@@ -33,7 +33,7 @@ test.describe('TC-CHKT-040: Gateway setting selects round-trip through template 
 
       await captureMethodSelect.click()
       await page.getByRole('option', { name: 'Automatic capture' }).click()
-      await page.getByRole('button', { name: /^Save$/ }).click()
+      await page.locator('form').getByRole('button', { name: 'Save' }).click()
       await expect(page).toHaveURL(/\/backend\/checkout\/templates(?:\?.*)?$/)
 
       const saved = await readTemplate(request, token, templateId)

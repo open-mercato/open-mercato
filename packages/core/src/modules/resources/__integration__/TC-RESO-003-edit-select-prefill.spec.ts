@@ -64,7 +64,10 @@ test.describe('TC-RESO-003: Edit forms prefill saved relation and dictionary sel
 
       await expect(page.getByRole('heading', { name: resourceName }).first()).toBeVisible()
       await expect(page.getByText(resourceTypeName).first()).toBeVisible()
-      await expect(page.getByText(capacityUnitLabel).first()).toBeVisible()
+      const capacityUnitField = page.locator('[data-crud-field-id="capacityUnitValue"]').first()
+      const capacityUnitSelect = capacityUnitField.getByRole('combobox').first()
+      await expect(capacityUnitSelect).toBeVisible()
+      await expect(capacityUnitSelect).toContainText(capacityUnitLabel)
     } finally {
       await deleteGeneralEntityIfExists(request, token, RESOURCES_PATH, resourceId)
       await deleteGeneralEntityIfExists(request, token, RESOURCE_TYPES_PATH, resourceTypeId)

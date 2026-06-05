@@ -2149,7 +2149,7 @@ export function LineItemDialog({
           return (
             <div className="flex items-center gap-2">
               <Select
-                value={resolvedValue ?? ''}
+                value={resolvedValue || undefined}
                 onValueChange={(value) => handleChange({ target: { value } } as React.ChangeEvent<HTMLSelectElement>)}
                 disabled={!taxRates.length}
               >
@@ -2226,7 +2226,7 @@ export function LineItemDialog({
           }
           return (
             <Select
-              value={typeof value === "string" ? value : ""}
+              value={typeof value === "string" && value ? value : undefined}
               onValueChange={(next) => {
                 const nextValue = next || null;
                 const nextUnitPrice = convertUnitPriceForUnitChange(

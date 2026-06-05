@@ -168,7 +168,7 @@ export function VariantOptionValuesSection({
           <div key={option.code} className="space-y-2">
             <Label className="text-xs uppercase text-muted-foreground">{option.label}</Label>
             <Select
-              value={values.optionValues?.[option.code] ?? ''}
+              value={values.optionValues?.[option.code] || undefined}
               onValueChange={(value) => handleOptionChange(option.code, value ?? '')}
             >
               <SelectTrigger>
@@ -305,7 +305,7 @@ export function VariantPricesSection({
           </div>
           <div className="flex items-center gap-2">
             <Select
-              value={values.taxRateId ?? ''}
+              value={values.taxRateId || undefined}
               onValueChange={(value) => setValue('taxRateId', value || null)}
             >
               <SelectTrigger>
@@ -324,7 +324,7 @@ export function VariantPricesSection({
       ) : (
         <div className="flex justify-end">
           <Select
-            value={values.taxRateId ?? ''}
+            value={values.taxRateId || undefined}
             onValueChange={(value) => setValue('taxRateId', value || null)}
           >
             <SelectTrigger>
