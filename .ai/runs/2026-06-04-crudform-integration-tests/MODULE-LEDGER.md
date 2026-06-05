@@ -41,7 +41,7 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
 |-------|--------|---------|----------|--------|----|--------|
 | C1 | directory | core | organization, tenant | — | — | ⏭️ covered by #2539 (TC-DIR-006..012) |
 | C2 | feature_toggles | core | global toggle (superadmin) | `feat/crudform-tests-feature-toggles` | — | ⬜ |
-| C3 | api_keys | core | api-key | `feat/crudform-tests-api-keys` | — | ⬜ |
+| C3 | api_keys | core | api-key · create-once (no update surface) | `feat/2568-crudform-tests-api-keys` | — | 🔵 |
 | C4 | dictionaries | core | dictionary entry | `feat/crudform-tests-dictionaries` | — | ⬜ |
 | C5 | communication_channels | core | channel | `feat/crudform-tests-comm-channels` | — | ⬜ |
 
@@ -51,3 +51,8 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
   `__integration__` test files added there; its CF behavior is already exercised by
   `TC-CRM-028`.
 - Enterprise sudo/security surfaces (#33/#34) are enterprise+sudo gated — defer / out of scope.
+- **api_keys (C3, #2568)** is **create-once + delete** — the route exports GET/POST/DELETE only
+  (no PUT; `updateApiKeySchema` is declared but unwired) and there is no edit page, so
+  `TC-APIKEY-CRUDFORM-001` covers create → read-back → assert (scalars + `roles[]` array) →
+  delete and intentionally has **no update step**. Read-back uses `?search=` (the list has no
+  `?id=`/`?ids=` filter) and responses are camelCase. No custom fields (no `ce.ts`).
