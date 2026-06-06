@@ -60,7 +60,8 @@ next-env.d.ts
 .tsbuild/
 
 # generated files
-.mercato/
+.mercato/*
+!.mercato/railway.json
 generated/
 src/generated/
 .test-cache.json

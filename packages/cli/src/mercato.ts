@@ -83,7 +83,7 @@ const TURBOPACK_CORRUPTION_PATTERNS = [
   'TurbopackInternalError',
 ]
 
-const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'db', 'server', 'test'])
+const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'deploy', 'db', 'server', 'test'])
 
 function collectNestedErrors(error: unknown, seen = new Set<unknown>()): ErrorWithCause[] {
   if (!error || seen.has(error)) {
@@ -254,10 +254,13 @@ function removeTurbopackDevCache(appDir: string): void {
   fs.rmSync(path.join(appDir, '.mercato', 'next', 'dev'), { recursive: true, force: true })
 }
 
-async function ensureEnvLoaded() {
+async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boolean } = {}) {
   if (envLoaded) return
   envLoaded = true
-  const quietDotenv = process.env.DOTENV_CONFIG_QUIET === '1' || process.env.DOTENV_CONFIG_QUIET === 'true'
+  const quietDotenv =
+    options.quiet === true ||
+    process.env.DOTENV_CONFIG_QUIET === '1' ||
+    process.env.DOTENV_CONFIG_QUIET === 'true'
 
   // Try to find and load .env from the app directory
   // First, try to find the app directory via resolver
@@ -268,7 +271,11 @@ async function ensureEnvLoaded() {
 
     // Load .env from app directory if it exists
     const envPath = path.join(appDir, '.env')
-    if (!fs.existsSync(envPath) && process.env.NODE_ENV !== 'production') {
+    if (
+      options.createIfMissing !== false &&
+      !fs.existsSync(envPath) &&
+      process.env.NODE_ENV !== 'production'
+    ) {
       const examplePath = path.join(appDir, '.env.example')
       if (fs.existsSync(examplePath)) {
         fs.copyFileSync(examplePath, envPath)
@@ -751,9 +758,9 @@ async function buildAllModules(): Promise<Module[]> {
 }
 
 export async function run(argv = process.argv) {
-  await ensureEnvLoaded()
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
+  await ensureEnvLoaded({ createIfMissing: first !== 'deploy', quiet: first === 'deploy' })
   
   // Handle init command directly
   if (first === 'init') {
@@ -1461,6 +1468,19 @@ export async function run(argv = process.argv) {
     } catch { /* @/cli may not exist in standalone apps — safe to ignore */ }
   }
   const all = modules.slice()
+
+  all.push({
+    id: 'deploy',
+    cli: [
+      {
+        command: 'railway',
+        run: async (args: string[]) => {
+          const { runRailwayDeploy } = await import('./lib/deploy/railway/index')
+          await runRailwayDeploy(args)
+        },
+      },
+    ],
+  } as Module)
   
   // Built-in CLI module: queue
   all.push({
@@ -2365,11 +2385,16 @@ export async function run(argv = process.argv) {
 
   console.log('')
   const started = Date.now()
-  console.log(`🚀 Running ${modName}:${cmdName} ${rest.join(' ')}`)
+  const loggedArgs = modName === 'deploy' && cmdName === 'railway'
+    ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
+    : rest
+  console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
   try {
     await cmd.run(rest)
-    const ms = Date.now() - started
-    console.log(`⏱️ Done in ${ms}ms`)
+    if (modName !== 'deploy' || cmdName !== 'railway') {
+      const ms = Date.now() - started
+      console.log(`⏱️ Done in ${ms}ms`)
+    }
     return 0
   } catch (e: any) {
     console.error(`💥 Failed: ${formatCliFailureMessage(modName, cmdName, e)}`)

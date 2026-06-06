@@ -66,6 +66,11 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Deployment",
+      items: ["deployment/railway"],
+    },
+    {
+      type: "category",
       label: "User Guide",
       items: [
         "user-guide/overview",
