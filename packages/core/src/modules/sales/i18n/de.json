@@ -94,6 +94,7 @@
   "sales.channels.form.updateSubmit": "Änderungen speichern",
   "sales.channels.form.websiteUrl": "Website-URL",
   "sales.channels.nav.title": "Vertriebskanäle",
+  "sales.channels.offers.actions.backToList": "Zurück zu Angeboten",
   "sales.channels.offers.actions.create": "Angebot hinzufügen",
   "sales.channels.offers.actions.delete": "Löschen",
   "sales.channels.offers.actions.edit": "Bearbeiten",
