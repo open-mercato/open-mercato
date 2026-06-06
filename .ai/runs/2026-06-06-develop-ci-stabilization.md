@@ -40,7 +40,7 @@ Stabilize the latest `develop` branch feeding release PR #2425 by fixing the cur
 - [x] 1.1 Stabilize CRM advanced-filter chip close behavior — fe790ef3f
 - [x] 1.2 Surface sales offer stale list-delete conflicts and stabilize SAL-13 fixture — fe790ef3f
 - [x] 1.3 Stabilize UMES page probe under cold coverage runs
-- [ ] 1.4 Stabilize standalone artifact follow-ups for CRM chips, SAL-13 waits, and currency REDO fixtures
+- [x] 1.4 Stabilize standalone artifact follow-ups for CRM chips, SAL-13 waits, and currency REDO fixtures — 8a5543d3c
 
 ### Phase 2: Verification
 
