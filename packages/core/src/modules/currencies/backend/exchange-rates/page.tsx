@@ -4,9 +4,11 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { ColumnDef } from '@tanstack/react-table'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Plus } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -175,13 +177,9 @@ export default function ExchangeRatesPage() {
           const type = row.original.type
           if (!type) return '—'
           return (
-            <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${
-              type === 'buy' 
-                ? 'bg-green-100 text-green-800' 
-                : 'bg-blue-100 text-blue-800'
-            }`}>
+            <Badge variant={type === 'buy' ? 'success' : 'info'}>
               {type === 'buy' ? t('exchangeRates.list.type.buy') : t('exchangeRates.list.type.sell')}
-            </span>
+            </Badge>
           )
         },
       },
@@ -298,6 +296,13 @@ export default function ExchangeRatesPage() {
                   onSelect: () => handleDelete(row),
                 },
               ]}
+            />
+          )}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('exchangeRates.list.title')}
+              createHref="/backend/exchange-rates/create"
+              createLabel={t('exchangeRates.list.actions.create')}
             />
           )}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}

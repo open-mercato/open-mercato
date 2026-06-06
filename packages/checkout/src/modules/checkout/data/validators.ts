@@ -204,6 +204,13 @@ export const updateTemplateSchema = checkoutContentSchema.partial().extend({
   customerFieldsSchema: z.array(customerFieldDefinitionSchema).optional(),
 }).superRefine((value, ctx) => {
   applyPartialPricingConsistency(value, ctx)
+  if (Object.prototype.hasOwnProperty.call(value, 'gatewayProviderKey') && !value.gatewayProviderKey) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'checkout.validation.gatewayProviderKey.required',
+      path: ['gatewayProviderKey'],
+    })
+  }
 })
 
 export const createLinkSchema = createTemplateSchema.safeExtend({

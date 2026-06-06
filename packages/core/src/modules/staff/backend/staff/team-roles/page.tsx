@@ -16,6 +16,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Pencil, Users } from 'lucide-react'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { truncate } from 'fs'
@@ -105,7 +106,7 @@ export default function StaffTeamRolesPage() {
           return (
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                {row.original.teamId ? <TeamsIcon className="h-4 w-4 text-muted-foreground" /> : null}
+                {row.original.teamId ? <Users className="h-4 w-4 text-muted-foreground" /> : null}
                 <span className="font-semibold">{row.original.name}</span>
               </div>
               {row.original.teamId ? (
@@ -305,7 +306,13 @@ export default function StaffTeamRolesPage() {
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
-          emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{labels.table.empty}</p>}
+          emptyState={(
+            <ListEmptyState
+              entityName={labels.title}
+              createHref="/backend/staff/team-roles/create"
+              createLabel={labels.actions.add}
+            />
+          )}
           actions={(
             <Button asChild size="sm">
               <Link href="/backend/staff/team-roles/create">
@@ -411,22 +418,3 @@ function buildTeamRoleRows(items: TeamRoleApiRow[], unassignedLabel: string): Te
 
 
 
-function TeamsIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className={className}
-      aria-hidden="true"
-    >
-      <circle cx="8" cy="8" r="3" />
-      <circle cx="16" cy="8" r="3" />
-      <path d="M3 20c0-3 3-5 5-5" />
-      <path d="M21 20c0-3-3-5-5-5" />
-    </svg>
-  )
-}
