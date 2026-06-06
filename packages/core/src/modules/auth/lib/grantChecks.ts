@@ -131,10 +131,14 @@ export async function assertActorCanAccessUserTarget(input: SuperAdminUserTarget
   const isSuperAdmin = await resolveActorIsSuperAdmin(input)
   if (isSuperAdmin) return
 
+  // Match regardless of soft-delete: a soft-deleted user still belongs to its
+  // tenant, and admin flows (ACL read, delete-undo) legitimately target it. The
+  // tenant check below still blocks cross-tenant access; only genuinely-absent
+  // ids fall through to 404.
   const target = await findOneWithDecryption(
     input.em,
     User,
-    { id: input.targetUserId, deletedAt: null } as FilterQuery<User>,
+    { id: input.targetUserId } as FilterQuery<User>,
     {},
     { tenantId: null, organizationId: null },
   )
@@ -161,10 +165,12 @@ export async function assertActorCanAccessRoleTarget(input: SuperAdminRoleTarget
   const isSuperAdmin = await resolveActorIsSuperAdmin(input)
   if (isSuperAdmin) return
 
+  // Match regardless of soft-delete (see assertActorCanAccessUserTarget): the
+  // tenant check still blocks cross-tenant access.
   const target = await findOneWithDecryption(
     input.em,
     Role,
-    { id: input.targetRoleId, deletedAt: null } as FilterQuery<Role>,
+    { id: input.targetRoleId } as FilterQuery<Role>,
     {},
     { tenantId: null, organizationId: null },
   )
