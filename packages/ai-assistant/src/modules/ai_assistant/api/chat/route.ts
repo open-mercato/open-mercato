@@ -3,7 +3,6 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import {
   handleOpenCodeMessageStreaming,
-  OpenCodeSessionOwnershipError,
   type OpenCodeAuthContext,
   type OpenCodeStreamEvent,
 } from '../../lib/opencode-handlers'
@@ -264,14 +263,15 @@ export async function POST(req: NextRequest) {
         await client.answerQuestion(answerQuestion.questionId, answerQuestion.answer)
         return NextResponse.json({ success: true })
       } catch (error) {
-        if (error instanceof OpenCodeSessionOwnershipError) {
-          return NextResponse.json({ error: 'Session not available' }, { status: 403 })
-        }
+        // Fail-closed: any failure during the answerQuestion path — ownership
+        // mismatch, OpenCode unreachable, getPendingQuestions throwing,
+        // findApiKeyByOpencodeSessionId throwing — returns the same opaque
+        // 403 envelope used for ownership rejection. This matches finding #1's
+        // security intent that the answerQuestion short-circuit MUST NOT leak
+        // whether the failure was authorization vs backend connectivity vs
+        // implementation error. The real reason is captured in server logs.
         console.error('[AI Chat] Answer error:', error)
-        return NextResponse.json(
-          { error: error instanceof Error ? error.message : 'Failed to answer question' },
-          { status: 500 }
-        )
+        return NextResponse.json({ error: 'Session not available' }, { status: 403 })
       }
     }
 
