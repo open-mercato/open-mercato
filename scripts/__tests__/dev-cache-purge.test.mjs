@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import {
   GREENFIELD_PURGE_TARGETS,
@@ -205,12 +206,37 @@ test('dev wrappers own shutdown notice and suppress duplicate runtime notices', 
 })
 
 test('ephemeral dev owns warmup marker and shutdown notice', async () => {
-  const here = path.dirname(new URL(import.meta.url).pathname)
+  const here = path.dirname(fileURLToPath(import.meta.url))
   const source = fs.readFileSync(path.resolve(here, '..', 'dev-ephemeral.ts'), 'utf8')
 
   assert.match(source, /OM_DEV_WARMUP_READY_FILE: warmupReadyFilePath/)
   assert.match(source, /function announceShutdown\(\): void/)
   assert.match(source, /Shutting down services\.\.\./)
-  assert.match(source, /process\.on\('SIGINT', \(\) => forwardSignal\('SIGINT'\)\)/)
-  assert.match(source, /announceShutdown\(\)\n\s+if \(!devCommand\.killed\)/)
+
+  // Shutdown + signal coordination is delegated to the dedicated controller.
+  assert.match(source, /createEphemeralShutdownController\(/)
+  assert.match(source, /shutdownController\.installSignalHandlers\(\)/)
+
+  // Issue #2745: signal handlers must be installed before the ephemeral
+  // PostgreSQL container is created, so an interrupt during initialization
+  // still removes the container instead of leaking it.
+  const installIdx = source.indexOf('shutdownController.installSignalHandlers()')
+  const startContainerIdx = source.indexOf('await startEphemeralPostgres()')
+  assert.notEqual(installIdx, -1, 'main() must install signal handlers')
+  assert.notEqual(startContainerIdx, -1, 'main() must start the ephemeral container')
+  assert.ok(
+    installIdx < startContainerIdx,
+    'signal handlers must be installed before the ephemeral container is created (#2745)',
+  )
+
+  // Issue #2745: the dev child exit handler must be registered before readiness
+  // is awaited, so a signal-forwarded kill during that window still cleans up.
+  const exitHandlerIdx = source.indexOf("devCommand.on('exit'")
+  const readinessIdx = source.indexOf('waitForDevServerReady(loopbackUrl)')
+  assert.notEqual(exitHandlerIdx, -1, 'startDevServer must handle the dev child exit')
+  assert.notEqual(readinessIdx, -1, 'startDevServer must wait for readiness')
+  assert.ok(
+    exitHandlerIdx < readinessIdx,
+    'the dev child exit handler must be registered before waiting for readiness (#2745)',
+  )
 })
