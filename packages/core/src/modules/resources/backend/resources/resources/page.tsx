@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
@@ -503,6 +504,13 @@ export default function ResourcesResourcesPage() {
             if (row.rowKind !== 'resource') return
             router.push(`/backend/resources/resources/${encodeURIComponent(row.id)}`)
           } : undefined}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('resources.resources.page.title', 'Resources')}
+              createHref="/backend/resources/resources/create"
+              createLabel={t('resources.resources.list.actions.create', 'New resource')}
+            />
+          )}
           pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
         />

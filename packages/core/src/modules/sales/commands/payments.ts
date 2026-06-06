@@ -32,6 +32,7 @@ import {
   toNumericString,
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
@@ -252,6 +253,8 @@ async function recomputeOrderPaymentTotals(
   const scope = { organizationId: order.organizationId, tenantId: order.tenantId }
 
   if (options?.lock) {
+    // Raw findOne is intentional: this acquires a row lock only — no encrypted
+    // SalesOrder field is read, so decryption (findOneWithDecryption) is unnecessary.
     await em.findOne(SalesOrder, { id: orderId }, { lockMode: LockMode.PESSIMISTIC_WRITE })
   }
 
@@ -611,6 +614,78 @@ const createPaymentCommand: CommandHandler<
       }
     }
   },
+  redo: async ({ ctx, logEntry }) => {
+    const after = resolveRedoSnapshot<PaymentSnapshot>(logEntry)
+    const paymentId = after?.id ?? logEntry.resourceId ?? null
+    if (!after || !paymentId) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for sales.payments.create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await restorePaymentSnapshot(em, after)
+    await em.flush()
+
+    const orderIds = Array.from(
+      new Set(
+        [
+          after.orderId,
+          ...after.allocations.map((allocation) => allocation.orderId),
+        ].filter((value): value is string => typeof value === 'string' && value.length > 0)
+      )
+    )
+    let totals: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number } | undefined
+    for (const orderId of orderIds) {
+      const recomputed = await em.transactional(async (tx) => {
+        const order = await findOneWithDecryption(
+          tx,
+          SalesOrder,
+          { id: orderId },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+          { tenantId: after.tenantId, organizationId: after.organizationId },
+        )
+        if (!order) return undefined
+        if (orderId === after.orderId && after.paymentMethodId && !order.paymentMethodId) {
+          const method = await findOneWithDecryption(
+            tx,
+            SalesPaymentMethod,
+            { id: after.paymentMethodId },
+            {},
+            { tenantId: after.tenantId, organizationId: after.organizationId },
+          )
+          order.paymentMethodId = method?.id ?? after.paymentMethodId
+          order.paymentMethodCode = method?.code ?? null
+          order.updatedAt = new Date()
+          await tx.flush()
+        }
+        const result = await recomputeOrderPaymentTotals(tx, order)
+        await tx.flush()
+        return result
+      })
+      if (recomputed && (!totals || orderId === after.orderId)) {
+        totals = recomputed
+      }
+      // Raw findOne is intentional: the order is fetched only to read its id/scope
+      // for cache invalidation — no encrypted field is read, so decryption is unnecessary.
+      const target = await em.findOne(SalesOrder, { id: orderId })
+      if (target) await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)
+    }
+
+    const payment = await findOneWithDecryption(em, SalesPayment, { id: after.id }, {}, { tenantId: after.tenantId, organizationId: after.organizationId })
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: payment,
+      identifiers: {
+        id: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_payment },
+      events: paymentCrudEvents,
+    })
+
+    return { paymentId: after.id, orderTotals: totals }
+  },
 }
 
 const updatePaymentCommand: CommandHandler<
@@ -861,6 +936,8 @@ const updatePaymentCommand: CommandHandler<
         return result
       })
       if (totals) {
+        // Raw findOne is intentional: the order is fetched only to read its id/scope
+        // for cache invalidation — no encrypted field is read, so decryption is unnecessary.
         const nextOrder = await em.findOne(SalesOrder, { id: nextOrderId })
         if (nextOrder) await invalidateOrderCache(ctx.container, nextOrder, ctx.auth?.tenantId ?? null)
       }
@@ -1001,6 +1078,8 @@ const deletePaymentCommand: CommandHandler<
       if (recomputed && (!totals || (primaryOrderId && orderId === primaryOrderId))) {
         totals = recomputed
       }
+      // Raw findOne is intentional: the order is fetched only to read its id/scope
+      // for cache invalidation — no encrypted field is read, so decryption is unnecessary.
       const target = await em.findOne(SalesOrder, { id: orderId })
       if (target) await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)
     }

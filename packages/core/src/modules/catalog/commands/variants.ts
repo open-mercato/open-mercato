@@ -7,6 +7,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { resolveRedoSnapshot, restoreCreatedRow } from '@open-mercato/shared/lib/commands/redo'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -141,6 +142,31 @@ async function loadVariantSnapshot(
     updatedAt: record.updatedAt.toISOString(),
     custom: Object.keys(custom).length ? custom : null,
     prices: prices && prices.length ? prices : null,
+  }
+}
+
+function variantSeedFromSnapshot(snapshot: VariantSnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    product: snapshot.productId,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    name: snapshot.name ?? null,
+    sku: snapshot.sku ?? null,
+    barcode: snapshot.barcode ?? null,
+    statusEntryId: snapshot.statusEntryId ?? null,
+    isDefault: snapshot.isDefault,
+    isActive: snapshot.isActive,
+    weightValue: snapshot.weightValue ?? null,
+    weightUnit: snapshot.weightUnit ?? null,
+    taxRateId: snapshot.taxRateId ?? null,
+    taxRate: snapshot.taxRate ?? null,
+    dimensions: snapshot.dimensions ? cloneJson(snapshot.dimensions) : null,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    optionValues: snapshot.optionValues ? cloneJson(snapshot.optionValues) : null,
+    customFieldsetCode: snapshot.customFieldsetCode ?? null,
+    createdAt: new Date(snapshot.createdAt),
+    updatedAt: new Date(snapshot.updatedAt),
   }
 }
 
@@ -692,6 +718,66 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
         values: resetValues,
       })
     }
+  },
+  redo: async ({ ctx, logEntry }) => {
+    const after = resolveRedoSnapshot<VariantSnapshot>(logEntry)
+    if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for variant create' })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const record = await restoreCreatedRow(
+      em,
+      CatalogProductVariant,
+      after.id,
+      () => variantSeedFromSnapshot(after),
+    )
+    applyVariantSnapshot(record, after)
+    let previousDefaultVariantId: string | null = null
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          async () => {
+            if (record.isDefault) {
+              previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
+              await em.flush()
+            }
+          },
+          () => aggregateVariantMediaToProduct(em, record),
+        ],
+        { transaction: true }
+      )
+    } catch (error) {
+      await rethrowVariantUniqueConstraint(error)
+    }
+    if (after.custom && Object.keys(after.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_variant,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: after.custom,
+      })
+    }
+    await emitCatalogQueryIndexEvent(ctx, {
+      entityType: E.catalog.catalog_product_variant,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      action: 'created',
+    })
+    await emitCrudSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: variantCrudEvents,
+    })
+    return { variantId: record.id, previousDefaultVariantId }
   },
 }
 

@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
@@ -253,6 +254,13 @@ export default function DirectoryOrganizationsPage() {
                 ]}
               />
             ) : null
+          )}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('directory.organizations.list.title', 'Organizations')}
+              createHref="/backend/directory/organizations/create"
+              createLabel={t('directory.organizations.list.actions.create', 'Create')}
+            />
           )}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}

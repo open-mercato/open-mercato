@@ -25,6 +25,8 @@ import {
   type NoteCreateInput,
   type NoteUpdateInput,
 } from '../data/validators'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload } from './shared'
 
 type NoteSnapshot = {
@@ -220,6 +222,43 @@ const createNoteCommand: CommandHandler<NoteCreateInput, { noteId: string; autho
       await em.flush()
     }
   },
+  redo: makeCreateRedo<SalesNote, NoteSnapshot, NoteCreateInput, { noteId: string; authorUserId: string | null }>({
+    entityClass: SalesNote,
+    indexer: noteCrudIndexer,
+    events: noteCrudEvents,
+    findRow: ({ em, id, snapshot }) =>
+      findOneWithDecryption(
+        em,
+        SalesNote,
+        { id },
+        undefined,
+        { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+      ),
+    seedFromSnapshot: (snapshot) => ({
+      id: snapshot.id,
+      organizationId: snapshot.organizationId,
+      tenantId: snapshot.tenantId,
+      contextType: snapshot.contextType,
+      contextId: snapshot.contextId,
+      body: snapshot.body,
+      authorUserId: snapshot.authorUserId,
+      appearanceIcon: snapshot.appearanceIcon,
+      appearanceColor: snapshot.appearanceColor,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }),
+    beforeRestore: async ({ em, snapshot }) => {
+      const context = await requireContext(em, snapshot.contextType, snapshot.contextId).catch(() => null)
+      if (!context) {
+        throw new CrudHttpError(404, { error: 'sales.notes.context_not_found' })
+      }
+      return {
+        order: snapshot.orderId ? context.order ?? null : null,
+        quote: snapshot.quoteId ? context.quote ?? null : null,
+      }
+    },
+    buildResult: (entity) => ({ noteId: entity.id, authorUserId: entity.authorUserId ?? null }),
+  }),
 }
 
 const updateNoteCommand: CommandHandler<NoteUpdateInput, { noteId: string }> = {

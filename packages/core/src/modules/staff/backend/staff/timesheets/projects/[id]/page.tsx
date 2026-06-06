@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { LookupSelect } from '@open-mercato/ui/backend/inputs/LookupSelect'
@@ -13,7 +14,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
-import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { ArrowLeft, Plus, Pencil, ChevronDown, Trash2, User } from 'lucide-react'
 import Link from 'next/link'
 
@@ -75,6 +76,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const [project, setProject] = React.useState<ProjectRecord | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
 
   const [employees, setEmployees] = React.useState<EmployeeAssignment[]>([])
   const [employeesLoading, setEmployeesLoading] = React.useState(false)
@@ -118,6 +120,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     async function loadProject() {
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
         const queryParams = new URLSearchParams({ page: '1', pageSize: '1', ids: projectId! })
         const payload = await readApiResultOrThrow<ProjectResponse>(
@@ -126,7 +129,10 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
           { errorMessage: t('staff.timesheets.projects.errors.load', 'Failed to load project.') },
         )
         const record = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!record) throw new Error(t('staff.timesheets.projects.errors.notFound', 'Project not found.'))
+        if (!record) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         if (!cancelled) setProject(record)
       } catch (loadError) {
         if (!cancelled) {
@@ -302,11 +308,25 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('staff.timesheets.projects.errors.notFound', 'Project not found.')}
+            backHref={BACK_HREF}
+            backLabel={t('staff.timesheets.projects.actions.backToList', 'Back to projects')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !project) {
     return (
       <Page>
         <PageBody>
-          <ErrorMessage label={error ?? t('staff.timesheets.projects.errors.notFound', 'Project not found.')} />
+          <ErrorMessage label={error ?? t('staff.timesheets.projects.errors.load', 'Failed to load project.')} />
         </PageBody>
       </Page>
     )
@@ -355,9 +375,12 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                 <div>
                   <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.status', 'Status')}</dt>
                   <dd>
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${projectStatus === 'active' ? 'bg-green-100 text-green-800' : projectStatus === 'on_hold' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'}`}>
+                    <Badge
+                      variant={projectStatus === 'active' ? 'success' : projectStatus === 'on_hold' ? 'warning' : 'neutral'}
+                      className="capitalize"
+                    >
                       {projectStatus}
-                    </span>
+                    </Badge>
                   </dd>
                 </div>
                 {projectType ? (
@@ -447,9 +470,12 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                           </div>
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${emp.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                          <Badge
+                            variant={(emp.status ?? 'active') === 'active' ? 'success' : 'neutral'}
+                            className="capitalize"
+                          >
                             {emp.status ?? 'active'}
-                          </span>
+                          </Badge>
                           {emp.assignedStartDate ? (
                             <span className="text-xs text-muted-foreground hidden sm:inline">
                               {emp.assignedStartDate}

@@ -25,6 +25,7 @@ import {
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
@@ -347,6 +348,87 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     })
 
     await invalidateUserCache(ctx, userId)
+  },
+  // The create-undo hard-deletes the user, but the after-snapshot persists the
+  // original passwordHash (see captureUserSnapshots), so redo restores the row
+  // with the SAME id and the SAME hash — never fabricating credentials (#2506).
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<UserUndoSnapshot>(logEntry)
+    if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for user create' })
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    const emailHash = computeEmailHash(after.email)
+
+    let user = await findOneWithDecryption(em, User, { id: after.id }, {}, { tenantId: null, organizationId: null })
+    await withAtomicFlush(em, [
+      async () => {
+        if (user) {
+          user.deletedAt = null
+          user.email = after.email
+          user.emailHash = emailHash
+          user.organizationId = after.organizationId ?? null
+          user.tenantId = after.tenantId ?? null
+          user.passwordHash = after.passwordHash ?? null
+          user.name = after.name ?? null
+          user.isConfirmed = after.isConfirmed
+          await em.flush()
+        } else {
+          user = await de.createOrmEntity({
+            entity: User,
+            data: {
+              id: after.id,
+              email: after.email,
+              emailHash,
+              organizationId: after.organizationId ?? null,
+              tenantId: after.tenantId ?? null,
+              passwordHash: after.passwordHash ?? null,
+              name: after.name ?? null,
+              isConfirmed: after.isConfirmed,
+            },
+          })
+        }
+
+        if (!user) return
+
+        await em.nativeDelete(UserRole, { user: after.id })
+        await syncUserRoles(em, user, after.roles, after.tenantId)
+        await restoreUserAcls(em, user, after.acls)
+
+        if (after.custom && Object.keys(after.custom).length) {
+          const reset = buildCustomFieldResetMap(after.custom, undefined)
+          if (Object.keys(reset).length) {
+            await setCustomFieldsIfAny({
+              dataEngine: de,
+              entityId: E.auth.user,
+              recordId: after.id,
+              organizationId: after.organizationId ?? null,
+              tenantId: after.tenantId ?? null,
+              values: reset,
+              notify: false,
+            })
+          }
+        }
+      },
+    ], { transaction: true })
+
+    if (!user) throw new CrudHttpError(400, { error: '[internal] redo failed to restore user row' })
+
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: user,
+      identifiers: {
+        id: after.id,
+        organizationId: after.organizationId ?? null,
+        tenantId: after.tenantId ?? null,
+      },
+      events: userCrudEvents,
+      indexer: userCrudIndexer,
+    })
+
+    await invalidateUserCache(ctx, after.id)
+
+    return { user }
   },
 }
 

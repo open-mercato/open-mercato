@@ -232,6 +232,54 @@ describe('feature_toggles.global commands', () => {
                 indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
             }))
         })
+
+        it('redo emits created side effects for restored toggles', async () => {
+            let createCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                createCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.create')?.[0]
+            })
+
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                findOne: jest.fn().mockResolvedValue(null),
+                create: jest.fn((_ctor, data) => ({ ...data })),
+                persist: jest.fn(),
+                flush: jest.fn().mockResolvedValue(undefined),
+            }
+            const dataEngine = {
+                markOrmEntityChange: jest.fn(),
+            }
+            const container = {
+                resolve: jest.fn((token: string) => {
+                    if (token === 'em') return em
+                    if (token === 'dataEngine') return dataEngine
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
+                    return undefined
+                }),
+            }
+            const ctx: any = { container, auth: { isSuperAdmin: true, tenantId: 'tenant-1' } }
+            const snapshot = {
+                id: 'toggle-id',
+                identifier: 'qa.redo',
+                name: 'QA Redo',
+                description: null,
+                category: 'qa',
+                type: 'boolean',
+                defaultValue: true,
+            }
+
+            const result = await createCommand.redo({ logEntry: { snapshotAfter: snapshot }, ctx })
+
+            expect(result).toEqual({ toggleId: 'toggle-id' })
+            expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+                action: 'created',
+                entity: expect.objectContaining({ id: 'toggle-id', identifier: 'qa.redo' }),
+                identifiers: expect.objectContaining({ id: 'toggle-id', organizationId: null, tenantId: 'tenant-1' }),
+                indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
+            }))
+            expect(invalidateIsEnabledCacheByIdentifierTag).toHaveBeenCalledWith('qa.redo')
+        })
     })
 
     describe('updateToggleCommand', () => {

@@ -5,6 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { StaffTimeEntry, StaffTimeProject, type StaffTimeEntrySource } from '../data/entities'
 
@@ -142,6 +143,28 @@ async function loadTimeEntrySnapshot(em: EntityManager, id: string): Promise<Tim
   }
 }
 
+function timeEntrySeedFromSnapshot(snapshot: TimeEntrySnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    tenantId: snapshot.tenantId,
+    organizationId: snapshot.organizationId,
+    staffMemberId: snapshot.staffMemberId,
+    date: snapshot.date,
+    durationMinutes: snapshot.durationMinutes,
+    startedAt: snapshot.startedAt ? new Date(snapshot.startedAt) : null,
+    endedAt: snapshot.endedAt ? new Date(snapshot.endedAt) : null,
+    notes: snapshot.notes ?? null,
+    timeProjectId: snapshot.timeProjectId ?? null,
+    customerId: snapshot.customerId ?? null,
+    dealId: snapshot.dealId ?? null,
+    orderId: snapshot.orderId ?? null,
+    source: (snapshot.source ?? 'manual') as StaffTimeEntrySource,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    deletedAt: null,
+  }
+}
+
 const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEntryId: string }> = {
   id: 'staff.timesheets.time_entries.create',
   async execute(rawInput, ctx) {
@@ -248,6 +271,14 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
       })
     }
   },
+  redo: makeCreateRedo<StaffTimeEntry, TimeEntrySnapshot, StaffTimeEntryCreateInput, { timeEntryId: string }>({
+    entityClass: StaffTimeEntry,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: timeEntrySeedFromSnapshot,
+    buildResult: (entity) => ({ timeEntryId: entity.id }),
+    events: staffTimeEntryCrudEvents,
+    indexer: timeEntryCrudIndexer,
+  }),
 }
 
 const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEntryId: string }> = {

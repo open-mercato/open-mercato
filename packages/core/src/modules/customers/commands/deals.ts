@@ -9,6 +9,7 @@ import {
   normalizeAuthorUserId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -538,6 +539,73 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     await em.nativeDelete(CustomerDealCompanyLink, { deal })
     em.remove(deal)
     await em.flush()
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<DealSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for deal create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let deal = await findOneWithDecryption(em, CustomerDeal, { id: after.deal.id })
+    if (!deal) {
+      deal = em.create(CustomerDeal, {
+        id: after.deal.id,
+        organizationId: after.deal.organizationId,
+        tenantId: after.deal.tenantId,
+        title: after.deal.title,
+        description: after.deal.description,
+        status: after.deal.status,
+        pipelineStage: after.deal.pipelineStage,
+        pipelineId: after.deal.pipelineId,
+        pipelineStageId: after.deal.pipelineStageId,
+        valueAmount: after.deal.valueAmount,
+        valueCurrency: after.deal.valueCurrency,
+        probability: after.deal.probability,
+        expectedCloseAt: after.deal.expectedCloseAt,
+        ownerUserId: after.deal.ownerUserId,
+        source: after.deal.source,
+        closureOutcome: after.deal.closureOutcome,
+        lossReasonId: after.deal.lossReasonId,
+        lossNotes: after.deal.lossNotes,
+      })
+      em.persist(deal)
+    }
+    const restoredDeal = deal
+    await withAtomicFlush(em, [
+      () => syncDealPeople(em, restoredDeal, after.people),
+      () => syncDealCompanies(em, restoredDeal, after.companies),
+      () => deleteDealStageTransitions(em, restoredDeal),
+      () => restoreDealStageTransitions(em, restoredDeal, after.transitions),
+    ], { transaction: true })
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: restoredDeal,
+      identifiers: {
+        id: restoredDeal.id,
+        organizationId: restoredDeal.organizationId,
+        tenantId: restoredDeal.tenantId,
+      },
+      indexer: dealCrudIndexer,
+      events: dealCrudEvents,
+    })
+
+    const restoreValues = buildCustomFieldResetMap(after.custom, undefined)
+    if (Object.keys(restoreValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: de,
+        entityId: DEAL_ENTITY_ID,
+        recordId: restoredDeal.id,
+        organizationId: restoredDeal.organizationId,
+        tenantId: restoredDeal.tenantId,
+        values: restoreValues,
+        notify: false,
+      })
+    }
+
+    return { dealId: restoredDeal.id }
   },
 }
 

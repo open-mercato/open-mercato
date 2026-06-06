@@ -29,6 +29,7 @@ import {
   toNumericString,
 } from './shared'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 
@@ -226,6 +227,36 @@ function applyPriceSnapshot(em: EntityManager, record: CatalogProductPrice, snap
   record.endsAt = snapshot.endsAt ? new Date(snapshot.endsAt) : null
   record.createdAt = new Date(snapshot.createdAt)
   record.updatedAt = new Date(snapshot.updatedAt)
+}
+
+function priceSeedFromSnapshot(snapshot: PriceSnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    variant: snapshot.variantId ?? null,
+    product: snapshot.productId ?? null,
+    offer: snapshot.offerId ?? null,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    priceKind: snapshot.priceKindId,
+    currencyCode: snapshot.currencyCode,
+    kind: snapshot.priceKindCode || snapshot.kind,
+    minQuantity: snapshot.minQuantity,
+    maxQuantity: snapshot.maxQuantity ?? null,
+    unitPriceNet: snapshot.unitPriceNet ?? null,
+    unitPriceGross: snapshot.unitPriceGross ?? null,
+    taxRate: snapshot.taxRate ?? null,
+    taxAmount: snapshot.taxAmount ?? null,
+    channelId: snapshot.channelId ?? null,
+    userId: snapshot.userId ?? null,
+    userGroupId: snapshot.userGroupId ?? null,
+    customerId: snapshot.customerId ?? null,
+    customerGroupId: snapshot.customerGroupId ?? null,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    startsAt: snapshot.startsAt ? new Date(snapshot.startsAt) : null,
+    endsAt: snapshot.endsAt ? new Date(snapshot.endsAt) : null,
+    createdAt: new Date(snapshot.createdAt),
+    updatedAt: new Date(snapshot.updatedAt),
+  }
 }
 
 type PriceAmountInput = {
@@ -433,6 +464,25 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
       })
     }
   },
+  redo: makeCreateRedo<CatalogProductPrice, PriceSnapshot, PriceCreateInput, { priceId: string }>({
+    entityClass: CatalogProductPrice,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: priceSeedFromSnapshot,
+    buildResult: (entity) => ({ priceId: entity.id }),
+    events: priceCrudEvents,
+    afterRestore: async ({ ctx, entity, snapshot }) => {
+      if (snapshot.custom && Object.keys(snapshot.custom).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.catalog.catalog_product_price,
+          recordId: entity.id,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+          values: snapshot.custom,
+        })
+      }
+    },
+  }),
 }
 
 const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> = {

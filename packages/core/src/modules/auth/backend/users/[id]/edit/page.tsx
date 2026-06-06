@@ -65,6 +65,10 @@ type UserListResponse = {
   isSuperAdmin?: boolean
 }
 
+type RoleLookupResponse = {
+  items?: Array<{ id?: string | null; name?: string | null }>
+}
+
 type FeatureCheckResponse = {
   ok?: boolean
 }
@@ -132,6 +136,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const [customFieldValues, setCustomFieldValues] = React.useState<Record<string, unknown>>({})
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
   const [actorResolved, setActorResolved] = React.useState(false)
+  const [initialRoleOptions, setInitialRoleOptions] = React.useState<CrudFieldOption[]>([])
   const widgetEditorRef = React.useRef<WidgetVisibilityEditorHandle | null>(null)
   const [resendingInvite, setResendingInvite] = React.useState(false)
 
@@ -168,6 +173,48 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
       ? t('auth.password.requirements.help', 'Password requirements: {requirements}', { requirements: passwordRequirements })
       : undefined
   ), [passwordRequirements, t])
+
+  React.useEffect(() => {
+    if (!initialUser) {
+      setInitialRoleOptions([])
+      return
+    }
+    const roleIds = initialUser.roleIds
+      .map((roleId) => (typeof roleId === 'string' ? roleId.trim() : ''))
+      .filter((roleId) => roleId.length > 0)
+    const seedOptions = roleIds.map((roleId, index) => {
+      const label = typeof initialUser.roles[index] === 'string' && initialUser.roles[index].trim().length
+        ? initialUser.roles[index]
+        : roleId
+      return { value: roleId, label }
+    })
+    setInitialRoleOptions(seedOptions)
+    if (!roleIds.length) return
+    let cancelled = false
+    Promise.all(roleIds.map(async (roleId) => {
+      const response = await apiCall<RoleLookupResponse>(
+        `/api/auth/roles?id=${encodeURIComponent(roleId)}&page=1&pageSize=1`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      if (!response.ok || !Array.isArray(response.result?.items)) return null
+      const item = response.result.items.find((entry) => entry?.id === roleId) ?? response.result.items[0]
+      const name = typeof item?.name === 'string' && item.name.trim().length ? item.name.trim() : null
+      return name ? { value: roleId, label: name } : null
+    }))
+      .then((fetched) => {
+        if (cancelled) return
+        const byId = new Map(seedOptions.map((option) => [option.value, option]))
+        fetched.forEach((option) => {
+          if (option) byId.set(option.value, option)
+        })
+        setInitialRoleOptions(roleIds.map((roleId) => byId.get(roleId) ?? { value: roleId, label: roleId }))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [initialUser])
 
   React.useEffect(() => {
     if (!id) {
@@ -339,9 +386,15 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         )
       },
     })
-    items.push({ id: 'roles', label: t('auth.users.form.field.roles', 'Roles'), type: 'tags', loadOptions: loadRoleOptions })
+    items.push({
+      id: 'roles',
+      label: t('auth.users.form.field.roles', 'Roles'),
+      type: 'tags',
+      options: initialRoleOptions,
+      loadOptions: loadRoleOptions,
+    })
     return items
-  }, [actorIsSuperAdmin, loadRoleOptions, passwordDescription, preloadedTenants, selectedOrgId, selectedTenantId, t, userHasPassword])
+  }, [actorIsSuperAdmin, initialRoleOptions, loadRoleOptions, passwordDescription, preloadedTenants, selectedOrgId, selectedTenantId, t, userHasPassword])
 
   const detailFieldIds = React.useMemo(() => {
     const base: string[] = ['email', 'name', 'password', 'organizationId', 'roles']

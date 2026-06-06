@@ -28,7 +28,11 @@ const todoFields = [
     key: 'severity',
     kind: 'select',
     label: 'Severity',
-    options: ['low', 'medium', 'high'],
+    options: [
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High' },
+    ],
     defaultValue: 'medium',
     filterable: true,
     formEditable: true,

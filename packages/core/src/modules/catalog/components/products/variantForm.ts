@@ -22,6 +22,7 @@ export type VariantPriceDraft = {
 }
 
 export type VariantFormValues = {
+  id?: string
   name: string
   sku: string
   barcode: string
