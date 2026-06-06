@@ -5,7 +5,6 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 jest.mock('remark-gfm', () => ({ __esModule: true, default: {} }))
-jest.mock('@uiw/react-md-editor', () => ({ __esModule: true, default: () => null }))
 
 import * as React from 'react'
 import { fireEvent, screen } from '@testing-library/react'

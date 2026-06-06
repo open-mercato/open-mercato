@@ -370,7 +370,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
         id: 'description',
         label: translate('staff.teamMembers.form.fields.description', 'Description'),
         type: 'richtext',
-        editor: 'html',
+        editor: 'uiw',
       },
       {
         id: 'roleIds',

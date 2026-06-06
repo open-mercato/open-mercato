@@ -24,10 +24,23 @@ describe('heavy libraries are lazy-loaded', () => {
     expect(source).not.toMatch(/next\/dynamic/)
   })
 
-  it('CrudForm does not statically import remark-gfm', () => {
+  it('CrudForm does not statically import the heavy markdown editor', () => {
     const source = read('packages/ui/src/backend/CrudForm.tsx')
-    expect(source).not.toMatch(/^[^\n/]*import\s+[^'\n]+from\s+['"]remark-gfm['"]/m)
-    expect(source).toMatch(/import\(['"]remark-gfm['"]\)/)
+    expect(source).not.toMatch(/from\s+['"]@mdxeditor\/editor['"]/)
+    expect(source).toMatch(/from\s+['"]\.\/inputs\/MarkdownField['"]/)
+  })
+
+  it('MarkdownField lazy-loads MdxEditorImpl and does not statically import it', () => {
+    const source = read('packages/ui/src/backend/inputs/MarkdownField.tsx')
+    expect(source).not.toMatch(/^[^\n/]*import\s+[^'\n]+from\s+['"]\.\/MdxEditorImpl['"]/m)
+    expect(source).toMatch(/import\(['"]\.\/MdxEditorImpl['"]\)/)
+    expect(source).toMatch(/next\/dynamic/)
+  })
+
+  it('MdxEditorImpl owns the @mdxeditor/editor runtime import and CSS', () => {
+    const source = read('packages/ui/src/backend/inputs/MdxEditorImpl.tsx')
+    expect(source).toMatch(/from\s+['"]@mdxeditor\/editor['"]/)
+    expect(source).toMatch(/['"]@mdxeditor\/editor\/style\.css['"]/)
   })
 
   it('resources resource-types list page does not import markdown libraries', () => {
