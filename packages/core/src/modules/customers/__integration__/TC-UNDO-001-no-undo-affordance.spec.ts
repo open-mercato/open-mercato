@@ -16,14 +16,18 @@ import {
 /**
  * TC-UNDO-001 §4 — no undo affordance for non-undoable commands (#2572).
  *
- * Commands that do not expose undo must carry NO `x-om-operation` token on their mutating
+ * A command that does not support undo must carry NO `x-om-operation` token on its mutating
  * response (so the UI shows no Undo affordance):
- *   - `customers.activities.create` / `customers.todos.create` go through deprecated bridge
- *     routes (sunset 2026-06-30, #2506) that delegate to interaction commands but never emit
- *     the operation envelope. Whether the bridge is enabled (201) or retired (410), no token
- *     is issued.
  *   - `customers.pipeline-stages.delete` intentionally returns `{ ok: true }` without an
- *     operation envelope.
+ *     operation envelope — the active assertion below.
+ *
+ * The deprecated `customers.activities.create` / `customers.todos.create` bridge routes
+ * (sunset 2026-06-30, #2506) were originally expected to expose no undo affordance, but on
+ * `develop` they delegate to the UNDOABLE `customers.interactions.create` command and now
+ * surface its `x-om-operation` token via `withOperationMetadata` — i.e. they are
+ * undoable-by-delegation. Per the issue's "(or fixme until the route is retired)" guidance,
+ * the no-token expectation for those legacy surfaces is quarantined with `test.fixme` until
+ * the bridge is removed.
  *
  * Self-contained: fixtures are created via API and removed in teardown.
  */
@@ -35,7 +39,9 @@ test.describe('TC-UNDO-001 §4 non-undoable commands expose no undo token', () =
     skipIfUndoTestsDisabled()
   })
 
-  test('activities.create (deprecated bridge) emits no undo token', async ({ request }) => {
+  // FIXME(#2506): the deprecated bridge now surfaces the delegated `customers.interactions.create`
+  // undo token; flip back to an active assertion once the legacy route is retired (sunset 2026-06-30).
+  test.fixme('activities.create (deprecated bridge) emits no undo token', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     let personId: string | null = null
@@ -63,7 +69,9 @@ test.describe('TC-UNDO-001 §4 non-undoable commands expose no undo token', () =
     }
   })
 
-  test('todos.create (deprecated bridge) emits no undo token', async ({ request }) => {
+  // FIXME(#2506): the deprecated bridge now surfaces the delegated `customers.interactions.create`
+  // undo token; flip back to an active assertion once the legacy route is retired (sunset 2026-06-30).
+  test.fixme('todos.create (deprecated bridge) emits no undo token', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     let personId: string | null = null
