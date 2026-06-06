@@ -239,7 +239,7 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
       // holds a stale offer version for its delete header.
       await bumpRecordViaApi(page.request, token, OFFERS_API_BASE, {
         id: offerId,
-        title: `QA Lock 029 offer del bumped ${stamp}`,
+        description: `QA Lock 029 offer del bumped ${stamp}`,
       })
 
       // Open the RowActions menu by CLICKING the kebab "Open actions" trigger and

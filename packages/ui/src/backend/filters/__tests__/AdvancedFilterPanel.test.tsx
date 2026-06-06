@@ -209,4 +209,34 @@ describe('AdvancedFilterPanel', () => {
     }))
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
+
+  it('closes and flushes the panel when Escape is pressed after manual filter editing', () => {
+    const onOpenChange = jest.fn()
+    const onFlush = jest.fn()
+    const tree = { root: { id: 'r', type: 'group' as const, combinator: 'and' as const, children: [
+      { id: 'a', type: 'rule' as const, field: 'name', operator: 'contains' as const, value: 'Alice' } as any,
+    ] } }
+
+    render(
+      <AdvancedFilterPanel
+        fields={fields}
+        value={tree}
+        onChange={() => {}}
+        onApply={() => {}}
+        onClear={() => {}}
+        onFlush={onFlush}
+        pendingErrors={[]}
+        userId="u1"
+        presets={[]}
+        open
+        onOpenChange={onOpenChange}
+        triggerRef={{ current: null }}
+      />,
+    )
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(onFlush).toHaveBeenCalledTimes(1)
+  })
 })

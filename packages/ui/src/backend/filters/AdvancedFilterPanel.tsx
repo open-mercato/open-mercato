@@ -295,6 +295,19 @@ export function AdvancedFilterPanel(props: AdvancedFilterPanelProps) {
     props.onOpenChange(false)
   }
 
+  const { onFlush, onOpenChange, open } = props
+
+  React.useEffect(() => {
+    if (!open || pickerOpen || saveDialogOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      onOpenChange(false)
+      onFlush?.()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onFlush, onOpenChange, open, pickerOpen, saveDialogOpen])
+
   React.useEffect(() => {
     if (!savedFilterStorageKey) {
       setSavedFilters([])
