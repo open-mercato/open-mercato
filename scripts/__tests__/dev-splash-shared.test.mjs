@@ -5,6 +5,7 @@ import {
   assertLocalSplashRequest,
   isAcceptableSplashOrigin,
   isLocalSplashHost,
+  resolveAllowedSplashHosts,
   resolveSplashBindHost,
 } from '../dev-splash-shared.mjs'
 
@@ -65,7 +66,7 @@ test('assertLocalSplashRequest returns 403 for foreign Host', () => {
   })
   assert.equal(result.ok, false)
   assert.equal(result.status, 403)
-  assert.match(result.error, /local development host/)
+  assert.match(result.error, /loopback host or an entry in ALLOWED_ORIGINS/)
 })
 
 test('assertLocalSplashRequest returns 403 for foreign Origin even with local Host', () => {
@@ -146,4 +147,92 @@ test('resolveSplashBindHost falls back to loopback with a warning when the overr
   assert.equal(resolveSplashBindHost({ OM_DEV_SPLASH_BIND: 'garbage' }, logger), '127.0.0.1')
   assert.equal(logger.warnings.length, 1)
   assert.match(logger.warnings[0], /Unrecognized OM_DEV_SPLASH_BIND/)
+})
+
+// --- ALLOWED_ORIGINS (Next.js-style allowlist for sandbox/preview hosts) ---
+
+test('resolveAllowedSplashHosts always includes loopback names', () => {
+  const allowed = resolveAllowedSplashHosts({})
+  assert.equal(allowed.has('localhost'), true)
+  assert.equal(allowed.has('127.0.0.1'), true)
+  assert.equal(allowed.has('::1'), true)
+  assert.equal(allowed.has('[::1]'), true)
+})
+
+test('resolveAllowedSplashHosts extends with bare hostnames from ALLOWED_ORIGINS', () => {
+  const allowed = resolveAllowedSplashHosts({
+    ALLOWED_ORIGINS: 'sandbox.example.com, preview.example.com',
+  })
+  assert.equal(allowed.has('sandbox.example.com'), true)
+  assert.equal(allowed.has('preview.example.com'), true)
+})
+
+test('resolveAllowedSplashHosts extracts hostnames from full origin URLs', () => {
+  const allowed = resolveAllowedSplashHosts({
+    ALLOWED_ORIGINS: 'https://sandbox.example.com:4000,http://preview.example.com',
+  })
+  assert.equal(allowed.has('sandbox.example.com'), true)
+  assert.equal(allowed.has('preview.example.com'), true)
+})
+
+test('resolveAllowedSplashHosts strips ports from host:port entries', () => {
+  const allowed = resolveAllowedSplashHosts({
+    ALLOWED_ORIGINS: 'sandbox.example.com:4000,foo.example:8080',
+  })
+  assert.equal(allowed.has('sandbox.example.com'), true)
+  assert.equal(allowed.has('foo.example'), true)
+})
+
+test('resolveAllowedSplashHosts is case-insensitive and tolerates whitespace', () => {
+  const allowed = resolveAllowedSplashHosts({
+    ALLOWED_ORIGINS: '  HTTPS://Sandbox.Example.Com:4000  ,  ,  Preview.Example.Com  ',
+  })
+  assert.equal(allowed.has('sandbox.example.com'), true)
+  assert.equal(allowed.has('preview.example.com'), true)
+})
+
+test('isLocalSplashHost honours ALLOWED_ORIGINS entries', () => {
+  const env = { ALLOWED_ORIGINS: 'sandbox.example.com' }
+  assert.equal(isLocalSplashHost('sandbox.example.com:4000', env), true)
+  assert.equal(isLocalSplashHost('sandbox.example.com', env), true)
+  assert.equal(isLocalSplashHost('evil.example', env), false)
+  // Loopback still accepted alongside the env allowlist.
+  assert.equal(isLocalSplashHost('localhost:4000', env), true)
+})
+
+test('isAcceptableSplashOrigin honours ALLOWED_ORIGINS entries', () => {
+  const env = { ALLOWED_ORIGINS: 'https://sandbox.example.com:4000' }
+  assert.equal(isAcceptableSplashOrigin('https://sandbox.example.com:4000', env), true)
+  assert.equal(isAcceptableSplashOrigin('https://evil.example', env), false)
+  assert.equal(isAcceptableSplashOrigin('http://localhost:4000', env), true)
+})
+
+test('assertLocalSplashRequest accepts sandbox host when listed in ALLOWED_ORIGINS', () => {
+  const env = { ALLOWED_ORIGINS: 'sandbox.example.com' }
+  const result = assertLocalSplashRequest({
+    headers: {
+      host: 'sandbox.example.com:4000',
+      origin: 'https://sandbox.example.com:4000',
+    },
+  }, env)
+  assert.equal(result.ok, true)
+})
+
+test('assertLocalSplashRequest rejects unlisted public host even with matching origin', () => {
+  const env = { ALLOWED_ORIGINS: 'sandbox.example.com' }
+  const result = assertLocalSplashRequest({
+    headers: {
+      host: 'evil.example',
+      origin: 'https://evil.example',
+    },
+  }, env)
+  assert.equal(result.ok, false)
+  assert.equal(result.status, 403)
+})
+
+test('resolveAllowedSplashHosts handles bracketed IPv6 origin entries', () => {
+  const allowed = resolveAllowedSplashHosts({
+    ALLOWED_ORIGINS: 'http://[2001:db8::1]:4000',
+  })
+  assert.equal(allowed.has('[2001:db8::1]'), true)
 })

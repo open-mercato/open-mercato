@@ -366,4 +366,78 @@ describe('attachment partitions API — tenant scoping', () => {
     )
     expect(res.status).toBe(401)
   })
+
+  // Fresh-install / demo-mode invariant (#2635 review): when the database has
+  // ONLY the platform-default partition (tenant_id IS NULL, never per-tenant
+  // seeded), the route must:
+  //   - show the default to any authenticated tenant user on GET,
+  //   - block tenant admins from PUT/DELETE-ing the platform default (404),
+  //   - allow superadmin to PUT/DELETE the platform default.
+  // No data migration or per-tenant seeding is required for the default to
+  // remain reachable.
+  describe('fresh install — only platform-default partitions exist', () => {
+    beforeEach(() => {
+      store.partitions = [
+        {
+          id: '11111111-1111-4111-8111-111111111111',
+          code: 'privateAttachments',
+          title: 'Platform Private',
+          storageDriver: 'local',
+          isPublic: false,
+          requiresOcr: true,
+          tenantId: null,
+          organizationId: null,
+          createdAt: new Date('2025-01-01'),
+          updatedAt: new Date('2025-01-01'),
+        },
+      ]
+      store.attachments = []
+    })
+
+    it('tenant user sees the platform default on GET', async () => {
+      const { GET } = await loadHandlers()
+      const res = await GET(buildRequest('GET', null))
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.items.map((it: any) => it.code)).toEqual(['privateAttachments'])
+    })
+
+    it('tenant admin cannot PUT the platform default (404, row unchanged)', async () => {
+      const { PUT } = await loadHandlers()
+      const res = await PUT(
+        buildRequest('PUT', {
+          id: '11111111-1111-4111-8111-111111111111',
+          code: 'privateAttachments',
+          title: 'Hijacked Default',
+        }),
+      )
+      expect(res.status).toBe(404)
+      const row = store.partitions.find((p) => p.id === '11111111-1111-4111-8111-111111111111')!
+      expect(row.title).toBe('Platform Private')
+    })
+
+    it('tenant admin cannot DELETE the platform default', async () => {
+      const { DELETE: del } = await loadHandlers()
+      const res = await del(buildRequest('DELETE', null, '?id=11111111-1111-4111-8111-111111111111'))
+      // Either 404 (cross-tenant mask) or 400 (default-code allowlist) is
+      // acceptable security-wise; both fail-closed and prove the row stays.
+      expect([400, 404]).toContain(res.status)
+      expect(store.partitions.some((p) => p.id === '11111111-1111-4111-8111-111111111111')).toBe(true)
+    })
+
+    it('superadmin can PUT the platform default', async () => {
+      currentAuth = { sub: 'root', tenantId: 'tenantA', orgId: 'orgA', isSuperAdmin: true }
+      const { PUT } = await loadHandlers()
+      const res = await PUT(
+        buildRequest('PUT', {
+          id: '11111111-1111-4111-8111-111111111111',
+          code: 'privateAttachments',
+          title: 'Operator-updated default',
+        }),
+      )
+      expect(res.status).toBe(200)
+      const row = store.partitions.find((p) => p.id === '11111111-1111-4111-8111-111111111111')!
+      expect(row.title).toBe('Operator-updated default')
+    })
+  })
 })

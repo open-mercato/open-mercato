@@ -63,7 +63,7 @@ test('coding flow handleRequest rejects POST with foreign Host even with valid t
   assert.equal(handled, true)
   assert.equal(res.statusCode, 403)
   const payload = JSON.parse(res.body)
-  assert.match(payload.error, /local development host/)
+  assert.match(payload.error, /loopback host or an entry in ALLOWED_ORIGINS/)
 })
 
 test('coding flow handleRequest rejects POST with foreign Origin even with valid token', async () => {

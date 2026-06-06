@@ -79,7 +79,7 @@ test('handleRequest rejects POST when Host header is foreign even with valid act
   assert.equal(res.statusCode, 403)
   const payload = JSON.parse(res.body)
   assert.equal(payload.ok, false)
-  assert.match(payload.error, /local development host/)
+  assert.match(payload.error, /loopback host or an entry in ALLOWED_ORIGINS/)
   assert.equal(runCommandCalled, false, 'mutating commands must not run when Host is foreign')
   assert.ok(typeof validToken === 'string' && validToken.length > 0)
 })

@@ -1,4 +1,4 @@
-const LOCAL_HOST_NAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
+const LOCAL_HOST_NAMES = ['localhost', '127.0.0.1', '::1', '[::1]']
 
 function parseHostHeader(value) {
   if (typeof value !== 'string') return null
@@ -14,16 +14,69 @@ function parseHostHeader(value) {
   return host.toLowerCase()
 }
 
-export function isLocalSplashHost(value) {
+// Extract a port-less hostname from an allowlist entry. Accepts a full origin
+// (`https://foo.example:4000`), a host:port (`foo.example:4000`), or a bare
+// hostname (`foo.example`). Returns the hostname lowercased, or null when the
+// entry cannot be parsed.
+function extractHostFromAllowlistEntry(entry) {
+  if (typeof entry !== 'string') return null
+  const trimmed = entry.trim()
+  if (!trimmed) return null
+  try {
+    const url = new URL(trimmed)
+    // `url.hostname` is port-less ("foo.example" or "[::1]"). `url.host`
+    // would include the port and would not match parseHostHeader's output.
+    const hostname = url.hostname?.toLowerCase()
+    if (hostname) {
+      // URL strips IPv6 brackets from hostname; normalize back so it matches
+      // the bracketed form that parseHostHeader produces from a Host header.
+      return hostname.includes(':') && !hostname.startsWith('[')
+        ? `[${hostname}]`
+        : hostname
+    }
+  } catch {
+    // Not a valid URL — fall through to host:port parsing.
+  }
+  return parseHostHeader(trimmed)
+}
+
+// Parses an ALLOWED_ORIGINS-style env value (Next.js convention,
+// comma-separated origins/hosts). Each entry is reduced to a port-less
+// hostname so comparison stays consistent with `parseHostHeader` output.
+function parseAllowedOriginsEnv(envValue) {
+  if (typeof envValue !== 'string') return []
+  return envValue
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map(extractHostFromAllowlistEntry)
+    .filter(Boolean)
+}
+
+// Resolves the effective allowed-host set. Always includes loopback names;
+// extends with hosts from the `ALLOWED_ORIGINS` env var (Next.js convention).
+// Sandbox / preview / dev-container deployments add their public hostname
+// there to be accepted by the splash action guard without bypassing the
+// DNS-rebinding defense.
+export function resolveAllowedSplashHosts(env = process.env) {
+  const allowed = new Set(LOCAL_HOST_NAMES)
+  for (const host of parseAllowedOriginsEnv(env?.ALLOWED_ORIGINS)) {
+    allowed.add(host)
+  }
+  return allowed
+}
+
+export function isLocalSplashHost(value, env = process.env) {
   const host = parseHostHeader(value)
   if (!host) return false
-  return LOCAL_HOST_NAMES.has(host)
+  return resolveAllowedSplashHosts(env).has(host)
 }
 
 // Missing/empty Origin is acceptable (non-browser CLIs do not always send one).
 // Literal `"null"` is the sentinel browsers send from sandboxed iframes / opaque
-// origins, so it must be rejected. Parsable origins must resolve to a local host.
-export function isAcceptableSplashOrigin(originHeader) {
+// origins, so it must be rejected. Parsable origins must resolve to either a
+// loopback host or an entry on the `ALLOWED_ORIGINS` allowlist.
+export function isAcceptableSplashOrigin(originHeader, env = process.env) {
   if (originHeader == null) return true
   const trimmed = String(originHeader).trim()
   if (trimmed === '') return true
@@ -34,19 +87,19 @@ export function isAcceptableSplashOrigin(originHeader) {
   } catch {
     return false
   }
-  return isLocalSplashHost(parsed.host)
+  return isLocalSplashHost(parsed.host, env)
 }
 
-export function assertLocalSplashRequest(req) {
+export function assertLocalSplashRequest(req, env = process.env) {
   const headers = req?.headers ?? {}
-  if (!isLocalSplashHost(headers.host)) {
+  if (!isLocalSplashHost(headers.host, env)) {
     return {
       ok: false,
       status: 403,
-      error: 'Splash actions are only accessible from the local development host.',
+      error: 'Splash actions are only accessible from a loopback host or an entry in ALLOWED_ORIGINS.',
     }
   }
-  if (!isAcceptableSplashOrigin(headers.origin)) {
+  if (!isAcceptableSplashOrigin(headers.origin, env)) {
     return {
       ok: false,
       status: 403,
