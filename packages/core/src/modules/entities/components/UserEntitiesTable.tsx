@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable, RowActions, Button } from '@open-mercato/ui'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -107,6 +108,13 @@ export default function UserEntitiesTable() {
       sorting={sorting}
       onSortingChange={setSorting}
       perspective={{ tableId: 'entities.user.list' }}
+      emptyState={(
+        <ListEmptyState
+          entityName={t('entities.user.table.title', 'User Entities')}
+          createHref="/backend/entities/user/create"
+          createLabel={t('common.create', 'Create')}
+        />
+      )}
       rowActions={(row) => (
         <RowActions
           items={[

@@ -2165,6 +2165,60 @@ Title type scale: `text-sm` for `sm` / `default`, `text-base` for `lg`. Descript
 
 ---
 
+## Empty-state decision guide
+
+The DS standardizes empty/not-found/no-access states (issue #772). Pick the component by **why** the view is empty:
+
+| Situation | Component | Import |
+|---|---|---|
+| List has **no records yet** (no search/filter) | `ListEmptyState` | `@open-mercato/ui/backend/filters/ListEmptyState` |
+| List has **no results after a search** | `SearchEmptyResults` (auto-rendered by `DataTable`) | `@open-mercato/ui/backend/filters/SearchEmptyResults` |
+| List has **no results after filters** | `FilteredEmptyResults` (auto-rendered by `DataTable` via `filterAwareEmptyState`) | `@open-mercato/ui/backend/filters/FilteredEmptyResults` |
+| **Record not found** on a detail/edit page | `RecordNotFoundState` | `@open-mercato/ui/backend/detail` |
+| **No access** (forbidden) | `AccessDeniedMessage` | `@open-mercato/ui/backend/detail` |
+| A **section/tab** is empty but healthy | `TabEmptyState` | `@open-mercato/ui/backend/detail` |
+| Low-level building block for any of the above | `EmptyState` | `@open-mercato/ui/primitives/empty-state` |
+
+`DataTable` resolves its empty branch automatically in this order: **active filters → active search → custom `emptyState` node → standardized default**. So a list only needs to pass `emptyState={<ListEmptyState …/>}` for the zero-records case; search/filter states are handled for you.
+
+## ListEmptyState
+
+```typescript
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+```
+
+Standardized **zero-records** empty state for list views — pass it to a `DataTable`'s `emptyState` prop. Renders a neutral icon, a generated title (`No {entity} yet`), a short description, and a primary "create" action.
+
+```tsx
+<DataTable
+  emptyState={(
+    <ListEmptyState
+      entityName={t('customers.companies.entityPlural', 'companies')}
+      createHref="/backend/customers/companies/create"
+      createLabel={t('customers.companies.list.actions.new')}
+    />
+  )}
+  // …
+/>
+```
+
+### Props
+
+| Prop | Type | Notes |
+|---|---|---|
+| `entityName` | `string` | Plural label; builds the default title `No {entity} yet`. Falls back to a generic word. |
+| `title` / `description` | `string` | Override the generated copy. |
+| `createHref` | `string` | Renders a primary "create" **link** (real `<a>`). |
+| `onCreate` | `() => void` | Renders a primary "create" **button** (for dialog-based create). |
+| `createLabel` | `string` | Label for the create action (defaults to a generic "Create"). |
+| `icon` | `React.ReactNode` | Optional leading icon (defaults to a neutral inbox glyph). |
+
+### MUST rules
+
+- Reuse the list's **existing** create href + label + entity/title i18n keys — do not invent new copy per list.
+- Omit `createHref`/`onCreate` for lists with no create flow (read-only/log/run/embedded sub-tables); `DataTable`'s standardized default already covers them — do NOT force a dead "Create" CTA.
+- Use `onCreate` (not `createHref`) when the list creates via a dialog.
+
 ## RecordNotFoundState
 
 ```typescript
