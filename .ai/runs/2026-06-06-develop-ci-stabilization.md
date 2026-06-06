@@ -22,6 +22,7 @@ Stabilize the latest `develop` branch feeding release PR #2425 by fixing the cur
 ## Resume Notes
 
 - Branch: `fix/ci-2425-develop-stabilization`.
+- PR: #2657 (`https://github.com/open-mercato/open-mercato/pull/2657`).
 - Targeted ephemeral app used for verification: `http://127.0.0.1:55343`, DB port `55147`.
 - Next required proof: run two independent full `yarn test:integration:coverage --no-reuse-env --retries=0` rounds from this branch after rebasing/merging the newest `origin/develop`.
 - If another failure appears, inspect Playwright artifacts in `.ai/qa/test-results/` and fix root cause before counting either full round.
@@ -44,6 +45,6 @@ Stabilize the latest `develop` branch feeding release PR #2425 by fixing the cur
 
 ### Phase 3: GitHub CI
 
-- [ ] 3.1 Open stabilization PR against develop
+- [x] 3.1 Open stabilization PR against develop
 - [ ] 3.2 Confirm GitHub CI green on stabilization PR
 - [ ] 3.3 Confirm release PR #2425 / develop CI green
