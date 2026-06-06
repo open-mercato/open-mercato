@@ -47,4 +47,3 @@ export function resolveRailwayToken(input: {
   if (cached) return { token: cached, source: 'cache' }
   return { token: null, source: null }
 }
-

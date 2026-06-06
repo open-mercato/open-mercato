@@ -43,4 +43,3 @@ export function saveRailwayState(path: string, state: RailwayState): void {
   writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 })
   renameSync(temporaryPath, path)
 }
-

@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import test from 'node:test'
 
 const templateRoot = resolve(import.meta.dirname, '../../template')
+const templateSyncScript = resolve(import.meta.dirname, '../../../../scripts/template-sync.ts')
 
 test('standalone template keeps app and worker Railway deploy contracts separate', () => {
   const appConfig = readFileSync(resolve(templateRoot, 'railway.toml'), 'utf8')
@@ -34,4 +35,11 @@ test('standalone template excludes deployment secrets from local Railway uploads
   ]) {
     assert.match(ignore, new RegExp(requiredEntry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+})
+
+test('template sync preserves Railway-only healthcheck routes', () => {
+  const source = readFileSync(templateSyncScript, 'utf8')
+
+  assert.match(source, /app\/api\/healthz\/route\.ts/)
+  assert.match(source, /app\/api\/healthz\/__tests__\/route\.test\.ts/)
 })
