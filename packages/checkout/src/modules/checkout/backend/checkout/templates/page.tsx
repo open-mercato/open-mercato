@@ -10,6 +10,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type TemplateRow = {
   id: string
@@ -128,6 +129,13 @@ export default function CheckoutTemplatesPage() {
                 {t('checkout.admin.templates.actions.create')}
               </Link>
             </Button>
+          )}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('checkout.admin.templates.title')}
+              createHref="/backend/checkout/templates/create"
+              createLabel={t('checkout.admin.templates.actions.create')}
+            />
           )}
           rowActions={(row) => (
             <RowActions items={[

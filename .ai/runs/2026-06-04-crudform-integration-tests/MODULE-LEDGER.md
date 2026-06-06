@@ -16,11 +16,11 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
 |-------|--------|---------|-------------------|--------|----|--------|
 | A1 | resources | core | resource (CF text/number/select/boolean), resource-type · capacityUnit dict deferred (example-seeded) | feat/crudform-tests-resources | #2551 | 🔵 PR open (stacked on #2548) |
 | A2 | staff | core | team-member (role_ids/tags multiselect + 6-kind CF), team, team-role, timesheet-project | feat/crudform-tests-staff | #2553 | 🔵 PR open (stacked on #2548) |
-| A3 | catalog | core | product (multichoice CF), variant (prices), category | `feat/crudform-tests-catalog` | — | ⬜ |
+| A3 | catalog | core | product (multichoice CF), variant (prices), category | feat/2555-crudform-tests-catalog | — | 🔵 specs ready (TC-CAT-CRUDFORM-001..003, #2555); off develop (#2548 merged); PR pending |
 | A4 | customers | core | person/company/deal (inline + CF + dictionary) | `feat/crudform-tests-customers` | — | ⬜ |
 | A5 | currencies | core | currency (scalars), exchange-rate | feat/crudform-integration-tests | #2548 | 🔵 currency covered in foundation PR #2548 |
 | A6 | auth | core | user (roles[] + CF + ACL), role (CF + ACL) | `feat/crudform-tests-auth` | — | ⬜ |
-| A7 | sales | core | channel (CF), channel-offer | `feat/crudform-tests-sales` | — | ⬜ |
+| A7 | sales | core | channel (CF + multi-select), channel-offer | feat/crudform-tests-sales | #2558 | 🔵 specs written; PR pending |
 | A8 | workflows | core | definition (metadata.* dot-path — see #2503) | feat/crudform-tests-workflows | — | 🔵 PR open (#2559; TC-WF-CRUDFORM-001, complements TC-WF-014) |
 
 ## Tier B — hand-written / non-makeCrud saves
@@ -28,7 +28,7 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
 | Order | Module | Package | Surfaces | Branch | PR | Status |
 |-------|--------|---------|----------|--------|----|--------|
 | B1 | business_rules | core | rule, rule-set (+members[]) | `feat/crudform-tests-business-rules` | — | ⬜ |
-| B2 | integrations | core | credentials (secret/text/select round-trip) | `feat/crudform-tests-integrations` | — | ⬜ |
+| B2 | integrations | core | credentials (secret/text/select round-trip) | feat/crudform-tests-integrations | — | ⬜ spec implemented (#2561, TC-INTEG-CRUDFORM-001); open PR → 🔵 |
 | B3 | customer_accounts | core | customer-role (+portal perms), customer-user | `feat/crudform-tests-customer-accounts` | — | ⬜ |
 | B4 | planner | core | availability-ruleset | `feat/crudform-tests-planner` | — | ⬜ |
 | B5 | webhooks | webhooks | webhook (events multiselect + headers JSON) | `feat/crudform-tests-webhooks` | — | ⬜ |
@@ -42,7 +42,7 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
 | C1 | directory | core | organization, tenant | — | — | ⏭️ covered by #2539 (TC-DIR-006..012) |
 | C2 | feature_toggles | core | global toggle (superadmin) | `feat/crudform-tests-feature-toggles` | — | ⬜ |
 | C3 | api_keys | core | api-key | `feat/crudform-tests-api-keys` | — | ⬜ |
-| C4 | dictionaries | core | dictionary entry | `feat/crudform-tests-dictionaries` | — | ⬜ |
+| C4 | dictionaries | core | dictionary entry (scalars: value/label/color/icon/position/isDefault) | feat/2569-dictionaries-crudform | #2569 | 🔵 spec staged (inline round-trip — entry routes are PATCH + path-param, runCrudFormRoundTrip N/A) |
 | C5 | communication_channels | core | channel | `feat/crudform-tests-comm-channels` | — | ⬜ |
 
 ## Notes

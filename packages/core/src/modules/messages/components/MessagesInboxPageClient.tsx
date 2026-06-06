@@ -8,6 +8,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -451,6 +452,13 @@ export function MessagesInboxPageClient() {
         onRowClick={(row) => {
           router.push(`/backend/messages/${row.id}`)
         }}
+        emptyState={(
+          <ListEmptyState
+            entityName={t('messages.title', 'Messages')}
+            createHref="/backend/messages/compose"
+            createLabel={t('messages.compose', 'Compose message')}
+          />
+        )}
         embedded
       />
       {ConfirmDialogElement}
