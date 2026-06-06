@@ -94,6 +94,25 @@ function buildRequest(body: Record<string, unknown>): any {
   }
 }
 
+// The chat route writes SSE chunks into a TransformStream and runs the
+// streaming handler in a background IIFE. Without a reader the writes
+// backpressure indefinitely and the IIFE never reaches
+// `handleOpenCodeMessageStreaming`. Draining the response lets the IIFE
+// progress to completion so the test can inspect mock calls.
+async function drainSseResponse(res: any): Promise<void> {
+  const body = res && typeof res === 'object' ? (res as any).body : null
+  if (!body || typeof body.getReader !== 'function') return
+  const reader = body.getReader()
+  try {
+    while (true) {
+      const { done } = await reader.read()
+      if (done) return
+    }
+  } finally {
+    try { reader.releaseLock() } catch {}
+  }
+}
+
 function aliceOwnerRow() {
   return {
     id: 'api-key-1',
@@ -238,9 +257,9 @@ describe('chat route — streaming branch wires auth + em through to the handler
     )
 
     // The streaming branch returns a Response immediately and runs the
-    // handler in the background. Give the microtask queue a tick so the
-    // background IIFE inside the route can reach the handler call.
-    await new Promise((resolve) => setImmediate(resolve))
+    // handler in a background IIFE that writes SSE chunks. Drain the
+    // response stream so writes resolve and the IIFE runs to completion.
+    await drainSseResponse(res)
 
     expect(res).toBeDefined()
     expect(mockHandleOpenCodeMessageStreaming).toHaveBeenCalled()
@@ -264,14 +283,15 @@ describe('chat route — post-`done` binding wiring', () => {
       await onEvent({ type: 'done', sessionId: 'ses_fresh' })
     })
 
-    await POST(
+    const res = await POST(
       buildRequest({
         messages: [{ role: 'user', content: 'hello' }],
       })
     )
 
-    // Allow the background IIFE to flush.
-    await new Promise((resolve) => setImmediate(resolve))
+    // Drain so the background IIFE writes resolve and it reaches the
+    // `done` event + binding step.
+    await drainSseResponse(res)
 
     expect(mockGenerateSessionToken).toHaveBeenCalled()
     expect(mockBindOpencodeSessionToApiKey).toHaveBeenCalledWith(
@@ -286,14 +306,14 @@ describe('chat route — post-`done` binding wiring', () => {
       await onEvent({ type: 'done', sessionId: 'ses_alice' })
     })
 
-    await POST(
+    const res = await POST(
       buildRequest({
         messages: [{ role: 'user', content: 'hello' }],
         sessionId: 'ses_alice',
       })
     )
 
-    await new Promise((resolve) => setImmediate(resolve))
+    await drainSseResponse(res)
 
     expect(mockGenerateSessionToken).not.toHaveBeenCalled()
     expect(mockBindOpencodeSessionToApiKey).not.toHaveBeenCalled()
