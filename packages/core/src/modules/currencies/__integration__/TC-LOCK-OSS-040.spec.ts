@@ -4,6 +4,7 @@ import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/he
 import {
   createCurrencyFixture,
   deleteCurrenciesEntityIfExists,
+  generateUniqueCurrencyCode,
 } from '@open-mercato/core/modules/core/__integration__/helpers/currenciesFixtures'
 import {
   bumpRecordViaApi,
@@ -25,12 +26,7 @@ import { fillControlledInput } from '@open-mercato/core/modules/core/__integrati
  * `packages/core/src/modules/sales/__integration__/__concurrent_edit_pattern.md`.
  */
 
-function randomCode(): string {
-  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-  let out = ''
-  for (let i = 0; i < 3; i += 1) out += letters[Math.floor(Math.random() * letters.length)]
-  return out
-}
+const randomCode = generateUniqueCurrencyCode
 
 test.describe('TC-LOCK-OSS-040: currency edit optimistic-lock conflict bar', () => {
   test('stale currency edit shows the conflict bar; clean edit does not', async ({ page }) => {

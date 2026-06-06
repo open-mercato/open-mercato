@@ -6,6 +6,14 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 
 type Descriptor = {
   providerKey: string
@@ -31,6 +39,19 @@ export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
   const t = useT()
   const [descriptor, setDescriptor] = React.useState<Descriptor | null>(null)
 
+  const patchSetting = React.useCallback(
+    (fieldKey: string, nextValue: unknown) => {
+      const next = { ...(value ?? {}) }
+      if (nextValue === undefined || nextValue === null || nextValue === '') {
+        delete next[fieldKey]
+      } else {
+        next[fieldKey] = nextValue
+      }
+      onChange(next)
+    },
+    [onChange, value],
+  )
+
   const toggleMultiselectValue = React.useCallback(
     (fieldKey: string, optionValue: string) => {
       const current = Array.isArray(value?.[fieldKey])
@@ -39,9 +60,9 @@ export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
       const next = current.includes(optionValue)
         ? current.filter((entry) => entry !== optionValue)
         : [...current, optionValue]
-      onChange({ ...(value ?? {}), [fieldKey]: next })
+      patchSetting(fieldKey, next.length ? next : undefined)
     },
-    [onChange, value],
+    [patchSetting, value],
   )
 
   React.useEffect(() => {
@@ -88,16 +109,19 @@ export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
           <div key={field.key} className="space-y-2 rounded-lg border border-border/70 bg-muted/30 p-3">
             <Label>{field.label}</Label>
             {field.type === 'select' ? (
-              <select
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+              <Select
                 value={typeof currentValue === 'string' ? currentValue : ''}
-                onChange={(event) => onChange({ ...(value ?? {}), [field.key]: event.target.value })}
+                onValueChange={(next) => patchSetting(field.key, next)}
               >
-                <option value="">{t('checkout.gatewaySettings.selectPlaceholder')}</option>
-                {(field.options ?? []).map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
+                <SelectTrigger>
+                  <SelectValue placeholder={t('checkout.gatewaySettings.selectPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {(field.options ?? []).map((option) => (
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             ) : field.type === 'multiselect' ? (
               <div className="grid gap-2 sm:grid-cols-2">
                 {(field.options ?? []).map((option) => {
@@ -110,10 +134,9 @@ export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
                       key={option.value}
                       className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm"
                     >
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={checked}
-                        onChange={() => toggleMultiselectValue(field.key, option.value)}
+                        onCheckedChange={() => toggleMultiselectValue(field.key, option.value)}
                       />
                       <span>{option.label}</span>
                     </label>
@@ -122,23 +145,22 @@ export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
               </div>
             ) : field.type === 'boolean' ? (
               <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={currentValue === true}
-                  onChange={(event) => onChange({ ...(value ?? {}), [field.key]: event.target.checked })}
+                  onCheckedChange={(next) => patchSetting(field.key, next === true)}
                 />
                 {t('checkout.common.enabled')}
               </label>
             ) : field.type === 'textarea' ? (
               <Textarea
                 value={typeof currentValue === 'string' ? currentValue : ''}
-                onChange={(event) => onChange({ ...(value ?? {}), [field.key]: event.target.value })}
+                onChange={(event) => patchSetting(field.key, event.target.value)}
               />
             ) : (
               <Input
                 type={field.type === 'number' ? 'number' : field.type === 'secret' ? 'password' : 'text'}
                 value={typeof currentValue === 'string' || typeof currentValue === 'number' ? `${currentValue}` : ''}
-                onChange={(event) => onChange({ ...(value ?? {}), [field.key]: event.target.value })}
+                onChange={(event) => patchSetting(field.key, event.target.value)}
               />
             )}
             {field.description ? <p className="text-xs text-muted-foreground">{field.description}</p> : null}

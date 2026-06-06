@@ -19,6 +19,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 
 type UserRow = {
@@ -546,6 +547,13 @@ export default function CustomerAccountsPage() {
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
           perspective={{ tableId: 'customer_accounts.admin.users' }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('customer_accounts.admin.title', 'Users')}
+              onCreate={() => setCreateDialogOpen(true)}
+              createLabel={t('customer_accounts.admin.actions.createUser', 'Create User')}
+            />
+          )}
           onRowClick={(row) => router.push(`/backend/customer_accounts/users/${row.id}`)}
           rowActions={(row) => (
             <RowActions
