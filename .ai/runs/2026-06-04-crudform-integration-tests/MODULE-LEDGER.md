@@ -27,12 +27,12 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
 
 | Order | Module | Package | Surfaces | Branch | PR | Status |
 |-------|--------|---------|----------|--------|----|--------|
-| B1 | business_rules | core | rule, rule-set (+members[]) | `feat/crudform-tests-business-rules` | — | ⬜ |
+| B1 | business_rules | core | rule (scalars + jsonb condition/actions), rule-set (+members[]) | feat/2560-crudform-tests-business-rules | #2632 | 🔵 spec ready — PR #2632 open for #2560 (stacked on #2548) |
 | B2 | integrations | core | credentials (secret/text/select round-trip) | feat/crudform-tests-integrations | — | ⬜ spec implemented (#2561, TC-INTEG-CRUDFORM-001); open PR → 🔵 |
 | B3 | customer_accounts | core | customer-role (+portal perms), customer-user · TC-CACC-CRUDFORM-001/002 | feat/crudform-tests-customer-accounts | — | 🔵 PR open (#2562) |
-| B4 | planner | core | availability-ruleset | `feat/crudform-tests-planner` | — | ⬜ |
+| B4 | planner | core | availability-ruleset (scalars: name/description/timezone — no CF/dict/multiselect declared) | `feat/crudform-tests-planner` | — | 🔵 spec written (TC-PLAN-CRUDFORM-001); PR pending |
 | B5 | webhooks | webhooks | webhook (events multiselect + headers JSON) | `feat/crudform-tests-webhooks` | — | ⬜ |
-| B6 | scheduler | scheduler | scheduled-job (scope/target/payload JSON) | `feat/crudform-tests-scheduler` | — | ⬜ |
+| B6 | scheduler | scheduler | scheduled-job (scope/target/payload JSON) — TC-SCHED-CRUDFORM-001 | feat/crudform-tests-scheduler | — | 🔵 PR open (targets develop; #2548/#2551/#2553 merged) |
 | B7 | checkout | checkout | link-template, pay-link | `feat/crudform-tests-checkout` | — | ⬜ |
 
 ## Tier C — remaining makeCrud / scalar surfaces
@@ -40,7 +40,7 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
 | Order | Module | Package | Surfaces | Branch | PR | Status |
 |-------|--------|---------|----------|--------|----|--------|
 | C1 | directory | core | organization, tenant | — | — | ⏭️ covered by #2539 (TC-DIR-006..012) |
-| C2 | feature_toggles | core | global toggle (superadmin) | `feat/crudform-tests-feature-toggles` | — | ⬜ |
+| C2 | feature_toggles | core | global toggle (superadmin) · scalars + typed defaultValue (boolean/string/number/json) | `feat/crudform-tests-feature-toggles` | — | 🔵 PR pending (#2567 · TC-FT-CRUDFORM-001) |
 | C3 | api_keys | core | api-key | `feat/crudform-tests-api-keys` | — | ⬜ |
 | C4 | dictionaries | core | dictionary entry (scalars: value/label/color/icon/position/isDefault) | feat/2569-dictionaries-crudform | #2569 | 🔵 spec staged (inline round-trip — entry routes are PATCH + path-param, runCrudFormRoundTrip N/A) |
 | C5 | communication_channels | core | channel | `feat/crudform-tests-comm-channels` | — | ⬜ |
