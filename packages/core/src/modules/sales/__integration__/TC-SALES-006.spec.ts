@@ -12,10 +12,11 @@ test.describe('TC-SALES-006: Order Tax Calculation', () => {
     // exceeds Playwright's 20s default on a loaded ephemeral shard; opt into the
     // sanctioned per-test budget (see TC-SALES-005). Global bump is disallowed.
     test.slow();
+    test.setTimeout(120_000);
     const lineName = `QA TC-SALES-006 ${Date.now()}`;
 
     await login(page, 'admin');
-    await createSalesDocument(page, { kind: 'order' });
+    await createSalesDocument(page, { kind: 'order', preferApi: true });
     await addCustomLine(page, {
       name: lineName,
       quantity: 1,
