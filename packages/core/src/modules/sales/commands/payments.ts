@@ -372,7 +372,7 @@ const createPaymentCommand: CommandHandler<
         tx.persist(order)
       }
       if (input.documentStatusEntryId !== undefined) {
-        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null)
+        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null, { tenantId: input.tenantId })
         if (input.documentStatusEntryId && !orderStatus) {
           throw new CrudHttpError(400, {
             error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
@@ -384,7 +384,7 @@ const createPaymentCommand: CommandHandler<
         tx.persist(order)
       }
       if (input.lineStatusEntryId !== undefined) {
-        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null)
+        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null, { tenantId: input.tenantId })
         if (input.lineStatusEntryId && !lineStatus) {
           throw new CrudHttpError(400, {
             error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
@@ -398,7 +398,7 @@ const createPaymentCommand: CommandHandler<
         })
         orderLines.forEach((line) => tx.persist(line))
       }
-      const status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null)
+      const status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: input.tenantId })
       const payment = tx.create(SalesPayment, {
         organizationId: input.organizationId,
         tenantId: input.tenantId,
@@ -771,7 +771,7 @@ const updatePaymentCommand: CommandHandler<
         throw new CrudHttpError(400, { error: translate('sales.payments.order_required', 'Order is required for payments.') })
       }
       if (currentOrder && input.documentStatusEntryId !== undefined) {
-        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null)
+        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null, { tenantId: resolvedTenantId })
         if (input.documentStatusEntryId && !orderStatus) {
           throw new CrudHttpError(400, {
             error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
@@ -783,7 +783,7 @@ const updatePaymentCommand: CommandHandler<
         tx.persist(currentOrder)
       }
       if (currentOrder && input.lineStatusEntryId !== undefined) {
-        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null)
+        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null, { tenantId: resolvedTenantId })
         if (input.lineStatusEntryId && !lineStatus) {
           throw new CrudHttpError(400, {
             error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
@@ -800,7 +800,7 @@ const updatePaymentCommand: CommandHandler<
       if (input.paymentReference !== undefined) payment.paymentReference = input.paymentReference ?? null
       if (input.statusEntryId !== undefined) {
         payment.statusEntryId = input.statusEntryId ?? null
-        payment.status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null)
+        payment.status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: resolvedTenantId })
       }
       if (input.amount !== undefined) payment.amount = toNumericString(input.amount) ?? '0'
       if (input.currencyCode !== undefined) payment.currencyCode = input.currencyCode

@@ -444,7 +444,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         items: input.items,
         lockOrderLines: true,
       })
-      const statusValue = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null)
+      const statusValue = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: input.tenantId })
       const trackingNumbers = parseTrackingNumbers(input.trackingNumbers) ?? null
       const metadata =
         mergeAddressSnapshot(
@@ -502,7 +502,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         })
       }
       if (input.documentStatusEntryId !== undefined) {
-        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null)
+        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null, { tenantId: input.tenantId })
         if (input.documentStatusEntryId && !orderStatus) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
         }
@@ -511,7 +511,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         order.updatedAt = new Date()
       }
       if (input.lineStatusEntryId !== undefined) {
-        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null)
+        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null, { tenantId: input.tenantId })
         if (input.lineStatusEntryId && !lineStatus) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
         }
@@ -702,7 +702,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
       // dictionary read does not interleave with (and drop) the pending
       // shipment changeset under MikroORM v7 (SPEC-018 / #2453 class).
       const resolvedShipmentStatus = input.statusEntryId !== undefined
-        ? await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null)
+        ? await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: shipmentEntity.tenantId })
         : undefined
       if (input.shipmentNumber !== undefined) shipmentEntity.shipmentNumber = input.shipmentNumber ?? null
       if (input.shippingMethodId !== undefined) shipmentEntity.shippingMethodId = input.shippingMethodId ?? null
@@ -770,7 +770,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         })
       }
       if (input.documentStatusEntryId !== undefined) {
-        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null)
+        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null, { tenantId: shipmentEntity.tenantId })
         if (input.documentStatusEntryId && !orderStatus) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
         }
@@ -779,7 +779,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         order.updatedAt = new Date()
       }
       if (input.lineStatusEntryId !== undefined) {
-        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null)
+        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null, { tenantId: shipmentEntity.tenantId })
         if (input.lineStatusEntryId && !lineStatus) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
         }

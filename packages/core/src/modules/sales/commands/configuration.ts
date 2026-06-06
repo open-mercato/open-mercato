@@ -597,7 +597,7 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const statusValue = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null)
+    const statusValue = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId })
     const record = em.create(SalesChannel, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -760,7 +760,7 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
     if (parsed.description !== undefined) record.description = parsed.description ?? null
     if (parsed.statusEntryId !== undefined) {
       record.statusEntryId = parsed.statusEntryId ?? null
-      record.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null)
+      record.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: scope.tenantId })
     }
     if (parsed.websiteUrl !== undefined) record.websiteUrl = parsed.websiteUrl ?? null
     if (parsed.contactEmail !== undefined) record.contactEmail = parsed.contactEmail ?? null
