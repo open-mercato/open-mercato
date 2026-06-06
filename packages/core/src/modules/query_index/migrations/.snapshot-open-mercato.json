@@ -409,6 +409,15 @@
           "keyName": "entity_index_jobs_type_idx",
           "primary": false,
           "unique": false
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": true,
+          "keyName": "entity_index_jobs_scope_unique",
+          "primary": false,
+          "unique": true,
+          "expression": "create unique index \"entity_index_jobs_scope_unique\" on \"entity_index_jobs\" (\"entity_type\", coalesce(\"organization_id\", '00000000-0000-0000-0000-000000000000'::uuid), coalesce(\"tenant_id\", '00000000-0000-0000-0000-000000000000'::uuid), coalesce(\"partition_index\", -1), coalesce(\"partition_count\", -1))"
         }
       ],
       "checks": [],
