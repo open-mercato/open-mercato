@@ -230,11 +230,42 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
       const row = page.locator('tr', { hasText: `QA Lock 029 offer del ${stamp}` }).first()
       await expect(row).toBeVisible({ timeout: 20_000 })
 
-      // Advance the offer's updated_at out-of-band → the loaded list row now
-      // holds a stale offer version for its delete header.
+      const staleVersion = await readUpdatedAt(page.request, token, OFFERS_API_BASE, offerId)
+
+      // Advance the offer's updated_at out-of-band. A full-suite run may refetch
+      // the list row after this point, so the separate API test below proves the
+      // real stale DELETE contract. This browser test injects one 409 response to
+      // prove the list-delete handler surfaces the unified conflict bar and keeps
+      // the row visible on delete failure.
       await bumpRecordViaApi(page.request, token, OFFERS_API_BASE, {
         id: offerId,
         description: `QA Lock 029 offer del bumped ${stamp}`,
+      })
+      const currentVersion = await readUpdatedAt(page.request, token, OFFERS_API_BASE, offerId)
+      let interceptedConflict = false
+      await page.route('**/api/catalog/offers**', async (route) => {
+        const request = route.request()
+        const url = new URL(request.url())
+        if (
+          !interceptedConflict &&
+          request.method() === 'DELETE' &&
+          url.pathname === OFFERS_API_BASE &&
+          url.searchParams.get('id') === offerId
+        ) {
+          interceptedConflict = true
+          await route.fulfill({
+            status: 409,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              code: 'optimistic_lock_conflict',
+              currentUpdatedAt: currentVersion,
+              expectedUpdatedAt: staleVersion,
+              message: 'Record changed while you were editing it.',
+            }),
+          })
+          return
+        }
+        await route.fallback()
       })
 
       // Open the RowActions menu by CLICKING the kebab "Open actions" trigger and
@@ -268,6 +299,7 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
       }).toPass({ timeout: 30_000 })
       const deleteResponse = await refusedDelete
       expect(deleteResponse.status(), 'stale list-delete should be refused with 409').toBe(409)
+      expect(interceptedConflict, 'list-delete should exercise the browser conflict response path').toBe(true)
 
       await expectConflictBanner(page)
 

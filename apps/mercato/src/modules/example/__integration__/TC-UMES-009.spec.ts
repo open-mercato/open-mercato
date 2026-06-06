@@ -26,12 +26,14 @@ test.describe('TC-UMES-009: Phase J recursive widget extensibility', () => {
     await page.getByTestId('phase-c-load-transform-save-example').click()
     await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue('[confirm][transform] transform demo')
 
-    page.once('dialog', (dialog) => {
-      void dialog.accept()
-    })
-
     const form = page.locator('form').first()
-    await form.locator('button[type="submit"]').first().click()
+    const dialogAccepted = page.waitForEvent('dialog').then(async (dialog) => {
+      await dialog.accept()
+    })
+    await Promise.all([
+      dialogAccepted,
+      form.locator('button[type="submit"]').first().click(),
+    ])
 
     await expect(page.getByTestId('phase-c-submit-result')).toContainText('transform demo', { timeout: 10_000 })
     await expect(page.getByTestId('widget-save-guard')).toContainText('dialog:accepted', { timeout: 10_000 })
