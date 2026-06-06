@@ -61,13 +61,13 @@ Affected areas:
 
 ### Phase 1: CLI And Infrastructure
 
-- [ ] 1.1 Add Railway deploy command and supporting modules
-- [ ] 1.2 Add cache probes and standalone Railway runtime files
-- [ ] 1.3 Add unit and gated integration coverage
+- [x] 1.1 Add Railway deploy command and supporting modules — e2b742ff6
+- [x] 1.2 Add cache probes and standalone Railway runtime files — e2b742ff6
+- [x] 1.3 Add unit and gated integration coverage — e2b742ff6
 
 ### Phase 2: Documentation And Validation
 
-- [ ] 2.1 Add documentation and update the specification
+- [x] 2.1 Add documentation and update the specification — e2b742ff6
 - [ ] 2.2 Run targeted and full validation gates
 - [ ] 2.3 Complete code, compatibility, and live validation review
 
