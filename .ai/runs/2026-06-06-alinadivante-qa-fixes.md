@@ -74,15 +74,15 @@ Add integration tests that exercise the failing edit flows through the UI/API su
 
 ### Phase 1: Root Cause And Fixes
 
-- [ ] 1.1 Identify checkout template create/edit validation asymmetry and enforce required gateway provider consistently
-- [ ] 1.2 Identify why empty customer phone values are lost on people-v2 and companies-v2 saves, then normalize/save the cleared value without regressing email/url clearing
+- [x] 1.1 Identify checkout template create/edit validation asymmetry and enforce required gateway provider consistently — 7612e680e
+- [x] 1.2 Identify why empty customer phone values are lost on people-v2 and companies-v2 saves, then normalize/save the cleared value without regressing email/url clearing — 7612e680e
 
 ### Phase 2: Integration Coverage
 
-- [ ] 2.1 Add checkout integration coverage for editing an existing template and clearing the gateway provider
-- [ ] 2.2 Add customers integration coverage for clearing primary phone on both people-v2 and companies-v2 records
+- [x] 2.1 Add checkout integration coverage for editing an existing template and clearing the gateway provider — 7612e680e
+- [x] 2.2 Add customers integration coverage for clearing primary phone on both people-v2 and companies-v2 records — 7612e680e
 
 ### Phase 3: Validation And PR
 
-- [ ] 3.1 Run targeted validation for checkout, customers, and the new integration tests
+- [x] 3.1 Run targeted validation for checkout, customers, and the new integration tests — 7612e680e
 - [ ] 3.2 Run the full auto-create-pr validation gate, self-review against `om-code-review` and `BACKWARD_COMPATIBILITY.md`, open the PR, run the `om-auto-review-pr` autofix pass, and post the required summary comment including tested coverage
