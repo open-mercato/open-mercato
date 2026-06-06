@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import type { MfaEnforcementService } from '../services/MfaEnforcementService'
 
 export const commandId = 'security.enforcement.delete'
@@ -35,8 +36,12 @@ registerCommand({
     }
 
     const enforcementService = ctx.container.resolve<MfaEnforcementService>('mfaEnforcementService')
+    const isSuperAdmin = await resolveIsSuperAdmin({ auth: ctx.auth, container: ctx.container })
     try {
-      await enforcementService.deletePolicy(parsed.data.id)
+      await enforcementService.deletePolicy(parsed.data.id, {
+        tenantId: ctx.auth.tenantId ?? null,
+        isSuperAdmin,
+      })
       return { ok: true as const }
     } catch (error) {
       if (isEnforcementServiceError(error)) {
