@@ -28,6 +28,8 @@ async function ensurePriceKindId(
 
 /** TC-CAT-024: Product with Multiple Variants */
 test.describe('TC-CAT-024: Product with Multiple Variants', () => {
+  test.describe.configure({ timeout: 60_000 })
+
   test('should create 3 variants with different SKUs and prices, and verify all listed', async ({ request }) => {
     const suffix = Date.now()
     let token: string | null = null

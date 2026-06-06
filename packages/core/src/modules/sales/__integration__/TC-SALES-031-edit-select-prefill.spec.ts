@@ -1,7 +1,11 @@
-import { expect, test, type APIRequestContext, type Locator } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { login } from '@open-mercato/core/helpers/integration/auth'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import {
+  createUserFixture,
+  deleteUserIfExists,
+  setUserAclVisibility,
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import {
   createCompanyFixture,
   deleteEntityIfExists,
@@ -19,6 +23,43 @@ type FixtureOption = {
 type FixtureScope = {
   organizationId: string
   tenantId: string
+}
+
+function readTokenClaims(token: string): { tenantId?: string; orgId?: string | null } {
+  const parts = token.split('.')
+  return JSON.parse(Buffer.from(parts[1], 'base64url').toString()) as {
+    tenantId?: string
+    orgId?: string | null
+  }
+}
+
+async function loginWithCredentials(page: Page, email: string, password: string): Promise<void> {
+  const form = new URLSearchParams()
+  form.set('email', email)
+  form.set('password', password)
+  const response = await page.request.post('/api/auth/login', {
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    data: form.toString(),
+  })
+  expect(response.ok(), `Failed to login test sales user: ${response.status()}`).toBeTruthy()
+  const payload = await readJsonSafe<{ token?: string }>(response)
+  expect(typeof payload?.token === 'string' && payload.token.length > 0, 'Login response should include a token').toBeTruthy()
+  const claims = readTokenClaims(payload!.token!)
+  const baseUrl = process.env.BASE_URL || 'http://localhost:3000'
+  const cookies = [
+    { name: 'om_demo_notice_ack', value: 'ack', url: baseUrl, sameSite: 'Lax' as const },
+    { name: 'om_cookie_notice_ack', value: 'ack', url: baseUrl, sameSite: 'Lax' as const },
+    { name: 'om_feedback_suppress', value: '1', url: baseUrl, sameSite: 'Lax' as const },
+  ]
+  if (claims.tenantId) {
+    cookies.push({ name: 'om_selected_tenant', value: claims.tenantId, url: baseUrl, sameSite: 'Lax' as const })
+  }
+  if (claims.orgId) {
+    cookies.push({ name: 'om_selected_org', value: claims.orgId, url: baseUrl, sameSite: 'Lax' as const })
+  }
+  await page.context().addCookies(cookies)
+  await page.goto('/backend', { waitUntil: 'domcontentloaded' })
+  await expect(page).toHaveURL(/\/backend(?:\/.*)?$/)
 }
 
 async function createEntity(
@@ -164,41 +205,6 @@ async function deleteByQuery(
   }
 }
 
-async function setUserAclFeatures(
-  request: APIRequestContext,
-  token: string,
-  userId: string,
-  features: string[],
-  scope?: FixtureScope,
-): Promise<void> {
-  const response = await apiRequest(request, 'PUT', '/api/auth/users/acl', {
-    token,
-    data: {
-      userId,
-      features,
-      ...(scope && features.length > 0 ? { organizations: [scope.organizationId] } : {}),
-    },
-  })
-  expect(response.ok(), `Failed to update test user ACL: ${response.status()}`).toBeTruthy()
-}
-
-async function mintAdminToken(request: APIRequestContext): Promise<string> {
-  const form = new URLSearchParams()
-  form.set('email', 'admin@acme.com')
-  form.set('password', 'secret')
-  const response = await request.post('/api/auth/login', {
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    data: form.toString(),
-  })
-  expect(response.ok(), `Failed to refresh admin token: ${response.status()}`).toBeTruthy()
-  const payload = await readJsonSafe(response)
-  const token = typeof (payload as Record<string, unknown> | null)?.token === 'string'
-    ? ((payload as Record<string, unknown>).token as string)
-    : null
-  expect(token, 'Admin login response should include a token').toBeTruthy()
-  return token as string
-}
-
 async function expectDialogComboboxLabel(dialog: Locator, label: string): Promise<void> {
   await expect(dialog.getByRole('combobox').filter({ hasText: label }).first()).toBeVisible()
 }
@@ -216,11 +222,14 @@ test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', ()
     const superadminToken = await getAuthToken(request, 'superadmin')
     const adminScope = getTokenScope(bootstrapToken)
     const stamp = Date.now()
+    const testUserEmail = `qa-sales-select-${stamp}@acme.com`
+    const testUserPassword = `QaSales1!${stamp}`
     const taxRates: FixtureOption[] = []
     const shippingMethods: FixtureOption[] = []
     const shipmentStatuses: FixtureOption[] = []
     const addresses: FixtureOption[] = []
     let token: string | null = null
+    let testUserId: string | null = null
     let customerId: string | null = null
     let orderId: string | null = null
     let orderLineId: string | null = null
@@ -228,8 +237,19 @@ test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', ()
     let shipmentId: string | null = null
 
     try {
-      await setUserAclFeatures(request, superadminToken, adminScope.userId, ['customers.*', 'sales.*'], adminScope)
-      token = await mintAdminToken(request)
+      testUserId = await createUserFixture(request, bootstrapToken, {
+        email: testUserEmail,
+        password: testUserPassword,
+        organizationId: adminScope.organizationId,
+        roles: ['employee'],
+        name: `QA Sales Select ${stamp}`,
+      })
+      await setUserAclVisibility(request, superadminToken, {
+        userId: testUserId,
+        features: ['customers.*', 'sales.*'],
+        organizations: [adminScope.organizationId],
+      })
+      token = await getAuthToken(request, testUserEmail, testUserPassword)
       customerId = await createCompanyFixture(request, token, `QA Sales Select Customer ${stamp}`)
       addresses.push(...(await createAddresses(request, token, customerId, stamp, adminScope)))
       const selectedAddress = await pickOutsideFirstPage(
@@ -291,7 +311,7 @@ test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', ()
         items: [{ orderLineId, quantity: 1 }],
       })
 
-      await login(page, 'admin')
+      await loginWithCredentials(page, testUserEmail, testUserPassword)
       await page.goto(`/backend/sales/orders/${encodeURIComponent(orderId)}`, { waitUntil: 'commit' })
       await expect(page.getByText(`QA Sales Select Line ${stamp}`, { exact: true }).first()).toBeVisible()
 
@@ -353,7 +373,7 @@ test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', ()
           await deleteByQuery(request, token, '/api/sales/tax-rates', taxRate.id)
         }
       }
-      await setUserAclFeatures(request, superadminToken, adminScope.userId, [])
+      await deleteUserIfExists(request, bootstrapToken, testUserId)
     }
   })
 })
