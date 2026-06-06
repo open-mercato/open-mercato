@@ -15,6 +15,7 @@ import { Button } from "@open-mercato/ui/primitives/button";
 import { Badge } from "@open-mercato/ui/primitives/badge";
 import Link from "next/link";
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog';
+import { ListEmptyState } from "@open-mercato/ui/backend/filters/ListEmptyState";
 import { FeatureToggleType } from "../data/entities";
 
 type Row = {
@@ -201,6 +202,13 @@ export function FeatureTogglesTable() {
       columns={columns}
       data={featureTogglesData?.items ?? []}
       isLoading={isLoading}
+      emptyState={(
+        <ListEmptyState
+          entityName={t('feature_toggles.global.help.title', 'Feature Toggles')}
+          createHref="/backend/feature-toggles/global/create"
+          createLabel={t('common.create', 'Create')}
+        />
+      )}
       filters={filters}
       filterValues={filterValues}
       onFiltersApply={handleFiltersApply}

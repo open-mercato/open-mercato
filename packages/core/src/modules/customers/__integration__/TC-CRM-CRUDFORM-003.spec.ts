@@ -25,13 +25,15 @@ import {
  * `implementation_complexity`, integer `estimated_seats`, boolean `requires_legal_review`).
  * Proves create + update round-trip every value.
  *
- * Why this spec reads back via the DETAIL endpoint (not the `?ids=` list, unlike the person /
- * company specs):
+ * Why this spec reads back via the DETAIL endpoint (the person/company specs do the same, for the
+ * same cache/projection reason):
  * - The deal LIST serves custom values from the query-index projection. The deal UPDATE runs
  *   through a transactional command (`withAtomicFlush` + a separate `setCustomFields` flush +
  *   post-commit side effects), so under CI load the projection can lag and an immediate list
- *   read intermittently returns `[]` custom values. The detail GET (`/api/customers/deals/{id}`)
- *   resolves custom fields LIVE from EAV, so persistence is asserted deterministically. The
+ *   read intermittently returns `[]` custom values. Additionally, the makeCrud list response is
+ *   cached when `ENABLE_CRUD_API_CACHE=true`, so an immediate post-update `?ids=` read can serve
+ *   a stale create-era row when cache invalidation races. The detail GET (`/api/customers/deals/{id}`)
+ *   resolves the deal + custom fields LIVE, so persistence is asserted deterministically. The
  *   same race is documented in `TC-CRM-CF-MULTI-EDIT-001`.
  * - Writes still go through the collection route (`POST`/`PUT`/`DELETE /api/customers/deals`) —
  *   exactly what the deal CrudForm submits — so route fidelity is preserved.

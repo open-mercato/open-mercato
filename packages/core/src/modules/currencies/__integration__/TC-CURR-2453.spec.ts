@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { generateUniqueCurrencyCode } from '@open-mercato/core/helpers/integration/currenciesFixtures';
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures';
 
 /**
@@ -40,10 +41,7 @@ type CurrencyRow = {
   isActive: boolean;
 };
 
-function randomCode(): string {
-  const letter = () => String.fromCharCode(65 + Math.floor(Math.random() * 26));
-  return `Q${letter()}${letter()}`;
-}
+const randomCode = generateUniqueCurrencyCode;
 
 async function getById(
   request: APIRequestContext,

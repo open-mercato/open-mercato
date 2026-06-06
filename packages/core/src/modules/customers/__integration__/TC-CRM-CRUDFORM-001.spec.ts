@@ -18,13 +18,17 @@ import {
  * and three custom-field kinds (select `buying_role`, text `preferred_pronouns`, boolean
  * `newsletter_opt_in`). Proves create + update round-trip every value.
  *
- * Verified contract (from `api/people/route.ts`):
+ * Verified contract (from `api/people/route.ts` + `api/people/[id]/route.ts`):
  * - `makeCrudRoute`: POST→201 `{id, personId}`, PUT (body `id`)→200, DELETE `?id=`. Scope
  *   (organizationId/tenantId) is injected server-side via `withScopedPayload` — never sent.
- * - The list read filters by `?ids=` (comma-separated), so a custom `readById`.
- * - Request bodies camelCase; list responses snake_case (`display_name`, `company_entity_id`,
- *   …). Custom fields submit as `cf_<key>` and the harness resolver reads them back regardless
- *   of shape.
+ * - Writes go through the makeCrud collection route; read-back uses the DETAIL GET
+ *   `/api/customers/people/{id}` and re-maps its camelCase `person`/`profile`/`customFields`
+ *   payload to the snake_case keys asserted here. The detail route reads live from the entity +
+ *   profile tables, so it is immune to the makeCrud list (`?ids=`) response cache that
+ *   `ENABLE_CRUD_API_CACHE=true` keeps — an immediate post-update `?ids=` read can otherwise
+ *   serve a stale create-era response when cache invalidation races under CI load.
+ * - Request bodies camelCase; custom fields submit as `cf_<key>` and the detail route returns
+ *   them as a bare-keyed `customFields` object (mapped to `customValues` for the harness resolver).
  * - PUT is a partial update — omitted scalars (firstName/lastName/companyEntityId/primaryEmail)
  *   are retained, asserted after update.
  * - The dictionary-backed fields (status/lifecycleStage/source) accept arbitrary strings at the
@@ -42,20 +46,47 @@ import {
 const PEOPLE_PATH = '/api/customers/people';
 const COMPANIES_PATH = '/api/customers/companies';
 
-async function readPersonByIds(
+type PersonDetailBody = {
+  person?: CrudRecord & { id?: string };
+  profile?: CrudRecord | null;
+  customFields?: Record<string, unknown>;
+};
+
+// Read back through the detail GET (live entity + profile read) rather than the makeCrud
+// `?ids=` list, whose response the CRUD API cache can serve stale on an immediate post-update
+// read. Re-map the camelCase detail payload to the snake_case keys the assertions expect.
+async function readPersonById(
   request: APIRequestContext,
   token: string,
   id: string,
 ): Promise<CrudRecord | null> {
-  const response = await apiRequest(
-    request,
-    'GET',
-    `${PEOPLE_PATH}?ids=${encodeURIComponent(id)}&page=1&pageSize=100`,
-    { token },
-  );
-  expect(response.status(), `read-back people failed: ${response.status()}`).toBe(200);
-  const body = await readJsonSafe<{ items?: CrudRecord[] }>(response);
-  return (body?.items ?? []).find((item) => item.id === id) ?? null;
+  const response = await apiRequest(request, 'GET', `${PEOPLE_PATH}/${encodeURIComponent(id)}`, { token });
+  expect(response.status(), `read-back person detail failed: ${response.status()}`).toBe(200);
+  const body = await readJsonSafe<PersonDetailBody>(response);
+  const person = body?.person;
+  if (!person || person.id !== id) return null;
+  const profile = body?.profile ?? {};
+  return {
+    id: person.id,
+    display_name: person.displayName,
+    description: person.description,
+    primary_email: person.primaryEmail,
+    primary_phone: person.primaryPhone,
+    status: person.status,
+    lifecycle_stage: person.lifecycleStage,
+    source: person.source,
+    first_name: profile.firstName,
+    last_name: profile.lastName,
+    preferred_name: profile.preferredName,
+    job_title: profile.jobTitle,
+    department: profile.department,
+    seniority: profile.seniority,
+    timezone: profile.timezone,
+    linked_in_url: profile.linkedInUrl,
+    twitter_url: profile.twitterUrl,
+    company_entity_id: profile.companyEntityId,
+    customValues: body?.customFields ?? {},
+  };
 }
 
 test.describe('TC-CRM-CRUDFORM-001: Person CrudForm persists scalars, dictionary refs + custom fields', () => {
@@ -75,7 +106,7 @@ test.describe('TC-CRM-CRUDFORM-001: Person CrudForm persists scalars, dictionary
         request,
         token,
         collectionPath: PEOPLE_PATH,
-        readById: (id) => readPersonByIds(request, token, id),
+        readById: (id) => readPersonById(request, token, id),
         create: {
           payload: {
             firstName: 'Ada',

@@ -126,6 +126,41 @@ const assignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentInp
       events: staffTeamMemberCrudEvents,
     })
   },
+  redo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<TeamMemberTagAssignmentUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return { memberId: logEntry.resourceId ?? '' }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const member = await findOneWithDecryption(
+      em,
+      StaffTeamMember,
+      { id: before.memberId, deletedAt: null },
+      undefined,
+      { tenantId: before.tenantId, organizationId: before.organizationId },
+    )
+    if (!member) throw new CrudHttpError(404, { error: 'Team member not found.' })
+    const currentTags = normalizeTagList(Array.isArray(member.tags) ? member.tags : [])
+    if (!currentTags.includes(before.tag)) {
+      member.tags = normalizeTagList([...currentTags, before.tag])
+      member.updatedAt = new Date()
+      await em.flush()
+    }
+
+    const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: member,
+      identifiers: {
+        id: member.id,
+        tenantId: member.tenantId,
+        organizationId: member.organizationId,
+      },
+      events: staffTeamMemberCrudEvents,
+    })
+
+    return { memberId: member.id }
+  },
 }
 
 const unassignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentInput, { memberId: string }> = {

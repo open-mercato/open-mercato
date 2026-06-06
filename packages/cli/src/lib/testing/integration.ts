@@ -1114,10 +1114,17 @@ export async function shouldRebuildBuildArtifacts(
 }
 
 async function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
+  const tryListen = (host: string): Promise<number | null> => new Promise((resolve, reject) => {
     const server = createServer()
-    server.on('error', reject)
-    server.listen(0, '127.0.0.1', () => {
+    server.on('error', (error) => {
+      const errorCode = (error as NodeJS.ErrnoException).code
+      if (errorCode === 'EAFNOSUPPORT') {
+        resolve(null)
+        return
+      }
+      reject(error)
+    })
+    server.listen(0, host, () => {
       const address = server.address()
       if (!address || typeof address === 'string') {
         server.close()
@@ -1134,6 +1141,8 @@ async function getFreePort(): Promise<number> {
       })
     })
   })
+
+  return (await tryListen('::')) ?? await tryListen('127.0.0.1') ?? Promise.reject(new Error('Unable to allocate free port'))
 }
 
 async function isPortAvailable(port: number): Promise<boolean> {
@@ -1154,17 +1163,17 @@ async function isPortAvailable(port: number): Promise<boolean> {
     })
   })
 
+  const wildcardIpv6Availability = await canBind('::')
+  if (wildcardIpv6Availability === false) {
+    return false
+  }
+
   const ipv4Availability = await canBind('127.0.0.1')
   if (ipv4Availability === false) {
     return false
   }
 
-  const ipv6Availability = await canBind('::1')
-  if (ipv6Availability === false) {
-    return false
-  }
-
-  return ipv4Availability === true || ipv6Availability === true
+  return wildcardIpv6Availability === true || ipv4Availability === true
 }
 
 async function getPreferredPort(preferredPort: number): Promise<number> {

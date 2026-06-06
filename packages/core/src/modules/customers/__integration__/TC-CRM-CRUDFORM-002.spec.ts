@@ -23,13 +23,20 @@ import {
  * query-index projection, so the custom field cannot round-trip through the index-backed list read.
  * That collision is a data-model issue outside the scope of this test-coverage change.
  *
- * Verified contract (from `api/companies/route.ts`):
+ * Verified contract (from `api/companies/route.ts` + `api/companies/[id]/route.ts`):
  * - `makeCrudRoute`: POST→201 `{id, companyId}`, PUT (body `id`)→200, DELETE `?id=`. Scope is
  *   injected server-side via `withScopedPayload` — never sent.
- * - The list read filters by `?ids=` (comma-separated), so a custom `readById`.
- * - Request bodies camelCase; list responses snake_case (`legal_name`, `website_url`,
- *   `annual_revenue`, …). `annualRevenue` is a decimal column returned as a string, so the
- *   `readById` coerces it to a number for deep-equality comparison.
+ * - Writes go through the makeCrud collection route; read-back uses the DETAIL GET
+ *   `/api/customers/companies/{id}` and re-maps its camelCase `company`/`profile`/`customFields`
+ *   payload to the snake_case keys asserted here. The detail route reads live from the entity +
+ *   profile tables, so it is immune to the makeCrud list (`?ids=`) response cache that
+ *   `ENABLE_CRUD_API_CACHE=true` keeps — an immediate post-update `?ids=` read can otherwise
+ *   serve a stale create-era response when cache invalidation races under CI load (the failure
+ *   this spec originally hit: after-update `industry` read back as the create value).
+ * - Request bodies camelCase; custom fields submit as `cf_<key>` and the detail route returns
+ *   them as a bare-keyed `customFields` object (mapped to `customValues` for the harness resolver).
+ *   `annualRevenue` is a decimal column returned as a string, so the `readById` coerces it to a
+ *   number for deep-equality comparison.
  * - PUT is a partial update — omitted scalars (legalName/brandName/primaryEmail) and omitted
  *   custom fields (`executive_notes`) are retained, asserted after update.
  * - The dictionary-backed fields accept arbitrary strings at the API layer, so the spec stays
@@ -43,25 +50,46 @@ import {
  */
 const COMPANIES_PATH = '/api/customers/companies';
 
-async function readCompanyByIds(
+type CompanyDetailBody = {
+  company?: CrudRecord & { id?: string };
+  profile?: (CrudRecord & { annualRevenue?: string | number | null }) | null;
+  customFields?: Record<string, unknown>;
+};
+
+// Read back through the detail GET (live entity + profile read) rather than the makeCrud
+// `?ids=` list, whose response the CRUD API cache can serve stale on an immediate post-update
+// read. Re-map the camelCase detail payload to the snake_case keys the assertions expect.
+async function readCompanyById(
   request: APIRequestContext,
   token: string,
   id: string,
 ): Promise<CrudRecord | null> {
-  const response = await apiRequest(
-    request,
-    'GET',
-    `${COMPANIES_PATH}?ids=${encodeURIComponent(id)}&page=1&pageSize=100`,
-    { token },
-  );
-  expect(response.status(), `read-back companies failed: ${response.status()}`).toBe(200);
-  const body = await readJsonSafe<{ items?: CrudRecord[] }>(response);
-  const record = (body?.items ?? []).find((item) => item.id === id) ?? null;
-  // annual_revenue is a decimal column serialized as a string; coerce so deep-equality holds.
-  if (record && record.annual_revenue != null) {
-    record.annual_revenue = Number(record.annual_revenue);
-  }
-  return record;
+  const response = await apiRequest(request, 'GET', `${COMPANIES_PATH}/${encodeURIComponent(id)}`, { token });
+  expect(response.status(), `read-back company detail failed: ${response.status()}`).toBe(200);
+  const body = await readJsonSafe<CompanyDetailBody>(response);
+  const company = body?.company;
+  if (!company || company.id !== id) return null;
+  const profile = body?.profile ?? {};
+  const annualRevenue = profile.annualRevenue;
+  return {
+    id: company.id,
+    display_name: company.displayName,
+    description: company.description,
+    primary_email: company.primaryEmail,
+    primary_phone: company.primaryPhone,
+    status: company.status,
+    lifecycle_stage: company.lifecycleStage,
+    source: company.source,
+    legal_name: profile.legalName,
+    brand_name: profile.brandName,
+    domain: profile.domain,
+    website_url: profile.websiteUrl,
+    industry: profile.industry,
+    size_bucket: profile.sizeBucket,
+    // annual_revenue is a decimal column serialized as a string; coerce so deep-equality holds.
+    annual_revenue: annualRevenue == null ? null : Number(annualRevenue),
+    customValues: body?.customFields ?? {},
+  };
 }
 
 test.describe('TC-CRM-CRUDFORM-002: Company CrudForm persists scalars, dictionary refs + custom fields', () => {
@@ -77,7 +105,7 @@ test.describe('TC-CRM-CRUDFORM-002: Company CrudForm persists scalars, dictionar
       request,
       token,
       collectionPath: COMPANIES_PATH,
-      readById: (id) => readCompanyByIds(request, token, id),
+      readById: (id) => readCompanyById(request, token, id),
       create: {
         payload: {
           displayName: `QA CRUDFORM Company ${stamp}`,
