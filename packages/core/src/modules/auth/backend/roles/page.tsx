@@ -13,6 +13,7 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type Row = {
   id: string
@@ -137,6 +138,13 @@ export default function RolesListPage() {
           sorting={sorting}
           onSortingChange={setSorting}
           perspective={{ tableId: 'auth.roles.list' }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('auth.roles.list.title', 'Roles')}
+              createHref="/backend/roles/create"
+              createLabel={t('auth.roles.list.actions.create', 'Create')}
+            />
+          )}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
         />

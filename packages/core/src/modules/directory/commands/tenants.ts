@@ -16,6 +16,7 @@ import {
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 
 export const tenantCrudEvents: CrudEventsConfig = {
   module: 'directory',
@@ -96,15 +97,27 @@ const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
     return tenant
   },
   captureAfter: (_input, result) => serializeTenant(result),
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ snapshots, result, ctx }) => {
     const { translate } = await resolveTranslations()
+    const after = (snapshots.after as SerializedTenant | undefined) ?? serializeTenant(result)
     return {
       actionLabel: translate('directory.audit.tenants.create', 'Create tenant'),
       resourceKind: 'directory.tenant',
       resourceId: String(result.id),
       tenantId: ctx.auth?.tenantId ?? null,
+      snapshotAfter: after,
+      payload: { undo: { after } },
     }
   },
+  redo: makeCreateRedo<Tenant, SerializedTenant, TenantPayload, Tenant>({
+    entityClass: Tenant,
+    buildResult: (entity) => entity,
+    events: tenantCrudEvents,
+    indexer: tenantCrudIndexer,
+    afterRestore: ({ entity }) => {
+      Reflect.set(entity, 'tenantId', String(entity.id))
+    },
+  }),
 }
 
 const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {

@@ -457,6 +457,12 @@ type CompanySelectFieldProps = {
 
 type CompanyOption = { value: string; label: string }
 
+function mergeCompanyOptions(options: CompanyOption[], selected: CompanyOption | null): CompanyOption[] {
+  if (!selected) return options
+  if (options.some((option) => option.value === selected.value)) return options
+  return [selected, ...options]
+}
+
 function normalizeCompanyOption(raw: unknown): CompanyOption | null {
   if (!raw || typeof raw !== 'object') return null
   const candidate = raw as Record<string, unknown>
@@ -480,6 +486,21 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
   const [saving, setSaving] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
 
+  const loadCompanyOption = React.useCallback(
+    async (companyId: string): Promise<CompanyOption | null> => {
+      const payload = await readApiResultOrThrow<{ items?: unknown[] }>(
+        `/api/customers/companies?id=${encodeURIComponent(companyId)}&pageSize=1`,
+        undefined,
+        { errorMessage: labels.errorLoad },
+      )
+      const items = Array.isArray(payload?.items) ? payload.items : []
+      return items
+        .map((item: unknown) => normalizeCompanyOption(item))
+        .find((option): option is CompanyOption => option?.value === companyId) ?? null
+    },
+    [labels.errorLoad],
+  )
+
   const loadOptions = React.useCallback(async () => {
     setLoading(true)
     try {
@@ -495,7 +516,11 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
         .sort((a: CompanyOption, b: CompanyOption) =>
           a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
         )
-      setOptions(normalized)
+      const selected =
+        value && !normalized.some((option) => option.value === value)
+          ? await loadCompanyOption(value).catch(() => null)
+          : null
+      setOptions(mergeCompanyOptions(normalized, selected))
     } catch (err) {
       const message = err instanceof Error ? err.message : labels.errorLoad
       flash(message, 'error')
@@ -503,11 +528,20 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
     } finally {
       setLoading(false)
     }
-  }, [labels.errorLoad])
+  }, [labels.errorLoad, loadCompanyOption, value])
 
   React.useEffect(() => {
     loadOptions().catch(() => {})
   }, [loadOptions])
+
+  React.useEffect(() => {
+    if (!value || options.some((option) => option.value === value)) return
+    loadCompanyOption(value)
+      .then((selected) => {
+        setOptions((current) => mergeCompanyOptions(current, selected))
+      })
+      .catch(() => {})
+  }, [loadCompanyOption, options, value])
 
   const handleDialogChange = React.useCallback((open: boolean) => {
     setDialogOpen(open)
@@ -569,6 +603,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
   )
 
   const disabled = loading || saving
+  const selectedOption = value ? options.find((option) => option.value === value) : null
 
   return (
     <div className="space-y-2">
@@ -579,7 +614,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
           disabled={loading}
         >
           <SelectTrigger>
-            <SelectValue placeholder={labels.placeholder} />
+            <SelectValue placeholder={labels.placeholder}>{selectedOption?.label}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {options.map((option) => (

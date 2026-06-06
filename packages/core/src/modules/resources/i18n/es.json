@@ -191,6 +191,7 @@
   "resources.errors.unauthorized": "No autorizado",
   "resources.nav.group": "Planificación de recursos",
   "resources.resourceTypes.actions.add": "Agregar tipo de recurso",
+  "resources.resourceTypes.actions.backToList": "Volver a tipos de recursos",
   "resources.resourceTypes.actions.delete": "Eliminar",
   "resources.resourceTypes.actions.deleteConfirm": "Eliminar el tipo de recurso \"{{name}}\"?",
   "resources.resourceTypes.actions.edit": "Editar",

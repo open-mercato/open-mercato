@@ -6,6 +6,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { StaffTeam, StaffTeamMember, StaffTeamRole } from '../data/entities'
@@ -69,6 +70,13 @@ async function loadTeamRoleCustomSnapshot(
     organizationId: snapshot.organizationId,
   })
 }
+
+const redoTeamRoleCreate = makeCreateRedo<StaffTeamRole, TeamRoleSnapshot, StaffTeamRoleCreateInput, { roleId: string }>({
+  entityClass: StaffTeamRole,
+  buildResult: (entity) => ({ roleId: entity.id }),
+  events: staffTeamRoleCrudEvents,
+  indexer: teamRoleCrudIndexer,
+})
 
 async function ensureTeamExists(
   em: EntityManager,
@@ -190,6 +198,22 @@ const createTeamRoleCommand: CommandHandler<StaffTeamRoleCreateInput, { roleId: 
       indexer: teamRoleCrudIndexer,
       })
     }
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const result = await redoTeamRoleCreate({ input: undefined as unknown as StaffTeamRoleCreateInput, ctx, logEntry })
+    const payload = extractUndoPayload<TeamRoleUndoPayload>(logEntry)
+    const customAfter = payload?.customAfter
+    if (customAfter && Object.keys(customAfter).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+        entityId: E.staff.staff_team_role,
+        recordId: result.roleId,
+        tenantId: payload?.after?.tenantId ?? '',
+        organizationId: payload?.after?.organizationId ?? '',
+        values: customAfter,
+      })
+    }
+    return result
   },
 }
 

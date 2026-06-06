@@ -391,7 +391,7 @@ Notes:
 
 - For list/detail data loading, use `LoadingMessage` and `ErrorMessage` from `@open-mercato/ui/backend/detail`.
 - For record-backed backend detail/edit pages, treat `notFound` as a dedicated page state, separate from generic `error`.
-- When a record is missing, return early with a page-level `ErrorMessage` and a clear recovery action ("Back to list"); do not render `CrudForm`, detail sections, tabs, or record actions.
+- When a record is missing, return early with `RecordNotFoundState` from `@open-mercato/ui/backend/detail` (a neutral, centered empty state with a recovery action) and pass `backHref`/`backLabel`; do not render `CrudForm`, detail sections, tabs, or record actions. A missing record is NOT an error — never render not-found through the destructive `ErrorMessage`. Reserve `ErrorMessage` for genuine load/validation failures.
 - Don't use ad hoc centered `<div>` error markup when shared backend detail primitives can express the state.
 - Use `TabEmptyState` when a section is empty but otherwise healthy.
 - Keep loading flags local to the section; reset errors before each load.
