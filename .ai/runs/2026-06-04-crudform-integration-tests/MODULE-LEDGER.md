@@ -31,7 +31,7 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
 | B2 | integrations | core | credentials (secret/text/select round-trip) | feat/crudform-tests-integrations | — | ⬜ spec implemented (#2561, TC-INTEG-CRUDFORM-001); open PR → 🔵 |
 | B3 | customer_accounts | core | customer-role (+portal perms), customer-user | `feat/crudform-tests-customer-accounts` | — | ⬜ |
 | B4 | planner | core | availability-ruleset (scalars: name/description/timezone — no CF/dict/multiselect declared) | `feat/crudform-tests-planner` | — | 🔵 spec written (TC-PLAN-CRUDFORM-001); PR pending |
-| B5 | webhooks | webhooks | webhook (events multiselect + headers JSON) | `feat/crudform-tests-webhooks` | — | ⬜ |
+| B5 | webhooks | webhooks | webhook (events multiselect + headers JSON) · no custom fields | feat/crudform-tests-webhooks | — | 🔵 PR open (stacked on #2548) — TC-WH-CRUDFORM-001 |
 | B6 | scheduler | scheduler | scheduled-job (scope/target/payload JSON) — TC-SCHED-CRUDFORM-001 | feat/crudform-tests-scheduler | — | 🔵 PR open (targets develop; #2548/#2551/#2553 merged) |
 | B7 | checkout | checkout | link-template (TC-CHK-CRUDFORM-001), pay-link (TC-CHK-CRUDFORM-002) | `feat/crudform-tests-checkout` | #2566 | 🔵 PR open (stacked on #2548) |
 
@@ -47,6 +47,13 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
 
 ## Notes
 
+- **Tier B harness seam (added by B5/webhooks):** hand-written modules whose CrudForm submits to
+  detail routes (`POST /collection`, `PUT /collection/:id`, `DELETE /collection/:id`) can't use the
+  harness's default makeCrud collection verbs. Pass `recordPath` (a callback returning the per-record
+  `/collection/:id` URL) to `runCrudFormRoundTrip` — it routes the update PUT and the cleanup DELETE to that per-record URL
+  (no `?id=`), while read-back still uses a custom `readById` (detail GET). Reuse this for B6/scheduler
+  and B7/checkout if they also use path-param detail routes. Responses there are camelCase, so scalar
+  expectations use camelCase keys (no snake_case conversion).
 - `example` (todos) lives under `apps/mercato/src/modules/` (app, not a package) — no
   `__integration__` test files added there; its CF behavior is already exercised by
   `TC-CRM-028`.
