@@ -68,11 +68,22 @@ Affected areas:
 ### Phase 2: Documentation And Validation
 
 - [x] 2.1 Add documentation and update the specification — e2b742ff6
-- [ ] 2.2 Run targeted and full validation gates
-- [ ] 2.3 Complete code, compatibility, and live validation review
+- [x] 2.2 Run targeted and full validation gates
+- [x] 2.3 Complete code, compatibility, and live validation review
 
 ### Phase 3: Delivery
 
 - [ ] 3.1 Commit and push the implementation branch
 - [ ] 3.2 Open and link the implementation PR
 - [ ] 3.3 Complete automated review and final summary
+
+## Validation Evidence
+
+- `yarn workspace @open-mercato/cli test --runInBand src/lib/deploy/railway`: 43/43 passed.
+- `yarn workspace create-mercato-app test`: 39/39 passed.
+- `yarn build:packages`: 21/21 passed.
+- `yarn typecheck`: 21/21 passed.
+- `yarn workspace open-mercato-docs build`: passed with one pre-existing WSL2 broken-anchor warning.
+- Live Railway deployment: app, worker, PostgreSQL, Redis, public healthcheck, repeated-run idempotency, and cleanup passed.
+- Full `yarn test` reached 945 passing CLI tests before the existing `dev-env-reload` watcher test failed because the host cannot create even a minimal standalone `fs.watch()` handle (`EMFILE`).
+- `yarn build:app` stalled in the Turbopack production compile without producing an error and was treated as an environment limitation after the package build and repository typecheck passed.
