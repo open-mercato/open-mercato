@@ -1,0 +1,1 @@
+export { WmsLowStockRenderer } from './WmsLowStockRenderer'

@@ -1,6 +1,9 @@
-import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
+'use client'
 
-export const notificationTypes: NotificationTypeDefinition[] = [
+import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
+import { WmsLowStockRenderer } from './widgets/notifications/WmsLowStockRenderer'
+
+export const wmsNotificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'wms.inventory.low_stock',
     module: 'wms',
@@ -18,8 +21,9 @@ export const notificationTypes: NotificationTypeDefinition[] = [
       },
     ],
     linkHref: '/backend/wms/inventory',
+    Renderer: WmsLowStockRenderer,
     expiresAfterHours: 72,
   },
 ]
 
-export default notificationTypes
+export default wmsNotificationTypes
