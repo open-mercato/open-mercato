@@ -32,7 +32,7 @@ describe('PortalLoginPage', () => {
     portalContextState.tenant = { tenantId: 't-1', organizationId: 'o-1', organizationName: 'Acme', loading: false, error: null }
   })
 
-  it('submits credentials + tenantId to /api/customer_accounts/login on success', async () => {
+  it('submits credentials + organizationId to /api/customer_accounts/login on success', async () => {
     apiCallMock.mockResolvedValueOnce({ ok: true, status: 200, result: { ok: true } })
 
     const { getByLabelText, getByRole, queryByText } = renderWithProviders(<PortalLoginPage params={{ orgSlug: 'acme' }} />)
@@ -47,7 +47,7 @@ describe('PortalLoginPage', () => {
       '/api/customer_accounts/login',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ email: 'u@example.com', password: 'pw12345', tenantId: 't-1' }),
+        body: JSON.stringify({ email: 'u@example.com', password: 'pw12345', organizationId: 'o-1' }),
       }),
     )
     // No error rendered on success — the page issues a navigation we don't assert

@@ -89,6 +89,9 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       commandId: 'auth.roles.create',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
+        // Preserve an explicit null so the create command rejects it (400 — global
+        // roles are unsupported); only resolve string/omitted tenantId against the actor.
+        if (parsed.tenantId === null) return parsed
         const requestedTenantId = typeof parsed.tenantId === 'string' ? parsed.tenantId : undefined
         const resolvedTenantId = await enforceTenantSelection(
           { auth: ctx.auth, container: ctx.container },
