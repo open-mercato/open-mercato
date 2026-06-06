@@ -60,8 +60,7 @@ needed.
 
 **New (`@open-mercato/ui`):**
 - `src/backend/inputs/MarkdownField.tsx` — canonical Markdown editor: `dynamic(() => MdxEditorImpl, { ssr:false })` with a jsdom test stub (textarea) so unit tests do not load MDXEditor's ESM/CSS.
-- `src/backend/inputs/MdxEditorImpl.tsx` — MDXEditor wrapper: controlled `value`/`onChange` (buffered, commit on blur), DS-styled toolbar (`UndoRedo`, BIU, code, strike/sup/sub, lists, block-type, link, image, table, thematic break, `DiffSourceToggleWrapper`), dark via `dark-theme` class.
-- `src/types/css.d.ts` — ambient `declare module '*.css'` so the package type-checks the MDXEditor stylesheet side-effect import.
+- `src/backend/inputs/MdxEditorImpl.tsx` — MDXEditor wrapper: controlled `value`/`onChange` (buffered, commit on blur), DS-styled toolbar (`UndoRedo`, BIU, code, strike/sub/sup, lists, block-type, link, image, table, thematic break, `DiffSourceToggleWrapper`), dark via `dark-theme` class. Does **not** import the editor stylesheet — it ships globally via `globals.css`, so cross-package type-checking of `@open-mercato/ui` source does not require a `*.css` ambient.
 
 **Editor swap:**
 - `src/backend/CrudForm.tsx` — Markdown field renders `MarkdownField`; UIW editor + `remark-gfm` preview plumbing removed.
@@ -78,7 +77,8 @@ resources `ResourceCrudForm`, `ResourceTypeCrudForm`.
 legacy HTML, decodes entities).
 
 **Styling:** `apps/mercato/src/app/globals.css` + `packages/create-app/template/src/app/globals.css`
-— MDXEditor DS theming block (`.om-mdx-editor` / `.om-mdx-prose` / `.cm-*`).
+— `@import "@mdxeditor/editor/dist/style.css"` (loaded globally, mirroring react-big-calendar's CSS) plus
+the MDXEditor DS theming block (`.om-mdx-editor` / `.om-mdx-prose` / `.cm-*`).
 
 **Dependencies:** add `@mdxeditor/editor` to `@open-mercato/ui`; remove `@uiw/react-md-editor`
 from the workspace (root + app). `@uiw/react-markdown-preview` is **retained** — it backs the

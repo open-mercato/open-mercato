@@ -28,7 +28,9 @@ import {
   Separator,
   DiffSourceToggleWrapper,
 } from '@mdxeditor/editor'
-import '@mdxeditor/editor/style.css'
+// MDXEditor's stylesheet is loaded once globally via app/template globals.css
+// (`@import "@mdxeditor/editor/dist/style.css"`), matching how react-big-calendar's CSS is wired.
+// Importing it here would force every package that type-checks this source to declare `*.css`.
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useTheme } from '../../theme'
 
