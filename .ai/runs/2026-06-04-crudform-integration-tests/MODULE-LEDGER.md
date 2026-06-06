@@ -19,7 +19,7 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
 | A3 | catalog | core | product (multichoice CF), variant (prices), category | feat/2555-crudform-tests-catalog | — | 🔵 specs ready (TC-CAT-CRUDFORM-001..003, #2555); off develop (#2548 merged); PR pending |
 | A4 | customers | core | person/company/deal (inline + CF + dictionary) | `feat/crudform-tests-customers` | — | ⬜ |
 | A5 | currencies | core | currency (scalars), exchange-rate | feat/crudform-integration-tests | #2548 | 🔵 currency covered in foundation PR #2548 |
-| A6 | auth | core | user (roles[] + CF + ACL), role (CF + ACL) | `feat/crudform-tests-auth` | — | ⬜ |
+| A6 | auth | core | user (roles[] + CF + ACL), role (CF + ACL) | `feat/crudform-tests-auth` | — | 🔵 specs ready — TC-AUTH-CRUDFORM-001 (user), -002 (role); CF defs created at runtime (auth has no ce.ts); ACL complements TC-AUTH-043/049; PR pending |
 | A7 | sales | core | channel (CF + multi-select), channel-offer | feat/crudform-tests-sales | #2558 | 🔵 specs written; PR pending |
 | A8 | workflows | core | definition (metadata.* dot-path — see #2503) | feat/crudform-tests-workflows | — | 🔵 PR open (#2559; TC-WF-CRUDFORM-001, complements TC-WF-014) |
 
