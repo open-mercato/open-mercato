@@ -30,6 +30,7 @@
         "om-auto-continue-pr-loop",
         "om-auto-review-pr",
         "om-auto-fix-github",
+        "om-auto-verify-and-fix-github",
         "om-prepare-issue",
         "om-verify-in-repo",
         "om-root-cause",

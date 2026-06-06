@@ -23,6 +23,7 @@ import {
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 
 type SerializedRole = {
   name: string
@@ -202,6 +203,56 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
       where: { id: undo.id, deletedAt: null } as FilterQuery<Role>,
       soft: false,
     })
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<RoleUndoSnapshot>(logEntry)
+    if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for role create' })
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    let role = await findOneWithDecryption(em, Role, { id: after.id }, {}, { tenantId: null, organizationId: null })
+    if (role) {
+      role.deletedAt = null
+      role.name = after.name
+      role.tenantId = after.tenantId
+      await em.flush()
+    } else {
+      role = await de.createOrmEntity({
+        entity: Role,
+        data: {
+          id: after.id,
+          name: after.name,
+          tenantId: after.tenantId,
+        },
+      })
+    }
+    await restoreRoleAcls(em, after.id, after.acls)
+    if (after.custom && Object.keys(after.custom).length) {
+      const reset = buildCustomFieldResetMap(after.custom, undefined)
+      if (Object.keys(reset).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: de,
+          entityId: E.auth.role,
+          recordId: after.id,
+          organizationId: null,
+          tenantId: after.tenantId ?? null,
+          values: reset,
+          notify: false,
+        })
+      }
+    }
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: role,
+      identifiers: {
+        id: after.id,
+        organizationId: null,
+        tenantId: after.tenantId ?? null,
+      },
+      events: roleCrudEvents,
+      indexer: roleCrudIndexer,
+    })
+    return role
   },
 }
 

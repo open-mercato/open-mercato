@@ -230,7 +230,11 @@ export class CommandBus {
     }
 
     const snapshots = await this.prepareSnapshots(handler, effectiveOptions)
-    const result = await handler.execute(effectiveOptions.input, effectiveOptions.ctx)
+    const redoLogEntry = effectiveOptions.redoLogEntry ?? null
+    const result =
+      redoLogEntry && typeof handler.redo === 'function'
+        ? await handler.redo({ input: effectiveOptions.input, ctx: effectiveOptions.ctx, logEntry: redoLogEntry })
+        : await handler.execute(effectiveOptions.input, effectiveOptions.ctx)
     const afterSnapshot = await this.captureAfter(handler, effectiveOptions, result)
     const snapshotsWithAfter = { ...snapshots, after: afterSnapshot }
     const logMeta = await this.buildLog(handler, effectiveOptions, result, snapshotsWithAfter)

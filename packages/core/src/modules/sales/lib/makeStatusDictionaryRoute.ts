@@ -96,6 +96,7 @@ export function makeStatusDictionaryRoute(config: StatusDictionaryRouteConfig) {
     .object({
       page: z.coerce.number().min(1).default(1),
       pageSize: z.coerce.number().min(1).max(100).default(50),
+      id: z.string().uuid().optional(),
       search: z.string().optional(),
       sortField: z.string().optional(),
       sortDir: z.enum(['asc', 'desc']).optional(),
@@ -212,6 +213,7 @@ export function makeStatusDictionaryRoute(config: StatusDictionaryRouteConfig) {
         const filters: Record<string, unknown> = {
           dictionary_id: dictionaryId,
         }
+        if (query.id) filters.id = { $eq: query.id }
         const searchFilter = buildAggregateSearchFilter(query.search)
         if (searchFilter) Object.assign(filters, searchFilter)
         return filters

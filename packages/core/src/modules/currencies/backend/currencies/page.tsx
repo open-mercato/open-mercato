@@ -4,6 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { ColumnDef } from '@tanstack/react-table'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -291,6 +292,13 @@ export default function CurrenciesPage() {
                     ]
                   : []),
               ]}
+            />
+          )}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('currencies.list.title')}
+              createHref="/backend/currencies/create"
+              createLabel={t('currencies.list.actions.create')}
             />
           )}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}

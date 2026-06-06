@@ -1021,6 +1021,7 @@
   "staff.timesheets.nav.projects": "Projects",
   "staff.timesheets.projects.actions.add": "Add Project",
   "staff.timesheets.projects.actions.addFirst": "+ Add first project",
+  "staff.timesheets.projects.actions.backToList": "Zurück zu Projekten",
   "staff.timesheets.projects.actions.delete": "Delete",
   "staff.timesheets.projects.actions.deleteConfirm": "Delete project \"{{name}}\"?",
   "staff.timesheets.projects.actions.refresh": "Refresh",
