@@ -4132,6 +4132,7 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
           return (
             <Button
               key={opt.value}
+              type="button"
               variant="ghost"
               size="sm"
               onClick={() => toggle(opt.value)}
