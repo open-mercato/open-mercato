@@ -12,11 +12,32 @@ import { CustomFieldValue } from '../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getModules } from '@open-mercato/shared/lib/i18n/server'
 import { assertEntityAclForRequest } from '../lib/entityAcl'
+
+let declaredCustomEntityIds: Set<string> | null = null
+function isDeclaredCustomEntity(entityId: string): boolean {
+  if (declaredCustomEntityIds === null) {
+    try {
+      const mods = getModules() as Array<{ customEntities?: Array<{ id?: string }> }>
+      if (Array.isArray(mods) && mods.length) {
+        const ids = new Set<string>()
+        for (const mod of mods) {
+          for (const spec of mod?.customEntities ?? []) {
+            if (spec?.id) ids.add(spec.id)
+          }
+        }
+        declaredCustomEntityIds = ids
+      }
+    } catch {}
+  }
+  return declaredCustomEntityIds?.has(entityId) ?? false
+}
 
 const CUSTOM_ENTITY_RECORD_RESOURCE_KIND = 'entities.record'
 
 async function detectCustomEntity(em: any, entityId: string): Promise<boolean> {
+  if (isDeclaredCustomEntity(entityId)) return true
   try {
     const { CustomEntity } = await import('../data/entities')
     const found = await em.findOne(CustomEntity as any, { entityId, isActive: true })
@@ -127,29 +148,13 @@ export async function GET(req: Request) {
     const rbac = resolve('rbacService') as RbacService
     const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
     let organizationIds: string[] | null = scope.filterIds
-    let isCustomEntity = false
-    try {
-      const { CustomEntity } = await import('../data/entities')
-      const found = await em.findOne(CustomEntity as any, { entityId, isActive: true })
-      isCustomEntity = !!found
-    } catch {}
     // Read/write symmetry: this endpoint writes every record to custom_entities_storage
     // via the data engine, including module-declared custom entities whose id is a
-    // frozen system id and therefore never registered in `custom_entities`. Detect
-    // those by their doc-storage rows so `mapRow` strips the `cf_` prefix and the edit
-    // form can read back the saved values (mirrors HybridQueryEngine.isCustomEntity).
-    if (!isCustomEntity) {
-      try {
-        const db = em.getKysely()
-        const row = await db
-          .selectFrom('custom_entities_storage' as any)
-          .select(['entity_id' as any])
-          .where('entity_type' as any, '=', entityId)
-          .limit(1)
-          .executeTakeFirst()
-        isCustomEntity = !!row
-      } catch {}
-    }
+    // frozen system id and therefore never registered in `custom_entities`. detectCustomEntity
+    // covers the declared-entity registry plus the custom_entities / doc-storage fallbacks
+    // (mirrors HybridQueryEngine.isCustomEntity) so mapRow strips the cf_ prefix and the edit
+    // form can read back saved values.
+    const isCustomEntity = await detectCustomEntity(em, entityId)
     await assertEntityAclForRequest({ auth, entityId, action: 'view', isCustomEntity, rbac })
     if (organizationIds && organizationIds.length === 0) {
       return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 0 })
