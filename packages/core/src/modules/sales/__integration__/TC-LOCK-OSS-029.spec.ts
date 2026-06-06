@@ -222,16 +222,11 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
       // searchable on the catalog/offers route.
       const searchBox = page.getByPlaceholder(/search offers/i)
       await expect(searchBox).toBeVisible({ timeout: 20_000 })
-      const filteredList = page.waitForResponse(
-        (response) =>
-          response.request().method() === 'GET' &&
-          response.url().includes(OFFERS_API_BASE) &&
-          response.url().includes(String(stamp)),
-        { timeout: 20_000 },
-      )
-      await searchBox.fill(`QA Lock 029 offer del ${stamp}`)
-      await filteredList
-      // Exactly one stamped row after the debounced search settles → stable DOM.
+      await fillControlledInput(searchBox, `QA Lock 029 offer del ${stamp}`)
+      // The row itself is the readiness signal. In standalone CI the newly
+      // created offer can already be visible on page 1 before the debounced
+      // search emits a GET, so waiting only for that network request races the
+      // UI and can time out even though the target row is ready.
       const row = page.locator('tr', { hasText: `QA Lock 029 offer del ${stamp}` }).first()
       await expect(row).toBeVisible({ timeout: 20_000 })
 

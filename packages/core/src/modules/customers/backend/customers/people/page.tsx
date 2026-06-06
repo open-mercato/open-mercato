@@ -966,7 +966,7 @@ export default function CustomersPeoplePage() {
           }}
           activeFilterChips={(
             <ActiveFilterChips
-              tree={filterPanel.tree}
+              tree={filterPanel.appliedTree}
               fields={advancedFilterFields}
               popoverOpen={filtersOpen}
               onRemoveNode={(id) => filterPanel.dispatch({ type: 'removeNode', nodeId: id })}

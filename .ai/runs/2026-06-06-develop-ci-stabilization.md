@@ -21,6 +21,7 @@ Stabilize the latest `develop` branch feeding release PR #2425 by fixing the cur
 - Unit validation: `yarn workspace @open-mercato/ui test packages/ui/src/backend/filters/__tests__/AdvancedFilterPanel.test.tsx --runInBand` passed, 7 tests.
 - Targeted integration validation: `BASE_URL=http://127.0.0.1:55343 OM_OPTIMISTIC_LOCK=all npx playwright test --config .ai/qa/tests/playwright.config.ts packages/core/src/modules/customers/__integration__/TC-CRM-059.spec.ts packages/core/src/modules/customers/__integration__/TC-CRM-060.spec.ts packages/core/src/modules/customers/__integration__/TC-CRM-061.spec.ts packages/core/src/modules/sales/__integration__/TC-LOCK-OSS-029.spec.ts --retries=0` passed, 19 tests.
 - Filtered coverage validation after UMES fix: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --filter=apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts --no-reuse-env --retries=0 --no-screenshots` passed, failed=0, flaky=0, 9 passed, 4 skipped.
+- Standalone Snapshot Release artifacts from PR #2425 and PR #2657 showed remaining failures around CRM active-filter chips, SAL-13 offer list-delete, and one `TC-CUR-REDO-409` currency-code collision. Follow-up fixes now use `appliedTree` for CRM active chips, wait for the sales row readiness signal instead of a debounced GET, and use the shared unique currency-code fixture.
 
 ## Resume Notes
 
@@ -39,6 +40,7 @@ Stabilize the latest `develop` branch feeding release PR #2425 by fixing the cur
 - [x] 1.1 Stabilize CRM advanced-filter chip close behavior — fe790ef3f
 - [x] 1.2 Surface sales offer stale list-delete conflicts and stabilize SAL-13 fixture — fe790ef3f
 - [x] 1.3 Stabilize UMES page probe under cold coverage runs
+- [ ] 1.4 Stabilize standalone artifact follow-ups for CRM chips, SAL-13 waits, and currency REDO fixtures
 
 ### Phase 2: Verification
 
