@@ -60,7 +60,8 @@ needed.
 
 **New (`@open-mercato/ui`):**
 - `src/backend/inputs/MarkdownField.tsx` — canonical Markdown editor: `dynamic(() => MdxEditorImpl, { ssr:false })` with a jsdom test stub (textarea) so unit tests do not load MDXEditor's ESM/CSS.
-- `src/backend/inputs/MdxEditorImpl.tsx` — MDXEditor wrapper: controlled `value`/`onChange` (buffered, commit on blur), DS-styled toolbar (`UndoRedo`, BIU, code, strike/sub/sup, lists, block-type, link, image, table, thematic break, `DiffSourceToggleWrapper`), dark via `dark-theme` class. Does **not** import the editor stylesheet — it ships globally via `globals.css`, so cross-package type-checking of `@open-mercato/ui` source does not require a `*.css` ambient.
+- `src/backend/inputs/MdxEditorImpl.tsx` — MDXEditor wrapper: controlled `value`/`onChange` (buffered, commit on blur), DS-styled toolbar (`UndoRedo`, BIU, code, strike/sub/sup, lists, block-type, link, image, table, thematic break, `DiffSourceToggleWrapper`), dark via `dark-theme` class. Side-effect-imports `@mdxeditor/editor/style.css` (the package only exports its CSS under the JS import condition, not the CSS `style` condition, so a `globals.css` `@import` cannot resolve it).
+- `src/types/css.d.ts` — ambient `declare module '*.css'` for that stylesheet import. A `/// <reference>` to it from `MdxEditorImpl.tsx` makes the ambient travel into every package that type-checks `@open-mercato/ui` source (scheduler, webhooks, checkout, ai-assistant, …), so the cross-package typecheck resolves the import (otherwise TS2882).
 
 **Editor swap:**
 - `src/backend/CrudForm.tsx` — Markdown field renders `MarkdownField`; UIW editor + `remark-gfm` preview plumbing removed.
@@ -77,8 +78,8 @@ resources `ResourceCrudForm`, `ResourceTypeCrudForm`.
 legacy HTML, decodes entities).
 
 **Styling:** `apps/mercato/src/app/globals.css` + `packages/create-app/template/src/app/globals.css`
-— `@import "@mdxeditor/editor/dist/style.css"` (loaded globally, mirroring react-big-calendar's CSS) plus
-the MDXEditor DS theming block (`.om-mdx-editor` / `.om-mdx-prose` / `.cm-*`).
+— the MDXEditor DS theming block (`.om-mdx-editor` / `.om-mdx-prose` / `.cm-*`). The editor's base
+stylesheet is imported by the component (see above), not globally.
 
 **Dependencies:** add `@mdxeditor/editor` to `@open-mercato/ui`; remove `@uiw/react-md-editor`
 from the workspace (root + app). `@uiw/react-markdown-preview` is **retained** — it backs the

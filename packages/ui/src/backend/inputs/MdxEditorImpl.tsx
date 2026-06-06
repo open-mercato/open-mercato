@@ -1,3 +1,4 @@
+/// <reference path="../../types/css.d.ts" />
 "use client"
 
 import * as React from 'react'
@@ -28,9 +29,7 @@ import {
   Separator,
   DiffSourceToggleWrapper,
 } from '@mdxeditor/editor'
-// MDXEditor's stylesheet is loaded once globally via app/template globals.css
-// (`@import "@mdxeditor/editor/dist/style.css"`), matching how react-big-calendar's CSS is wired.
-// Importing it here would force every package that type-checks this source to declare `*.css`.
+import '@mdxeditor/editor/style.css'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useTheme } from '../../theme'
 
