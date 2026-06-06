@@ -28,13 +28,17 @@ Stabilize the latest `develop` branch feeding release PR #2425 by fixing the cur
 - Targeted syntax/import validation: `npx playwright test --config .ai/qa/tests/playwright.config.ts apps/mercato/src/modules/example/__integration__/TC-UMES-003.spec.ts apps/mercato/src/modules/example/__integration__/TC-UMES-009.spec.ts packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-RUNTIME-OVERRIDES-006-model-picker.spec.ts packages/core/src/modules/customers/__integration__/TC-AI-AGENT-DEAL-ANALYZER-001-007.spec.ts packages/core/src/modules/customers/__integration__/TC-CRM-024.spec.ts packages/core/src/modules/sales/__integration__/TC-LOCK-OSS-029.spec.ts --list` passed, 48 tests listed.
 - Targeted UMES validation: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --filter=apps/mercato/src/modules/example/__integration__/TC-UMES-003.spec.ts --no-reuse-env --retries=0 --no-screenshots` passed, 19 passed, 0 failed.
 - Targeted SAL-13 validation: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --filter=packages/core/src/modules/sales/__integration__/TC-LOCK-OSS-029.spec.ts --no-reuse-env --retries=0 --no-screenshots` passed, 4 passed, 0 failed.
+- Invalidated full round after full-suite-flake fixes: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --no-reuse-env --retries=0` failed with 2 failures: `TC-CHKT-040` checkout template edit route shell loaded with an empty `main` before the capture-method field was ready, and auth `TC-AUTH-033` hit the 60s timeout while verifying the CLI result under full-suite load. Previously fixed UMES, AI settings, CRM filter, and SAL-13 cases passed in this run.
+- Targeted checkout/auth syntax validation: `npx playwright test --config .ai/qa/tests/playwright.config.ts packages/checkout/src/modules/checkout/__integration__/TC-CHKT-040-gateway-settings-select.spec.ts packages/core/src/modules/auth/__integration__/TC-AUTH-033.spec.ts --list` passed, 5 tests listed.
+- Targeted checkout validation on reusable ephemeral app: `BASE_URL=http://127.0.0.1:5001 OM_OPTIMISTIC_LOCK=all npx playwright test --config .ai/qa/tests/playwright.config.ts packages/checkout/src/modules/checkout/__integration__/TC-CHKT-040-gateway-settings-select.spec.ts packages/core/src/modules/auth/__integration__/TC-AUTH-033.spec.ts --retries=0` passed `TC-CHKT-040`; the auth subcases in that direct run were invalid because the CLI subprocess lacked the ephemeral DB URL and intentionally read the local app `.env`.
+- Targeted auth validation with matching ephemeral DB env: `BASE_URL=http://127.0.0.1:5001 DATABASE_URL=postgres://mercato:secret@localhost:55179/mercato_test OM_OPTIMISTIC_LOCK=all npx playwright test --config .ai/qa/tests/playwright.config.ts packages/core/src/modules/auth/__integration__/TC-AUTH-033.spec.ts --retries=0` passed, 4 passed.
 
 ## Resume Notes
 
 - Branch: `fix/ci-2425-develop-stabilization`.
 - PR: #2657 (`https://github.com/open-mercato/open-mercato/pull/2657`).
 - Targeted ephemeral app used for verification: `http://127.0.0.1:55343`, DB port `55147`.
-- Next required proof: run two independent full `yarn test:integration:coverage --no-reuse-env --retries=0` rounds from this branch after rebasing/merging the newest `origin/develop`.
+- Next required proof: run full `yarn test:integration:coverage --no-reuse-env --retries=0` rounds from the latest pushed head after rebasing/merging the newest `origin/develop`.
 - If another failure appears, inspect Playwright artifacts in `.ai/qa/test-results/` and fix root cause before counting either full round.
 
 ## Progress
