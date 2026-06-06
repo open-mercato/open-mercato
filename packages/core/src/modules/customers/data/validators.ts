@@ -10,11 +10,6 @@ export const ACTIVITY_TIME_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.t
 export const ACTIVITY_PHONE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.phoneRequired'
 export const ACTIVITY_PHONE_INVALID_MESSAGE_KEY = 'customers.activities.errors.phoneInvalid'
 
-// Optional URL/email/phone fields map to nullable DB columns. Treat both '' and null as an
-// explicit "clear this value" signal (both coerce to null) so a previously-set value can
-// be removed via update; without this, validators either reject blank/null values or omit
-// the field, leaving the columns effectively write-once-non-empty. The command layer already
-// persists null. See #2526.
 const emptyStringToNull = (value: unknown): unknown => {
   if (typeof value !== 'string') return value
   const trimmed = value.trim()
