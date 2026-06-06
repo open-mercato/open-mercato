@@ -23,6 +23,7 @@ Stabilize the latest `develop` branch feeding release PR #2425 by fixing the cur
 - Filtered coverage validation after UMES fix: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --filter=apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts --no-reuse-env --retries=0 --no-screenshots` passed, failed=0, flaky=0, 9 passed, 4 skipped.
 - Standalone Snapshot Release artifacts from PR #2425 and PR #2657 showed remaining failures around CRM active-filter chips, SAL-13 offer list-delete, and one `TC-CUR-REDO-409` currency-code collision. Follow-up fixes now use `appliedTree` for CRM active chips, wait for the sales row readiness signal instead of a debounced GET, and use the shared unique currency-code fixture.
 - Targeted artifact validation after follow-up: `BASE_URL=http://127.0.0.1:5001 OM_OPTIMISTIC_LOCK=all npx playwright test --config .ai/qa/tests/playwright.config.ts packages/core/src/modules/customers/__integration__/TC-CRM-059.spec.ts packages/core/src/modules/customers/__integration__/TC-CRM-060.spec.ts packages/core/src/modules/customers/__integration__/TC-CRM-061.spec.ts packages/core/src/modules/sales/__integration__/TC-LOCK-OSS-029.spec.ts packages/core/src/modules/currencies/__integration__/TC-CUR-REDO-409.spec.ts --retries=0` passed, 23 tests.
+- Full local proof round 1: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --no-reuse-env --retries=0` passed, 1560 passed, 0 failed, 70 skipped, coverage status passed.
 
 ## Resume Notes
 
@@ -40,15 +41,15 @@ Stabilize the latest `develop` branch feeding release PR #2425 by fixing the cur
 
 - [x] 1.1 Stabilize CRM advanced-filter chip close behavior — fe790ef3f
 - [x] 1.2 Surface sales offer stale list-delete conflicts and stabilize SAL-13 fixture — fe790ef3f
-- [x] 1.3 Stabilize UMES page probe under cold coverage runs
+- [x] 1.3 Stabilize UMES page probe under cold coverage runs — fe790ef3f
 - [x] 1.4 Stabilize standalone artifact follow-ups for CRM chips, SAL-13 waits, and currency REDO fixtures — 8a5543d3c
 
 ### Phase 2: Verification
 
-- [x] 2.1 Run targeted unit validation
-- [x] 2.2 Run targeted CRM and sales integration validation with retries disabled
-- [x] 2.2a Run filtered UMES coverage validation with retries disabled
-- [ ] 2.3 Run full ephemeral proof round 1 with retries disabled
+- [x] 2.1 Run targeted unit validation — fe790ef3f
+- [x] 2.2 Run targeted CRM and sales integration validation with retries disabled — fe790ef3f
+- [x] 2.2a Run filtered UMES coverage validation with retries disabled — fe790ef3f
+- [x] 2.3 Run full ephemeral proof round 1 with retries disabled — f45953962
 - [ ] 2.4 Run full ephemeral proof round 2 with retries disabled
 
 ### Phase 3: GitHub CI
