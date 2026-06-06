@@ -85,4 +85,4 @@ Add integration tests that exercise the failing edit flows through the UI/API su
 ### Phase 3: Validation And PR
 
 - [x] 3.1 Run targeted validation for checkout, customers, and the new integration tests — 7612e680e
-- [ ] 3.2 Run the full auto-create-pr validation gate, self-review against `om-code-review` and `BACKWARD_COMPATIBILITY.md`, open the PR, run the `om-auto-review-pr` autofix pass, and post the required summary comment including tested coverage
+- [x] 3.2 Run the full auto-create-pr validation gate, self-review against `om-code-review` and `BACKWARD_COMPATIBILITY.md`, open the PR, run the `om-auto-review-pr` autofix pass, and post the required summary comment including tested coverage — f7d637c4b
