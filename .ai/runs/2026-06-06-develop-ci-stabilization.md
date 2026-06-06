@@ -49,7 +49,7 @@ Stabilize the latest `develop` branch feeding release PR #2425 by fixing the cur
 - [x] 2.1 Run targeted unit validation — fe790ef3f
 - [x] 2.2 Run targeted CRM and sales integration validation with retries disabled — fe790ef3f
 - [x] 2.2a Run filtered UMES coverage validation with retries disabled — fe790ef3f
-- [x] 2.3 Run full ephemeral proof round 1 with retries disabled — f45953962
+- [x] 2.3 Run full ephemeral proof round 1 with retries disabled — f514ad028
 - [ ] 2.4 Run full ephemeral proof round 2 with retries disabled
 
 ### Phase 3: GitHub CI
