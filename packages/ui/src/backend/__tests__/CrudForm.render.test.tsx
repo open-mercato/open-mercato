@@ -80,6 +80,44 @@ describe('CrudForm initialValues', () => {
     expect(getInput(container).value).toBe('Bob')
   })
 
+  it('shows the selected label when select options arrive after the saved value', async () => {
+    const makeFields = (options: Array<{ label: string; value: string }>): CrudField[] => [
+      { id: 'teamId', label: 'Team', type: 'select', options },
+    ]
+
+    const { getByRole, rerender } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={makeFields([])}
+        initialValues={{ teamId: 'team-1' }}
+        onSubmit={() => {}}
+      />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.select.emptyOption': '—',
+        },
+      },
+    )
+
+    expect(getByRole('combobox')).not.toHaveTextContent('Engineering')
+
+    await act(async () => {
+      rerender(
+        <CrudForm
+          title="Form"
+          fields={makeFields([{ value: 'team-1', label: 'Engineering' }])}
+          initialValues={{ teamId: 'team-1' }}
+          onSubmit={() => {}}
+        />,
+      )
+    })
+
+    await waitFor(() => {
+      expect(getByRole('combobox')).toHaveTextContent('Engineering')
+    })
+  })
+
   it('does not re-invoke loadOptions on parent re-render (#814)', async () => {
     const loader = jest.fn().mockResolvedValue([{ label: 'A', value: 'a' }])
     const baseFields: CrudField[] = [

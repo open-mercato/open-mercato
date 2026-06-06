@@ -71,6 +71,8 @@ import {
   createLocalId,
   slugify,
   formatTaxRateLabel,
+  normalizeTaxRateSummary,
+  mergeTaxRateSummaries,
   buildOptionSchemaDefinition,
   convertSchemaToProductOptions,
   normalizePriceKindSummary,
@@ -352,6 +354,41 @@ export default function EditCatalogProductPage({
     VariantMediaGroup[]
   >([]);
 
+  const parseTaxRateSummary = React.useCallback(
+    (item: Record<string, unknown>) =>
+      normalizeTaxRateSummary(
+        item,
+        t("catalog.products.create.taxRates.unnamed", "Untitled tax rate"),
+      ),
+    [t],
+  );
+
+  const fetchTaxRateById = React.useCallback(
+    async (taxRateId: string): Promise<TaxRateSummary | null> => {
+      const payload = await readApiResultOrThrow<{
+        items?: Array<Record<string, unknown>>;
+      }>(
+        `/api/sales/tax-rates?id=${encodeURIComponent(taxRateId)}&pageSize=1`,
+        undefined,
+        {
+          errorMessage: t(
+            "catalog.products.create.taxRates.error",
+            "Failed to load tax rates.",
+          ),
+          fallback: { items: [] },
+        },
+      );
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      return (
+        items
+          .map((item) => parseTaxRateSummary(item))
+          .find((item): item is TaxRateSummary => item?.id === taxRateId) ??
+        null
+      );
+    },
+    [parseTaxRateSummary, t],
+  );
+
   const loadVariants = React.useCallback(async (id: string) => {
     try {
       const [variantsRes, pricesRes] = await Promise.all([
@@ -520,34 +557,9 @@ export default function EditCatalogProductPage({
         });
         const items = Array.isArray(payload.items) ? payload.items : [];
         setTaxRates(
-          items.map((item) => {
-            const rawRate =
-              typeof item.rate === "number"
-                ? item.rate
-                : Number(item.rate ?? Number.NaN);
-            return {
-              id: String(item.id),
-              name:
-                typeof item.name === "string" && item.name.trim().length
-                  ? item.name
-                  : t(
-                      "catalog.products.create.taxRates.unnamed",
-                      "Untitled tax rate",
-                    ),
-              code:
-                typeof item.code === "string" && item.code.trim().length
-                  ? item.code
-                  : null,
-              rate: Number.isFinite(rawRate) ? rawRate : null,
-              isDefault: Boolean(
-                typeof item.isDefault === "boolean"
-                  ? item.isDefault
-                  : typeof item.is_default === "boolean"
-                    ? item.is_default
-                    : false,
-              ),
-            };
-          }),
+          items
+            .map((item) => parseTaxRateSummary(item))
+            .filter((item): item is TaxRateSummary => item !== null),
         );
       } catch (err) {
         console.error("sales.tax-rates.fetch failed", err);
@@ -555,7 +567,17 @@ export default function EditCatalogProductPage({
       }
     };
     loadTaxRates().catch(() => {});
-  }, [t]);
+  }, [parseTaxRateSummary, t]);
+
+  React.useEffect(() => {
+    const taxRateId = initialValues?.taxRateId
+    if (!taxRateId || taxRates.some((rate) => rate.id === taxRateId)) return
+    fetchTaxRateById(taxRateId)
+      .then((selected) => {
+        setTaxRates((current) => mergeTaxRateSummaries(current, selected))
+      })
+      .catch(() => {})
+  }, [fetchTaxRateById, initialValues?.taxRateId, taxRates])
 
   React.useEffect(() => {
     if (!productId) {
@@ -2463,6 +2485,9 @@ function ProductMetaSection({
   const autoHandleEnabledRef = React.useRef(handleValue.trim().length === 0);
   const autoHandleInitializedRef = React.useRef(false);
   const previousTitleRef = React.useRef(titleSource);
+  const selectedTaxRate = values.taxRateId
+    ? taxRates.find((rate) => rate.id === values.taxRateId) ?? null
+    : null;
 
   React.useEffect(() => {
     if (isLoadingProduct) return;
@@ -2659,7 +2684,9 @@ function ProductMetaSection({
                   ? t("catalog.products.create.taxRates.noneSelected", "No tax class selected")
                   : t("catalog.products.create.taxRates.emptyOption", "No tax classes available")
               }
-            />
+            >
+              {selectedTaxRate ? formatTaxRateLabel(selectedTaxRate) : undefined}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {taxRates.map((rate) => (

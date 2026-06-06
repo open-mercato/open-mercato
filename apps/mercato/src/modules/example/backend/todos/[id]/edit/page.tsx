@@ -80,7 +80,7 @@ export default function EditTodoPage({ params }: { params?: { id?: string } }) {
       setErr(null)
       setIsNotFound(false)
       try {
-        const data = await fetchCrudList<TodoItem>('example/todos', { id: String(id), pageSize: 1 })
+        const data = await fetchCrudList<TodoItem>('example/todos', { ids: String(id), pageSize: 1 })
         const item = data?.items?.[0]
         if (!item) {
           if (!cancelled) setIsNotFound(true)
@@ -94,6 +94,12 @@ export default function EditTodoPage({ params }: { params?: { id?: string } }) {
           title: item.title,
           is_done: Boolean(item.is_done),
           ...(cfInit as TodoCustomFieldValues),
+          cf_priority: extended.cf_priority ?? cfInit.cf_priority,
+          cf_severity: extended.cf_severity ?? cfInit.cf_severity,
+          cf_blocked: extended.cf_blocked ?? cfInit.cf_blocked,
+          cf_labels: extended.cf_labels ?? cfInit.cf_labels,
+          cf_assignee: extended.cf_assignee ?? cfInit.cf_assignee,
+          cf_description: extended.cf_description ?? cfInit.cf_description,
         }
         if (!cancelled) setInitial(init)
       } catch (error: unknown) {
