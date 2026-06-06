@@ -40,7 +40,7 @@ delete in `finally`. All gated by `OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISAB
 | Order | Module | Package | Surfaces | Branch | PR | Status |
 |-------|--------|---------|----------|--------|----|--------|
 | C1 | directory | core | organization, tenant | — | — | ⏭️ covered by #2539 (TC-DIR-006..012) |
-| C2 | feature_toggles | core | global toggle (superadmin) | `feat/crudform-tests-feature-toggles` | — | ⬜ |
+| C2 | feature_toggles | core | global toggle (superadmin) · scalars + typed defaultValue (boolean/string/number/json) | `feat/crudform-tests-feature-toggles` | — | 🔵 PR pending (#2567 · TC-FT-CRUDFORM-001) |
 | C3 | api_keys | core | api-key | `feat/crudform-tests-api-keys` | — | ⬜ |
 | C4 | dictionaries | core | dictionary entry (scalars: value/label/color/icon/position/isDefault) | feat/2569-dictionaries-crudform | #2569 | 🔵 spec staged (inline round-trip — entry routes are PATCH + path-param, runCrudFormRoundTrip N/A) |
 | C5 | communication_channels | core | channel | `feat/crudform-tests-comm-channels` | — | ⬜ |
