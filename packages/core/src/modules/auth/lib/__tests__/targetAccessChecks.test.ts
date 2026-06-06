@@ -78,7 +78,7 @@ describe('assertActorCanAccessUserTarget', () => {
     ).resolves.toBeUndefined()
   })
 
-  test('returns 404 when the target user does not exist', async () => {
+  test('delegates (does not throw) when the target user does not exist or is soft-deleted', async () => {
     const em = makeEm()
     mockFindOneWithDecryption.mockResolvedValueOnce(null)
     const rbacService = makeRbac({ isSuperAdmin: false })
@@ -91,7 +91,7 @@ describe('assertActorCanAccessUserTarget', () => {
         tenantId,
         targetUserId,
       }),
-    ).rejects.toMatchObject({ status: 404 })
+    ).resolves.toBeUndefined()
   })
 
   test('hides a cross-tenant target as 404', async () => {
@@ -194,7 +194,7 @@ describe('assertActorCanAccessRoleTarget', () => {
     ).resolves.toBeUndefined()
   })
 
-  test('returns 404 when the role does not exist', async () => {
+  test('delegates (does not throw) when the role does not exist or is soft-deleted', async () => {
     const em = makeEm()
     mockFindOneWithDecryption.mockResolvedValueOnce(null)
     const rbacService = makeRbac({ isSuperAdmin: false })
@@ -207,7 +207,7 @@ describe('assertActorCanAccessRoleTarget', () => {
         tenantId,
         targetRoleId,
       }),
-    ).rejects.toMatchObject({ status: 404 })
+    ).resolves.toBeUndefined()
   })
 
   test('hides a cross-tenant role as 404', async () => {

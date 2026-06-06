@@ -131,10 +131,6 @@ export async function assertActorCanAccessUserTarget(input: SuperAdminUserTarget
   const isSuperAdmin = await resolveActorIsSuperAdmin(input)
   if (isSuperAdmin) return
 
-  // Match regardless of soft-delete: a soft-deleted user still belongs to its
-  // tenant, and admin flows (ACL read, delete-undo) legitimately target it. The
-  // tenant check below still blocks cross-tenant access; only genuinely-absent
-  // ids fall through to 404.
   const target = await findOneWithDecryption(
     input.em,
     User,
@@ -142,9 +138,12 @@ export async function assertActorCanAccessUserTarget(input: SuperAdminUserTarget
     {},
     { tenantId: null, organizationId: null },
   )
-  if (!target) {
-    throw new CrudHttpError(404, { error: 'User not found' })
-  }
+  // Not found (incl. soft-deleted, which MikroORM's soft-delete filter hides):
+  // delegate to the caller. Every wired call site is itself tenant-scoped — the
+  // ACL/consents reads filter by auth.tenantId and the user commands re-load by
+  // id within tenant — so a missing target yields a safe empty/404 there. The
+  // guard's job is to block a foreign *existing* target, below.
+  if (!target) return
 
   const actorTenantId = normalizeNullableString(input.tenantId)
   const targetTenantId = normalizeNullableString((target as { tenantId?: string | null }).tenantId)
@@ -165,8 +164,6 @@ export async function assertActorCanAccessRoleTarget(input: SuperAdminRoleTarget
   const isSuperAdmin = await resolveActorIsSuperAdmin(input)
   if (isSuperAdmin) return
 
-  // Match regardless of soft-delete (see assertActorCanAccessUserTarget): the
-  // tenant check still blocks cross-tenant access.
   const target = await findOneWithDecryption(
     input.em,
     Role,
@@ -174,9 +171,8 @@ export async function assertActorCanAccessRoleTarget(input: SuperAdminRoleTarget
     {},
     { tenantId: null, organizationId: null },
   )
-  if (!target) {
-    throw new CrudHttpError(404, { error: 'Role not found' })
-  }
+  // Not found (incl. soft-deleted): delegate (see assertActorCanAccessUserTarget).
+  if (!target) return
 
   const actorTenantId = normalizeNullableString(input.tenantId)
   const targetTenantId = normalizeNullableString((target as { tenantId?: string | null }).tenantId)
