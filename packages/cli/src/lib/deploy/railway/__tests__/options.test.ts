@@ -52,6 +52,16 @@ describe('parseRailwayDeployOptions', () => {
     expect(parseRailwayDeployOptions([], { CI: 'true' }).nonInteractive).toBe(true)
   })
 
+  it('allows cleanup dry-runs in non-interactive environments without --yes', () => {
+    expect(parseRailwayDeployOptions(['--cleanup', '--dry-run'], { CI: 'true' }))
+      .toMatchObject({
+        cleanup: true,
+        dryRun: true,
+        nonInteractive: true,
+        yes: false,
+      })
+  })
+
   it.each([
     [['--source', 'invalid'], 'Invalid --source'],
     [['--timeout', '0'], '--timeout must be'],

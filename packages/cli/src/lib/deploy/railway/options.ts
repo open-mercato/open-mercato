@@ -123,7 +123,7 @@ export function parseRailwayDeployOptions(
     index += 1
   }
 
-  if (options.cleanup && options.nonInteractive && !options.yes) {
+  if (options.cleanup && !options.dryRun && options.nonInteractive && !options.yes) {
     throw new Error('--cleanup --non-interactive requires --yes.')
   }
   if (options.environment.trim().length === 0) throw new Error('--env cannot be empty.')
