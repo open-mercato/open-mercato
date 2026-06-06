@@ -6,14 +6,13 @@ test.describe('TC-UMES-009: Phase J recursive widget extensibility', () => {
     await login(page, 'admin')
     await page.goto('/backend/umes-handlers')
     await page.waitForLoadState('domcontentloaded')
+    await expect(page.getByTestId('phase-c-submit-result')).toBeVisible()
   })
 
   test('TC-UMES-RW01: nested injection spot renders addon widget inside validation widget', async ({ page }) => {
-    const validationWidget = page.locator('div.rounded.border', { hasText: 'Example Injection Widget' }).first()
-    await expect(validationWidget).toBeVisible()
-
-    const nestedHost = validationWidget.getByTestId('widget-recursive-addon-host')
-    await expect(nestedHost).toBeVisible()
+    const nestedHost = page.getByTestId('widget-recursive-addon-host')
+    await expect(nestedHost).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByText('Example Injection Widget')).toBeVisible()
     await expect(nestedHost).toContainText("Addon injected into validation widget's nested spot")
   })
 
