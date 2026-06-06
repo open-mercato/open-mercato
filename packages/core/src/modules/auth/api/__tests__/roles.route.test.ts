@@ -31,11 +31,20 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 
 type CapturedCrudOpts = { metadata: unknown; actions?: Record<string, any> } | null
-let capturedCrudOpts: CapturedCrudOpts = null
+
+// `var` so the binding is hoisted as `undefined` at the time jest.mock's
+// factory closure runs during `roles/route.ts` import. `let`/`const`
+// declarations stay in the TDZ until their source line executes, which
+// would throw `Cannot access 'mockCapturedCrudOpts' before initialization`
+// because makeCrudRoute is invoked at the route module's top level — before
+// the test file's own top-level declarations run. The `mock` prefix also
+// satisfies babel-plugin-jest-hoist's allow-list for variables referenced
+// inside jest.mock factories.
+var mockCapturedCrudOpts: CapturedCrudOpts
 
 jest.mock('@open-mercato/shared/lib/crud/factory', () => ({
   makeCrudRoute: jest.fn((opts: { metadata: unknown; actions?: Record<string, any> }) => {
-    capturedCrudOpts = opts as CapturedCrudOpts
+    mockCapturedCrudOpts = opts as CapturedCrudOpts
     return {
       metadata: opts.metadata,
       POST: jest.fn(),
@@ -217,12 +226,12 @@ describe('roles route — cross-tenant tenant guard wiring (finding #3)', () => 
   }
 
   beforeAll(() => {
-    expect(capturedCrudOpts).not.toBeNull()
-    expect(capturedCrudOpts?.actions).toBeDefined()
+    expect(mockCapturedCrudOpts).not.toBeNull()
+    expect(mockCapturedCrudOpts?.actions).toBeDefined()
   })
 
   test('create.mapInput rejects body.tenantId when it differs from auth.tenantId for non-superadmin', async () => {
-    const action = capturedCrudOpts?.actions?.create
+    const action = mockCapturedCrudOpts?.actions?.create
     expect(typeof action?.mapInput).toBe('function')
     const ctx = makeMapInputCtx({ tenantId: actorTenantId })
 
@@ -232,7 +241,7 @@ describe('roles route — cross-tenant tenant guard wiring (finding #3)', () => 
   })
 
   test('create.mapInput accepts own-tenant payload', async () => {
-    const action = capturedCrudOpts?.actions?.create
+    const action = mockCapturedCrudOpts?.actions?.create
     const ctx = makeMapInputCtx({ tenantId: actorTenantId })
 
     await expect(
@@ -241,7 +250,7 @@ describe('roles route — cross-tenant tenant guard wiring (finding #3)', () => 
   })
 
   test('create.mapInput defaults non-superadmin to auth.tenantId when body tenantId is omitted', async () => {
-    const action = capturedCrudOpts?.actions?.create
+    const action = mockCapturedCrudOpts?.actions?.create
     const ctx = makeMapInputCtx({ tenantId: actorTenantId })
 
     await expect(
@@ -250,7 +259,7 @@ describe('roles route — cross-tenant tenant guard wiring (finding #3)', () => 
   })
 
   test('update.mapInput rejects cross-tenant role lookup for non-superadmin', async () => {
-    const action = capturedCrudOpts?.actions?.update
+    const action = mockCapturedCrudOpts?.actions?.update
     expect(typeof action?.mapInput).toBe('function')
     const ctx = makeMapInputCtx({
       tenantId: actorTenantId,
@@ -263,7 +272,7 @@ describe('roles route — cross-tenant tenant guard wiring (finding #3)', () => 
   })
 
   test('update.mapInput allows own-tenant role update for non-superadmin', async () => {
-    const action = capturedCrudOpts?.actions?.update
+    const action = mockCapturedCrudOpts?.actions?.update
     const ctx = makeMapInputCtx({
       tenantId: actorTenantId,
       existingRole: { id: roleIdOwn, tenantId: actorTenantId },
@@ -275,7 +284,7 @@ describe('roles route — cross-tenant tenant guard wiring (finding #3)', () => 
   })
 
   test('update.mapInput allows superadmin to update any-tenant role', async () => {
-    const action = capturedCrudOpts?.actions?.update
+    const action = mockCapturedCrudOpts?.actions?.update
     const ctx = makeMapInputCtx({
       isSuperAdmin: true,
       tenantId: actorTenantId,
@@ -288,7 +297,7 @@ describe('roles route — cross-tenant tenant guard wiring (finding #3)', () => 
   })
 
   test('delete.mapInput rejects cross-tenant role for non-superadmin', async () => {
-    const action = capturedCrudOpts?.actions?.delete
+    const action = mockCapturedCrudOpts?.actions?.delete
     expect(typeof action?.mapInput).toBe('function')
     const ctx = makeMapInputCtx({
       tenantId: actorTenantId,
@@ -305,7 +314,7 @@ describe('roles route — cross-tenant tenant guard wiring (finding #3)', () => 
   })
 
   test('delete.mapInput allows own-tenant role for non-superadmin', async () => {
-    const action = capturedCrudOpts?.actions?.delete
+    const action = mockCapturedCrudOpts?.actions?.delete
     const ctx = makeMapInputCtx({
       tenantId: actorTenantId,
       existingRole: { id: roleIdOwn, tenantId: actorTenantId },

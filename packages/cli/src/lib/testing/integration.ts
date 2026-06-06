@@ -1661,6 +1661,15 @@ function buildReusableEnvironment(
     NODE_ENV: 'production',
     JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
     OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
+    // Integration probe + tests expect `admin@acme.com / secret` and
+    // `employee@acme.com / secret`. NODE_ENV=production routes derived-user
+    // password resolution through the random-fallback branch unless these
+    // env vars are explicitly set; without the override every fresh
+    // ephemeral run would mint random passwords and the login probe would
+    // never converge. This is the documented production contract: set
+    // OM_INIT_*_PASSWORD to fix the seeded credential.
+    OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
+    OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
     OM_INTEGRATION_TEST: 'true',
     OM_ENABLE_ENTERPRISE_MODULES: enterpriseModulesFlag,
     OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
@@ -2956,6 +2965,11 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
       OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
       NODE_ENV: 'production',
+      // See the auth-probe block above: pin derived-user passwords to the
+      // documented 'secret' so the ephemeral login probe converges under
+      // NODE_ENV=production.
+      OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
+      OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
       // Pool sizing for the ephemeral integration runtime. Defaults were once
       // very aggressive (max=5, idle=1000) which exposed flaky 'timeout exceeded
       // when trying to connect' errors on `progressService.createJob`-backed

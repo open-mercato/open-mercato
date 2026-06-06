@@ -297,7 +297,7 @@ describe('attachment partitions API — tenant scoping', () => {
 
   it('DELETE cross-tenant returns 404 and leaves the foreign row in place', async () => {
     const { DELETE: del } = await loadHandlers()
-    const res = await del(buildRequest('DELETE', null, '?id=p-tenantB'))
+    const res = await del(buildRequest('DELETE', null, '?id=33333333-3333-4333-8333-333333333333'))
     expect(res.status).toBe(404)
     expect(store.partitions.some((p) => p.id === '33333333-3333-4333-8333-333333333333')).toBe(true)
     expect(mockEm.remove).not.toHaveBeenCalled()
@@ -305,7 +305,7 @@ describe('attachment partitions API — tenant scoping', () => {
 
   it('DELETE on own non-default partition succeeds when unused', async () => {
     const { DELETE: del } = await loadHandlers()
-    const res = await del(buildRequest('DELETE', null, '?id=p-tenantA'))
+    const res = await del(buildRequest('DELETE', null, '?id=22222222-2222-4222-8222-222222222222'))
     expect(res.status).toBe(200)
     expect(store.partitions.some((p) => p.id === '22222222-2222-4222-8222-222222222222')).toBe(false)
   })
@@ -313,7 +313,7 @@ describe('attachment partitions API — tenant scoping', () => {
   it('DELETE in-use check is scoped to the partition tenant', async () => {
     store.attachments.push({ partitionCode: 'tenantAPriv', tenantId: 'tenantB' })
     const { DELETE: del } = await loadHandlers()
-    const res = await del(buildRequest('DELETE', null, '?id=p-tenantA'))
+    const res = await del(buildRequest('DELETE', null, '?id=22222222-2222-4222-8222-222222222222'))
     expect(res.status).toBe(200)
     expect(mockEm.count).toHaveBeenCalledWith(
       expect.anything(),
@@ -327,7 +327,7 @@ describe('attachment partitions API — tenant scoping', () => {
     const seeded = store.partitions.find((p) => p.id === '11111111-1111-4111-8111-111111111111')!
     seeded.tenantId = 'tenantA'
     const { DELETE: del } = await loadHandlers()
-    const res = await del(buildRequest('DELETE', null, '?id=p-platform'))
+    const res = await del(buildRequest('DELETE', null, '?id=11111111-1111-4111-8111-111111111111'))
     expect(res.status).toBe(400)
     expect(mockEm.remove).not.toHaveBeenCalled()
   })
@@ -354,7 +354,7 @@ describe('attachment partitions API — tenant scoping', () => {
     const r1 = await GET(buildRequest('GET', null))
     const r2 = await POST(buildRequest('POST', { code: 'c1', title: 't', storageDriver: 'local' }))
     const r3 = await PUT(buildRequest('PUT', { id: '22222222-2222-4222-8222-222222222222', code: 'tenantAPriv', title: 'x' }))
-    const r4 = await del(buildRequest('DELETE', null, '?id=p-tenantA'))
+    const r4 = await del(buildRequest('DELETE', null, '?id=22222222-2222-4222-8222-222222222222'))
     for (const r of [r1, r2, r3, r4]) expect(r.status).toBe(401)
   })
 

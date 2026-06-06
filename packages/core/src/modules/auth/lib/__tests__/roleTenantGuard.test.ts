@@ -186,6 +186,10 @@ describe('enforceRoleTenantAccess — delete mode', () => {
     const input = { body: {}, query: { id: roleId } }
 
     await expect(enforceRoleTenantAccess('delete', input, ctx)).resolves.toBe(input)
-    expect(findOne).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: roleId }))
+    expect(findOne).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: roleId }),
+      expect.anything(),
+    )
   })
 })
