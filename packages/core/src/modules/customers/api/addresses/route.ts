@@ -20,6 +20,7 @@ const listSchema = z
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     entityId: z.string().uuid().optional(),
+    id: z.string().uuid().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
@@ -75,6 +76,7 @@ const crud = makeCrudRoute({
     buildFilters: async (query: any) => {
       const filters: Record<string, any> = {}
       if (query.entityId) filters.entity_id = { $eq: query.entityId }
+      if (query.id) filters.id = { $eq: query.id }
       return filters
     },
   },

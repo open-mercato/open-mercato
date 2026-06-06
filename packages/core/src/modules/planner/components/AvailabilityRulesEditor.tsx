@@ -606,13 +606,26 @@ export function AvailabilityRulesEditor({
       const params = new URLSearchParams({ page: '1', pageSize: '100' })
       const call = await apiCall<{ items?: AvailabilityRuleSet[] }>(`/api/planner/availability-rule-sets?${params.toString()}`)
       const items = Array.isArray(call.result?.items) ? call.result.items : []
-      setRuleSets(items)
+      if (!effectiveRulesetId || items.some((entry) => entry.id === effectiveRulesetId)) {
+        setRuleSets(items)
+        return
+      }
+      const selectedParams = new URLSearchParams({
+        page: '1',
+        pageSize: '1',
+        ids: effectiveRulesetId,
+      })
+      const selectedCall = await apiCall<{ items?: AvailabilityRuleSet[] }>(
+        `/api/planner/availability-rule-sets?${selectedParams.toString()}`,
+      )
+      const selected = Array.isArray(selectedCall.result?.items) ? selectedCall.result.items[0] : null
+      setRuleSets(selected ? [selected, ...items] : items)
     } catch {
       setRuleSets([])
     } finally {
       setRuleSetsLoading(false)
     }
-  }, [onRulesetChange])
+  }, [effectiveRulesetId, onRulesetChange])
 
   const fetchUnavailabilityReasonOptions = React.useCallback(async () => {
     const entries = await loadUnavailabilityReasonEntries(subjectType)

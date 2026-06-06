@@ -3,6 +3,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -188,6 +189,13 @@ export default function ApiKeysListPage() {
             <RowActions items={[
               { id: 'delete', label: t('common.delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
             ]} />
+          )}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('api_keys.list.title')}
+              createHref="/backend/api-keys/create"
+              createLabel={t('api_keys.list.actions.create')}
+            />
           )}
           pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
