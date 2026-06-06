@@ -32,8 +32,8 @@ Stabilize the latest `develop` branch feeding release PR #2425 by fixing the cur
 
 ### Phase 1: Root-Cause Known Failures
 
-- [ ] 1.1 Stabilize CRM advanced-filter chip close behavior
-- [ ] 1.2 Surface sales offer stale list-delete conflicts and stabilize SAL-13 fixture
+- [x] 1.1 Stabilize CRM advanced-filter chip close behavior — fe790ef3f
+- [x] 1.2 Surface sales offer stale list-delete conflicts and stabilize SAL-13 fixture — fe790ef3f
 
 ### Phase 2: Verification
 
