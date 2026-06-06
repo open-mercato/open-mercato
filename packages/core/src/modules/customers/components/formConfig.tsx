@@ -412,7 +412,7 @@ const createPrimaryPhoneField = (t: Translator): CrudField => ({
     return (
       <PhoneNumberField
         value={typeof value === 'string' ? value : null}
-        onValueChange={(next) => setValue(typeof next === 'string' ? next : undefined)}
+        onValueChange={(next) => setValue(typeof next === 'string' ? next : '')}
         externalError={error}
         autoFocus={autoFocus}
         disabled={disabled}
@@ -457,6 +457,12 @@ type CompanySelectFieldProps = {
 
 type CompanyOption = { value: string; label: string }
 
+function mergeCompanyOptions(options: CompanyOption[], selected: CompanyOption | null): CompanyOption[] {
+  if (!selected) return options
+  if (options.some((option) => option.value === selected.value)) return options
+  return [selected, ...options]
+}
+
 function normalizeCompanyOption(raw: unknown): CompanyOption | null {
   if (!raw || typeof raw !== 'object') return null
   const candidate = raw as Record<string, unknown>
@@ -480,6 +486,21 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
   const [saving, setSaving] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
 
+  const loadCompanyOption = React.useCallback(
+    async (companyId: string): Promise<CompanyOption | null> => {
+      const payload = await readApiResultOrThrow<{ items?: unknown[] }>(
+        `/api/customers/companies?id=${encodeURIComponent(companyId)}&pageSize=1`,
+        undefined,
+        { errorMessage: labels.errorLoad },
+      )
+      const items = Array.isArray(payload?.items) ? payload.items : []
+      return items
+        .map((item: unknown) => normalizeCompanyOption(item))
+        .find((option): option is CompanyOption => option?.value === companyId) ?? null
+    },
+    [labels.errorLoad],
+  )
+
   const loadOptions = React.useCallback(async () => {
     setLoading(true)
     try {
@@ -495,7 +516,11 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
         .sort((a: CompanyOption, b: CompanyOption) =>
           a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
         )
-      setOptions(normalized)
+      const selected =
+        value && !normalized.some((option) => option.value === value)
+          ? await loadCompanyOption(value).catch(() => null)
+          : null
+      setOptions(mergeCompanyOptions(normalized, selected))
     } catch (err) {
       const message = err instanceof Error ? err.message : labels.errorLoad
       flash(message, 'error')
@@ -503,11 +528,20 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
     } finally {
       setLoading(false)
     }
-  }, [labels.errorLoad])
+  }, [labels.errorLoad, loadCompanyOption, value])
 
   React.useEffect(() => {
     loadOptions().catch(() => {})
   }, [loadOptions])
+
+  React.useEffect(() => {
+    if (!value || options.some((option) => option.value === value)) return
+    loadCompanyOption(value)
+      .then((selected) => {
+        setOptions((current) => mergeCompanyOptions(current, selected))
+      })
+      .catch(() => {})
+  }, [loadCompanyOption, options, value])
 
   const handleDialogChange = React.useCallback((open: boolean) => {
     setDialogOpen(open)
@@ -569,6 +603,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
   )
 
   const disabled = loading || saving
+  const selectedOption = value ? options.find((option) => option.value === value) : null
 
   return (
     <div className="space-y-2">
@@ -579,7 +614,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
           disabled={loading}
         >
           <SelectTrigger>
-            <SelectValue placeholder={labels.placeholder} />
+            <SelectValue placeholder={labels.placeholder}>{selectedOption?.label}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {options.map((option) => (
@@ -1199,7 +1234,7 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
       component: ({ value, setValue, error, disabled, autoFocus }: CrudCustomFieldRenderProps) => (
         <PhoneNumberField
           value={typeof value === 'string' ? value : null}
-          onValueChange={(next) => setValue(typeof next === 'string' ? next : undefined)}
+          onValueChange={(next) => setValue(typeof next === 'string' ? next : '')}
           externalError={error}
           autoFocus={autoFocus}
           disabled={disabled}
@@ -1427,18 +1462,20 @@ export function buildCompanyPayload(
 // Edit-mode types
 // ---------------------------------------------------------------------------
 
-// URL/email fields are clearable on edit: blanking a previously-set value transmits null,
+// URL/email/phone fields are clearable on edit: blanking a previously-set value transmits null,
 // so the edit-form value types widen to `string | null` to match the edit-schema output. See #2526.
-export type CompanyEditFormValues = Omit<CompanyFormValues, 'addresses' | 'primaryEmail' | 'websiteUrl'> & {
+export type CompanyEditFormValues = Omit<CompanyFormValues, 'addresses' | 'primaryEmail' | 'primaryPhone' | 'websiteUrl'> & {
   id: string
   primaryEmail?: string | null
+  primaryPhone?: string | null
   websiteUrl?: string | null
 }
 
-export type PersonEditFormValues = Omit<PersonFormValues, 'addresses' | 'primaryEmail'> & {
+export type PersonEditFormValues = Omit<PersonFormValues, 'addresses' | 'primaryEmail' | 'primaryPhone'> & {
   id: string
   department?: string
   primaryEmail?: string | null
+  primaryPhone?: string | null
   linkedInUrl?: string | null
   twitterUrl?: string | null
 }
@@ -1456,7 +1493,7 @@ const optionalString = () =>
     .transform((val) => (val === '' ? undefined : val))
     .optional()
 
-// Edit-mode URL/email fields map to nullable columns and must be clearable: blanking a
+// Edit-mode URL/email/phone fields map to nullable columns and must be clearable: blanking a
 // previously-set value transforms '' → null so the payload builder can transmit an explicit
 // clear (omitting the key can never remove an existing value). Create-mode schemas keep the
 // '' → undefined transform. See #2526.
@@ -1480,10 +1517,22 @@ const clearableEmailField = () =>
     .transform((val) => (val === '' ? null : val))
     .optional()
 
+const clearablePhoneField = () =>
+  z
+    .string()
+    .trim()
+    .max(50)
+    .refine((value) => value === '' || isValidPhoneNumber(value), { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY })
+    .optional()
+    .or(z.literal(''))
+    .transform((val) => (val === '' ? null : val))
+    .optional()
+
 export const createCompanyEditSchema = () =>
   createCompanyFormSchema().extend({
     id: z.string().uuid(),
     primaryEmail: clearableEmailField(),
+    primaryPhone: clearablePhoneField(),
     websiteUrl: clearableUrlField(),
   })
 
@@ -1492,6 +1541,7 @@ export const createPersonEditSchema = () =>
     id: z.string().uuid(),
     department: optionalString(),
     primaryEmail: clearableEmailField(),
+    primaryPhone: clearablePhoneField(),
     linkedInUrl: clearableUrlField(),
     twitterUrl: clearableUrlField(),
   })
@@ -1773,7 +1823,7 @@ export const createPersonPersonalDataGroups = (
 // Edit-mode payload builders
 // ---------------------------------------------------------------------------
 
-// On edit, optional URL/email fields that map to nullable columns must transmit an explicit
+// On edit, optional URL/email/phone fields that map to nullable columns must transmit an explicit
 // `null` when the user blanks a previously-set value — omitting the key can never clear it.
 // The base create-mode builders omit blanks (correct for create), so the edit builders
 // override these clearable fields here. See #2526.
@@ -1792,6 +1842,7 @@ export function buildCompanyEditPayload(values: CompanyEditFormValues, organizat
   payload.id = values.id
 
   assignClearable(payload, 'primaryEmail', values.primaryEmail)
+  assignClearable(payload, 'primaryPhone', values.primaryPhone)
   assignClearable(payload, 'websiteUrl', values.websiteUrl)
 
   return payload
@@ -1805,6 +1856,7 @@ export function buildPersonEditPayload(values: PersonEditFormValues, organizatio
   if (department.length) payload.department = department
 
   assignClearable(payload, 'primaryEmail', values.primaryEmail)
+  assignClearable(payload, 'primaryPhone', values.primaryPhone)
   assignClearable(payload, 'linkedInUrl', values.linkedInUrl)
   assignClearable(payload, 'twitterUrl', values.twitterUrl)
 

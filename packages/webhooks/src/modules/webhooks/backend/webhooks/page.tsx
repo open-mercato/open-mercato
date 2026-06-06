@@ -16,6 +16,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { useWebhookFeatureAccess } from './useWebhookFeatureAccess'
 
 type Row = {
@@ -279,6 +280,13 @@ export default function WebhooksListPage() {
 
             return <RowActions items={items} />
           }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('webhooks.list.title')}
+              createHref={access.canManage ? '/backend/webhooks/create' : undefined}
+              createLabel={access.canManage ? t('webhooks.nav.create') : undefined}
+            />
+          )}
           pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
         />

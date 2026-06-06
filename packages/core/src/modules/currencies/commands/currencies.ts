@@ -2,9 +2,10 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { buildChanges, requireId, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Currency, ExchangeRate } from '../data/entities'
 import {
@@ -101,7 +102,7 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
       deletedAt: null,
     })
     if (existing) {
-      throw new CrudHttpError(400, { error: 'Currency code already exists for this organization.' })
+      throw conflict('Currency code already exists for this organization.')
     }
 
     const now = new Date()
@@ -123,16 +124,23 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
 
     // Demote any existing base currency and insert the new record in one
     // transaction; a partial commit would leave zero or two base currencies.
-    await withAtomicFlush(
-      em,
-      [
-        () =>
-          record.isBase
-            ? enforceBaseCurrency(em, record.id, record.organizationId, record.tenantId)
-            : undefined,
-      ],
-      { transaction: true },
-    )
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () =>
+            record.isBase
+              ? enforceBaseCurrency(em, record.id, record.organizationId, record.tenantId)
+              : undefined,
+        ],
+        { transaction: true },
+      )
+    } catch (err) {
+      if (isUniqueViolation(err, 'currencies_code_scope_unique')) {
+        throw conflict('Currency code already exists for this organization.')
+      }
+      throw err
+    }
 
     const de = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -178,6 +186,17 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
     record.isActive = false
     await em.flush()
   },
+  redo: makeCreateRedo<Currency, CurrencySnapshot, CurrencyCreateInput, { currencyId: string }>({
+    entityClass: Currency,
+    buildResult: (entity) => ({ currencyId: entity.id }),
+    events: currencyCrudEvents,
+    afterRestore: async ({ em, entity }) => {
+      if (entity.isBase) {
+        await enforceBaseCurrency(em, entity.id, entity.organizationId, entity.tenantId)
+        await em.flush()
+      }
+    },
+  }),
 }
 
 const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: string }> = {
@@ -208,7 +227,7 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
         deletedAt: null,
       })
       if (existing) {
-        throw new CrudHttpError(400, { error: 'Currency code already exists for this organization.' })
+        throw conflict('Currency code already exists for this organization.')
       }
     }
 

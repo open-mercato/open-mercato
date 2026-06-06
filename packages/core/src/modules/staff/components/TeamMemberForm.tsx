@@ -185,6 +185,32 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
   }, [scopeVersion])
 
   React.useEffect(() => {
+    if (!resolvedTeamId) return
+    if (teamOptions.some((option) => option.value === resolvedTeamId)) return
+    const selectedTeamId = resolvedTeamId
+    let cancelled = false
+    async function loadSelectedTeam() {
+      try {
+        const call = await apiCall<TeamsResponse>(`/api/staff/teams?ids=${encodeURIComponent(selectedTeamId)}&pageSize=1`)
+        const entry = Array.isArray(call.result?.items) ? call.result.items[0] : null
+        const entryId = typeof entry?.id === 'string' ? entry.id : null
+        const entryName = typeof entry?.name === 'string' ? entry.name : null
+        if (!entryId || !entryName) return
+        if (!cancelled) {
+          setTeamOptions((prev) => {
+            if (prev.some((option) => option.value === entryId)) return prev
+            return [{ value: entryId, label: entryName }, ...prev]
+          })
+        }
+      } catch {
+        if (!cancelled) setTeamOptions((prev) => prev)
+      }
+    }
+    loadSelectedTeam()
+    return () => { cancelled = true }
+  }, [resolvedTeamId, teamOptions])
+
+  React.useEffect(() => {
     if (!resolvedUserId) return
     const userId = resolvedUserId
     if (userOptions.some((option) => option.id === resolvedUserId)) return
@@ -301,7 +327,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
                 </Button>
               </div>
               <Select
-                value={currentValue || undefined}
+                value={currentValue}
                 onValueChange={(value) => {
                   const nextValue = value || undefined
                   const nextTeamId = value || null
