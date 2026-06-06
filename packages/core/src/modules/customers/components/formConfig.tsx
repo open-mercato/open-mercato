@@ -412,7 +412,7 @@ const createPrimaryPhoneField = (t: Translator): CrudField => ({
     return (
       <PhoneNumberField
         value={typeof value === 'string' ? value : null}
-        onValueChange={(next) => setValue(typeof next === 'string' ? next : undefined)}
+        onValueChange={(next) => setValue(typeof next === 'string' ? next : '')}
         externalError={error}
         autoFocus={autoFocus}
         disabled={disabled}
@@ -1234,7 +1234,7 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
       component: ({ value, setValue, error, disabled, autoFocus }: CrudCustomFieldRenderProps) => (
         <PhoneNumberField
           value={typeof value === 'string' ? value : null}
-          onValueChange={(next) => setValue(typeof next === 'string' ? next : undefined)}
+          onValueChange={(next) => setValue(typeof next === 'string' ? next : '')}
           externalError={error}
           autoFocus={autoFocus}
           disabled={disabled}
@@ -1462,18 +1462,20 @@ export function buildCompanyPayload(
 // Edit-mode types
 // ---------------------------------------------------------------------------
 
-// URL/email fields are clearable on edit: blanking a previously-set value transmits null,
+// URL/email/phone fields are clearable on edit: blanking a previously-set value transmits null,
 // so the edit-form value types widen to `string | null` to match the edit-schema output. See #2526.
-export type CompanyEditFormValues = Omit<CompanyFormValues, 'addresses' | 'primaryEmail' | 'websiteUrl'> & {
+export type CompanyEditFormValues = Omit<CompanyFormValues, 'addresses' | 'primaryEmail' | 'primaryPhone' | 'websiteUrl'> & {
   id: string
   primaryEmail?: string | null
+  primaryPhone?: string | null
   websiteUrl?: string | null
 }
 
-export type PersonEditFormValues = Omit<PersonFormValues, 'addresses' | 'primaryEmail'> & {
+export type PersonEditFormValues = Omit<PersonFormValues, 'addresses' | 'primaryEmail' | 'primaryPhone'> & {
   id: string
   department?: string
   primaryEmail?: string | null
+  primaryPhone?: string | null
   linkedInUrl?: string | null
   twitterUrl?: string | null
 }
@@ -1491,7 +1493,7 @@ const optionalString = () =>
     .transform((val) => (val === '' ? undefined : val))
     .optional()
 
-// Edit-mode URL/email fields map to nullable columns and must be clearable: blanking a
+// Edit-mode URL/email/phone fields map to nullable columns and must be clearable: blanking a
 // previously-set value transforms '' → null so the payload builder can transmit an explicit
 // clear (omitting the key can never remove an existing value). Create-mode schemas keep the
 // '' → undefined transform. See #2526.
@@ -1515,10 +1517,22 @@ const clearableEmailField = () =>
     .transform((val) => (val === '' ? null : val))
     .optional()
 
+const clearablePhoneField = () =>
+  z
+    .string()
+    .trim()
+    .max(50)
+    .refine((value) => value === '' || isValidPhoneNumber(value), { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY })
+    .optional()
+    .or(z.literal(''))
+    .transform((val) => (val === '' ? null : val))
+    .optional()
+
 export const createCompanyEditSchema = () =>
   createCompanyFormSchema().extend({
     id: z.string().uuid(),
     primaryEmail: clearableEmailField(),
+    primaryPhone: clearablePhoneField(),
     websiteUrl: clearableUrlField(),
   })
 
@@ -1527,6 +1541,7 @@ export const createPersonEditSchema = () =>
     id: z.string().uuid(),
     department: optionalString(),
     primaryEmail: clearableEmailField(),
+    primaryPhone: clearablePhoneField(),
     linkedInUrl: clearableUrlField(),
     twitterUrl: clearableUrlField(),
   })
@@ -1808,7 +1823,7 @@ export const createPersonPersonalDataGroups = (
 // Edit-mode payload builders
 // ---------------------------------------------------------------------------
 
-// On edit, optional URL/email fields that map to nullable columns must transmit an explicit
+// On edit, optional URL/email/phone fields that map to nullable columns must transmit an explicit
 // `null` when the user blanks a previously-set value — omitting the key can never clear it.
 // The base create-mode builders omit blanks (correct for create), so the edit builders
 // override these clearable fields here. See #2526.
@@ -1827,6 +1842,7 @@ export function buildCompanyEditPayload(values: CompanyEditFormValues, organizat
   payload.id = values.id
 
   assignClearable(payload, 'primaryEmail', values.primaryEmail)
+  assignClearable(payload, 'primaryPhone', values.primaryPhone)
   assignClearable(payload, 'websiteUrl', values.websiteUrl)
 
   return payload
@@ -1840,6 +1856,7 @@ export function buildPersonEditPayload(values: PersonEditFormValues, organizatio
   if (department.length) payload.department = department
 
   assignClearable(payload, 'primaryEmail', values.primaryEmail)
+  assignClearable(payload, 'primaryPhone', values.primaryPhone)
   assignClearable(payload, 'linkedInUrl', values.linkedInUrl)
   assignClearable(payload, 'twitterUrl', values.twitterUrl)
 

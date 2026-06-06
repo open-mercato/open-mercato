@@ -144,13 +144,14 @@ describe('detail page zone1 group layouts', () => {
 })
 
 describe('clearing v2 URL & email edit fields (#2526)', () => {
-  it('transmits null when a previously-set person URL/email is blanked', () => {
+  it('transmits null when a previously-set person URL/email/phone is blanked', () => {
     const parsed = createPersonEditSchema().safeParse({
       id: PERSON_ID,
       displayName: 'Ada Lovelace',
       firstName: 'Ada',
       lastName: 'Lovelace',
       primaryEmail: '',
+      primaryPhone: '',
       linkedInUrl: '',
       twitterUrl: '',
     })
@@ -159,17 +160,19 @@ describe('clearing v2 URL & email edit fields (#2526)', () => {
 
     const payload = buildPersonEditPayload(parsed.data as any)
     expect(payload.primaryEmail).toBeNull()
+    expect(payload.primaryPhone).toBeNull()
     expect(payload.linkedInUrl).toBeNull()
     expect(payload.twitterUrl).toBeNull()
   })
 
-  it('keeps non-empty person URL/email values on edit', () => {
+  it('keeps non-empty person URL/email/phone values on edit', () => {
     const parsed = createPersonEditSchema().safeParse({
       id: PERSON_ID,
       displayName: 'Ada Lovelace',
       firstName: 'Ada',
       lastName: 'Lovelace',
       primaryEmail: 'ada@example.com',
+      primaryPhone: '+1 212 555 0101',
       linkedInUrl: 'https://linkedin.com/in/ada',
       twitterUrl: 'https://x.com/ada',
     })
@@ -178,15 +181,17 @@ describe('clearing v2 URL & email edit fields (#2526)', () => {
 
     const payload = buildPersonEditPayload(parsed.data as any)
     expect(payload.primaryEmail).toBe('ada@example.com')
+    expect(payload.primaryPhone).toBe('+1 212 555 0101')
     expect(payload.linkedInUrl).toBe('https://linkedin.com/in/ada')
     expect(payload.twitterUrl).toBe('https://x.com/ada')
   })
 
-  it('transmits null when a previously-set company website/email is blanked', () => {
+  it('transmits null when a previously-set company website/email/phone is blanked', () => {
     const parsed = createCompanyEditSchema().safeParse({
       id: COMPANY_ID,
       displayName: 'Acme',
       primaryEmail: '',
+      primaryPhone: '',
       websiteUrl: '',
     })
     expect(parsed.success).toBe(true)
@@ -194,14 +199,16 @@ describe('clearing v2 URL & email edit fields (#2526)', () => {
 
     const payload = buildCompanyEditPayload(parsed.data as any)
     expect(payload.primaryEmail).toBeNull()
+    expect(payload.primaryPhone).toBeNull()
     expect(payload.websiteUrl).toBeNull()
   })
 
-  it('keeps non-empty company website/email values on edit', () => {
+  it('keeps non-empty company website/email/phone values on edit', () => {
     const parsed = createCompanyEditSchema().safeParse({
       id: COMPANY_ID,
       displayName: 'Acme',
       primaryEmail: 'hello@acme.com',
+      primaryPhone: '+1 212 555 0202',
       websiteUrl: 'https://acme.com',
     })
     expect(parsed.success).toBe(true)
@@ -209,6 +216,7 @@ describe('clearing v2 URL & email edit fields (#2526)', () => {
 
     const payload = buildCompanyEditPayload(parsed.data as any)
     expect(payload.primaryEmail).toBe('hello@acme.com')
+    expect(payload.primaryPhone).toBe('+1 212 555 0202')
     expect(payload.websiteUrl).toBe('https://acme.com')
   })
 })
