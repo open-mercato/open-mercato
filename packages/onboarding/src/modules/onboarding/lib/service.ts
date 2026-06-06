@@ -97,16 +97,28 @@ export class OnboardingService {
     )
   }
 
-  async startProcessing(request: OnboardingRequest, startedAt: Date) {
+  async startProcessing(request: OnboardingRequest, startedAt: Date): Promise<boolean> {
+    const claimedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      { id: request.id, status: 'pending' },
+      { status: 'processing', processingStartedAt: startedAt, updatedAt: new Date() },
+    )
+    if (claimedRows === 0) return false
     request.status = 'processing'
     request.processingStartedAt = startedAt
-    await this.em.flush()
+    return true
   }
 
-  async resetProcessing(request: OnboardingRequest) {
+  async resetProcessing(request: OnboardingRequest): Promise<boolean> {
+    const revertedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      { id: request.id, status: 'processing' },
+      { status: 'pending', processingStartedAt: null, updatedAt: new Date() },
+    )
+    if (revertedRows === 0) return false
     request.status = 'pending'
     request.processingStartedAt = null
-    await this.em.flush()
+    return true
   }
 
   async updateProvisioningIds(request: OnboardingRequest, data: { tenantId: string; organizationId: string; userId: string }) {
