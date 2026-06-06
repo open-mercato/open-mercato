@@ -10,20 +10,27 @@ export const ACTIVITY_TIME_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.t
 export const ACTIVITY_PHONE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.phoneRequired'
 export const ACTIVITY_PHONE_INVALID_MESSAGE_KEY = 'customers.activities.errors.phoneInvalid'
 
-const phoneSchema = z.string().trim().max(50).refine((val) => {
-  return isValidPhoneNumber(val)
-}, { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY }).optional()
-
-// Optional URL/email fields map to nullable DB columns. Treat both '' and null as an
+// Optional URL/email/phone fields map to nullable DB columns. Treat both '' and null as an
 // explicit "clear this value" signal (both coerce to null) so a previously-set value can
-// be removed via update; without this `''` fails `.url()/.email()` and `null` fails the
-// string type, leaving the columns effectively write-once-non-empty. The command layer
-// already persists null. See #2526.
+// be removed via update; without this, validators either reject blank/null values or omit
+// the field, leaving the columns effectively write-once-non-empty. The command layer already
+// persists null. See #2526.
 const emptyStringToNull = (value: unknown): unknown => {
   if (typeof value !== 'string') return value
   const trimmed = value.trim()
   return trimmed.length ? trimmed : null
 }
+
+const phoneSchema = z.preprocess(
+  emptyStringToNull,
+  z
+    .string()
+    .trim()
+    .max(50)
+    .refine((val) => isValidPhoneNumber(val), { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY })
+    .nullable()
+    .optional(),
+)
 
 const clearableEmailSchema = z.preprocess(
   emptyStringToNull,
