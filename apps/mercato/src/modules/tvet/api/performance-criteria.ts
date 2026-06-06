@@ -1,5 +1,5 @@
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { OccupationalStandard } from '../data/entities'
+import { PerformanceCriteria } from '../data/entities'
 import { z } from 'zod'
 
 const querySchema = z.object({
@@ -15,25 +15,25 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     DELETE: { requireAuth: true, requireFeatures: ['tvet.academics.manage'] },
   },
   orm: {
-    entity: OccupationalStandard,
+    entity: PerformanceCriteria,
     idField: 'id',
     orgField: 'organizationId',
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
-  indexer: { entityType: 'tvet:occupational_standard' },
+  indexer: { entityType: 'tvet:performance_criteria' },
   list: {
     schema: querySchema,
-    fields: ['id', 'title', 'code', 'qualificationLevel', 'sector'],
+    fields: ['id', 'description', 'unitElement'],
   },
   actions: {
-    create: { commandId: 'tvet.curriculum.occupational_standard.created' },
-    update: { commandId: 'tvet.curriculum.occupational_standard.updated' },
-    delete: { commandId: 'tvet.curriculum.occupational_standard.deleted' },
+    create: { commandId: 'tvet.curriculum.performance_criteria.created' },
+    update: { commandId: 'tvet.curriculum.performance_criteria.updated' },
+    delete: { commandId: 'tvet.curriculum.performance_criteria.deleted' },
   },
 })
 
 export const openApi = {
-  summary: 'Occupational Standard CRUD',
+  summary: 'Performance Criteria CRUD',
   tags: ['TVET'],
 }

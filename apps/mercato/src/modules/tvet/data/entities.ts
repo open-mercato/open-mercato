@@ -211,3 +211,128 @@ export class CompetencyUnit {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+@Entity({ tableName: 'tvet_unit_elements' })
+export class UnitElement {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ type: 'text' })
+  title!: string
+
+  @ManyToOne({ entity: () => CompetencyUnit, name: 'competency_unit_id' })
+  competencyUnit!: CompetencyUnit
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'tvet_performance_criteria' })
+export class PerformanceCriteria {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ type: 'text' })
+  description!: string
+
+  @ManyToOne({ entity: () => UnitElement, name: 'unit_element_id' })
+  unitElement!: UnitElement
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'tvet_class_groups' })
+export class ClassGroup {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @ManyToOne({ entity: () => Course, name: 'course_id' })
+  course!: Course
+
+  @Property({ name: 'trainer_id', type: 'uuid', nullable: true })
+  trainerId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'tvet_enrollments' })
+export class Enrollment {
+  [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne({ entity: () => Trainee, name: 'trainee_id' })
+  trainee!: Trainee
+
+  @ManyToOne({ entity: () => ClassGroup, name: 'class_group_id' })
+  classGroup!: ClassGroup
+
+  @Property({ type: 'text', default: 'active' })
+  status: 'active' | 'completed' | 'deferred' | 'dropped' = 'active'
+
+  @Property({ name: 'enrolled_at', type: Date, onCreate: () => new Date() })
+  enrolledAt: Date = new Date()
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

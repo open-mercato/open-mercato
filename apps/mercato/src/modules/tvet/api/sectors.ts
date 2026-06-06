@@ -21,9 +21,15 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  indexer: { entityType: 'tvet:sector' },
   list: {
     schema: querySchema,
     fields: ['id', 'name', 'code'],
+  },
+  actions: {
+    create: { commandId: 'tvet.curriculum.sector.created' },
+    update: { commandId: 'tvet.curriculum.sector.updated' },
+    delete: { commandId: 'tvet.curriculum.sector.deleted' },
   },
 })
 
