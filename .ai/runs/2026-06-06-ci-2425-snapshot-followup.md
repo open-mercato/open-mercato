@@ -71,22 +71,22 @@ Fix the Snapshot Release standalone failures observed on PR #2425/develop at roo
 
 ### Phase 1: Root-Cause CRM Filter Chip Failures
 
-- [ ] 1.1 Inspect CRM filter specs and components
-- [ ] 1.2 Restore active filter chip surface
-- [ ] 1.3 Add or update focused chip tests
+- [x] 1.1 Inspect CRM filter specs and components
+- [x] 1.2 Restore active filter chip surface
+- [x] 1.3 Add or update focused chip tests
 
 ### Phase 2: Root-Cause Sales Offer List-Delete Failure
 
-- [ ] 2.1 Surface stale delete conflicts in offers list
-- [ ] 2.2 Stabilize SAL-13 list-delete integration path
-- [ ] 2.3 Add or update focused sales conflict tests
+- [x] 2.1 Surface stale delete conflicts in offers list
+- [x] 2.2 Stabilize SAL-13 list-delete integration path
+- [x] 2.3 Add or update focused sales conflict tests
 
 ### Phase 3: Validation
 
-- [ ] 3.1 Run targeted unit tests
-- [ ] 3.2 Run targeted integration specs with retries disabled
+- [x] 3.1 Run targeted unit tests
+- [x] 3.2 Run targeted integration specs with retries disabled
 - [ ] 3.3 Run two independent full ephemeral integration rounds
-- [ ] 3.4 Run relevant package/type/i18n/build checks
+- [x] 3.4 Run relevant package/type/i18n/build checks
 
 ### Phase 4: PR and CI
 

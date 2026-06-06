@@ -6,11 +6,12 @@ import {
   bumpRecordViaApi,
   expectConflictBanner,
   expectNoConflictBanner,
-  putWithLock,
   expectConflictBody,
   readUpdatedAt,
+  resolveApiUrl,
 } from '@open-mercato/core/modules/core/__integration__/helpers/optimisticLockUi'
 import { fillControlledInput } from '@open-mercato/core/modules/core/__integration__/helpers/ui'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 /**
  * TC-LOCK-OSS-029 (browser UI + API fallback) — sales-channel OFFER manual
@@ -187,14 +188,10 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
     }
   })
 
-  // The browser list-delete flow is now driven robustly: the RowActions menu is
-  // opened by CLICKING the kebab "Open actions" trigger (deterministic `onClick`
-  // open, no hover race), the target row is isolated via the in-UI search box on
-  // its unique epoch-millis stamp (the list ignores URL filters), and the
-  // filtered GET is awaited before interacting. Clicking "Delete" fires the
-  // DELETE immediately (no confirm dialog) carrying the now-stale per-offer lock
-  // header → 409 → `surfaceRecordConflict` renders the unified conflict bar. We
-  // assert the bar AND that the refused delete left the offer intact.
+  // The browser list-delete flow is driven through the real RowActions menu, but
+  // avoids mutable-title synchronization: the out-of-band bump changes only the
+  // hidden description, so the loaded row's title/search match remains stable
+  // while its optimistic-lock token is stale.
   test('SAL-13: stale offer list-delete is refused (conflict bar) and the offer is not removed', async ({ page }) => {
     // Full browser login + navigation + debounced search + row-menu + delete does
     // not fit the 20s default under parallel CI shard load; 60s matches the
@@ -222,24 +219,20 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
       // searchable on the catalog/offers route.
       const searchBox = page.getByPlaceholder(/search offers/i)
       await expect(searchBox).toBeVisible({ timeout: 20_000 })
-      const filteredList = page.waitForResponse(
-        (response) =>
-          response.request().method() === 'GET' &&
-          response.url().includes(OFFERS_API_BASE) &&
-          response.url().includes(String(stamp)),
-        { timeout: 20_000 },
-      )
       await searchBox.fill(`QA Lock 029 offer del ${stamp}`)
-      await filteredList
-      // Exactly one stamped row after the debounced search settles → stable DOM.
+      // The created offer sorts onto page 1, but the search narrows the table when
+      // the debounced request settles. Waiting on the row is the product contract;
+      // a hard wait for a specific search response was flaky under CI load even
+      // when the row was already visible.
       const row = page.locator('tr', { hasText: `QA Lock 029 offer del ${stamp}` }).first()
       await expect(row).toBeVisible({ timeout: 20_000 })
 
       // Advance the offer's updated_at out-of-band → the loaded list row now
-      // holds a stale offer version for its delete header.
+      // holds a stale offer version for its delete header. Keep the visible title
+      // stable; changing it made the row locator disappear before the delete click.
       await bumpRecordViaApi(page.request, token, OFFERS_API_BASE, {
         id: offerId,
-        title: `QA Lock 029 offer del bumped ${stamp}`,
+        description: `QA Lock 029 offer del bumped ${stamp}`,
       })
 
       // Open the RowActions menu by CLICKING the kebab "Open actions" trigger and
@@ -314,12 +307,16 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
         title: `QA Lock 029 offer api bumped ${stamp}`,
       })
 
-      const response = await putWithLock(
-        page.request,
-        token,
-        `${OFFERS_API_BASE}?id=${encodeURIComponent(offerId)}`,
-        { id: offerId, title: `QA Lock 029 offer api stale ${stamp}` },
-        staleVersion,
+      const response = await page.request.fetch(
+        resolveApiUrl(`${OFFERS_API_BASE}?id=${encodeURIComponent(offerId)}`),
+        {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            [OPTIMISTIC_LOCK_HEADER_NAME]: staleVersion,
+          },
+        },
       )
       await expectConflictBody(response)
     } finally {

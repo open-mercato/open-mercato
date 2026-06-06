@@ -959,3 +959,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Use `node:crypto` helpers (`randomInt`, `randomUUID`, or `randomBytes`) for any generated value that may touch auth, security checks, identifiers, request headers, or authenticated API calls. Reserve `Math.random()` only for explicitly non-security demo data, and prefer deterministic fixtures when uniqueness is not required.
 
 **Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.
+
+## Keep stale-write UI locators stable across the out-of-band bump
+
+**Context**: `TC-LOCK-OSS-029` proved a stale sales-channel offer list delete by loading an offer row, bumping the same offer through the API, then clicking the row action in the browser.
+
+**Problem**: The test changed the visible title during the API bump and then kept using a row locator tied to the old title. Under CI timing, the list could refresh to the bumped title before the click, so the row-action trigger disappeared and no browser `DELETE` was sent.
+
+**Rule**: For optimistic-lock UI tests, capture the stale version from the loaded UI, then advance `updated_at` by changing a non-locator field or by using a stable identifier that remains visible after refresh. Do not make response timing or mutable display text the synchronization primitive; wait for the actual UI element or network contract being asserted.
+
+**Applies to**: every Playwright stale-edit/delete spec that mutates a loaded record out-of-band before interacting with a browser form, table row, `RowActions` menu, or conflict bar.

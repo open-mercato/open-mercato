@@ -273,6 +273,7 @@ function SavedFiltersSection({
 
 export function AdvancedFilterPanel(props: AdvancedFilterPanelProps) {
   const t = useT()
+  const { open, onOpenChange } = props
   const empty = props.value.root.children.length === 0
   const [pickerOpen, setPickerOpen] = React.useState(false)
   const [saveDialogOpen, setSaveDialogOpen] = React.useState(false)
@@ -372,6 +373,18 @@ export function AdvancedFilterPanel(props: AdvancedFilterPanelProps) {
       event.preventDefault()
     }
   }, [])
+
+  React.useEffect(() => {
+    if (!open || pickerOpen || saveDialogOpen) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      const target = event.target
+      if (target instanceof Element && target.closest('[data-advanced-filter-portal]')) return
+      onOpenChange(false)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onOpenChange, open, pickerOpen, saveDialogOpen])
 
   return (
     <Popover open={props.open} onOpenChange={props.onOpenChange}>

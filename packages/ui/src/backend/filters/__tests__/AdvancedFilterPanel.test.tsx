@@ -106,6 +106,33 @@ describe('AdvancedFilterPanel', () => {
     expect(screen.queryByText(/no filters applied/i)).not.toBeInTheDocument()
   })
 
+  it('closes the panel on Escape so applied filters can render active chips', () => {
+    const tree = { root: { id: 'r', type: 'group' as const, combinator: 'and' as const, children: [
+      { id: 'a', type: 'rule' as const, field: 'name', operator: 'contains' as const, value: 'X' } as any,
+    ] } }
+    const onOpenChange = jest.fn()
+
+    render(
+      <AdvancedFilterPanel
+        fields={fields}
+        value={tree}
+        onChange={() => {}}
+        onApply={() => {}}
+        onClear={() => {}}
+        pendingErrors={[]}
+        userId="u1"
+        presets={[]}
+        open
+        onOpenChange={onOpenChange}
+        triggerRef={{ current: null }}
+      />,
+    )
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
   it('saves filters separately from perspectives', async () => {
     const tree = { root: { id: 'r', type: 'group' as const, combinator: 'and' as const, children: [
       { id: 'a', type: 'rule' as const, field: 'name', operator: 'contains' as const, value: 'Alice' } as any,
