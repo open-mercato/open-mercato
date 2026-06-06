@@ -35,12 +35,12 @@ Prevent clicking example Todo Assignees checkbox/listbox options inside `CrudFor
 
 ### Phase 1: Root Cause
 
-- [ ] 1.1 Confirm submit trigger and add regression test
+- [x] 1.1 Confirm submit trigger and add regression test — 07d053f2a
 
 ### Phase 2: Fix
 
-- [ ] 2.1 Patch checkbox/listbox non-submit behavior
+- [x] 2.1 Patch checkbox/listbox non-submit behavior — 07d053f2a
 
 ### Phase 3: Validation and PR
 
-- [ ] 3.1 Run focused validation and open PR
+- [x] 3.1 Run focused validation and open PR — 07d053f2a
