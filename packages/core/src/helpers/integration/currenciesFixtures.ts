@@ -1,4 +1,5 @@
 import { expect, type APIRequestContext } from '@playwright/test';
+import { randomInt } from 'node:crypto';
 import { apiRequest } from './api';
 import { getTokenContext } from './generalFixtures';
 
@@ -28,7 +29,7 @@ const reservedCurrencyCodes = new Set<string>();
 
 /** Draws an ISO-style three-letter code unused by seeds or earlier fixtures. */
 export function generateUniqueCurrencyCode(): string {
-  const letter = () => String.fromCharCode(65 + Math.floor(Math.random() * 26));
+  const letter = () => String.fromCharCode(65 + randomInt(26));
   for (let attempt = 0; attempt < 200; attempt += 1) {
     const code = `${letter()}${letter()}${letter()}`;
     if (!SEEDED_CURRENCY_CODES.has(code) && !reservedCurrencyCodes.has(code)) {

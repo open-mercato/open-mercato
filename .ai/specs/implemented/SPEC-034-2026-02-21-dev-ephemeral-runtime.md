@@ -125,6 +125,6 @@ This feature is command/runtime orchestration, not a new API module. Coverage fo
 
 ## Changelog
 - 2026-02-21: Added `dev:ephemeral` command with Node24 preflight, `.env` bootstrap-if-missing, dependency installation, free-port startup, and URL output. Updated docs and README.
-- 2026-02-21: Extended `dev:ephemeral` with generator pre-step, browser auto-open, and `.ai/dev-ephemeral-envs.json` lifecycle (stale pruning + register/unregister). Updated `.ai/skills/integration-tests/SKILL.md`, `.ai/qa/AGENTS.md`, and root `AGENTS.md` to reuse dev ephemeral instances for testing.
+- 2026-02-21: Extended `dev:ephemeral` with generator pre-step, browser auto-open, and `.ai/dev-ephemeral-envs.json` lifecycle (stale pruning + register/unregister). Updated `.ai/skills/om-integration-tests/SKILL.md`, `.ai/qa/AGENTS.md`, and root `AGENTS.md` to reuse dev ephemeral instances for testing.
 - 2026-02-21: Removed DRY duplication between `dev:ephemeral` and integration ephemeral runtime by extracting shared Node24 + port/runtime probe helpers into `packages/cli/src/lib/testing/runtime-utils.ts`.
 - 2026-02-21: Upgraded `dev:ephemeral` to start a dedicated ephemeral PostgreSQL Docker container per run, initialize app state against that DB, inject `DATABASE_URL` into dev runtime, and clean container state on shutdown/stale-entry pruning.

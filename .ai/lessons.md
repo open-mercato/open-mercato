@@ -799,7 +799,7 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Rule**: When a task brief, review artifact, or QA guide says Playwright or integration coverage is required, add or update a module-local `__integration__/TC-*.spec.ts` in the same change. Treat Jest or other low-level tests as complementary, not a replacement.
 
-**Applies to**: HackOn implementation tasks and any change governed by `.ai/qa/AGENTS.md` or `.ai/skills/integration-tests/SKILL.md`.
+**Applies to**: HackOn implementation tasks and any change governed by `.ai/qa/AGENTS.md` or `.ai/skills/om-integration-tests/SKILL.md`.
 
 ## Provider credentials must never control authenticated cross-origin requests
 
@@ -848,7 +848,7 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Rule**: Do not add executable `.spec.ts` files under `.ai/qa/tests/`. Place Playwright integration specs under the owning module's `__integration__/` directory, and keep `.ai/qa/tests/` reserved for shared Playwright configuration only.
 
-**Applies to**: All Playwright integration tests, QA scenario conversions, and any task using `.ai/skills/integration-tests/SKILL.md`.
+**Applies to**: All Playwright integration tests, QA scenario conversions, and any task using `.ai/skills/om-integration-tests/SKILL.md`.
 
 ## Component-scoped notification effects must not depend on header chrome
 
@@ -929,3 +929,33 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When an integration test "times out," read the trace to find which await actually blocked before reaching for a bigger number. Make UI interactions deterministic: after a keyboard-driven menu open, assert the target item is visible with a *bounded* budget and fall back to a pointer click, so a missed keypress fails fast instead of hanging until the suite timeout. Make `finally` teardown best-effort (`.catch(() => {})`) so it cannot mask the real failure with a "context closed" error. Only after removing the hang should you align the per-test budget with the established login+nav convention. Prefer fixing the interaction over inflating the clock.
 
 **Applies to**: every Playwright spec under `**/__integration__/*.spec.ts` that drives `RowActions`/dropdown menus via keyboard, and any spec whose `finally` block issues API calls after the body may have failed.
+
+## Async edit selects must be hydrated as value-plus-options
+
+**Context**: Several edit forms saved relation/dictionary/select values correctly but reopened with the select trigger showing the placeholder. The saved value arrived before or after the option list depending on the page: staff team roles, resources, dictionary-backed capacity units, checkout gateway settings, and example TODO custom fields exposed variants of the same failure.
+
+**Problem**: A controlled Radix Select can stay visually unresolved when the selected value and its matching `SelectItem` are registered in separate async renders. Page-level loaders also often fetch by `ids=...`; if the API only supports singular `id`, the edit form may hydrate from the wrong first-page record while still appearing to load successfully.
+
+**Rule**: Edit forms must hydrate selects with both the saved scalar value and a matching option label. If the saved option may be outside the first page, fetch it by id and seed/prepend it. Generic select controls should remount or otherwise re-resolve when either the selected value or option set changes. For list APIs used by edit loaders, support the shared `ids` filter contract and cover it with browser integration tests that create their own fixture records.
+
+**Applies to**: `CrudForm` select fields, relation/dictionary selects, edit-page option loaders, `makeCrudRoute` list APIs, and every browser test that verifies edit forms open with saved select values populated.
+
+## Async select controls must not treat synthetic empty changes as user clears
+
+**Context**: Resource type, dictionary-backed capacity unit, and catalog variant tax selects sometimes opened with placeholders even after the saved option was fetched and seeded. The controls had no empty item in the menu, but Radix could still surface an empty `onValueChange` during the first async render where the value existed before the matching `SelectItem` was registered.
+
+**Problem**: Forwarding `next || ''` / `next || undefined` from a select that has no explicit clear option silently erased the saved form value during hydration. Subsequent by-id option fetches could prepend the correct label, but the controlled value had already been cleared, so the edit page still looked blank while saving after manual reselection worked.
+
+**Rule**: For required or non-clearable selects, ignore empty `onValueChange` events. If a select supports clearing, render an explicit clear command/button/item and test that behavior separately. Browser regression tests for async edit selects must assert the visible combobox trigger text, not only hidden option text elsewhere in the DOM.
+
+**Applies to**: Radix-backed `Select` wrappers, custom `CrudForm` select components, dictionary selects, relation selects, and any async edit form whose option list may be loaded after the initial value.
+
+## Use cryptographic randomness in auth-adjacent test helpers
+
+**Context**: CodeQL reported insecure randomness in integration helpers where generated fixture values flowed through authenticated API requests and auth rate-limit tests.
+
+**Problem**: Even when randomness is only used for fixture uniqueness, `Math.random()` can be flagged when the generated value is used in security-sensitive paths such as login attempts, tokens, credentials, rate-limit identifiers, or authenticated request setup.
+
+**Rule**: Use `node:crypto` helpers (`randomInt`, `randomUUID`, or `randomBytes`) for any generated value that may touch auth, security checks, identifiers, request headers, or authenticated API calls. Reserve `Math.random()` only for explicitly non-security demo data, and prefer deterministic fixtures when uniqueness is not required.
+
+**Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.

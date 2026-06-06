@@ -85,11 +85,24 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   const searchParams = useSearchParams()
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
+  // Capture the record (incl. its optimistic-lock `updatedAt`) exactly ONCE per
+  // resource. The load effect's deps include identity-unstable values (`t`,
+  // `resolveFieldsetCode`), so without this guard a re-render would re-fetch and
+  // overwrite `initialValues.updatedAt` with a newer server value mid-edit —
+  // silently defeating optimistic locking (a concurrent change would no longer be
+  // detected) and making the conflict flaky.
+  const loadedResourceIdRef = React.useRef<string | null>(null)
   const [tags, setTags] = React.useState<TagOption[]>([])
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
   const [activeDetailTab, setActiveDetailTab] = React.useState<'notes' | 'activities'>('notes')
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
+  const [selectedCapacityUnit, setSelectedCapacityUnit] = React.useState<{
+    value: string
+    label: string
+    color?: string | null
+    icon?: string | null
+  } | null>(null)
   const [activityDictionaryId, setActivityDictionaryId] = React.useState<string | null>(null)
   const [activityTypeEntries, setActivityTypeEntries] = React.useState<DictionaryEntryOption[]>([])
   const flashShownRef = React.useRef(false)
@@ -408,11 +421,22 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
     [createTag, handleTagsSave, loadTagOptions, t, tagLabels, tags],
   )
 
-  const formConfig = useResourcesResourceFormConfig({ tagsSection })
+  const formConfig = useResourcesResourceFormConfig({
+    tagsSection,
+    selectedResourceTypeId:
+      typeof initialValues?.resourceTypeId === 'string' ? initialValues.resourceTypeId : null,
+    selectedCapacityUnit:
+      typeof initialValues?.capacityUnitValue === 'string' && initialValues.capacityUnitValue.length > 0
+        ? selectedCapacityUnit
+        : null,
+  })
   const { resourceTypesLoaded, resolveFieldsetCode } = formConfig
 
   React.useEffect(() => {
     if (!resourceId || !resourceTypesLoaded) return
+    // Load once per resource — never re-fetch (and thereby refresh the captured
+    // optimistic-lock token) on subsequent re-renders. See loadedResourceIdRef.
+    if (loadedResourceIdRef.current === resourceId) return
     setIsNotFound(false)
     let cancelled = false
     async function loadResource() {
@@ -429,6 +453,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
           return
         }
         if (!cancelled) {
+          loadedResourceIdRef.current = resourceId ?? null
           const customValues = extractCustomFieldEntries(resource)
           setTags(Array.isArray(resource.tags) ? resource.tags : [])
           setAvailabilityRuleSetId(
@@ -437,6 +462,19 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
               : typeof resource.availability_rule_set_id === 'string'
                 ? resource.availability_rule_set_id
                 : null,
+          )
+          setSelectedCapacityUnit(
+            typeof resource.capacityUnitValue === 'string' && resource.capacityUnitValue.length > 0
+              ? {
+                  value: resource.capacityUnitValue,
+                  label:
+                    typeof resource.capacityUnitName === 'string' && resource.capacityUnitName.length > 0
+                      ? resource.capacityUnitName
+                      : resource.capacityUnitValue,
+                  color: typeof resource.capacityUnitColor === 'string' ? resource.capacityUnitColor : null,
+                  icon: typeof resource.capacityUnitIcon === 'string' ? resource.capacityUnitIcon : null,
+                }
+              : null,
           )
           setInitialValues({
             id: resource.id,

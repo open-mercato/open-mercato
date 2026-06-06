@@ -19,6 +19,7 @@ import {
   extractUndoPayload,
   resolveOptionSchemaCode,
 } from './shared'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 
 type OptionSchemaSnapshot = {
   id: string
@@ -139,6 +140,15 @@ const createOptionSchemaCommand: CommandHandler<
     em.remove(record)
     await em.flush()
   },
+  redo: makeCreateRedo<
+    CatalogOptionSchemaTemplate,
+    OptionSchemaSnapshot,
+    OptionSchemaTemplateCreateInput,
+    { schemaId: string }
+  >({
+    entityClass: CatalogOptionSchemaTemplate,
+    buildResult: (entity) => ({ schemaId: entity.id }),
+  }),
 }
 
 const updateOptionSchemaCommand: CommandHandler<

@@ -2219,6 +2219,65 @@ Standardized **zero-records** empty state for list views — pass it to a `DataT
 - Omit `createHref`/`onCreate` for lists with no create flow (read-only/log/run/embedded sub-tables); `DataTable`'s standardized default already covers them — do NOT force a dead "Create" CTA.
 - Use `onCreate` (not `createHref`) when the list creates via a dialog.
 
+## RecordNotFoundState
+
+```typescript
+import { RecordNotFoundState, type RecordNotFoundStateProps } from '@open-mercato/ui/backend/detail'
+```
+
+The **default not-found state for backend detail/edit pages**. When a record id resolves to nothing,
+render this instead of a `CrudForm`/detail layout. It composes `EmptyState` (`variant='subtle'`) into
+a page-centered, neutral state — a missing record is **not** an error, so it must never be shown
+through the destructive `ErrorMessage`. Keep `ErrorMessage` for genuine load/validation failures.
+
+### Quick usage
+
+```tsx
+if (isNotFound) {
+  return (
+    <Page>
+      <PageBody>
+        <RecordNotFoundState
+          label={t('customers.companies.detail.error.notFound', 'Company not found.')}
+          backHref="/backend/customers/companies"
+          backLabel={t('customers.companies.backToList', 'Back to companies')}
+        />
+      </PageBody>
+    </Page>
+  )
+}
+```
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `label` | `string` | — | Required. The title (e.g. "Company not found."). Pass an already-translated string. |
+| `description` | `string` | — | Optional muted line under the title. |
+| `backHref` | `string` | — | When set, renders a default "back" link (`<Button asChild variant="outline">` wrapping a `next/link`, so it stays a real `<a>` / `role="link"`). |
+| `backLabel` | `string` | `t('ui.recordNotFound.backToList', 'Back to list')` | Label for the default back link. |
+| `action` | `React.ReactNode` | — | Custom recovery action; replaces the default back link entirely. |
+| `icon` | `React.ReactNode` | `<SearchX className="h-6 w-6" />` | Optional leading icon, wrapped in EmptyState's round muted box. |
+| `className` | `string` | — | Applied to the outer centering wrapper (`min-h-[50vh]`). |
+
+### MUST rules
+
+- Use it for the dedicated `notFound` page state on record-backed backend detail/edit pages — keep it
+  separate from a generic `error` state (which still uses `ErrorMessage`).
+- Always pass a `backHref` (or a custom `action`) so the user has a recovery path; do not render a
+  dead-end not-found.
+- Pass `label`/`backLabel` through `useT()` — the component only defaults the back label.
+- Portal / public (frontend) pages have no backend "back to list": use `EmptyState`
+  (`variant='subtle'`, `size='lg'`) directly there instead of this backend component.
+
+### Anti-patterns
+
+- Rendering not-found through `ErrorMessage` (red `role="alert"` box) → use `RecordNotFoundState`.
+- Ad hoc `<div className="text-destructive">…not found…</div>` or `<Alert variant="destructive">` for a
+  missing record → neutral `RecordNotFoundState` / `EmptyState`.
+- `throw new Error('… not found')` inside the loader and folding it into the generic `error` state →
+  set a dedicated `isNotFound` flag and render `RecordNotFoundState`.
+
 ---
 
 ## Skeleton

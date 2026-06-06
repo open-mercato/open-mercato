@@ -6,6 +6,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { StaffTeamMember, StaffTimeProject, StaffTimeProjectMember, type StaffTimeProjectStatus, type StaffTimeProjectMemberStatus } from '../data/entities'
 
@@ -117,6 +118,45 @@ async function loadTimeProjectMemberSnapshot(em: EntityManager, id: string): Pro
   }
 }
 
+function timeProjectSeedFromSnapshot(snapshot: TimeProjectSnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    tenantId: snapshot.tenantId,
+    organizationId: snapshot.organizationId,
+    name: snapshot.name,
+    customerId: snapshot.customerId ?? null,
+    code: snapshot.code,
+    description: snapshot.description ?? null,
+    projectType: snapshot.projectType ?? null,
+    color: snapshot.color ?? null,
+    status: (snapshot.status ?? 'active') as StaffTimeProjectStatus,
+    ownerUserId: snapshot.ownerUserId ?? null,
+    costCenter: snapshot.costCenter ?? null,
+    startDate: snapshot.startDate ? new Date(snapshot.startDate) : null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    deletedAt: null,
+  }
+}
+
+function timeProjectMemberSeedFromSnapshot(snapshot: TimeProjectMemberSnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    tenantId: snapshot.tenantId,
+    organizationId: snapshot.organizationId,
+    timeProjectId: snapshot.timeProjectId,
+    staffMemberId: snapshot.staffMemberId,
+    role: snapshot.role ?? null,
+    status: (snapshot.status ?? 'active') as StaffTimeProjectMemberStatus,
+    showInGrid: snapshot.showInGrid ?? false,
+    assignedStartDate: new Date(snapshot.assignedStartDate),
+    assignedEndDate: snapshot.assignedEndDate ? new Date(snapshot.assignedEndDate) : null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    deletedAt: null,
+  }
+}
+
 const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { timeProjectId: string }> = {
   id: 'staff.timesheets.time_projects.create',
   async execute(rawInput, ctx) {
@@ -220,6 +260,14 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
       })
     }
   },
+  redo: makeCreateRedo<StaffTimeProject, TimeProjectSnapshot, StaffTimeProjectCreateInput, { timeProjectId: string }>({
+    entityClass: StaffTimeProject,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: timeProjectSeedFromSnapshot,
+    buildResult: (entity) => ({ timeProjectId: entity.id }),
+    events: staffTimeProjectCrudEvents,
+    indexer: timeProjectCrudIndexer,
+  }),
 }
 
 const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { timeProjectId: string }> = {
@@ -586,6 +634,14 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
       })
     }
   },
+  redo: makeCreateRedo<StaffTimeProjectMember, TimeProjectMemberSnapshot, StaffTimeProjectMemberAssignInput, { timeProjectMemberId: string }>({
+    entityClass: StaffTimeProjectMember,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: timeProjectMemberSeedFromSnapshot,
+    buildResult: (entity) => ({ timeProjectMemberId: entity.id }),
+    events: staffTimeProjectMemberCrudEvents,
+    indexer: timeProjectMemberCrudIndexer,
+  }),
 }
 
 const unassignTimeProjectMemberCommand: CommandHandler<{ id?: string }, { timeProjectMemberId: string }> = {

@@ -644,7 +644,7 @@ None.
 
 ### 2026-05-08
 
-- Spec created via the `/spec-writing` skill workflow on `feat/spec-069-timesheets-phase-1` (PR target branch will be a fresh `feat/staff-decouple-from-core` off `upstream/develop`).
+- Spec created via the `/om-spec-writing` skill workflow on `feat/spec-069-timesheets-phase-1` (PR target branch will be a fresh `feat/staff-decouple-from-core` off `upstream/develop`).
 - Re-verified the coupling sites against `upstream/develop` HEAD: only the two known sites (`customers/api/assignable-staff/route.ts`, `planner/api/access.ts`). No new coupling has crept in since the prior draft on 2026-04-29. The 2026-04-29 working draft has been deleted (Q2 = Option A) — its research informed this spec but is now fully superseded.
 - Open Questions resolved: Q1 = Option A (preserve customer-driven RBAC: page guard `customers.roles.view`, handler check `customers.roles.manage`/`customers.activities.manage`); Q2 = Option A (delete prior untracked draft).
 - Decisions inherited from the prior draft and re-confirmed: scope = customers + planner only; planner refactor = DI resolver with `allowUnregistered: true`; legacy URL BC = 308 redirect for ≥1 minor version.

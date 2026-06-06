@@ -15,6 +15,7 @@ import {
 } from '../data/validators'
 import { staffTeamMemberCommentCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireTeamMember } from './shared'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { E } from '#generated/entities.ids.generated'
 
 const commentCrudIndexer: CrudIndexerConfig<StaffTeamMemberComment> = {
@@ -131,6 +132,30 @@ const createCommentCommand: CommandHandler<
       await em.flush()
     }
   },
+  redo: makeCreateRedo<
+    StaffTeamMemberComment,
+    CommentSnapshot,
+    StaffTeamMemberCommentCreateInput,
+    { commentId: string; authorUserId: string | null }
+  >({
+    entityClass: StaffTeamMemberComment,
+    events: staffTeamMemberCommentCrudEvents,
+    indexer: commentCrudIndexer,
+    seedFromSnapshot: (snapshot) => ({
+      id: snapshot.id,
+      organizationId: snapshot.organizationId,
+      tenantId: snapshot.tenantId,
+      body: snapshot.body,
+      authorUserId: snapshot.authorUserId,
+      appearanceIcon: snapshot.appearanceIcon,
+      appearanceColor: snapshot.appearanceColor,
+    }),
+    beforeRestore: async ({ em, snapshot }) => {
+      const member = await requireTeamMember(em, snapshot.memberId, 'Team member not found')
+      return { member }
+    },
+    buildResult: (entity) => ({ commentId: entity.id, authorUserId: entity.authorUserId ?? null }),
+  }),
 }
 
 const updateCommentCommand: CommandHandler<StaffTeamMemberCommentUpdateInput, { commentId: string }> = {

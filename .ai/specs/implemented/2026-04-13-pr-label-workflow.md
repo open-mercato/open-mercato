@@ -16,7 +16,7 @@ The repository has **50+ labels**, many redundant or unused. Key issues:
 | **Unused/stale labels** | `PR review`, `discussion`, `failing-ci`, `preview-env`, `changes-resolved`, `CLA`, `bounty-hunting` |
 | **No clear QA gate** | QA labels exist (`QA in progress`, `QA confirmed`, `QA: Fixes required`) but aren't wired into any automated flow |
 | **No single source of truth** | A PR can have `approved` + `changes-requested` simultaneously — no state machine |
-| **Skills and humans out of sync** | `auto-review-pr` skill sets `merge-queue`/`changes-requested`, but humans use different label names |
+| **Skills and humans out of sync** | `om-auto-review-pr` skill sets `merge-queue`/`changes-requested`, but humans use different label names |
 
 ## Design Principles
 
@@ -32,7 +32,7 @@ The repository has **50+ labels**, many redundant or unused. Key issues:
 
 ### Pipeline State Labels (mutually exclusive — only ONE at a time)
 
-These track where a PR is in the pipeline. The `auto-review-pr` skill, QA humans, and merge automation all operate on these.
+These track where a PR is in the pipeline. The `om-auto-review-pr` skill, QA humans, and merge automation all operate on these.
 
 | Label | Color | Set by | Meaning |
 |-------|-------|--------|---------|
@@ -139,9 +139,9 @@ Rules:
 | From | To | Trigger | Who |
 |------|----|---------|-----|
 | *(new PR)* | `review` | PR opened/ready for review | Author |
-| `review` | `changes-requested` | Code review finds issues | `auto-review-pr` skill or human reviewer |
-| `review` | `qa` | Code review approves + `needs-qa` present | `auto-review-pr` skill or human reviewer |
-| `review` | `merge-queue` | Code review approves + no `needs-qa` | `auto-review-pr` skill or human reviewer |
+| `review` | `changes-requested` | Code review finds issues | `om-auto-review-pr` skill or human reviewer |
+| `review` | `qa` | Code review approves + `needs-qa` present | `om-auto-review-pr` skill or human reviewer |
+| `review` | `merge-queue` | Code review approves + no `needs-qa` | `om-auto-review-pr` skill or human reviewer |
 | `changes-requested` | `review` | Author pushes fixes | Author (or automation on push) |
 | `qa` | `merge-queue` | QA passes | QA tester |
 | `qa` | `qa-failed` | QA finds issues | QA tester |
@@ -154,7 +154,7 @@ Rules:
 
 ## Concurrency Control — In-Progress Markers
 
-Auto-skills (`auto-review-pr`, `code-review`, `auto-fix-github`, `review-prs`, `merge-buddy`, plus any future automation) MUST claim a PR or issue before mutating it, and MUST refuse to claim something that is already in progress unless the user explicitly forces the run. This prevents two parallel skill invocations (or a skill and a human) from stomping on each other.
+Auto-skills (`om-auto-review-pr`, `om-code-review`, `om-auto-fix-github`, `om-review-prs`, `om-merge-buddy`, plus any future automation) MUST claim a PR or issue before mutating it, and MUST refuse to claim something that is already in progress unless the user explicitly forces the run. This prevents two parallel skill invocations (or a skill and a human) from stomping on each other.
 
 ### Three signals (used together)
 
@@ -240,16 +240,16 @@ When the flag is **not** set and the resource is in progress, the skill MUST ask
 
 | Scenario | Behavior |
 |----------|----------|
-| User runs `/auto-review-pr 1234` and PR has no `in-progress` label and no assignee | Claim and proceed |
-| User runs `/auto-review-pr 1234` and PR is assigned to another user | Stop, ask "Override @other-user's claim?" |
-| User runs `/auto-review-pr 1234 --force` on a PR locked by another skill | Force, post override comment, proceed |
-| Background `/review-prs` triage hits a PR already locked by `/auto-review-pr` | Skip silently, log "skipped: in progress" in summary |
-| `/auto-fix-github 999` and issue is assigned to a human contributor | Stop, ask "Override @contributor's claim?" |
-| `/auto-fix-github 999 --force` overrides a stale (>60min) lock | Force, post override comment, continue |
+| User runs `/om-auto-review-pr 1234` and PR has no `in-progress` label and no assignee | Claim and proceed |
+| User runs `/om-auto-review-pr 1234` and PR is assigned to another user | Stop, ask "Override @other-user's claim?" |
+| User runs `/om-auto-review-pr 1234 --force` on a PR locked by another skill | Force, post override comment, proceed |
+| Background `/om-review-prs` triage hits a PR already locked by `/om-auto-review-pr` | Skip silently, log "skipped: in progress" in summary |
+| `/om-auto-fix-github 999` and issue is assigned to a human contributor | Stop, ask "Override @contributor's claim?" |
+| `/om-auto-fix-github 999 --force` overrides a stale (>60min) lock | Force, post override comment, continue |
 
 ### Skip-when-in-progress in batch skills
 
-`review-prs` and `merge-buddy` operate over many PRs at once. They MUST:
+`om-review-prs` and `om-merge-buddy` operate over many PRs at once. They MUST:
 
 - Skip any PR with the `in-progress` label or with an assignee that is not the current user
 - Report the skipped PRs in the final summary table with reason "in progress"
@@ -259,7 +259,7 @@ When the flag is **not** set and the resource is in progress, the skill MUST ask
 
 ## Skill Integration Changes
 
-### `auto-review-pr` skill changes
+### `om-auto-review-pr` skill changes
 
 Current behavior already uses `merge-queue` and `changes-requested`. Changes needed:
 
@@ -277,7 +277,7 @@ Current behavior already uses `merge-queue` and `changes-requested`. Changes nee
    - Uses GraphQL (current approach) for atomicity
 8. **`--force` flag** — accept `--force` (or trailing `force` argument) to bypass the in-progress check; document it in the skill's argument list
 
-### `auto-fix-github` skill changes
+### `om-auto-fix-github` skill changes
 
 1. **Pre-claim check** (see Concurrency Control above) — at the very start, before fetching the issue body or creating a worktree, run the in-progress check on the issue; stop and ask the user (or honor `--force`) if locked
 2. **Claim on start** — assign the **issue** to the current GitHub user, apply `in-progress` label on the issue, post a claim comment on the issue
@@ -286,13 +286,13 @@ Current behavior already uses `merge-queue` and `changes-requested`. Changes nee
 5. Apply `skip-qa` for small/trivial fixes (single-file, test-only, etc.)
 6. **`--force` flag** — accept `--force` (or trailing `force` argument) to bypass the in-progress check and override existing assignees/labels
 
-### `check-and-commit` skill changes
+### `om-check-and-commit` skill changes
 
 No changes needed — operates before PR creation.
 
-### New skill: `merge-buddy`
+### New skill: `om-merge-buddy`
 
-A triage skill invoked via `/merge-buddy`. Scans **all open PRs** and produces a merge-readiness report — a table of PRs that can be merged right now (zero blockers) plus a secondary table of PRs that are close but have specific remaining issues.
+A triage skill invoked via `/om-merge-buddy`. Scans **all open PRs** and produces a merge-readiness report — a table of PRs that can be merged right now (zero blockers) plus a secondary table of PRs that are close but have specific remaining issues.
 
 #### Workflow
 
@@ -351,9 +351,9 @@ A triage skill invoked via `/merge-buddy`. Scans **all open PRs** and produces a
 - The report must be concise — no PR descriptions, just the table
 - If zero PRs are ready, say so clearly and highlight the top "Almost Ready" candidates
 
-### New skill: `review-prs`
+### New skill: `om-review-prs`
 
-A **day-start triage skill** invoked via `/review-prs`. Finds all open PRs that have not been reviewed yet and reviews them one by one, starting from the most recent. Designed as a morning routine — run it at the start of your day to clear the review backlog.
+A **day-start triage skill** invoked via `/om-review-prs`. Finds all open PRs that have not been reviewed yet and reviews them one by one, starting from the most recent. Designed as a morning routine — run it at the start of your day to clear the review backlog.
 
 #### Workflow
 
@@ -385,7 +385,7 @@ A **day-start triage skill** invoked via `/review-prs`. Finds all open PRs that 
 
 5. **Sequential review loop** — for each PR in the queue:
    a. Show: `Reviewing PR #{number}: {title} ({N} of {total})`
-   b. Invoke the full `auto-review-pr` skill (including autofix flow)
+   b. Invoke the full `om-auto-review-pr` skill (including autofix flow)
    c. After review completes, show the verdict and move to the next PR
    d. Between reviews, briefly report progress: `Reviewed {done}/{total}. Next: #{number}`
 
@@ -407,9 +407,9 @@ A **day-start triage skill** invoked via `/review-prs`. Finds all open PRs that 
 
 - Always start from the most recent unreviewed PR
 - Never skip a PR silently — if a PR can't be reviewed (e.g., CI not finished), note it and move on
-- Use the full `auto-review-pr` skill for each PR (with autofix)
-- After the review session, optionally invoke `merge-buddy` to show what's now ready to merge
-- If there are zero unreviewed PRs, say so and suggest running `/merge-buddy` instead
+- Use the full `om-auto-review-pr` skill for each PR (with autofix)
+- After the review session, optionally invoke `om-merge-buddy` to show what's now ready to merge
+- If there are zero unreviewed PRs, say so and suggest running `/om-merge-buddy` instead
 
 ### QA helper commands
 
@@ -499,8 +499,8 @@ for-core-contributors
 
 | Name | Notes |
 |------|-------|
-| `merge-queue` | Already used by `auto-review-pr` skill |
-| `changes-requested` | Already used by `auto-review-pr` skill |
+| `merge-queue` | Already used by `om-auto-review-pr` skill |
+| `changes-requested` | Already used by `om-auto-review-pr` skill |
 | `blocked` | Keep as-is |
 | `do-not-merge` | Rename from `do not merge` |
 | `bug` | Category |
@@ -514,11 +514,11 @@ for-core-contributors
 
 ### Phase 2: Skill Updates
 
-1. Update `auto-review-pr` SKILL.md — add QA gate logic and `review` label handling
-2. Update `auto-fix-github` SKILL.md — apply `review` + optional `skip-qa` on PR creation
+1. Update `om-auto-review-pr` SKILL.md — add QA gate logic and `review` label handling
+2. Update `om-auto-fix-github` SKILL.md — apply `review` + optional `skip-qa` on PR creation
 3. Extract `setPipelineLabel` helper into a shared skill utility or inline in both skills
-4. Create `merge-buddy` skill — `.ai/skills/merge-buddy/SKILL.md` — scan all open PRs, classify merge-readiness, output actionable table
-5. Create `review-prs` skill — `.ai/skills/review-prs/SKILL.md` — day-start triage that reviews all unreviewed PRs (newest first) using the `auto-review-pr` skill, then optionally runs `merge-buddy`
+4. Create `om-merge-buddy` skill — `.ai/skills/om-merge-buddy/SKILL.md` — scan all open PRs, classify merge-readiness, output actionable table
+5. Create `om-review-prs` skill — `.ai/skills/om-review-prs/SKILL.md` — day-start triage that reviews all unreviewed PRs (newest first) using the `om-auto-review-pr` skill, then optionally runs `om-merge-buddy`
 
 ### Phase 3: AGENTS.md Updates
 
@@ -621,12 +621,18 @@ echo "Done. Labels cleaned up."
 | 20 | `priority-high` | Priority | 🟠 orange |
 | 21 | `priority-extreme` | Priority | 🔴 deep red |
 
+## 2026-06-05 Follow-Up: CI Phase Labels
+
+[Phased Integration CI](../2026-06-05-phased-integration-ci.md) proposes one additional additive CI meta label: `extended-integration`.
+
+This label is deliberately outside the 21-label PR workflow state machine above. It does not replace `needs-qa`, `skip-qa`, `qa`, `review`, or `merge-queue`; it only asks GitHub Actions to run the extended integration phase for a trusted non-fork PR. Release PRs targeting `main` do not need this label because they must run full monorepo and standalone coverage automatically.
+
 ## Implementation Status
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase 1 — Label Cleanup | Done | 2026-04-14 | Repository labels normalized with `gh`; legacy labels removed or renamed; existing open PR pipeline labels were remapped to the new state machine |
-| Phase 2 — Skill Updates | Done | 2026-04-14 | `auto-review-pr` and `auto-fix-github` updated; `merge-buddy` and `review-prs` skills added |
+| Phase 2 — Skill Updates | Done | 2026-04-14 | `om-auto-review-pr` and `om-auto-fix-github` updated; `om-merge-buddy` and `om-review-prs` skills added |
 | Phase 3 — AGENTS.md Updates | Done | 2026-04-14 | Root `AGENTS.md` documents the PR workflow, QA routing, and `gh` helper commands |
 | Phase 4 — Automation | Not Started | — | Optional GitHub Actions enforcement remains deferred |
 | Phase 5 — Priority Labels | Done | 2026-05-04 | Added `priority-low/medium/high/extreme` to communicate urgency on issues and PRs; documented in this spec and root `AGENTS.md` |
@@ -635,10 +641,10 @@ echo "Done. Labels cleaned up."
 
 - [x] Create and normalize the target label set in GitHub
 - [x] Re-label existing open PRs to the new pipeline states
-- [x] Update `auto-review-pr` with QA gate and `review` label handling
-- [x] Update `auto-fix-github` to open PRs in `review` and document `skip-qa`
-- [x] Add `merge-buddy` skill
-- [x] Add `review-prs` skill
+- [x] Update `om-auto-review-pr` with QA gate and `review` label handling
+- [x] Update `om-auto-fix-github` to open PRs in `review` and document `skip-qa`
+- [x] Add `om-merge-buddy` skill
+- [x] Add `om-review-prs` skill
 - [x] Add PR workflow guidance to root `AGENTS.md`
 - [x] Add `priority-low/medium/high/extreme` labels and triage rules (2026-05-04)
 - [ ] Add optional GitHub Actions enforcement

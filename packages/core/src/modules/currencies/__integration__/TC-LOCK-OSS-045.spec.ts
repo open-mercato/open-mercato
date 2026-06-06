@@ -4,6 +4,7 @@ import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/he
 import {
   createCurrencyFixture,
   deleteCurrenciesEntityIfExists,
+  generateUniqueCurrencyCode,
 } from '@open-mercato/core/modules/core/__integration__/helpers/currenciesFixtures'
 import {
   bumpRecordViaApi,
@@ -14,6 +15,7 @@ import {
   expectConflictBody,
   CONFLICT_BANNER_TESTID,
 } from '@open-mercato/core/modules/core/__integration__/helpers/optimisticLockUi'
+import { isStandaloneIntegration } from '@open-mercato/core/helpers/integration/standaloneEnv'
 import { fillControlledInput } from '@open-mercato/core/modules/core/__integration__/helpers/ui'
 
 /**
@@ -43,12 +45,7 @@ import { fillControlledInput } from '@open-mercato/core/modules/core/__integrati
 
 const CURRENCY_API_BASE = '/api/currencies/currencies'
 
-function randomCode(): string {
-  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-  let out = ''
-  for (let i = 0; i < 3; i += 1) out += letters[Math.floor(Math.random() * letters.length)]
-  return out
-}
+const randomCode = generateUniqueCurrencyCode
 
 /**
  * Create a currency fixture with a unique three-letter code, retrying on the
@@ -196,6 +193,8 @@ test.describe('TC-LOCK-OSS-045: conflict-bar UX suite (currencies)', () => {
   })
 
   test('UX-06: de locale renders the translated bar title, not the en string or raw token', async ({ page }) => {
+    test.skip(isStandaloneIntegration(), 'Standalone smoke runs do not publish the de UI dictionary bundle.')
+
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let currencyId: string | null = null

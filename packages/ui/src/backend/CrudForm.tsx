@@ -560,6 +560,10 @@ function createDirtySnapshot(source: Record<string, unknown>): string {
   return JSON.stringify(normalizeDirtySnapshotValue(source) ?? {})
 }
 
+function createDirtyValueSnapshot(value: unknown): string {
+  return JSON.stringify(normalizeDirtySnapshotValue(value) ?? null)
+}
+
 const FIELDSET_ICON_COMPONENTS: Record<string, React.ComponentType<{ className?: string }>> = {
   layers: Layers,
   tag: Tag,
@@ -931,6 +935,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const clearDirtyState = React.useCallback((snapshotSource?: Record<string, unknown>) => {
     const source = snapshotSource ?? (valuesRef.current as Record<string, unknown>)
     dirtyBaselineSnapshotRef.current = createDirtySnapshot(source)
+    dirtyBaselineValuesRef.current = { ...source }
+    userEditedFieldIdsRef.current.clear()
     isDirtyRef.current = false
     setHasUnsavedChanges(false)
   }, [])
@@ -2209,14 +2215,46 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
   }, [errors, formId])
 
+  const updateEditedFieldMarker = React.useCallback((
+    id: string,
+    nextValue: unknown,
+    baselineSource: Record<string, unknown> | undefined = dirtyBaselineValuesRef.current,
+  ) => {
+    if (
+      baselineSource &&
+      createDirtyValueSnapshot(baselineSource[id]) === createDirtyValueSnapshot(nextValue)
+    ) {
+      userEditedFieldIdsRef.current.delete(id)
+      return
+    }
+    userEditedFieldIdsRef.current.add(id)
+  }, [])
+
   const setValue = React.useCallback((id: string, nextValue: unknown) => {
     let nextData: CrudFormValues<TValues> | null = null
+    let nextDirty: boolean | null = null
+    const currentValue = (valuesRef.current as Record<string, unknown>)[id]
+    if (!Object.is(currentValue, nextValue)) {
+      updateEditedFieldMarker(id, nextValue)
+    }
     setValues((prev) => {
       if (Object.is(prev[id], nextValue)) return prev
+      const baselineSource = dirtyBaselineValuesRef.current ?? (prev as Record<string, unknown>)
+      updateEditedFieldMarker(id, nextValue, baselineSource)
       nextData = { ...prev, [id]: nextValue } as CrudFormValues<TValues>
       valuesRef.current = nextData
+      if (!(embedded && !trackDirtyWhenEmbedded)) {
+        const baseline = dirtyBaselineSnapshotRef.current ?? createDirtySnapshot(prev as Record<string, unknown>)
+        dirtyBaselineSnapshotRef.current = baseline
+        dirtyBaselineValuesRef.current = baselineSource
+        nextDirty = createDirtySnapshot(nextData as Record<string, unknown>) !== baseline
+      }
       return nextData
     })
+    if (nextDirty !== null) {
+      isDirtyRef.current = nextDirty
+      setHasUnsavedChanges(nextDirty)
+    }
     const clearedMessages: string[] = []
     setErrors((prev) => {
       if (!Object.keys(prev).length) return prev
@@ -2281,7 +2319,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }).catch((err) => {
       console.error('[CrudForm] Error in onFieldChange:', err)
     })
-  }, [extendedInjectionEventsEnabled, flash, t, translateValidationMessage, triggerInjectionEvent])
+  }, [embedded, extendedInjectionEventsEnabled, flash, t, trackDirtyWhenEmbedded, translateValidationMessage, triggerInjectionEvent, updateEditedFieldMarker])
 
   const onBlurRequest = React.useCallback((fieldId: string) => {
     void validateFieldOnBlur(fieldId)
@@ -2309,6 +2347,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const appliedInitialValuesSnapshotRef = React.useRef<string | undefined>(undefined)
   const dirtyBaselineSnapshotRef = React.useRef<string | undefined>(undefined)
+  const dirtyBaselineValuesRef = React.useRef<Record<string, unknown> | undefined>(undefined)
+  const userEditedFieldIdsRef = React.useRef<Set<string>>(new Set())
   React.useLayoutEffect(() => {
     if (!initialValues) return
     const snapshot = JSON.stringify({
@@ -2321,8 +2361,26 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     appliedInitialValuesSnapshotRef.current = snapshot
     const initialRecord = initialValues as Record<string, unknown>
     let mergedValues: CrudFormValues<TValues> | null = null
+    // Whether the user already has unsaved edits relative to the load-time baseline,
+    // computed from `prev` (React's latest committed values) — NOT from isDirtyRef or
+    // valuesRef, which are both updated in post-render effects and therefore still
+    // hold stale values when this layout effect runs in the SAME render that async
+    // custom-field / injected-field definitions arrive. That lag was the residual
+    // race that let the baseline absorb an in-progress edit under load.
+    let hadUnsavedEdits = false
     setValues((prev) => {
-      const merged = { ...prev, ...initialValues } as CrudFormValues<TValues>
+      const priorBaseline = dirtyBaselineSnapshotRef.current
+      const editedFieldIds = userEditedFieldIdsRef.current
+      hadUnsavedEdits =
+        editedFieldIds.size > 0 ||
+        priorBaseline !== undefined &&
+        createDirtySnapshot(prev as Record<string, unknown>) !== priorBaseline
+      const merged = { ...prev } as CrudFormValues<TValues>
+      const mergedRecord = merged as Record<string, unknown>
+      for (const [key, value] of Object.entries(initialValues as Record<string, unknown>)) {
+        if (editedFieldIds.has(key)) continue
+        mergedRecord[key] = value
+      }
       for (const definition of injectedFieldDefinitions) {
         if (merged[definition.id] !== undefined) continue
         const extracted = readByDotPath(initialRecord, definition.id)
@@ -2348,8 +2406,19 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       mergedValues = merged
       return mergedValues
     })
-    if (mergedValues) {
+    if (mergedValues && !hadUnsavedEdits) {
+      // Do not absorb an in-progress edit into the pristine baseline. This effect
+      // re-runs whenever the snapshot changes — which includes custom-field
+      // definitions and injected fields loading ASYNCHRONOUSLY after mount. If the
+      // user has already started editing by the time they arrive, recomputing the
+      // baseline from the current (merged) values would set the baseline equal to
+      // the edited values, silently clearing dirty (header Save disables, the edit
+      // looks pristine) and discarding the unsaved change. Re-establish the baseline
+      // only when there are no pending edits; while dirty, keep the load-time
+      // baseline so the edit stays dirty until save/discard. Root cause of the flaky
+      // optimistic-lock stale-edit conflicts (#2055 / TC-LOCK-OSS-015 / TC-LOCK-OSS-029).
       dirtyBaselineSnapshotRef.current = createDirtySnapshot(mergedValues as Record<string, unknown>)
+      dirtyBaselineValuesRef.current = { ...(mergedValues as Record<string, unknown>) }
     }
     if (!extendedInjectionEventsEnabled || !mergedValues) return
     let cancelled = false
@@ -2362,7 +2431,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         )
         const transformed = result.data
         if (cancelled || !transformed) return
+        // As above: never re-apply transformed display data over an in-progress
+        // edit — it would overwrite the user's unsaved changes and reset dirty.
+        if (isDirtyRef.current) return
         dirtyBaselineSnapshotRef.current = createDirtySnapshot(transformed as Record<string, unknown>)
+        dirtyBaselineValuesRef.current = { ...(transformed as Record<string, unknown>) }
         setValues(transformed as CrudFormValues<TValues>)
       } catch (err) {
         console.error('[CrudForm] Error in transformDisplayData:', err)
@@ -2433,6 +2506,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     // Update the dirty baseline so the form doesn't appear dirty from defaults
     if (mergedValues) {
       dirtyBaselineSnapshotRef.current = createDirtySnapshot(mergedValues as Record<string, unknown>)
+      dirtyBaselineValuesRef.current = { ...(mergedValues as Record<string, unknown>) }
     }
   }, [isLoading, initialValuesHasId, cfDefinitions, customEntity])
 
@@ -4131,6 +4205,18 @@ const FieldControl = React.memo(function FieldControlImpl({
   const placeholder = builtin?.placeholder
   const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
   const validateOnWrapperBlur = supportsWrapperBlurValidation(field)
+  const singleSelectValue = Array.isArray(value)
+    ? String(value[0] ?? '')
+    : value == null
+      ? ''
+      : String(value)
+  const singleSelectOptionsKey = React.useMemo(
+    () => options.map((opt) => `${opt.value}:${opt.label}`).join('\0'),
+    [options],
+  )
+  const singleSelectLabel = singleSelectValue
+    ? options.find((option) => option.value === singleSelectValue)?.label
+    : undefined
 
   return (
     <div
@@ -4329,19 +4415,14 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'select' && !builtin?.multiple && (
         <Select
+          key={`${field.id}:${singleSelectValue}:${singleSelectOptionsKey}`}
           // Radix Select MUST be either always-controlled or always-uncontrolled.
           // Passing `value={undefined}` on first render and a string later trips
           // React's "uncontrolled → controlled" warning and breaks Radix's
           // internal state (dropdown flashes / selections no-op). Use empty
           // string for "no selection" instead — Radix treats it the same as
           // undefined for matching SelectItems but keeps the prop type stable.
-          value={
-            Array.isArray(value)
-              ? String(value[0] ?? '')
-              : value == null
-                ? ''
-                : String(value)
-          }
+          value={singleSelectValue}
           onValueChange={(next) => {
             // Custom field clears must be explicit nulls; normal optional
             // fields keep the existing undefined clear semantics.
@@ -4355,7 +4436,9 @@ const FieldControl = React.memo(function FieldControlImpl({
           disabled={disabled}
         >
           <SelectTrigger data-crud-focus-target="">
-            <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
+            <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')}>
+              {singleSelectLabel}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {!field.required && value != null && value !== '' && (

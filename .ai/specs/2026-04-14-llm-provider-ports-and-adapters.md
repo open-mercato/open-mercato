@@ -550,7 +550,7 @@ llmProviderRegistry.register(
 - `packages/shared/AGENTS.md` — shared package rules (no domain logic, precise types, no `any`, narrow interfaces).
 - `packages/ai-assistant/AGENTS.md` — tool registration, MCP server, OpenCode configuration, two-tier auth.
 - `.ai/specs/AGENTS.md` — spec lifecycle, naming convention, required sections.
-- `.ai/skills/spec-writing/SKILL.md` — spec-writing workflow, review lens, quality rules.
+- `.ai/skills/om-spec-writing/SKILL.md` — spec-writing workflow, review lens, quality rules.
 
 ### Compliance Matrix
 
@@ -570,8 +570,8 @@ llmProviderRegistry.register(
 | root AGENTS.md | Check `.ai/specs/` before coding | Compliant | Verified: no existing SPEC covers LLM provider refactor. Related issues #1430, #1433, #1419 scoped only to env-var naming and error messages. |
 | `.ai/specs/AGENTS.md` | New specs use `{date}-{title}.md` format | Compliant | `2026-04-14-llm-provider-ports-and-adapters.md`. |
 | `.ai/specs/AGENTS.md` | Every non-trivial spec includes 10 required sections | Compliant | TLDR, Overview, Problem Statement, Proposed Solution, Architecture, Data Models, API Contracts, Risks & Impact Review, Final Compliance Report, Changelog — all present. |
-| `.ai/skills/spec-writing/SKILL.md` | Start with skeleton + Open Questions | Compliant | Skeleton was produced first with Q1–Q3; full spec written only after answers. |
-| `.ai/skills/spec-writing/SKILL.md` | Research and challenge against open-source market leaders | Compliant | Market Reference cites AI SDK v5, LangChain, LiteLLM. LangChain rejected with rationale. |
+| `.ai/skills/om-spec-writing/SKILL.md` | Start with skeleton + Open Questions | Compliant | Skeleton was produced first with Q1–Q3; full spec written only after answers. |
+| `.ai/skills/om-spec-writing/SKILL.md` | Research and challenge against open-source market leaders | Compliant | Market Reference cites AI SDK v5, LangChain, LiteLLM. LangChain rejected with rationale. |
 | `packages/shared/AGENTS.md` | MUST NOT add domain-specific logic — shared is infrastructure only | Compliant | LLM adapter infrastructure belongs in `shared/lib/ai/` — no domain logic. |
 | `packages/shared/AGENTS.md` | MUST NOT import from `@open-mercato/core` or any domain package | Compliant | Adapters import only from `@ai-sdk/*` and `shared` itself. |
 | `packages/shared/AGENTS.md` | MUST use precise types — no `any`, use zod schemas + `z.infer` | Partial | `LlmProvider.createModel()` returns `unknown` because AI SDK model types are complex generics and type-threading them through a generic port would explode. Call sites cast with `as Parameters<typeof generateObject>[0]['model']`, mirroring the current `route.ts` pattern. This is a tradeoff documented in the Design Decisions table. |

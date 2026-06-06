@@ -179,7 +179,7 @@ apps/<app>/src/
 | `packages/ai-assistant/AGENTS.md` | "How to Override Another Module's Agent or Tool" updated |
 | `packages/create-app/template/AGENTS.md` | Pointer + standalone-specific notes updated |
 | `AGENTS.md` (root) | Task Router row updated |
-| `.ai/skills/create-ai-agent/SKILL.md` | Step on overriding existing agents updated |
+| `.ai/skills/om-create-ai-agent/SKILL.md` | Step on overriding existing agents updated |
 
 ## Test surface
 

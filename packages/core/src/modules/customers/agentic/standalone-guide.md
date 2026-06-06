@@ -135,4 +135,4 @@ await withAtomicFlush(em, [
 await emitCrudSideEffects({ ... })
 ```
 
-Never run `em.find`/`em.findOne` between scalar mutations and `em.flush()` without `withAtomicFlush` — changes will be silently lost.
+Never run `em.find`/`em.findOne` between scalar mutations and `em.flush()` without `withAtomicFlush` — changes will be silently lost. Cache invalidation must also stay outside `withAtomicFlush` and fire after commit, so the opt-in `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` mode (default OFF) never serves stale or partially-committed reads.

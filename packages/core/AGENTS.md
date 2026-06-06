@@ -518,6 +518,7 @@ MikroORM's identity-map and subscriber infrastructure can silently discard pendi
 - Enable `{ transaction: true }` when atomicity matters (all-or-nothing semantics).
 - Keep `emitCrudSideEffects` / `emitCrudUndoSideEffects` calls **OUTSIDE** `withAtomicFlush`
   — side effects should only fire after the DB changes are committed.
+- Cache invalidation follows the same rule as side effects: invalidate **after** the DB write commits, never inside the `withAtomicFlush` block. For the opt-in always-consistent read-projection tail (`OM_CACHE_SAFETY_ALWAYS_CONSISTENT`, default OFF) see `.ai/specs/2026-06-05-cache-safety-always-consistent.md`.
 - This applies to **both** `execute` methods (update commands) and `undo` handlers.
 
 ### Commit-boundary guarantee (defense in depth)
@@ -550,6 +551,37 @@ await withAtomicFlush(em, [
 // Side effects AFTER the atomic flush
 await emitCrudSideEffects({ ... })
 ```
+
+### Preferred: `runCrudCommandWrite` for entity + custom fields + side effects
+
+For commands that write an entity, optionally write custom fields, and emit CRUD/index side effects in one logical operation, prefer `runCrudCommandWrite` over composing `withAtomicFlush` + `setCustomFieldsIfAny` + `emitCrudSideEffects` by hand. The helper owns the EM fork, the atomic flush boundary, the custom-field write, and the side-effect queue in the only correct order, and fails closed if any earlier step throws.
+
+```typescript
+import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
+
+await runCrudCommandWrite({
+  ctx,
+  entityId: 'my_module:my_entity',
+  action: 'updated',
+  scope: { tenantId: record.tenantId, organizationId: record.organizationId },
+  customFields: custom,
+  events: myCrudEvents,
+  indexer: myCrudIndexer,
+  sideEffect: () => ({
+    entity: record,
+    identifiers: { id: record.id, tenantId: record.tenantId, organizationId: record.organizationId },
+  }),
+  phases: [
+    () => {
+      record.name = parsed.name
+      record.status = parsed.status
+    },
+    () => syncEntityTags(em, record, parsed.tags),
+  ],
+})
+```
+
+Reference migration: `customers.deals.update` in `packages/core/src/modules/customers/commands/deals.ts`. Keep `withAtomicFlush` for cases the helper doesn't fit (multiple separate transactions per command, etc.).
 
 ## Profiling
 
