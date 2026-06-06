@@ -10,6 +10,13 @@ import {
   createOrderLineFixture,
   deleteSalesEntityIfExists,
 } from '@open-mercato/core/helpers/integration/salesFixtures'
+import {
+  createRoleFixture,
+  setRoleAclFeatures,
+  createUserFixture,
+  deleteUserIfExists,
+  deleteRoleIfExists,
+} from '@open-mercato/core/helpers/integration/authFixtures'
 
 type FixtureOption = {
   id: string
@@ -164,41 +171,6 @@ async function deleteByQuery(
   }
 }
 
-async function setUserAclFeatures(
-  request: APIRequestContext,
-  token: string,
-  userId: string,
-  features: string[],
-  scope?: FixtureScope,
-): Promise<void> {
-  const response = await apiRequest(request, 'PUT', '/api/auth/users/acl', {
-    token,
-    data: {
-      userId,
-      features,
-      ...(scope && features.length > 0 ? { organizations: [scope.organizationId] } : {}),
-    },
-  })
-  expect(response.ok(), `Failed to update test user ACL: ${response.status()}`).toBeTruthy()
-}
-
-async function mintAdminToken(request: APIRequestContext): Promise<string> {
-  const form = new URLSearchParams()
-  form.set('email', 'admin@acme.com')
-  form.set('password', 'secret')
-  const response = await request.post('/api/auth/login', {
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    data: form.toString(),
-  })
-  expect(response.ok(), `Failed to refresh admin token: ${response.status()}`).toBeTruthy()
-  const payload = await readJsonSafe(response)
-  const token = typeof (payload as Record<string, unknown> | null)?.token === 'string'
-    ? ((payload as Record<string, unknown>).token as string)
-    : null
-  expect(token, 'Admin login response should include a token').toBeTruthy()
-  return token as string
-}
-
 async function expectDialogComboboxLabel(dialog: Locator, label: string): Promise<void> {
   await expect(dialog.getByRole('combobox').filter({ hasText: label }).first()).toBeVisible()
 }
@@ -212,15 +184,18 @@ test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', ()
     test.slow()
     test.setTimeout(120_000)
 
-    const bootstrapToken = await getAuthToken(request, 'admin')
-    const superadminToken = await getAuthToken(request, 'superadmin')
-    const adminScope = getTokenScope(bootstrapToken)
+    const adminToken = await getAuthToken(request, 'admin')
+    const adminScope = getTokenScope(adminToken)
     const stamp = Date.now()
+    const operatorEmail = `qa-sales-select-${stamp}@acme.com`
+    const operatorPassword = `QaSelect1!${stamp}`
     const taxRates: FixtureOption[] = []
     const shippingMethods: FixtureOption[] = []
     const shipmentStatuses: FixtureOption[] = []
     const addresses: FixtureOption[] = []
     let token: string | null = null
+    let roleId: string | null = null
+    let userId: string | null = null
     let customerId: string | null = null
     let orderId: string | null = null
     let orderLineId: string | null = null
@@ -228,8 +203,25 @@ test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', ()
     let shipmentId: string | null = null
 
     try {
-      await setUserAclFeatures(request, superadminToken, adminScope.userId, ['customers.*', 'sales.*'], adminScope)
-      token = await mintAdminToken(request)
+      // Operate as a dedicated single-organization user (customers.* + sales.*)
+      // instead of mutating the shared seeded admin's ACL. Restricting the shared
+      // admin leaks through the RBAC permission cache and intermittently strips its
+      // other features for the rest of the run, causing unrelated sales specs to
+      // fail with spurious 403s when the whole suite executes against one database
+      // (CI affected-module runs).
+      roleId = await createRoleFixture(request, adminToken, {
+        name: `QA Sales Select Role ${stamp}`,
+        tenantId: adminScope.tenantId || undefined,
+      })
+      await setRoleAclFeatures(request, adminToken, { roleId, features: ['customers.*', 'sales.*'] })
+      userId = await createUserFixture(request, adminToken, {
+        email: operatorEmail,
+        password: operatorPassword,
+        organizationId: adminScope.organizationId,
+        roles: [roleId],
+        name: `QA Sales Select ${stamp}`,
+      })
+      token = await getAuthToken(request, operatorEmail, operatorPassword)
       customerId = await createCompanyFixture(request, token, `QA Sales Select Customer ${stamp}`)
       addresses.push(...(await createAddresses(request, token, customerId, stamp, adminScope)))
       const selectedAddress = await pickOutsideFirstPage(
@@ -353,7 +345,8 @@ test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', ()
           await deleteByQuery(request, token, '/api/sales/tax-rates', taxRate.id)
         }
       }
-      await setUserAclFeatures(request, superadminToken, adminScope.userId, [])
+      await deleteUserIfExists(request, adminToken, userId)
+      await deleteRoleIfExists(request, adminToken, roleId)
     }
   })
 })
