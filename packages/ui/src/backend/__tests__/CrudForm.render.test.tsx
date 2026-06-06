@@ -26,7 +26,7 @@ jest.mock('../injection/useInjectionDataWidgets', () => ({
 
 import * as React from 'react'
 import { renderToString } from 'react-dom/server'
-import { act, fireEvent, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField } from '../CrudForm'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
@@ -116,6 +116,41 @@ describe('CrudForm initialValues', () => {
     await waitFor(() => {
       expect(getByRole('combobox')).toHaveTextContent('Engineering')
     })
+  })
+
+  it('does not submit when a listbox multi-select option is clicked', async () => {
+    const onSubmit = jest.fn()
+    const fields: CrudField[] = [
+      {
+        id: 'assignees',
+        label: 'Assignees',
+        type: 'select',
+        multiple: true,
+        listbox: true,
+        options: [
+          { value: 'alice', label: 'alice' },
+          { value: 'bob', label: 'bob' },
+        ],
+      },
+    ]
+
+    renderWithProviders(
+      <CrudForm title="Form" fields={fields} initialValues={{ assignees: [] }} onSubmit={onSubmit} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.listbox.searchPlaceholder': 'Search...',
+          'ui.forms.listbox.noMatches': 'No matches',
+        },
+      },
+    )
+
+    const aliceOption = screen.getByRole('button', { name: 'alice' })
+    expect(aliceOption).toHaveAttribute('type', 'button')
+
+    fireEvent.click(aliceOption)
+
+    expect(onSubmit).not.toHaveBeenCalled()
   })
 
   it('does not re-invoke loadOptions on parent re-render (#814)', async () => {
