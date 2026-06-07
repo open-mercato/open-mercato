@@ -29,6 +29,7 @@ type DetailResponse = {
 type ListResponse = {
   data?: Array<{ id: string; workflowId: string; source?: string }>
 }
+type Page = import('@playwright/test').Page
 
 async function findOverrideIdByWorkflowId(
   request: Parameters<typeof apiRequest>[0],
@@ -69,6 +70,32 @@ async function ensureCleanState(
 ): Promise<void> {
   const stale = await findOverrideIdByWorkflowId(request, token, CODE_WORKFLOW_ID)
   if (stale) await deleteWorkflowDefinitionIfExists(request, token, stale)
+}
+
+async function openWorkflowDefinition(
+  page: Page,
+  definitionId: string,
+  readyText: string,
+): Promise<void> {
+  const detailUrl = `/backend/definitions/${encodeURIComponent(definitionId)}`
+  const readyLocator = page.getByText(readyText)
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.goto(detailUrl, { waitUntil: 'domcontentloaded' })
+    await page.getByText(/Loading/i).first().waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {})
+
+    if (await readyLocator.isVisible().catch(() => false)) return
+
+    const retryButton = page.getByRole('button', { name: /Try again/i }).first()
+    if (await retryButton.isVisible().catch(() => false)) {
+      await retryButton.click().catch(() => {})
+      await page.waitForLoadState('domcontentloaded').catch(() => {})
+      await page.getByText(/Loading/i).first().waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {})
+      if (await readyLocator.isVisible().catch(() => false)) return
+    }
+  }
+
+  await expect(readyLocator).toBeVisible({ timeout: 30_000 })
 }
 
 test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
@@ -169,10 +196,11 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
 
       overrideId = await customizeViaApi(request, apiToken)
 
-      await page.goto(`/backend/definitions/${encodeURIComponent(overrideId)}`)
-      await expect(
-        page.getByText('This workflow has been customized from its code-defined version.'),
-      ).toBeVisible()
+      await openWorkflowDefinition(
+        page,
+        overrideId,
+        'This workflow has been customized from its code-defined version.',
+      )
 
       // Edit description through the CrudForm (full payload PUT on UUID).
       const newDescription = `QA WF-011 edit ${Date.now()}`
@@ -207,7 +235,11 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
       expect(afterBody?.data?.description).toBe(newDescription)
 
       // Reset (uncustomize) from the edit page → confirm dialog → URL flips back to `code:`.
-      await page.goto(`/backend/definitions/${encodeURIComponent(overrideId)}`)
+      await openWorkflowDefinition(
+        page,
+        overrideId,
+        'This workflow has been customized from its code-defined version.',
+      )
       const resetButton = page.getByRole('button', { name: 'Reset to code version', exact: true })
       await expect(resetButton).toBeVisible()
       await resetButton.click()

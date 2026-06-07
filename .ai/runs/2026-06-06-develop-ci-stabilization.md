@@ -45,13 +45,16 @@ Stabilize the latest `develop` branch feeding release PR #2425 by fixing the cur
 - Targeted validation after the latest batch: `OM_OPTIMISTIC_LOCK=all yarn test:integration:ephemeral --no-reuse-env packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-AGENT-LOOP-001-006.spec.ts` passed, 12 passed. Against reusable ephemeral app `http://127.0.0.1:57864` with matching `DATABASE_URL=postgres://mercato:secret@localhost:55209/mercato_test`, `BASE_URL=http://127.0.0.1:57864 DATABASE_URL=postgres://mercato:secret@localhost:55209/mercato_test OM_OPTIMISTIC_LOCK=all yarn test:integration --retries=0 packages/core/src/modules/core/__integration__/admin/TC-ADMIN-005.spec.ts packages/core/src/modules/currencies/__integration__/TC-LOCK-OSS-045.spec.ts packages/core/src/modules/customers/__integration__/TC-CRM-009.spec.ts packages/core/src/modules/sales/__integration__/TC-LOCK-OSS-029.spec.ts packages/core/src/modules/sales/__integration__/TC-SALES-007.spec.ts` passed, 14 passed.
 - Hygiene validation after the latest batch: `git diff --check` clean; `yarn typecheck` passed, 21/21 tasks.
 - Full local coverage proof round 1 after latest fixes: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --no-reuse-env --retries=0` passed, 1576 passed, 0 failed, 0 flaky, 72 skipped, total 1648. Coverage summary: lines/statements 54.09%, functions 26.6%, branches 56.3%.
+- Invalidated full local coverage proof round 2 after round-1 proof: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --no-reuse-env --retries=0` failed with 5 durable failures while 1571 passed, 72 skipped. Root set: TC-CAT-011 price persistence assertion did not wait through the full variant/price API surface under coverage; TC-ADMIN-002 searched before the API keys table had fully recovered from loading; TC-INT-005 exceeded the existing 60s budget in the sales shipment/payment flow; TC-MSG-009 intermittently landed on access-denied/detail reload and later waited on a UI reply POST after the composer state was already proven; TC-WF-011 edit/reset checks sometimes navigated before the workflow detail shell finished hydration.
+- Filtered zero-retry coverage validation after this batch: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --no-reuse-env --retries=0 --filter 'TC-CAT-011|TC-ADMIN-002|TC-INT-005|TC-MSG-009|TC-WF-011'` passed, 11 passed, 0 failed, 0 flaky, 0 skipped. Coverage summary: lines/statements 55.65%, functions 25.46%, branches 61.8%.
+- Hygiene validation after this batch: `git diff --check` clean; `yarn typecheck` passed, 21/21 tasks.
 
 ## Resume Notes
 
 - Branch: `fix/ci-2425-develop-stabilization`.
 - PR: #2657 (`https://github.com/open-mercato/open-mercato/pull/2657`).
-- Latest targeted ephemeral app used for verification: `http://127.0.0.1:57864`, DB port `55209`.
-- Next required proof: run the second full `yarn test:integration:coverage --no-reuse-env --retries=0` round from the latest pushed head after rebasing/merging the newest `origin/develop`.
+- Latest filtered coverage ephemeral app used for verification: `http://127.0.0.1:62908`.
+- Next required proof: after committing and pushing the latest stabilization batch, run two full `yarn test:integration:coverage --no-reuse-env --retries=0` rounds from the latest pushed head.
 - If another failure appears, inspect Playwright artifacts in `.ai/qa/test-results/` and fix root cause before counting either full round.
 
 ## Progress
