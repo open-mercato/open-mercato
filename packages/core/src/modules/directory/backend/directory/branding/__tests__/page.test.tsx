@@ -41,7 +41,20 @@ jest.mock('@open-mercato/ui/backend/injection/mutationEvents', () => ({
   dispatchBackendMutationError: jest.fn(),
 }))
 
+Object.defineProperty(URL, 'createObjectURL', {
+  configurable: true,
+  writable: true,
+  value: jest.fn(() => 'blob:organization-logo-preview'),
+})
+Object.defineProperty(URL, 'revokeObjectURL', {
+  configurable: true,
+  writable: true,
+  value: jest.fn(),
+})
+
 const dispatchEventSpy = jest.spyOn(window, 'dispatchEvent')
+const createObjectUrlMock = URL.createObjectURL as jest.Mock
+const revokeObjectUrlMock = URL.revokeObjectURL as jest.Mock
 
 const brandingPayload = {
   organizationId: '22222222-2222-4222-8222-222222222222',
@@ -55,6 +68,9 @@ beforeEach(() => {
   apiCallOrThrowMock.mockReset()
   flashMock.mockReset()
   dispatchEventSpy.mockClear()
+  createObjectUrlMock.mockClear()
+  createObjectUrlMock.mockReturnValue('blob:organization-logo-preview')
+  revokeObjectUrlMock.mockClear()
   readApiResultOrThrowMock.mockResolvedValue(brandingPayload)
   apiCallOrThrowMock.mockResolvedValue({
     ok: true,
@@ -111,5 +127,47 @@ describe('OrganizationBrandingPage', () => {
         expect.anything(),
       )
     })
+  })
+
+  it('uploads a selected logo file before saving branding', async () => {
+    readApiResultOrThrowMock
+      .mockResolvedValueOnce(brandingPayload)
+      .mockResolvedValueOnce({
+        ok: true,
+        item: {
+          id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          url: '/api/attachments/image/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/acme.svg',
+          thumbnailUrl: '/api/attachments/image/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/acme.svg?width=320',
+        },
+      })
+
+    renderWithProviders(<OrganizationBrandingPage />)
+
+    const input = await screen.findByLabelText('Upload logo')
+    const file = new File(['<svg />'], 'acme.svg', { type: 'image/svg+xml' })
+    fireEvent.change(input, { target: { files: [file] } })
+    fireEvent.click(screen.getByRole('button', { name: /Save branding/ }))
+
+    await waitFor(() => {
+      expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
+        '/api/attachments',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.any(FormData),
+        }),
+        expect.anything(),
+      )
+    })
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+      '/api/directory/organization-branding',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          logoUrl: '/api/attachments/image/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/acme.svg?width=320',
+        }),
+      }),
+      expect.anything(),
+    )
+    expect(dispatchEventSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'om:refresh-sidebar' }))
   })
 })
