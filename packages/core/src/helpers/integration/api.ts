@@ -96,7 +96,7 @@ export async function apiRequest(
     } catch (error) {
       lastError = error;
       const message = error instanceof Error ? error.message : '';
-      const retryable = /timeout|socket|ECONNRESET|Target page, context or browser has been closed/i.test(message);
+      const retryable = /timeout|idle-session|socket|ECONNRESET|Target page, context or browser has been closed/i.test(message);
       if (!retryable || attempt === 1) throw error;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }

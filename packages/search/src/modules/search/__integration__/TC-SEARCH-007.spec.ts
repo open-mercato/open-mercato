@@ -11,6 +11,9 @@ type ReindexLock = {
   totalCount?: number | null
 }
 type ConflictBody = { error?: string; lock?: ReindexLock }
+type SearchSettingsResponse = { settings?: { fulltextReindexLock?: ReindexLock | null } }
+
+const DEFAULT_STRATEGIES = ['fulltext', 'vector', 'tokens']
 
 /**
  * TC-SEARCH-007: concurrent fulltext reindex returns 409 with lock info.
@@ -28,6 +31,7 @@ type ConflictBody = { error?: string; lock?: ReindexLock }
 test.describe('TC-SEARCH-007: concurrent fulltext reindex returns 409 with lock info', () => {
   test('a second reindex while one is active is rejected with 409', async ({ request }) => {
     test.slow()
+    test.setTimeout(120_000)
 
     let token: string | null = null
 
@@ -36,11 +40,20 @@ test.describe('TC-SEARCH-007: concurrent fulltext reindex returns 409 with lock 
 
       // Start from a clean lock state.
       await apiRequest(request, 'POST', '/api/search/reindex/cancel', { token }).catch(() => undefined)
+      await apiRequest(request, 'POST', '/api/search/settings/global-search', {
+        token,
+        data: { enabledStrategies: DEFAULT_STRATEGIES },
+      }).catch(() => undefined)
 
       // First reindex acquires (and, in queue mode, holds) the fulltext lock.
       const first = await apiRequest(request, 'POST', '/api/search/reindex', { token, data: { useQueue: true } })
       expect(first.status(), 'first reindex must not hit a pre-existing lock').not.toBe(409)
       expect([200, 503], 'first reindex starts (200) or reports backend unavailable (503)').toContain(first.status())
+
+      const settings = await apiRequest(request, 'GET', '/api/search/settings', { token })
+      expect(settings.ok(), 'search settings should be readable after starting reindex').toBeTruthy()
+      const settingsBody = (await readJsonSafe<SearchSettingsResponse>(settings)) ?? {}
+      expect(settingsBody.settings?.fulltextReindexLock?.type, 'first reindex should leave an observable fulltext lock').toBe('fulltext')
 
       // Second reindex is rejected while the first holds the lock.
       const second = await apiRequest(request, 'POST', '/api/search/reindex', { token, data: { useQueue: true } })
