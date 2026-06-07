@@ -15,6 +15,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type RuleSet = {
   id: string
@@ -250,6 +251,13 @@ export default function RuleSetsListPage() {
           onFiltersClear={handleFiltersClear}
           isLoading={isLoading}
           error={error ? t('business_rules.sets.messages.loadFailed') : undefined}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('business_rules.sets.list.title')}
+              createHref="/backend/sets/create"
+              createLabel={t('business_rules.sets.actions.create')}
+            />
+          )}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
         />
       </PageBody>

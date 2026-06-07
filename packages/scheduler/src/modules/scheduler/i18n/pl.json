@@ -132,6 +132,7 @@
   "scheduler.loading": "Ładowanie harmonogramu...",
   "scheduler.module.description": "Zarządzaj automatycznymi zaplanowanymi zadaniami z wyrażeniami cron lub prostymi interwałami.",
   "scheduler.module.title": "Zaplanowane zadania",
+  "scheduler.nav.backToList": "Wróć do zaplanowanych zadań",
   "scheduler.scope.organization": "Organizacja",
   "scheduler.scope.system": "System",
   "scheduler.scope.tenant": "Najemca",

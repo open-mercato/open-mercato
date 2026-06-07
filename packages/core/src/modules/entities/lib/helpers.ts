@@ -149,19 +149,15 @@ export async function setRecordCustomFields(
     const def = defsByKey?.[fieldKey]
     const encrypted = Boolean(def?.configJson && (def as any).configJson?.encrypted)
     const isArray = Array.isArray(raw)
-    // When array (multi-value): replace all existing rows for the key. The old
-    // rows are removed via em.remove (a DEFERRED delete keyed by primary id),
-    // not nativeDelete, so the DELETE and the replacement INSERTs are applied in
-    // the SAME em.flush() — MikroORM wraps a flush in one transaction, making the
-    // replacement atomic (the field can never be left empty by a partial
-    // failure between delete and insert). It also removes the FlushMode.AUTO
-    // footgun the old code had: a nativeDelete issued after em.create()
-    // auto-flushed the new rows and then deleted them by fieldKey, wiping the
-    // value on EDIT. Regression: TC-CAT-CF-MULTI-EDIT-001 / TC-CRM-CF-MULTI-EDIT-001.
+    // When array (multi-value): replace all existing rows for the key. Delete
+    // first, then create replacements, all inside the transaction opened above.
+    // Creating rows before a native delete can auto-flush and delete the new
+    // values; mixing em.remove(stale) with new rows for the same EAV scope was
+    // observed to commit an empty set under MikroORM v7. The explicit order keeps
+    // the replacement atomic without letting old-row cleanup target new rows.
     if (isArray) {
       const arr = raw as Primitive[]
-      const existing = await em.find(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey })
-      for (const stale of existing) em.remove(stale)
+      await em.nativeDelete(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey })
       for (const val of arr) {
         const col: keyof CustomFieldValue = encrypted ? 'valueText' : def ? columnFromKind(def.kind) : columnFromJsValue(val)
         const cf = em.create(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey, createdAt: new Date() })

@@ -2,8 +2,9 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { buildChanges, requireId, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { ExchangeRate, Currency } from '../data/entities'
 import {
@@ -113,9 +114,7 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
       deletedAt: null,
     })
     if (existing) {
-      throw new CrudHttpError(400, {
-        error: 'Exchange rate for this currency pair, date, and source already exists',
-      })
+      throw conflict('Exchange rate for this currency pair, date, and source already exists')
     }
 
     const now = new Date()
@@ -133,7 +132,14 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
       updatedAt: now,
     })
     em.persist(record)
-    await em.flush()
+    try {
+      await em.flush()
+    } catch (err) {
+      if (isUniqueViolation(err, 'exchange_rates_pair_datetime_source_unique')) {
+        throw conflict('Exchange rate for this currency pair, date, and source already exists')
+      }
+      throw err
+    }
 
     const de = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -179,6 +185,12 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
     record.isActive = false
     await em.flush()
   },
+  redo: makeCreateRedo<ExchangeRate, ExchangeRateSnapshot, ExchangeRateCreateInput, { exchangeRateId: string }>({
+    entityClass: ExchangeRate,
+    dateFields: ['createdAt', 'updatedAt', 'deletedAt', 'date'],
+    buildResult: (entity) => ({ exchangeRateId: entity.id }),
+    events: exchangeRateCrudEvents,
+  }),
 }
 
 const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { exchangeRateId: string }> = {
@@ -221,9 +233,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
         deletedAt: null,
       })
       if (existing) {
-        throw new CrudHttpError(400, {
-          error: 'Exchange rate for this currency pair, date, and source already exists',
-        })
+        throw conflict('Exchange rate for this currency pair, date, and source already exists')
       }
     }
 

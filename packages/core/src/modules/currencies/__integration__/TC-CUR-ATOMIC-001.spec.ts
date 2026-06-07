@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { generateUniqueCurrencyCode } from '@open-mercato/core/modules/core/__integration__/helpers/currenciesFixtures';
 import { getTokenContext } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures';
 
 /**
@@ -17,10 +18,7 @@ import { getTokenContext } from '@open-mercato/core/modules/core/__integration__
  * is always single-valued, and a rejected create leaves no partial row.
  */
 
-const randomCode = (): string => {
-  const letter = () => String.fromCharCode(65 + Math.floor(Math.random() * 26));
-  return `Q${letter()}${letter()}`;
-};
+const randomCode = generateUniqueCurrencyCode;
 
 type CurrencyRow = { id: string; code: string; isBase: boolean };
 

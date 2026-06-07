@@ -86,6 +86,7 @@ function createProbeResult(partial?: Partial<InterceptorProbeResult>): Intercept
 export default function UmesExtensionsPage() {
   const t = useT()
 
+  const [pageReady, setPageReady] = React.useState(false)
   const [interceptorStatus, setInterceptorStatus] = React.useState<PhaseStatus>('idle')
   const [interceptorPayload, setInterceptorPayload] = React.useState<unknown>(null)
   const [interceptorError, setInterceptorError] = React.useState<string | null>(null)
@@ -114,6 +115,10 @@ export default function UmesExtensionsPage() {
     ],
     [t],
   )
+
+  React.useEffect(() => {
+    setPageReady(true)
+  }, [])
 
   const runInterceptorProbe = React.useCallback(async () => {
     setInterceptorStatus('pending')
@@ -233,6 +238,7 @@ export default function UmesExtensionsPage() {
   return (
     <Page>
       <PageBody className="space-y-4">
+        <div data-testid="umes-extensions-ready" data-ready={pageReady ? 'true' : 'false'} className="sr-only" aria-hidden="true" />
         <div>
           <h1 className="text-xl font-semibold">{t('example.umes.extensions.title', 'UMES Phase E-H Extensions')}</h1>
           <p className="text-sm text-muted-foreground">

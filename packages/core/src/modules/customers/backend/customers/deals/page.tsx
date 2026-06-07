@@ -48,6 +48,7 @@ import { useAutoDiscoveredFields } from '@open-mercato/ui/backend/utils/useAutoD
 import { useAdvancedFilterTree } from '@open-mercato/ui/backend/hooks/useAdvancedFilter'
 import { AdvancedFilterPanel } from '@open-mercato/ui/backend/filters/AdvancedFilterPanel'
 import { ActiveFilterChips } from '@open-mercato/ui/backend/filters/ActiveFilterChips'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterPreset } from '@open-mercato/ui/backend/filters/QuickFilters'
 import {
   ensureCurrentUserFilterOption,
@@ -1023,7 +1024,7 @@ export default function CustomersDealsPage() {
                 onOpen={() => setFiltersOpen(true)}
               />
               <ActiveFilterChips
-                tree={filterPanel.tree}
+                tree={filterPanel.appliedTree}
                 fields={advancedFilterFields}
                 popoverOpen={filtersOpen}
                 onRemoveNode={(id) => filterPanel.dispatch({ type: 'removeNode', nodeId: id })}
@@ -1038,6 +1039,13 @@ export default function CustomersDealsPage() {
             onClearAll: handleAdvancedFilterClear,
             onRemoveLast: () => filterPanel.dispatch({ type: 'removeLast' }),
           }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('customers.deals.entityPlural', 'deals')}
+              createHref="/backend/customers/deals/create"
+              createLabel={t('customers.deals.list.actions.new', 'New deal')}
+            />
+          )}
           virtualized
         />
         <AdvancedFilterPanel

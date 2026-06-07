@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
@@ -36,7 +37,7 @@ test.describe('TC-ENTITIES-007: Organization scoping isolates custom entities', 
     const adminToken = await getAuthToken(request, 'admin');
     const superToken = await getAuthToken(request, 'superadmin');
     const { tenantId } = getTokenContext(adminToken);
-    const stamp = `${Date.now().toString(36)}${Math.floor(Math.random() * 46_656).toString(36)}`;
+    const stamp = `${Date.now().toString(36)}${randomUUID().replaceAll('-', '').slice(0, 8)}`;
 
     let org2Id: string | null = null;
     let user2Id: string | null = null;

@@ -27,6 +27,7 @@ import {
   buildCustomFieldResetMap,
 } from "@open-mercato/shared/lib/commands/customFieldSnapshots";
 import { withAtomicFlush } from "@open-mercato/shared/lib/commands/flush";
+import { resolveRedoSnapshot, restoreCreatedRow } from "@open-mercato/shared/lib/commands/redo";
 import { E } from "#generated/entities.ids.generated";
 import { slugifyTagLabel } from "@open-mercato/shared/lib/utils";
 import { parseObjectLike } from "@open-mercato/shared/lib/json/parseObjectLike";
@@ -1167,6 +1168,45 @@ async function loadProductSnapshot(
   };
 }
 
+function productSeedFromSnapshot(
+  snapshot: ProductSnapshot,
+): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    title: snapshot.title,
+    subtitle: snapshot.subtitle ?? null,
+    description: snapshot.description ?? null,
+    sku: snapshot.sku ?? null,
+    handle: snapshot.handle ?? null,
+    taxRateId: snapshot.taxRateId ?? null,
+    taxRate: snapshot.taxRate ?? null,
+    productType: snapshot.productType ?? "simple",
+    statusEntryId: snapshot.statusEntryId ?? null,
+    primaryCurrencyCode: snapshot.primaryCurrencyCode ?? null,
+    defaultUnit: snapshot.defaultUnit ?? null,
+    defaultSalesUnit: snapshot.defaultSalesUnit ?? null,
+    defaultSalesUnitQuantity: snapshot.defaultSalesUnitQuantity ?? "1",
+    uomRoundingScale: snapshot.uomRoundingScale,
+    uomRoundingMode: snapshot.uomRoundingMode,
+    unitPriceEnabled: snapshot.unitPriceEnabled,
+    unitPriceReferenceUnit: snapshot.unitPriceReferenceUnit ?? null,
+    unitPriceBaseQuantity: snapshot.unitPriceBaseQuantity ?? null,
+    defaultMediaId: snapshot.defaultMediaId ?? null,
+    defaultMediaUrl: snapshot.defaultMediaUrl ?? null,
+    weightValue: snapshot.weightValue ?? null,
+    weightUnit: snapshot.weightUnit ?? null,
+    dimensions: snapshot.dimensions ? cloneJson(snapshot.dimensions) : null,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    customFieldsetCode: snapshot.customFieldsetCode ?? null,
+    isConfigurable: snapshot.isConfigurable,
+    isActive: snapshot.isActive,
+    createdAt: new Date(snapshot.createdAt),
+    updatedAt: new Date(snapshot.updatedAt),
+  };
+}
+
 function applyProductSnapshot(
   em: EntityManager,
   record: CatalogProduct,
@@ -1408,6 +1448,53 @@ const createProductCommand: CommandHandler<
       action: "deleted",
       product: record,
     });
+  },
+  redo: async ({ ctx, logEntry }) => {
+    const after = resolveRedoSnapshot<ProductSnapshot>(logEntry);
+    if (!after) {
+      throw new CrudHttpError(400, {
+        error: "[internal] redo snapshot unavailable for product create",
+      });
+    }
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const record = await restoreCreatedRow(
+      em,
+      CatalogProduct,
+      after.id,
+      () => productSeedFromSnapshot(after),
+    );
+    applyProductSnapshot(em, record, after);
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          () => restoreOffersFromSnapshot(em, record, after.offers),
+          () => syncCategoryAssignments(em, record, after.categoryIds),
+          () => syncProductTags(em, record, after.tags),
+        ],
+        { transaction: true },
+      );
+    } catch (error) {
+      await rethrowProductUniqueConstraint(error);
+    }
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    if (after.custom && Object.keys(after.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: E.catalog.catalog_product,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: after.custom,
+      });
+    }
+    await emitProductCrudChange({
+      dataEngine,
+      action: "created",
+      product: record,
+    });
+    return { productId: record.id };
   },
 };
 

@@ -95,6 +95,7 @@
   "exchangeRates.flash.updated": "Wechselkurs erfolgreich aktualisiert",
   "exchangeRates.form.action.create": "Wechselkurs erstellen",
   "exchangeRates.form.action.save": "Änderungen speichern",
+  "exchangeRates.form.actions.backToList": "Zurück zu Wechselkursen",
   "exchangeRates.form.errors.currencyCodeFormat": "Muss genau 3 Großbuchstaben sein",
   "exchangeRates.form.errors.fromCurrencyFormat": "Ungültiger Von-Währungscode",
   "exchangeRates.form.errors.invalidDate": "Datum und Uhrzeit sind erforderlich",

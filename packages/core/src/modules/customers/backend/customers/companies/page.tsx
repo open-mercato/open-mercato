@@ -44,6 +44,7 @@ import { useAutoDiscoveredFields } from '@open-mercato/ui/backend/utils/useAutoD
 import { useAdvancedFilterTree } from '@open-mercato/ui/backend/hooks/useAdvancedFilter'
 import { AdvancedFilterPanel } from '@open-mercato/ui/backend/filters/AdvancedFilterPanel'
 import { ActiveFilterChips } from '@open-mercato/ui/backend/filters/ActiveFilterChips'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterPreset } from '@open-mercato/ui/backend/filters/QuickFilters'
 import { useQueryClient } from '@tanstack/react-query'
 import { ensureCustomerDictionary } from '../../../components/detail/hooks/useCustomerDictionary'
@@ -938,7 +939,7 @@ export default function CustomersCompaniesPage() {
           }}
           activeFilterChips={(
             <ActiveFilterChips
-              tree={filterPanel.tree}
+              tree={filterPanel.appliedTree}
               fields={advancedFilterFields}
               popoverOpen={filtersOpen}
               onRemoveNode={(id) => filterPanel.dispatch({ type: 'removeNode', nodeId: id })}
@@ -952,6 +953,13 @@ export default function CustomersCompaniesPage() {
             onClearAll: handleAdvancedFilterClear,
             onRemoveLast: () => filterPanel.dispatch({ type: 'removeLast' }),
           }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('customers.companies.entityPlural', 'companies')}
+              createHref="/backend/customers/companies/create"
+              createLabel={t('customers.companies.list.actions.new')}
+            />
+          )}
           virtualized
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange, cacheStatus }}
           isLoading={isLoading}
