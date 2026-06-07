@@ -36,10 +36,14 @@ test.describe('TC-MSG-006: Execute Message Action And Lock State', () => {
         return response.request().method() === 'POST'
           && new URL(response.url()).pathname === `/api/messages/${fixture.messageId}/actions/approve`;
       });
+      const actionNavigationPromise = page
+        .waitForURL(/\/backend\/messages(?:\?.*)?$/, { waitUntil: 'domcontentloaded' })
+        .catch(() => undefined);
 
       await page.getByRole('button', { name: 'Approve' }).click();
       const actionResponse = await actionResponsePromise;
       expect(actionResponse.status(), 'approve action request succeeds').toBe(200);
+      await actionNavigationPromise;
 
       await page.goto(`/backend/messages/${fixture.messageId}`, { waitUntil: 'domcontentloaded' });
 
