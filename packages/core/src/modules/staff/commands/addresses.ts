@@ -18,6 +18,7 @@ import {
   requireTeamMember,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
@@ -174,6 +175,77 @@ const createAddressCommand: CommandHandler<StaffTeamMemberAddressCreateInput, { 
       em.remove(address)
       await em.flush()
     }
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<AddressSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for address create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const member = await requireTeamMember(em, after.memberId, 'Team member not found')
+    let address = await em.findOne(StaffTeamMemberAddress, { id: after.id })
+    if (!address) {
+      address = em.create(StaffTeamMemberAddress, {
+        id: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        member,
+        name: after.name,
+        purpose: after.purpose,
+        companyName: after.companyName,
+        addressLine1: after.addressLine1,
+        addressLine2: after.addressLine2,
+        buildingNumber: after.buildingNumber,
+        flatNumber: after.flatNumber,
+        city: after.city,
+        region: after.region,
+        postalCode: after.postalCode,
+        country: after.country,
+        latitude: after.latitude,
+        longitude: after.longitude,
+        isPrimary: after.isPrimary,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(address)
+    } else {
+      address.member = member
+      address.name = after.name
+      address.purpose = after.purpose
+      address.companyName = after.companyName
+      address.addressLine1 = after.addressLine1
+      address.addressLine2 = after.addressLine2
+      address.buildingNumber = after.buildingNumber
+      address.flatNumber = after.flatNumber
+      address.city = after.city
+      address.region = after.region
+      address.postalCode = after.postalCode
+      address.country = after.country
+      address.latitude = after.latitude
+      address.longitude = after.longitude
+      address.isPrimary = after.isPrimary
+    }
+    await em.flush()
+    if (after.isPrimary) {
+      await enforcePrimaryAddress(em, after.memberId, after.id)
+      await em.flush()
+    }
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: address,
+      identifiers: {
+        id: address.id,
+        organizationId: address.organizationId,
+        tenantId: address.tenantId,
+      },
+      events: staffTeamMemberAddressCrudEvents,
+      indexer: addressCrudIndexer,
+    })
+
+    return { addressId: address.id }
   },
 }
 

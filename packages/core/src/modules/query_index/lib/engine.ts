@@ -113,6 +113,7 @@ export class HybridQueryEngine implements QueryEngine {
   private customFieldKeysCache = new Map<string, { expiresAt: number; value: string[] }>()
   private customFieldKeysTtlMs: number
   private columnCache = new Map<string, boolean>()
+  private customEntityCache = new Map<string, boolean>()
   private debugVerbosity: boolean | null = null
   private sqlDebugEnabled: boolean | null = null
   private forcePartialIndexEnabled: boolean | null = null
@@ -973,6 +974,9 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   private async isCustomEntity(entity: string): Promise<boolean> {
+    const cached = this.customEntityCache.get(entity)
+    if (cached !== undefined) return cached
+    let result = false
     try {
       const db = this.getDb() as any
       const row = await db
@@ -980,6 +984,36 @@ export class HybridQueryEngine implements QueryEngine {
         .select('id')
         .where('entity_id', '=', entity)
         .where('is_active', '=', true)
+        .executeTakeFirst()
+      if (row) {
+        result = true
+      } else {
+        // Read/write symmetry. Records written through the entities data engine
+        // (`de.createCustomEntityRecord`) always land in `custom_entities_storage`,
+        // even for module-declared custom entities whose id is also a frozen system
+        // id — those are NEVER registered in `custom_entities` (install treats a
+        // system id as non-registrable). Without this fallback the query routes to
+        // the empty ORM/index path and those records are write-only (created with
+        // 200 but unreadable on the edit form). A real ORM entity never writes rows
+        // to `custom_entities_storage`, so this can only ever re-classify genuine
+        // doc-storage entities — it cannot misroute table-backed entities.
+        result = await this.hasCustomEntityStorageRows(entity)
+      }
+    } catch {
+      result = false
+    }
+    this.customEntityCache.set(entity, result)
+    return result
+  }
+
+  private async hasCustomEntityStorageRows(entity: string): Promise<boolean> {
+    try {
+      const db = this.getDb() as any
+      const row = await db
+        .selectFrom('custom_entities_storage')
+        .select(sql<number>`1`.as('one'))
+        .where('entity_type', '=', entity)
+        .limit(1)
         .executeTakeFirst()
       return !!row
     } catch {

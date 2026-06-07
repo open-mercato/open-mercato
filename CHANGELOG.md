@@ -1,39 +1,5 @@
 
-# 0.6.5 (2026-06-03)
-
-## Highlights
-
-Open Mercato `0.6.5` opens the next cycle on top of `0.6.4`'s hardening work. The headline is the **IMAP + Google email integration foundation** — shared MIME assembly, inbound normalization, and threading-id plumbing that every email channel provider now builds on instead of copy-pasting. UI continues the `RecordNotFoundState` rollout into its fourth phase (throw-on-load edit pages) with integration coverage in phase five, and the dialog Esc/Cmd+Enter behavior is consolidated behind a single `useDialogKeyHandler` hook. Customers gains configurable, optional pipeline-stage handling, and the production Docker fullapp stack inherits the dev-mode `NODE_OPTIONS` heap cap. A CodeQL false-positive in the command-menu test is also cleared.
-
-## ✨ Features
-- ✨ IMAP + Google email integration foundations — shared MIME assembly, inbound parsing, and threading plumbing. (#2424) *(@haxiorz)*
-- ✨ Configurable dictionary entry sorting (carry-forward of #2429). (#2434) *(@pkarw)*
-- ✨ Adopt `RecordNotFoundState` across throw-on-load edit pages — Phase 4 (#2101). (#2435) *(@pkarw)*
-
-## 🐛 Fixes
-- 🐛 `LookupSelect` search input no longer clears typed text (#2389). (#2422) *(@pkarw)*
-- 🐛 Allow optional pipeline stage appearance (supersedes #2430). (#2433) *(@pkarw)*
-- 🐛 Validate deal pipeline stage assignments. (#2439) *(@pmadajthey)*
-- 🐛 Avoid a false unsaved-changes prompt on a clean person detail page. (#2437) *(@pmadajthey)*
-- 🐳 Add the `NODE_OPTIONS` heap cap to the production fullapp Docker stack (#2371). (#2438) *(@Kotmin)*
-
-## 🛠️ Improvements
-- 🛠️ Extract a `useDialogKeyHandler` hook for Esc/Cmd+Enter dialogs (#2366). (#2426) *(@Marynat)*
-
-## 🧪 Testing
-- 🧪 Add `RecordNotFoundState` integration coverage — Phase 5 (#2101). (#2436) *(@izqzmyli)*
-- 🧪 Clear a CodeQL incomplete-URL-sanitization false positive in the command-menu test. (#2427) *(@pkarw)*
-
-## 👥 Contributors
-
-- @haxiorz
-- @pkarw
-- @Marynat
-- @pmadajthey
-- @Kotmin
-- @izqzmyli
-
-# 0.6.4 (2026-06-02)
+# 0.6.4 (2026-06-05)
 
 ## Highlights
 
@@ -43,12 +9,24 @@ On the access-control side, the new **ACL feature dependency bundles** let modul
 
 UI ships **DS Foundation v5** (12 new primitives plus rewrites and adoptions), completes the three-phase `RecordNotFoundState` rollout across backend pages, redesigns the create-deal page to the Figma spec, and adds auto-hiding completed progress operations. Rounding it out: a dev-mode `NODE_OPTIONS` heap cap and Redis LRU/eviction tuning, a time-bomb scanner for clock-dependent tests, a broad flaky-test stabilization sweep, and new specs for Railway one-command deployment and PARALLEL_FORK/PARALLEL_JOIN workflow support. Enjoy!
 
+This update also lands a broad **module integration-test coverage sweep** spanning two dozen modules, a batch of **undo/redo and tenant-encryption correctness fixes** across customers, scheduler, workflows, encryption, feature toggles, and checkout, plus **PARALLEL_FORK / PARALLEL_JOIN** workflow-engine execution and `CrudForm` dot-path field handling.
+
 ## ✨ Features
+- ✨ OSS optimistic-locking guard is now **default ON** across every CRUD entity exposed via `makeCrudRoute`. Opt out with `OM_OPTIMISTIC_LOCK=off` (also accepts `false` / `0` / `no` / `disabled` / `none`). Runtime stays strictly additive — requests without the `x-om-ext-optimistic-lock-expected-updated-at` header continue to pass through. See [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) → "OSS optimistic locking default-ON" and [`.ai/specs/2026-05-25-oss-optimistic-locking.md`](.ai/specs/2026-05-25-oss-optimistic-locking.md) §3.4 + §4. (#1981 / #2055 Phase 14) *(@pkarw)*
+- ✨ Command-level OSS optimistic locking — new `enforceCommandOptimisticLock` helper lets Command-pattern / non-`makeCrudRoute` writes enforce the same `updated_at` 409 check against an aggregate root. Wired into the sales document sub-resource commands (order/quote lines + adjustments, return create) and quote→order conversion (closes the accept/convert race #2114) as a document-aggregate check. Strictly additive; honors `OM_OPTIMISTIC_LOCK`. See `.ai/specs/2026-05-25-oss-optimistic-locking.md` §10 + concurrency-locking docs. (#1981 / #2055 Phase 16–18) *(@pkarw)*
+- ✨ Unified record-conflict bar — optimistic-lock 409s ("this record was modified") now surface as a persistent, error-styled bar in `AppShell` (like the undo banner) instead of a transient toast. `CrudForm` and `useGuardedMutation` route conflicts automatically; custom pages call `surfaceRecordConflict(err, t)` from the new `@open-mercato/ui/backend/conflicts`. (#1981 / #2055) *(@pkarw)*
+- ✨ 100% OSS optimistic-lock coverage across CRM (companies-v2 / people-v2 / deals), catalog (product + product-variant delete), and sales — including sales document sub-sections (lines/adjustments/returns send the document-aggregate version header; payments/shipments send their own row `updatedAt`). See [`.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md`](.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md). (#1981 / #2055) *(@pkarw)*
+- ✨ Command-level enterprise seam — `createCommandOptimisticLockGuardService({ resolveExpected? })` mirrors the CRUD `crudMutationGuardService` override so enterprise can plug a `record_locks`-backed expected-version resolver via DI without touching command handlers. OSS default is the header compare. (#2055, enterprise follow-up #2232) *(@pkarw)*
+- ✨ IMAP + Google email integration foundations — shared MIME assembly, inbound parsing, and threading plumbing. (#2424) *(@haxiorz)*
+- ✨ Configurable dictionary entry sorting (carry-forward of #2429). (#2434) *(@pkarw)*
+- ✨ Adopt `RecordNotFoundState` across throw-on-load edit pages — Phase 4 (#2101). (#2435) *(@pkarw)*
 - ✨ DS Foundation v5 — 12 new primitives, 8 rewrites, and downstream adoptions. (#2322) *(@zielivia)*
 - ✨ Redesign the create-deal page to match the Figma mockups. (#2069) *(@haxiorz)*
 - ✨ Adopt `RecordNotFoundState` across backend pages — Phases 1–3 (Phase 1 supersedes #2106). (#2185, #2264, #2404) *(@izqzmyli, via @pkarw)*
 - ✨ Auto-hide completed progress operations after a configurable timeout (fixes #2206). (#2308) *(@izqzmyli)*
 - ✨ Planner: delete availability schedules from the team-member screen. (#2329) *(@adeptofvoltron)*
+- ✨ Workflows: PARALLEL_FORK / PARALLEL_JOIN engine execution support. (#2428) *(@adeptofvoltron)*
+- ✨ `CrudForm` honors dot-path ids for declared base fields. (#2515) *(@pkarw)*
 
 ### 🔐 ACL feature dependency bundles
 - 🔐 ACL dependency bundles — declare `dependsOn` and warn at edit time when a granted feature is missing its prerequisites. (#2141, #2220) *(@pkarw)*
@@ -65,6 +43,7 @@ UI ships **DS Foundation v5** (12 new primitives plus rewrites and adoptions), c
 - 🔒 Fail closed when the integrations credentials DEK is unavailable. (#2299) *(@WXYZx)*
 - 🔒 Validate uploads and harden downloads in `storage_s3` (fixes #2269). (#2320) *(@rengare)*
 - 🔒 Reject undeclared custom-field keys on entities. (#2396) *(@mat89c)*
+- 🔒 Fix 4 high-severity CodeQL alerts in `communication_channels` email-MIME assembly. (#2447) *(@pkarw)*
 
 ## 🐛 Fixes
 - 🐛 Correct AI assistant `participantCount` and revoke-404 contract deviations (fixes #2189). (#2192) *(@adeptofvoltron)*
@@ -82,6 +61,21 @@ UI ships **DS Foundation v5** (12 new primitives plus rewrites and adoptions), c
 - 🐛 Serialize `temperature` and `renewalQuarter` in company detail GET (fixes #2399). (#2408) *(@adeptofvoltron)*
 - 🐛 Persist metadata changes for system entities on save (fixes #2411). (#2415) *(@adeptofvoltron)*
 - 🐛 Make tenant-level org undo reachable via the public undo API (fixes #2398). (#2417) *(@adeptofvoltron)*
+- 🐛 `LookupSelect` search input no longer clears typed text (#2389). (#2422) *(@pkarw)*
+- 🐛 Allow optional pipeline stage appearance (supersedes #2430). (#2433) *(@pkarw)*
+- 🐛 Validate deal pipeline stage assignments. (#2439) *(@pmadajthey)*
+- 🐛 Avoid a false unsaved-changes prompt on a clean person detail page. (#2437) *(@pmadajthey)*
+- 🐳 Add the `NODE_OPTIONS` heap cap to the production fullapp Docker stack (#2371). (#2438) *(@Kotmin)*
+- 🐛 Catalog: tier-pricing tie-break now selects the higher `minQuantity` (fixes #1706). (#2454) *(@jakubmatwiejew-wq)*
+- 💰 Sales: preserve payment totals and derive tax from net/gross on document reads (fixes #2455, #2457). (#2467) *(@pkarw)*
+- 🔐 Encryption: fix `people.update` undo no-op by preserving pending changes during deep-decrypt re-baseline (fixes #2498). (#2508) *(@pkarw)*
+- 🔐 Customers: stop `personCompanyLinks` undo handlers from losing writes under tenant encryption (fixes #2507). (#2509) *(@adeptofvoltron)*
+- 🐛 Workflows: Definition form now persists Category/Tags/Icon (`metadata.*`) (fixes #2503). (#2513) *(@pkarw)*
+- 🐛 Scheduler: jobs undo is no longer a silent no-op — use `extractUndoPayload` (fixes #2504). (#2514) *(@pkarw)*
+- 🐛 Feature toggles: hydrate the global edit form's Type / Default Value (fixes #2524). (#2528) *(@pkarw)*
+- 🐛 Customers: allow clearing person/company URL and email fields (fixes #2526). (#2533) *(@pkarw)*
+- 🐛 Scheduler: job-edit Scope field was editable but silently stripped on save (fixes #2527). (#2535) *(@pkarw)*
+- 🐛 Checkout: template/pay-link edit no longer 400s when `gatewayProviderKey` is null (fixes #2505). (#2540) *(@pkarw)*
 
 ### 🔧 Transaction safety — atomic multi-entity writes
 - 🔧 Harden `withAtomicFlush` + a repository-wide SQL transaction-safety audit. (#2343) *(@pkarw)*
@@ -101,6 +95,7 @@ UI ships **DS Foundation v5** (12 new primitives plus rewrites and adoptions), c
 - 🛠️ Refresh stale AI module-scaffold APIs + add a SKILL-level post-scaffold validation gate (supersedes #2216). (#2243) *(@Kotmin, via @pkarw)*
 - 🛠️ Add a `NODE_OPTIONS` heap cap to prevent V8 memory drift in dev (fixes #2370). (#2375) *(@Kotmin)*
 - 🛠️ Combine Dependabot minor-and-patch and major bumps (#2394, #2395). (#2403) *(@pkarw)*
+- 🛠️ Extract a `useDialogKeyHandler` hook for Esc/Cmd+Enter dialogs (#2366). (#2426) *(@Marynat)*
 
 ### ⚡ Performance
 - 🛠️ Lazy-load recharts, `@xyflow/react`, and ClientBootstrap registries for a ~1 GB dev RAM win. (#2129) *(@pkarw)*
@@ -136,6 +131,14 @@ UI ships **DS Foundation v5** (12 new primitives plus rewrites and adoptions), c
 - 🧪 Cap `yarn test` memory fan-out below the `yarn dev` budget (fixes #2402). (#2412) *(@pkarw)*
 - 🧪 Stabilize the flaky TC-CRM-028 example-customer-sync poll. (#2418) *(@pkarw)*
 - 🧪 Stabilize flaky TC-MSG-009 and TC-AUTH-009. (#2419) *(@pkarw)*
+- 🧪 Add `RecordNotFoundState` integration coverage — Phase 5 (#2101). (#2436) *(@izqzmyli)*
+- 🧪 Clear a CodeQL incomplete-URL-sanitization false positive in the command-menu test. (#2427) *(@pkarw)*
+- 🧪 Sales: document the order GET payment-total read-back contract. (#2421) *(@pkarw)*
+- 🧪 configs + api_keys integration coverage + cache-stats OpenAPI schema fix (fixes #2465, #2470). (#2497) *(@pkarw)*
+- 🧪 Catalog: integration coverage for the tier-pricing tie-break (follow-up to #2454). (#2499) *(@pkarw)*
+- 🧪 Core: `CrudForm` field-persistence integration harness + skip flag (#2466). (#2548) *(@pkarw)*
+- 🧪 Sales: de-flake TC-LOCK-OSS-029 list-delete. (#2554) *(@pkarw)*
+- 🧪 Expand module integration coverage across `ai_assistant`, `attachments`, `business_rules`, `catalog`, `communication_channels`, `currencies`, `dashboards`, `data_sync`, `dictionaries`, `directory`, `feature_toggles`, `inbox_ops`, `integrations`, `messages`, `payment_gateways`, `perspectives`, `progress`, `scheduler`, `search`, `shipping_carriers`, `sync_excel`, `translations`, and `webhooks`. (#2516, #2517, #2518, #2519, #2520, #2521, #2522, #2523, #2525, #2530, #2531, #2532, #2534, #2536, #2537, #2538, #2539, #2541, #2542, #2543, #2544, #2547, #2550) *(@haxiorz)*
 
 ## 📝 Specs & Documentation
 - 📝 Spec: Railway one-command deployment from the Open Mercato CLI. (#1898) *(@pkarw)*
@@ -143,6 +146,9 @@ UI ships **DS Foundation v5** (12 new primitives plus rewrites and adoptions), c
 - 📝 Document in-process dev watcher/workers + parallelism flags. (#2203) *(@pkarw)*
 - 📝 Add a Page URL field to the bug-report issue template. (#2331) *(@adeptofvoltron)*
 - 📝 Spec: PARALLEL_FORK / PARALLEL_JOIN workflow engine support. (#2385) *(@adeptofvoltron)*
+- 📝 QA scenarios: Timesheets (#2456) and Undo/Redo (#2468). (#2469) *(@pkarw)*
+- 📝 Spec: AI input moderation and safety identifiers (#2510). (#2511) *(@adeptofvoltron)*
+- 📝 Spec: reconcile the Railway one-command deploy spec. (#2512) *(@WXYZx)*
 
 ## 👥 Contributors
 
@@ -158,6 +164,7 @@ UI ships **DS Foundation v5** (12 new primitives plus rewrites and adoptions), c
 - @Marynat
 - @Kotmin
 - @MStaniaszek1998
+- @jakubmatwiejew-wq
 
 ---
 

@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { skipIfUndoTestsDisabled } from '@open-mercato/core/helpers/integration/undoHarness'
 
 /**
  * TC-UNDO-001: scheduler.jobs undo round-trip (regression for issue #2504).
@@ -100,6 +101,10 @@ async function cleanup(request: APIRequestContext, token: string | null, id: str
 }
 
 test.describe('TC-UNDO-001: scheduler.jobs undo actually restores state (#2504)', () => {
+  test.beforeAll(() => {
+    skipIfUndoTestsDisabled()
+  })
+
   test('UPDATE -> undo restores the prior name', async ({ request }) => {
     let token: string | null = null
     let id: string | null = null

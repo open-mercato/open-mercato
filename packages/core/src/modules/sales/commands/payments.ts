@@ -32,6 +32,7 @@ import {
   toNumericString,
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
@@ -252,7 +253,12 @@ async function recomputeOrderPaymentTotals(
   const scope = { organizationId: order.organizationId, tenantId: order.tenantId }
 
   if (options?.lock) {
-    await em.findOne(SalesOrder, { id: orderId }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+    // Raw findOne is intentional: this acquires a row lock only — no encrypted
+    // SalesOrder field is read, so decryption (findOneWithDecryption) is unnecessary.
+    // Scope filter is defence-in-depth (#2111): the caller is expected to pass a
+    // correctly scoped order, but filtering here ensures we never lock a foreign
+    // tenant's row even if a caller messed up.
+    await em.findOne(SalesOrder, { id: orderId, ...scope }, { lockMode: LockMode.PESSIMISTIC_WRITE })
   }
 
   const allocations = await findWithDecryption(
@@ -611,6 +617,83 @@ const createPaymentCommand: CommandHandler<
       }
     }
   },
+  redo: async ({ ctx, logEntry }) => {
+    const after = resolveRedoSnapshot<PaymentSnapshot>(logEntry)
+    const paymentId = after?.id ?? logEntry.resourceId ?? null
+    if (!after || !paymentId) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for sales.payments.create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await restorePaymentSnapshot(em, after)
+    await em.flush()
+
+    const orderIds = Array.from(
+      new Set(
+        [
+          after.orderId,
+          ...after.allocations.map((allocation) => allocation.orderId),
+        ].filter((value): value is string => typeof value === 'string' && value.length > 0)
+      )
+    )
+    let totals: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number } | undefined
+    for (const orderId of orderIds) {
+      const recomputed = await em.transactional(async (tx) => {
+        const order = await findOneWithDecryption(
+          tx,
+          SalesOrder,
+          { id: orderId },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+          { tenantId: after.tenantId, organizationId: after.organizationId },
+        )
+        if (!order) return undefined
+        if (orderId === after.orderId && after.paymentMethodId && !order.paymentMethodId) {
+          const method = await findOneWithDecryption(
+            tx,
+            SalesPaymentMethod,
+            { id: after.paymentMethodId },
+            {},
+            { tenantId: after.tenantId, organizationId: after.organizationId },
+          )
+          order.paymentMethodId = method?.id ?? after.paymentMethodId
+          order.paymentMethodCode = method?.code ?? null
+          order.updatedAt = new Date()
+          await tx.flush()
+        }
+        const result = await recomputeOrderPaymentTotals(tx, order)
+        await tx.flush()
+        return result
+      })
+      if (recomputed && (!totals || orderId === after.orderId)) {
+        totals = recomputed
+      }
+      // Raw findOne is intentional: the order is fetched only to read its id/scope
+      // for cache invalidation — no encrypted field is read, so decryption is unnecessary.
+      // Scope filter (#2111): never cache-invalidate a foreign tenant's order even
+      // if a snapshot's orderId was somehow tampered with.
+      const target = await em.findOne(SalesOrder, { id: orderId, organizationId: after.organizationId, tenantId: after.tenantId })
+      if (target) {
+        ensureSameScope(target, after.organizationId, after.tenantId)
+        await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)
+      }
+    }
+
+    const payment = await findOneWithDecryption(em, SalesPayment, { id: after.id }, {}, { tenantId: after.tenantId, organizationId: after.organizationId })
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: payment,
+      identifiers: {
+        id: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_payment },
+      events: paymentCrudEvents,
+    })
+
+    return { paymentId: after.id, orderTotals: totals }
+  },
 }
 
 const updatePaymentCommand: CommandHandler<
@@ -854,21 +937,42 @@ const updatePaymentCommand: CommandHandler<
     let totals: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number } | undefined
     if (nextOrderId) {
       totals = await em.transactional(async (tx) => {
-        const lockedOrder = await tx.findOne(SalesOrder, { id: nextOrderId }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        // Scope filter (#2111): never lock or recompute totals on a foreign
+        // tenant's order, even if payment.order somehow points there.
+        const lockedOrder = await tx.findOne(
+          SalesOrder,
+          { id: nextOrderId, organizationId: payment.organizationId, tenantId: payment.tenantId },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+        )
         if (!lockedOrder) return undefined
+        ensureSameScope(lockedOrder, payment.organizationId, payment.tenantId)
         const result = await recomputeOrderPaymentTotals(tx, lockedOrder)
         await tx.flush()
         return result
       })
       if (totals) {
-        const nextOrder = await em.findOne(SalesOrder, { id: nextOrderId })
-        if (nextOrder) await invalidateOrderCache(ctx.container, nextOrder, ctx.auth?.tenantId ?? null)
+        // Raw findOne is intentional: the order is fetched only to read its id/scope
+        // for cache invalidation — no encrypted field is read, so decryption is unnecessary.
+        // Scope filter (#2111): same rationale as the lock above.
+        const nextOrder = await em.findOne(SalesOrder, { id: nextOrderId, organizationId: payment.organizationId, tenantId: payment.tenantId })
+        if (nextOrder) {
+          ensureSameScope(nextOrder, payment.organizationId, payment.tenantId)
+          await invalidateOrderCache(ctx.container, nextOrder, ctx.auth?.tenantId ?? null)
+        }
       }
     }
     if (previousOrder && (!nextOrderId || previousOrder.id !== nextOrderId)) {
       await em.transactional(async (tx) => {
-        const lockedOrder = await tx.findOne(SalesOrder, { id: previousOrder.id }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        // Scope filter (#2111): previousOrder was already loaded via the
+        // payment's scope, so its tenant/org match the payment's. Filter
+        // the lock query the same way as defence-in-depth.
+        const lockedOrder = await tx.findOne(
+          SalesOrder,
+          { id: previousOrder.id, organizationId: payment.organizationId, tenantId: payment.tenantId },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+        )
         if (!lockedOrder) return
+        ensureSameScope(lockedOrder, payment.organizationId, payment.tenantId)
         await recomputeOrderPaymentTotals(tx, lockedOrder)
         await tx.flush()
       })
@@ -992,8 +1096,15 @@ const deletePaymentCommand: CommandHandler<
     const primaryOrderId = order && typeof order === 'object' ? order.id : null
     for (const orderId of orderIds) {
       const recomputed = await em.transactional(async (tx) => {
-        const lockedOrder = await tx.findOne(SalesOrder, { id: orderId }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        // Scope filter (#2111): never lock or recompute totals on a foreign
+        // tenant's order, even if a payment allocation somehow points there.
+        const lockedOrder = await tx.findOne(
+          SalesOrder,
+          { id: orderId, organizationId: payment.organizationId, tenantId: payment.tenantId },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+        )
         if (!lockedOrder) return undefined
+        ensureSameScope(lockedOrder, payment.organizationId, payment.tenantId)
         const result = await recomputeOrderPaymentTotals(tx, lockedOrder)
         await tx.flush()
         return result
@@ -1001,8 +1112,14 @@ const deletePaymentCommand: CommandHandler<
       if (recomputed && (!totals || (primaryOrderId && orderId === primaryOrderId))) {
         totals = recomputed
       }
-      const target = await em.findOne(SalesOrder, { id: orderId })
-      if (target) await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)
+      // Raw findOne is intentional: the order is fetched only to read its id/scope
+      // for cache invalidation — no encrypted field is read, so decryption is unnecessary.
+      // Scope filter (#2111): same rationale as the lock above.
+      const target = await em.findOne(SalesOrder, { id: orderId, organizationId: payment.organizationId, tenantId: payment.tenantId })
+      if (target) {
+        ensureSameScope(target, payment.organizationId, payment.tenantId)
+        await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)
+      }
     }
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({

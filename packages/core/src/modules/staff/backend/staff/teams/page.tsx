@@ -10,10 +10,13 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { MarkdownPreview } from '@open-mercato/ui/backend/markdown/MarkdownContent'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Users } from 'lucide-react'
@@ -207,14 +210,18 @@ export default function StaffTeamsPage() {
     })
     if (!confirmed) return
     try {
-      await deleteCrud('staff/teams', entry.id, { errorMessage: labels.errors.delete })
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(entry.updatedAt),
+        () => deleteCrud('staff/teams', entry.id, { errorMessage: labels.errors.delete }),
+      )
       flash(labels.messages.deleted, 'success')
       handleRefresh()
     } catch (error) {
+      if (surfaceRecordConflict(error, t)) { handleRefresh(); return }
       console.error('staff.teams.delete', error)
       flash(labels.errors.delete, 'error')
     }
-  }, [confirm, handleRefresh, labels.actions.deleteConfirm, labels.actions.delete, labels.errors.delete, labels.errors.deleteAssigned, labels.messages.deleted])
+  }, [confirm, handleRefresh, labels.actions.deleteConfirm, labels.actions.delete, labels.errors.delete, labels.errors.deleteAssigned, labels.messages.deleted, t])
 
   return (
     <Page>
@@ -227,7 +234,13 @@ export default function StaffTeamsPage() {
           searchValue={search}
           onSearchChange={handleSearchChange}
           searchPlaceholder={labels.table.search}
-          emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{labels.table.empty}</p>}
+          emptyState={(
+            <ListEmptyState
+              entityName={labels.title}
+              createHref="/backend/staff/teams/create"
+              createLabel={labels.actions.add}
+            />
+          )}
           actions={(
             <Button asChild size="sm">
               <Link href="/backend/staff/teams/create">

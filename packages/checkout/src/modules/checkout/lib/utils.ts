@@ -121,6 +121,20 @@ export function toMoneyString(value: string | number | null | undefined): string
 
 export { normalizeOptionalString, buildCheckoutAttachmentPreviewUrl } from './client-utils'
 
+function normalizeJsonRecord(value: unknown): Record<string, unknown> {
+  if (!value) return {}
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  if (typeof value !== 'string') return {}
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {}
+  } catch {
+    return {}
+  }
+}
+
 export function deriveConfiguredCurrencies(input: TemplateOrLinkInput): string[] {
   const currencies = new Set<string>()
   if (input.pricingMode === 'fixed' && input.fixedPriceCurrencyCode) currencies.add(input.fixedPriceCurrencyCode)
@@ -156,7 +170,7 @@ export function toTemplateOrLinkMutationInput(
     customAmountCurrencyCode: record.customAmountCurrencyCode ?? null,
     priceListItems: record.priceListItems ?? null,
     gatewayProviderKey: record.gatewayProviderKey ?? '',
-    gatewaySettings: record.gatewaySettings ?? {},
+    gatewaySettings: normalizeJsonRecord(record.gatewaySettings),
     customFieldsetCode: record.customFieldsetCode ?? null,
     collectCustomerDetails: record.collectCustomerDetails,
     customerFieldsSchema: (record.customerFieldsSchema ?? []) as CreateTemplateInput['customerFieldsSchema'],
@@ -416,7 +430,7 @@ export function serializeTemplateOrLink(record: CheckoutLinkTemplate | CheckoutL
     customAmountCurrencyCode: record.customAmountCurrencyCode ?? null,
     priceListItems: record.priceListItems ?? [],
     gatewayProviderKey: record.gatewayProviderKey ?? null,
-    gatewaySettings: record.gatewaySettings ?? {},
+    gatewaySettings: normalizeJsonRecord(record.gatewaySettings),
     customFieldsetCode: record.customFieldsetCode ?? null,
     collectCustomerDetails: record.collectCustomerDetails,
     customerFieldsSchema: record.customerFieldsSchema ?? [],

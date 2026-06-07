@@ -3,7 +3,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn, type VisibilityState, type RowSelectionState } from '@tanstack/react-table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronsUpDown, Check } from 'lucide-react'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronsUpDown, Check, Inbox } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Checkbox } from '../primitives/checkbox'
@@ -22,6 +22,7 @@ import { TooltipProvider } from '../primitives/tooltip'
 import { TruncatedCell } from './TruncatedCell'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
 import { FilteredEmptyResults } from './filters/FilteredEmptyResults'
+import { SearchEmptyResults } from './filters/SearchEmptyResults'
 import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { fetchCustomFieldDefinitionsPayload, type CustomFieldsetDto } from './utils/customFieldDefs'
 import { RowActions, type RowActionItem } from './RowActions'
@@ -31,7 +32,9 @@ import { useAppEvent } from './injection/useAppEvent'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
-import { apiCall } from './utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from './utils/apiCall'
+import { buildOptimisticLockHeader } from './utils/optimisticLock'
+import { surfaceRecordConflict } from './conflicts'
 import { raiseCrudError } from './utils/serverErrors'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
 import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
@@ -1716,13 +1719,19 @@ export function DataTable<T>({
         // eslint-disable-next-line no-console
         console.debug('[DataTable] perspective payload', payload)
       }
-      const call = await apiCall<PerspectiveSaveResponse>(
-        `/api/perspectives/${encodeURIComponent(perspectiveTableId)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        },
+      const existing = input.perspectiveId
+        ? perspectiveData?.perspectives.find((p) => p.id === input.perspectiveId) ?? null
+        : null
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(existing?.updatedAt ?? null),
+        () => apiCall<PerspectiveSaveResponse>(
+          `/api/perspectives/${encodeURIComponent(perspectiveTableId)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+        ),
       )
       if (call.status === 404) {
         throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` to regenerate module routes and restart the dev server.'))
@@ -1741,6 +1750,12 @@ export function DataTable<T>({
       if (data.perspective) {
         applyPerspectiveSettings(data.perspective.settings, data.perspective.id)
       }
+    },
+    onError: (error) => {
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+      }
+      surfaceRecordConflict(error, t)
     },
   })
 
@@ -2538,6 +2553,22 @@ export function DataTable<T>({
   const tableScrollWrapperClassName = embedded ? '' : 'overflow-auto'
 
   const virtualScrollRef = React.useRef<HTMLDivElement>(null)
+  // Measure the horizontal scroll viewport so the empty state can center within
+  // the visible area instead of within the (often wider, overflowing) table.
+  const [tableScrollEl, setTableScrollEl] = React.useState<HTMLDivElement | null>(null)
+  const [emptyStateViewportWidth, setEmptyStateViewportWidth] = React.useState<number | null>(null)
+  const setTableScrollWrapperRef = React.useCallback((node: HTMLDivElement | null) => {
+    setTableScrollEl(node)
+    virtualScrollRef.current = node
+  }, [])
+  React.useEffect(() => {
+    if (!tableScrollEl || typeof ResizeObserver === 'undefined') return
+    const update = () => setEmptyStateViewportWidth(tableScrollEl.clientWidth)
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(tableScrollEl)
+    return () => observer.disconnect()
+  }, [tableScrollEl])
   const allRows = table.getRowModel().rows
   const rowVirtualizer = virtualized
     ? useVirtualizer({
@@ -2654,7 +2685,7 @@ export function DataTable<T>({
         columnIds={headerColumnIds}
         onDragEnd={handleHeaderDragEnd}
       >
-      <div ref={virtualized ? virtualScrollRef : undefined} className={tableScrollWrapperClassName} style={virtualMaxHeightStyle}>
+      <div ref={setTableScrollWrapperRef} className={tableScrollWrapperClassName} style={virtualMaxHeightStyle}>
         <Table className="min-w-[640px] md:min-w-0">
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
@@ -2857,26 +2888,44 @@ export function DataTable<T>({
               </>
             ) : (
               <TableRow>
-                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="py-6">
-                  {filterAwareEmptyState?.active ? (
-                    <FilteredEmptyResults
-                      entityNamePlural={filterAwareEmptyState.entityNamePlural}
-                      canRemoveLast={filterAwareEmptyState.canRemoveLast}
-                      onClearAll={filterAwareEmptyState.onClearAll}
-                      onRemoveLast={filterAwareEmptyState.onRemoveLast}
-                    />
-                  ) : emptyState && typeof emptyState !== 'string' ? (
-                    emptyState
-                  ) : (
-                    <EmptyState
-                      size="sm"
-                      title={
-                        typeof emptyState === 'string'
-                          ? emptyState
-                          : t('ui.dataTable.emptyState.default', 'No results.')
-                      }
-                    />
-                  )}
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="p-0">
+                  <div
+                    className={cn('sticky left-0 flex justify-center py-6', emptyStateViewportWidth ? '' : 'w-fit')}
+                    style={emptyStateViewportWidth ? { width: emptyStateViewportWidth } : undefined}
+                  >
+                    {filterAwareEmptyState?.active ? (
+                      <FilteredEmptyResults
+                        entityNamePlural={filterAwareEmptyState.entityNamePlural}
+                        canRemoveLast={filterAwareEmptyState.canRemoveLast}
+                        onClearAll={filterAwareEmptyState.onClearAll}
+                        onRemoveLast={filterAwareEmptyState.onRemoveLast}
+                        onClearSearch={searchValue && searchValue.trim().length > 0 && onSearchChange ? () => onSearchChange('') : undefined}
+                      />
+                    ) : searchValue && searchValue.trim().length > 0 && onSearchChange ? (
+                      <SearchEmptyResults
+                        query={searchValue.trim()}
+                        entityNamePlural={filterAwareEmptyState?.entityNamePlural}
+                        onClearSearch={() => onSearchChange('')}
+                      />
+                    ) : emptyState && typeof emptyState !== 'string' ? (
+                      emptyState
+                    ) : (
+                      <EmptyState
+                        variant="subtle"
+                        icon={<Inbox className="size-6" aria-hidden />}
+                        title={
+                          typeof emptyState === 'string'
+                            ? emptyState
+                            : t('ui.dataTable.emptyState.default', 'No results.')
+                        }
+                        description={
+                          typeof emptyState === 'string'
+                            ? undefined
+                            : t('ui.dataTable.emptyState.defaultDescription', 'Items will appear here once added.')
+                        }
+                      />
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             )}

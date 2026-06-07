@@ -10,7 +10,7 @@
 
 PR #2082 reorganized all 31 project-owned `AGENTS.md` files into a consistent four-section boundary structure (`Always`, `Ask First`, `Never`, `Validation Commands`) and documented that convention in the root `AGENTS.md` under `## Boundary Labels for Agent Rules`. The reviewer (`pkarw`, re-review of head `785204e`) approved the PR with a single Low finding:
 
-> `.ai/skills/create-agents-md/SKILL.md` still prescribes the old `## MUST Rules` heading. The per-rule pattern (`**MUST [verb]** — [rationale]`) is preserved inside the new sections, so the skill is not contradicted at the rule level, but new AGENTS.md generated via the skill would not match the new structure. … A small follow-up PR can migrate them and update the create-agents-md skill.
+> `.ai/skills/om-create-agents-md/SKILL.md` still prescribes the old `## MUST Rules` heading. The per-rule pattern (`**MUST [verb]** — [rationale]`) is preserved inside the new sections, so the skill is not contradicted at the rule level, but new AGENTS.md generated via the skill would not match the new structure. … A small follow-up PR can migrate them and update the create-agents-md skill.
 
 This run updates the skill so that future invocations produce AGENTS.md files matching the merged convention.
 
@@ -20,11 +20,11 @@ This run updates the skill so that future invocations produce AGENTS.md files ma
 
 ## Goal
 
-Update `.ai/skills/create-agents-md/SKILL.md` so that agents who invoke this skill generate AGENTS.md files with the new `Always / Ask First / Never / Validation Commands` structure, matching the convention already applied to all 31 project-owned AGENTS.md files in PR #2082 and documented in the root `AGENTS.md`.
+Update `.ai/skills/om-create-agents-md/SKILL.md` so that agents who invoke this skill generate AGENTS.md files with the new `Always / Ask First / Never / Validation Commands` structure, matching the convention already applied to all 31 project-owned AGENTS.md files in PR #2082 and documented in the root `AGENTS.md`.
 
 ## Scope
 
-- Update `.ai/skills/create-agents-md/SKILL.md`:
+- Update `.ai/skills/om-create-agents-md/SKILL.md`:
   - File-structure template uses `Always / Ask First / Never / Validation Commands` headings (in that order).
   - Per-rule pattern `**MUST [verb]** — [rationale]` is preserved (the reviewer explicitly called this out as preserved and correct).
   - Verification checklist updated to require the four boundary headings.

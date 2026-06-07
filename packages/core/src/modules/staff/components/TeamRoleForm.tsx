@@ -14,6 +14,7 @@ export type TeamRoleFormValues = {
   name: string
   description?: string | null
   appearance?: { icon?: string | null; color?: string | null }
+  updatedAt?: string | null
 } & Record<string, unknown>
 
 export type TeamRoleOption = {
@@ -96,7 +97,7 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
 
   const fields = React.useMemo<CrudField[]>(() => {
     const base: CrudField[] = []
-    if (teamOptions && teamOptions.length) {
+    if (teamOptions) {
       base.push({
         id: 'teamId',
         label: t('staff.teamRoles.form.fields.team', 'Team'),
@@ -135,7 +136,7 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
   }, [appearanceLabels, t, teamOptions])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
-    { id: 'details', fields: teamOptions && teamOptions.length ? ['teamId', 'name', 'description', 'appearance'] : ['name', 'description', 'appearance'] },
+    { id: 'details', fields: teamOptions ? ['teamId', 'name', 'description', 'appearance'] : ['name', 'description', 'appearance'] },
     { id: 'custom', title: t('entities.customFields.title', 'Custom Attributes'), column: 2, kind: 'customFields' },
   ], [t, teamOptions])
 
@@ -152,6 +153,7 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
       groups={groups}
       entityId={E.staff.staff_team_role}
       initialValues={initialValues}
+      optimisticLockUpdatedAt={initialValues.updatedAt}
       onSubmit={onSubmit}
       onDelete={onDelete}
       isLoading={isLoading}

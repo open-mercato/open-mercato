@@ -15,6 +15,7 @@ import {
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import {
   parseWithCustomFields,
@@ -413,6 +414,72 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       },
     ], { transaction: true })
   },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<OrganizationUndoSnapshot>(logEntry)
+    if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for organization create' })
+    const tenantId = after.tenantId
+    if (!tenantId) throw new CrudHttpError(400, { error: '[internal] redo snapshot missing tenant for organization create' })
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    let organization!: Organization
+    await withAtomicFlush(em, [
+      async () => {
+        const existing = await em.findOne(Organization, { id: after.id })
+        if (existing) {
+          existing.deletedAt = null
+          existing.name = after.name
+          if (after.slug !== undefined) existing.slug = after.slug ?? null
+          existing.isActive = after.isActive
+          existing.parentId = after.parentId
+          await em.flush()
+          organization = existing
+        } else {
+          organization = await de.createOrmEntity({
+            entity: Organization,
+            data: {
+              id: after.id,
+              name: after.name,
+              slug: after.slug ?? null,
+              tenant: em.getReference(Tenant, tenantId),
+              isActive: after.isActive,
+              parentId: after.parentId,
+            },
+          })
+        }
+        setInternalTenantId(organization, tenantId)
+
+        if (after.custom && Object.keys(after.custom).length) {
+          const reset = buildCustomFieldResetMap(after.custom, undefined)
+          if (Object.keys(reset).length) {
+            const resetValues = reset as Parameters<DataEngine['setCustomFields']>[0]['values']
+            await de.setCustomFields({
+              entityId: E.directory.organization,
+              recordId: after.id,
+              tenantId,
+              organizationId: after.id,
+              values: resetValues,
+              notify: false,
+            })
+          }
+        }
+
+        await assignChildren(em, tenantId, after.id, after.childParents.map((entry) => entry.childId))
+        await rebuildHierarchyForTenant(em, tenantId)
+      },
+    ], { transaction: true })
+
+    const identifiers = { id: after.id, organizationId: after.id, tenantId }
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: organization,
+      identifiers,
+      events: organizationCrudEvents,
+      indexer: organizationCrudIndexer,
+    })
+
+    return organization
+  },
 }
 
 const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organization> = {
@@ -689,7 +756,10 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
         setInternalTenantId(deleted, tenantId)
         deleted.isActive = false
         deleted.parentId = null
-
+        resolvedDeleted = deleted
+      },
+      async () => {
+        const deleted = resolvedDeleted
         const childrenFilter: FilterQuery<Organization> = { tenant: tenantId, parentId: id, deletedAt: null }
         const children = await em.find(Organization, childrenFilter)
         const toPersist: Organization[] = []
@@ -698,11 +768,11 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
           toPersist.push(child)
         }
         toPersist.push(deleted)
-        if (toPersist.length) await em.persist(toPersist).flush()
+        if (toPersist.length) em.persist(toPersist)
         setUndoMeta(deleted, { childParentsBefore: childSnapshotsBefore })
-
+      },
+      async () => {
         await rebuildHierarchyForTenant(em, tenantId)
-        resolvedDeleted = deleted
       },
     ], { transaction: true })
 

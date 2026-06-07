@@ -35,6 +35,8 @@ type OrganizationResponse = {
     descendantIds: string[]
     isActive: boolean
     pathLabel: string
+    updatedAt?: string | null
+    updated_at?: string | null
   } & Record<string, unknown>>
 }
 
@@ -145,6 +147,11 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           parentId: record.parentId || '',
           isActive: record.isActive,
           tenantId: resolvedTenantId,
+          updatedAt: typeof record.updatedAt === 'string'
+            ? record.updatedAt
+            : typeof record.updated_at === 'string'
+              ? record.updated_at
+              : null,
           ...customValues,
         })
         setPathLabel(record.pathLabel)
@@ -310,6 +317,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           groups={groups}
           entityId={E.directory.organization}
           initialValues={initialValues ?? { id: orgId, tenantId: tenantId ?? null, name: '', slug: '', parentId: '', isActive: true, childIds: [] }}
+          optimisticLockUpdatedAt={typeof initialValues?.updatedAt === 'string' ? initialValues.updatedAt : null}
           isLoading={loading}
           loadingMessage={t('directory.organizations.form.loading', 'Loading organization...')}
           submitLabel={t('directory.organizations.form.action.save', 'Save')}

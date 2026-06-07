@@ -787,6 +787,11 @@ function DisconnectChannelDialog({
     let response
     try {
       response = await runMutation({
+        // optimistic-lock-exempt: self-service connect/disconnect of the
+        // signed-in operator's OWN communication channel (an integration link),
+        // not a shared multi-editor record. Disconnect is a terminal action
+        // keyed by channel id; there is no concurrent-edit lost-update window to
+        // guard, and the row carries no client-surfaced `updatedAt` round-trip.
         operation: () => apiCall(
           `/api/communication_channels/channels/${encodeURIComponent(channel.id)}`,
           { method: 'DELETE' },

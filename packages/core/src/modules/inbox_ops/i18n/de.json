@@ -155,6 +155,8 @@
   "inbox_ops.preview.sku": "SKU",
   "inbox_ops.processing_log": "Verarbeitungsprotokoll",
   "inbox_ops.proposal": "Vorschlag",
+  "inbox_ops.proposal.backToList": "Zurück zum Posteingang",
+  "inbox_ops.proposal.notFound": "Vorschlag nicht gefunden.",
   "inbox_ops.recategorize": "Kategorie \u00e4ndern",
   "inbox_ops.received_at": "Empfangen",
   "inbox_ops.reply.send": "Antwort senden",

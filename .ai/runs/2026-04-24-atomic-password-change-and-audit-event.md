@@ -116,9 +116,9 @@ None — no `--skill-url` passed. Guidance derived from root `AGENTS.md` (PR wor
 ### Phase 6: Full validation gate + PR
 
 - 6.1 Run: `yarn build:packages`, `yarn generate`, `yarn build:packages` (post-generate), `yarn i18n:check-sync`, `yarn i18n:check-usage`, `yarn typecheck`, `yarn test`, `yarn build:app`.
-- 6.2 Self code-review (`.ai/skills/code-review/SKILL.md`) + BC self-review (`BACKWARD_COMPATIBILITY.md`).
+- 6.2 Self code-review (`.ai/skills/om-code-review/SKILL.md`) + BC self-review (`BACKWARD_COMPATIBILITY.md`).
 - 6.3 Open PR against `develop`, apply `security` + `needs-qa` labels.
-- 6.4 Run `auto-review-pr` in autofix mode; iterate until clean or only non-actionable findings remain.
+- 6.4 Run `om-auto-review-pr` in autofix mode; iterate until clean or only non-actionable findings remain.
 - 6.5 Post comprehensive summary comment, flip `Status:` to `complete`, clean up worktree.
 
 ## Progress

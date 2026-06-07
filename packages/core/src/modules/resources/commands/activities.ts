@@ -21,6 +21,7 @@ import {
   buildCustomFieldResetMap,
   type CustomFieldChangeSet,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { ResourcesResourceActivity } from '../data/entities'
 import {
   resourcesResourceActivityCreateSchema,
@@ -191,6 +192,72 @@ const createActivityCommand: CommandHandler<ResourcesResourceActivityCreateInput
       em.remove(existing)
       await em.flush()
     }
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<ActivitySnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for activity create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const resource = await requireResource(em, after.activity.resourceId, 'Resource not found')
+    let activity = await em.findOne(ResourcesResourceActivity, { id: after.activity.id })
+    if (!activity) {
+      activity = em.create(ResourcesResourceActivity, {
+        id: after.activity.id,
+        organizationId: after.activity.organizationId,
+        tenantId: after.activity.tenantId,
+        resource,
+        activityType: after.activity.activityType,
+        subject: after.activity.subject,
+        body: after.activity.body,
+        occurredAt: after.activity.occurredAt,
+        authorUserId: after.activity.authorUserId,
+        appearanceIcon: after.activity.appearanceIcon,
+        appearanceColor: after.activity.appearanceColor,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(activity)
+    } else {
+      activity.resource = resource
+      activity.activityType = after.activity.activityType
+      activity.subject = after.activity.subject
+      activity.body = after.activity.body
+      activity.occurredAt = after.activity.occurredAt
+      activity.authorUserId = after.activity.authorUserId
+      activity.appearanceIcon = after.activity.appearanceIcon
+      activity.appearanceColor = after.activity.appearanceColor
+    }
+    await em.flush()
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: activity,
+      identifiers: {
+        id: activity.id,
+        organizationId: activity.organizationId,
+        tenantId: activity.tenantId,
+      },
+      events: resourcesResourceActivityCrudEvents,
+      indexer: activityCrudIndexer,
+    })
+
+    const resetValues = buildCustomFieldResetMap(after.custom, undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: de,
+        entityId: ACTIVITY_ENTITY_ID,
+        recordId: activity.id,
+        organizationId: activity.organizationId,
+        tenantId: activity.tenantId,
+        values: resetValues,
+        notify: false,
+      })
+    }
+
+    return { activityId: activity.id, authorUserId: activity.authorUserId ?? null }
   },
 }
 

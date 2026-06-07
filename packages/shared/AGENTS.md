@@ -37,6 +37,7 @@ yarn workspace @open-mercato/shared build
 | `boolean/` | When parsing boolean strings from env/query params | `@open-mercato/shared/lib/boolean` |
 | `commands/` | When implementing undo/redo command pattern | `@open-mercato/shared/lib/commands` |
 | `commands/flush` | When a command mutates entities across multiple phases (scalar + relation syncs) — wraps phases in a single atomic flush | `@open-mercato/shared/lib/commands/flush` — `withAtomicFlush(em, phases, { transaction? })` |
+| `commands/runCrudCommandWrite` | When a command writes an entity + custom fields + CRUD/index side effects in one logical operation — composes fork → atomic flush → custom-field write → side-effect queue in the only correct order. **Prefer this over composing the primitives by hand for new commands.** | `@open-mercato/shared/lib/commands/runCrudCommandWrite` — `runCrudCommandWrite({ ctx, entityId, action, scope, phases, customFields?, events?, indexer?, sideEffect })` |
 | `crud/` | When building CRUD routes | `@open-mercato/shared/lib/crud` |
 | `custom-fields/` | When handling custom field payloads | `@open-mercato/shared/lib/custom-fields` |
 | `data/` | When you need `DataEngine` or `QueryEngine` types | `@open-mercato/shared/lib/data/engine` |

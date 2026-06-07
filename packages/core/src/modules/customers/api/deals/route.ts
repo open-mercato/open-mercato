@@ -36,6 +36,7 @@ export const dealListQuerySchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
+    id: z.string().uuid().optional(),
     search: z.string().optional(),
     status: stringOrStringArray.optional(),
     pipelineStage: z.string().optional(),
@@ -213,6 +214,8 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
     const lookup = new Set(ids)
     restrictedIds = restrictedIds.filter((id) => lookup.has(id))
   }
+
+  if (query.id) filters.id = { $eq: query.id }
 
   if (query.search) {
     const matchingIds = ctx

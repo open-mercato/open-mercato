@@ -181,6 +181,7 @@ export default function EditChannelPage({ params }: { params?: { channelId?: str
               { id: 'custom', title: t('entities.customFields.title', 'Custom Attributes'), column: 2, kind: 'customFields' },
             ]}
             initialValues={initialValues ?? undefined}
+            optimisticLockUpdatedAt={typeof initialValues?.updatedAt === 'string' ? initialValues.updatedAt : null}
             isLoading={loading}
             loadingMessage={t('sales.channels.form.loading', 'Loading channel…')}
             submitLabel={t('sales.channels.form.updateSubmit', 'Save changes')}
@@ -225,6 +226,11 @@ function mapChannelToFormValues(item: Record<string, unknown>): ChannelFormValue
         ? item.status_entry_id
         : null,
     isActive: item.isActive === true || item.is_active === true,
+    updatedAt: typeof item.updatedAt === 'string'
+      ? item.updatedAt
+      : typeof item.updated_at === 'string'
+        ? item.updated_at
+        : null,
   }
   return { ...values, ...extractCustomFieldEntries(item) }
 }

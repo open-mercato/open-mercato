@@ -23,6 +23,9 @@ type TeamRoleRecord = {
   appearanceColor?: string | null
   appearance_icon?: string | null
   appearance_color?: string | null
+  updatedAt?: string | null
+  updated_at?: string | null
+  team?: { id?: string | null; name?: string | null } | null
 } & Record<string, unknown>
 
 type TeamRoleResponse = {
@@ -38,10 +41,14 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
   const t = useT()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
+  // optimistic-lock: TeamRoleForm forwards optimisticLockUpdatedAt from initialValues.updatedAt (wrapper auto-derives the header on save + delete).
   const [initialValues, setInitialValues] = React.useState<TeamRoleFormValues | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [teams, setTeams] = React.useState<TeamRoleOption[]>([])
+  const selectedTeamId = typeof initialValues?.teamId === 'string' && initialValues.teamId.trim().length
+    ? initialValues.teamId.trim()
+    : null
 
   React.useEffect(() => {
     if (!roleId) return
@@ -76,16 +83,29 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
             ? record.appearance_color
             : null
         if (!cancelled) {
+          const teamId = typeof record.teamId === 'string'
+            ? record.teamId
+            : typeof record.team_id === 'string'
+              ? record.team_id
+              : null
+          const teamName = typeof record.team?.name === 'string' ? record.team.name : null
+          if (teamId && teamName) {
+            setTeams((previous) => {
+              if (previous.some((team) => team.id === teamId)) return previous
+              return [{ id: teamId, name: teamName }, ...previous]
+            })
+          }
           setInitialValues({
             id: record.id,
-            teamId: typeof record.teamId === 'string'
-              ? record.teamId
-              : typeof record.team_id === 'string'
-                ? record.team_id
-                : null,
+            teamId,
             name: record.name ?? '',
             description: record.description ?? '',
             appearance: { icon: appearanceIcon, color: appearanceColor },
+            updatedAt: typeof record.updatedAt === 'string'
+              ? record.updatedAt
+              : typeof record.updated_at === 'string'
+                ? record.updated_at
+                : null,
             ...customFields,
           })
         }
@@ -119,7 +139,14 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
             return { id, name }
           })
           .filter((entry): entry is TeamRoleOption => entry !== null)
-        if (!cancelled) setTeams(options)
+        if (!cancelled) {
+          setTeams((previous) => {
+            if (!previous.length) return options
+            const seen = new Set(options.map((team) => team.id))
+            const preservedSelected = previous.filter((team) => !seen.has(team.id))
+            return [...preservedSelected, ...options]
+          })
+        }
       } catch {
         if (!cancelled) setTeams([])
       }
@@ -127,6 +154,34 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
     loadTeams()
     return () => { cancelled = true }
   }, [scopeVersion])
+
+  React.useEffect(() => {
+    if (!selectedTeamId) return
+    if (teams.some((team) => team.id === selectedTeamId)) return
+    const lookupId = selectedTeamId
+    let cancelled = false
+    async function loadSelectedTeam() {
+      try {
+        const call = await apiCall<TeamsResponse>(
+          `/api/staff/teams?ids=${encodeURIComponent(lookupId)}&pageSize=1`,
+        )
+        const entry = Array.isArray(call.result?.items) ? call.result.items[0] : null
+        const id = typeof entry?.id === 'string' ? entry.id : null
+        const name = typeof entry?.name === 'string' ? entry.name : null
+        if (!id || !name) return
+        if (!cancelled) {
+          setTeams((previous) => {
+            if (previous.some((team) => team.id === id)) return previous
+            return [{ id, name }, ...previous]
+          })
+        }
+      } catch {
+        if (!cancelled) setTeams((previous) => previous)
+      }
+    }
+    loadSelectedTeam()
+    return () => { cancelled = true }
+  }, [selectedTeamId, teams])
 
   const handleSubmit = React.useCallback(async (values: TeamRoleFormValues) => {
     if (!roleId) return

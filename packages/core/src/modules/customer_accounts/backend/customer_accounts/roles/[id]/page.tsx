@@ -8,7 +8,9 @@ import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import type { CrudField, CrudFormGroup, CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -22,6 +24,8 @@ type RoleDetail = {
   isSystem: boolean
   customerAssignable: boolean
   features: string[]
+  updatedAt?: string | null
+  updated_at?: string | null
 }
 
 const PORTAL_FEATURES = [
@@ -241,25 +245,30 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
       isDefault: data.isDefault,
       customerAssignable: data.customerAssignable,
       features: data.features,
+      updatedAt: data.updatedAt ?? data.updated_at ?? null,
     }
   }, [data])
 
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
     if (!id) return
-    const roleCall = await apiCall(
-      `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}`,
-      {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          name: (values.name as string)?.trim(),
-          description: (values.description as string)?.trim() || null,
-          isDefault: values.isDefault,
-          customerAssignable: values.customerAssignable,
-        }),
-      },
-    )
+    const headers = buildOptimisticLockHeader(data?.updatedAt ?? data?.updated_at ?? null)
+    const roleCall = await withScopedApiRequestHeaders(headers, () => (
+      apiCall(
+        `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            name: (values.name as string)?.trim(),
+            description: (values.description as string)?.trim() || null,
+            isDefault: values.isDefault,
+            customerAssignable: values.customerAssignable,
+          }),
+        },
+      )
+    ))
     if (!roleCall.ok) {
+      if (surfaceRecordConflict({ status: roleCall.status, body: roleCall.result }, t)) return
       flash(t('customer_accounts.admin.roleDetail.error.save', 'Failed to save role'), 'error')
       return
     }
@@ -278,21 +287,25 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
     }
     flash(t('customer_accounts.admin.roleDetail.flash.saved', 'Role updated'), 'success')
     router.push('/backend/customer_accounts/roles')
-  }, [id, router, t])
+  }, [data?.updatedAt, data?.updated_at, id, router, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!id) return
-    const call = await apiCall(
-      `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}`,
-      { method: 'DELETE' },
-    )
+    const headers = buildOptimisticLockHeader(data?.updatedAt ?? data?.updated_at ?? null)
+    const call = await withScopedApiRequestHeaders(headers, () => (
+      apiCall(
+        `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}`,
+        { method: 'DELETE' },
+      )
+    ))
     if (!call.ok) {
+      if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
       flash(t('customer_accounts.admin.roles.error.delete', 'Failed to delete role'), 'error')
       return
     }
     flash(t('customer_accounts.admin.roles.flash.deleted', 'Role deleted'), 'success')
     router.push('/backend/customer_accounts/roles')
-  }, [id, router, t])
+  }, [data?.updatedAt, data?.updated_at, id, router, t])
 
   if (isLoading) {
     return (
@@ -349,6 +362,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
           fields={fields}
           groups={groups}
           initialValues={initialValues}
+          optimisticLockUpdatedAt={data.updatedAt ?? data.updated_at ?? null}
           entityId="customer_accounts:customer_role"
           onSubmit={handleSubmit}
           onDelete={!data.isSystem ? handleDelete : undefined}

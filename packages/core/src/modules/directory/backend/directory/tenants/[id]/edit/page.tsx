@@ -6,7 +6,8 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
@@ -15,6 +16,7 @@ type TenantFormValues = {
   id: string
   name: string
   isActive: boolean
+  updatedAt?: string | null
 } & Record<string, unknown>
 
 export default function EditTenantPage({ params }: { params?: { id?: string } }) {
@@ -57,6 +59,11 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
           id: String(row.id),
           name: String(row.name),
           isActive: !!row.isActive,
+          updatedAt: typeof row.updatedAt === 'string'
+            ? row.updatedAt
+            : typeof row.updated_at === 'string'
+              ? row.updated_at
+              : null,
           ...cfValues,
         }
         if (!cancelled) setInitial(values)
@@ -114,6 +121,7 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
           groups={groups}
           entityId={E.directory.tenant}
           initialValues={(initial || { id: tenantId, name: '', isActive: true }) as Partial<TenantFormValues>}
+          optimisticLockUpdatedAt={initial?.updatedAt}
           isLoading={loading}
           loadingMessage={t('directory.tenants.form.loading', 'Loading tenant…')}
           submitLabel={t('common.save', 'Save')}
@@ -137,10 +145,13 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
             await updateCrud('directory/tenants', payload)
           }}
           onDelete={async () => {
-            const call = await apiCall(
-              `/api/directory/tenants?id=${encodeURIComponent(tenantId)}`,
-              { method: 'DELETE' },
-            )
+            const headers = buildOptimisticLockHeader(initial?.updatedAt)
+            const call = await withScopedApiRequestHeaders(headers, () => (
+              apiCall(
+                `/api/directory/tenants?id=${encodeURIComponent(tenantId)}`,
+                { method: 'DELETE' },
+              )
+            ))
             if (!call.ok) {
               await raiseCrudError(call.response, t('directory.tenants.form.errors.delete', 'Failed to delete tenant'))
             }

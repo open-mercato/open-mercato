@@ -118,6 +118,30 @@ export async function setRecordCustomFields(
     throw new Error(TOO_MANY_CUSTOM_FIELDS_ERROR)
   }
 
+  // Run the per-key delete+insert work inside ONE database transaction so a
+  // multi-value replacement is atomic and isolated. The array branch deletes the
+  // existing rows for a key and inserts the replacements; without an enclosing
+  // transaction those can land in separate commit boundaries under MikroORM's
+  // FlushMode.AUTO (a query elsewhere in the unit auto-flushes part of the work),
+  // which intermittently left the field with the delete applied but the inserts
+  // missing — the multi-select EDIT reverted to []. The single commit below makes
+  // it all-or-nothing. We only open our own transaction when the caller has not
+  // already started one (commands fork the request em and may run setCustomFields
+  // outside their own withAtomicFlush tx); join an ambient transaction otherwise.
+  const txEm = em as {
+    begin?: () => Promise<void>
+    commit?: () => Promise<void>
+    rollback?: () => Promise<void>
+    isInTransaction?: () => boolean
+  }
+  const txCapable =
+    typeof txEm.begin === 'function' &&
+    typeof txEm.commit === 'function' &&
+    typeof txEm.rollback === 'function' &&
+    typeof txEm.isInTransaction === 'function'
+  const ownCustomFieldTransaction = txCapable && !txEm.isInTransaction!()
+  if (ownCustomFieldTransaction) await txEm.begin!()
+  try {
   for (const fieldKey of keys) {
     const raw = values[fieldKey]
     if (raw === undefined) continue
@@ -125,12 +149,15 @@ export async function setRecordCustomFields(
     const def = defsByKey?.[fieldKey]
     const encrypted = Boolean(def?.configJson && (def as any).configJson?.encrypted)
     const isArray = Array.isArray(raw)
-    // When array: remove existing values for key and create multiple rows
+    // When array (multi-value): replace all existing rows for the key. Delete
+    // first, then create replacements, all inside the transaction opened above.
+    // Creating rows before a native delete can auto-flush and delete the new
+    // values; mixing em.remove(stale) with new rows for the same EAV scope was
+    // observed to commit an empty set under MikroORM v7. The explicit order keeps
+    // the replacement atomic without letting old-row cleanup target new rows.
     if (isArray) {
       const arr = raw as Primitive[]
-      // Clear existing for this key
-      const existing = await em.find(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey })
-      if (existing.length) existing.forEach((e) => em.remove(e))
+      await em.nativeDelete(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey })
       for (const val of arr) {
         const col: keyof CustomFieldValue = encrypted ? 'valueText' : def ? columnFromKind(def.kind) : columnFromJsValue(val)
         const cf = em.create(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey, createdAt: new Date() })
@@ -186,7 +213,15 @@ export async function setRecordCustomFields(
 
   if (toPersist.length) em.persist(toPersist)
   await em.flush()
-  // Emit hook for indexing if requested (outside CRUD flows)
+    if (ownCustomFieldTransaction) await txEm.commit!()
+  } catch (err) {
+    if (ownCustomFieldTransaction) {
+      try { await txEm.rollback!() } catch { /* surface the original error, not a rollback failure */ }
+    }
+    throw err
+  }
+  // Emit hook for indexing if requested (outside CRUD flows). Runs AFTER the
+  // transaction commits so consumers observe the persisted rows.
   try {
     if (typeof opts.onChanged === 'function') {
       await opts.onChanged({ entityId, recordId, organizationId, tenantId })

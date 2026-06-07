@@ -79,6 +79,13 @@ export default function EditRecordPage({ params }: { params: { entityId?: string
       entityId={entityId}
       customEntity
       initialValues={initialValues || {}}
+      optimisticLockUpdatedAt={
+        typeof initialValues?.updatedAt === 'string'
+          ? initialValues.updatedAt
+          : typeof initialValues?.updated_at === 'string'
+            ? initialValues.updated_at
+            : null
+      }
       isLoading={loading}
       loadingMessage={t('entities.userEntities.records.loading', 'Loading record...')}
       submitLabel={t('entities.userEntities.records.form.submitSave', 'Save')}

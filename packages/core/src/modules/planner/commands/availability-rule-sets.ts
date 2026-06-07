@@ -16,6 +16,7 @@ import {
   type PlannerAvailabilityRuleSetUpdateInput,
 } from '../data/validators'
 import { plannerAvailabilityRuleSetCrudEvents } from '../lib/crud'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
@@ -164,6 +165,24 @@ const createAvailabilityRuleSetCommand: CommandHandler<PlannerAvailabilityRuleSe
       })
     }
   },
+  redo: makeCreateRedo<PlannerAvailabilityRuleSet, AvailabilityRuleSetSnapshot, PlannerAvailabilityRuleSetCreateInput, { ruleSetId: string }>({
+    entityClass: PlannerAvailabilityRuleSet,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: (snapshot) => ({
+      id: snapshot.id,
+      tenantId: snapshot.tenantId,
+      organizationId: snapshot.organizationId,
+      name: snapshot.name,
+      description: snapshot.description ?? null,
+      timezone: snapshot.timezone,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    }),
+    buildResult: (entity) => ({ ruleSetId: entity.id }),
+    events: plannerAvailabilityRuleSetCrudEvents,
+    indexer: availabilityRuleSetCrudIndexer,
+  }),
 }
 
 const updateAvailabilityRuleSetCommand: CommandHandler<PlannerAvailabilityRuleSetUpdateInput, { ruleSetId: string }> = {

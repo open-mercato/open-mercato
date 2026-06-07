@@ -53,7 +53,7 @@ Or, if no PR exists yet, just tell Claude:
 
 - [x] Read `packages/core/src/modules/customer_accounts/AGENTS.md`
 - [x] Read `packages/core/AGENTS.md` (relevant sections: API Routes, Module Setup, Events, Notifications, Custom Fields, Encryption, Response Enrichers)
-- [ ] Read `.ai/skills/code-review/references/review-checklist.md` — **next session before starting service implementation**
+- [ ] Read `.ai/skills/om-code-review/references/review-checklist.md` — **next session before starting service implementation**
 - [x] Read existing customer_accounts patterns: `data/entities.ts`, `data/validators.ts`, `events.ts`, `acl.ts`, `setup.ts`, `notifications.ts`, `di.ts` (notifications.client.ts and data/enrichers.ts pending — read before Phase 1: Notifications and Phase 1: Response enrichers)
 - [ ] Read at least one existing service for pattern (e.g., `services/customerUserService.ts`) — **next session before Phase 1: domainMappingService**
 - [ ] Read at least one existing admin route using `makeCrudRoute` — **next session before Phase 1: API routes**
@@ -193,7 +193,7 @@ All routes export `openApi`.
 - [ ] All API routes export `openApi`
 - [ ] All workers export `metadata` with `{ queue, id, concurrency }`
 - [ ] All subscribers export `metadata` with `{ event, persistent?, id }`
-- [ ] Self-review against `.ai/skills/code-review/references/review-checklist.md`
+- [ ] Self-review against `.ai/skills/om-code-review/references/review-checklist.md`
 
 ### Update spec
 

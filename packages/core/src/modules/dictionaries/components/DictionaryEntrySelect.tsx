@@ -78,6 +78,7 @@ export type DictionaryEntrySelectProps = {
   labels: DictionarySelectLabels
   manageHref?: string
   selectClassName?: string
+  seedOptions?: DictionaryOption[]
   allowInlineCreate?: boolean
   allowAppearance?: boolean
   appearanceLabels?: AppearanceSelectorLabels
@@ -103,6 +104,7 @@ export function DictionaryEntrySelect({
   labels,
   manageHref,
   selectClassName,
+  seedOptions,
   allowInlineCreate = true,
   allowAppearance = false,
   appearanceLabels,
@@ -154,10 +156,39 @@ export function DictionaryEntrySelect({
     if (!dialogOpen) resetDialogState()
   }, [dialogOpen, resetDialogState])
 
+  const mergedOptions = React.useMemo(() => {
+    if (!Array.isArray(seedOptions) || !seedOptions.length) return options
+    const merged: DictionaryOption[] = []
+    const seen = new Set<string>()
+    for (const option of seedOptions) {
+      if (!option.value || seen.has(option.value)) continue
+      seen.add(option.value)
+      merged.push(option)
+    }
+    for (const option of options) {
+      if (seen.has(option.value)) continue
+      seen.add(option.value)
+      merged.push(option)
+    }
+    return merged
+  }, [options, seedOptions])
+
   const activeOption = React.useMemo(
-    () => options.find((option) => option.value === value) ?? null,
-    [options, value],
+    () => mergedOptions.find((option) => option.value === value) ?? null,
+    [mergedOptions, value],
   )
+  const displayOptions = React.useMemo(() => {
+    if (!value || activeOption) return mergedOptions
+    return [
+      {
+        value,
+        label: value,
+        color: null,
+        icon: null,
+      },
+      ...mergedOptions,
+    ]
+  }, [activeOption, mergedOptions, value])
 
   const handleCreate = React.useCallback(async () => {
     if (!createOption) return
@@ -253,13 +284,21 @@ export function DictionaryEntrySelect({
     () => buildHrefWithReturnTo(manageLink, returnTo),
     [manageLink, returnTo],
   )
+  const optionsKey = React.useMemo(
+    () => displayOptions.map((option) => `${option.value}:${option.label}`).join('\0'),
+    [displayOptions],
+  )
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <Select
-          value={value || undefined}
-          onValueChange={(next) => onChange(next || undefined)}
+          key={`dictionary-entry:${value ?? ''}:${optionsKey}`}
+          value={value ?? ''}
+          onValueChange={(next) => {
+            if (!next) return
+            onChange(next)
+          }}
           disabled={disabled}
         >
           <SelectTrigger
@@ -267,10 +306,12 @@ export function DictionaryEntrySelect({
             className={selectClassName}
             title={activeOption?.label ?? undefined}
           >
-            <SelectValue placeholder={labels.placeholder} />
+            <SelectValue placeholder={labels.placeholder}>
+              {activeOption?.label}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {options.map((option) => (
+            {displayOptions.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>

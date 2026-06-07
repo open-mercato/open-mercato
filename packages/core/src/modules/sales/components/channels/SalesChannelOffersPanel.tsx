@@ -9,8 +9,10 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { mapOfferRow, renderOfferPriceSummary, type OfferRow } from './offerTableUtils'
 
@@ -123,13 +125,17 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
 
   const handleDelete = React.useCallback(async (row: OfferRow) => {
     try {
-      await deleteCrud('catalog/offers', row.id, {
-        errorMessage: t('sales.channels.offers.errors.delete', 'Failed to delete offer.'),
-      })
+      await withScopedApiRequestHeaders(buildOptimisticLockHeader(row.updatedAt), () =>
+        deleteCrud('catalog/offers', row.id, {
+          errorMessage: t('sales.channels.offers.errors.delete', 'Failed to delete offer.'),
+        }),
+      )
       flash(t('sales.channels.offers.messages.deleted', 'Offer deleted.'), 'success')
       setReloadToken((token) => token + 1)
     } catch (err) {
+      if (surfaceRecordConflict(err, t)) return
       console.error('sales.channels.offers.delete', err)
+      flash(t('sales.channels.offers.errors.delete', 'Failed to delete offer.'), 'error')
     }
   }, [t])
 

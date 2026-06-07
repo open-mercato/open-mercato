@@ -95,6 +95,8 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [API Key Error](2026-04-16-actionable-missing-api-key-error.md) | 2026-04-16 | Actionable Missing API Key Error | Include expected env var names in missing AI provider API key error (#1433) |
 | [Harness Validation Gate](2026-05-28-harness-validation-gate.md) | 2026-05-28 | Harness Validation Gate + Module Scaffold Template Fixes | Correct stale API patterns in module-scaffold skill template; add a SKILL-level post-scaffold validation gate (yarn generate → structural cache purge → ACL sync → typecheck → /login check) in `module-scaffold/SKILL.md` §12 (#2209) |
 | [Dictionary Entry Sort Mode](2026-06-02-dictionary-entry-sort-mode.md) | 2026-06-02 | Dictionary Entry Sort Mode | Configurable server-side dictionary entry ordering for generic and customer dictionaries |
+| [runCrudCommandWrite](2026-06-05-run-crud-command-write-helper.md) | 2026-06-05 | runCrudCommandWrite Helper | Unified command-write helper composing fork → atomic flush → custom fields → side-effects in the only correct order (#2598) |
+| [Sales Payments Tenant Scope](2026-06-06-sales-recompute-order-payment-totals-tenant-scope.md) | 2026-06-06 | sales(payments): scope `recomputeOrderPaymentTotals` order lookups by tenant/organization | Defence-in-depth scope filter + `ensureSameScope` on 7 `findOne(SalesOrder, …)` sites in `payments.ts` (#2111) |
 
 ### Implemented Specifications
 

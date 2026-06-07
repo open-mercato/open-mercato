@@ -13,11 +13,13 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 
 type UserRow = {
@@ -29,6 +31,7 @@ type UserRow = {
   lastLoginAt: string | null
   roles: Array<{ id: string; name: string; slug: string }>
   createdAt: string
+  updatedAt?: string | null
   personEntityId: string | null
   customerEntityId: string | null
 }
@@ -339,13 +342,16 @@ export default function CustomerAccountsPage() {
     if (!confirmed) return
     try {
       await runMutationWithContext(async () => {
-        const call = await apiCall(
-          `/api/customer_accounts/admin/users/${encodeURIComponent(user.id)}`,
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ isActive: nextActive }),
-          },
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(user.updatedAt),
+          () => apiCall(
+            `/api/customer_accounts/admin/users/${encodeURIComponent(user.id)}`,
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ isActive: nextActive }),
+            },
+          ),
         )
         if (!call.ok) {
           flash(t('customer_accounts.admin.error.toggleActive', 'Failed to update user status'), 'error')
@@ -375,9 +381,12 @@ export default function CustomerAccountsPage() {
     if (!confirmed) return
     try {
       await runMutationWithContext(async () => {
-        const call = await apiCall(
-          `/api/customer_accounts/admin/users/${encodeURIComponent(user.id)}`,
-          { method: 'DELETE' },
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(user.updatedAt),
+          () => apiCall(
+            `/api/customer_accounts/admin/users/${encodeURIComponent(user.id)}`,
+            { method: 'DELETE' },
+          ),
         )
         if (!call.ok) {
           flash(t('customer_accounts.admin.error.delete', 'Failed to delete user'), 'error')
@@ -538,6 +547,13 @@ export default function CustomerAccountsPage() {
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
           perspective={{ tableId: 'customer_accounts.admin.users' }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('customer_accounts.admin.title', 'Users')}
+              onCreate={() => setCreateDialogOpen(true)}
+              createLabel={t('customer_accounts.admin.actions.createUser', 'Create User')}
+            />
+          )}
           onRowClick={(row) => router.push(`/backend/customer_accounts/users/${row.id}`)}
           rowActions={(row) => (
             <RowActions

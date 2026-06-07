@@ -6,12 +6,14 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type Row = {
   id: string
@@ -20,6 +22,7 @@ type Row = {
   tenantId?: string | null
   tenantIds?: string[]
   tenantName?: string | null
+  updatedAt?: string | null
 }
 
 export default function RolesListPage() {
@@ -77,9 +80,12 @@ export default function RolesListPage() {
     })
     if (!confirmed) return
     try {
-      const call = await apiCall(
-        `/api/auth/roles?id=${encodeURIComponent(row.id)}`,
-        { method: 'DELETE' },
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(row.updatedAt),
+        () => apiCall(
+          `/api/auth/roles?id=${encodeURIComponent(row.id)}`,
+          { method: 'DELETE' },
+        ),
       )
       if (!call.ok) {
         await raiseCrudError(call.response, t('auth.roles.list.error.delete', 'Failed to delete role'))
@@ -132,6 +138,13 @@ export default function RolesListPage() {
           sorting={sorting}
           onSortingChange={setSorting}
           perspective={{ tableId: 'auth.roles.list' }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('auth.roles.list.title', 'Roles')}
+              createHref="/backend/roles/create"
+              createLabel={t('auth.roles.list.actions.create', 'Create')}
+            />
+          )}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
         />

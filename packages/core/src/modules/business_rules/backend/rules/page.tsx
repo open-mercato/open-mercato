@@ -8,12 +8,14 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type Rule = {
   id: string
@@ -92,9 +94,13 @@ export default function RulesListPage() {
     })
     if (!confirmed) return
 
-    const result = await apiCall(`/api/business_rules/rules?id=${id}`, {
-      method: 'DELETE',
-    })
+    const record = (data || []).find((item) => item.id === id)
+    const result = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(record?.updatedAt),
+      () => apiCall(`/api/business_rules/rules?id=${id}`, {
+        method: 'DELETE',
+      }),
+    )
 
     if (result.ok) {
       flash(t('business_rules.messages.deleted'), 'success')
@@ -105,14 +111,18 @@ export default function RulesListPage() {
   }
 
   const handleToggleEnabled = async (id: string, currentEnabled: boolean) => {
-    const result = await apiCall('/api/business_rules/rules', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id,
-        enabled: !currentEnabled,
+    const record = (data || []).find((item) => item.id === id)
+    const result = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(record?.updatedAt),
+      () => apiCall('/api/business_rules/rules', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
+          enabled: !currentEnabled,
+        }),
       }),
-    })
+    )
 
     if (result.ok) {
       flash(t('business_rules.messages.updated'), 'success')
@@ -214,7 +224,7 @@ export default function RulesListPage() {
           VALIDATION: 'bg-status-warning-bg text-status-warning-text',
           CALCULATION: 'bg-status-info-bg text-status-info-text',
           ACTION: 'bg-status-success-bg text-status-success-text',
-          ASSIGNMENT: 'bg-purple-100 text-purple-800',
+          ASSIGNMENT: 'bg-brand-violet/10 text-brand-violet',
         }
         const color = typeColors[row.original.ruleType] || 'bg-muted text-foreground'
         return (
@@ -334,6 +344,13 @@ export default function RulesListPage() {
           perspective={{
             tableId: 'business-rules.rules.list',
           }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('business_rules.list.title')}
+              createHref="/backend/rules/create"
+              createLabel={t('business_rules.actions.create')}
+            />
+          )}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
         />
       </PageBody>

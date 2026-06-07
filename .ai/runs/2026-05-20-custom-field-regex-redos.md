@@ -40,11 +40,11 @@ Non-goals:
 
 1. Run the auto-create-pr full validation gate.
 2. Perform code-review and backward-compatibility self-review.
-3. Open the PR, normalize labels, run `auto-review-pr` in autofix mode, and post the required summary comment.
+3. Open the PR, normalize labels, run `om-auto-review-pr` in autofix mode, and post the required summary comment.
 
 ### Phase 4: Follow-up ReDoS Surface Plan
 
-This phase is intentionally saved in this PR for a later `auto-continue-pr` run. It should continue after the custom-field fix lands on the branch.
+This phase is intentionally saved in this PR for a later `om-auto-continue-pr` run. It should continue after the custom-field fix lands on the branch.
 
 Audit findings from `rg "new RegExp\\(|operator.*regex|rule.*regex"`:
 - `packages/core/src/modules/business_rules/lib/expression-evaluator.ts`: high priority. Business rule `MATCHES` accepts rule-authored patterns and still executes native `RegExp` after heuristic checks. The post-execution timeout cannot prevent a blocking event-loop stall. Replace with the shared linear regex helper from Phase 1 and add a ReDoS regression for the reported `([0-9A-Za-z]+)*` pattern.
@@ -86,7 +86,7 @@ Current status: ready for review.
 
 - [x] 3.1 Run full validation gate — d6612378a
 - [x] 3.2 Complete code-review and BC self-review — d6612378a
-- [x] 3.3 Open PR, label it, run auto-review-pr, and post summary — PR label/comment handoff completed; `auto-review-pr` was not run because this continuation was asked to make the PR ready for review, not to submit the review.
+- [x] 3.3 Open PR, label it, run auto-review-pr, and post summary — PR label/comment handoff completed; `om-auto-review-pr` was not run because this continuation was asked to make the PR ready for review, not to submit the review.
 
 ### Phase 4: Follow-up ReDoS Surface Plan
 

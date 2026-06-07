@@ -5,11 +5,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -32,6 +34,7 @@ type OrganizationRow = {
   childrenCount: number
   descendantsCount: number
   isActive: boolean
+  updatedAt?: string | null
 }
 
 type OrganizationsResponse = {
@@ -184,10 +187,13 @@ export default function DirectoryOrganizationsPage() {
     if (!confirmed) return
 
     try {
-      await apiCallOrThrow(
-        `/api/directory/organizations?id=${encodeURIComponent(org.id)}`,
-        { method: 'DELETE' },
-        { errorMessage: t('directory.organizations.list.error.delete', 'Failed to delete organization') },
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(org.updatedAt),
+        () => apiCallOrThrow(
+          `/api/directory/organizations?id=${encodeURIComponent(org.id)}`,
+          { method: 'DELETE' },
+          { errorMessage: t('directory.organizations.list.error.delete', 'Failed to delete organization') },
+        ),
       )
       await queryClient.invalidateQueries({ queryKey: ['directory-organizations'] })
       flash(t('directory.organizations.flash.deleted', 'Organization deleted'), 'success')
@@ -248,6 +254,13 @@ export default function DirectoryOrganizationsPage() {
                 ]}
               />
             ) : null
+          )}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('directory.organizations.list.title', 'Organizations')}
+              createHref="/backend/directory/organizations/create"
+              createLabel={t('directory.organizations.list.actions.create', 'Create')}
+            />
           )}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
