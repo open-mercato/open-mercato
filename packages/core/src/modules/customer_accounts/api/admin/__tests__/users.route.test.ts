@@ -275,7 +275,7 @@ describe('admin /api/customer_accounts/admin/users — GET search', () => {
     expect(Array.isArray(whereArg.$or)).toBe(true)
     expect(whereArg.$or).toEqual(expect.arrayContaining([
       { id: { $in: [tokenId] } },
-      expect.objectContaining({ emailHash: expect.any(String) }),
+      expect.objectContaining({ emailHash: { $in: expect.arrayContaining([expect.any(String)]) } }),
     ]))
   })
 
@@ -300,7 +300,7 @@ describe('admin /api/customer_accounts/admin/users — GET search', () => {
     expect(res.status).toBe(200)
     expect(mockEmFindAndCount).toHaveBeenCalled()
     const whereArg = mockEmFindAndCount.mock.calls[0][1] as Record<string, any>
-    expect(whereArg.$or).toEqual([expect.objectContaining({ emailHash: expect.any(String) })])
+    expect(whereArg.$or).toEqual([expect.objectContaining({ emailHash: { $in: expect.arrayContaining([expect.any(String)]) } })])
     expect(body.total).toBe(0)
   })
 })
