@@ -44,13 +44,14 @@ Stabilize the latest `develop` branch feeding release PR #2425 by fixing the cur
 - Latest full local coverage attempt after merging `origin/develop` `901c3aa81` failed with 6 durable failures while 1570 passed, 72 skipped. Root set: AI loop payload check was waiting on the full playground hydration path for a mocked API-contract assertion; admin feature-toggle test exceeded the default budget after reaching the create page; currency UX-04 inherited a slow currency edit load before asserting route-clear behavior; CRM-009 opened the pipeline chip before the async pipeline list had populated; SAL-13 offer edit consumed its 60s budget before conflict assertion under full-suite load; TC-SALES-007 spent too much time in UI document creation and could return false without the existing API shipment fallback.
 - Targeted validation after the latest batch: `OM_OPTIMISTIC_LOCK=all yarn test:integration:ephemeral --no-reuse-env packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-AGENT-LOOP-001-006.spec.ts` passed, 12 passed. Against reusable ephemeral app `http://127.0.0.1:57864` with matching `DATABASE_URL=postgres://mercato:secret@localhost:55209/mercato_test`, `BASE_URL=http://127.0.0.1:57864 DATABASE_URL=postgres://mercato:secret@localhost:55209/mercato_test OM_OPTIMISTIC_LOCK=all yarn test:integration --retries=0 packages/core/src/modules/core/__integration__/admin/TC-ADMIN-005.spec.ts packages/core/src/modules/currencies/__integration__/TC-LOCK-OSS-045.spec.ts packages/core/src/modules/customers/__integration__/TC-CRM-009.spec.ts packages/core/src/modules/sales/__integration__/TC-LOCK-OSS-029.spec.ts packages/core/src/modules/sales/__integration__/TC-SALES-007.spec.ts` passed, 14 passed.
 - Hygiene validation after the latest batch: `git diff --check` clean; `yarn typecheck` passed, 21/21 tasks.
+- Full local coverage proof round 1 after latest fixes: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --no-reuse-env --retries=0` passed, 1576 passed, 0 failed, 0 flaky, 72 skipped, total 1648. Coverage summary: lines/statements 54.09%, functions 26.6%, branches 56.3%.
 
 ## Resume Notes
 
 - Branch: `fix/ci-2425-develop-stabilization`.
 - PR: #2657 (`https://github.com/open-mercato/open-mercato/pull/2657`).
 - Latest targeted ephemeral app used for verification: `http://127.0.0.1:57864`, DB port `55209`.
-- Next required proof: run full `yarn test:integration:coverage --no-reuse-env --retries=0` rounds from the latest pushed head after rebasing/merging the newest `origin/develop`.
+- Next required proof: run the second full `yarn test:integration:coverage --no-reuse-env --retries=0` round from the latest pushed head after rebasing/merging the newest `origin/develop`.
 - If another failure appears, inspect Playwright artifacts in `.ai/qa/test-results/` and fix root cause before counting either full round.
 
 ## Progress
