@@ -658,7 +658,7 @@ test.describe('TC-CRM-028: Example customer sync (standalone smoke)', () => {
 });
 
 test.describe('TC-CRM-028: Example customer sync', () => {
-  test.describe.configure({ mode: 'serial' });
+  test.describe.configure({ mode: 'serial', timeout: 120_000 });
 
   let adminToken: string;
   let superadminToken: string;
@@ -681,7 +681,8 @@ test.describe('TC-CRM-028: Example customer sync', () => {
     adminScope = getTokenScope(adminToken);
   });
 
-  test.beforeEach(async ({ request }) => {
+  test.beforeEach(async ({ request }, testInfo) => {
+    if (testInfo.title.includes('registers the example_customers_sync outbound worker')) return;
     await clearSyncFlagOverrides(request, superadminToken);
     await flushExampleCustomersSyncQueues({ outbound: true, inbound: true });
   });

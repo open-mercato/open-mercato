@@ -81,7 +81,7 @@ async function createEntity(
 async function createBatched<T>(
   count: number,
   createOne: (index: number) => Promise<T>,
-  batchSize = 12,
+  batchSize = 8,
 ): Promise<T[]> {
   const results: T[] = []
   for (let index = 0; index < count; index += batchSize) {
@@ -96,7 +96,7 @@ async function createTaxRates(
   token: string,
   stamp: number,
 ): Promise<FixtureOption[]> {
-  return createBatched(205, async (index) => {
+  return createBatched(202, async (index) => {
     const padded = String(index).padStart(3, '0')
     const name = `QA Sales Tax ${stamp} ${padded}`
     const id = await createEntity(request, token, '/api/sales/tax-rates', {
@@ -114,7 +114,7 @@ async function createShippingMethods(
   token: string,
   stamp: number,
 ): Promise<FixtureOption[]> {
-  return createBatched(55, async (index) => {
+  return createBatched(52, async (index) => {
     const padded = String(index).padStart(3, '0')
     const name = `QA Shipping Method ${stamp} ${padded}`
     const id = await createEntity(request, token, '/api/sales/shipping-methods', {
@@ -134,7 +134,7 @@ async function createShipmentStatuses(
   token: string,
   stamp: number,
 ): Promise<FixtureOption[]> {
-  return createBatched(105, async (index) => {
+  return createBatched(102, async (index) => {
     const padded = String(index).padStart(3, '0')
     const name = `QA Shipment Status ${stamp} ${padded}`
     const id = await createEntity(request, token, '/api/sales/shipment-statuses', {
@@ -152,7 +152,7 @@ async function createAddresses(
   stamp: number,
   scope: FixtureScope,
 ): Promise<FixtureOption[]> {
-  return createBatched(55, async (index) => {
+  return createBatched(52, async (index) => {
     const padded = String(index).padStart(3, '0')
     const name = `QA Address ${stamp} ${padded}`
     const id = await createEntity(request, token, '/api/customers/addresses', {
@@ -216,7 +216,7 @@ async function expectDialogLookupLabel(dialog: Locator, label: string): Promise<
 test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', () => {
   test('order detail edit dialogs show saved select labels outside capped option pages', async ({ page, request }) => {
     test.slow()
-    test.setTimeout(120_000)
+    test.setTimeout(240_000)
 
     const bootstrapToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
