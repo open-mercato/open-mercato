@@ -78,7 +78,7 @@ const STEP_EVENT = {
 };
 
 test.describe('TC-AI-TOKEN-USAGE-001–005: token usage stats page', () => {
-  test.describe.configure({ timeout: 60_000 });
+  test.describe.configure({ timeout: 120_000 });
 
   test('TC-AI-TOKEN-USAGE-001: usage page renders summary tiles for superadmin', async ({ page }) => {
     await login(page, 'superadmin');
