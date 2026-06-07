@@ -48,12 +48,15 @@ Stabilize the latest `develop` branch feeding release PR #2425 by fixing the cur
 - Invalidated full local coverage proof round 2 after round-1 proof: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --no-reuse-env --retries=0` failed with 5 durable failures while 1571 passed, 72 skipped. Root set: TC-CAT-011 price persistence assertion did not wait through the full variant/price API surface under coverage; TC-ADMIN-002 searched before the API keys table had fully recovered from loading; TC-INT-005 exceeded the existing 60s budget in the sales shipment/payment flow; TC-MSG-009 intermittently landed on access-denied/detail reload and later waited on a UI reply POST after the composer state was already proven; TC-WF-011 edit/reset checks sometimes navigated before the workflow detail shell finished hydration.
 - Filtered zero-retry coverage validation after this batch: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --no-reuse-env --retries=0 --filter 'TC-CAT-011|TC-ADMIN-002|TC-INT-005|TC-MSG-009|TC-WF-011'` passed, 11 passed, 0 failed, 0 flaky, 0 skipped. Coverage summary: lines/statements 55.65%, functions 25.46%, branches 61.8%.
 - Hygiene validation after this batch: `git diff --check` clean; `yarn typecheck` passed, 21/21 tasks.
+- Invalidated full local coverage round after commit `bb1536368`: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --no-reuse-env --retries=0` found durable full-suite pressure points before the app later became unreachable: TC-CAT-017 API-only offer delete exceeded the default 20s budget; TC-CRM-028 paid an unnecessary queue/feature cleanup in the bootstrap-registration test beforeEach; TC-SALES-006 and TC-SALES-011 spent too much time in UI setup before their target assertions; TC-SALES-031 exceeded 120s while creating capped-option fixtures and opening edit dialogs; TC-SX-001 exceeded 60s after import jobs completed. Later translation/workflow failures were `ECONNREFUSED` app-loss fallout, not independent regressions.
+- Filtered zero-retry coverage validation after this batch: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --no-reuse-env --retries=0 --filter 'TC-CAT-017|TC-CRM-028|TC-SALES-006|TC-SALES-011|TC-SALES-031|TC-SX-001'` passed, 19 passed, 0 failed, 0 flaky, 2 skipped, total 21. Coverage summary: lines/statements 49.89%, functions 22.96%, branches 53.83%.
+- Hygiene validation after this batch: `git diff --check` clean; `yarn typecheck` passed, 21/21 tasks.
 
 ## Resume Notes
 
 - Branch: `fix/ci-2425-develop-stabilization`.
 - PR: #2657 (`https://github.com/open-mercato/open-mercato/pull/2657`).
-- Latest filtered coverage ephemeral app used for verification: `http://127.0.0.1:62908`.
+- Latest filtered coverage ephemeral app used for verification: `http://127.0.0.1:58705`.
 - Next required proof: after committing and pushing the latest stabilization batch, run two full `yarn test:integration:coverage --no-reuse-env --retries=0` rounds from the latest pushed head.
 - If another failure appears, inspect Playwright artifacts in `.ai/qa/test-results/` and fix root cause before counting either full round.
 
