@@ -128,6 +128,8 @@ test.describe('TC-LOCK-OSS-033: customer_accounts portal role edit + delete opti
   // so CrudForm renders the `record-conflict-banner` on a stale-token save.
   // The server-side guard itself was always correct — see the active API case below.
   test('AUTH-07 stale portal-role edit surfaces the conflict bar in the browser', async ({ page }) => {
+    test.setTimeout(120_000)
+
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let roleId: string | null = null
@@ -140,15 +142,24 @@ test.describe('TC-LOCK-OSS-033: customer_accounts portal role edit + delete opti
       await page.goto(`/backend/customer_accounts/roles/${roleId}`)
 
       // Form is loaded; its optimistic-lock token is captured at load time.
-      const nameInput = page.locator('[data-crud-field-id="name"] input').first()
+      const nameInput = page.locator('main').getByRole('textbox').first()
       await expect(nameInput).toBeVisible({ timeout: 15_000 })
+      await expect(nameInput).toHaveValue(`QA Lock 033 v1 ${stamp}`)
 
       // Advance updated_at out-of-band → the browser form now holds a stale token.
       await bumpRole(page.request, token, roleId, `QA Lock 033 bumped ${stamp}`)
 
       // Edit + save in the browser → stale header → 409 → conflict bar.
       await fillControlledInput(nameInput, `QA Lock 033 stale ${stamp}`)
-      await nameInput.press('Control+Enter')
+      const staleSave = page.waitForResponse((response) => (
+        response.url().includes(`/api/customer_accounts/admin/roles/${roleId}`)
+        && response.request().method() === 'PUT'
+      ), { timeout: 15_000 })
+      await Promise.all([
+        staleSave,
+        nameInput.press('Control+Enter'),
+      ])
+      expect((await staleSave).status(), 'stale browser save should return 409').toBe(409)
 
       await expectConflictBanner(page)
     } finally {
