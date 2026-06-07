@@ -136,7 +136,7 @@ export async function userHasFeature(
   ctx: ExecutionHelperContext,
   feature: string,
 ): Promise<boolean> {
-  if (!feature) return true
+  if (!feature) return false
   if (hasSuperAdminAccess(ctx.auth)) return true
 
   try {
@@ -144,7 +144,7 @@ export async function userHasFeature(
     if (!rbacService || typeof rbacService.userHasAllFeatures !== 'function') {
       return false
     }
-    return rbacService.userHasAllFeatures(
+    return await rbacService.userHasAllFeatures(
       ctx.userId,
       [feature],
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
