@@ -5,6 +5,7 @@ const organizationId = '22222222-2222-4222-8222-222222222222'
 
 const deleteByTags = jest.fn(async () => {})
 const commandBusExecute = jest.fn()
+const runWithCacheTenantMock = jest.fn(async (_tenantId: string | null, fn: () => unknown) => await fn())
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return {}
@@ -40,6 +41,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/directory/commands/organizations', () => ({}))
+
+jest.mock('@open-mercato/cache', () => ({
+  runWithCacheTenant: (...args: unknown[]) => runWithCacheTenantMock(...args as [string | null, () => unknown]),
+}))
 
 import { GET, PUT } from '../route'
 
@@ -129,6 +134,7 @@ describe('/api/directory/organization-branding', () => {
         },
       }),
     )
+    expect(runWithCacheTenantMock).toHaveBeenCalledWith(tenantId, expect.any(Function))
     expect(deleteByTags).toHaveBeenCalledWith([
       `nav:sidebar:organization:${organizationId}`,
       `nav:sidebar:tenant:${tenantId}`,

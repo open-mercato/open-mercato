@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -116,12 +117,14 @@ function toResponsePayload(organization: Organization, tenantId: string) {
 async function invalidateSidebarBrandingCache(container: RequestContainer, organizationId: string, tenantId: string) {
   try {
     const cache = container.resolve('cache') as {
-      deleteByTags?: (tags: string[]) => Promise<void>
+      deleteByTags?: (tags: string[]) => Promise<unknown>
     } | null
-    await cache?.deleteByTags?.([
-      `nav:sidebar:organization:${organizationId}`,
-      `nav:sidebar:tenant:${tenantId}`,
-    ])
+    await runWithCacheTenant(tenantId, () =>
+      cache?.deleteByTags?.([
+        `nav:sidebar:organization:${organizationId}`,
+        `nav:sidebar:tenant:${tenantId}`,
+      ]),
+    )
   } catch {
     // Cache invalidation is best-effort; the persisted branding is the source of truth.
   }
