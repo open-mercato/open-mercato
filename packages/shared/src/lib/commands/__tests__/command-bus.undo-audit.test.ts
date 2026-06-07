@@ -42,6 +42,8 @@ describe('CommandBus undo audit trace', () => {
             lastName: { from: 'Before', to: 'After' },
           },
         })),
+        claimForUndo: jest.fn(async () => true),
+        releaseUndoClaim: jest.fn(async () => true),
         markUndone: markUndoneMock,
       }),
       dataEngine: asValue({ flushOrmEntityChanges: jest.fn(async () => undefined) }),

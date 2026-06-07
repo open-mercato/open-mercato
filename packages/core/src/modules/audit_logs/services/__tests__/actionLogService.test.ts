@@ -303,3 +303,43 @@ describe('ActionLogService.list pagination', () => {
     expect(result.totalPages).toBe(1)
   })
 })
+
+describe('ActionLogService.claimForUndo / releaseUndoClaim (TOCTOU guard)', () => {
+  function buildServiceWithNativeUpdate(affected: number) {
+    const nativeUpdate = jest.fn(async () => affected)
+    const fakeEm = { nativeUpdate }
+    const service = new ActionLogService(
+      fakeEm as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+    return { service, nativeUpdate }
+  }
+
+  it('claimForUndo issues a compare-and-set guarded on the done state', async () => {
+    const { service, nativeUpdate } = buildServiceWithNativeUpdate(1)
+
+    const claimed = await service.claimForUndo('log-1')
+
+    expect(claimed).toBe(true)
+    expect(nativeUpdate).toHaveBeenCalledTimes(1)
+    const [, filter, update] = nativeUpdate.mock.calls[0]
+    expect(filter).toMatchObject({ id: 'log-1', executionState: 'done', deletedAt: null })
+    expect(update).toEqual({ executionState: 'undoing' })
+  })
+
+  it('claimForUndo returns false when the row was already claimed (0 rows affected)', async () => {
+    const { service } = buildServiceWithNativeUpdate(0)
+
+    expect(await service.claimForUndo('log-1')).toBe(false)
+  })
+
+  it('releaseUndoClaim reverts an undoing row back to done', async () => {
+    const { service, nativeUpdate } = buildServiceWithNativeUpdate(1)
+
+    const released = await service.releaseUndoClaim('log-1')
+
+    expect(released).toBe(true)
+    const [, filter, update] = nativeUpdate.mock.calls[0]
+    expect(filter).toMatchObject({ id: 'log-1', executionState: 'undoing', deletedAt: null })
+    expect(update).toEqual({ executionState: 'done' })
+  })
+})

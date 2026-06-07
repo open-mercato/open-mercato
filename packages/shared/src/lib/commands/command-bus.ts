@@ -306,53 +306,67 @@ export class CommandBus {
       throw new Error(`Command ${log.commandId} is not undoable`)
     }
 
-    // Run beforeUndo command interceptors
-    const allInterceptors = getAllCommandInterceptorInstances()
-    let undoInterceptorMetadata = new Map<string, Record<string, unknown>>()
-    const userFeatures = allInterceptors.length
-      ? await this.resolveUserFeaturesForInterceptors(ctx)
-      : []
-    if (allInterceptors.length) {
-      const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
-      const interceptorCtx: CommandInterceptorContext = {
-        commandId: log.commandId,
-        auth: ctx.auth ?? null,
-        selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-        container: ctx.container,
+    // Atomically claim the action-log row before running any undo side effects.
+    // Two concurrent requests holding the same undo token can both pass
+    // findByUndoToken/executionState checks; the compare-and-set below ensures
+    // only one transitions `done` -> `undoing` and proceeds, the other bails out.
+    const claimed = await service.claimForUndo(log.id)
+    if (!claimed) throw new Error('Undo token already consumed')
+
+    try {
+      // Run beforeUndo command interceptors
+      const allInterceptors = getAllCommandInterceptorInstances()
+      let undoInterceptorMetadata = new Map<string, Record<string, unknown>>()
+      const userFeatures = allInterceptors.length
+        ? await this.resolveUserFeaturesForInterceptors(ctx)
+        : []
+      if (allInterceptors.length) {
+        const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
+        const interceptorCtx: CommandInterceptorContext = {
+          commandId: log.commandId,
+          auth: ctx.auth ?? null,
+          selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+          container: ctx.container,
+        }
+        const beforeResult = await runCommandInterceptorsBeforeUndo(
+          allInterceptors, log.commandId, undoCtx, interceptorCtx, userFeatures,
+        )
+        if (!beforeResult.ok) {
+          throw new CommandInterceptorError(beforeResult.error!.message)
+        }
+        undoInterceptorMetadata = beforeResult.metadataByInterceptor
       }
-      const beforeResult = await runCommandInterceptorsBeforeUndo(
-        allInterceptors, log.commandId, undoCtx, interceptorCtx, userFeatures,
-      )
-      if (!beforeResult.ok) {
-        throw new CommandInterceptorError(beforeResult.error!.message)
+
+      await handler.undo({
+        input: log.commandPayload as Parameters<NonNullable<typeof handler.undo>>[0]['input'],
+        ctx,
+        logEntry: log,
+      })
+      await service.markUndone(log.id, this.buildUndoTraceLog(log, ctx))
+
+      // Run afterUndo command interceptors
+      if (allInterceptors.length) {
+        const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
+        const interceptorCtx: CommandInterceptorContext = {
+          commandId: log.commandId,
+          auth: ctx.auth ?? null,
+          selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+          container: ctx.container,
+        }
+        await runCommandInterceptorsAfterUndo(
+          allInterceptors, log.commandId, undoCtx, interceptorCtx,
+          userFeatures, undoInterceptorMetadata,
+        )
       }
-      undoInterceptorMetadata = beforeResult.metadataByInterceptor
+
+      await this.invalidateCacheAfterUndo(log, ctx)
+      await this.flushCrudSideEffects(ctx.container)
+    } catch (err) {
+      // Undo failed after claiming the row — release the claim so the action
+      // remains retryable instead of being stranded in the `undoing` state.
+      await service.releaseUndoClaim(log.id).catch(() => {})
+      throw err
     }
-
-    await handler.undo({
-      input: log.commandPayload as Parameters<NonNullable<typeof handler.undo>>[0]['input'],
-      ctx,
-      logEntry: log,
-    })
-    await service.markUndone(log.id, this.buildUndoTraceLog(log, ctx))
-
-    // Run afterUndo command interceptors
-    if (allInterceptors.length) {
-      const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
-      const interceptorCtx: CommandInterceptorContext = {
-        commandId: log.commandId,
-        auth: ctx.auth ?? null,
-        selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-        container: ctx.container,
-      }
-      await runCommandInterceptorsAfterUndo(
-        allInterceptors, log.commandId, undoCtx, interceptorCtx,
-        userFeatures, undoInterceptorMetadata,
-      )
-    }
-
-    await this.invalidateCacheAfterUndo(log, ctx)
-    await this.flushCrudSideEffects(ctx.container)
   }
 
   private buildUndoTraceLog(log: ActionLog, ctx: CommandRuntimeContext): ActionLogCreateInput | undefined {

@@ -508,6 +508,24 @@ export class ActionLogService {
     return entry
   }
 
+  async claimForUndo(id: string): Promise<boolean> {
+    const affected = await this.em.nativeUpdate(
+      ActionLog,
+      { id, executionState: 'done', deletedAt: null },
+      { executionState: 'undoing' },
+    )
+    return affected === 1
+  }
+
+  async releaseUndoClaim(id: string): Promise<boolean> {
+    const affected = await this.em.nativeUpdate(
+      ActionLog,
+      { id, executionState: 'undoing', deletedAt: null },
+      { executionState: 'done' },
+    )
+    return affected === 1
+  }
+
   async markUndone(id: string, traceInput?: ActionLogCreateInput) {
     const fork = this.em.fork()
     const log = await fork.findOne(ActionLog, { id, deletedAt: null })
