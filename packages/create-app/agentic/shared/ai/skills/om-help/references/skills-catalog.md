@@ -61,6 +61,7 @@ Skills for modifying or extending behavior without touching core module source.
 | `om-auto-continue-pr-loop` | Resume a PR started by `om-auto-create-pr-loop` | — | `om-auto-review-pr` |
 | `om-auto-review-pr` | Automated PR review + approve/request-changes | `om-auto-create-pr` | — |
 | `om-auto-fix-github` | Fix a GitHub issue end-to-end | — | `om-auto-create-pr` |
+| `om-prepare-issue` | Capture a feature to build later — write the spec, ship a docs-only spec PR, open a tracking issue | `om-spec-writing` | `om-implement-spec` |
 
 ---
 
