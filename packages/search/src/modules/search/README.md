@@ -463,7 +463,7 @@ yarn mercato search worker fulltext-indexing --concurrency=5
 
 ### Debug Logging
 
-Set `OM_SEARCH_DEBUG=true` to enable verbose debug logging for the search module. This outputs detailed information about indexing operations, strategy selection, and error handling. Errors are always logged regardless of this flag.
+Set `OM_SEARCH_DEBUG=true` to enable verbose debug logging for the search module. This outputs information about indexing operations, strategy selection, and error handling. Debug output is redacted: it includes field names, token hashes, and counts, but never raw token text, document values, or decrypted PII. Errors are always logged regardless of this flag.
 
 ```env
 OM_SEARCH_DEBUG=true
