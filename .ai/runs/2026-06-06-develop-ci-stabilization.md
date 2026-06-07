@@ -51,13 +51,14 @@ Stabilize the latest `develop` branch feeding release PR #2425 by fixing the cur
 - Invalidated full local coverage round after commit `bb1536368`: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --no-reuse-env --retries=0` found durable full-suite pressure points before the app later became unreachable: TC-CAT-017 API-only offer delete exceeded the default 20s budget; TC-CRM-028 paid an unnecessary queue/feature cleanup in the bootstrap-registration test beforeEach; TC-SALES-006 and TC-SALES-011 spent too much time in UI setup before their target assertions; TC-SALES-031 exceeded 120s while creating capped-option fixtures and opening edit dialogs; TC-SX-001 exceeded 60s after import jobs completed. Later translation/workflow failures were `ECONNREFUSED` app-loss fallout, not independent regressions.
 - Filtered zero-retry coverage validation after this batch: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --no-reuse-env --retries=0 --filter 'TC-CAT-017|TC-CRM-028|TC-SALES-006|TC-SALES-011|TC-SALES-031|TC-SX-001'` passed, 19 passed, 0 failed, 0 flaky, 2 skipped, total 21. Coverage summary: lines/statements 49.89%, functions 22.96%, branches 53.83%.
 - Hygiene validation after this batch: `git diff --check` clean; `yarn typecheck` passed, 21/21 tasks.
+- Full local coverage proof round 1 from pushed head `464487377`: `OM_OPTIMISTIC_LOCK=all yarn test:integration:coverage --no-reuse-env --retries=0` passed, 1576 passed, 0 failed, 0 flaky, 72 skipped, total 1648. Coverage summary: lines/statements 53.94%, functions 28.19%, branches 57.29%.
 
 ## Resume Notes
 
 - Branch: `fix/ci-2425-develop-stabilization`.
 - PR: #2657 (`https://github.com/open-mercato/open-mercato/pull/2657`).
-- Latest filtered coverage ephemeral app used for verification: `http://127.0.0.1:58705`.
-- Next required proof: after committing and pushing the latest stabilization batch, run two full `yarn test:integration:coverage --no-reuse-env --retries=0` rounds from the latest pushed head.
+- Latest full coverage round 1 ephemeral app used for verification: `http://127.0.0.1:59331`.
+- Next required proof: run full `yarn test:integration:coverage --no-reuse-env --retries=0` round 2 from the latest pushed head.
 - If another failure appears, inspect Playwright artifacts in `.ai/qa/test-results/` and fix root cause before counting either full round.
 
 ## Progress
@@ -77,7 +78,7 @@ Stabilize the latest `develop` branch feeding release PR #2425 by fixing the cur
 - [x] 2.1 Run targeted unit validation — fe790ef3f
 - [x] 2.2 Run targeted CRM and sales integration validation with retries disabled — fe790ef3f
 - [x] 2.2a Run filtered UMES coverage validation with retries disabled — fe790ef3f
-- [x] 2.3 Run full ephemeral proof round 1 with retries disabled — f514ad028
+- [x] 2.3 Run full ephemeral proof round 1 with retries disabled — 464487377
 - [ ] 2.4 Run full ephemeral proof round 2 with retries disabled
 
 ### Phase 3: GitHub CI
