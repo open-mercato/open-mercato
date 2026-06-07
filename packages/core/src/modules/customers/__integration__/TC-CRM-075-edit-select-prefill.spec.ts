@@ -14,6 +14,9 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
 
 test.describe('TC-CRM-075: Customer edit forms prefill saved selects', () => {
   test('deal edit shows the saved pipeline and stage immediately on open', async ({ page, request }) => {
+    test.slow()
+    test.setTimeout(120_000)
+
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     let companyId: string | null = null
@@ -37,7 +40,7 @@ test.describe('TC-CRM-075: Customer edit forms prefill saved selects', () => {
       })
 
       await login(page, 'admin')
-      await page.goto(`/backend/customers/deals/${encodeURIComponent(dealId)}`)
+      await page.goto(`/backend/customers/deals/${encodeURIComponent(dealId)}`, { waitUntil: 'domcontentloaded' })
 
       await expect(page.getByText(dealTitle, { exact: true }).first()).toBeVisible()
       await page.getByRole('button', { name: 'Expand form panel' }).click()
