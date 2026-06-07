@@ -78,7 +78,7 @@ export function hasDangerousExecutableExtension(fileName: string | null | undefi
   const parts = trimmed.split('.').filter(Boolean)
   if (parts.length < 2) return false
   for (let i = 1; i < parts.length; i += 1) {
-    const segment = parts[i]!.toLowerCase()
+    const segment = parts[i]!.toLowerCase().replace(/[^a-z0-9]/g, '')
     if (DANGEROUS_EXECUTABLE_EXTENSIONS.has(segment)) return true
   }
   return false
