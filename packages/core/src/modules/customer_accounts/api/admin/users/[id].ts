@@ -11,6 +11,7 @@ import { CustomerRbacService } from '@open-mercato/core/modules/customer_account
 import { adminUpdateUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isOwnedCompanyEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
@@ -153,6 +154,20 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     throw err
   }
 
+  // Reject a customerEntityId the caller does not own before persisting it.
+  // Without this check a mislinked company FK cross-links the user into another
+  // org/company's portal context and persists indefinitely (#2693). A null value
+  // (unlink) needs no ownership check.
+  if (parsed.data.customerEntityId) {
+    const owned = await isOwnedCompanyEntity(em, parsed.data.customerEntityId, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+    })
+    if (!owned) {
+      return NextResponse.json({ ok: false, error: 'Company not found' }, { status: 400 })
+    }
+  }
+
   // Always bump updated_at so the optimistic-lock version advances on every save.
   // `nativeUpdate` bypasses MikroORM's `onUpdate` hook, so set it explicitly — without
   // this the version never changes and concurrent edits cannot be detected (#2055).
@@ -169,6 +184,9 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   let rolesChanged = false
   if (parsed.data.roleIds !== undefined) {
     const requestedRoleIds = parsed.data.roleIds
+    // Scope role resolution to the caller's organization too — CustomerRole is
+    // org-scoped, so a tenant-only filter would let an admin link roles from
+    // another org in the same tenant (#2693).
     const validRoles = requestedRoleIds.length > 0
       ? await findWithDecryption(
           em,
@@ -176,6 +194,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
           {
             id: { $in: requestedRoleIds } as any,
             tenantId: auth.tenantId,
+            organizationId: auth.orgId,
             deletedAt: null,
           } as any,
           undefined,
