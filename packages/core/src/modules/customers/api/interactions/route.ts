@@ -9,6 +9,7 @@ import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fi
 import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-runner'
 import type { EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -39,7 +40,7 @@ const interactionSortFieldSchema = z.enum([
   'title',
 ])
 
-const listSchema = z
+export const listSchema = z
   .object({
     limit: z.coerce.number().min(1).max(100).default(25),
     cursor: z.string().optional(),
@@ -50,8 +51,8 @@ const listSchema = z
     type: z.string().optional(),
     excludeInteractionType: z.string().optional(),
     search: z.string().trim().min(1).optional(),
-    from: z.string().optional(),
-    to: z.string().optional(),
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
     pinned: z.enum(['true', 'false']).optional(),
     sortField: interactionSortFieldSchema.optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -430,14 +431,14 @@ export async function GET(req: Request) {
       // columns is unsupported, the same documented limitation as
       // customer_activity / customer_comment. The returned page's title/body are
       // still decrypted for display further below.
-      const searchTerm = `%${query.search}%`
+      const searchTerm = `%${escapeLikePattern(query.search)}%`
       rowsQuery = rowsQuery.where(sql<boolean>`coalesce(title, '') ilike ${searchTerm} or coalesce(body, '') ilike ${searchTerm}`)
     }
     if (query.from) {
-      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) >= ${new Date(query.from)}`)
+      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) >= ${query.from}`)
     }
     if (query.to) {
-      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${new Date(query.to)}`)
+      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${query.to}`)
     }
 
     if (cursor) {
