@@ -111,7 +111,7 @@ describe('messages.tokens.consume command', () => {
       expect(em.findOne).toHaveBeenCalledWith(MessageAccessToken, { token: stored.token })
     })
 
-    it('falls back to raw-token lookup for tokens written before hashing rollout', async () => {
+    it('rejects a stored raw (unhashed) token presented as the request token', async () => {
       const legacyRawToken = 'legacy-raw-token-3333333333333333333333333333333333333333333333333333'
       const stored: TokenRecord = {
         id: 'tok-1',
@@ -124,11 +124,12 @@ describe('messages.tokens.consume command', () => {
       }
       const { ctx, em } = buildCtx(stored)
 
-      const result = await consumeCommand.execute({ token: legacyRawToken }, ctx)
-
-      expect(result).toEqual({ messageId: 'message-1', recipientUserId: 'user-1' })
+      await expect(consumeCommand.execute({ token: legacyRawToken }, ctx)).rejects.toThrow(
+        /Invalid or expired link/,
+      )
+      expect(em.findOne).toHaveBeenCalledTimes(1)
       expect(em.findOne).toHaveBeenNthCalledWith(1, MessageAccessToken, { token: hashAuthToken(legacyRawToken) })
-      expect(em.findOne).toHaveBeenNthCalledWith(2, MessageAccessToken, { token: legacyRawToken })
+      expect(em.findOne).not.toHaveBeenCalledWith(MessageAccessToken, { token: legacyRawToken })
     })
 
     it('throws when neither hashed nor raw lookup matches', async () => {

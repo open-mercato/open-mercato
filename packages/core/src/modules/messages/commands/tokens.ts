@@ -19,9 +19,7 @@ const consumeTokenCommand: CommandHandler<unknown, { messageId: string; recipien
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
     const hashedToken = hashAuthToken(input.token)
-    const accessToken =
-      (await em.findOne(MessageAccessToken, { token: hashedToken })) ??
-      (await em.findOne(MessageAccessToken, { token: input.token }))
+    const accessToken = await em.findOne(MessageAccessToken, { token: hashedToken })
     if (!accessToken) {
       throw new Error('Invalid or expired link')
     }

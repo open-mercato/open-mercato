@@ -5,6 +5,7 @@ import {
   MessageObject,
   MessageRecipient,
 } from '@open-mercato/core/modules/messages/data/entities'
+import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 
 const createRequestContainerMock = jest.fn()
 const getAuthFromRequestMock = jest.fn()
@@ -59,7 +60,7 @@ describe('messages /api/messages/token/[token]', () => {
   function createValidToken() {
     return {
       id: 'token-1',
-      token: 'ok',
+      token: hashAuthToken('ok'),
       messageId: 'message-1',
       recipientUserId: 'user-1',
       expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
@@ -103,10 +104,10 @@ describe('messages /api/messages/token/[token]', () => {
 
   it('returns 410 when token is expired', async () => {
     const { commandBus } = setupContainer(async (entity, where) => {
-      if (entity === MessageAccessToken && where.token === 'expired') {
+      if (entity === MessageAccessToken && where.token === hashAuthToken('expired')) {
         return {
           ...createValidToken(),
-          token: 'expired',
+          token: hashAuthToken('expired'),
           expiresAt: new Date('2020-01-01T00:00:00.000Z'),
         }
       }
@@ -122,10 +123,10 @@ describe('messages /api/messages/token/[token]', () => {
 
   it('returns 409 when token usage exceeds max count', async () => {
     const { commandBus } = setupContainer(async (entity, where) => {
-      if (entity === MessageAccessToken && where.token === 'limit') {
+      if (entity === MessageAccessToken && where.token === hashAuthToken('limit')) {
         return {
           ...createValidToken(),
-          token: 'limit',
+          token: hashAuthToken('limit'),
           useCount: 25,
         }
       }
@@ -143,7 +144,7 @@ describe('messages /api/messages/token/[token]', () => {
     const message = createMessage()
 
     const { em, commandBus } = setupContainer(async (entity, where) => {
-      if (entity === MessageAccessToken && where.token === 'ok') return createValidToken()
+      if (entity === MessageAccessToken && where.token === hashAuthToken('ok')) return createValidToken()
       if (entity === Message && where.id === 'message-1') return message
       if (entity === MessageRecipient && where.messageId === 'message-1') return createRecipient()
       return null
@@ -180,7 +181,7 @@ describe('messages /api/messages/token/[token]', () => {
 
   it('returns only auth preflight for protected token when unauthenticated', async () => {
     const { em, commandBus } = setupContainer(async (entity, where) => {
-      if (entity === MessageAccessToken && where.token === 'ok') return createValidToken()
+      if (entity === MessageAccessToken && where.token === hashAuthToken('ok')) return createValidToken()
       if (entity === Message && where.id === 'message-1') return createMessage()
       if (entity === MessageRecipient && where.messageId === 'message-1') return createRecipient()
       return null
@@ -210,7 +211,7 @@ describe('messages /api/messages/token/[token]', () => {
   it('returns 403 for protected token when authenticated user is not the recipient', async () => {
     getAuthFromRequestMock.mockResolvedValueOnce({ sub: 'other-user', tenantId: 'tenant-1', orgId: 'org-1' })
     const { em, commandBus } = setupContainer(async (entity, where) => {
-      if (entity === MessageAccessToken && where.token === 'ok') return createValidToken()
+      if (entity === MessageAccessToken && where.token === hashAuthToken('ok')) return createValidToken()
       if (entity === Message && where.id === 'message-1') return createMessage()
       if (entity === MessageRecipient && where.messageId === 'message-1') return createRecipient()
       return null
@@ -236,7 +237,7 @@ describe('messages /api/messages/token/[token]', () => {
   it('returns protected payload for the authenticated recipient', async () => {
     getAuthFromRequestMock.mockResolvedValueOnce({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
     const { em, commandBus } = setupContainer(async (entity, where) => {
-      if (entity === MessageAccessToken && where.token === 'ok') return createValidToken()
+      if (entity === MessageAccessToken && where.token === hashAuthToken('ok')) return createValidToken()
       if (entity === Message && where.id === 'message-1') return createMessage()
       if (entity === MessageRecipient && where.messageId === 'message-1') return createRecipient()
       return null
@@ -274,5 +275,36 @@ describe('messages /api/messages/token/[token]', () => {
         }),
       }),
     )
+  })
+
+  it('looks the token up only by HMAC hash, never by the raw request value', async () => {
+    const { em } = setupContainer(async (entity, where) => {
+      if (entity === MessageAccessToken && where.token === hashAuthToken('ok')) return createValidToken()
+      return null
+    })
+
+    await GET(new Request('http://localhost'), { params: { token: 'ok' } })
+
+    expect(em.findOne).toHaveBeenCalledWith(MessageAccessToken, { token: hashAuthToken('ok') })
+    expect(em.findOne).not.toHaveBeenCalledWith(MessageAccessToken, { token: 'ok' })
+  })
+
+  it('rejects a stored raw (unhashed) token value presented directly as the URL token', async () => {
+    const legacyRawToken = 'legacy-plaintext-token-value'
+    const { em, commandBus } = setupContainer(async (entity, where) => {
+      if (entity === MessageAccessToken && where.token === legacyRawToken) {
+        return { ...createValidToken(), token: legacyRawToken }
+      }
+      return null
+    })
+
+    const response = await GET(new Request('http://localhost'), { params: { token: legacyRawToken } })
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({ error: 'Invalid or expired link' })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(em.findOne).toHaveBeenCalledTimes(1)
+    expect(em.findOne).toHaveBeenCalledWith(MessageAccessToken, { token: hashAuthToken(legacyRawToken) })
+    expect(em.findOne).not.toHaveBeenCalledWith(MessageAccessToken, { token: legacyRawToken })
   })
 })
