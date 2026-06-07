@@ -201,6 +201,58 @@ describe('AppShell', () => {
     )
   })
 
+  it('uses backend chrome brand logo when the selected organization has one', async () => {
+    const previousFetch = global.fetch
+    const previousWindowFetch = window.fetch
+    const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        brand: {
+          name: 'Acme',
+          logo: {
+            src: '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.png?width=320',
+            alt: 'Acme logo',
+          },
+        },
+        groups,
+        settingsSections: [],
+        settingsPathPrefixes: [],
+        profileSections: [],
+        profilePathPrefixes: [],
+        grantedFeatures: [],
+        roles: [],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    ) as typeof fetch
+    global.fetch = fetchMock
+    window.fetch = fetchMock
+    ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = fetchMock
+
+    try {
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={[]}
+          adminNavApi="/api/auth/admin/nav-brand-logo"
+        >
+          <div>Child content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        expect(screen.getByAltText('Acme logo')).toHaveAttribute(
+          'src',
+          '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.png?width=320',
+        )
+      })
+      expect(screen.getByText('Acme')).toBeInTheDocument()
+    } finally {
+      global.fetch = previousFetch
+      window.fetch = previousWindowFetch
+      ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
+    }
+  })
+
   it('renders nested settings links when settings parent route is active', async () => {
     mockPathname = '/backend/entities/user'
 
