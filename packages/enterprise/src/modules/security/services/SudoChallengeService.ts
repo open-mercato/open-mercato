@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { z } from 'zod'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -38,14 +39,16 @@ export type SudoProtectionResolution = {
   config?: SudoChallengeConfig
 }
 
-type SignedSudoTokenPayload = {
-  sid: string
-  sub: string
-  tid: string | null
-  oid: string | null
-  tgt: string
-  exp: number
-}
+const signedSudoTokenPayloadSchema = z.object({
+  sid: z.string(),
+  sub: z.string(),
+  tid: z.string().nullable(),
+  oid: z.string().nullable(),
+  tgt: z.string(),
+  exp: z.number(),
+})
+
+type SignedSudoTokenPayload = z.infer<typeof signedSudoTokenPayloadSchema>
 
 type UserScope = {
   id: string
@@ -665,9 +668,11 @@ export class SudoChallengeService {
     if (!timingSafeEqual(signatureBuffer, expectedBuffer)) return null
 
     try {
-      const parsed = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as SignedSudoTokenPayload
-      if (!parsed || typeof parsed !== 'object') return null
-      return parsed
+      const parsed = signedSudoTokenPayloadSchema.safeParse(
+        JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')),
+      )
+      if (!parsed.success) return null
+      return parsed.data
     } catch {
       return null
     }
