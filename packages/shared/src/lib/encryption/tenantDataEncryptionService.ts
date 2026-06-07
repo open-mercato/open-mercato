@@ -86,10 +86,20 @@ export function parseDecryptedFieldValue(decrypted: string): unknown {
   }
 }
 
-function isEncryptedPayload(value: unknown): boolean {
+/**
+ * A value is only treated as "already encrypted" when it actually decrypts
+ * under the tenant DEK — i.e. the AES-GCM authentication tag verifies. A purely
+ * structural `<iv>:<ct>:<tag>:v1` shape check is forgeable: attacker-controlled
+ * field values (e.g. their own profile email/phone) could impersonate ciphertext
+ * to skip encryption-at-rest and the lookup hash entirely (issue #2720). Binding
+ * the check to a successful authenticated decrypt makes forgery infeasible, so a
+ * fake payload simply gets encrypted like any other plaintext.
+ */
+function isEncryptedWithDek(value: unknown, dek: TenantDek): boolean {
   if (typeof value !== 'string') return false
   const parts = value.split(':')
-  return parts.length === 4 && parts[3] === 'v1'
+  if (parts.length !== 4 || parts[3] !== 'v1') return false
+  return decryptWithAesGcm(value, dek.key) !== null
 }
 
 export class TenantDataEncryptionService {
@@ -260,8 +270,10 @@ export class TenantDataEncryptionService {
       if (!key) continue
       const value = clone[key]
       if (value === null || value === undefined) continue
-       // Avoid double-encrypting already encrypted payloads
-      if (isEncryptedPayload(value)) continue
+      // Avoid double-encrypting payloads that genuinely decrypt under this DEK.
+      // A forged ciphertext-shaped string fails this check and is encrypted as
+      // plaintext, closing the encryption-at-rest bypass (issue #2720).
+      if (isEncryptedWithDek(value, dek)) continue
       const serialized = typeof value === 'string' ? value : JSON.stringify(value)
       const payload = encryptWithAesGcm(serialized, dek.key)
       clone[key] = payload.value
