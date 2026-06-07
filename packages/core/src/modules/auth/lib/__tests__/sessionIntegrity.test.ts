@@ -35,12 +35,15 @@ function mockFindOneByEntity(store: MockStore & { session?: SessionLookupResult 
   })
 }
 
-type SessionLookupResult = { id: string; deletedAt: Date | null; expiresAt: Date } | null
+type SessionLookupResult =
+  | { id: string; deletedAt: Date | null; expiresAt: Date; user?: { id: string } | string }
+  | null
 
 const validSession: SessionLookupResult = {
   id: sessionId,
   deletedAt: null,
   expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+  user: { id: userId },
 }
 
 describe('isAuthContextValid', () => {
@@ -224,12 +227,55 @@ describe('isAuthContextValid', () => {
       id: sessionId,
       deletedAt: null,
       expiresAt: new Date(Date.now() - 1000),
+      user: { id: userId },
     }
     findOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
       const entity = args[1]
       if (entity === Session) return expiredSession
       return null
     })
+
+    await expect(
+      isAuthContextValid(em, { sub: userId, sid: sessionId, tenantId, orgId: organizationId, roles: [] }),
+    ).resolves.toBe(false)
+  })
+
+  it('binds the session lookup to the token subject', async () => {
+    mockFindOneByEntity({ session: validSession, user: { id: userId, tenantId, organizationId } })
+
+    await expect(
+      isAuthContextValid(em, { sub: userId, sid: sessionId, tenantId, orgId: organizationId, roles: [] }),
+    ).resolves.toBe(true)
+
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      em,
+      Session,
+      { id: sessionId, user: userId, deletedAt: null },
+    )
+  })
+
+  it('rejects a live session that belongs to a different subject', async () => {
+    const otherUserId = '99999999-9999-4999-8999-999999999999'
+    const foreignSession: SessionLookupResult = {
+      id: sessionId,
+      deletedAt: null,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      user: { id: otherUserId },
+    }
+    mockFindOneByEntity({ session: foreignSession, user: { id: userId, tenantId, organizationId } })
+
+    await expect(
+      isAuthContextValid(em, { sub: userId, sid: sessionId, tenantId, orgId: organizationId, roles: [] }),
+    ).resolves.toBe(false)
+  })
+
+  it('rejects a session whose user relation carries no resolvable id', async () => {
+    const unboundSession = {
+      id: sessionId,
+      deletedAt: null,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    } as unknown as SessionLookupResult
+    mockFindOneByEntity({ session: unboundSession, user: { id: userId, tenantId, organizationId } })
 
     await expect(
       isAuthContextValid(em, { sub: userId, sid: sessionId, tenantId, orgId: organizationId, roles: [] }),
