@@ -1,4 +1,5 @@
-import { createKmsService, HashicorpVaultKmsService } from '../kms'
+import crypto from 'node:crypto'
+import { buildDerivedKeyFallbackBannerLines, createKmsService, HashicorpVaultKmsService } from '../kms'
 
 const originalEnv = { ...process.env }
 
@@ -65,6 +66,37 @@ describe('kms timeout handling', () => {
 
     expect(service.isHealthy()).toBe(false)
     expect(dek).toBeNull()
+  })
+
+  it('never prints the explicit fallback secret verbatim in the banner, regardless of NODE_ENV', () => {
+    const secret = 'super-secret-tenant-encryption-key'
+    for (const nodeEnv of ['development', 'staging', 'preview', 'PRODUCTION', 'production', undefined]) {
+      if (nodeEnv === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = nodeEnv
+
+      const lines = buildDerivedKeyFallbackBannerLines({
+        secret,
+        source: 'explicit',
+        envName: 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY',
+      })
+      const rendered = lines.join('\n')
+
+      expect(rendered).not.toContain(secret)
+      expect(rendered).toContain('Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY')
+      const expectedFingerprint = crypto.createHash('sha256').update(secret, 'utf8').digest('hex').slice(0, 16)
+      expect(rendered).toContain(`Secret fingerprint (sha256, truncated): ${expectedFingerprint}`)
+    }
+  })
+
+  it('does not echo the dev default secret verbatim in the banner either', () => {
+    const lines = buildDerivedKeyFallbackBannerLines({
+      secret: 'om-dev-tenant-encryption',
+      source: 'dev-default',
+      envName: 'DEV_DEFAULT',
+    })
+    const rendered = lines.join('\n')
+    expect(rendered).not.toContain('om-dev-tenant-encryption')
+    expect(rendered).toContain('Source: dev default secret (do NOT use in production)')
   })
 
   it('requires an explicit opt-in before using the dev default derived key', async () => {
