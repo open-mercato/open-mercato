@@ -84,10 +84,7 @@ export class AuthService {
 
   async deleteSessionByToken(token: string) {
     const hashedToken = hashAuthToken(token)
-    const deleted = await this.em.nativeDelete(Session, { token: hashedToken })
-    if (!deleted) {
-      await this.em.nativeDelete(Session, { token })
-    }
+    await this.em.nativeDelete(Session, { token: hashedToken })
   }
 
   async deleteSessionById(sessionId: string) {
@@ -108,10 +105,7 @@ export class AuthService {
   async refreshFromSessionToken(token: string) {
     const now = new Date()
     const hashedToken = hashAuthToken(token)
-    let sess = await this.em.findOne(Session, { token: hashedToken })
-    if (!sess) {
-      sess = await this.em.findOne(Session, { token })
-    }
+    const sess = await this.em.findOne(Session, { token: hashedToken })
     if (!sess || sess.expiresAt <= now) return null
     const user = await findOneWithDecryption(this.em, User, { id: sess.user.id, deletedAt: null })
     if (!user) return null
@@ -133,10 +127,7 @@ export class AuthService {
   async confirmPasswordReset(token: string, newPassword: string): Promise<User | null> {
     const now = new Date()
     const hashedToken = hashAuthToken(token)
-    let row = await this.em.findOne(PasswordReset, { token: hashedToken })
-    if (!row) {
-      row = await this.em.findOne(PasswordReset, { token })
-    }
+    const row = await this.em.findOne(PasswordReset, { token: hashedToken })
     if (!row || (row.usedAt && row.usedAt <= now) || row.expiresAt <= now) return null
 
     // Atomic compare-and-set: only mark used if still unused — prevents token replay under concurrency
