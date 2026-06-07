@@ -1,4 +1,4 @@
-import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource, QueryExtensionsConfig } from './types'
+import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource, QueryExtensionsConfig, Sort } from './types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql, type RawBuilder } from 'kysely'
@@ -14,6 +14,13 @@ import {
 import { resolveSearchConfig } from '../search/config'
 import { tokenizeText } from '../search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
+import {
+  buildCustomFieldDefinitionIndexFromRows,
+  resolveCfDefIndexOrgCandidates,
+  type CustomFieldDefinitionRow,
+  type ResolvedCustomFieldDefinitions,
+} from '../crud/custom-field-definition-index'
+import { resolveEncryptedSortFields, sortRowsInMemory } from './encrypted-sort'
 
 type AnyDb = Kysely<any>
 type AnyBuilder = any
@@ -22,6 +29,7 @@ const entityTableCache = new Map<string, string>()
 
 type EncryptionResolver = () => {
   decryptEntityPayload?: (entityId: EntityId, payload: Record<string, unknown>, tenantId?: string | null, organizationId?: string | null) => Promise<Record<string, unknown>>
+  getEncryptedFieldNames?: (entityId: EntityId, tenantId?: string | null, organizationId?: string | null) => Promise<readonly string[]>
   isEnabled?: () => boolean
 } | null
 
@@ -475,9 +483,35 @@ export class BasicQueryEngine implements QueryEngine {
       applyJoinFilterOp,
       columnExists: (tbl, column) => this.columnExists(tbl, column),
     })
+
+    const fallbackOrgId =
+      opts.organizationId
+      ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
+    const encryptionService = this.getEncryptionService()
+    const resolvedSorts: Sort[] = []
+    for (const s of opts.sort || []) {
+      if (s.field.startsWith('cf:')) {
+        resolvedSorts.push(s)
+      } else {
+        const column = await this.resolveBaseColumn(table, s.field)
+        if (column) resolvedSorts.push({ ...s, field: column })
+      }
+    }
+    const encryptedSortFields = await resolveEncryptedSortFields(
+      encryptionService,
+      entity,
+      resolvedSorts.filter((sort) => !sort.field.startsWith('cf:')).map((sort) => sort.field),
+      opts.tenantId ?? null,
+      fallbackOrgId,
+    )
+    const requiresPlaintextSort = encryptedSortFields.size > 0
+
     // Selection (base columns only here; cf:* handled later)
     if (opts.fields && opts.fields.length) {
-      const cols = opts.fields.filter((f) => !f.startsWith('cf:'))
+      const cols = new Set(opts.fields.filter((f) => !f.startsWith('cf:')))
+      if (requiresPlaintextSort) {
+        for (const field of encryptedSortFields) cols.add(field)
+      }
       for (const c of cols) {
         // Qualify and alias to base names to avoid ambiguity
         q = q.select(sql.ref(qualify(c)).as(c))
@@ -502,6 +536,9 @@ export class BasicQueryEngine implements QueryEngine {
       : []
     const cfKeys = new Set<string>()
     const keySource = new Map<string, ResolvedCustomFieldSource>()
+    // Custom-field definition index threaded onto the result so the CRUD factory
+    // can decorate list rows without reloading definitions from the DB (#2133).
+    let resolvedCustomFieldDefinitions: ResolvedCustomFieldDefinitions | undefined
     // Explicit in fields/filters
     for (const f of (opts.fields || [])) {
       if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
@@ -516,21 +553,59 @@ export class BasicQueryEngine implements QueryEngine {
         entityIdList.forEach((id, idx) => entityOrder.set(id, idx))
         const rows = await db
           .selectFrom('custom_field_defs' as any)
-          .select(['key' as any, 'entity_id' as any, 'config_json' as any, 'kind' as any])
+          .select([
+            'key' as any,
+            'entity_id' as any,
+            'config_json' as any,
+            'kind' as any,
+            'organization_id' as any,
+            'tenant_id' as any,
+            'updated_at' as any,
+            'deleted_at' as any,
+          ])
           .where('entity_id' as any, 'in', entityIdList)
           .where('is_active' as any, '=', true)
           .where((eb: any) => eb.or([
             eb('tenant_id' as any, '=', tenantId),
             eb('tenant_id' as any, 'is', null),
           ]))
-          .execute() as Array<{ key: string; entity_id: string; config_json: unknown; kind: string }>
-        type CustomFieldDefinitionRow = {
+          .execute() as Array<{
+            key: string
+            entity_id: string
+            config_json: unknown
+            kind: string
+            organization_id: string | null
+            tenant_id: string | null
+            updated_at: Date | string | number | null
+            deleted_at: Date | string | number | null
+          }>
+        // Build the decoration index from the same rows, scoped exactly like the
+        // factory's loadCustomFieldDefinitionIndex (tenant + is_active already
+        // applied in SQL; org + soft-delete applied in the shared builder).
+        const orgCandidates = resolveCfDefIndexOrgCandidates(opts.organizationIds, opts.organizationId ?? null)
+        const definitionRows: CustomFieldDefinitionRow[] = rows.map((row) => ({
+          key: String(row.key),
+          entityId: String(row.entity_id),
+          kind: row.kind == null ? null : String(row.kind),
+          configJson: row.config_json,
+          organizationId: row.organization_id == null ? null : String(row.organization_id),
+          tenantId: row.tenant_id == null ? null : String(row.tenant_id),
+          deletedAt: row.deleted_at ?? null,
+          updatedAt: row.updated_at ?? null,
+        }))
+        resolvedCustomFieldDefinitions = {
+          index: buildCustomFieldDefinitionIndexFromRows(definitionRows, { organizationIds: orgCandidates }),
+          entityIds: entityIdList,
+          tenantId: tenantId ?? null,
+          organizationIds: orgCandidates,
+        }
+        type ScoredCustomFieldRow = {
           key: string
           entityId: string
           kind: string
           config: Record<string, unknown>
         }
-        const sorted: CustomFieldDefinitionRow[] = rows.map((row) => {
+        const sorted: ScoredCustomFieldRow[] = rows.map((row) => {
           const raw = row.config_json
           let cfg: Record<string, any> = {}
           if (raw && typeof raw === 'string') {
@@ -714,7 +789,7 @@ export class BasicQueryEngine implements QueryEngine {
     }
 
     // Sorting: base fields and cf:* (use aggregated alias for cf)
-    for (const s of opts.sort || []) {
+    for (const s of resolvedSorts) {
       if (s.field.startsWith('cf:')) {
         const key = s.field.slice(3)
         const alias = sanitize(`cf:${key}`)
@@ -726,11 +801,9 @@ export class BasicQueryEngine implements QueryEngine {
             cfSelectedAliases.push(alias)
           }
         }
-        q = q.orderBy(alias, (s.dir ?? 'asc') as any)
+        if (!requiresPlaintextSort) q = q.orderBy(alias, (s.dir ?? 'asc') as any)
       } else {
-        const column = await this.resolveBaseColumn(table, s.field)
-        if (!column) continue
-        q = q.orderBy(qualify(column), (s.dir ?? 'asc') as any)
+        if (!requiresPlaintextSort) q = q.orderBy(qualify(s.field), (s.dir ?? 'asc') as any)
       }
     }
 
@@ -747,7 +820,10 @@ export class BasicQueryEngine implements QueryEngine {
       : q.clearSelect().clearOrderBy().select(sql<string>`count(distinct ${sql.ref(`${table}.id`)})`.as('count'))
     const countRow = await countBuilder.executeTakeFirst() as { count: unknown } | undefined
     const total = Number((countRow as any)?.count ?? 0)
-    const items = await q.limit(pageSize).offset((page - 1) * pageSize).execute() as any[]
+    const dataQuery = requiresPlaintextSort
+      ? q
+      : q.limit(pageSize).offset((page - 1) * pageSize)
+    const items = await dataQuery.execute() as any[]
 
     if (cfJsonAliases.size > 0) {
       for (const row of items) {
@@ -771,7 +847,7 @@ export class BasicQueryEngine implements QueryEngine {
       }
     }
 
-    const svc = this.getEncryptionService()
+    const svc = encryptionService
     const decryptPayload =
       svc?.decryptEntityPayload?.bind(svc) as
         | ((
@@ -783,9 +859,6 @@ export class BasicQueryEngine implements QueryEngine {
         | null
     let decryptedItems = items
     if (decryptPayload) {
-      const fallbackOrgId =
-        opts.organizationId
-        ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
       decryptedItems = await Promise.all(
         (items as any[]).map(async (item) => {
           try {
@@ -804,7 +877,12 @@ export class BasicQueryEngine implements QueryEngine {
       )
     }
 
-    let queryResult: QueryResult<T> = { items: decryptedItems, page, pageSize, total }
+    const pagedItems = requiresPlaintextSort
+      ? sortRowsInMemory(decryptedItems as Record<string, unknown>[], resolvedSorts)
+          .slice((page - 1) * pageSize, page * pageSize)
+      : decryptedItems
+
+    let queryResult: QueryResult<T> = { items: pagedItems, page, pageSize, total }
 
     // --- UMES query extension: after-query pipeline ---
     if (ext && extensionCtx) {
@@ -815,6 +893,12 @@ export class BasicQueryEngine implements QueryEngine {
         extensionCtx,
         diCtx,
       ) as QueryResult<T>
+    }
+
+    // Attach after the extension pipeline so the field always survives even if a
+    // subscriber replaces the whole result object.
+    if (resolvedCustomFieldDefinitions) {
+      queryResult.customFieldDefinitions = resolvedCustomFieldDefinitions
     }
 
     return queryResult

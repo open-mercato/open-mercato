@@ -4,7 +4,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -236,8 +238,18 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
       createdAt: now,
       updatedAt: now,
     })
-    em.persist(record)
-    await em.flush()
+    await withAtomicFlush(em, [
+      async () => {
+        em.persist(record)
+        await em.flush()
+      },
+      () => syncResourcesResourceTags(em, {
+        resourceId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        tagIds: parsed.tags,
+      }),
+    ], { transaction: true })
     const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
     await setCustomFieldsIfAny({
       dataEngine,
@@ -247,13 +259,6 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
       organizationId: record.organizationId,
       values: custom,
     })
-    await syncResourcesResourceTags(em, {
-      resourceId: record.id,
-      organizationId: record.organizationId,
-      tenantId: record.tenantId,
-      tagIds: parsed.tags,
-    })
-    await em.flush()
     await emitCrudSideEffects({
       dataEngine,
       action: 'created',
@@ -325,6 +330,94 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
       })
     }
   },
+  redo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ResourceUndoPayload>(logEntry)
+    const after = resolveRedoSnapshot<ResourceSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for resource create' })
+    }
+    const fallbackCustomAfter = (after as ResourceSnapshot).customFields ?? null
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let record = await em.findOne(ResourcesResource, { id: after.id })
+    await withAtomicFlush(em, [
+      async () => {
+        if (!record) {
+          record = em.create(ResourcesResource, {
+            id: after.id,
+            tenantId: after.tenantId,
+            organizationId: after.organizationId,
+            name: after.name,
+            description: after.description ?? null,
+            resourceTypeId: after.resourceTypeId ?? null,
+            capacity: after.capacity ?? null,
+            capacityUnitValue: after.capacityUnitValue ?? null,
+            capacityUnitName: after.capacityUnitName ?? null,
+            capacityUnitColor: after.capacityUnitColor ?? null,
+            capacityUnitIcon: after.capacityUnitIcon ?? null,
+            appearanceIcon: after.appearanceIcon ?? null,
+            appearanceColor: after.appearanceColor ?? null,
+            isActive: after.isActive,
+            availabilityRuleSetId: after.availabilityRuleSetId ?? null,
+            deletedAt: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          em.persist(record)
+        } else {
+          record.name = after.name
+          record.description = after.description ?? null
+          record.resourceTypeId = after.resourceTypeId ?? null
+          record.capacity = after.capacity ?? null
+          record.capacityUnitValue = after.capacityUnitValue ?? null
+          record.capacityUnitName = after.capacityUnitName ?? null
+          record.capacityUnitColor = after.capacityUnitColor ?? null
+          record.capacityUnitIcon = after.capacityUnitIcon ?? null
+          record.appearanceIcon = after.appearanceIcon ?? null
+          record.appearanceColor = after.appearanceColor ?? null
+          record.isActive = after.isActive
+          record.availabilityRuleSetId = after.availabilityRuleSetId ?? null
+          record.deletedAt = null
+          record.updatedAt = new Date()
+        }
+        await em.flush()
+      },
+      () => syncResourcesResourceTags(em, {
+        resourceId: (record as ResourcesResource).id,
+        organizationId: (record as ResourcesResource).organizationId,
+        tenantId: (record as ResourcesResource).tenantId,
+        tagIds: after.tags,
+      }),
+    ], { transaction: true })
+    const resolvedRecord = record as ResourcesResource
+
+    const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+    const customAfter = payload?.customAfter ?? fallbackCustomAfter ?? undefined
+    if (customAfter) {
+      const reset = buildCustomFieldResetMap(customAfter, undefined)
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: E.resources.resources_resource,
+        recordId: resolvedRecord.id,
+        tenantId: resolvedRecord.tenantId,
+        organizationId: resolvedRecord.organizationId,
+        values: reset,
+      })
+    }
+
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: resolvedRecord,
+      identifiers: {
+        id: resolvedRecord.id,
+        organizationId: resolvedRecord.organizationId,
+        tenantId: resolvedRecord.tenantId,
+      },
+      events: resourcesResourceCrudEvents,
+      indexer: resourceCrudIndexer,
+    })
+    return { resourceId: resolvedRecord.id }
+  },
 }
 
 const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { resourceId: string }> = {
@@ -351,43 +444,43 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
 
+    let capacityUnit: CapacityUnitSnapshot | null | undefined
     if (parsed.capacityUnitValue !== undefined) {
       const unitValue =
         typeof parsed.capacityUnitValue === 'string' ? parsed.capacityUnitValue.trim() : ''
-      if (!unitValue) {
-        record.capacityUnitValue = null
-        record.capacityUnitName = null
-        record.capacityUnitColor = null
-        record.capacityUnitIcon = null
-      } else {
-        const unitSnapshot = await resolveCapacityUnit(
-          em,
-          { tenantId: record.tenantId, organizationId: record.organizationId },
-          unitValue,
-        )
-        record.capacityUnitValue = unitSnapshot.value
-        record.capacityUnitName = unitSnapshot.name
-        record.capacityUnitColor = unitSnapshot.color
-        record.capacityUnitIcon = unitSnapshot.icon
-      }
+      capacityUnit = unitValue
+        ? await resolveCapacityUnit(
+            em,
+            { tenantId: record.tenantId, organizationId: record.organizationId },
+            unitValue,
+          )
+        : null
     }
-    if (parsed.name !== undefined) record.name = parsed.name
-    if (parsed.description !== undefined) record.description = parsed.description ?? null
-    if (parsed.resourceTypeId !== undefined) record.resourceTypeId = parsed.resourceTypeId ?? null
-    if (parsed.capacity !== undefined) record.capacity = parsed.capacity ?? null
-    if (parsed.appearanceIcon !== undefined) record.appearanceIcon = parsed.appearanceIcon ?? null
-    if (parsed.appearanceColor !== undefined) record.appearanceColor = parsed.appearanceColor ?? null
-    if (parsed.availabilityRuleSetId !== undefined) record.availabilityRuleSetId = parsed.availabilityRuleSetId ?? null
-    record.updatedAt = new Date()
-    if (parsed.isActive !== undefined) record.isActive = parsed.isActive
-    await em.flush()
-    await syncResourcesResourceTags(em, {
-      resourceId: record.id,
-      organizationId: record.organizationId,
-      tenantId: record.tenantId,
-      tagIds: parsed.tags,
-    })
-    await em.flush()
+    await withAtomicFlush(em, [
+      () => {
+        if (parsed.capacityUnitValue !== undefined) {
+          record.capacityUnitValue = capacityUnit?.value ?? null
+          record.capacityUnitName = capacityUnit?.name ?? null
+          record.capacityUnitColor = capacityUnit?.color ?? null
+          record.capacityUnitIcon = capacityUnit?.icon ?? null
+        }
+        if (parsed.name !== undefined) record.name = parsed.name
+        if (parsed.description !== undefined) record.description = parsed.description ?? null
+        if (parsed.resourceTypeId !== undefined) record.resourceTypeId = parsed.resourceTypeId ?? null
+        if (parsed.capacity !== undefined) record.capacity = parsed.capacity ?? null
+        if (parsed.appearanceIcon !== undefined) record.appearanceIcon = parsed.appearanceIcon ?? null
+        if (parsed.appearanceColor !== undefined) record.appearanceColor = parsed.appearanceColor ?? null
+        if (parsed.availabilityRuleSetId !== undefined) record.availabilityRuleSetId = parsed.availabilityRuleSetId ?? null
+        record.updatedAt = new Date()
+        if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+      },
+      () => syncResourcesResourceTags(em, {
+        resourceId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        tagIds: parsed.tags,
+      }),
+    ], { transaction: true })
     const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
     await setCustomFieldsIfAny({
       dataEngine,
@@ -476,28 +569,30 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(ResourcesResource, { id: before.id })
     if (!record) return
-    record.name = before.name
-    record.description = before.description ?? null
-    record.resourceTypeId = before.resourceTypeId ?? null
-    record.capacity = before.capacity ?? null
-    record.capacityUnitValue = before.capacityUnitValue ?? null
-    record.capacityUnitName = before.capacityUnitName ?? null
-    record.capacityUnitColor = before.capacityUnitColor ?? null
-    record.capacityUnitIcon = before.capacityUnitIcon ?? null
-    record.appearanceIcon = before.appearanceIcon ?? null
-    record.appearanceColor = before.appearanceColor ?? null
-    record.isActive = before.isActive
-    record.availabilityRuleSetId = before.availabilityRuleSetId ?? null
-    record.deletedAt = before.deletedAt ? new Date(before.deletedAt) : null
-    record.updatedAt = new Date()
-    await em.flush()
-    await syncResourcesResourceTags(em, {
-      resourceId: record.id,
-      organizationId: record.organizationId,
-      tenantId: record.tenantId,
-      tagIds: before.tags,
-    })
-    await em.flush()
+    await withAtomicFlush(em, [
+      () => {
+        record.name = before.name
+        record.description = before.description ?? null
+        record.resourceTypeId = before.resourceTypeId ?? null
+        record.capacity = before.capacity ?? null
+        record.capacityUnitValue = before.capacityUnitValue ?? null
+        record.capacityUnitName = before.capacityUnitName ?? null
+        record.capacityUnitColor = before.capacityUnitColor ?? null
+        record.capacityUnitIcon = before.capacityUnitIcon ?? null
+        record.appearanceIcon = before.appearanceIcon ?? null
+        record.appearanceColor = before.appearanceColor ?? null
+        record.isActive = before.isActive
+        record.availabilityRuleSetId = before.availabilityRuleSetId ?? null
+        record.deletedAt = before.deletedAt ? new Date(before.deletedAt) : null
+        record.updatedAt = new Date()
+      },
+      () => syncResourcesResourceTags(em, {
+        resourceId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        tagIds: before.tags,
+      }),
+    ], { transaction: true })
 
     const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
     const customBefore = payload.customBefore ?? fallbackCustomBefore ?? undefined
@@ -602,52 +697,56 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
     const fallbackCustomBefore = (before as ResourceSnapshot).customFields ?? null
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(ResourcesResource, { id: before.id })
-    if (!record) {
-      record = em.create(ResourcesResource, {
-        id: before.id,
-        tenantId: before.tenantId,
-        organizationId: before.organizationId,
-        name: before.name,
-        description: before.description ?? null,
-        resourceTypeId: before.resourceTypeId ?? null,
-        capacity: before.capacity ?? null,
-        capacityUnitValue: before.capacityUnitValue ?? null,
-        capacityUnitName: before.capacityUnitName ?? null,
-        capacityUnitColor: before.capacityUnitColor ?? null,
-        capacityUnitIcon: before.capacityUnitIcon ?? null,
-        appearanceIcon: before.appearanceIcon ?? null,
-        appearanceColor: before.appearanceColor ?? null,
-        isActive: before.isActive,
-        availabilityRuleSetId: before.availabilityRuleSetId ?? null,
-        deletedAt: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(record)
-    } else {
-      record.name = before.name
-      record.description = before.description ?? null
-      record.resourceTypeId = before.resourceTypeId ?? null
-      record.capacity = before.capacity ?? null
-      record.capacityUnitValue = before.capacityUnitValue ?? null
-      record.capacityUnitName = before.capacityUnitName ?? null
-      record.capacityUnitColor = before.capacityUnitColor ?? null
-      record.capacityUnitIcon = before.capacityUnitIcon ?? null
-      record.appearanceIcon = before.appearanceIcon ?? null
-      record.appearanceColor = before.appearanceColor ?? null
-      record.isActive = before.isActive
-      record.availabilityRuleSetId = before.availabilityRuleSetId ?? null
-      record.deletedAt = null
-      record.updatedAt = new Date()
-    }
-    await em.flush()
-    await syncResourcesResourceTags(em, {
-      resourceId: record.id,
-      organizationId: record.organizationId,
-      tenantId: record.tenantId,
-      tagIds: before.tags,
-    })
-    await em.flush()
+    await withAtomicFlush(em, [
+      async () => {
+        if (!record) {
+          record = em.create(ResourcesResource, {
+            id: before.id,
+            tenantId: before.tenantId,
+            organizationId: before.organizationId,
+            name: before.name,
+            description: before.description ?? null,
+            resourceTypeId: before.resourceTypeId ?? null,
+            capacity: before.capacity ?? null,
+            capacityUnitValue: before.capacityUnitValue ?? null,
+            capacityUnitName: before.capacityUnitName ?? null,
+            capacityUnitColor: before.capacityUnitColor ?? null,
+            capacityUnitIcon: before.capacityUnitIcon ?? null,
+            appearanceIcon: before.appearanceIcon ?? null,
+            appearanceColor: before.appearanceColor ?? null,
+            isActive: before.isActive,
+            availabilityRuleSetId: before.availabilityRuleSetId ?? null,
+            deletedAt: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          em.persist(record)
+        } else {
+          record.name = before.name
+          record.description = before.description ?? null
+          record.resourceTypeId = before.resourceTypeId ?? null
+          record.capacity = before.capacity ?? null
+          record.capacityUnitValue = before.capacityUnitValue ?? null
+          record.capacityUnitName = before.capacityUnitName ?? null
+          record.capacityUnitColor = before.capacityUnitColor ?? null
+          record.capacityUnitIcon = before.capacityUnitIcon ?? null
+          record.appearanceIcon = before.appearanceIcon ?? null
+          record.appearanceColor = before.appearanceColor ?? null
+          record.isActive = before.isActive
+          record.availabilityRuleSetId = before.availabilityRuleSetId ?? null
+          record.deletedAt = null
+          record.updatedAt = new Date()
+        }
+        await em.flush()
+      },
+      () => syncResourcesResourceTags(em, {
+        resourceId: (record as ResourcesResource).id,
+        organizationId: (record as ResourcesResource).organizationId,
+        tenantId: (record as ResourcesResource).tenantId,
+        tagIds: before.tags,
+      }),
+    ], { transaction: true })
+    const resolvedRecord = record as ResourcesResource
 
     const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
     const customBefore = payload.customBefore ?? fallbackCustomBefore ?? undefined
@@ -656,9 +755,9 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
       await setCustomFieldsIfAny({
         dataEngine,
         entityId: E.resources.resources_resource,
-        recordId: record.id,
-        tenantId: record.tenantId,
-        organizationId: record.organizationId,
+        recordId: resolvedRecord.id,
+        tenantId: resolvedRecord.tenantId,
+        organizationId: resolvedRecord.organizationId,
         values: reset,
       })
     }
@@ -666,11 +765,11 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
     await emitCrudUndoSideEffects({
       dataEngine,
       action: 'created',
-      entity: record,
+      entity: resolvedRecord,
       identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
+        id: resolvedRecord.id,
+        organizationId: resolvedRecord.organizationId,
+        tenantId: resolvedRecord.tenantId,
       },
       events: resourcesResourceCrudEvents,
       indexer: resourceCrudIndexer,

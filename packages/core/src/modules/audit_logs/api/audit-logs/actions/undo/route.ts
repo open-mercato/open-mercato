@@ -74,12 +74,19 @@ export async function POST(req: Request) {
   }
 
   const lookupActorId = canUndoTenant ? (target.actorUserId ?? auth.sub) : auth.sub
+  // Scope the latest-undoable re-lookup to the target row's own organization, not
+  // the caller's currently-resolved org. The actor/tenant/org guards above already
+  // authorized the caller for this row; reusing the caller's scope here breaks undo
+  // for tenant-level rows (organization create/update/delete/reparent log with a
+  // null organization_id) whenever the caller resolves to a concrete home org, so
+  // the lookup never matches and returns "Undo token not available" (issue #2398).
+  const lookupOrgId = target.organizationId ?? null
   let latest = null
   if (target.resourceKind || target.resourceId) {
     latest = await logs.latestUndoableForResource({
       actorUserId: lookupActorId,
       tenantId: auth.tenantId ?? null,
-      organizationId: scopedOrgId,
+      organizationId: lookupOrgId,
       resourceKind: target.resourceKind ?? undefined,
       resourceId: target.resourceId ?? undefined,
     })
@@ -87,7 +94,7 @@ export async function POST(req: Request) {
   if (!latest) {
     latest = await logs.latestUndoableForActor(lookupActorId, {
       tenantId: auth.tenantId ?? null,
-      organizationId: scopedOrgId,
+      organizationId: lookupOrgId,
     })
   }
   if (!latest || latest.id !== target.id) {

@@ -1,0 +1,144 @@
+{
+  "appDir": "/home/pkarw/Projects/github-janitor/.janitor/repos/open-mercato__open-mercato/worktrees/dc0e2879-9532-4e0c-851d-88ea3c807ab7/apps/mercato",
+  "rows": [
+    {
+      "pkg": "@mikro-orm/postgresql",
+      "why": "PostgreSQL ORM driver — server-only",
+      "inlinedBytes": 2182281,
+      "externalBytes": 107,
+      "savedBytes": 2182174,
+      "error": null
+    },
+    {
+      "pkg": "@mikro-orm/core",
+      "why": "MikroORM core — server-only",
+      "inlinedBytes": 881162,
+      "externalBytes": 101,
+      "savedBytes": 881061,
+      "error": null
+    },
+    {
+      "pkg": "@mikro-orm/migrations",
+      "why": "Migration runner — server-only",
+      "inlinedBytes": 1322041,
+      "externalBytes": 107,
+      "savedBytes": 1321934,
+      "error": null
+    },
+    {
+      "pkg": "@mikro-orm/decorators",
+      "why": "Entity decorators — server-only",
+      "inlinedBytes": null,
+      "externalBytes": 107,
+      "savedBytes": null,
+      "error": "Build failed with 1 error:\napps/mercato/poc-entry.mjs:2:21: ERROR: Could not resolve \"@mikro-orm/decorators\""
+    },
+    {
+      "pkg": "pg",
+      "why": "Native PG driver — server-only",
+      "inlinedBytes": 175249,
+      "externalBytes": 88,
+      "savedBytes": 175161,
+      "error": null
+    },
+    {
+      "pkg": "bcryptjs",
+      "why": "Password hashing — server-only",
+      "inlinedBytes": 32275,
+      "externalBytes": 94,
+      "savedBytes": 32181,
+      "error": null
+    },
+    {
+      "pkg": "bullmq",
+      "why": "Redis-backed queue — server-only",
+      "inlinedBytes": 1547866,
+      "externalBytes": 92,
+      "savedBytes": 1547774,
+      "error": null
+    },
+    {
+      "pkg": "ioredis",
+      "why": "Redis client — server-only",
+      "inlinedBytes": 319122,
+      "externalBytes": 93,
+      "savedBytes": 319029,
+      "error": null
+    },
+    {
+      "pkg": "pdfjs-dist",
+      "why": "PDF parser used in attachments OCR — server-only",
+      "inlinedBytes": 810398,
+      "externalBytes": 96,
+      "savedBytes": 810302,
+      "error": null
+    },
+    {
+      "pkg": "@napi-rs/canvas",
+      "why": "Native canvas — server-only",
+      "inlinedBytes": null,
+      "externalBytes": 101,
+      "savedBytes": null,
+      "error": "Build failed with 1 error:\nnode_modules/@napi-rs/canvas/js-binding.js:231:25: ERROR: No loader is configured for \".node\" files: node_modules/@napi-rs/canvas-linux-x64-gnu/skia.linux-x64-gnu.node"
+    },
+    {
+      "pkg": "newrelic",
+      "why": "APM agent — server-only",
+      "inlinedBytes": null,
+      "externalBytes": 94,
+      "savedBytes": null,
+      "error": "Build failed with 1 error:\nnode_modules/newrelic/lib/shimmer.js:393:35: ERROR: No loader is configured for \".md\" files: node_modules/newrelic/lib/subscribers/README.md"
+    },
+    {
+      "pkg": "@react-email/components",
+      "why": "Email rendering — server-only",
+      "inlinedBytes": 3991524,
+      "externalBytes": 109,
+      "savedBytes": 3991415,
+      "error": null
+    },
+    {
+      "pkg": "react-email",
+      "why": "Email CLI/renderer — server-only",
+      "inlinedBytes": 4023178,
+      "externalBytes": 97,
+      "savedBytes": 4023081,
+      "error": null
+    },
+    {
+      "pkg": "resend",
+      "why": "Email send SDK — server-only",
+      "inlinedBytes": 2482647,
+      "externalBytes": 92,
+      "savedBytes": 2482555,
+      "error": null
+    },
+    {
+      "pkg": "awilix",
+      "why": "DI container — server-only",
+      "inlinedBytes": 229794,
+      "externalBytes": 92,
+      "savedBytes": 229702,
+      "error": null
+    },
+    {
+      "pkg": "ai",
+      "why": "Vercel AI SDK — server-only handler use",
+      "inlinedBytes": 1291000,
+      "externalBytes": 88,
+      "savedBytes": 1290912,
+      "error": null
+    },
+    {
+      "pkg": "@ai-sdk/openai",
+      "why": "OpenAI provider — server-only",
+      "inlinedBytes": 1000704,
+      "externalBytes": 100,
+      "savedBytes": 1000604,
+      "error": null
+    }
+  ],
+  "totalInlinedBytes": 20289241,
+  "totalExternalBytes": 1658,
+  "totalSavedBytes": 20287583
+}

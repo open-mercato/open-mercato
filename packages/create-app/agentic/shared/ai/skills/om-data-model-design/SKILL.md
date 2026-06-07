@@ -291,7 +291,7 @@ export class Ticket {
 
 ### Fetching Related Data
 
-To display related data from another module, use a **Response Enricher** (see `system-extension` skill):
+To display related data from another module, use a **Response Enricher** (see `om-system-extension` skill):
 
 ```typescript
 // data/enrichers.ts
@@ -442,6 +442,8 @@ const items = await em.find(Entity, {
   deleted_at: null,  // Exclude soft-deleted
 })
 ```
+
+> **Multi-phase or relation-syncing writes:** the bare `em.flush()` above is fine for a single scalar update. As soon as a write mutates across multiple phases or runs a query (`em.find`/`em.findOne`/sync helper) between a scalar mutation and the flush, switch to `withAtomicFlush(em, phases, { transaction: true })` from `@open-mercato/shared/lib/commands/flush` — MikroORM v7 silently drops the scalar UPDATE otherwise. Never query between scalar mutations and flush; keep side effects + cache invalidation outside the flush (after commit).
 
 ### Audit/History Table
 

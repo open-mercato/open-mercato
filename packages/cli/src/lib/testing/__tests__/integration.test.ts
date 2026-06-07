@@ -17,7 +17,10 @@ import {
   resolveAppReadyTimeoutMs,
   shouldReuseBuildArtifacts,
   acquireEphemeralRuntimeLock,
+  waitForApplicationReadiness,
 } from '../integration'
+import { EventEmitter } from 'node:events'
+import type { ChildProcess } from 'node:child_process'
 
 const CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
 const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
@@ -553,6 +556,82 @@ describe('integration cache and options', () => {
     } finally {
       warn.mockRestore()
       await rm(tempRoot, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('waitForApplicationReadiness', () => {
+  const makeFakeProcess = (): ChildProcess => new EventEmitter() as unknown as ChildProcess
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+  it('serializes probe cycles so slow probes never pile up concurrent login attempts', async () => {
+    let inFlight = 0
+    let maxInFlight = 0
+    let loginPageCycles = 0
+
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : String(input)
+      inFlight += 1
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      try {
+        // Each probe fetch is slower than the retry interval; the old race-against-a-tick loop
+        // would launch overlapping cycles here and blow past 3 concurrent in-flight requests.
+        await sleep(40)
+        const isLoginPage = url.endsWith('/login') && !url.endsWith('/api/auth/login')
+        if (isLoginPage) {
+          loginPageCycles += 1
+          if (loginPageCycles <= 2) {
+            return { status: 503, ok: false, text: async () => '' } as unknown as Response
+          }
+          return {
+            status: 200,
+            ok: true,
+            text: async () => '<!doctype html><script src="/_next/static/chunks/app.js"></script>',
+          } as unknown as Response
+        }
+        if (url.endsWith('/api/auth/login')) {
+          return { status: 200, ok: true, text: async () => JSON.stringify({ token: 'token' }) } as unknown as Response
+        }
+        if (url.includes('/api/customers/people')) {
+          return { status: 200, ok: true, text: async () => JSON.stringify({ items: [] }) } as unknown as Response
+        }
+        return { status: 200, ok: true, text: async () => '' } as unknown as Response
+      } finally {
+        inFlight -= 1
+      }
+    })
+
+    try {
+      await waitForApplicationReadiness('http://127.0.0.1:5001', makeFakeProcess(), {
+        timeoutMs: 5_000,
+        intervalMs: 5,
+        stabilizationMs: 10,
+      })
+      // One cycle issues exactly three parallel probe fetches (login page, backend login,
+      // authenticated login). Serialized cycles keep the peak at three; overlap would exceed it.
+      expect(maxInFlight).toBeLessThanOrEqual(3)
+      expect(loginPageCycles).toBeGreaterThanOrEqual(3)
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
+  it('fails fast when the application process exits before becoming ready', async () => {
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async () => {
+      await sleep(20)
+      return { status: 503, ok: false, text: async () => '' } as unknown as Response
+    })
+    const fakeProcess = makeFakeProcess()
+
+    try {
+      const readiness = waitForApplicationReadiness('http://127.0.0.1:5001', fakeProcess, {
+        timeoutMs: 5_000,
+        intervalMs: 5,
+      })
+      setTimeout(() => fakeProcess.emit('exit', 1), 30)
+      await expect(readiness).rejects.toThrow(/exited before readiness check \(exit 1\)/)
+    } finally {
+      fetchSpy.mockRestore()
     }
   })
 })

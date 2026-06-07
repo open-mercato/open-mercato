@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { parseDuration } from '../lib/duration'
 
 /**
  * Workflows Module - Zod Validators
@@ -7,6 +8,40 @@ import { z } from 'zod'
  */
 
 const uuid = z.uuid()
+
+// Variable interpolation tokens (e.g., {{context.timeout}}) are resolved at
+// run time, so we must skip strict syntax checks on them at save time.
+const containsTemplate = (value: string) => value.includes('{{')
+
+export function isValidDurationString(value: unknown): boolean {
+  if (typeof value !== 'string' || value.length === 0) return false
+  if (containsTemplate(value)) return true
+  try {
+    const ms = parseDuration(value)
+    return Number.isFinite(ms) && ms > 0
+  } catch {
+    return false
+  }
+}
+
+export function isValidIsoDateString(value: unknown): boolean {
+  if (typeof value !== 'string' || value.length === 0) return false
+  if (containsTemplate(value)) return true
+  const d = new Date(value)
+  return !Number.isNaN(d.getTime())
+}
+
+export function isFutureIsoDateString(value: unknown): boolean {
+  if (typeof value !== 'string' || value.length === 0) return false
+  if (containsTemplate(value)) return true
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return false
+  return d.getTime() > Date.now()
+}
+
+const DURATION_ERROR = 'Invalid duration. Use ISO 8601 (e.g., PT5M, PT1H, P1D) or simple format (5m, 1h, 3d)'
+const UNTIL_ERROR = 'Invalid "until". Provide an ISO 8601 datetime string'
+const UNTIL_PAST_ERROR = '"until" must be a future datetime'
 
 // ============================================================================
 // Enum Schemas - Workflow Types and Statuses
@@ -34,8 +69,19 @@ export const workflowInstanceStatusSchema = z.enum([
   'COMPENSATING',
   'COMPENSATED',
   'WAITING_FOR_ACTIVITIES',
+  'FORKED',
 ])
 export type WorkflowInstanceStatus = z.infer<typeof workflowInstanceStatusSchema>
+
+export const workflowBranchInstanceStatusSchema = z.enum([
+  'ACTIVE',
+  'PAUSED',
+  'WAITING_FOR_ACTIVITIES',
+  'COMPLETED',
+  'FAILED',
+  'CANCELLED',
+])
+export type WorkflowBranchInstanceStatus = z.infer<typeof workflowBranchInstanceStatusSchema>
 
 export const stepInstanceStatusSchema = z.enum([
   'PENDING',
@@ -169,6 +215,49 @@ export const activityDefinitionSchema = z.object({
     activityId: z.string().min(1), // ID of compensation activity
     automatic: z.boolean().default(true).optional() // Auto-trigger on failure
   }).optional(), // Compensation configuration (Phase 8.2)
+}).superRefine((activity, ctx) => {
+  if (activity.activityType !== 'WAIT') return
+  const config = activity.config || {}
+  const hasDuration = config.duration != null && config.duration !== ''
+  const hasUntil = config.until != null && config.until !== ''
+  if (!hasDuration && !hasUntil) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['config'],
+      message: 'WAIT activity requires "duration" or "until"',
+    })
+    return
+  }
+  if (hasDuration && hasUntil) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['config'],
+      message: 'WAIT activity accepts "duration" OR "until", not both',
+    })
+    return
+  }
+  if (hasDuration && !isValidDurationString(config.duration)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['config', 'duration'],
+      message: DURATION_ERROR,
+    })
+  }
+  if (hasUntil) {
+    if (!isValidIsoDateString(config.until)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['config', 'until'],
+        message: UNTIL_ERROR,
+      })
+    } else if (!isFutureIsoDateString(config.until)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['config', 'until'],
+        message: UNTIL_PAST_ERROR,
+      })
+    }
+  }
 })
 
 // Localized validation message schema (for START step pre-conditions)
@@ -201,6 +290,49 @@ export const workflowStepSchema = z.object({
   retryPolicy: retryPolicySchema.optional(),
   // Pre-conditions for START step (business rules to validate before workflow can be started)
   preConditions: z.array(startPreConditionSchema).optional(),
+}).superRefine((step, ctx) => {
+  if (step.stepType !== 'WAIT_FOR_TIMER') return
+  const config = step.config || {}
+  const hasDuration = config.duration != null && config.duration !== ''
+  const hasUntil = config.until != null && config.until !== ''
+  if (!hasDuration && !hasUntil) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['config'],
+      message: 'WAIT_FOR_TIMER step requires "duration" or "until"',
+    })
+    return
+  }
+  if (hasDuration && hasUntil) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['config'],
+      message: 'WAIT_FOR_TIMER step accepts "duration" OR "until", not both',
+    })
+    return
+  }
+  if (hasDuration && !isValidDurationString(config.duration)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['config', 'duration'],
+      message: DURATION_ERROR,
+    })
+  }
+  if (hasUntil) {
+    if (!isValidIsoDateString(config.until)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['config', 'until'],
+        message: UNTIL_ERROR,
+      })
+    } else if (!isFutureIsoDateString(config.until)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['config', 'until'],
+        message: UNTIL_PAST_ERROR,
+      })
+    }
+  }
 })
 
 // Transition condition (reference to business rule)
@@ -255,6 +387,210 @@ export const workflowDefinitionTriggerSchema = z.object({
 })
 export type WorkflowDefinitionTrigger = z.infer<typeof workflowDefinitionTriggerSchema>
 
+// ============================================================================
+// PARALLEL_FORK / PARALLEL_JOIN definition validation
+// ============================================================================
+
+// Error codes surfaced by FORK/JOIN definition validation. Stable identifiers
+// so the visual editor and tests can match on them.
+export type ForkJoinValidationCode =
+  | 'MISSING_JOIN_STEP_ID'
+  | 'JOIN_STEP_NOT_FOUND'
+  | 'JOIN_STEP_WRONG_TYPE'
+  | 'MISSING_FORK_STEP_ID'
+  | 'FORK_JOIN_MISMATCH'
+  | 'FORK_TOO_FEW_BRANCHES'
+  | 'JOIN_TOO_FEW_INCOMING'
+  | 'DUPLICATE_BRANCH_KEY'
+  | 'NESTED_FORK_NOT_SUPPORTED'
+  | 'NO_CONVERGENCE_TO_JOIN'
+  | 'FORK_JOIN_CYCLE'
+  | 'UNPAIRED_JOIN'
+
+export interface ForkJoinValidationIssue {
+  code: ForkJoinValidationCode
+  message: string
+  stepId?: string
+}
+
+interface ForkJoinStepLike {
+  stepId: string
+  stepType: string
+  config?: Record<string, unknown> | null
+}
+
+interface ForkJoinTransitionLike {
+  transitionId: string
+  fromStepId: string
+  toStepId: string
+  trigger: string
+}
+
+interface ForkJoinDefinitionLike {
+  steps: ForkJoinStepLike[]
+  transitions: ForkJoinTransitionLike[]
+}
+
+/**
+ * Validates PARALLEL_FORK / PARALLEL_JOIN structure of a workflow definition.
+ * Pure and side-effect-free so it can be unit tested and reused by the editor.
+ *
+ * Rules (this iteration — wait-all, no nesting):
+ *  1. Every FORK declares config.joinStepId pointing at an existing PARALLEL_JOIN.
+ *  2. The paired JOIN back-references the fork via config.forkStepId.
+ *  3. A FORK has >= 2 outgoing `auto` transitions (branch keys unique); a JOIN has >= 2 incoming.
+ *  4. Every path from a FORK converges to its JOIN — no END inside a branch, no dead ends,
+ *     no path bypassing the JOIN, no path to a different JOIN.
+ *  5. No nesting: no FORK appears on a path between a FORK and its JOIN.
+ *  6. No cycles back to the FORK within its branch region.
+ *  7. Every PARALLEL_JOIN is paired with exactly one FORK.
+ */
+export function validateParallelForkJoin(definition: ForkJoinDefinitionLike): ForkJoinValidationIssue[] {
+  const issues: ForkJoinValidationIssue[] = []
+  const steps = definition.steps ?? []
+  const transitions = definition.transitions ?? []
+
+  const stepById = new Map<string, ForkJoinStepLike>()
+  for (const step of steps) stepById.set(step.stepId, step)
+
+  const outgoingByStep = new Map<string, ForkJoinTransitionLike[]>()
+  const incomingCountByStep = new Map<string, number>()
+  for (const transition of transitions) {
+    const list = outgoingByStep.get(transition.fromStepId) ?? []
+    list.push(transition)
+    outgoingByStep.set(transition.fromStepId, list)
+    incomingCountByStep.set(transition.toStepId, (incomingCountByStep.get(transition.toStepId) ?? 0) + 1)
+  }
+
+  const forkSteps = steps.filter((step) => step.stepType === 'PARALLEL_FORK')
+  const joinSteps = steps.filter((step) => step.stepType === 'PARALLEL_JOIN')
+
+  // Track which JOIN steps are paired with a FORK so we can flag orphan joins.
+  const pairedJoinIds = new Set<string>()
+
+  for (const fork of forkSteps) {
+    const joinStepId = (fork.config?.joinStepId as string | undefined) ?? undefined
+    if (!joinStepId) {
+      issues.push({ code: 'MISSING_JOIN_STEP_ID', stepId: fork.stepId, message: `PARALLEL_FORK "${fork.stepId}" must declare config.joinStepId` })
+      continue
+    }
+    const joinStep = stepById.get(joinStepId)
+    if (!joinStep) {
+      issues.push({ code: 'JOIN_STEP_NOT_FOUND', stepId: fork.stepId, message: `PARALLEL_FORK "${fork.stepId}" references missing join step "${joinStepId}"` })
+      continue
+    }
+    if (joinStep.stepType !== 'PARALLEL_JOIN') {
+      issues.push({ code: 'JOIN_STEP_WRONG_TYPE', stepId: fork.stepId, message: `Step "${joinStepId}" referenced by fork "${fork.stepId}" is not a PARALLEL_JOIN` })
+      continue
+    }
+
+    pairedJoinIds.add(joinStepId)
+
+    const backForkStepId = (joinStep.config?.forkStepId as string | undefined) ?? undefined
+    if (!backForkStepId) {
+      issues.push({ code: 'MISSING_FORK_STEP_ID', stepId: joinStepId, message: `PARALLEL_JOIN "${joinStepId}" must declare config.forkStepId` })
+    } else if (backForkStepId !== fork.stepId) {
+      issues.push({ code: 'FORK_JOIN_MISMATCH', stepId: joinStepId, message: `PARALLEL_JOIN "${joinStepId}" back-reference forkStepId "${backForkStepId}" does not match fork "${fork.stepId}"` })
+    }
+
+    const autoBranches = (outgoingByStep.get(fork.stepId) ?? []).filter((transition) => transition.trigger === 'auto')
+    if (autoBranches.length < 2) {
+      issues.push({ code: 'FORK_TOO_FEW_BRANCHES', stepId: fork.stepId, message: `PARALLEL_FORK "${fork.stepId}" must have at least 2 outgoing auto transitions (found ${autoBranches.length})` })
+    }
+    const branchKeys = new Set<string>()
+    for (const branch of autoBranches) {
+      if (branchKeys.has(branch.transitionId)) {
+        issues.push({ code: 'DUPLICATE_BRANCH_KEY', stepId: fork.stepId, message: `PARALLEL_FORK "${fork.stepId}" has duplicate branch key "${branch.transitionId}"` })
+      }
+      branchKeys.add(branch.transitionId)
+    }
+
+    if ((incomingCountByStep.get(joinStepId) ?? 0) < 2) {
+      issues.push({ code: 'JOIN_TOO_FEW_INCOMING', stepId: joinStepId, message: `PARALLEL_JOIN "${joinStepId}" must have at least 2 incoming transitions` })
+    }
+
+    // Convergence + no-nesting + no-cycle traversal over the branch region.
+    const fullyExplored = new Set<string>()
+    const onStack = new Set<string>()
+    let reportedNesting = false
+    let reportedNoConvergence = false
+    let reportedCycle = false
+
+    const visit = (stepId: string): void => {
+      if (stepId === joinStepId) return // converged
+      if (stepId === fork.stepId) {
+        if (!reportedCycle) {
+          issues.push({ code: 'FORK_JOIN_CYCLE', stepId: fork.stepId, message: `A branch of fork "${fork.stepId}" loops back to the fork before reaching join "${joinStepId}"` })
+          reportedCycle = true
+        }
+        return
+      }
+      const step = stepById.get(stepId)
+      if (!step) {
+        if (!reportedNoConvergence) {
+          issues.push({ code: 'NO_CONVERGENCE_TO_JOIN', stepId: fork.stepId, message: `A branch of fork "${fork.stepId}" reaches missing step "${stepId}" instead of join "${joinStepId}"` })
+          reportedNoConvergence = true
+        }
+        return
+      }
+      if (step.stepType === 'END') {
+        if (!reportedNoConvergence) {
+          issues.push({ code: 'NO_CONVERGENCE_TO_JOIN', stepId: fork.stepId, message: `A branch of fork "${fork.stepId}" reaches an END step before join "${joinStepId}"` })
+          reportedNoConvergence = true
+        }
+        return
+      }
+      if (step.stepType === 'PARALLEL_FORK') {
+        if (!reportedNesting) {
+          issues.push({ code: 'NESTED_FORK_NOT_SUPPORTED', stepId: fork.stepId, message: `Nested PARALLEL_FORK "${stepId}" inside fork "${fork.stepId}" is not supported` })
+          reportedNesting = true
+        }
+        return
+      }
+      if (step.stepType === 'PARALLEL_JOIN') {
+        // Reached a join that is not this fork's join → it does not converge correctly.
+        if (!reportedNoConvergence) {
+          issues.push({ code: 'NO_CONVERGENCE_TO_JOIN', stepId: fork.stepId, message: `A branch of fork "${fork.stepId}" reaches join "${stepId}" instead of its own join "${joinStepId}"` })
+          reportedNoConvergence = true
+        }
+        return
+      }
+      if (onStack.has(stepId)) {
+        if (!reportedCycle) {
+          issues.push({ code: 'FORK_JOIN_CYCLE', stepId: fork.stepId, message: `A branch of fork "${fork.stepId}" contains a cycle at step "${stepId}"` })
+          reportedCycle = true
+        }
+        return
+      }
+      if (fullyExplored.has(stepId)) return
+
+      const outgoing = outgoingByStep.get(stepId) ?? []
+      if (outgoing.length === 0) {
+        if (!reportedNoConvergence) {
+          issues.push({ code: 'NO_CONVERGENCE_TO_JOIN', stepId: fork.stepId, message: `A branch of fork "${fork.stepId}" dead-ends at step "${stepId}" without reaching join "${joinStepId}"` })
+          reportedNoConvergence = true
+        }
+        return
+      }
+      onStack.add(stepId)
+      for (const transition of outgoing) visit(transition.toStepId)
+      onStack.delete(stepId)
+      fullyExplored.add(stepId)
+    }
+
+    for (const branch of autoBranches) visit(branch.toStepId)
+  }
+
+  // Any PARALLEL_JOIN not paired with a fork is an orphan.
+  for (const join of joinSteps) {
+    if (!pairedJoinIds.has(join.stepId)) {
+      issues.push({ code: 'UNPAIRED_JOIN', stepId: join.stepId, message: `PARALLEL_JOIN "${join.stepId}" is not paired with any PARALLEL_FORK` })
+    }
+  }
+
+  return issues
+}
+
 // Workflow definition data (JSONB structure)
 export const workflowDefinitionDataSchema = z.object({
   steps: z.array(workflowStepSchema).min(2, 'Workflow must have at least START and END steps'),
@@ -263,6 +599,14 @@ export const workflowDefinitionDataSchema = z.object({
   queries: z.array(z.any()).optional(), // For Phase 7
   signals: z.array(z.any()).optional(), // For Phase 9
   timers: z.array(z.any()).optional(), // For Phase 9
+}).superRefine((definition, ctx) => {
+  for (const issue of validateParallelForkJoin(definition as ForkJoinDefinitionLike)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['steps'],
+      message: `[${issue.code}] ${issue.message}`,
+    })
+  }
 })
 
 // Workflow metadata

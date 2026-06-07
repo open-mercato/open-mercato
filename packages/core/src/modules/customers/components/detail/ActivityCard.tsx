@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Calendar, Check, ExternalLink, ListTodo, Mail, MoreHorizontal, Phone, StickyNote, Users } from 'lucide-react'
+import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -10,7 +11,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { InteractionSummary } from './types'
 import { ActivityAiActions } from './ActivityAiActions'
-import { getInitials } from './utils'
+import { EmailCardActions, type EmailCardWidgetData } from './EmailCardActions'
 
 type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
@@ -70,6 +71,42 @@ function resolveTarget(activity: InteractionSummary): string | null {
   if (participant?.email) return participant.email
   if (activity.customer?.displayName) return activity.customer.displayName
   return null
+}
+
+/**
+ * Build the `EmailCardWidgetData` for the email-card-actions injection spot.
+ * Email metadata (rfcMessageId, addresses, threading headers, current visibility,
+ * and the author flag) is populated server-side by `interactionEmailCardEnricher`
+ * and surfaced via the `_integrations.email` passthrough; missing values fall
+ * back to null.
+ */
+function buildEmailCardWidgetData(activity: InteractionSummary): EmailCardWidgetData {
+  const integrations = activity._integrations as Record<string, unknown> | undefined
+  const emailMeta = (integrations?.email ?? {}) as Record<string, unknown>
+  return {
+    interactionId: activity.id,
+    // The MessageChannelLink UUID stored on the interaction row.
+    externalMessageId:
+      typeof emailMeta.externalMessageId === 'string' ? emailMeta.externalMessageId : null,
+    // RFC2822 Message-ID (e.g. "<abc@mail.gmail.com>") for In-Reply-To / References headers.
+    rfcMessageId:
+      typeof emailMeta.rfcMessageId === 'string' ? emailMeta.rfcMessageId : null,
+    // entityId is the CustomerEntity id — on a person detail page this IS the personId.
+    personId: activity.entityId ?? null,
+    fromAddress:
+      typeof emailMeta.fromAddress === 'string' ? emailMeta.fromAddress : null,
+    toAddresses: Array.isArray(emailMeta.toAddresses) ? (emailMeta.toAddresses as string[]) : null,
+    ccAddresses: Array.isArray(emailMeta.ccAddresses) ? (emailMeta.ccAddresses as string[]) : null,
+    subject: activity.title ?? null,
+    inReplyTo:
+      typeof emailMeta.inReplyTo === 'string' ? emailMeta.inReplyTo : null,
+    references: Array.isArray(emailMeta.references) ? (emailMeta.references as string[]) : null,
+    currentVisibility:
+      emailMeta.currentVisibility === 'private' || emailMeta.currentVisibility === 'shared'
+        ? emailMeta.currentVisibility
+        : null,
+    isAuthor: typeof emailMeta.isAuthor === 'boolean' ? emailMeta.isAuthor : null,
+  }
 }
 
 export function ActivityCard({ activity, onOpen, onChanged, runMutation }: ActivityCardProps) {
@@ -194,14 +231,23 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
           <ActivityAiActions activityType={activity.interactionType} />
         </div>
 
+        {activity.interactionType === 'email' ? (
+          <div
+            className="mt-1"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            role="presentation"
+          >
+            <EmailCardActions data={buildEmailCardWidgetData(activity)} />
+          </div>
+        ) : null}
+
         {snippet ? (
           <p className="mt-2 text-sm text-muted-foreground">{snippet}</p>
         ) : null}
 
         <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="inline-flex size-5 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground">
-            {getInitials(actorLabel)}
-          </span>
+          <Avatar label={actorLabel} size="xs" variant="monochrome" />
           <span className="font-medium text-foreground">{actorLabel}</span>
           {target && direction ? (
             <>

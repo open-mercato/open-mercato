@@ -226,6 +226,14 @@ function normalizeDeal(deal: Partial<DealSummary> & { id: string; title?: string
     status: typeof deal.status === 'string' ? deal.status : deal.status ?? null,
     pipelineStage:
       typeof deal.pipelineStage === 'string' ? deal.pipelineStage : deal.pipelineStage ?? null,
+    pipelineId:
+      typeof deal.pipelineId === 'string' && deal.pipelineId.trim().length
+        ? deal.pipelineId.trim()
+        : deal.pipelineId ?? null,
+    pipelineStageId:
+      typeof deal.pipelineStageId === 'string' && deal.pipelineStageId.trim().length
+        ? deal.pipelineStageId.trim()
+        : deal.pipelineStageId ?? null,
     valueAmount: toNumber(deal.valueAmount ?? null),
     valueCurrency:
       typeof deal.valueCurrency === 'string' && deal.valueCurrency.trim().length
@@ -413,6 +421,18 @@ export function DealsSection({
             : typeof record.pipeline_stage === 'string' && record.pipeline_stage.trim().length
               ? record.pipeline_stage.trim()
               : null
+        const pipelineId =
+          typeof record.pipelineId === 'string' && record.pipelineId.trim().length
+            ? record.pipelineId.trim()
+            : typeof record.pipeline_id === 'string' && record.pipeline_id.trim().length
+              ? record.pipeline_id.trim()
+              : null
+        const pipelineStageId =
+          typeof record.pipelineStageId === 'string' && record.pipelineStageId.trim().length
+            ? record.pipelineStageId.trim()
+            : typeof record.pipeline_stage_id === 'string' && record.pipeline_stage_id.trim().length
+              ? record.pipeline_stage_id.trim()
+              : null
         const valueAmount = toNumber(record.valueAmount ?? record.value_amount)
         const valueCurrencyRaw = record.valueCurrency ?? record.value_currency ?? null
         const valueCurrency =
@@ -494,6 +514,8 @@ export function DealsSection({
           title,
           status,
           pipelineStage,
+          pipelineId,
+          pipelineStageId,
           valueAmount,
           valueCurrency,
           probability,
@@ -629,6 +651,7 @@ export function DealsSection({
               : currentCompanyIds
           await runWriteMutation(
             () =>
+              // optimistic-lock-exempt: deal association list (link)
               updateCrud(
                 'customers/deals',
                 { id: dealId, personIds: nextPersonIds, companyIds: nextCompanyIds },
@@ -662,6 +685,7 @@ export function DealsSection({
               : currentCompanyIds
           await runWriteMutation(
             () =>
+              // optimistic-lock-exempt: deal association list (unlink)
               updateCrud(
                 'customers/deals',
                 { id: dealId, personIds: nextPersonIds, companyIds: nextCompanyIds },
@@ -727,6 +751,8 @@ export function DealsSection({
           title: base.title,
           status: base.status ?? undefined,
           pipelineStage: base.pipelineStage ?? undefined,
+          pipelineId: base.pipelineId ?? undefined,
+          pipelineStageId: base.pipelineStageId ?? undefined,
           valueAmount: typeof base.valueAmount === 'number' ? base.valueAmount : undefined,
           valueCurrency: base.valueCurrency ?? undefined,
           probability: typeof base.probability === 'number' ? base.probability : undefined,
@@ -738,6 +764,7 @@ export function DealsSection({
         if (Object.keys(custom).length) payload.customFields = custom
         const { result } = await runWriteMutation(
           () =>
+            // optimistic-lock-exempt: deal create-only, no prior version
             createCrud<{ id?: string }>('customers/deals', payload, {
               errorMessage: translate('customers.people.detail.deals.error', 'Failed to save deal.'),
             }),
@@ -761,6 +788,8 @@ export function DealsSection({
             title: base.title,
             status: base.status ?? null,
             pipelineStage: base.pipelineStage ?? null,
+            pipelineId: base.pipelineId ?? null,
+            pipelineStageId: base.pipelineStageId ?? null,
             valueAmount: base.valueAmount ?? null,
             valueCurrency: base.valueCurrency ?? null,
             probability: base.probability ?? null,
@@ -822,6 +851,7 @@ export function DealsSection({
         }
         await runWriteMutation(
           () =>
+            // optimistic-lock-exempt: deal association list (unlink)
             updateCrud('customers/deals', payload, {
               errorMessage: translate('customers.people.detail.deals.unlinkError', 'Failed to unlink deal.'),
             }),

@@ -30,6 +30,11 @@ export type MessageActionData = {
 @Index({ name: 'messages_type_idx', properties: ['type', 'tenantId'] })
 @Index({ name: 'messages_tenant_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'messages_external_email_hash_idx', properties: ['externalEmailHash'] })
+@Index({
+  name: 'messages_idempotency_key_uq',
+  expression:
+    'create unique index "messages_idempotency_key_uq" on "messages" ("tenant_id", "idempotency_key") where "idempotency_key" is not null',
+})
 export class Message {
   [OptionalProps]?: 'type' | 'status' | 'priority' | 'bodyFormat' | 'isDraft' | 'createdAt' | 'updatedAt'
 
@@ -116,6 +121,12 @@ export class Message {
 
   @Property({ name: 'external_email_hash', type: 'text', nullable: true })
   externalEmailHash?: string | null
+
+  // Stable per-source idempotency key (inbound email = channel + provider
+  // message id). Lets a retried `compose` return the message created by the
+  // first attempt instead of duplicating it. Partial-unique per tenant.
+  @Property({ name: 'idempotency_key', type: 'text', nullable: true })
+  idempotencyKey?: string | null
 
   @Property({ name: 'external_name', type: 'text', nullable: true })
   externalName?: string | null

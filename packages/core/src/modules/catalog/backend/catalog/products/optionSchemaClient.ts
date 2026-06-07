@@ -20,6 +20,8 @@ export type OptionSchemaTemplateSummary = {
   name?: string | null
   description?: string | null
   schema?: OptionSchemaRecord | null
+  updatedAt?: string | null
+  updated_at?: string | null
 }
 
 type OptionSchemaTemplateListResponse = {

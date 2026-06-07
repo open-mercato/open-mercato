@@ -3,7 +3,8 @@
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -24,6 +25,7 @@ type Pipeline = {
   id: string
   name: string
   isDefault: boolean
+  updatedAt?: string | null
 }
 
 type PipelineStage = {
@@ -33,6 +35,7 @@ type PipelineStage = {
   order: number
   color: string | null
   icon: string | null
+  updatedAt?: string | null
 }
 
 type PipelineDialogState =
@@ -146,11 +149,14 @@ export default function PipelineStagesPage() {
         await loadPipelines()
         if (newId) setSelectedPipelineId(newId)
       } else if (pipelineDialog?.mode === 'edit') {
-        const result = await apiCall('/api/customers/pipelines', {
-          method: 'PUT',
-          body: JSON.stringify({ id: pipelineDialog.pipeline.id, name: pipelineName.trim(), isDefault: pipelineIsDefault }),
-          headers: { 'Content-Type': 'application/json' },
-        })
+        const result = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(pipelineDialog.pipeline.updatedAt),
+          () => apiCall('/api/customers/pipelines', {
+            method: 'PUT',
+            body: JSON.stringify({ id: pipelineDialog.pipeline.id, name: pipelineName.trim(), isDefault: pipelineIsDefault }),
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
         if (!result.ok) {
           flash(t('customers.config.pipelineStages.errorUpdatePipeline', 'Failed to update pipeline'), 'error')
           return
@@ -175,11 +181,14 @@ export default function PipelineStagesPage() {
       variant: 'destructive',
     })
     if (!confirmed) return
-    const result = await apiCall('/api/customers/pipelines', {
-      method: 'DELETE',
-      body: JSON.stringify({ id: pipeline.id }),
-      headers: { 'Content-Type': 'application/json' },
-    })
+    const result = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(pipeline.updatedAt),
+      () => apiCall('/api/customers/pipelines', {
+        method: 'DELETE',
+        body: JSON.stringify({ id: pipeline.id }),
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
     if (!result.ok) {
       const error = (result.result as { error?: string })?.error
       flash(error ?? t('customers.config.pipelineStages.errorDeletePipeline', 'Failed to delete pipeline'), 'error')
@@ -209,9 +218,13 @@ export default function PipelineStagesPage() {
     setSaving(true)
     try {
       if (stageDialog?.mode === 'create') {
+        const appearancePayload = {
+          ...(stageColor !== null ? { color: stageColor } : {}),
+          ...(stageIcon !== null ? { icon: stageIcon } : {}),
+        }
         const result = await apiCall('/api/customers/pipeline-stages', {
           method: 'POST',
-          body: JSON.stringify({ pipelineId: selectedPipelineId, label: stageName.trim(), color: stageColor, icon: stageIcon }),
+          body: JSON.stringify({ pipelineId: selectedPipelineId, label: stageName.trim(), ...appearancePayload }),
           headers: { 'Content-Type': 'application/json' },
         })
         if (!result.ok) {
@@ -220,11 +233,14 @@ export default function PipelineStagesPage() {
         }
         flash(t('customers.config.pipelineStages.createdStage', 'Stage created'), 'success')
       } else if (stageDialog?.mode === 'edit') {
-        const result = await apiCall('/api/customers/pipeline-stages', {
-          method: 'PUT',
-          body: JSON.stringify({ id: stageDialog.stage.id, label: stageName.trim(), color: stageColor, icon: stageIcon }),
-          headers: { 'Content-Type': 'application/json' },
-        })
+        const result = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(stageDialog.stage.updatedAt),
+          () => apiCall('/api/customers/pipeline-stages', {
+            method: 'PUT',
+            body: JSON.stringify({ id: stageDialog.stage.id, label: stageName.trim(), color: stageColor, icon: stageIcon }),
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
         if (!result.ok) {
           flash(t('customers.config.pipelineStages.errorUpdateStage', 'Failed to update stage'), 'error')
           return
@@ -249,11 +265,14 @@ export default function PipelineStagesPage() {
       variant: 'destructive',
     })
     if (!confirmed) return
-    const result = await apiCall('/api/customers/pipeline-stages', {
-      method: 'DELETE',
-      body: JSON.stringify({ id: stage.id }),
-      headers: { 'Content-Type': 'application/json' },
-    })
+    const result = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(stage.updatedAt),
+      () => apiCall('/api/customers/pipeline-stages', {
+        method: 'DELETE',
+        body: JSON.stringify({ id: stage.id }),
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
     if (!result.ok) {
       const error = (result.result as { error?: string })?.error
       flash(error ?? t('customers.config.pipelineStages.errorDeleteStage', 'Failed to delete stage'), 'error')

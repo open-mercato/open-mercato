@@ -15,7 +15,9 @@ import {
 import { Label } from '@open-mercato/ui/primitives/label'
 import { CrudForm, type CrudField, type CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -291,12 +293,14 @@ export function PaymentMethodsSettings() {
     })
     if (!confirmed) return
     try {
-      const call = await apiCall('/api/sales/payment-methods', {
+      const headers = buildOptimisticLockHeader(entry.updatedAt)
+      const call = await withScopedApiRequestHeaders(headers, () => apiCall('/api/sales/payment-methods', {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id: entry.id }),
-      })
+      }))
       if (!call.ok) {
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
         await raiseCrudError(call.response, translations.errors.delete)
       }
       flash(translations.messages.deleted, 'success')
@@ -325,12 +329,15 @@ export function PaymentMethodsSettings() {
     const method = dialog.mode === 'create' ? 'POST' : 'PUT'
     if (dialog.mode === 'edit') payload.id = dialog.entry.id
     try {
-      const call = await apiCall(path, {
+      const savePaymentMethod = () => apiCall(path, {
         method,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
       })
+      const headers = buildOptimisticLockHeader(dialog.mode === 'edit' ? dialog.entry.updatedAt : null)
+      const call = await withScopedApiRequestHeaders(headers, savePaymentMethod)
       if (!call.ok) {
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
         await raiseCrudError(call.response, translations.errors.save)
       }
       flash(translations.messages.saved, 'success')
@@ -466,6 +473,7 @@ export function PaymentMethodsSettings() {
             schema={paymentFormSchema}
             fields={fields}
             initialValues={formValues}
+            optimisticLockUpdatedAt={dialog?.mode === 'edit' ? dialog.entry.updatedAt : null}
             submitLabel={translations.form.save}
             onSubmit={handleSubmit}
             cancelHref={undefined}

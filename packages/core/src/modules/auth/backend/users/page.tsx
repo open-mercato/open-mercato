@@ -8,7 +8,8 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -16,6 +17,7 @@ import { buildOrganizationTreeOptions, formatOrganizationTreeLabel, type Organiz
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type Row = {
   id: string
@@ -26,6 +28,7 @@ type Row = {
   tenantId: string | null
   tenantName?: string | null
   roles: string[]
+  updatedAt?: string | null
 }
 
 type FilterOption = { value: string; label: string }
@@ -388,7 +391,10 @@ export default function UsersListPage() {
     if (!confirmed) return
     const deleteErrorMessage = t('auth.users.list.error.delete', 'Failed to delete user')
     try {
-      const call = await apiCall(`/api/auth/users?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(row.updatedAt),
+        () => apiCall(`/api/auth/users?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' }),
+      )
       if (!call.ok) {
         await raiseCrudError(call.response, deleteErrorMessage)
       }
@@ -423,6 +429,13 @@ export default function UsersListPage() {
           sorting={sorting}
           onSortingChange={setSorting}
           perspective={{ tableId: 'auth.users.list' }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('auth.users.list.title', 'Users')}
+              createHref="/backend/users/create"
+              createLabel={t('common.create', 'Create')}
+            />
+          )}
           rowActions={(row) => (
             <RowActions items={[
               { id: 'edit', label: t('common.edit', 'Edit'), href: `/backend/users/${row.id}/edit` },

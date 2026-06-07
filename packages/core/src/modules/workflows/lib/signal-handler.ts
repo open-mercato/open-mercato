@@ -5,12 +5,14 @@
  */
 
 import { EntityManager } from '@mikro-orm/core'
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
-import { WorkflowInstance, WorkflowDefinition, StepInstance } from '../data/entities'
-import { logWorkflowEvent } from './event-logger'
-import { executeWorkflow } from './workflow-executor'
-import * as stepHandler from './step-handler'
-import * as transitionHandler from './transition-handler'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { WorkflowInstance, WorkflowBranchInstance, WorkflowDefinition, StepInstance } from '../data/entities'
+import type * as eventLoggerModule from './event-logger'
+import type * as stepHandlerModule from './step-handler'
+import type * as transitionHandlerModule from './transition-handler'
+import type * as workflowExecutorModule from './workflow-executor'
 
 export interface SendSignalOptions {
   /**
@@ -61,12 +63,23 @@ export async function sendSignal(
 ): Promise<void> {
   const { instanceId, signalName, payload, userId, tenantId, organizationId } = options
 
+  const eventLogger = container.resolve<typeof eventLoggerModule>('eventLogger')
+  const stepHandler = container.resolve<typeof stepHandlerModule>('stepHandler')
+  const transitionHandler = container.resolve<typeof transitionHandlerModule>('transitionHandler')
+  const workflowExecutor = container.resolve<typeof workflowExecutorModule>('workflowExecutor')
+
   // Fetch workflow instance
-  const instance = await em.findOne(WorkflowInstance, {
-    id: instanceId,
-    tenantId,
-    organizationId,
-  })
+  const instance = await findOneWithDecryption(
+    em as PostgreSqlEntityManager,
+    WorkflowInstance,
+    {
+      id: instanceId,
+      tenantId,
+      organizationId,
+    },
+    undefined,
+    { tenantId, organizationId },
+  )
 
   if (!instance) {
     throw new SignalError(
@@ -74,6 +87,77 @@ export async function sendSignal(
       'INSTANCE_NOT_FOUND',
       { instanceId }
     )
+  }
+
+  // Branch-scoped signal: a FORKED instance routes the signal to the branch
+  // paused at a matching WAIT_FOR_SIGNAL step.
+  if (instance.status === 'FORKED') {
+    const branchDefinition = await findOneWithDecryption(
+      em as PostgreSqlEntityManager,
+      WorkflowDefinition,
+      { id: instance.definitionId, tenantId: instance.tenantId, organizationId: instance.organizationId, deletedAt: null },
+      undefined,
+      { tenantId: instance.tenantId, organizationId: instance.organizationId },
+    )
+    if (!branchDefinition) {
+      throw new SignalError('Workflow definition not found', 'DEFINITION_NOT_FOUND', { definitionId: instance.definitionId })
+    }
+
+    const pausedBranches = await em.find(WorkflowBranchInstance, {
+      workflowInstanceId: instanceId,
+      status: 'PAUSED',
+      tenantId,
+      organizationId,
+    })
+
+    let targetBranch: WorkflowBranchInstance | null = null
+    for (const candidate of pausedBranches) {
+      const step = branchDefinition.definition.steps.find((s: any) => s.stepId === candidate.currentStepId)
+      if (step?.stepType === 'WAIT_FOR_SIGNAL') {
+        const candidateSignal = step.signalConfig?.signalName || step.stepId
+        if (candidateSignal === signalName) {
+          targetBranch = candidate
+          break
+        }
+      }
+    }
+
+    if (!targetBranch) {
+      throw new SignalError('No parallel branch awaiting this signal', 'NO_BRANCH_AWAITING_SIGNAL', { instanceId, signalName })
+    }
+
+    const branchStepInstance = await em.findOne(StepInstance, {
+      workflowInstanceId: instanceId,
+      branchInstanceId: targetBranch.id,
+      stepId: targetBranch.currentStepId,
+      status: 'ACTIVE',
+    })
+
+    await eventLogger.logWorkflowEvent(em, {
+      workflowInstanceId: instanceId,
+      stepInstanceId: branchStepInstance?.id,
+      branchInstanceId: targetBranch.id,
+      eventType: 'SIGNAL_RECEIVED',
+      eventData: { signalName, branch: true },
+      userId,
+      tenantId,
+      organizationId,
+    })
+
+    const { resumeBranch } = await import('./parallel-handler')
+    const resumed = await resumeBranch(em, {
+      instanceId,
+      branchInstanceId: targetBranch.id,
+      tenantId,
+      organizationId,
+      contextMerge: payload,
+      exitStepInstanceId: branchStepInstance?.id ?? null,
+      exitOutput: { signalName, payload },
+    })
+    if (resumed) {
+      await workflowExecutor.executeWorkflow(em, container, instanceId, { userId })
+    }
+    return
   }
 
   // Verify workflow is paused
@@ -85,8 +169,19 @@ export async function sendSignal(
     )
   }
 
-  // Load workflow definition to check current step
-  const definition = await em.findOne(WorkflowDefinition, instance.definitionId)
+  // Load workflow definition with tenant/org scope to check current step
+  const definition = await findOneWithDecryption(
+    em as PostgreSqlEntityManager,
+    WorkflowDefinition,
+    {
+      id: instance.definitionId,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: instance.tenantId, organizationId: instance.organizationId },
+  )
   if (!definition) {
     throw new SignalError(
       'Workflow definition not found',
@@ -133,7 +228,7 @@ export async function sendSignal(
   instance.updatedAt = now
 
   // Log signal received event
-  await logWorkflowEvent(em, {
+  await eventLogger.logWorkflowEvent(em, {
     workflowInstanceId: instance.id,
     eventType: 'SIGNAL_RECEIVED',
     eventData: {
@@ -146,11 +241,19 @@ export async function sendSignal(
   })
 
   // Find active step instance and exit it
-  const stepInstance = await em.findOne(StepInstance, {
-    workflowInstanceId: instance.id,
-    stepId: instance.currentStepId,
-    status: 'ACTIVE',
-  })
+  const stepInstance = await findOneWithDecryption(
+    em as PostgreSqlEntityManager,
+    StepInstance,
+    {
+      workflowInstanceId: instance.id,
+      stepId: instance.currentStepId,
+      status: 'ACTIVE',
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    },
+    undefined,
+    { tenantId: instance.tenantId, organizationId: instance.organizationId },
+  )
 
   if (stepInstance) {
     await stepHandler.exitStep(em, stepInstance, {
@@ -212,7 +315,7 @@ export async function sendSignal(
   }
 
   // Resume workflow execution
-  await executeWorkflow(em, container, instance.id, { userId })
+  await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })
 }
 
 /**
@@ -226,12 +329,18 @@ export async function sendSignalByCorrelationKey(
   const { correlationKey, signalName, payload, userId, tenantId, organizationId } = options
 
   // Find all paused instances with this correlation key
-  const instances = await em.find(WorkflowInstance, {
-    correlationKey,
-    status: 'PAUSED',
-    tenantId,
-    organizationId,
-  })
+  const instances = await findWithDecryption(
+    em as PostgreSqlEntityManager,
+    WorkflowInstance,
+    {
+      correlationKey,
+      status: 'PAUSED',
+      tenantId,
+      organizationId,
+    },
+    undefined,
+    { tenantId, organizationId },
+  )
 
   let signalsProcessed = 0
 

@@ -5,9 +5,10 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -17,6 +18,7 @@ import { TeamMemberForm, buildTeamMemberPayload, type TeamMemberFormValues } fro
 import { NotesSection } from '@open-mercato/ui/backend/detail'
 import { ActivitiesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { AddressesSection as SharedAddressesSection } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { renderDictionaryColor, renderDictionaryIcon, ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { createStaffNotesAdapter } from '@open-mercato/core/modules/staff/components/detail/notesAdapter'
 import { createStaffActivitiesAdapter } from '@open-mercato/core/modules/staff/components/detail/activitiesAdapter'
@@ -53,6 +55,8 @@ type TeamMemberRecord = {
   is_active?: boolean
   availabilityRuleSetId?: string | null
   availability_rule_set_id?: string | null
+  updatedAt?: string | null
+  updated_at?: string | null
   user?: { id?: string; email?: string | null } | null
   team?: { id?: string; name?: string | null } | null
   customFields?: Record<string, unknown> | null
@@ -70,6 +74,8 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
   const searchParams = useSearchParams()
   const [initialValues, setInitialValues] = React.useState<TeamMemberFormValues | null>(null)
   const [memberRecord, setMemberRecord] = React.useState<TeamMemberRecord | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
   const [activePanel, setActivePanel] = React.useState<'details' | 'availability' | 'jobHistory'>('details')
   const [activeTab, setActiveTab] = React.useState<'notes' | 'activities' | 'addresses'>('notes')
@@ -194,6 +200,10 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
     const memberIdValue = memberId
     let cancelled = false
     async function loadMember() {
+      if (!cancelled) {
+        setError(null)
+        setIsNotFound(false)
+      }
       try {
         const params = new URLSearchParams({ page: '1', pageSize: '1', ids: memberIdValue })
         const payload = await readApiResultOrThrow<TeamMemberResponse>(
@@ -202,7 +212,10 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
           { errorMessage: t('staff.teamMembers.form.errors.load', 'Failed to load team member.') },
         )
         const record = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!record) throw new Error(t('staff.teamMembers.form.errors.notFound', 'Team member not found.'))
+        if (!record) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         const customFields = extractCustomFieldEntries(record)
         if (!cancelled) {
           const resolvedTeamId = record.teamId ?? record.team_id ?? null
@@ -216,6 +229,11 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
             roleIds: normalizedRoleIds,
             tags: normalizeStringList(record.tags),
             isActive: record.isActive ?? record.is_active ?? true,
+            updatedAt: typeof record.updatedAt === 'string'
+              ? record.updatedAt
+              : typeof record.updated_at === 'string'
+                ? record.updated_at
+                : null,
             ...customFields,
           })
           setMemberRecord(record)
@@ -227,9 +245,15 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                 : null,
           )
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : t('staff.teamMembers.form.errors.load', 'Failed to load team member.')
-        flash(message, 'error')
+      } catch (err) {
+        if (!cancelled) {
+          if ((err as { status?: number }).status === 404) {
+            setIsNotFound(true)
+          } else {
+            const message = err instanceof Error ? err.message : t('staff.teamMembers.form.errors.load', 'Failed to load team member.')
+            setError(message)
+          }
+        }
       }
     }
     void loadMember()
@@ -273,12 +297,15 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
 
   const handleRulesetChange = React.useCallback(async (nextId: string | null) => {
     if (!memberId) return
-    await updateCrud('staff/team-members', { id: memberId, availabilityRuleSetId: nextId }, {
-      errorMessage: t('staff.teamMembers.availability.ruleset.updateError', 'Failed to update schedule.'),
-    })
+    const headers = buildOptimisticLockHeader(initialValues?.updatedAt)
+    await withScopedApiRequestHeaders(headers, () => (
+      updateCrud('staff/team-members', { id: memberId, availabilityRuleSetId: nextId }, {
+        errorMessage: t('staff.teamMembers.availability.ruleset.updateError', 'Failed to update schedule.'),
+      })
+    ))
     setAvailabilityRuleSetId(nextId)
     flash(t('staff.teamMembers.availability.ruleset.updateSuccess', 'Schedule updated.'), 'success')
-  }, [memberId, t])
+  }, [initialValues?.updatedAt, memberId, t])
 
   const panelTabs = React.useMemo(() => ([
     { id: 'details' as const, label: t('staff.teamMembers.detail.tabs.details', 'Details') },
@@ -303,6 +330,30 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
     ? memberRecord?.roleNames
     : [t('staff.teamMembers.detail.roles.unassigned', 'No roles assigned')]
   const userEmail = memberRecord?.user?.email ?? null
+
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('staff.teamMembers.form.errors.notFound', 'Team member not found.')}
+            backHref="/backend/staff/team-members"
+            backLabel={t('staff.teamMembers.actions.backToList', 'Back to team members')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error && !initialValues) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>
@@ -369,7 +420,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                   onClick={() => setActivePanel(tab.id)}
                   className={`relative -mb-px border-b-2 px-0 py-2 text-sm font-medium transition-colors ${
                     activePanel === tab.id
-                      ? 'border-primary text-foreground'
+                      ? 'border-accent-indigo text-foreground'
                       : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}
                 >
@@ -431,7 +482,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                             onClick={() => setActiveTab(tab.id)}
                             className={`relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors ${
                               activeTab === tab.id
-                                ? 'border-primary text-foreground'
+                                ? 'border-accent-indigo text-foreground'
                                 : 'border-transparent text-muted-foreground hover:text-foreground'
                             }`}
                           >
@@ -556,6 +607,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
               mode="availability"
               rulesetId={availabilityRuleSetId}
               onRulesetChange={handleRulesetChange}
+              allowRuleSetDelete
               buildScheduleItems={({ availabilityRules, translate: translateLabel }) => (
                 buildMemberScheduleItems({ availabilityRules, translate: translateLabel })
               )}

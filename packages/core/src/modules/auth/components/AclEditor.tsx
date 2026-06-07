@@ -5,6 +5,8 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import Link from 'next/link'
 import { hasFeature, matchFeature } from '@open-mercato/shared/security/features'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { FeatureDescriptor } from '@open-mercato/shared/security/aclDependencies'
+import { AclDependencyDiagnosticsPanel } from './AclDependencyDiagnosticsPanel'
 
 function toTitleCase(value: string): string {
   return value.replace(/[-_.]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
@@ -36,7 +38,7 @@ function formatWildcardLabel(moduleId: string, wildcard: string): string {
   return `All ${suffix.split('.').map(toTitleCase).join(' / ')}`
 }
 
-type Feature = { id: string; title: string; module: string }
+type Feature = { id: string; title: string; module: string; dependsOn?: string[] }
 type ModuleInfo = { id: string; title: string }
 type RoleListItem = { id?: string | null; name?: string | null }
 type RoleListResponse = { items?: RoleListItem[] }
@@ -66,6 +68,7 @@ type AclPayload = {
   isSuperAdmin?: boolean
   features?: unknown
   organizations?: unknown
+  updatedAt?: string | null
 }
 type OrganizationListResponse = { items?: Array<{ id?: string; name?: string }> }
 
@@ -97,6 +100,7 @@ export function AclEditor({
   canEditOrganizations,
   value,
   onChange,
+  onVersionChange,
   userRoles,
   currentUserIsSuperAdmin,
   tenantId,
@@ -107,6 +111,12 @@ export function AclEditor({
   canEditOrganizations: boolean
   value?: AclData
   onChange?: (data: AclData) => void
+  /**
+   * Reports the loaded ACL row's `updatedAt` (or null when none exists) so the
+   * parent can send the optimistic-lock header on save and reject stale ACL
+   * overwrites (#2055).
+   */
+  onVersionChange?: (updatedAt: string | null) => void
   userRoles?: string[]
   currentUserIsSuperAdmin?: boolean
   tenantId?: string | null
@@ -166,8 +176,9 @@ export function AclEditor({
       setIsSuperAdmin(!!aclJson.isSuperAdmin)
       setGranted(actorSanitizeFeatures(aclJson.features))
       setOrganizations(aclJson.organizations == null ? null : Array.isArray(aclJson.organizations) ? aclJson.organizations : [])
+      onVersionChange?.(typeof aclJson.updatedAt === 'string' ? aclJson.updatedAt : null)
     } catch {}
-  }, [kind, targetId, actorSanitizeFeatures])
+  }, [kind, targetId, actorSanitizeFeatures, onVersionChange])
 
   React.useEffect(() => {
     const cancelled = { current: false }
@@ -364,15 +375,23 @@ export function AclEditor({
             <div className="rounded border border-blue-200 bg-blue-50 p-3">
               <div className="text-sm font-medium text-blue-900">Global wildcard (*) enabled</div>
               <div className="text-xs text-blue-700 mt-1">This grants access to all features in the system.</div>
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 className="mt-2"
                 onClick={() => updateGranted((prev) => prev.filter((x) => x !== '*'))}
               >
                 Remove global wildcard
               </Button>
             </div>
+          )}
+          {!hasGlobalWildcard && (
+            <AclDependencyDiagnosticsPanel
+              granted={granted}
+              catalog={features as readonly FeatureDescriptor[]}
+              onGrantedChange={updateGranted}
+              hideUnknownReferences={process.env.NODE_ENV === 'production'}
+            />
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {grouped.map((group) => {

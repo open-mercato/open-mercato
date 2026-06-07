@@ -308,7 +308,7 @@ When upgrading Open Mercato packages (`@open-mercato/*`), ejected modules don't 
 
 ## Rules
 
-- **MUST** try UMES extensions before ejecting — recommend the `system-extension` skill first
+- **MUST** try UMES extensions before ejecting — recommend the `om-system-extension` skill first
 - **MUST** document the reason for ejection before proceeding
 - **MUST** track all changes in a customization log
 - **MUST** run `yarn generate` after ejection

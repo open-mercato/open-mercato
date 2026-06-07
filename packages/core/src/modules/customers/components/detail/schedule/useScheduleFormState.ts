@@ -19,6 +19,8 @@ export type LinkedEntity = {
 
 export type ScheduleActivityEditData = {
   id: string
+  /** Record version for the OSS optimistic-lock header on edit (#2055). */
+  updatedAt?: string | null
   interactionType?: string
   title?: string | null
   body?: string | null
@@ -60,6 +62,7 @@ const DEFAULT_REMINDER_MINUTES: Record<ActivityType, number> = {
   call: 5,
   task: 1440,
   email: 15,
+  note: 15,
 }
 
 function padDatePart(value: number): string {

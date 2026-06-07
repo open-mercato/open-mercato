@@ -62,7 +62,7 @@ describe('messages /api/messages/token/[token]', () => {
       token: 'ok',
       messageId: 'message-1',
       recipientUserId: 'user-1',
-      expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+      expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       useCount: 0,
     }
   }

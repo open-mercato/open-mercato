@@ -68,6 +68,7 @@ export function ProductMediaManager({
           fd.set('entityId', entityId)
           fd.set('recordId', draftRecordId)
           fd.set('file', file)
+          // optimistic-lock-exempt: media attach/detach/reorder
           const call = await apiCall<{ ok?: boolean; item?: ProductMediaItem; error?: string }>(
             '/api/attachments',
             { method: 'POST', body: fd },
@@ -111,6 +112,7 @@ export function ProductMediaManager({
   const handleRemove = React.useCallback(
     async (attachmentId: string) => {
       setError(null)
+      // optimistic-lock-exempt: media attach/detach/reorder
       const call = await apiCall<{ ok?: boolean; error?: string }>(
         `/api/attachments?id=${encodeURIComponent(attachmentId)}`,
         { method: 'DELETE' },

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ds-health-check.sh — run every sprint
-# Usage: bash .ai/skills/ds-guardian/scripts/ds-health-check.sh
+# Usage: bash .ai/skills/om-ds-guardian/scripts/ds-health-check.sh
 # Portable: works on macOS and Linux (uses grep, no rg dependency)
 
 set -euo pipefail

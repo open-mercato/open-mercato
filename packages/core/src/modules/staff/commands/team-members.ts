@@ -6,6 +6,8 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
@@ -86,6 +88,34 @@ async function loadTeamMemberCustomSnapshot(
     organizationId: snapshot.organizationId,
   })
 }
+
+function teamMemberSeedFromSnapshot(snapshot: TeamMemberSnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    tenantId: snapshot.tenantId,
+    organizationId: snapshot.organizationId,
+    teamId: snapshot.teamId ?? null,
+    displayName: snapshot.displayName,
+    description: snapshot.description ?? null,
+    userId: snapshot.userId ?? null,
+    roleIds: Array.isArray(snapshot.roleIds) ? snapshot.roleIds : [],
+    tags: Array.isArray(snapshot.tags) ? snapshot.tags : [],
+    availabilityRuleSetId: null,
+    isActive: snapshot.isActive,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    deletedAt: null,
+  }
+}
+
+const redoTeamMemberCreate = makeCreateRedo<StaffTeamMember, TeamMemberSnapshot, StaffTeamMemberCreateInput, { memberId: string }>({
+  entityClass: StaffTeamMember,
+  getSnapshotId: (snapshot) => snapshot.id,
+  seedFromSnapshot: teamMemberSeedFromSnapshot,
+  buildResult: (entity) => ({ memberId: entity.id }),
+  events: staffTeamMemberCrudEvents,
+  indexer: teamMemberCrudIndexer,
+})
 
 async function ensureRolesExist(em: EntityManager, roleIds: string[], tenantId: string, organizationId: string): Promise<void> {
   if (!roleIds.length) return
@@ -244,6 +274,22 @@ const createTeamMemberCommand: CommandHandler<StaffTeamMemberCreateInput, { memb
       })
     }
   },
+  redo: async ({ logEntry, ctx }) => {
+    const result = await redoTeamMemberCreate({ input: undefined as unknown as StaffTeamMemberCreateInput, ctx, logEntry })
+    const payload = extractUndoPayload<TeamMemberUndoPayload>(logEntry)
+    const customAfter = payload?.customAfter
+    if (customAfter && Object.keys(customAfter).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+        entityId: E.staff.staff_team_member,
+        recordId: result.memberId,
+        tenantId: payload?.after?.tenantId ?? '',
+        organizationId: payload?.after?.organizationId ?? '',
+        values: customAfter,
+      })
+    }
+    return result
+  },
 }
 
 const updateTeamMemberCommand: CommandHandler<StaffTeamMemberUpdateInput, { memberId: string }> = {
@@ -270,30 +316,34 @@ const updateTeamMemberCommand: CommandHandler<StaffTeamMemberUpdateInput, { memb
     ensureTenantScope(ctx, member.tenantId)
     ensureOrganizationScope(ctx, member.organizationId)
 
-    if (parsed.userId !== undefined) {
-      if (parsed.userId) {
-        await ensureUserExists(em, parsed.userId, member.tenantId, member.organizationId)
-      }
-      member.userId = parsed.userId ?? null
+    // Resolve validation queries BEFORE mutating scalars: `ensure*` runs `em.find`,
+    // which would otherwise reset unit-of-work tracking between mutations and the
+    // flush and silently drop earlier scalar changes (SPEC-018 Problem 1).
+    if (parsed.userId !== undefined && parsed.userId) {
+      await ensureUserExists(em, parsed.userId, member.tenantId, member.organizationId)
     }
-    if (parsed.teamId !== undefined) {
-      if (parsed.teamId) {
-        await ensureTeamExists(em, parsed.teamId, member.tenantId, member.organizationId)
-      }
-      member.teamId = parsed.teamId ?? null
+    if (parsed.teamId !== undefined && parsed.teamId) {
+      await ensureTeamExists(em, parsed.teamId, member.tenantId, member.organizationId)
     }
+    let nextRoleIds: string[] | undefined
     if (parsed.roleIds !== undefined) {
-      const roleIds = normalizeStringList(parsed.roleIds)
-      await ensureRolesExist(em, roleIds, member.tenantId, member.organizationId)
-      member.roleIds = roleIds
+      nextRoleIds = normalizeStringList(parsed.roleIds)
+      await ensureRolesExist(em, nextRoleIds, member.tenantId, member.organizationId)
     }
-    if (parsed.tags !== undefined) member.tags = normalizeStringList(parsed.tags)
-    if (parsed.availabilityRuleSetId !== undefined) member.availabilityRuleSetId = parsed.availabilityRuleSetId ?? null
-    if (parsed.displayName !== undefined) member.displayName = parsed.displayName
-    if (parsed.description !== undefined) member.description = parsed.description ?? null
-    if (parsed.isActive !== undefined) member.isActive = parsed.isActive
-    member.updatedAt = new Date()
-    await em.flush()
+
+    await withAtomicFlush(em, [
+      () => {
+        if (parsed.userId !== undefined) member.userId = parsed.userId ?? null
+        if (parsed.teamId !== undefined) member.teamId = parsed.teamId ?? null
+        if (parsed.roleIds !== undefined) member.roleIds = nextRoleIds ?? []
+        if (parsed.tags !== undefined) member.tags = normalizeStringList(parsed.tags)
+        if (parsed.availabilityRuleSetId !== undefined) member.availabilityRuleSetId = parsed.availabilityRuleSetId ?? null
+        if (parsed.displayName !== undefined) member.displayName = parsed.displayName
+        if (parsed.description !== undefined) member.description = parsed.description ?? null
+        if (parsed.isActive !== undefined) member.isActive = parsed.isActive
+        member.updatedAt = new Date()
+      },
+    ], { transaction: true })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await setCustomFieldsIfAny({

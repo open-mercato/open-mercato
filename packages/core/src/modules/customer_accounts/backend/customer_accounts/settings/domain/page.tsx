@@ -8,7 +8,8 @@ import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -211,6 +212,7 @@ export default function CustomerDomainSettingsPage() {
           if (registerMode === 'change' && replaceTargetId) {
             body.replacesDomainId = replaceTargetId
           }
+          // optimistic-lock-exempt: registers a new domain mapping (create), not a concurrent record edit
           const call = await apiCall<{ ok: boolean; error?: string; domainMapping?: DomainMappingRow }>(
             '/api/customer_accounts/admin/domain-mappings',
             {
@@ -240,6 +242,7 @@ export default function CustomerDomainSettingsPage() {
       setIsMutating(true)
       try {
         await runMutationWithContext(async () => {
+          // optimistic-lock-exempt: DNS verify action endpoint, not a concurrent record edit
           const call = await apiCall<{ ok: boolean; error?: string }>(
             `/api/customer_accounts/admin/domain-mappings/${encodeURIComponent(mapping.id)}/verify`,
             { method: 'POST' },
@@ -263,6 +266,7 @@ export default function CustomerDomainSettingsPage() {
       setIsMutating(true)
       try {
         await runMutationWithContext(async () => {
+          // optimistic-lock-exempt: TLS health-check action endpoint, not a concurrent record edit
           const call = await apiCall<{ ok: boolean; error?: string }>(
             `/api/customer_accounts/admin/domain-mappings/${encodeURIComponent(mapping.id)}/health-check`,
             { method: 'POST' },
@@ -299,9 +303,12 @@ export default function CustomerDomainSettingsPage() {
       setIsMutating(true)
       try {
         await runMutationWithContext(async () => {
-          const call = await apiCall<{ ok: boolean; error?: string }>(
-            `/api/customer_accounts/admin/domain-mappings?id=${encodeURIComponent(mapping.id)}`,
-            { method: 'DELETE' },
+          const call = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(mapping.updatedAt),
+            () => apiCall<{ ok: boolean; error?: string }>(
+              `/api/customer_accounts/admin/domain-mappings?id=${encodeURIComponent(mapping.id)}`,
+              { method: 'DELETE' },
+            ),
           )
           if (!call.ok || !call.result?.ok) {
             const message = call.result?.error || t('customer_accounts.domainMapping.error.load', 'Could not load custom-domain configuration')

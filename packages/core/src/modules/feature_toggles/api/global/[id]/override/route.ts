@@ -8,16 +8,20 @@ import { logCrudAccess } from "@open-mercato/shared/lib/crud/factory"
 import { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi"
 import { FeatureToggleOverride, FeatureToggle } from '../../../../data/entities'
 import { FeatureToggleOverrideResponse } from '../../../../data/validators'
+import { z } from 'zod'
+
+const paramsSchema = z.object({
+  id: z.string().uuid(),
+})
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { scope } = await resolveFeatureCheckContext({ container: await createRequestContainer(), auth, request: req })
-
-  const id = params.id
-  if (!id) return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
-
   const container = await createRequestContainer()
+  const { scope } = await resolveFeatureCheckContext({ container, auth, request: req })
+  const parsed = paramsSchema.safeParse({ id: params.id })
+  if (!parsed.success) return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+
   const em = container.resolve('em') as EntityManager
 
 
@@ -29,15 +33,15 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   }
 
 
-  const override = await em.findOne(FeatureToggleOverride, {
-    tenantId: tenant.id,
-    toggle: { id: id },
-  })
-
-  const toggle = await em.findOne(FeatureToggle, { id: id })
+  const toggle = await em.findOne(FeatureToggle, { id: parsed.data.id, deletedAt: null })
   if (!toggle) {
     return NextResponse.json({ error: 'Feature toggle not found' }, { status: 404 })
   }
+
+  const override = await em.findOne(FeatureToggleOverride, {
+    tenantId: tenant.id,
+    toggle: { id: parsed.data.id },
+  })
 
   const responseOverride: FeatureToggleOverrideResponse = {
     id: override?.id ?? '',
@@ -45,6 +49,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     tenantName: tenant.name,
     tenantId: tenant.id,
     toggleType: toggle.type,
+    updatedAt: override?.updatedAt instanceof Date ? override.updatedAt.toISOString() : null,
   }
 
   await logCrudAccess({
@@ -54,7 +59,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     items: [responseOverride],
     idField: 'id',
     resourceKind: 'feature_toggles.feature_toggle_override',
-    tenantId: auth.tenantId ?? null,
+    tenantId: tenant.id,
     query: {},
     accessType: 'read:item',
     fields: ['id', 'tenantId', 'value', 'toggle', 'toggleType']

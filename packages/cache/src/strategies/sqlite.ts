@@ -23,6 +23,7 @@ type SqliteDatabase = {
 
 type SqliteConstructor = new (file: string) => SqliteDatabase
 type SqliteModule = SqliteConstructor | { default: SqliteConstructor }
+type SqliteStrategyOptions = { defaultTtl?: number; databaseConstructor?: SqliteConstructor }
 
 const sqliteRequire = createRequire(path.join(process.cwd(), 'package.json'))
 
@@ -34,7 +35,7 @@ const sqliteRequire = createRequire(path.join(process.cwd(), 'package.json'))
  * - cache_entries: stores cache data
  * - cache_tags: stores tag associations (many-to-many)
  */
-export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: number }): CacheStrategy {
+export function createSqliteStrategy(dbPath?: string, options?: SqliteStrategyOptions): CacheStrategy {
   let db: SqliteDatabase | null = null
   const defaultTtl = options?.defaultTtl
   const filePath = dbPath || process.env.CACHE_SQLITE_PATH || DEFAULT_SQLITE_CACHE_PATH
@@ -43,7 +44,7 @@ export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: n
     if (db) return db
 
     try {
-      const imported = sqliteRequire('better-sqlite3') as SqliteModule
+      const imported = (options?.databaseConstructor ?? sqliteRequire('better-sqlite3')) as SqliteModule
       const Database = typeof imported === 'function' ? imported : imported.default
       
       // Ensure directory exists
@@ -53,6 +54,13 @@ export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: n
       }
 
       db = new Database(filePath)
+
+      db.exec(`
+        PRAGMA journal_mode = WAL;
+        PRAGMA synchronous = NORMAL;
+        PRAGMA busy_timeout = 5000;
+        PRAGMA foreign_keys = ON;
+      `)
 
       // Create tables
       db.exec(`

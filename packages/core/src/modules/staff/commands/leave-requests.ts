@@ -5,6 +5,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges } from '@open-mercato/shared/lib/commands/helpers'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
@@ -139,6 +141,29 @@ async function loadLeaveRequestSnapshot(em: EntityManager, id: string): Promise<
     deletedAt: request.deletedAt ? request.deletedAt.toISOString() : null,
     createdAt: request.createdAt ? request.createdAt.toISOString() : null,
     updatedAt: request.updatedAt ? request.updatedAt.toISOString() : null,
+  }
+}
+
+function leaveRequestSeedFromSnapshot(snapshot: LeaveRequestSnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    tenantId: snapshot.tenantId,
+    organizationId: snapshot.organizationId,
+    member: snapshot.memberId,
+    startDate: new Date(snapshot.startDate),
+    endDate: new Date(snapshot.endDate),
+    timezone: snapshot.timezone,
+    status: snapshot.status,
+    unavailabilityReasonEntryId: snapshot.unavailabilityReasonEntryId ?? null,
+    unavailabilityReasonValue: snapshot.unavailabilityReasonValue ?? null,
+    note: snapshot.note ?? null,
+    decisionComment: snapshot.decisionComment ?? null,
+    submittedByUserId: snapshot.submittedByUserId ?? null,
+    decidedByUserId: snapshot.decidedByUserId ?? null,
+    decidedAt: snapshot.decidedAt ? new Date(snapshot.decidedAt) : null,
+    createdAt: snapshot.createdAt ? new Date(snapshot.createdAt) : new Date(),
+    updatedAt: new Date(),
+    deletedAt: null,
   }
 }
 
@@ -346,6 +371,22 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
       })
     }
   },
+  redo: makeCreateRedo<StaffLeaveRequest, LeaveRequestSnapshot, StaffLeaveRequestCreateInput, { requestId: string }>({
+    entityClass: StaffLeaveRequest,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: leaveRequestSeedFromSnapshot,
+    findRow: ({ em, id, snapshot }) =>
+      findOneWithDecryption(
+        em,
+        StaffLeaveRequest,
+        { id },
+        undefined,
+        { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+      ),
+    buildResult: (entity) => ({ requestId: entity.id }),
+    events: staffLeaveRequestCrudEvents,
+    indexer: leaveRequestCrudIndexer,
+  }),
 }
 
 const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { requestId: string }> = {
@@ -694,12 +735,30 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const request = await em.findOne(StaffLeaveRequest, { id: before.id })
     if (!request) return
-    request.status = before.status
-    request.decisionComment = before.decisionComment
-    request.decidedByUserId = before.decidedByUserId
-    request.decidedAt = before.decidedAt ? new Date(before.decidedAt) : null
-    request.updatedAt = new Date()
-    await em.flush()
+
+    // Fetch rules before mutating so the query cannot reset unit-of-work tracking
+    // between the request scalar mutations and the flush (SPEC-018 Problem 1).
+    const rules = availabilityRuleIds.length
+      ? await em.find(PlannerAvailabilityRule, { id: { $in: availabilityRuleIds } })
+      : []
+
+    await withAtomicFlush(em, [
+      () => {
+        request.status = before.status
+        request.decisionComment = before.decisionComment
+        request.decidedByUserId = before.decidedByUserId
+        request.decidedAt = before.decidedAt ? new Date(before.decidedAt) : null
+        request.updatedAt = new Date()
+
+        if (rules.length) {
+          const now = new Date()
+          rules.forEach((rule) => {
+            rule.deletedAt = now
+            rule.updatedAt = now
+          })
+        }
+      },
+    ], { transaction: true })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
@@ -715,30 +774,19 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
       indexer: leaveRequestCrudIndexer,
     })
 
-    if (availabilityRuleIds.length) {
-      const rules = await em.find(PlannerAvailabilityRule, { id: { $in: availabilityRuleIds } })
-      const now = new Date()
-      rules.forEach((rule) => {
-        rule.deletedAt = now
-        rule.updatedAt = now
+    for (const rule of rules) {
+      await emitCrudUndoSideEffects({
+        dataEngine: de,
+        action: 'deleted',
+        entity: rule,
+        identifiers: {
+          id: rule.id,
+          organizationId: rule.organizationId,
+          tenantId: rule.tenantId,
+        },
+        events: plannerAvailabilityRuleCrudEvents,
+        indexer: availabilityRuleCrudIndexer,
       })
-      await em.flush()
-
-      const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      for (const rule of rules) {
-        await emitCrudUndoSideEffects({
-          dataEngine: de,
-          action: 'deleted',
-          entity: rule,
-          identifiers: {
-            id: rule.id,
-            organizationId: rule.organizationId,
-            tenantId: rule.tenantId,
-          },
-          events: plannerAvailabilityRuleCrudEvents,
-          indexer: availabilityRuleCrudIndexer,
-        })
-      }
     }
     await invalidateAvailabilityCache({
       container: ctx.container,

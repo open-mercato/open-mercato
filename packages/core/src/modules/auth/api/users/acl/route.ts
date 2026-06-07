@@ -5,6 +5,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { assertActorCanModifySuperAdminUserTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -28,6 +30,7 @@ const userAclResponseSchema = z.object({
   isSuperAdmin: z.boolean(),
   features: z.array(z.string()),
   organizations: z.array(z.string()).nullable(),
+  updatedAt: z.string().nullable(),
 })
 
 const userAclUpdateResponseSchema = z.object({
@@ -72,8 +75,9 @@ export async function GET(req: Request) {
         isSuperAdmin: !!acl.isSuperAdmin,
         features: Array.isArray(acl.featuresJson) ? acl.featuresJson : [],
         organizations: Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null,
+        updatedAt: acl.updatedAt instanceof Date ? acl.updatedAt.toISOString() : null,
       }
-    : { hasCustomAcl: false, isSuperAdmin: false, features: [], organizations: null }
+    : { hasCustomAcl: false, isSuperAdmin: false, features: [], organizations: null, updatedAt: null }
 
   await logCrudAccess({
     container,
@@ -127,6 +131,22 @@ export async function PUT(req: Request) {
   const organizations = Array.isArray(parsed.data.organizations) ? parsed.data.organizations : null
 
   let acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
+  // Optimistic lock: refuse a stale per-user ACL overwrite so concurrent edits
+  // cannot silently clobber each other (#2055). Strictly additive — a no-op when
+  // the client sends no expected-version header; skipped when no ACL row exists.
+  if (acl) {
+    try {
+      enforceCommandOptimisticLock({
+        resourceKind: 'auth.user_acl',
+        resourceId: acl.id,
+        current: acl.updatedAt ?? null,
+        request: req,
+      })
+    } catch (err) {
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+      throw err
+    }
+  }
   const existingIsSuperAdmin = acl ? !!acl.isSuperAdmin : false
   const existingFeatures = acl && Array.isArray(acl.featuresJson) ? normalizeFeatureList(acl.featuresJson) : []
 
@@ -150,17 +170,30 @@ export async function PUT(req: Request) {
 
   const hasCustomAcl = effectiveIsSuperAdmin || effectiveFeatures.length > 0
 
+  // Persist the ACL mutation inside a transaction so the per-user permission
+  // write (or removal) commits atomically (proper ACL-edit transaction handling).
   if (!hasCustomAcl) {
-    if (acl) await em.remove(acl).flush()
+    if (acl) {
+      const aclToRemove = acl
+      await withAtomicFlush(em, [() => em.remove(aclToRemove)], { transaction: true })
+    }
   } else {
     if (!acl) {
       acl = em.create(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
     }
     const aclRecord = acl as any
-    aclRecord.isSuperAdmin = effectiveIsSuperAdmin
-    aclRecord.featuresJson = effectiveFeatures
-    aclRecord.organizationsJson = organizations
-    await em.persist(acl).flush()
+    await withAtomicFlush(
+      em,
+      [
+        () => {
+          aclRecord.isSuperAdmin = effectiveIsSuperAdmin
+          aclRecord.featuresJson = effectiveFeatures
+          aclRecord.organizationsJson = organizations
+          em.persist(aclRecord)
+        },
+      ],
+      { transaction: true },
+    )
   }
 
   // Invalidate cache for this user

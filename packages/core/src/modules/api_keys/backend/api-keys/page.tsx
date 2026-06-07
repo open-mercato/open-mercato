@@ -3,10 +3,12 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -25,6 +27,7 @@ type Row = {
   lastUsedAt: string | null
   expiresAt: string | null
   roles: RoleSummary[]
+  updatedAt?: string | null
 }
 
 type ResponsePayload = {
@@ -104,10 +107,13 @@ export default function ApiKeysListPage() {
     })
     if (!confirmed) return
     try {
-      const call = await apiCall<{ error?: string }>(
-        `/api/api_keys/keys?id=${encodeURIComponent(row.id)}`,
-        { method: 'DELETE' },
-        { fallback: null },
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(row.updatedAt),
+        () => apiCall<{ error?: string }>(
+          `/api/api_keys/keys?id=${encodeURIComponent(row.id)}`,
+          { method: 'DELETE' },
+          { fallback: null },
+        ),
       )
       if (!call.ok) {
         const errorPayload = call.result as { error?: string } | undefined
@@ -183,6 +189,13 @@ export default function ApiKeysListPage() {
             <RowActions items={[
               { id: 'delete', label: t('common.delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
             ]} />
+          )}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('api_keys.list.title')}
+              createHref="/backend/api-keys/create"
+              createLabel={t('api_keys.list.actions.create')}
+            />
           )}
           pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}

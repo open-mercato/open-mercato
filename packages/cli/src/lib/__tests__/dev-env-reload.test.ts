@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createDevEnvReloader, resolveDevEnvFilePaths } from '../dev-env-reload'
+import { createDevEnvReloader, resolveDevEnvFilePaths, watchDevRuntimeFiles } from '../dev-env-reload'
 import { normalizeTestPath } from './path-helpers'
 
 describe('dev env reload helpers', () => {
@@ -59,5 +59,34 @@ describe('dev env reload helpers', () => {
     expect(environment.DATABASE_URL).toBe('postgres://changed-database')
     expect(environment.SHELL_VALUE).toBe('shell-value')
     expect(environment.REMOVED_LATER).toBeUndefined()
+  })
+
+  it('watches generated runtime files when explicitly requested', async () => {
+    const generatedDir = path.join(appDir, '.mercato', 'generated')
+    fs.mkdirSync(generatedDir, { recursive: true })
+    const generatedFile = path.join(generatedDir, 'backend-routes.generated.ts')
+    fs.writeFileSync(generatedFile, 'export const routes = []\n')
+
+    let stop = () => {}
+    let observed = false
+    const seen = new Promise<string>((resolve) => {
+      stop = watchDevRuntimeFiles(appDir, (filePath) => {
+        observed = true
+        resolve(filePath)
+      }, { debounceMs: 10 })
+    })
+
+    let revision = 0
+    const trigger = setInterval(() => {
+      if (observed) return
+      fs.writeFileSync(generatedFile, `export const routes = [${(revision += 1)}]\n`)
+    }, 20)
+
+    try {
+      await expect(seen).resolves.toBe(generatedFile)
+    } finally {
+      clearInterval(trigger)
+      stop()
+    }
   })
 })

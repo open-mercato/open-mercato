@@ -7,8 +7,8 @@ Use `@open-mercato/cache` for all caching needs. MUST NOT use raw Redis, SQLite,
 | Strategy | When to use | Configuration |
 |----------|-------------|---------------|
 | Memory | Use for development and single-process apps | Default (no config needed) |
-| SQLite | Use for single-server production deployments | `CACHE_STRATEGY=sqlite` |
-| Redis | Use for multi-server production with shared cache | `CACHE_STRATEGY=redis` |
+| SQLite | Use for single-server production deployments; local persistent convenience cache, tuned with WAL/`synchronous=NORMAL` | `CACHE_STRATEGY=sqlite` |
+| Redis | Use for multi-server production or latency-sensitive request paths with frequent cache writes | `CACHE_STRATEGY=redis` |
 
 ## Always
 
@@ -45,6 +45,12 @@ await cacheService.set('key', value, { tags: ['tenant:123', 'customers'] })
 // When data changes, invalidate by tag
 await cacheService.invalidateTag('customers')  // Clears all customer-related cache
 ```
+
+## Consistency vs commit timing
+
+Cache invalidation and query-index side effects (`emitCrudSideEffects`) MUST fire **after** the originating domain write commits — the same rule that keeps them OUTSIDE the `withAtomicFlush` block (see `packages/core/AGENTS.md` → "Entity Update Safety — `withAtomicFlush`"). Because invalidation runs post-commit and the query-index read-projection tail (search tokens, vectors, fulltext, coverage) converges asynchronously, reads can briefly see a short convergence window after a write.
+
+An opt-in env flag, `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` (default **OFF**, 100% backward compatible), is planned to make that read-projection tail converge synchronously on write so reads never observe the window — at the cost of added write latency. Frame it as opt-in/forthcoming; do not assume it is on. See `.ai/specs/2026-06-05-cache-safety-always-consistent.md`.
 
 ## Adding Caching to a Module
 

@@ -1,11 +1,16 @@
 /** @type {import('jest').Config} */
+const base = require('../../jest.config.base.cjs')
+
 module.exports = {
+  ...base,
   testEnvironment: 'node',
   watchman: false,
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^@open-mercato/checkout/(.*)$': '<rootDir>/src/$1',
+    '^@open-mercato/cache$': '<rootDir>/../cache/src/index.ts',
+    '^@open-mercato/cache/(.*)$': '<rootDir>/../cache/src/$1',
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
     '^@open-mercato/queue/(.*)$': '<rootDir>/../queue/src/$1',

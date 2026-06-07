@@ -63,8 +63,8 @@ yarn workspace @open-mercato/core build
 When creating a new entity or CRUD slice, copy the customers module structure first, then align with `packages/core/AGENTS.md` and `packages/cli/AGENTS.md`.
 
 1. Define MikroORM v7 entities in `data/entities.ts` with decorators imported from `@mikro-orm/decorators/legacy`.
-2. Use UUID primary keys, snake_case table/column names, `organization_id`, `tenant_id`, and standard timestamp/soft-delete columns.
-3. Add validators, commands, CRUD route, backend pages, ACL, setup grants, events, search, and translations as applicable.
+2. Use UUID primary keys, snake_case table/column names, `organization_id`, `tenant_id`, and standard timestamp/soft-delete columns. For a **user-editable** entity, include `updated_at` (onCreate+onUpdate) so optimistic locking works, and return `updatedAt` from its CRUD list/detail responses.
+3. Add validators, commands, CRUD route, backend pages, ACL, setup grants, events, search, and translations as applicable. Edit/delete UI: prefer `CrudForm` (auto-derives the optimistic-lock header from `initialValues.updatedAt`); for custom list-row/dialog mutations, wrap with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` and `surfaceRecordConflict(err, t)`.
 4. Generate or author the migration for only this entity change, then update the module's `migrations/.snapshot-open-mercato.json`.
 5. Run `yarn db:generate` again as a no-op check; expected output for the touched module is `no changes`.
 
@@ -87,6 +87,12 @@ Commands (`commands/people.ts`) demonstrate:
 3. Restore via `buildCustomFieldResetMap(before.custom, after.custom)` in undo
 4. Side effects with `emitCrudSideEffects` and `emitCrudUndoSideEffects`
 5. Include `indexer: { entityType, cacheAliases }` in both directions
+6. **Prefer `runCrudCommandWrite` for new commands** that combine entity writes + custom fields + side effects in one logical step. Reference: the migrated `updateDealCommand.execute` in `commands/deals.ts`. See `packages/core/AGENTS.md` → Entity Update Safety for the contract and `packages/shared/AGENTS.md` → `commands/runCrudCommandWrite` for the import.
+
+## Transaction Safety
+
+- Multi-phase scalar + relation mutations (e.g. update commands that also sync tags) use `withAtomicFlush(em, phases, { transaction: true })` from `@open-mercato/shared/lib/commands/flush` — never interleave `em.find`/`em.findOne` between a scalar mutation and `em.flush()`.
+- Side effects (`emitCrudSideEffects`) and cache invalidation fire **after** commit, outside the `withAtomicFlush` block. See `packages/core/AGENTS.md` → "Entity Update Safety — `withAtomicFlush`" and `.ai/specs/2026-06-05-cache-safety-always-consistent.md`.
 
 ## Custom Field Integration
 

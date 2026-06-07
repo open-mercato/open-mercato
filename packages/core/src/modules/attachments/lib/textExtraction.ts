@@ -86,7 +86,7 @@ async function extractPdfText(filePath: string): Promise<string | null> {
         }
       }
     } finally {
-      await pdfDocument.destroy()
+      await loadingTask.destroy()
     }
     const result = textParts.join('\n').trim()
     return result.length > 0 ? result : null

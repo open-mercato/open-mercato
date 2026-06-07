@@ -14,6 +14,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type LinkRow = {
   id: string
@@ -204,6 +205,13 @@ export default function CheckoutPayLinksPage() {
                 {t('checkout.admin.payLinks.actions.create')}
               </Link>
             </Button>
+          )}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('checkout.admin.payLinks.title')}
+              createHref="/backend/checkout/pay-links/create"
+              createLabel={t('checkout.admin.payLinks.actions.create')}
+            />
           )}
           rowActions={(row) => (
             <RowActions items={[

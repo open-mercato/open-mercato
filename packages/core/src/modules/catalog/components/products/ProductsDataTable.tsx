@@ -4,11 +4,13 @@ import * as React from 'react'
 import Link from 'next/link'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { deleteCrud, buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/customFieldColumns'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
@@ -619,9 +621,12 @@ export default function ProductsDataTable({
     })
     if (!confirmed) return
     try {
-      await deleteCrud('catalog/products', row.id, {
-        errorMessage: t('catalog.products.list.error.delete', 'Failed to delete product'),
-      })
+      const headers = buildOptimisticLockHeader(typeof row.updated_at === 'string' ? row.updated_at : null)
+      await withScopedApiRequestHeaders(headers, () => (
+        deleteCrud('catalog/products', row.id, {
+          errorMessage: t('catalog.products.list.error.delete', 'Failed to delete product'),
+        })
+      ))
       flash(t('catalog.products.flash.deleted', 'Product deleted'), 'success')
       setReloadToken((token) => token + 1)
     } catch (error) {
@@ -674,6 +679,13 @@ export default function ProductsDataTable({
         )}
         columns={columns}
         data={rows}
+        emptyState={(
+          <ListEmptyState
+            entityName={t('catalog.products.page.title', 'Products & services')}
+            createHref="/backend/catalog/products/create"
+            createLabel={t('catalog.products.actions.create', 'Create')}
+          />
+        )}
         searchValue={search}
         onSearchChange={handleSearchChange}
         filters={filters}

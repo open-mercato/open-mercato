@@ -54,7 +54,7 @@ export function AttachmentContentPreview({
             aria-controls={sourcePanelId}
             className={`-mb-px border-b-2 px-0 pb-2 font-medium transition-colors ${
               tab === 'source'
-                ? 'border-primary text-foreground'
+                ? 'border-accent-indigo text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
             onClick={() => setTab('source')}
@@ -69,7 +69,7 @@ export function AttachmentContentPreview({
             aria-controls={previewPanelId}
             className={`-mb-px border-b-2 px-0 pb-2 font-medium transition-colors ${
               tab === 'preview'
-                ? 'border-primary text-foreground'
+                ? 'border-accent-indigo text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
             onClick={() => setTab('preview')}

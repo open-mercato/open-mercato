@@ -1,0 +1,119 @@
+---
+title: CRM email integration
+description: Send and receive emails directly on Person records. Auto-linking, threading, and per-email privacy controls — all without leaving your CRM.
+---
+
+# CRM email integration
+
+The CRM email integration lets you send outbound emails from a Person record and automatically attaches inbound emails from your connected mailbox to the right Person's timeline — so every email exchange with a contact is tracked alongside notes, activities, and deals.
+
+## Before you start
+
+You need at least one personal mailbox connected to Open Mercato before you can send email from the CRM. The mailbox you connect is **yours alone** — Open Mercato never reads another user's mailbox and never shares your emails with teammates unless you explicitly flip an email to "shared."
+
+Connect your mailbox at **Profile → Communication Channels**. Supported providers:
+
+- Gmail (personal + Google Workspace)
+- IMAP + SMTP (Fastmail, Proton Bridge, generic providers — including Outlook.com / Microsoft 365 via an app password)
+
+See the [Communication Channels guide](communication-channels.mdx) for step-by-step setup instructions for each provider.
+
+## Sending an email from a Person record
+
+1. Open any Person record in **Customers → People**.
+2. In the person detail header, click **Send email**. If no channel is connected yet, the button is replaced with a **Connect your mailbox** link that takes you directly to the profile page.
+3. The compose dialog opens pre-filled with the person's primary email address in the **To** field (if one is set on the record).
+4. Fill in the fields:
+   - **To** — one or more recipient addresses, comma- or semicolon-separated.
+   - **Cc** (optional) — click **+ Cc** to reveal the Cc field. Use the same separator format as To.
+   - **Subject** — required.
+   - **Body** — required.
+5. Choose **Visibility** before sending:
+   - **Private to me** (default) — only you see the full email body. Teammates see a count of your private emails on the timeline but no content.
+   - **Visible to teammates** — all users with `customers.interactions.view` can read this email on the Person's timeline.
+6. If you have multiple mailboxes connected, pick which account to **Send as**. The primary account is selected by default.
+7. Click **Send** or press **Cmd/Ctrl + Enter**.
+
+The sent email appears on the Person's timeline within a couple of seconds once the background subscriber processes the outbound event.
+
+## Inbound emails on the timeline
+
+When an email arrives in your connected mailbox, Open Mercato checks every address in the From, To, Cc, and Bcc fields against the primary email addresses of all People in your CRM. If one or more matches are found:
+
+- A timeline entry is created on **each** matched Person — so if a single email involves two known contacts, both timelines are updated.
+- The entry records the subject, body, sender, timestamp, and which mailbox received it.
+- The default visibility is **private to you** (see below).
+
+If no addresses match any Person's primary email, the email stays in the unified Messages inbox but does not appear on any Person's timeline. Updating the Person's email address after the fact does not retroactively link older emails; only emails received after the address is set will be linked.
+
+**Timing** — inbound linking is handled by a persistent background subscriber. Gmail channels with push delivery typically surface timeline entries within seconds; mailboxes on the polling fallback (IMAP, and Gmail when push is unavailable) are checked on the hub's default ~60-second cadence, so allow up to about a minute.
+
+## Private vs shared
+
+Every email on the CRM timeline has a visibility setting: **private** or **shared**.
+
+**Default: private.** Emails synced from your personal mailbox are private to you by default. This means:
+
+- You see the full email content on the Person's timeline.
+- Teammates see only a count badge — "N emails private to teammates" — so they know an email exchange happened but cannot read the content.
+
+**Flipping to shared.** To share an individual email with your team, click the lock / users icon on the email card in the timeline. Sharing is per-email; changing one email's visibility does not affect any others in the thread. You can flip back to private at any time.
+
+**Why this matters for hand-offs.** When you hand a contact to a colleague, flip the relevant context emails to "shared" so they can read the history without having to ask you to forward everything.
+
+## Threading: Reply, Reply All, Forward
+
+Each email card on the Person's timeline has three action buttons:
+
+- **Reply** — opens the compose dialog addressed to the original sender, with the subject pre-filled as `Re: …` and the threading headers (`In-Reply-To`, `References`) set correctly.
+- **Reply All** — same as Reply, but adds all original recipients to Cc.
+- **Forward** — opens the compose dialog with a blank To field and the subject pre-filled as `Fwd: …`, ready for you to pick a new recipient.
+
+All three modes inherit the original thread's message identifiers, so replies and forwards stay attached to the correct email chain in your mail client and in the recipient's inbox.
+
+**Threading inheritance.** If someone replies to a CRM-tracked email from an address that is not a known Person — for example, a shared support alias — Open Mercato still attaches the reply to the same Person's timeline by following the RFC 2822 `References` chain back to the original tracked message. This means a thread stays on the right Person's timeline even when intermediate replies come from unfamiliar addresses.
+
+## What admins see
+
+The email privacy model is **strict owner-only** in this release: a private email interaction is visible only to the author who sent or received it. There is **no admin override** — administrators see other people's private emails as a count badge only, never their content, exactly like any other teammate. The `customers.email.view_private` feature appears in the permission list but is **inert** in this release (reserved for a future admin-oversight capability); granting it does not unlock private email content today.
+
+Any change an author makes to one of their own emails' visibility is recorded in the audit log under the `customers.email.visibility_changed` event, capturing who made the change and when.
+
+Everyone — administrators and regular employees alike — sees only their own private emails plus any shared emails on the timeline.
+
+## Troubleshooting
+
+### "Send email" button is missing from the Person record
+
+You have no connected mailbox. The button is replaced with a **Connect your mailbox** link. Go to **Profile → Communication Channels** (or follow the link) and connect a Gmail or IMAP account. Once connected, return to the Person record and refresh — the Send email button will appear.
+
+### Sent email doesn't appear on the Person's timeline
+
+The timeline entry is created asynchronously by a background subscriber after the message is delivered. Typical delay:
+
+- Gmail — 1–2 seconds.
+- IMAP — up to 5 minutes (depends on the polling cadence of your IMAP connection).
+
+If the entry still doesn't appear after 5 minutes, check that your channel's status is **Connected** in your profile. If the channel shows **Needs reconnection**, reconnect it and resend.
+
+### The recipient address is wrong or missing on the Person record
+
+Auto-linking matches on the Person's **primary email** address only. If the Person's primary email is blank or incorrect:
+
+1. Edit the Person record and update the primary email.
+2. Send the email again.
+
+Emails sent before the address is added are not retroactively linked.
+
+### I can see a count of teammates' private emails but no content
+
+This is working as intended. The count badge lets everyone know an email exchange took place while keeping the content private. If you need to read those emails — for example, during a hand-off — ask your teammate to flip the relevant emails to "shared" using the visibility toggle on each email card.
+
+### I don't see the visibility toggle on an email card
+
+You can only change the visibility of emails you authored. There is no admin override in this release — even users granted `customers.email.view_private` can change visibility only on emails they authored.
+
+## Related
+
+- [Communication Channels](communication-channels.mdx) — connect your Gmail or IMAP mailbox
+- [Inbox Ops](inbox-ops.mdx) — the shared AI agent for forwarding customer threads into the ERP (separate from personal mailboxes)

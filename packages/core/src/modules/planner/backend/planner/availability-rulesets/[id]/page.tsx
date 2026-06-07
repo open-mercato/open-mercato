@@ -4,10 +4,10 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { AvailabilityRulesEditor, type AvailabilityScheduleItemBuilder } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
@@ -28,6 +28,7 @@ type RuleSetRecord = {
   description?: string | null
   timezone: string
   updatedAt?: string | null
+  updated_at?: string | null
   name_raw?: string | null
 } & Record<string, unknown>
 
@@ -39,7 +40,10 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
   const rulesetId = params?.id
   const translate = useT()
   const router = useRouter()
+  // optimistic-lock: AvailabilityRuleSetForm forwards optimisticLockUpdatedAt from initialValues.updatedAt (wrapper auto-derives the header on save + delete).
   const [initialValues, setInitialValues] = React.useState<AvailabilityRuleSetFormValues | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
 
   React.useEffect(() => {
@@ -47,6 +51,10 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
     const rulesetIdValue = rulesetId
     let cancelled = false
     async function loadRuleSet() {
+      if (!cancelled) {
+        setError(null)
+        setIsNotFound(false)
+      }
       try {
         const params = new URLSearchParams({ page: '1', pageSize: '1', ids: rulesetIdValue })
         const payload = await readApiResultOrThrow<RuleSetResponse>(
@@ -55,7 +63,10 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
           { errorMessage: translate('planner.availabilityRuleSets.form.errors.load', 'Failed to load schedule.') },
         )
         const record = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!record) throw new Error(translate('planner.availabilityRuleSets.form.errors.notFound', 'Schedule not found.'))
+        if (!record) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         const customFields = extractCustomFieldEntries(record)
         if (!cancelled) {
           setInitialValues({
@@ -63,12 +74,23 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
             name: record.name ?? record.name_raw ?? '',
             description: record.description ?? '',
             timezone: record.timezone ?? 'UTC',
+            updatedAt: typeof record.updatedAt === 'string'
+              ? record.updatedAt
+              : typeof record.updated_at === 'string'
+                ? record.updated_at
+                : null,
             ...customFields,
           })
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : translate('planner.availabilityRuleSets.form.errors.load', 'Failed to load schedule.')
-        flash(message, 'error')
+      } catch (err) {
+        if (!cancelled) {
+          if ((err as { status?: number }).status === 404) {
+            setIsNotFound(true)
+          } else {
+            const message = err instanceof Error ? err.message : translate('planner.availabilityRuleSets.form.errors.load', 'Failed to load schedule.')
+            setError(message)
+          }
+        }
       }
     }
     loadRuleSet()
@@ -90,19 +112,15 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
 
   const handleDelete = React.useCallback(async () => {
     if (!rulesetId) return
-    try {
-      await deleteCrud('planner/availability-rule-sets', rulesetId, {
-        errorMessage: translate('planner.availabilityRuleSets.form.errors.delete', 'Failed to delete schedule.'),
-      })
-      flash(translate('planner.availabilityRuleSets.form.flash.deleted', 'Schedule deleted.'), 'success')
-      router.push('/backend/planner/availability-rulesets')
-    } catch (error) {
-      const normalized = normalizeCrudServerError(error)
-      flash(
-        normalized.message ?? translate('planner.availabilityRuleSets.form.errors.delete', 'Failed to delete schedule.'),
-        'error',
-      )
-    }
+    // Let a non-ok DELETE (e.g. the 409 optimistic-lock conflict) propagate so
+    // CrudForm surfaces the unified conflict bar and skips its success toast.
+    // Swallowing the error here made CrudForm treat the delete as successful and
+    // show a false "Schedule deleted." toast even though the record was kept.
+    await deleteCrud('planner/availability-rule-sets', rulesetId, {
+      errorMessage: translate('planner.availabilityRuleSets.form.errors.delete', 'Failed to delete schedule.'),
+    })
+    flash(translate('planner.availabilityRuleSets.form.flash.deleted', 'Schedule deleted.'), 'success')
+    router.push('/backend/planner/availability-rulesets')
   }, [router, rulesetId, translate])
 
   const buildScheduleItems: AvailabilityScheduleItemBuilder = React.useCallback(({ availabilityRules, bookedEvents, translate: translateLabel }) => {
@@ -150,6 +168,30 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
 
   const resolvedInitialValues = initialValues ?? {}
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={translate('planner.availabilityRuleSets.form.errors.notFound', 'Schedule not found.')}
+            backHref="/backend/planner/availability-rulesets"
+            backLabel={translate('planner.availabilityRuleSets.actions.backToList', 'Back to schedules')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error && !initialValues) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
@@ -166,7 +208,7 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
                   size="sm"
                   className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-2 font-medium ${
                     activeTab === tab.id
-                      ? 'border-primary text-foreground'
+                      ? 'border-accent-indigo text-foreground'
                       : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}
                   onClick={() => setActiveTab(tab.id as 'details' | 'availability')}

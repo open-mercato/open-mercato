@@ -11,6 +11,8 @@ import { CustomerRbacService } from '@open-mercato/core/modules/customer_account
 import { adminUpdateUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 export const metadata = {}
 
@@ -136,16 +138,33 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }
 
-  const updates: Record<string, unknown> = {}
+  // Optimistic lock: refuse a stale overwrite so two admins editing the same
+  // customer user in parallel cannot silently clobber each other (#2055). The
+  // check is strictly additive — a no-op when the client sends no expected-version header.
+  try {
+    enforceCommandOptimisticLock({
+      resourceKind: 'customer_accounts.user',
+      resourceId: user.id,
+      current: user.updatedAt ?? null,
+      request: req,
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
+  }
+
+  // Always bump updated_at so the optimistic-lock version advances on every save.
+  // `nativeUpdate` bypasses MikroORM's `onUpdate` hook, so set it explicitly — without
+  // this the version never changes and concurrent edits cannot be detected (#2055).
+  const nextUpdatedAt = new Date()
+  const updates: Record<string, unknown> = { updatedAt: nextUpdatedAt }
   if (parsed.data.displayName !== undefined) updates.displayName = parsed.data.displayName
   if (parsed.data.isActive !== undefined) updates.isActive = parsed.data.isActive
   if (parsed.data.lockedUntil !== undefined) updates.lockedUntil = parsed.data.lockedUntil ? new Date(parsed.data.lockedUntil) : null
   if (parsed.data.personEntityId !== undefined) updates.personEntityId = parsed.data.personEntityId
   if (parsed.data.customerEntityId !== undefined) updates.customerEntityId = parsed.data.customerEntityId
 
-  if (Object.keys(updates).length > 0) {
-    await em.nativeUpdate(CustomerUser, { id: user.id }, updates)
-  }
+  await em.nativeUpdate(CustomerUser, { id: user.id }, updates)
 
   let rolesChanged = false
   if (parsed.data.roleIds !== undefined) {
@@ -190,13 +209,14 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 
   void emitCustomerAccountsEvent('customer_accounts.user.updated', {
     id: user.id,
+    recipientUserId: user.id,
     email: user.email,
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
     updatedBy: auth.sub,
   }).catch(() => undefined)
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, updatedAt: nextUpdatedAt.toISOString() })
 }
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
@@ -223,6 +243,20 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   )
   if (!user) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
+  }
+
+  // Optimistic lock: refuse a stale delete (e.g. deleting a record another admin
+  // already modified). Strictly additive — a no-op without the expected-version header.
+  try {
+    enforceCommandOptimisticLock({
+      resourceKind: 'customer_accounts.user',
+      resourceId: user.id,
+      current: user.updatedAt ?? null,
+      request: req,
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
   }
 
   const customerUserService = container.resolve('customerUserService') as CustomerUserService

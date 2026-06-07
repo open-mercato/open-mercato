@@ -80,6 +80,7 @@ const userListItemSchema = z.object({
   tenantName: z.string().nullable(),
   roles: z.array(z.string()),
   roleIds: z.array(z.string().uuid()).optional(),
+  updatedAt: z.string().nullable().optional(),
 })
 
 const userListResponseSchema = z.object({
@@ -429,6 +430,7 @@ export async function GET(req: Request) {
       roles: roleMap[uid] || [],
       roleIds: roleIdMap[uid] || [],
       hasPassword: !!u.passwordHash,
+      updatedAt: u.updatedAt instanceof Date ? u.updatedAt.toISOString() : null,
       ...(cfByUser[uid] || {}),
     }
   })

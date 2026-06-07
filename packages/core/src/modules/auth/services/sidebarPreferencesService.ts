@@ -1,5 +1,6 @@
 import { EntityManager, type FilterQuery } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Role, RoleSidebarPreference, SidebarVariant, User, UserSidebarPreference } from '../data/entities'
 import {
   SIDEBAR_PREFERENCES_VERSION,
@@ -51,6 +52,38 @@ export async function loadSidebarPreference(
     { tenantId, organizationId },
   )
   return normalizeSidebarSettings(existing?.settingsJson as SidebarPreferencesSettings | undefined)
+}
+
+export async function loadSidebarPreferenceUpdatedAt(
+  em: EntityManager,
+  scope: SidebarPreferenceScope,
+): Promise<{ id: string; updatedAt: Date | null } | null> {
+  const { userId, tenantId, organizationId } = normalizeScope(scope)
+  const existing = await findOneWithDecryption(
+    em,
+    UserSidebarPreference,
+    { user: userId, tenantId, organizationId },
+    undefined,
+    { tenantId, organizationId },
+  )
+  if (!existing) return null
+  return { id: existing.id, updatedAt: existing.updatedAt ?? null }
+}
+
+export async function loadRoleSidebarPreferenceUpdatedAt(
+  em: EntityManager,
+  scope: RoleSidebarPreferenceScope,
+): Promise<{ id: string; updatedAt: Date | null } | null> {
+  const { roleId, tenantId } = normalizeRoleScope(scope)
+  const existing = await findOneWithDecryption(
+    em,
+    RoleSidebarPreference,
+    { role: roleId, tenantId },
+    undefined,
+    { tenantId, organizationId: null },
+  )
+  if (!existing) return null
+  return { id: existing.id, updatedAt: existing.updatedAt ?? null }
 }
 
 export async function saveSidebarPreference(
@@ -346,21 +379,24 @@ export async function createSidebarVariant(
     version: input.settings?.version ?? SIDEBAR_PREFERENCES_VERSION,
   })
 
-  if (input.isActive === true) {
-    await deactivateAllVariants(em, scope)
-  }
-
-  const variant = em.create(SidebarVariant, {
-    user: em.getReference(User, userId),
-    tenantId,
-    organizationId,
-    locale,
-    name: finalName,
-    settingsJson: settings,
-    isActive: input.isActive === true,
-    createdAt: new Date(),
-  })
-  await em.flush()
+  let variant!: SidebarVariant
+  await withAtomicFlush(em, [
+    async () => {
+      if (input.isActive === true) {
+        await deactivateAllVariants(em, scope)
+      }
+      variant = em.create(SidebarVariant, {
+        user: em.getReference(User, userId),
+        tenantId,
+        organizationId,
+        locale,
+        name: finalName,
+        settingsJson: settings,
+        isActive: input.isActive === true,
+        createdAt: new Date(),
+      })
+    },
+  ], { transaction: true })
   return toVariantRecord(variant)
 }
 
@@ -383,23 +419,29 @@ export async function updateSidebarVariant(
     { tenantId, organizationId },
   )
   if (!variant) return null
-  if (typeof input.name === 'string' && input.name.trim().length > 0) {
-    variant.name = input.name.trim()
-  }
-  if (input.settings) {
-    variant.settingsJson = normalizeSidebarSettings({
-      ...input.settings,
-      version: input.settings.version ?? SIDEBAR_PREFERENCES_VERSION,
-    })
-  }
-  if (typeof input.isActive === 'boolean') {
-    if (input.isActive) {
-      await deactivateAllVariants(em, scope, variantId)
-    }
-    variant.isActive = input.isActive
-  }
-  await em.flush()
-  return toVariantRecord(variant)
+  const target = variant
+  await withAtomicFlush(em, [
+    () => {
+      if (typeof input.name === 'string' && input.name.trim().length > 0) {
+        target.name = input.name.trim()
+      }
+      if (input.settings) {
+        target.settingsJson = normalizeSidebarSettings({
+          ...input.settings,
+          version: input.settings.version ?? SIDEBAR_PREFERENCES_VERSION,
+        })
+      }
+      if (typeof input.isActive === 'boolean') {
+        target.isActive = input.isActive
+      }
+    },
+    async () => {
+      if (input.isActive === true) {
+        await deactivateAllVariants(em, scope, variantId)
+      }
+    },
+  ], { transaction: true })
+  return toVariantRecord(target)
 }
 
 export async function deleteSidebarVariant(

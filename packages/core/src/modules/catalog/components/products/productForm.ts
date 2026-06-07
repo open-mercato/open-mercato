@@ -37,6 +37,44 @@ export type TaxRateSummary = {
   isDefault: boolean;
 };
 
+export function normalizeTaxRateSummary(
+  item: Record<string, unknown>,
+  fallbackName: string,
+): TaxRateSummary | null {
+  const id = typeof item.id === "string" ? item.id : null;
+  if (!id) return null;
+  const rawRate =
+    typeof item.rate === "number" ? item.rate : Number(item.rate ?? Number.NaN);
+  return {
+    id,
+    name:
+      typeof item.name === "string" && item.name.trim().length
+        ? item.name
+        : fallbackName,
+    code:
+      typeof item.code === "string" && item.code.trim().length
+        ? item.code
+        : null,
+    rate: Number.isFinite(rawRate) ? rawRate : null,
+    isDefault: Boolean(
+      typeof item.isDefault === "boolean"
+        ? item.isDefault
+        : typeof item.is_default === "boolean"
+          ? item.is_default
+          : false,
+    ),
+  };
+}
+
+export function mergeTaxRateSummaries(
+  options: TaxRateSummary[],
+  selected: TaxRateSummary | null,
+): TaxRateSummary[] {
+  if (!selected) return options;
+  if (options.some((option) => option.id === selected.id)) return options;
+  return [selected, ...options];
+}
+
 export type ProductOptionInput = {
   id: string;
   title: string;
@@ -68,6 +106,8 @@ export type ProductUnitConversionDraft = {
   toBaseFactor: string;
   sortOrder: string;
   isActive: boolean;
+  /** The conversion row's version, for the per-row optimistic-lock header (#2055). Optional — only loaded rows carry it. */
+  updatedAt?: string | null;
 };
 
 export type VariantDraft = {
@@ -116,6 +156,7 @@ export type ProductFormValues = {
   channelIds: string[];
   tags: string[];
   optionSchemaId?: string | null;
+  updatedAt?: string | null;
 };
 
 const optionalPositiveNumberInput = z.preprocess((value) => {

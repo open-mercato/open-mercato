@@ -1,9 +1,11 @@
 /** @type {import('jest').Config} */
+const base = require('../../jest.config.base.cjs')
+
 module.exports = {
+  ...base,
   testEnvironment: 'node',
   watchman: false,
   rootDir: '.',
-  maxWorkers: 4,
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^@open-mercato/ai-assistant/(.*)$': '<rootDir>/src/$1',

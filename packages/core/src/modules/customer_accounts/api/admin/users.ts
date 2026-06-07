@@ -171,6 +171,7 @@ export async function GET(req: Request) {
     customerEntityId: user.customerEntityId || null,
     personEntityId: user.personEntityId || null,
     createdAt: user.createdAt,
+    updatedAt: user.updatedAt || null,
     roles: rolesByUserId.get(user.id) ?? [],
   }))
 
@@ -225,35 +226,40 @@ export async function POST(req: Request) {
     { tenantId: auth.tenantId!, organizationId: auth.orgId! },
   )
   user.emailVerifiedAt = new Date()
-  em.persist(user)
-  await em.flush()
 
-  if (parsed.data.customerEntityId) {
-    await em.nativeUpdate(CustomerUser, { id: user.id }, { customerEntityId: parsed.data.customerEntityId })
-  }
+  // Persist the user, its company association, and its role links in one
+  // transaction so a flush failure on the role loop cannot leave a roleless
+  // user committed (privilege gap).
+  await em.transactional(async (tx) => {
+    tx.persist(user)
+    await tx.flush()
 
-  if (parsed.data.roleIds && parsed.data.roleIds.length > 0) {
-    const validRoles = await findWithDecryption(
-      em,
-      CustomerRole,
-      {
-        id: { $in: parsed.data.roleIds } as any,
-        tenantId: auth.tenantId,
-        deletedAt: null,
-      } as any,
-      undefined,
-      { tenantId: auth.tenantId, organizationId: auth.orgId },
-    )
-    for (const role of validRoles) {
-      const userRole = em.create(CustomerUserRole, {
-        user,
-        role,
-        createdAt: new Date(),
-      } as any)
-      em.persist(userRole)
+    if (parsed.data.customerEntityId) {
+      await tx.nativeUpdate(CustomerUser, { id: user.id }, { customerEntityId: parsed.data.customerEntityId })
     }
-    await em.flush()
-  }
+
+    if (parsed.data.roleIds && parsed.data.roleIds.length > 0) {
+      const validRoles = await findWithDecryption(
+        tx,
+        CustomerRole,
+        {
+          id: { $in: parsed.data.roleIds } as any,
+          tenantId: auth.tenantId,
+          deletedAt: null,
+        } as any,
+        undefined,
+        { tenantId: auth.tenantId, organizationId: auth.orgId },
+      )
+      for (const role of validRoles) {
+        const userRole = tx.create(CustomerUserRole, {
+          user,
+          role,
+          createdAt: new Date(),
+        } as any)
+        tx.persist(userRole)
+      }
+    }
+  })
 
   void emitCustomerAccountsEvent('customer_accounts.user.created', {
     id: user.id,
@@ -281,6 +287,7 @@ const userSchema = z.object({
   customerEntityId: z.string().uuid().nullable(),
   personEntityId: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime().nullable(),
   roles: z.array(roleSchema),
 })
 

@@ -17,6 +17,9 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const addressCrudIndexer: CrudIndexerConfig<CustomerAddress> = {
   entityType: E.customers.customer_address,
@@ -130,13 +133,15 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
       createdAt: new Date(),
       updatedAt: new Date(),
     })
-    em.persist(address)
-    await em.flush()
-
-    if (address.isPrimary) {
-      await enforcePrimaryAddress(em, entity.id, address.id)
-      await em.flush()
-    }
+    await withAtomicFlush(em, [
+      async () => {
+        em.persist(address)
+        await em.flush()
+        if (address.isPrimary) {
+          await enforcePrimaryAddress(em, entity.id, address.id)
+        }
+      },
+    ], { transaction: true })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -187,6 +192,88 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
       await em.flush()
     }
   },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<AddressSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for address create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const entity = await requireCustomerEntity(em, after.entityId, undefined, 'Customer not found')
+    let address = await findOneWithDecryption(
+      em,
+      CustomerAddress,
+      { id: after.id },
+      undefined,
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    if (!address) {
+      address = em.create(CustomerAddress, {
+        id: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        entity,
+        name: after.name,
+        purpose: after.purpose,
+        companyName: after.companyName,
+        addressLine1: after.addressLine1,
+        addressLine2: after.addressLine2,
+        buildingNumber: after.buildingNumber,
+        flatNumber: after.flatNumber,
+        city: after.city,
+        region: after.region,
+        postalCode: after.postalCode,
+        country: after.country,
+        latitude: after.latitude,
+        longitude: after.longitude,
+        isPrimary: after.isPrimary,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(address)
+    } else {
+      address.entity = entity
+      address.name = after.name
+      address.purpose = after.purpose
+      address.companyName = after.companyName
+      address.addressLine1 = after.addressLine1
+      address.addressLine2 = after.addressLine2
+      address.buildingNumber = after.buildingNumber
+      address.flatNumber = after.flatNumber
+      address.city = after.city
+      address.region = after.region
+      address.postalCode = after.postalCode
+      address.country = after.country
+      address.latitude = after.latitude
+      address.longitude = after.longitude
+      address.isPrimary = after.isPrimary
+    }
+    const restoredAddress = address
+    await withAtomicFlush(em, [
+      async () => {
+        em.persist(restoredAddress)
+        await em.flush()
+        if (after.isPrimary) {
+          await enforcePrimaryAddress(em, after.entityId, after.id)
+        }
+      },
+    ], { transaction: true })
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: restoredAddress,
+      identifiers: {
+        id: restoredAddress.id,
+        organizationId: restoredAddress.organizationId,
+        tenantId: restoredAddress.tenantId,
+      },
+      indexer: addressCrudIndexer,
+      events: addressCrudEvents,
+    })
+
+    return { addressId: restoredAddress.id }
+  },
 }
 
 const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: string }> = {
@@ -210,27 +297,30 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
       ensureSameScope(entity, address.organizationId, address.tenantId)
       address.entity = entity
     }
-    if (parsed.name !== undefined) address.name = parsed.name ?? null
-    if (parsed.purpose !== undefined) address.purpose = parsed.purpose ?? null
-    if (parsed.companyName !== undefined) address.companyName = parsed.companyName ?? null
-    if (parsed.addressLine1 !== undefined) address.addressLine1 = parsed.addressLine1
-    if (parsed.addressLine2 !== undefined) address.addressLine2 = parsed.addressLine2 ?? null
-    if (parsed.buildingNumber !== undefined) address.buildingNumber = parsed.buildingNumber ?? null
-    if (parsed.flatNumber !== undefined) address.flatNumber = parsed.flatNumber ?? null
-    if (parsed.city !== undefined) address.city = parsed.city ?? null
-    if (parsed.region !== undefined) address.region = parsed.region ?? null
-    if (parsed.postalCode !== undefined) address.postalCode = parsed.postalCode ?? null
-    if (parsed.country !== undefined) address.country = parsed.country ?? null
-    if (parsed.latitude !== undefined) address.latitude = parsed.latitude ?? null
-    if (parsed.longitude !== undefined) address.longitude = parsed.longitude ?? null
-    if (parsed.isPrimary !== undefined) address.isPrimary = parsed.isPrimary
 
-    await em.flush()
-
-    if (address.isPrimary) {
-      await enforcePrimaryAddress(em, typeof address.entity === 'string' ? address.entity : address.entity.id, address.id)
-      await em.flush()
-    }
+    await withAtomicFlush(em, [
+      () => {
+        if (parsed.name !== undefined) address.name = parsed.name ?? null
+        if (parsed.purpose !== undefined) address.purpose = parsed.purpose ?? null
+        if (parsed.companyName !== undefined) address.companyName = parsed.companyName ?? null
+        if (parsed.addressLine1 !== undefined) address.addressLine1 = parsed.addressLine1
+        if (parsed.addressLine2 !== undefined) address.addressLine2 = parsed.addressLine2 ?? null
+        if (parsed.buildingNumber !== undefined) address.buildingNumber = parsed.buildingNumber ?? null
+        if (parsed.flatNumber !== undefined) address.flatNumber = parsed.flatNumber ?? null
+        if (parsed.city !== undefined) address.city = parsed.city ?? null
+        if (parsed.region !== undefined) address.region = parsed.region ?? null
+        if (parsed.postalCode !== undefined) address.postalCode = parsed.postalCode ?? null
+        if (parsed.country !== undefined) address.country = parsed.country ?? null
+        if (parsed.latitude !== undefined) address.latitude = parsed.latitude ?? null
+        if (parsed.longitude !== undefined) address.longitude = parsed.longitude ?? null
+        if (parsed.isPrimary !== undefined) address.isPrimary = parsed.isPrimary
+      },
+      async () => {
+        if (address.isPrimary) {
+          await enforcePrimaryAddress(em, typeof address.entity === 'string' ? address.entity : address.entity.id, address.id)
+        }
+      },
+    ], { transaction: true })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -348,11 +438,15 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
       address.longitude = before.longitude
       address.isPrimary = before.isPrimary
     }
-    await em.flush()
-    if (before.isPrimary) {
-      await enforcePrimaryAddress(em, before.entityId, before.id)
-      await em.flush()
-    }
+    await withAtomicFlush(em, [
+      async () => {
+        em.persist(address)
+        await em.flush()
+        if (before.isPrimary) {
+          await enforcePrimaryAddress(em, before.entityId, before.id)
+        }
+      },
+    ], { transaction: true })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
@@ -471,11 +565,15 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
         address.longitude = before.longitude
         address.isPrimary = before.isPrimary
       }
-      await em.flush()
-      if (before.isPrimary) {
-        await enforcePrimaryAddress(em, before.entityId, before.id)
-        await em.flush()
-      }
+      await withAtomicFlush(em, [
+        async () => {
+          em.persist(address)
+          await em.flush()
+          if (before.isPrimary) {
+            await enforcePrimaryAddress(em, before.entityId, before.id)
+          }
+        },
+      ], { transaction: true })
 
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudUndoSideEffects({

@@ -184,9 +184,11 @@ describe('extractAttachmentContent', () => {
     const mockPdfDoc = {
       numPages: 1,
       getPage: jest.fn().mockResolvedValue(mockPage),
-      destroy: jest.fn().mockResolvedValue(undefined),
     }
-    getPdfMock().getDocument.mockReturnValue({ promise: Promise.resolve(mockPdfDoc) })
+    getPdfMock().getDocument.mockReturnValue({
+      promise: Promise.resolve(mockPdfDoc),
+      destroy: jest.fn().mockResolvedValue(undefined),
+    })
 
     const filePath = await writeTempFile('file.pdf', '%PDF-1.4 placeholder')
     const { extractAttachmentContent } = await import('../textExtraction')

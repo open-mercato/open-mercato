@@ -7,22 +7,27 @@ import { User, Hash, Users, Building2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { CollapsibleZoneLayout, type ZoneSectionDescriptor } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
+import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { AttachmentsSection, ErrorMessage, LoadingMessage, type SectionAction } from '@open-mercato/ui/backend/detail'
+import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
+import { PersonEmailThreadsTab } from '../../../../components/detail/PersonEmailThreadsTab'
 import { ActivitiesCard } from '../../../../components/detail/ActivitiesCard'
 import type { ActivityKind } from '../../../../components/detail/ActivitiesAddNewMenu'
 import { DealsSection } from '../../../../components/detail/DealsSection'
@@ -52,6 +57,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const router = useRouter()
   const searchParams = useSearchParams()
   const { organizationId } = useOrganizationScopeDetail()
+  const isMobile = useIsMobile()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
@@ -61,8 +67,18 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const fields = React.useMemo(() => createPersonEditFields(t), [t])
 
   const [data, setData] = React.useState<PersonOverview | null>(null)
+  // Mirror the latest `data` into a ref so save handlers always read the current
+  // optimistic-lock token (`person.updatedAt`) instead of the value captured in
+  // their `useCallback` closure. Without this, a header-field save issued after a
+  // prior in-page reload would send a stale token (or none), letting a concurrent
+  // two-tab overwrite slip through without the 409 + conflict bar (#2055, Alina A7).
+  const dataRef = React.useRef<PersonOverview | null>(null)
+  React.useEffect(() => {
+    dataRef.current = data
+  }, [data])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
 
   // Form state lifted for header Save button
   const [isDirty, setIsDirty] = React.useState(false)
@@ -122,9 +138,9 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   // Data loading
   const initialLoadDoneRef = React.useRef(false)
-  const loadData = React.useCallback(async () => {
+  const loadData = React.useCallback(async (lockTokenOverride?: string | null) => {
     if (!id) {
-      setError(t('customers.people.detail.error.notFound', 'Person not found.'))
+      setIsNotFound(true)
       setIsLoading(false)
       return
     }
@@ -132,16 +148,29 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       setIsLoading(true)
     }
     setError(null)
+    setIsNotFound(false)
     try {
       const payload = await readApiResultOrThrow<PersonOverview>(
         `/api/customers/people/${encodeURIComponent(id)}`,
         undefined,
         { errorMessage: t('customers.people.detail.error.load', 'Failed to load person.') },
       )
-      setData(payload as PersonOverview)
+      // When the caller is the save handler, pin the optimistic-lock token to the
+      // value the write itself returned rather than the one this GET observed — a
+      // concurrent third-party bump between save and reload must stay stale so the
+      // next in-page save 409s (#2055, Alina A7). Applied in the same state update
+      // as the refresh to avoid a redundant second re-render.
+      const next = lockTokenOverride && payload?.person
+        ? { ...payload, person: { ...payload.person, updatedAt: lockTokenOverride, updated_at: lockTokenOverride } }
+        : payload
+      setData(next as PersonOverview)
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('customers.people.detail.error.load', 'Failed to load person.')
-      setError(message)
+      if ((err as { status?: number }).status === 404) {
+        setIsNotFound(true)
+      } else {
+        const message = err instanceof Error ? err.message : t('customers.people.detail.error.load', 'Failed to load person.')
+        setError(message)
+      }
       if (!initialLoadDoneRef.current) setData(null)
     } finally {
       setIsLoading(false)
@@ -223,6 +252,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     // moment instead of "today" (#1807 prefill).
     const editPayload = {
       id: activity.id,
+      updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt as string : typeof raw.updated_at === 'string' ? raw.updated_at as string : null,
       interactionType: typeof activity.interactionType === 'string' ? activity.interactionType : undefined,
       title: typeof activity.title === 'string' ? activity.title : null,
       body: typeof activity.body === 'string' ? activity.body : null,
@@ -322,9 +352,27 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
           throw err
         }
 
-        await updateCrud('customers/people', payload)
+        // Attach the current optimistic-lock token directly on this write path so
+        // every header-field edit (displayName/status/…) carries `updatedAt`, not
+        // just the fields the embedded CrudForm intercepts. Read from `dataRef` so
+        // the token reflects the latest in-page reload rather than a stale closure
+        // capture, and let the 409 propagate to CrudForm's surfaceRecordConflict so
+        // the unified conflict bar renders (#2055, Alina A7).
+        const lockedUpdatedAt = dataRef.current?.person?.updatedAt
+          ?? dataRef.current?.person?.updated_at
+          ?? null
+        const updateResponse = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(lockedUpdatedAt),
+          () => updateCrud<{ updatedAt?: string | null }>('customers/people', payload),
+        )
         flash(t('customers.people.form.updateSuccess', 'Person updated.'), 'success')
-        await loadData()
+        // Refresh the view and pin the optimistic-lock token to the write's OWN
+        // authoritative `updatedAt` in a single reload (see loadData) so a
+        // concurrent third-party bump stays stale on the next save (#2055, Alina A7).
+        const savedUpdatedAt = typeof updateResponse.result?.updatedAt === 'string'
+          ? updateResponse.result.updatedAt
+          : null
+        await loadData(savedUpdatedAt)
       } finally {
         setIsSaving(false)
       }
@@ -344,10 +392,28 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
         variant: 'destructive',
       })
       if (!approved) return
-      await runMutationWithContext(
-        () => deleteCrud('customers/people', { id: personId }),
-        { id: personId, operation: 'deletePerson' },
-      )
+      try {
+        await runMutationWithContext(
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(data?.person?.updatedAt ?? data?.person?.updated_at ?? null),
+            () => deleteCrud('customers/people', { id: personId }),
+          ),
+          { id: personId, operation: 'deletePerson' },
+        )
+      } catch (err) {
+        // The guarded mutation routes a 409 to the unified conflict bar; surface
+        // any other server error (e.g. a linked-records delete guard) as a flash
+        // instead of letting it crash the page.
+        if (!surfaceRecordConflict(err, t)) {
+          flash(
+            err instanceof Error && err.message.trim().length > 0
+              ? err.message
+              : t('customers.people.detail.deleteError', 'Failed to delete person.'),
+            'error',
+          )
+        }
+        return
+      }
       flash(t('customers.people.list.deleteSuccess', 'Person deleted.'), 'success')
       router.push('/backend/customers/people')
     },
@@ -375,12 +441,26 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('customers.people.detail.error.notFound', 'Person not found.')}
+            backHref="/backend/customers/people"
+            backLabel={t('customers.people.detail.actions.backToList', 'Back to people')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !data?.person?.id || !initialValues) {
     return (
       <Page>
         <PageBody>
           <ErrorMessage
-            label={error || t('customers.people.detail.error.notFound', 'Person not found.')}
+            label={error ?? t('customers.people.detail.error.load', 'Failed to load person.')}
             action={(
               <Button asChild variant="outline">
                 <Link href="/backend/customers/people">
@@ -401,7 +481,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     <Page>
       <PageBody>
         <div className="space-y-4">
-          {/* UMES header injection */}
+          {/* UMES header injection (third-party extensions) */}
           <InjectionSpot spotId="detail:customers.person:header" context={injectionContext} data={data} />
           <InjectionSpot spotId="detail:customers.person:status-badges" context={injectionContext} data={data} />
 
@@ -443,6 +523,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                   fields={fields}
                   groups={groups}
                   initialValues={initialValues}
+                  optimisticLockUpdatedAt={data.person.updatedAt ?? data.person.updated_at ?? null}
                   onSubmit={handleFormSubmit}
                   onDelete={handleFormDelete}
                   hideFooterActions
@@ -496,6 +577,15 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                           onEditActivity={handleEditActivity}
                         />
                       </div>
+                    )
+                  }
+
+                  if (activeTab === 'emails') {
+                    return (
+                      <PersonEmailThreadsTab
+                        personId={personId}
+                        defaultRecipient={data.person?.primaryEmail ?? null}
+                      />
                     )
                   }
 
@@ -572,22 +662,22 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 </div>
               </PersonDetailTabs>
             )
-            return (
-              <>
-                <div className="md:hidden">
-                  <MobilePersonDetail zone1={zone1Content} zone2={zone2Content} />
-                </div>
-                <div className="hidden md:block">
-                  <CollapsibleZoneLayout
-                    pageType="person-v2"
-                    entityName={personName}
-                    isDirty={isDirty}
-                    sections={zoneSections}
-                    zone1={zone1Content}
-                    zone2={zone2Content}
-                  />
-                </div>
-              </>
+            // Render only the layout variant that matches the viewport. Mounting
+            // both the mobile and desktop layouts at once would create two
+            // CrudForm instances bound to one `formWrapperRef`, so header Save
+            // could submit the hidden instance's stale values and silently
+            // discard the edit (#2453). `useIsMobile` is SSR-safe.
+            return isMobile ? (
+              <MobilePersonDetail zone1={zone1Content} zone2={zone2Content} />
+            ) : (
+              <CollapsibleZoneLayout
+                pageType="person-v2"
+                entityName={personName}
+                isDirty={isDirty}
+                sections={zoneSections}
+                zone1={zone1Content}
+                zone2={zone2Content}
+              />
             )
           })()}
 

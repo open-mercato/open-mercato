@@ -62,6 +62,7 @@ export async function GET(req: Request) {
     isSystem: role.isSystem,
     customerAssignable: role.customerAssignable,
     createdAt: role.createdAt,
+    updatedAt: role.updatedAt || null,
   }))
 
   return NextResponse.json({ ok: true, items, total, totalPages, page })
@@ -159,6 +160,7 @@ const roleSchema = z.object({
   isSystem: z.boolean(),
   customerAssignable: z.boolean(),
   createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime().nullable(),
 })
 
 const roleResponseSchema = z.object({

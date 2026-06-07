@@ -1,4 +1,267 @@
 
+# 0.6.4 (2026-06-05)
+
+## Highlights
+
+Open Mercato `0.6.4` is a hardening-and-scale release that builds directly on `0.6.3`'s performance and security work. Two large, cross-cutting audits land together: a **repository-wide transaction-safety pass** that wraps multi-entity writes across sales, customers, catalog, auth, resources, staff, CRUD, and enterprise flows in atomic transactions (no more partial writes on failure), and a **second wave of performance quick wins** — request-level parallelism, per-process/per-locale memoization, N+1 batching, enricher/cache-hit short-circuits, and a fire-and-forget `query_index` path — continuing the p50 < 100 ms push for list/detail APIs.
+
+On the access-control side, the new **ACL feature dependency bundles** let modules declare `dependsOn` so the platform warns at edit time when a granted feature is missing its prerequisites, rolled out across sixteen core and provider modules. Security hardening tightens tenant/org scoping in catalog, customers, search, and customer-portal SSE, requires super-admin for global feature-toggle and system-scheduler writes, fails closed on missing credential DEKs and org-scope checks, and rejects undeclared custom-field keys.
+
+UI ships **DS Foundation v5** (12 new primitives plus rewrites and adoptions), completes the three-phase `RecordNotFoundState` rollout across backend pages, redesigns the create-deal page to the Figma spec, and adds auto-hiding completed progress operations. Rounding it out: a dev-mode `NODE_OPTIONS` heap cap and Redis LRU/eviction tuning, a time-bomb scanner for clock-dependent tests, a broad flaky-test stabilization sweep, and new specs for Railway one-command deployment and PARALLEL_FORK/PARALLEL_JOIN workflow support. Enjoy!
+
+This update also lands a broad **module integration-test coverage sweep** spanning two dozen modules, a batch of **undo/redo and tenant-encryption correctness fixes** across customers, scheduler, workflows, encryption, feature toggles, and checkout, plus **PARALLEL_FORK / PARALLEL_JOIN** workflow-engine execution and `CrudForm` dot-path field handling.
+
+## ✨ Features
+- ✨ OSS optimistic-locking guard is now **default ON** across every CRUD entity exposed via `makeCrudRoute`. Opt out with `OM_OPTIMISTIC_LOCK=off` (also accepts `false` / `0` / `no` / `disabled` / `none`). Runtime stays strictly additive — requests without the `x-om-ext-optimistic-lock-expected-updated-at` header continue to pass through. See [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) → "OSS optimistic locking default-ON" and [`.ai/specs/2026-05-25-oss-optimistic-locking.md`](.ai/specs/2026-05-25-oss-optimistic-locking.md) §3.4 + §4. (#1981 / #2055 Phase 14) *(@pkarw)*
+- ✨ Command-level OSS optimistic locking — new `enforceCommandOptimisticLock` helper lets Command-pattern / non-`makeCrudRoute` writes enforce the same `updated_at` 409 check against an aggregate root. Wired into the sales document sub-resource commands (order/quote lines + adjustments, return create) and quote→order conversion (closes the accept/convert race #2114) as a document-aggregate check. Strictly additive; honors `OM_OPTIMISTIC_LOCK`. See `.ai/specs/2026-05-25-oss-optimistic-locking.md` §10 + concurrency-locking docs. (#1981 / #2055 Phase 16–18) *(@pkarw)*
+- ✨ Unified record-conflict bar — optimistic-lock 409s ("this record was modified") now surface as a persistent, error-styled bar in `AppShell` (like the undo banner) instead of a transient toast. `CrudForm` and `useGuardedMutation` route conflicts automatically; custom pages call `surfaceRecordConflict(err, t)` from the new `@open-mercato/ui/backend/conflicts`. (#1981 / #2055) *(@pkarw)*
+- ✨ 100% OSS optimistic-lock coverage across CRM (companies-v2 / people-v2 / deals), catalog (product + product-variant delete), and sales — including sales document sub-sections (lines/adjustments/returns send the document-aggregate version header; payments/shipments send their own row `updatedAt`). See [`.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md`](.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md). (#1981 / #2055) *(@pkarw)*
+- ✨ Command-level enterprise seam — `createCommandOptimisticLockGuardService({ resolveExpected? })` mirrors the CRUD `crudMutationGuardService` override so enterprise can plug a `record_locks`-backed expected-version resolver via DI without touching command handlers. OSS default is the header compare. (#2055, enterprise follow-up #2232) *(@pkarw)*
+- ✨ IMAP + Google email integration foundations — shared MIME assembly, inbound parsing, and threading plumbing. (#2424) *(@haxiorz)*
+- ✨ Configurable dictionary entry sorting (carry-forward of #2429). (#2434) *(@pkarw)*
+- ✨ Adopt `RecordNotFoundState` across throw-on-load edit pages — Phase 4 (#2101). (#2435) *(@pkarw)*
+- ✨ DS Foundation v5 — 12 new primitives, 8 rewrites, and downstream adoptions. (#2322) *(@zielivia)*
+- ✨ Redesign the create-deal page to match the Figma mockups. (#2069) *(@haxiorz)*
+- ✨ Adopt `RecordNotFoundState` across backend pages — Phases 1–3 (Phase 1 supersedes #2106). (#2185, #2264, #2404) *(@izqzmyli, via @pkarw)*
+- ✨ Auto-hide completed progress operations after a configurable timeout (fixes #2206). (#2308) *(@izqzmyli)*
+- ✨ Planner: delete availability schedules from the team-member screen. (#2329) *(@adeptofvoltron)*
+- ✨ Workflows: PARALLEL_FORK / PARALLEL_JOIN engine execution support. (#2428) *(@adeptofvoltron)*
+- ✨ `CrudForm` honors dot-path ids for declared base fields. (#2515) *(@pkarw)*
+
+### 🔐 ACL feature dependency bundles
+- 🔐 ACL dependency bundles — declare `dependsOn` and warn at edit time when a granted feature is missing its prerequisites. (#2141, #2220) *(@pkarw)*
+- 🔐 Declare ACL feature dependencies across modules — `gateway_stripe`, `checkout`, `example`, `ai_assistant`, `progress`, `query_index`, `resources`, `storage_s3`, `directory`, `currencies`, `entities`, `security`, `record_locks`, `sso`, `sync_excel`, `onboarding`. (#2249, #2260, #2261, #2265, #2277, #2280, #2281, #2283, #2284, #2285, #2286, #2287, #2288, #2289, #2295, #2297) *(@pkarw)*
+
+## 🔒 Security
+- 🔒 Scope catalog reads to tenant/org — variant price snapshot loader, `require*` command helpers, and `decorateOffersWithDetails` (fixes #2119, #2118, #2120). (#2196, #2197, #2198) *(@pkarw)*
+- 🔒 Scope customer comment/activity deal enrichment to tenant + org (fixes #2117). (#2212) *(@pkarw)*
+- 🔒 Fail closed on org-scope checks in customers and shared helpers (fixes #2239, #2245). (#2300) *(@adeptofvoltron)*
+- 🔒 Restrict global feature-toggle writes to super admins (fixes #2266). (#2278) *(@pkarw)*
+- 🔒 Require super-admin to manage system-scoped scheduler jobs (fixes #2267). (#2279) *(@pkarw)*
+- 🔒 Filter customer-portal SSE recipients by scope. (#2294) *(@WXYZx)*
+- 🔒 Scope search results to allowed organizations. (#2296) *(@WXYZx)*
+- 🔒 Fail closed when the integrations credentials DEK is unavailable. (#2299) *(@WXYZx)*
+- 🔒 Validate uploads and harden downloads in `storage_s3` (fixes #2269). (#2320) *(@rengare)*
+- 🔒 Reject undeclared custom-field keys on entities. (#2396) *(@mat89c)*
+- 🔒 Fix 4 high-severity CodeQL alerts in `communication_channels` email-MIME assembly. (#2447) *(@pkarw)*
+
+## 🐛 Fixes
+- 🐛 Correct AI assistant `participantCount` and revoke-404 contract deviations (fixes #2189). (#2192) *(@adeptofvoltron)*
+- 🔐 Isolate AI chat sessions per tenant/org scope (fixes #2123). (#2194) *(@adeptofvoltron)*
+- 🌍 AI chat sharing — i18n, persisted notification title, and owner-in-picker (fixes #2097). (#2200) *(@adeptofvoltron)*
+- 🐛 Fix CRM customer list server-side sorting. (#2217) *(@pmadajthey)*
+- 🐛 Fix encrypted-field sorting in query engines. (#2282) *(@pmadajthey)*
+- 🐛 Stabilize planner availability-schedule switching (fixes #2307). (#2323) *(@rengare)*
+- 🐛 Staff timesheets QA follow-ups — wildcard ACL, duplicate-code 409, bulk validation, i18n (fixes #2303, #2304, #2305). (#2309) *(@izqzmyli)*
+- 🐛 Open `DatePicker` on the selected value's month. (#2330) *(@adeptofvoltron)*
+- 🐛 Preserve custom hours when switching planner availability schedules (fixes #2325). (#2345) *(@adeptofvoltron)*
+- 🔧 Add the missing `updated_at` migration for roles & users so fresh installs boot. (#2348) *(@pkarw)*
+- 🐳 Configure Redis with an LRU eviction policy and disable dev persistence (fixes #2372). (#2390) *(@Kotmin)*
+- 🐛 Add a note type to `ScheduleActivityDialog` to prevent a crash on edit (fixes #2388). (#2405) *(@adeptofvoltron)*
+- 🐛 Serialize `temperature` and `renewalQuarter` in company detail GET (fixes #2399). (#2408) *(@adeptofvoltron)*
+- 🐛 Persist metadata changes for system entities on save (fixes #2411). (#2415) *(@adeptofvoltron)*
+- 🐛 Make tenant-level org undo reachable via the public undo API (fixes #2398). (#2417) *(@adeptofvoltron)*
+- 🐛 `LookupSelect` search input no longer clears typed text (#2389). (#2422) *(@pkarw)*
+- 🐛 Allow optional pipeline stage appearance (supersedes #2430). (#2433) *(@pkarw)*
+- 🐛 Validate deal pipeline stage assignments. (#2439) *(@pmadajthey)*
+- 🐛 Avoid a false unsaved-changes prompt on a clean person detail page. (#2437) *(@pmadajthey)*
+- 🐳 Add the `NODE_OPTIONS` heap cap to the production fullapp Docker stack (#2371). (#2438) *(@Kotmin)*
+- 🐛 Catalog: tier-pricing tie-break now selects the higher `minQuantity` (fixes #1706). (#2454) *(@jakubmatwiejew-wq)*
+- 💰 Sales: preserve payment totals and derive tax from net/gross on document reads (fixes #2455, #2457). (#2467) *(@pkarw)*
+- 🔐 Encryption: fix `people.update` undo no-op by preserving pending changes during deep-decrypt re-baseline (fixes #2498). (#2508) *(@pkarw)*
+- 🔐 Customers: stop `personCompanyLinks` undo handlers from losing writes under tenant encryption (fixes #2507). (#2509) *(@adeptofvoltron)*
+- 🐛 Workflows: Definition form now persists Category/Tags/Icon (`metadata.*`) (fixes #2503). (#2513) *(@pkarw)*
+- 🐛 Scheduler: jobs undo is no longer a silent no-op — use `extractUndoPayload` (fixes #2504). (#2514) *(@pkarw)*
+- 🐛 Feature toggles: hydrate the global edit form's Type / Default Value (fixes #2524). (#2528) *(@pkarw)*
+- 🐛 Customers: allow clearing person/company URL and email fields (fixes #2526). (#2533) *(@pkarw)*
+- 🐛 Scheduler: job-edit Scope field was editable but silently stripped on save (fixes #2527). (#2535) *(@pkarw)*
+- 🐛 Checkout: template/pay-link edit no longer 400s when `gatewayProviderKey` is null (fixes #2505). (#2540) *(@pkarw)*
+
+### 🔧 Transaction safety — atomic multi-entity writes
+- 🔧 Harden `withAtomicFlush` + a repository-wide SQL transaction-safety audit. (#2343) *(@pkarw)*
+- 🔧 Sales — atomic quote acceptance + convert-to-order under one lock (fixes #2114). (#2347) *(@pkarw)*
+- 🔧 Sales — atomic order/quote/payment writes (fixes #2336). (#2355) *(@pkarw)*
+- 🔧 Core — atomic multi-table writes in perspectives, messages, and inbox ops (fixes #2340). (#2354) *(@adeptofvoltron)*
+- 🔧 Resources & `data_sync` — atomic relation & batch writes (fixes #2341). (#2356) *(@adeptofvoltron)*
+- 🔧 Auth, directory & staff — atomic ACL, user-delete cascade & org-hierarchy writes (fixes #2339). (#2360) *(@adeptofvoltron)*
+- 🔧 Catalog, currencies & translations — atomic product/variant/category/base-currency writes (fixes #2338). (#2368) *(@adeptofvoltron)*
+- 🔧 Customers — atomic writes for portal roles, companies, links & addresses (fixes #2337). (#2374) *(@pkarw)*
+- 🔧 CRUD — atomic `makeCrudRoute` direct-ORM entity + custom-field writes (fixes #2335). (#2376) *(@pkarw)*
+- 🔧 Enterprise, onboarding & sync-akeneo — atomic multi-entity writes (fixes #2342). (#2377) *(@pkarw)*
+- 🔧 Attachments & `sync_excel` — atomic entity + custom-field & import-config writes. (#2383) *(@pkarw)*
+- 🔧 Staff — serialize timesheets timer/segment writes with a locking transaction (fixes #2416). (#2420) *(@pkarw)*
+
+## 🛠️ Improvements
+- 🛠️ Refresh stale AI module-scaffold APIs + add a SKILL-level post-scaffold validation gate (supersedes #2216). (#2243) *(@Kotmin, via @pkarw)*
+- 🛠️ Add a `NODE_OPTIONS` heap cap to prevent V8 memory drift in dev (fixes #2370). (#2375) *(@Kotmin)*
+- 🛠️ Combine Dependabot minor-and-patch and major bumps (#2394, #2395). (#2403) *(@pkarw)*
+- 🛠️ Extract a `useDialogKeyHandler` hook for Esc/Cmd+Enter dialogs (#2366). (#2426) *(@Marynat)*
+
+### ⚡ Performance
+- 🛠️ Lazy-load recharts, `@xyflow/react`, and ClientBootstrap registries for a ~1 GB dev RAM win. (#2129) *(@pkarw)*
+- 🛠️ Thread the custom-field definition index through `QueryEngine` (fixes #2133). (#2210) *(@pkarw)*
+- 🛠️ Fold the shipment-status `DictionaryEntry` fetch into the sales `afterList` `Promise.all` (fixes #2131). (#2211) *(@pkarw)*
+- 🛠️ Memoize `deriveJwtAudienceSecret` HMAC per process. (#2263) *(@mat89c)*
+- 🛠️ Push tenants-list pagination to the DB; close the `findAndCount` fetch-all-then-slice audit (fixes #2136). (#2290) *(@pkarw)*
+- 🛠️ Cache business-rule discovery. (#2298) *(@WXYZx)*
+- 🛠️ Fire-and-forget `query_index` emits to unblock CRUD responses. (#2310) *(@izqzmyli)*
+- 🛠️ Memoize `TenantEncryptionSubscriber` per service (fixes #2235). (#2311) *(@pkarw)*
+- 🛠️ Parallelize search-token sources in CRM search (fixes #2231). (#2312) *(@pkarw)*
+- 🛠️ Consolidate org-scope resolution into a single organizations query (fixes #2228). (#2313) *(@pkarw)*
+- 🛠️ Skip response enrichers on list cache hits (fixes #2222). (#2314) *(@pkarw)*
+- 🛠️ Parallelize per-request session/user/role/ACL resolution (fixes #2221). (#2315) *(@pkarw)*
+- 🛠️ Memoize the i18n dictionary per locale (fixes #2224). (#2316) *(@pkarw)*
+- 🛠️ Batch N+1 lookups in rate ingestion, field defs, and role perspectives (fixes #1399). (#2317) *(@pkarw)*
+- 🛠️ Add a batch widget-data endpoint to collapse per-widget container/RBAC/scope rebuilds (fixes #2273). (#2318) *(@pkarw)*
+- 🛠️ Dedupe the webhooks integration check and parallelize outbound delivery. (#2344) *(@mat89c)*
+- 🛠️ Batch price resolution in the products `afterList` hook. (#2392) *(@Marynat)*
+- 🛠️ Tune SQLite cache writes. (#2400) *(@WXYZx)*
+- 🛠️ Cache `query_index` coverage snapshots by TTL. (#2401) *(@WXYZx)*
+
+## 🧪 Testing
+- 🧪 Add cross-tenant access integration tests for attachments (TC-ATTACH-XSS-001–005). (#2186) *(@izqzmyli)*
+- 🧪 Stabilize TC-CRM-028 (todos_pkey) and TC-WF-013 (timer resume). (#2188) *(@pkarw)*
+- 🧪 Stabilize the TC-AI-MERCHANDISING-008 selection-pill flake. (#2195) *(@pkarw)*
+- 🧪 Stabilize release integration flakes — sales shard-12 timeouts + deal-create hydration race. (#2202) *(@pkarw)*
+- 🧪 Un-skip TC-CRM-071 + fix the create-deal hydration race. (#2213) *(@pkarw)*
+- 🧪 Stabilize TC-INT-004 by raising the per-test timeout budget. (#2226) *(@pkarw)*
+- 🧪 Fix flaky-test readiness races at the root (no timeout bumps). (#2369) *(@pkarw)*
+- 🧪 Use a dynamic future datetime in workflow timer validator tests. (#2391) *(@MStaniaszek1998)*
+- 🧪 Add a time-bomb scanner and fix clock-dependent date literals (fixes #2384). (#2393) *(@adeptofvoltron)*
+- 🧪 Cap `yarn test` memory fan-out below the `yarn dev` budget (fixes #2402). (#2412) *(@pkarw)*
+- 🧪 Stabilize the flaky TC-CRM-028 example-customer-sync poll. (#2418) *(@pkarw)*
+- 🧪 Stabilize flaky TC-MSG-009 and TC-AUTH-009. (#2419) *(@pkarw)*
+- 🧪 Add `RecordNotFoundState` integration coverage — Phase 5 (#2101). (#2436) *(@izqzmyli)*
+- 🧪 Clear a CodeQL incomplete-URL-sanitization false positive in the command-menu test. (#2427) *(@pkarw)*
+- 🧪 Sales: document the order GET payment-total read-back contract. (#2421) *(@pkarw)*
+- 🧪 configs + api_keys integration coverage + cache-stats OpenAPI schema fix (fixes #2465, #2470). (#2497) *(@pkarw)*
+- 🧪 Catalog: integration coverage for the tier-pricing tie-break (follow-up to #2454). (#2499) *(@pkarw)*
+- 🧪 Core: `CrudForm` field-persistence integration harness + skip flag (#2466). (#2548) *(@pkarw)*
+- 🧪 Sales: de-flake TC-LOCK-OSS-029 list-delete. (#2554) *(@pkarw)*
+- 🧪 Expand module integration coverage across `ai_assistant`, `attachments`, `business_rules`, `catalog`, `communication_channels`, `currencies`, `dashboards`, `data_sync`, `dictionaries`, `directory`, `feature_toggles`, `inbox_ops`, `integrations`, `messages`, `payment_gateways`, `perspectives`, `progress`, `scheduler`, `search`, `shipping_carriers`, `sync_excel`, `translations`, and `webhooks`. (#2516, #2517, #2518, #2519, #2520, #2521, #2522, #2523, #2525, #2530, #2531, #2532, #2534, #2536, #2537, #2538, #2539, #2541, #2542, #2543, #2544, #2547, #2550) *(@haxiorz)*
+
+## 📝 Specs & Documentation
+- 📝 Spec: Railway one-command deployment from the Open Mercato CLI. (#1898) *(@pkarw)*
+- 📝 Spec: compile + route-warmup speedup (30–50%). (#2199) *(@pkarw)*
+- 📝 Document in-process dev watcher/workers + parallelism flags. (#2203) *(@pkarw)*
+- 📝 Add a Page URL field to the bug-report issue template. (#2331) *(@adeptofvoltron)*
+- 📝 Spec: PARALLEL_FORK / PARALLEL_JOIN workflow engine support. (#2385) *(@adeptofvoltron)*
+- 📝 QA scenarios: Timesheets (#2456) and Undo/Redo (#2468). (#2469) *(@pkarw)*
+- 📝 Spec: AI input moderation and safety identifiers (#2510). (#2511) *(@adeptofvoltron)*
+- 📝 Spec: reconcile the Railway one-command deploy spec. (#2512) *(@WXYZx)*
+
+## 👥 Contributors
+
+- @pkarw
+- @haxiorz
+- @zielivia
+- @izqzmyli
+- @adeptofvoltron
+- @WXYZx
+- @rengare
+- @mat89c
+- @pmadajthey
+- @Marynat
+- @Kotmin
+- @MStaniaszek1998
+- @jakubmatwiejew-wq
+
+---
+
+# 0.6.3 (2026-05-28)
+
+## Highlights
+
+Open Mercato `0.6.3` is a focused follow-up to `0.6.2` — performance, dev-mode memory, and security hardening, with two notable feature landings on top. 
+
+The CRM gets a **production-grade sales pipeline kanban** (colored stage lanes, filter bar, sort and saved-view scaffolding, stuck/overdue indicators, inline quick-deal and add-stage), and workflows finally pick up `WAIT` + `WAIT_FOR_TIMER` steps — carrying @jtomaszewski's original `#1472` work forward. **CRUD API performance quick wins** target p50 < 100 ms for list/detail endpoints across the platform via internal optimizations (no wire-format changes), and two `yarn dev` consolidations land in the same release — a single workspace-package watcher (~1 GB idle RSS win) and `mercato generate watch` folded into the dev server (~190 MB).
+
+On the security front: payment-allocation scope validation closes a cross-tenant write surface in sales commands, attachment scope checks fail closed instead of defaulting open, `mergeIdFilter` rejects unknown shapes, and `ws` is bumped for a transitive CVE. AI assistant gets multi-participant **chat conversation sharing**, the staff module starts Phase 1 of its decoupling from core, the customer portal gets encrypted-user search via search tokens, and SSO logins from Entra ID stop tripping on a missing `email_verified` claim. 
+
+Round it out with `GET /api/version` for deployment introspection, an i18n detection tooling foundation (hardcoded strings + locale value coverage), the new `RecordNotFoundState` UI primitive, and a sheaf of polish fixes across auth, messages, attachments, and dev tooling. Enjoy!
+
+## ✨ Features
+- ✨ Sales pipeline kanban — colored stage lanes, filter bar (Status / Pipeline / Owner / People / Companies / Close), sort + saved-view scaffolding, stuck/overdue indicators, inline quick-deal and add-stage lanes. (#1949) *(@haxiorz)*
+- ✨ Workflows: `WAIT` activity + `WAIT_FOR_TIMER` step (supersedes #1472). (#1991) *(@jtomaszewski, via @KubaBir)*
+- ✨ Decouple `staff` from `core` (Phase 1). (#1946) *(@migsilva89)*
+- ✨ AI chat conversation sharing — participant access, API, UI, notifications (fixes #1969). (#2023) *(@adeptofvoltron)*
+- ✨ CRUD API performance quick wins — list/detail p50 < 100 ms via internal optimizations (fixes #2044). (#2100) *(@pkarw)*
+- ✨ Expose deployed version via `GET /api/version` (fixes #1718). (#2075) *(@amtmich)*
+- ✨ `RecordNotFoundState` shared backend component. (#2014) *(@izqzmyli)*
+- ✨ Auto-dismiss Undo banner after timeout (fixes #2028). (#2041) *(@pkarw)*
+- ✨ Clarify Messages inbox filter labels and add tooltip help text. (#2052) *(@adeptofvoltron)*
+- ✨ i18n detection tooling — hardcoded strings + locale value coverage. (#2099) *(@pkarw)*
+
+## 🔒 Security
+- 🔒 Scope-validate payment allocation `orderId` / `invoiceId` in sales commands. (#2122) *(@pkarw)*
+- 🔒 Scope `em.findOne` by tenant/org for non-super-admin attachment image/file routes (fixes #2108). (#2124) *(@izqzmyli)*
+- 🔒 Fail closed when attachment scope columns are null. (#2107) *(@pkarw)*
+- 🔒 `mergeIdFilter` fails closed on unknown id filter shapes (fixes #1736). (#2012) *(@pkarw)*
+- 🔒 Bump `ws` to address transitive vulnerability. (#2018) *(@pkarw)*
+
+## 🐛 Fixes
+- 🔐 Implement `RbacService.getGrantedFeatures` so feature-gated enrichers run (fixes #2019). (#2039) *(@pkarw)*
+- 🔐 Search tokens for encrypted customer user search (fixes #2034). (#2040) *(@pat-lewczuk)*
+- 🔐 Preserve undefined `email_verified` claim to unblock Entra ID login (supersedes #2027). (#2042) *(@truongx, via @pkarw)*
+- 🔐 Gate `UpgradeActionBanner` on `configs.manage` feature to prevent redirect loop (supersedes #2058, folds #2068). (#2066) *(@adeptofvoltron, @rengare, via @pkarw)*
+- 🔐 Break 403 redirect loop on staff login (fixes #2070). (#2073) *(@pkarw)*
+- 🔐 Add tenant feature checks for scheduler. (#2086) *(@mat-kruk)*
+- 🐛 Keep deal analyzer stage approval tool available. (#2017) *(@pkarw)*
+- 🐛 Allow clearing `ComboboxInput` value (fixes #1832). (#2020) *(@pkarw)*
+- 🐛 Hide stale AppShell sidebar nav until chrome resolves (fixes #1828). (#2021) *(@pkarw)*
+- 🐛 React to deleted message in detail view (fixes #1936). (#2013) *(@pkarw)*
+- 🐛 Suppress Edge native `::-ms-reveal` duplicate eye icon on `PasswordInput` (fixes #2037). (#2043) *(@pkarw)*
+- 🐛 Team delete shows success toast despite 409 rejection (fixes #2049). (#2051) *(@adeptofvoltron)*
+- 🐛 Correct widget injection context keys for AI Deal Analyzer (fixes #2053). (#2059) *(@pat-lewczuk)*
+- 🐛 Stop `dealAnalyzer` loop after `update_deal_stage` tool call (fixes #2054). (#2098) *(@pat-lewczuk)*
+- 🔧 Kill the full child process tree on Windows shutdown (fixes #1826). (#2022) *(@pkarw)*
+- 🔧 `singularizeSegment` handles irregular plurals (fixes #2072). (#2076) *(@pkarw)*
+- 🔧 Add missing CRUD route indexers. (#2083) *(@WXYZx)*
+- 🔧 Decrypt selected relation labels in query index (fixes #2024). (#2065) *(@pmadajthey)*
+- 🔧 Use shared base URL resolver for `api-docs` routes (fixes #2089). (#2090) *(@truongx)*
+- 🔄 Add search indexing subscribers for customer users (fixes #2060). (#2079) *(@pat-lewczuk)*
+- 🔄 Match external custom-field labels in `sync_excel`. (#2087) *(@pmadajthey)*
+- 🧪 Stabilize flaky integration tests (TC-CRM-068/069, TC-SALES-005/019). (#2046) *(@pkarw)*
+
+## 🛠️ Improvements
+- 🛠️ Consolidate workspace package watchers — ~1 GB idle RSS win in `yarn dev`. (#2102) *(@pkarw)*
+- 🛠️ Consolidate `mercato generate watch` into `mercato server dev` — ~190 MB idle RSS win. (#2105) *(@pkarw)*
+- 🛠️ Push pagination + parallelize decryption fetches for two CRUD SQL quick wins. (#2139) *(@pkarw)*
+- 🛠️ Combine major + minor-and-patch Dependabot bumps (#2064, #2062). (#2067) *(@pkarw)*
+- 🛠️ Migrate `ws` 7.5.10 → 7.5.11 from #2031 to `develop`. (#2038) *(@pkarw)*
+- 🛠️ Register autofix-split skills in `tiers.json`. (#2047) *(@pat-lewczuk)*
+
+## 📝 Specs & Documentation
+- 📝 Plugin-based skill distribution for standalone apps. (#1562) *(@matgren)*
+- 📝 CRUD API performance quick wins (target p50 < 100 ms). (#2045) *(@pkarw)*
+- 📝 Trim AGENTS.md under the 42 KB harness ceiling. (#2048) *(@pat-lewczuk)*
+- 📝 Audit missing translations and propose phased remediation. (#2078) *(@pkarw)*
+- 📝 Organize AGENTS.md agent instructions. (#2082) *(@pmadajthey)*
+- 📝 Document `auth` locale API route. (#2084) *(@WXYZx)*
+- 📝 Teach `create-agents-md` the Always / Ask First / Never / Validation Commands convention. (#2103) *(@pkarw)*
+- 📝 Dev-mode memory profiling harness + analysis spec. (#2104) *(@pkarw)*
+- 📝 Template parity follow-ups for consolidated package watcher (#2102 follow-up). (#2130) *(@pkarw)*
+
+## 👥 Contributors
+
+- @pkarw
+- @haxiorz
+- @jtomaszewski
+- @KubaBir
+- @migsilva89
+- @adeptofvoltron
+- @izqzmyli
+- @amtmich
+- @truongx
+- @rengare
+- @mat-kruk
+- @pat-lewczuk
+- @WXYZx
+- @pmadajthey
+- @matgren
+
+---
+
 # 0.6.2 (2026-05-19)
 
 ## Highlights

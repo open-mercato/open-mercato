@@ -20,7 +20,7 @@ Every item must be answered in the spec or marked N/A with justification.
 ## 3. Data Integrity & Security
 
 - [ ] Entities include `id`, `organization_id`, `tenant_id`, `created_at`, `updated_at`, `deleted_at`, `is_active`
-- [ ] Write operations define transaction boundaries
+- [ ] Write operations define transaction boundaries — specs touching multi-phase scalar + relation writes MUST name `withAtomicFlush({ transaction: true })` and declare that cache invalidation / side effects (`emitCrudSideEffects`) fire AFTER commit (outside the flush block)
 - [ ] Input validation uses zod schemas
 - [ ] All user input validated before business logic/persistence
 - [ ] Auth guards declared per-method in `metadata` (`requireAuth`, `requireFeatures`) — never legacy top-level `export const requireAuth`

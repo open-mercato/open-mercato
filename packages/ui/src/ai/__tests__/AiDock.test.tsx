@@ -11,11 +11,21 @@ import { AiDockProvider, useAiDock, type AiDockedAssistant } from '../AiDock'
 jest.mock('../AiChat', () => {
   const ReactModule = require('react') as typeof import('react')
   return {
-    AiChat: ({ agent, defaultCompactFooter }: { agent: string; defaultCompactFooter?: boolean }) =>
+    AiChat: ({
+      agent,
+      defaultCompactFooter,
+      onConversationNotFound,
+    }: {
+      agent: string
+      defaultCompactFooter?: boolean
+      onConversationNotFound?: () => void
+    }) =>
       ReactModule.createElement('div', {
         'data-testid': 'ai-chat',
         'data-agent': agent,
         'data-default-compact-footer': defaultCompactFooter ? 'true' : 'false',
+        'data-has-conversation-not-found-handler': typeof onConversationNotFound === 'function' ? 'true' : 'false',
+        onClick: () => onConversationNotFound?.(),
       }),
   }
 })
@@ -130,6 +140,26 @@ describe('<AiDockProvider>', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('ai-chat')).toHaveAttribute('data-default-compact-footer', 'true')
+    })
+  })
+
+  it('wires onConversationNotFound so a stale session closes (no perpetual blank chat)', async () => {
+    renderWithProviders(<Harness />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dock assistant' }))
+
+    const chat = await waitFor(() => screen.getByTestId('ai-chat'))
+    expect(chat).toHaveAttribute('data-has-conversation-not-found-handler', 'true')
+
+    // Fire the not-found callback via the mocked AiChat's onClick.
+    fireEvent.click(chat)
+
+    // After closeSession, the active session disappears; DockedChatBody
+    // schedules ensureSession in an effect, so for one tick the AiChat
+    // surface should be torn down before the new session mounts.
+    await waitFor(() => {
+      const next = screen.queryByTestId('ai-chat')
+      if (next === chat) throw new Error('stale chat surface should have unmounted')
     })
   })
 })

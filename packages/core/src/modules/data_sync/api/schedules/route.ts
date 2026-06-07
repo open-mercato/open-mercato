@@ -5,6 +5,8 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createSyncScheduleSchema, listSyncSchedulesQuerySchema } from '../../data/validators'
 import type { SyncScheduleService } from '../../lib/sync-schedule-service'
 import { serializeSchedule } from './serialize'
+import { readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['data_sync.configure'] },
@@ -65,12 +67,18 @@ export async function POST(req: Request) {
   const scheduleService = container.resolve('dataSyncScheduleService') as SyncScheduleService
 
   try {
-    const schedule = await scheduleService.saveSchedule(parsed.data, {
+    const schedule = await scheduleService.saveSchedule({
+      ...parsed.data,
+      expectedUpdatedAt: readOptimisticLockExpected(req),
+    }, {
       organizationId: auth.orgId as string,
       tenantId: auth.tenantId,
     })
     return NextResponse.json(serializeSchedule(schedule), { status: 201 })
   } catch (error) {
+    if (isCrudHttpError(error)) {
+      return NextResponse.json(error.body, { status: error.status })
+    }
     const message = error instanceof Error ? error.message : 'Failed to save sync schedule'
     return NextResponse.json({ error: message }, { status: 422 })
   }

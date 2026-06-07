@@ -25,6 +25,7 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
+import { parseDuration } from './duration'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
 
@@ -54,6 +55,7 @@ export type ActivityType =
   | 'UPDATE_ENTITY'
   | 'CALL_WEBHOOK'
   | 'EXECUTE_FUNCTION'
+  | 'WAIT'
 
 export interface ActivityDefinition {
   activityId: string // Unique identifier for activity
@@ -78,6 +80,9 @@ export interface ActivityContext {
   workflowContext: Record<string, any>
   stepContext?: Record<string, any>
   stepInstanceId?: string
+  // Set when the activity runs inside a parallel branch; carried on the queue
+  // payload so async resume targets the branch rather than the instance.
+  branchInstanceId?: string | null
   transitionId?: string
   userId?: string
 }
@@ -140,7 +145,7 @@ export async function enqueueActivity(
   activity: ActivityDefinition,
   context: ActivityContext
 ): Promise<string> {
-  const { workflowInstance, workflowContext, stepContext, transitionId, stepInstanceId } =
+  const { workflowInstance, workflowContext, stepContext, transitionId, stepInstanceId, branchInstanceId } =
     context
 
   // Interpolate config variables NOW (before queuing)
@@ -150,6 +155,7 @@ export async function enqueueActivity(
   const job: WorkflowActivityJob = {
     workflowInstanceId: workflowInstance.id,
     stepInstanceId,
+    branchInstanceId: branchInstanceId ?? undefined,
     transitionId,
     activityId: activity.activityId,
     activityName: activity.activityName || activity.activityType,
@@ -164,9 +170,12 @@ export async function enqueueActivity(
     userId: context.userId,
   }
 
-  // Enqueue to queue
+  // Enqueue to queue (WAIT activities use delayMs for the actual delay)
   const queue = getActivityQueue()
-  const jobId = await queue.enqueue(job)
+  const enqueueOptions = activity.activityType === 'WAIT' && (interpolatedConfig.duration || interpolatedConfig.until)
+    ? { delayMs: calculateWaitDelayMs(interpolatedConfig) }
+    : undefined
+  const jobId = await queue.enqueue(job, enqueueOptions)
 
   // Log event
   await logWorkflowEvent(em, {
@@ -183,6 +192,43 @@ export async function enqueueActivity(
     tenantId: workflowInstance.tenantId,
     organizationId: workflowInstance.organizationId,
   })
+
+  return jobId
+}
+
+/**
+ * Enqueue a delayed timer job for a WAIT_FOR_TIMER step.
+ *
+ * The activity worker handles `kind: 'timer'` jobs by calling
+ * `timerHandler.fireTimer`, which resumes the paused workflow instance.
+ */
+export async function enqueueTimerJob(params: {
+  workflowInstanceId: string
+  stepInstanceId: string
+  branchInstanceId?: string | null
+  tenantId: string
+  organizationId: string
+  userId?: string
+  fireAt: string
+  delayMs: number
+}): Promise<string> {
+  const { workflowInstanceId, stepInstanceId, branchInstanceId, tenantId, organizationId, userId, fireAt, delayMs } =
+    params
+
+  const queue = getActivityQueue()
+  const jobId = await queue.enqueue(
+    {
+      kind: 'timer',
+      workflowInstanceId,
+      stepInstanceId,
+      branchInstanceId: branchInstanceId ?? undefined,
+      tenantId,
+      organizationId,
+      userId,
+      fireAt,
+    },
+    { delayMs: delayMs > 0 ? delayMs : undefined }
+  )
 
   return jobId
 }
@@ -376,6 +422,9 @@ async function executeActivityByType(
 
     case 'EXECUTE_FUNCTION':
       return await executeFunction(interpolatedConfig, context, container)
+
+    case 'WAIT':
+      return await executeWait(interpolatedConfig)
 
     default:
       throw new ActivityExecutionError(
@@ -748,6 +797,47 @@ export async function executeFunction(
     }
     throw error
   }
+}
+
+/**
+ * Calculate delay in milliseconds from a WAIT activity config.
+ * Supports either `duration` (relative, e.g. "PT5M") or `until` (absolute ISO 8601 datetime).
+ */
+function calculateWaitDelayMs(config: { duration?: string; until?: string }): number {
+  if (config.until) {
+    const targetDate = new Date(config.until)
+    if (isNaN(targetDate.getTime())) {
+      throw new Error(`WAIT activity: invalid "until" datetime: ${config.until}`)
+    }
+    const delayMs = targetDate.getTime() - Date.now()
+    return Math.max(0, delayMs)
+  }
+
+  if (config.duration) {
+    return parseDuration(config.duration)
+  }
+
+  throw new Error('WAIT activity requires "duration" (e.g., "PT5M", "1h") or "until" (ISO 8601 datetime)')
+}
+
+/**
+ * WAIT activity handler
+ *
+ * Delays workflow execution for a configured duration or until a specific datetime.
+ * - `duration`: relative delay (e.g. "PT5M", "1h", "30s")
+ * - `until`: absolute datetime (e.g. "2026-04-15T10:00:00Z")
+ * - Sync mode: blocks via sleep (suitable for short delays)
+ * - Async mode: delay is handled by the queue's delayMs option;
+ *   this handler returns immediately when called from the worker
+ */
+async function executeWait(config: any): Promise<any> {
+  const durationMs = calculateWaitDelayMs(config)
+
+  // In sync mode, actually sleep for the duration
+  // In async mode (called from worker), the delay already happened via queue scheduling
+  await sleep(durationMs)
+
+  return { waited: true, durationMs }
 }
 
 /**

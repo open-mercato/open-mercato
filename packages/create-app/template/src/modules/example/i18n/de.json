@@ -208,6 +208,7 @@
   "example.salesTodos.tabLabel": "Aufgaben (Beispiel)",
   "example.todos.create.title": "To-do erstellen",
   "example.todos.edit.title": "To-do bearbeiten",
+  "example.todos.form.actions.backToList": "Zurück zu Aufgaben",
   "example.todos.form.create.submit": "To-do erstellen",
   "example.todos.form.create.title": "To-do erstellen",
   "example.todos.form.edit.submit": "Speichern",

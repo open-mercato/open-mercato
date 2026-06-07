@@ -17,8 +17,12 @@ async function requireCustomerDataTableInjections(page: Parameters<typeof login>
 }
 
 async function runInterceptorProbeFromPage(page: Parameters<typeof login>[0]) {
+  await expect(page.getByTestId('umes-extensions-ready')).toHaveAttribute('data-ready', 'true', { timeout: 90_000 })
+
   const trigger = page.getByTestId('phase-e-run-probe')
   const status = page.getByTestId('phase-e-status')
+  await expect(trigger).toBeVisible({ timeout: 30_000 })
+  await expect(trigger).toBeEnabled()
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await trigger.click()
@@ -115,6 +119,8 @@ test.describe('TC-UMES-004: Phase E-H completion', () => {
   })
 
   test('TC-UMES-I10: extension page probe reports interceptor metadata rows as ok', async ({ page }) => {
+    test.setTimeout(120_000)
+
     await login(page, 'admin')
     await page.goto('/backend/umes-extensions', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -44,6 +44,7 @@ import { useAutoDiscoveredFields } from '@open-mercato/ui/backend/utils/useAutoD
 import { useAdvancedFilterTree } from '@open-mercato/ui/backend/hooks/useAdvancedFilter'
 import { AdvancedFilterPanel } from '@open-mercato/ui/backend/filters/AdvancedFilterPanel'
 import { ActiveFilterChips } from '@open-mercato/ui/backend/filters/ActiveFilterChips'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterPreset } from '@open-mercato/ui/backend/filters/QuickFilters'
 import { useQueryClient } from '@tanstack/react-query'
 import { ensureCustomerDictionary } from '../../../components/detail/hooks/useCustomerDictionary'
@@ -53,6 +54,7 @@ import {
   mapAssignableStaffToFilterOptions,
 } from '../../../components/detail/assignableStaff'
 import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
+import { appendCustomerListSortParams } from '../listSorting'
 
 type DictionaryOptionWithTone = AdvancedFilterOption & FilterOption
 
@@ -199,7 +201,7 @@ export default function CustomersPeoplePage() {
   const [rows, setRows] = React.useState<PersonRow[]>([])
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(20)
-  const [sorting, setSorting] = React.useState<import('@tanstack/react-table').SortingState>([])
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
@@ -254,6 +256,10 @@ export default function CustomersPeoplePage() {
   const router = useRouter()
   const handlePageSizeChange = React.useCallback((newSize: number) => {
     setPageSize(newSize)
+    setPage(1)
+  }, [])
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
     setPage(1)
   }, [])
 
@@ -361,10 +367,7 @@ export default function CustomersPeoplePage() {
     const params = new URLSearchParams()
     params.set('page', String(page))
     params.set('pageSize', String(pageSize))
-    if (sorting.length > 0) {
-      params.set('sort', sorting[0].id)
-      params.set('order', sorting[0].desc ? 'desc' : 'asc')
-    }
+    appendCustomerListSortParams(params, sorting)
     if (search.trim()) params.set('search', search.trim())
     const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
@@ -386,10 +389,7 @@ export default function CustomersPeoplePage() {
     const params = new URLSearchParams()
     if (search.trim().length) params.set('search', search.trim())
     if (page > 1) params.set('page', String(page))
-    if (sorting.length > 0) {
-      params.set('sort', sorting[0].id)
-      params.set('order', sorting[0].desc ? 'desc' : 'asc')
-    }
+    appendCustomerListSortParams(params, sorting)
     const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
@@ -462,6 +462,7 @@ export default function CustomersPeoplePage() {
     try {
       await runSingleMutation({
         operation: async () => {
+          // optimistic-lock-exempt: delete-only mutation — no field-level lost-update
           await apiCallOrThrow(
             `/api/customers/people?id=${encodeURIComponent(person.id)}`,
             {
@@ -501,6 +502,7 @@ export default function CustomersPeoplePage() {
         runBulkDelete(
           selectedRows,
           async (row) => {
+            // optimistic-lock-exempt: bulk delete-only mutation — no field-level lost-update
             await apiCallOrThrow(`/api/customers/people?id=${encodeURIComponent(row.id)}`, {
               method: 'DELETE',
               headers: { 'content-type': 'application/json' },
@@ -847,6 +849,7 @@ export default function CustomersPeoplePage() {
       .map<ColumnDef<PersonRow>>((def) => ({
         accessorKey: `cf_${def.key}`,
         header: def.label || def.key,
+        enableSorting: true,
         meta: {
           columnChooserGroup: def.group?.title ?? 'Custom Fields',
           filterGroup: def.group?.title ?? 'Custom Fields',
@@ -914,8 +917,9 @@ export default function CustomersPeoplePage() {
           perspective={{ tableId: 'customers.people.list' }}
           onRowClick={(row) => router.push(`/backend/customers/people-v2/${row.id}`)}
           sortable
+          manualSorting
           sorting={sorting}
-          onSortingChange={setSorting}
+          onSortingChange={handleSortingChange}
           bulkActions={[
             {
               id: 'delete',
@@ -962,7 +966,7 @@ export default function CustomersPeoplePage() {
           }}
           activeFilterChips={(
             <ActiveFilterChips
-              tree={filterPanel.tree}
+              tree={filterPanel.appliedTree}
               fields={advancedFilterFields}
               popoverOpen={filtersOpen}
               onRemoveNode={(id) => filterPanel.dispatch({ type: 'removeNode', nodeId: id })}
@@ -976,6 +980,13 @@ export default function CustomersPeoplePage() {
             onClearAll: handleAdvancedFilterClear,
             onRemoveLast: () => filterPanel.dispatch({ type: 'removeLast' }),
           }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('customers.people.entityPlural', 'people')}
+              createHref="/backend/customers/people/create"
+              createLabel={t('customers.people.list.actions.new')}
+            />
+          )}
           virtualized
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage, cacheStatus, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange }}
           isLoading={isLoading}

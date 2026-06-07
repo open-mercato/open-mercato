@@ -105,9 +105,16 @@ const crud = makeCrudRoute({
       'tenant_id',
       'kind',
       'created_at',
+      'updated_at',
     ],
     sortFieldMap: {
       name: 'display_name',
+      email: 'primary_email',
+      primaryEmail: 'primary_email',
+      status: 'status',
+      lifecycleStage: 'lifecycle_stage',
+      source: 'source',
+      nextInteractionAt: 'next_interaction_at',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
@@ -392,7 +399,17 @@ const crud = makeCrudRoute({
         const parsed = personUpdateSchema.parse(base)
         return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
-      response: () => ({ ok: true }),
+      // Return the freshly-bumped updatedAt so inline-edit detail pages can refresh
+      // their optimistic-lock token between sequential saves (#2055).
+      response: (arg: { result?: unknown; updatedAt?: Date | string | null }) => {
+        const raw = arg?.updatedAt
+          ?? (arg?.result as { updatedAt?: Date | string | null } | null | undefined)?.updatedAt
+          ?? null
+        return {
+          ok: true,
+          updatedAt: raw instanceof Date ? raw.toISOString() : (typeof raw === 'string' ? raw : null),
+        }
+      },
     },
     delete: {
       commandId: 'customers.people.delete',
@@ -427,37 +444,39 @@ const crud = makeCrudRoute({
         tenantId: ctx.auth?.tenantId ?? null,
         organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
       }
-      const entities = await findWithDecryption(
-        em,
-        CustomerEntity,
-        {
-          id: { $in: ids },
-          deletedAt: null,
-          kind: 'person',
-        } as FilterQuery<CustomerEntity>,
-        undefined,
-        decryptionScope,
-      )
-      const entitiesById = new Map<string, CustomerEntity>()
-      for (const entity of entities) {
-        entitiesById.set(entity.id, entity)
-      }
-
-      const where: Record<string, unknown> = {
+      const profileWhere: Record<string, unknown> = {
         entity: { $in: ids },
         tenantId: ctx.auth?.tenantId ?? null,
       }
       if (ctx.selectedOrganizationId) {
-        where.organizationId = ctx.selectedOrganizationId
+        profileWhere.organizationId = ctx.selectedOrganizationId
       }
 
-      const profiles = await findWithDecryption(
-        em,
-        CustomerPersonProfile,
-        where as FilterQuery<CustomerPersonProfile>,
-        { populate: ['entity', 'company'] },
-        decryptionScope,
-      )
+      const [entities, profiles] = await Promise.all([
+        findWithDecryption(
+          em,
+          CustomerEntity,
+          {
+            id: { $in: ids },
+            deletedAt: null,
+            kind: 'person',
+          } as FilterQuery<CustomerEntity>,
+          undefined,
+          decryptionScope,
+        ),
+        findWithDecryption(
+          em,
+          CustomerPersonProfile,
+          profileWhere as FilterQuery<CustomerPersonProfile>,
+          { populate: ['entity', 'company'] },
+          decryptionScope,
+        ),
+      ])
+
+      const entitiesById = new Map<string, CustomerEntity>()
+      for (const entity of entities) {
+        entitiesById.set(entity.id, entity)
+      }
 
       const profilesByEntityId = new Map<string, CustomerPersonProfile>()
       for (const profile of profiles) {

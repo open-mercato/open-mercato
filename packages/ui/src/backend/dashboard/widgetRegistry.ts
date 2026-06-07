@@ -3,15 +3,30 @@ import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboa
 import { applyDashboardWidgetOverridesToEntries } from '@open-mercato/shared/modules/overrides'
 
 type Entry = ModuleDashboardWidgetEntry
+type LoadedWidgetModule = DashboardWidgetModule<any>
+
+const cache = new Map<string, Promise<LoadedWidgetModule>>()
 
 // Registration pattern for publishable packages
 let _dashboardWidgetEntries: Entry[] | null = null
+let registrationWaiters: Array<(entries: Entry[]) => void> = []
+
+function resolveRegistrationWaiters(entries: Entry[]) {
+  const waiters = registrationWaiters
+  registrationWaiters = []
+  for (const resolve of waiters) {
+    resolve(entries)
+  }
+}
 
 export function registerDashboardWidgets(entries: Entry[]) {
   if (_dashboardWidgetEntries !== null && process.env.NODE_ENV === 'development') {
     console.debug('[Bootstrap] Dashboard widgets re-registered (this may occur during HMR)')
   }
   _dashboardWidgetEntries = applyDashboardWidgetOverridesToEntries(entries)
+  entriesPromise = Promise.resolve(_dashboardWidgetEntries)
+  cache.clear()
+  resolveRegistrationWaiters(_dashboardWidgetEntries)
 }
 
 export function getDashboardWidgets(): Entry[] {
@@ -28,8 +43,15 @@ export function getDashboardWidgets(): Entry[] {
 let entriesPromise: Promise<Entry[]> | null = null
 
 async function getEntries(): Promise<Entry[]> {
+  if (_dashboardWidgetEntries) {
+    return _dashboardWidgetEntries
+  }
   if (!entriesPromise) {
-    const promise = Promise.resolve().then(() => getDashboardWidgets())
+    const promise = typeof window !== 'undefined'
+      ? new Promise<Entry[]>((resolve) => {
+        registrationWaiters.push(resolve)
+      })
+      : Promise.resolve().then(() => getDashboardWidgets())
     entriesPromise = promise.catch((err) => {
       // Clear cache on error so next call can retry after registration
       if (entriesPromise === promise) {
@@ -40,10 +62,6 @@ async function getEntries(): Promise<Entry[]> {
   }
   return entriesPromise
 }
-
-type LoadedWidgetModule = DashboardWidgetModule<any>
-
-const cache = new Map<string, Promise<LoadedWidgetModule>>()
 
 async function findEntry(loaderKey: string): Promise<Entry | undefined> {
   const entries = await getEntries()

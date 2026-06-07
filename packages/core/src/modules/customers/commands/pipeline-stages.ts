@@ -15,6 +15,7 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, ensureDictionaryEntry } from './shared'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 
 const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { stageId: string }> = {
   id: 'customers.pipeline-stages.create',
@@ -48,20 +49,6 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
         ? existingStages.length
         : Math.max(0, Math.min(requestedOrder, existingStages.length))
 
-    // Shift the order of every stage at or after the insert position. We use the
-    // already-forked EM so the shifts and the new INSERT land in a single `flush()`
-    // (one transaction by default with MikroORM's `forceTransactions` config). Skipping
-    // this step would either duplicate `order` values (silently corrupting kanban
-    // ordering) or push the new stage to the wrong spot when re-sorting.
-    if (requestedOrder !== undefined) {
-      for (const stage of existingStages) {
-        if (stage.order >= insertOrder) {
-          stage.order += 1
-          stage.updatedAt = new Date()
-        }
-      }
-    }
-
     const stage = em.create(CustomerPipelineStage, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -71,18 +58,33 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
       createdAt: new Date(),
       updatedAt: new Date(),
     })
-    em.persist(stage)
-    await em.flush()
 
-    await ensureDictionaryEntry(em, {
-      tenantId: parsed.tenantId,
-      organizationId: parsed.organizationId,
-      kind: 'pipeline_stage',
-      value: stage.label,
-      color: parsed.color,
-      icon: parsed.icon,
-    })
-    await em.flush()
+    await withAtomicFlush(em, [
+      () => {
+        // Shift the order of every stage at or after the insert position. Skipping
+        // this step would either duplicate `order` values (silently corrupting kanban
+        // ordering) or push the new stage to the wrong spot when re-sorting.
+        if (requestedOrder !== undefined) {
+          for (const existing of existingStages) {
+            if (existing.order >= insertOrder) {
+              existing.order += 1
+              existing.updatedAt = new Date()
+            }
+          }
+        }
+        em.persist(stage)
+      },
+      async () => {
+        await ensureDictionaryEntry(em, {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+          kind: 'pipeline_stage',
+          value: stage.label,
+          color: parsed.color,
+          icon: parsed.icon,
+        })
+      },
+    ], { transaction: true })
 
     return { stageId: stage.id }
   },
@@ -109,23 +111,25 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
     ensureTenantScope(ctx, stage.tenantId)
     ensureOrganizationScope(ctx, stage.organizationId)
 
-    if (parsed.label !== undefined) stage.label = parsed.label
-    if (parsed.order !== undefined) stage.order = parsed.order
-    stage.updatedAt = new Date()
-
-    await em.flush()
-
-    if (parsed.label !== undefined || parsed.color !== undefined || parsed.icon !== undefined) {
-      await ensureDictionaryEntry(em, {
-        tenantId: stage.tenantId,
-        organizationId: stage.organizationId,
-        kind: 'pipeline_stage',
-        value: stage.label,
-        color: parsed.color,
-        icon: parsed.icon,
-      })
-      await em.flush()
-    }
+    await withAtomicFlush(em, [
+      () => {
+        if (parsed.label !== undefined) stage.label = parsed.label
+        if (parsed.order !== undefined) stage.order = parsed.order
+        stage.updatedAt = new Date()
+      },
+      async () => {
+        if (parsed.label !== undefined || parsed.color !== undefined || parsed.icon !== undefined) {
+          await ensureDictionaryEntry(em, {
+            tenantId: stage.tenantId,
+            organizationId: stage.organizationId,
+            kind: 'pipeline_stage',
+            value: stage.label,
+            color: parsed.color,
+            icon: parsed.icon,
+          })
+        }
+      },
+    ], { transaction: true })
   },
 }
 

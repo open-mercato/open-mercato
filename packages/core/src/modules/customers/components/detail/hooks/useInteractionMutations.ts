@@ -2,7 +2,9 @@
 
 import * as React from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type GuardedMutationRunner = <T>(
@@ -18,8 +20,8 @@ export type UseInteractionMutationsOptions = {
 }
 
 export type UseInteractionMutationsResult = {
-  completeInteraction: (interactionId: string) => Promise<void>
-  cancelInteraction: (interactionId: string) => Promise<void>
+  completeInteraction: (interactionId: string, updatedAt?: string | null) => Promise<void>
+  cancelInteraction: (interactionId: string, updatedAt?: string | null) => Promise<void>
 }
 
 /**
@@ -44,20 +46,24 @@ export function useInteractionMutations({
   }, [logContext, onAfterChange])
 
   const completeInteraction = React.useCallback(
-    async (interactionId: string) => {
+    async (interactionId: string, updatedAt?: string | null) => {
       try {
         await runMutationWithContext(
           () =>
-            apiCallOrThrow('/api/customers/interactions/complete', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ id: interactionId, occurredAt: new Date().toISOString() }),
-            }),
+            withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(updatedAt ?? null),
+              () => apiCallOrThrow('/api/customers/interactions/complete', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ id: interactionId, occurredAt: new Date().toISOString() }),
+              }),
+            ),
           { id: interactionId, status: 'done', operation: 'completeActivity' },
         )
         flash(t('customers.timeline.planned.completed', 'Activity completed'), 'success')
         await triggerRefresh()
       } catch (err) {
+        if (surfaceRecordConflict(err, t)) { await triggerRefresh(); return }
         console.warn(`[${logContext}] complete interaction failed`, interactionId, err)
         flash(t('customers.timeline.planned.error', 'Failed to complete activity'), 'error')
       }
@@ -66,20 +72,24 @@ export function useInteractionMutations({
   )
 
   const cancelInteraction = React.useCallback(
-    async (interactionId: string) => {
+    async (interactionId: string, updatedAt?: string | null) => {
       try {
         await runMutationWithContext(
           () =>
-            apiCallOrThrow('/api/customers/interactions', {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ id: interactionId, status: 'canceled' }),
-            }),
+            withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(updatedAt ?? null),
+              () => apiCallOrThrow('/api/customers/interactions', {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ id: interactionId, status: 'canceled' }),
+              }),
+            ),
           { id: interactionId, status: 'canceled', operation: 'cancelActivity' },
         )
         flash(t('customers.timeline.planned.canceled', 'Activity canceled'), 'success')
         await triggerRefresh()
       } catch (err) {
+        if (surfaceRecordConflict(err, t)) { await triggerRefresh(); return }
         console.warn(`[${logContext}] cancel interaction failed`, interactionId, err)
         flash(t('customers.timeline.planned.cancelError', 'Failed to cancel activity'), 'error')
       }
