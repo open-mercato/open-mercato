@@ -6,6 +6,13 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import { inviteUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
+import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
+import {
+  checkAuthRateLimit,
+  customerInviteRateLimitConfig,
+  customerInviteIpRateLimitConfig,
+} from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
+import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
 
 export const metadata = {}
 
@@ -14,6 +21,15 @@ export async function POST(req: Request) {
   if (!auth) {
     return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
   }
+
+  const rateLimitEmail = await readNormalizedEmailFromJsonRequest(req)
+  const { error: rateLimitError } = await checkAuthRateLimit({
+    req,
+    ipConfig: customerInviteIpRateLimitConfig,
+    compoundConfig: customerInviteRateLimitConfig,
+    compoundIdentifier: rateLimitEmail,
+  })
+  if (rateLimitError) return rateLimitError
 
   const container = await createRequestContainer()
   const rbacService = container.resolve('rbacService') as RbacService
@@ -77,6 +93,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Validation failed', schema: errorSchema },
     { status: 401, description: 'Not authenticated', schema: errorSchema },
     { status: 403, description: 'Insufficient permissions', schema: errorSchema },
+    { status: 429, description: 'Too many invitation requests', schema: rateLimitErrorSchema },
   ],
 }
 
