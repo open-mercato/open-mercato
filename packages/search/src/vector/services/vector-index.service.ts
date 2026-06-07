@@ -14,6 +14,7 @@ import {
   type VectorIndexEntry,
 } from '../types'
 import type { VectorDriver } from '../types'
+import type { SearchFieldPolicy } from '@open-mercato/shared/modules/search'
 import { computeChecksum } from './checksum'
 import { EmbeddingService } from './embedding'
 import { logVectorOperation } from '../lib/vector-logs'
@@ -21,6 +22,20 @@ import { searchDebug, searchDebugWarn } from '../../lib/debug'
 
 type ContainerResolver = () => unknown
 const VECTOR_ENTRY_ENCRYPTION_ENTITY_ID = 'vector:vector_search'
+
+const DEFAULT_SOURCE_SCOPE_FIELDS = new Set<string>([
+  'id',
+  'tenant_id',
+  'tenantId',
+  'organization_id',
+  'organizationId',
+  'created_at',
+  'createdAt',
+  'updated_at',
+  'updatedAt',
+  'deleted_at',
+  'deletedAt',
+])
 
 const ENRICHMENT_FIELD_HINTS: Record<EntityId, string[]> = {
   'customers:customer_entity': [
@@ -191,17 +206,16 @@ export class VectorIndexService {
         links: ((encrypted as any).links ?? args.links) as any,
         payload: ((encrypted as any).payload ?? args.payload) as any,
       }
-    } catch {
-      return {
-        resultTitle: args.resultTitle,
-        resultSubtitle: args.resultSubtitle,
-        resultIcon: args.resultIcon,
-        resultSnapshot: args.resultSnapshot,
-        primaryLinkHref: args.primaryLinkHref,
-        primaryLinkLabel: args.primaryLinkLabel,
-        links: args.links,
-        payload: args.payload,
-      }
+    } catch (err) {
+      searchDebugWarn('vector.index', 'Vector entry encryption failed; refusing to persist plaintext', {
+        entityId: VECTOR_ENTRY_ENCRYPTION_ENTITY_ID,
+        tenantId: args.tenantId,
+        organizationId: args.organizationId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      throw err instanceof Error
+        ? err
+        : new Error('[internal] Vector entry encryption failed')
     }
   }
 
@@ -265,17 +279,16 @@ export class VectorIndexService {
         links: ((decrypted as any).links ?? args.links) as any,
         payload: ((decrypted as any).payload ?? args.payload) as any,
       }
-    } catch {
-      return {
-        resultTitle: args.resultTitle,
-        resultSubtitle: args.resultSubtitle,
-        resultIcon: args.resultIcon,
-        resultSnapshot: args.resultSnapshot,
-        primaryLinkHref: args.primaryLinkHref,
-        primaryLinkLabel: args.primaryLinkLabel,
-        links: args.links,
-        payload: args.payload,
-      }
+    } catch (err) {
+      searchDebugWarn('vector.index', 'Vector entry decryption failed; refusing to return ciphertext as plaintext', {
+        entityId: VECTOR_ENTRY_ENCRYPTION_ENTITY_ID,
+        tenantId: args.tenantId,
+        organizationId: args.organizationId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      throw err instanceof Error
+        ? err
+        : new Error('[internal] Vector entry decryption failed')
     }
   }
 
@@ -641,9 +654,26 @@ export class VectorIndexService {
     return null
   }
 
-  private buildDefaultSource(entityId: EntityId, payload: { record: Record<string, any>; customFields: Record<string, any> }): VectorIndexSource {
+  private buildDefaultSource(
+    entityId: EntityId,
+    payload: { record: Record<string, any>; customFields: Record<string, any> },
+    fieldPolicy?: SearchFieldPolicy,
+  ): VectorIndexSource {
     const { record, customFields } = payload
     const lines: string[] = []
+
+    const searchableWhitelist = fieldPolicy?.searchable ? new Set(fieldPolicy.searchable) : null
+    const excludedFields = new Set<string>([
+      ...(fieldPolicy?.excluded ?? []),
+      ...(fieldPolicy?.hashOnly ?? []),
+    ])
+
+    const isEligibleField = (field: string): boolean => {
+      if (DEFAULT_SOURCE_SCOPE_FIELDS.has(field)) return false
+      if (excludedFields.has(field)) return false
+      if (searchableWhitelist && !searchableWhitelist.has(field)) return false
+      return true
+    }
 
     const pushEntry = (label: string, value: unknown) => {
       if (value === null || value === undefined) return
@@ -657,16 +687,18 @@ export class VectorIndexService {
 
     const preferredFields = ['title', 'name', 'displayName', 'summary', 'subject']
     for (const field of preferredFields) {
+      if (!isEligibleField(field)) continue
       if (record[field] != null) pushEntry(field, record[field])
     }
 
     for (const [key, value] of Object.entries(record)) {
       if (preferredFields.includes(key)) continue
-      if (key === 'id' || key === 'tenantId' || key === 'organizationId' || key === 'createdAt' || key === 'updatedAt') continue
+      if (!isEligibleField(key)) continue
       pushEntry(key, value)
     }
 
     for (const [key, value] of Object.entries(customFields)) {
+      if (!isEligibleField(key)) continue
       pushEntry(`custom.${key}`, value)
     }
 
@@ -700,7 +732,7 @@ export class VectorIndexService {
       if (built) return built
       return null
     }
-    return this.buildDefaultSource(entityId, { record: ctx.record, customFields: ctx.customFields })
+    return this.buildDefaultSource(entityId, { record: ctx.record, customFields: ctx.customFields }, config.fieldPolicy)
   }
 
   private async resolvePresenter(
