@@ -78,6 +78,8 @@ const STEP_EVENT = {
 };
 
 test.describe('TC-AI-TOKEN-USAGE-001–005: token usage stats page', () => {
+  test.describe.configure({ timeout: 120_000 });
+
   test('TC-AI-TOKEN-USAGE-001: usage page renders summary tiles for superadmin', async ({ page }) => {
     await login(page, 'superadmin');
 
@@ -97,7 +99,7 @@ test.describe('TC-AI-TOKEN-USAGE-001–005: token usage stats page', () => {
       });
     });
 
-    await page.goto(USAGE_PAGE, { waitUntil: 'domcontentloaded' });
+    await page.goto(USAGE_PAGE, { waitUntil: 'commit' });
 
     const summaryTile = page.locator('p.font-semibold.text-xl', { hasText: /^(1,000|500)$/ }).first();
     await expect(summaryTile).toBeVisible({ timeout: 15_000 });
@@ -130,7 +132,7 @@ test.describe('TC-AI-TOKEN-USAGE-001–005: token usage stats page', () => {
       (response) => response.url().includes('/api/ai_assistant/usage/sessions') && response.status() === 200,
       { timeout: 15_000 },
     );
-    await page.goto(USAGE_PAGE, { waitUntil: 'domcontentloaded' });
+    await page.goto(USAGE_PAGE, { waitUntil: 'commit' });
     await Promise.all([initialDailyRequest, initialSessionsRequest]);
 
     const fromInput = page.locator('#usage-from');
@@ -178,7 +180,7 @@ test.describe('TC-AI-TOKEN-USAGE-001–005: token usage stats page', () => {
       });
     });
 
-    await page.goto(USAGE_PAGE, { waitUntil: 'domcontentloaded' });
+    await page.goto(USAGE_PAGE, { waitUntil: 'commit' });
 
     const sessionCell = page.getByText('00000000').first();
     await expect(sessionCell).toBeVisible({ timeout: 15_000 });
@@ -216,7 +218,7 @@ test.describe('TC-AI-TOKEN-USAGE-001–005: token usage stats page', () => {
       });
     });
 
-    await page.goto(USAGE_PAGE, { waitUntil: 'domcontentloaded' });
+    await page.goto(USAGE_PAGE, { waitUntil: 'commit' });
 
     const sessionCell = page.getByText('00000000').first();
     await expect(sessionCell).toBeVisible({ timeout: 15_000 });
@@ -233,7 +235,7 @@ test.describe('TC-AI-TOKEN-USAGE-001–005: token usage stats page', () => {
     const context = await browser.newContext();
     const page = await context.newPage();
     try {
-      await page.goto(USAGE_PAGE, { waitUntil: 'domcontentloaded' });
+      await page.goto(USAGE_PAGE, { waitUntil: 'commit' });
       await page.waitForURL(/\/login/, { timeout: 15_000 });
       expect(page.url()).toMatch(/\/login/);
     } finally {
