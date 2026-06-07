@@ -28,7 +28,7 @@ import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/c
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
-import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { computeEmailHash, emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
@@ -206,7 +206,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
 
     const emailHash = computeEmailHash(parsed.email)
-    const duplicate = await findOneWithDecryption(em, User, { $or: [{ email: parsed.email }, { emailHash }], deletedAt: null } as any, {}, { tenantId: null, organizationId: null })
+    const duplicate = await findOneWithDecryption(em, User, { $or: [{ email: parsed.email }, { emailHash: { $in: emailHashLookupValues(parsed.email) } }], deletedAt: null } as any, {}, { tenantId: null, organizationId: null })
     if (duplicate) await throwDuplicateEmailError()
 
     let passwordHash: string | null = null
@@ -519,12 +519,11 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       : null
 
     if (parsed.email !== undefined) {
-      const emailHash = computeEmailHash(parsed.email)
       const duplicate = await findOneWithDecryption(
         em,
         User,
         {
-          $or: [{ email: parsed.email }, { emailHash }],
+          $or: [{ email: parsed.email }, { emailHash: { $in: emailHashLookupValues(parsed.email) } }],
           deletedAt: null,
           id: { $ne: parsed.id } as any,
         } as FilterQuery<User>,

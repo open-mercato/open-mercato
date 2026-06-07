@@ -1,7 +1,8 @@
 import { EntityManager } from '@mikro-orm/postgresql'
 import { hash, compare } from 'bcryptjs'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
-import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const BCRYPT_COST = 10
 const MAX_FAILED_ATTEMPTS = 5
@@ -33,12 +34,17 @@ export class CustomerUserService {
   }
 
   async findByEmail(email: string, tenantId: string): Promise<CustomerUser | null> {
-    const emailHash = hashForLookup(email)
-    return this.em.findOne(CustomerUser, {
-      emailHash,
-      tenantId,
-      deletedAt: null,
-    })
+    return findOneWithDecryption(
+      this.em,
+      CustomerUser,
+      {
+        emailHash: { $in: lookupHashCandidates(email) },
+        tenantId,
+        deletedAt: null,
+      } as any,
+      undefined,
+      { tenantId },
+    )
   }
 
   async findById(id: string, tenantId: string): Promise<CustomerUser | null> {

@@ -11,7 +11,7 @@ import { adminCreateUserSchema } from '@open-mercato/core/modules/customer_accou
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { findAndCountWithDecryption, findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOwnedCompanyEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
-import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { E } from '#generated/entities.ids.generated'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
@@ -83,7 +83,7 @@ export async function GET(req: Request) {
 
     // Also support exact email lookup via emailHash
     if (EMAIL_LIKE_PATTERN.test(search)) {
-      searchFilter.push({ emailHash: hashForLookup(search) })
+      searchFilter.push({ emailHash: { $in: lookupHashCandidates(search) } })
     }
 
     if (searchFilter.length > 0) {

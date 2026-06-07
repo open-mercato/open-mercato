@@ -7,7 +7,7 @@ import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { ensureRoles, setupInitialTenant, ensureDefaultRoleAcls, ensureCustomRoleAcls, OrgSlugExistsError } from './lib/setup-app'
 import { normalizeTenantId } from './lib/tenantAccess'
-import { computeEmailHash } from './lib/emailHash'
+import { computeEmailHash, emailHashLookupValues } from './lib/emailHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
@@ -732,8 +732,13 @@ const setPassword: ModuleCli = {
 
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
-    const emailHash = computeEmailHash(email)
-    const user = await em.findOne(User, { $or: [{ email }, { emailHash }] })
+    const user = await findOneWithDecryption(
+      em,
+      User,
+      { $or: [{ email }, { emailHash: { $in: emailHashLookupValues(email) } }] } as any,
+      undefined,
+      { tenantId: null, organizationId: null },
+    )
 
     if (!user) {
       console.error(`User with email "${email}" not found`)
