@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Users, Phone, Check, Mail, Calendar, AlertTriangle, X, StickyNote } from 'lucide-react'
+import { Users, Phone, Check, Mail, Calendar, X, StickyNote } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { validatePhoneNumber } from '@open-mercato/shared/lib/phone'
@@ -498,7 +498,6 @@ export function ScheduleActivityDialog({
         {/* Conflict warning */}
         {state.conflict && (
           <Alert variant="warning" className="rounded-lg">
-            <AlertTriangle className="size-5" />
             <AlertTitle>
               {t('customers.schedule.conflict.title', 'Calendar conflict')}
             </AlertTitle>

@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Info, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { CrudForm, type CrudFormGroup, type CrudField, type CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { FormFieldArrayEditor } from './fields/FormFieldArrayEditor'
@@ -115,8 +115,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           column: 1,
           bare: true,
           component: () => (
-            <Alert variant="default" className="border-blue-200 bg-blue-50">
-              <Info className="size-4" />
+            <Alert variant="info">
               <AlertDescription>
                 End nodes cannot be edited. They mark the completion of the workflow.
               </AlertDescription>
@@ -134,8 +133,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           column: 1,
           bare: true,
           component: () => (
-            <Alert variant="default" className="border-blue-200 bg-blue-50 mb-4">
-              <Info className="size-4" />
+            <Alert variant="info" className="mb-4">
               <AlertDescription>
                 Start nodes mark the beginning of the workflow. You can define pre-conditions that must pass before the workflow can be started.
               </AlertDescription>
@@ -476,8 +474,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
         <div className="flex-1 overflow-y-auto min-h-0 px-6">
           {/* JSON Schema Conversion Warning */}
           {showJsonSchemaWarning && (
-            <Alert variant="default" className="border-blue-200 bg-blue-50 mb-4">
-              <Info className="size-4" />
+            <Alert variant="info" className="mb-4">
               <AlertDescription className="text-xs">
                 This form uses JSON Schema format. Fields have been converted for visual editing.
                 When you save, it will be converted to the simplified format. To preserve the original JSON Schema,

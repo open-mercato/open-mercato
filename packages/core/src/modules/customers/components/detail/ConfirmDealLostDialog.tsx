@@ -116,7 +116,6 @@ export function ConfirmDealLostDialog({
 
           <div className="space-y-6 px-7 py-6">
             <Alert variant="warning" className="rounded-md">
-              <AlertTriangle className="size-4" />
               <AlertTitle>
                 {t('customers.deals.detail.lost.warningTitle', 'This action closes the deal')}
               </AlertTitle>
