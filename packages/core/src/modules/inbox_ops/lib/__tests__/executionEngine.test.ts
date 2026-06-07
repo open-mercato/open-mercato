@@ -150,6 +150,20 @@ describe('executionEngine', () => {
       expect(em.nativeUpdate).not.toHaveBeenCalled()
     })
 
+    it('fails closed (403) when the action type has no required feature mapped (#2700)', async () => {
+      mockRbacService.userHasAllFeatures.mockResolvedValue(true)
+      const em = createMockEm()
+      const action = makeAction({ actionType: 'unknown_action_without_feature' as never })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(false)
+      expect(result.statusCode).toBe(403)
+      expect(result.error).toContain('No required feature')
+      expect(mockRbacService.userHasAllFeatures).not.toHaveBeenCalled()
+      expect(em.nativeUpdate).not.toHaveBeenCalled()
+    })
+
     it('returns 409 when optimistic lock fails (action already processed)', async () => {
       const em = createMockEm()
       em.nativeUpdate.mockResolvedValue(0)

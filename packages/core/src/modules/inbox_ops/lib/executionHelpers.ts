@@ -136,7 +136,7 @@ export async function userHasFeature(
   ctx: ExecutionHelperContext,
   feature: string,
 ): Promise<boolean> {
-  if (!feature) return true
+  if (!feature || feature.trim().length === 0) return false
   if (hasSuperAdminAccess(ctx.auth)) return true
 
   try {
