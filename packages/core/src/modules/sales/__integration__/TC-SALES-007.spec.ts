@@ -14,7 +14,7 @@ test.describe('TC-SALES-007: Shipment Recording', () => {
     // is disallowed.
     test.slow();
     await login(page, 'admin');
-    await createSalesDocument(page, { kind: 'order' });
+    await createSalesDocument(page, { kind: 'order', preferApi: true });
     await addCustomLine(page, {
       name: `QA TC-SALES-007 ${Date.now()}`,
       quantity: 1,

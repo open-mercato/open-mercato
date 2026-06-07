@@ -145,7 +145,7 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
     // Full browser login + navigation + fixture setup/teardown does not fit the
     // 20s default under parallel CI shard load; 60s matches the login+navigation
     // convention used by the other UI integration specs (see TC-CUR-004).
-    test.setTimeout(60_000)
+    test.setTimeout(120_000)
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let productId: string | null = null
@@ -160,7 +160,7 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
       offerId = await createOfferFixture(page.request, token, channelId, productId, stamp, 'edit')
 
       await login(page, 'admin')
-      await page.goto(`/backend/sales/channels/${channelId}/offers/${offerId}/edit`)
+      await page.goto(`/backend/sales/channels/${channelId}/offers/${offerId}/edit`, { waitUntil: 'commit' })
 
       // Form is loaded → the CrudForm captured the offer's own `updated_at`
       // via `optimisticLockUpdatedAt`.

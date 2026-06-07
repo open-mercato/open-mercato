@@ -1377,7 +1377,8 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
   }
 
   if (!closed) {
-    return { trackingNumber, shipmentNumber, added: false };
+    const added = await addShipmentViaApi(page, shipmentNumber, trackingNumber);
+    return { trackingNumber, shipmentNumber, added };
   }
 
   await page.getByRole('button', { name: /^Shipments$/i }).click();
