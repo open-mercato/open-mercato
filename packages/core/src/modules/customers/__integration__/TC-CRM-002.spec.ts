@@ -3,26 +3,28 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
 import { deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
-/**
- * Workaround for the DS v2 Input primitive focus race that breaks Playwright `.fill()`
- * when multiple fields are filled in quick succession. The wrapper-div + focus-within
- * styling changed focus/blur sequencing — `.fill()` can land typed characters in the
- * previously focused input. Click forces focus, an explicit clear handles existing
- * values, and `keyboard.type` walks key events through the browser focus pipeline.
- *
- * Extra safety against CI shard load: explicitly wait for the input to be visible and
- * enabled before interacting (slow renders / form-submitting state can leave the input
- * temporarily blocked), and extend the value-assert timeout to 60s for the same reason.
- */
 async function safeFill(page: Page, locator: Locator, value: string): Promise<void> {
-  await expect(locator).toBeVisible({ timeout: 10_000 });
-  await expect(locator).toBeEnabled({ timeout: 10_000 });
-  await locator.click({ force: true });
-  await locator.focus();
-  await locator.press('ControlOrMeta+a');
-  await locator.press('Delete');
-  await page.keyboard.type(value);
-  await expect(locator).toHaveValue(value, { timeout: 60_000 });
+  await expect(locator).toBeVisible({ timeout: 15_000 });
+  await expect(locator).toBeEnabled({ timeout: 15_000 });
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await locator.click({ force: true });
+    await locator.focus();
+    await locator.fill('').catch(async () => {
+      await locator.press('ControlOrMeta+a');
+      await locator.press('Delete');
+    });
+    await locator.fill(value).catch(async () => {
+      await locator.press('ControlOrMeta+a');
+      await locator.press('Delete');
+      await page.keyboard.type(value);
+    });
+
+    if ((await locator.inputValue().catch(() => '')) === value) return;
+    await page.waitForTimeout(250);
+  }
+
+  await expect(locator).toHaveValue(value, { timeout: 5_000 });
 }
 
 /**
@@ -31,8 +33,8 @@ async function safeFill(page: Page, locator: Locator, value: string): Promise<vo
  */
 test.describe('TC-CRM-002: Company Creation Validation Errors', () => {
   test('should block invalid input, show field errors, then allow create after correction', async ({ page, request }) => {
-    // safeFill chain may take up to ~80s per fill in CI under load — give the test 3 minutes overall.
-    test.setTimeout(180_000);
+    test.slow();
+    test.setTimeout(120_000);
 
     let token: string | null = null;
     let companyId: string | null = null;
@@ -42,7 +44,7 @@ test.describe('TC-CRM-002: Company Creation Validation Errors', () => {
       token = await getAuthToken(request);
 
       await login(page, 'admin');
-      await page.goto('/backend/customers/companies/create');
+      await page.goto('/backend/customers/companies/create', { waitUntil: 'domcontentloaded' });
 
       const submitBtn = page.getByRole('button', { name: 'Create Company' }).first();
       await submitBtn.click();
