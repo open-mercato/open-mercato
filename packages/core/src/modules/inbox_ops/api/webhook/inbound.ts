@@ -72,9 +72,10 @@ function verifyHmacAgainstAny(
   return false
 }
 
-// Stable, non-reversible identifier for the per-secret global rate-limit bucket.
-// Keying on a fingerprint of the presented secret (rather than the attacker-set
-// `to`) means rotating recipients no longer dilutes the limit.
+// Stable, non-reversible identifier for the pre-DB global rate-limit bucket.
+// Keying on the configured signing secret (rather than the attacker-set `to` or
+// the per-request signature) means the bucket is request-invariant for a given
+// secret, so rotating recipients or mutating the body cannot dilute the limit.
 function secretFingerprint(secret: string): string {
   return createHmac('sha256', 'inbox_ops:rate_limit:salt').update(secret).digest('hex').slice(0, 32)
 }
@@ -275,13 +276,15 @@ export async function POST(req: Request) {
     // bucket instead of waving the request through.
   }
 
-  // Global bucket keyed on the presented secret (custom) or the static Resend
-  // path, NOT on the attacker-controllable `to`. This caps total inbound volume
-  // for one secret even when the recipient is rotated to dilute the per-inbox
-  // bucket. Runs BEFORE the encrypted-column settings lookup so a flood cannot
-  // amplify DB work.
+  // Pre-DB global bucket keyed on the configured signing secret (custom) or the
+  // static Resend path, NOT on the attacker-controllable `to` and NOT on the
+  // per-request signature (which mutates with timestamp/body, so it would mint a
+  // fresh bucket every request and never throttle). The per-tenant secret lives
+  // behind the encrypted-column lookup, so the only secret available here without
+  // a DB hit is the global one — keying on it caps total inbound volume for the
+  // custom path and runs BEFORE the lookup so a flood cannot amplify DB work.
   const globalBucketKey = verified.data.kind === 'custom'
-    ? `webhook:secret:${secretFingerprint(verified.data.signature)}`
+    ? `webhook:secret:${secretFingerprint(process.env.INBOX_OPS_WEBHOOK_SECRET || '')}`
     : 'webhook:resend'
   const globalRateCheck = await checkRateLimit(cache, globalBucketKey)
   if (!globalRateCheck.allowed) {

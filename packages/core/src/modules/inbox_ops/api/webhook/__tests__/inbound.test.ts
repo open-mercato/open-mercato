@@ -323,6 +323,27 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
     expect(response.headers.get('Retry-After')).toBe('30')
   })
 
+  it('keys the pre-DB global bucket on the secret, not the per-request signature (issue #2698)', async () => {
+    // Regression: keying the global bucket on the mutable per-request signature
+    // would mint a fresh bucket for every request (different body/timestamp), so
+    // the throttle could never accumulate. The key must be request-invariant for
+    // a fixed signing secret so a flood with a rotating body is still capped.
+    const { checkRateLimit } = jest.requireMock('@open-mercato/core/modules/inbox_ops/lib/rateLimiter') as {
+      checkRateLimit: jest.Mock
+    }
+    mockFindOneWithDecryption.mockResolvedValue(null)
+
+    await POST(makeSignedRequest({ ...validPayload, subject: 'first body variant' }))
+    await POST(makeSignedRequest({ ...validPayload, subject: 'second different body' }))
+
+    const customGlobalKeys = checkRateLimit.mock.calls
+      .map((call) => call[1] as string)
+      .filter((key) => key.startsWith('webhook:secret:'))
+
+    expect(customGlobalKeys.length).toBe(2)
+    expect(customGlobalKeys[0]).toBe(customGlobalKeys[1])
+  })
+
   describe('per-tenant webhook secret binding (issue #2698)', () => {
     const TENANT_SECRET = 'per-tenant-secret-abcdefabcdef'
     const settingsWithSecret = { ...mockSettings, webhookSecret: TENANT_SECRET }
