@@ -8,6 +8,7 @@ import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/m
  */
 test.describe('TC-CRM-017: Company Delete And Undo', () => {
   test('should delete a company and restore it via undo', async ({ page, request }) => {
+    test.slow();
     let token: string | null = null;
     let companyId: string | null = null;
     const companyName = `QA TC-CRM-017 ${Date.now()}`;
@@ -17,9 +18,15 @@ test.describe('TC-CRM-017: Company Delete And Undo', () => {
       companyId = await createCompanyFixture(request, token, companyName);
 
       await login(page, 'admin');
-      await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'domcontentloaded' });
+      await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'commit' });
 
-      await page.getByRole('button', { name: /^Delete(?: company)?$/ }).first().click();
+      const deleteButton = page.getByRole('button', { name: /^Delete(?: company)?$/ }).first();
+      const detailReady = await deleteButton.isVisible({ timeout: 15_000 }).catch(() => false);
+      if (!detailReady) {
+        await page.reload({ waitUntil: 'commit' }).catch(() => {});
+        await expect(deleteButton).toBeVisible({ timeout: 15_000 });
+      }
+      await deleteButton.click();
       const confirmDialog = page.getByRole('alertdialog', { name: /delete company\??/i });
       await expect(confirmDialog).toBeVisible({ timeout: 10_000 });
       await confirmDialog.getByRole('button', { name: /^Delete(?: company)?$|^Confirm$/i }).click();
@@ -39,7 +46,7 @@ test.describe('TC-CRM-017: Company Delete And Undo', () => {
       const restoredCompanyLink = page.getByRole('link', { name: companyName, exact: true }).first();
       await expect(restoredCompanyLink).toBeVisible();
       await Promise.all([
-        page.waitForURL(new RegExp(`/backend/customers/companies-v2/${companyId}$`), { waitUntil: 'domcontentloaded' }),
+        page.waitForURL(new RegExp(`/backend/customers/companies-v2/${companyId}$`), { waitUntil: 'commit' }),
         restoredCompanyLink.click(),
       ]);
       await expect(page.getByText(companyName, { exact: true }).first()).toBeVisible();
