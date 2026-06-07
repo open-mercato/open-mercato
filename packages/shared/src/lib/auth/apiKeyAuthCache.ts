@@ -1,7 +1,15 @@
+import { createHmac, randomBytes } from 'node:crypto'
+
 const DEFAULT_SUCCESS_TTL_MS = 30_000
 const DEFAULT_NEGATIVE_TTL_MS = 5_000
 const DEFAULT_LAST_USED_WRITE_INTERVAL_MS = 60_000
 const DEFAULT_MAX_ENTRIES = 1_000
+const FINGERPRINT_BYTES = 16
+
+function createSecretFingerprinter(): (secret: string) => string {
+  const key = randomBytes(32)
+  return (secret) => createHmac('sha256', key).update(secret, 'utf8').digest('hex').slice(0, FINGERPRINT_BYTES * 2)
+}
 
 export type CachedApiKeyAuth = Record<string, unknown> | null
 
@@ -27,6 +35,7 @@ export type ApiKeyAuthCache = {
   shouldWriteLastUsed(keyId: string): boolean
   clear(): void
   size(): number
+  inspectEntryKeysForTests(): string[]
 }
 
 function resolveTtlEnv(name: string, fallback: number): number {
@@ -46,6 +55,7 @@ export function createApiKeyAuthCache(options: ApiKeyAuthCacheOptions = {}): Api
   )
   const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES
   const now = options.now ?? (() => Date.now())
+  const fingerprint = createSecretFingerprinter()
 
   const entries = new Map<string, CachedEntry>()
   const lastUsedWrites = new Map<string, number>()
@@ -68,12 +78,13 @@ export function createApiKeyAuthCache(options: ApiKeyAuthCacheOptions = {}): Api
   return {
     get(secret) {
       if (!secret) return undefined
-      const entry = entries.get(secret)
+      const key = fingerprint(secret)
+      const entry = entries.get(key)
       if (!entry) return undefined
       const currentMs = now()
-      if (purgeStale(secret, entry, currentMs)) return undefined
-      entries.delete(secret)
-      entries.set(secret, entry)
+      if (purgeStale(key, entry, currentMs)) return undefined
+      entries.delete(key)
+      entries.set(key, entry)
       return entry.auth
     },
     setSuccess(secret, auth, expiresAtMs) {
@@ -83,13 +94,13 @@ export function createApiKeyAuthCache(options: ApiKeyAuthCacheOptions = {}): Api
       const ttlEnd = currentMs + successTtlMs
       const effectiveExpiry = expiresAtMs != null ? Math.min(ttlEnd, expiresAtMs) : ttlEnd
       if (effectiveExpiry <= currentMs) return
-      touch(secret, { auth, cachedAtMs: currentMs, expiresAtMs: effectiveExpiry })
+      touch(fingerprint(secret), { auth, cachedAtMs: currentMs, expiresAtMs: effectiveExpiry })
     },
     setMiss(secret) {
       if (!secret) return
       if (negativeTtlMs <= 0) return
       const currentMs = now()
-      touch(secret, { auth: null, cachedAtMs: currentMs, expiresAtMs: currentMs + negativeTtlMs })
+      touch(fingerprint(secret), { auth: null, cachedAtMs: currentMs, expiresAtMs: currentMs + negativeTtlMs })
     },
     invalidateByKeyId(keyId) {
       if (!keyId) return
@@ -116,6 +127,9 @@ export function createApiKeyAuthCache(options: ApiKeyAuthCacheOptions = {}): Api
     },
     size() {
       return entries.size
+    },
+    inspectEntryKeysForTests() {
+      return Array.from(entries.keys())
     },
   }
 }
