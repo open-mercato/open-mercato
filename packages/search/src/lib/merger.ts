@@ -7,6 +7,20 @@ import type { SearchResult, ResultMergeConfig, SearchStrategyId } from '../types
 const RRF_K = 60
 
 /**
+ * Build the deduplication key for a search result.
+ *
+ * The key includes `organizationId` so the same `entityId:recordId` surfaced
+ * for different organizations (for example from a stale index) never collides
+ * into a single merged entry. This is a defense-in-depth guard: the per-strategy
+ * `filterResultsByOrganizationScope()` already drops foreign-org results before
+ * merging, but keying on org here ensures the merger can never silently coalesce
+ * results across tenants if that upstream filter is bypassed.
+ */
+function dedupeKey(result: SearchResult): string {
+  return `${result.organizationId ?? ''}:${result.entityId}:${result.recordId}`
+}
+
+/**
  * Reciprocal Rank Fusion (RRF) algorithm for combining results from multiple search strategies.
  *
  * RRF is a simple but effective method for combining ranked lists. For each result,
@@ -44,7 +58,7 @@ export function mergeAndRankResults(
 
     for (let rank = 0; rank < sourceResults.length; rank++) {
       const result = sourceResults[rank]
-      const key = `${result.entityId}:${result.recordId}`
+      const key = dedupeKey(result)
       const rrfScore = weight / (RRF_K + rank + 1)
 
       const existing = seen.get(key)
@@ -128,7 +142,7 @@ export function deduplicateResults(results: SearchResult[]): SearchResult[] {
   const seen = new Map<string, SearchResult>()
 
   for (const result of results) {
-    const key = `${result.entityId}:${result.recordId}`
+    const key = dedupeKey(result)
     const existing = seen.get(key)
 
     if (!existing || result.score > existing.score) {

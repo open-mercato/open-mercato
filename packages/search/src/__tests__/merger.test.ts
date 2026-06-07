@@ -189,6 +189,43 @@ describe('merger', () => {
       expect(merged[0]?.recordId).toBe('record-1')
       expect(merged[0]?.score).toBeCloseTo(rrf(0, 1.2))
     })
+
+    it('does not coalesce the same entity/record from different organizations', () => {
+      const merged = mergeAndRankResults(
+        [
+          createResult({
+            source: 'tokens',
+            recordId: 'record-1',
+            organizationId: 'org-a',
+            presenter: { title: 'Org A Record' },
+          }),
+          createResult({
+            source: 'fulltext',
+            recordId: 'record-1',
+            organizationId: 'org-b',
+            presenter: { title: 'Org B Record' },
+          }),
+        ],
+        createConfig(),
+      )
+
+      expect(merged).toHaveLength(2)
+      expect(merged.map((result) => result.organizationId).sort()).toEqual(['org-a', 'org-b'])
+    })
+
+    it('still merges the same entity/record within a single organization', () => {
+      const merged = mergeAndRankResults(
+        [
+          createResult({ source: 'tokens', recordId: 'record-1', organizationId: 'org-a' }),
+          createResult({ source: 'fulltext', recordId: 'record-1', organizationId: 'org-a' }),
+        ],
+        createConfig(),
+      )
+
+      expect(merged).toHaveLength(1)
+      expect(merged[0]?.organizationId).toBe('org-a')
+      expect(merged[0]?.metadata?._sources).toEqual(['tokens', 'fulltext'])
+    })
   })
 
   describe('deduplicateResults', () => {
@@ -218,6 +255,19 @@ describe('merger', () => {
         ['record-2', 0.7],
       ])
       expect(deduplicated[0]?.presenter?.title).toBe('Preferred Result')
+    })
+
+    it('keeps the same entity/record from different organizations as distinct entries', () => {
+      const deduplicated = deduplicateResults([
+        createResult({ recordId: 'record-1', organizationId: 'org-a', score: 0.4 }),
+        createResult({ recordId: 'record-1', organizationId: 'org-b', score: 0.9 }),
+      ])
+
+      expect(deduplicated).toHaveLength(2)
+      expect(deduplicated.map((result) => [result.organizationId, result.score])).toEqual([
+        ['org-b', 0.9],
+        ['org-a', 0.4],
+      ])
     })
   })
 
