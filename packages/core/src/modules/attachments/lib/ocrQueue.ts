@@ -88,8 +88,16 @@ export async function requestOcrProcessing(
     tenantId: attachment.tenantId ?? null,
   }
 
+  if (typeof (em as { fork?: unknown })?.fork !== 'function') {
+    throw new Error(
+      '[internal] attachments OCR background processing requires an EntityManager that exposes fork(); ' +
+        'reusing the request-scoped EntityManager in the async worker would race with later request mutations.',
+    )
+  }
+
+  const workerEm = em.fork()
+
   setImmediate(() => {
-    const workerEm = typeof (em as any)?.fork === 'function' ? (em as any).fork() : em
     processAttachmentOcr(workerEm, payload, driver).catch((error) => {
       console.error(`[attachments.ocr] Background processing error:`, error)
     })
