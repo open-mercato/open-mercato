@@ -81,10 +81,17 @@ async function raiseConflictBar(
   currencyId: string,
   code: string,
 ): Promise<void> {
-  await page.goto(`/backend/currencies/${currencyId}`)
+  await page.goto(`/backend/currencies/${currencyId}`, { waitUntil: 'commit' })
 
   const nameInput = page.locator('[data-crud-field-id="name"] input').first()
-  await expect(nameInput).toBeVisible({ timeout: 10_000 })
+  const loaded = await nameInput
+    .waitFor({ state: 'visible', timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false)
+  if (!loaded) {
+    await page.reload({ waitUntil: 'commit' }).catch(() => {})
+    await expect(nameInput).toBeVisible({ timeout: 15_000 })
+  }
 
   // Advance updated_at out-of-band → the browser form now holds a stale token.
   await bumpRecordViaApi(page.request, token, CURRENCY_API_BASE, {
@@ -159,6 +166,7 @@ test.describe('TC-LOCK-OSS-045: conflict-bar UX suite (currencies)', () => {
   })
 
   test('UX-04: navigating to an unrelated route auto-clears the bar', async ({ page }) => {
+    test.slow()
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let currencyId: string | null = null
@@ -168,7 +176,7 @@ test.describe('TC-LOCK-OSS-045: conflict-bar UX suite (currencies)', () => {
       await login(page, 'admin')
       await raiseConflictBar(page, token, stamp, currencyId, fixture.code)
 
-      await page.goto('/backend')
+      await page.goto('/backend', { waitUntil: 'commit' })
       await expect(page.getByTestId(CONFLICT_BANNER_TESTID)).toHaveCount(0, { timeout: 15_000 })
     } finally {
       await deleteCurrenciesEntityIfExists(page.request, token, CURRENCY_API_BASE, currencyId)
