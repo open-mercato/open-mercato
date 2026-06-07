@@ -539,11 +539,7 @@ const setupApp: ModuleCli = {
       if (env.NODE_ENV !== 'test') {
         for (const snapshot of result.users) {
           if (snapshot.created) {
-            if (snapshot.user.email === email && password) {
-              console.log('🎉 Created user', snapshot.user.email, 'password:', password)
-            } else {
-              console.log('🎉 Created user', snapshot.user.email)
-            }
+            console.log('🎉 Created user', snapshot.user.email)
           } else {
             console.log(`Updated user ${snapshot.user.email}`)
           }
