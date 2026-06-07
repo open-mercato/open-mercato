@@ -43,6 +43,8 @@ function resolveMercatoCwd(): string {
 const mercatoCwd = resolveMercatoCwd()
 const mercatoEnv = readMercatoEnvFile(mercatoCwd)
 
+const MERCATO_CLI_TIMEOUT_MS = 90_000
+
 function readMercatoEnvFile(appRoot: string): Record<string, string> {
   const envPath = path.join(appRoot, '.env')
   if (!fs.existsSync(envPath)) return {}
@@ -63,6 +65,7 @@ function runMercato(args: string[]): string {
     cwd: mercatoCwd,
     encoding: 'utf8',
     env: buildMercatoCommandEnv(),
+    timeout: MERCATO_CLI_TIMEOUT_MS,
   })
 }
 
@@ -71,6 +74,7 @@ function runMercatoCapture(args: string[]): { status: number | null; output: str
     cwd: mercatoCwd,
     encoding: 'utf8',
     env: buildMercatoCommandEnv(),
+    timeout: MERCATO_CLI_TIMEOUT_MS,
   })
   return {
     status: result.status,
@@ -88,6 +92,7 @@ test.describe('TC-AUTH-033: auth sync-role-acls CLI', () => {
   test.slow()
 
   test('restores default feature ACLs for the admin role after the admin ACL is cleared', async ({ request }) => {
+    test.setTimeout(120_000)
     const superadminToken = await getAuthToken(request, 'superadmin')
     const adminToken = await getAuthToken(request, 'admin')
     const { tenantId } = getTokenScope(adminToken)
@@ -151,6 +156,7 @@ test.describe('TC-AUTH-033: auth sync-role-acls CLI', () => {
   })
 
   test('is idempotent — second run adds no new ACL changes and exits cleanly', async ({ request }) => {
+    test.setTimeout(120_000)
     const adminToken = await getAuthToken(request, 'admin')
     const { tenantId } = getTokenScope(adminToken)
 

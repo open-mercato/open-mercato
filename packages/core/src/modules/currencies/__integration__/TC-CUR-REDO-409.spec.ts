@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { generateUniqueCurrencyCode } from '@open-mercato/core/helpers/integration/currenciesFixtures';
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures';
 
 /**
@@ -22,10 +23,7 @@ type ExchangeRateRow = { id: string; fromCurrencyCode: string; toCurrencyCode: s
 
 type OperationMetadata = { id: string; undoToken: string; resourceId: string | null };
 
-const randomCode = (): string => {
-  const letter = () => String.fromCharCode(65 + Math.floor(Math.random() * 26));
-  return `Q${letter()}${letter()}`;
-};
+const randomCode = generateUniqueCurrencyCode;
 
 function readOperation(res: APIResponse): OperationMetadata {
   const header = res.headers()['x-om-operation'] ?? '';
