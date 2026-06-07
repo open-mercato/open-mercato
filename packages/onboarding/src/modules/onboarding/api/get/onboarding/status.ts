@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
+import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboarding/lib/ready-email'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -26,7 +26,17 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid tenant id.' }, { status: 400 })
   }
 
-  const baseUrl = getAppBaseUrl(req)
+  let baseUrl: string
+  try {
+    baseUrl = getSecurityEmailBaseUrl(req)
+  } catch (error) {
+    const mapped = mapSecurityEmailUrlError(error, {
+      scope: 'onboarding.status',
+      configMessage: 'Onboarding status is not configured.',
+    })
+    if (mapped) return NextResponse.json({ ok: false, error: mapped.body.error }, { status: mapped.status })
+    throw error
+  }
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const service = new OnboardingService(em)
@@ -43,7 +53,6 @@ export async function GET(req: Request) {
     try {
       emailSent = await sendWorkspaceReadyEmail({
         requestId: request.id,
-        baseUrl,
         tenantId: request.tenantId,
       })
     } catch (error) {
@@ -91,8 +100,9 @@ const onboardingStatusDoc: OpenApiMethodDoc = {
     { status: 200, description: 'Onboarding status resolved.', schema: onboardingStatusSuccessSchema },
   ],
   errors: [
-    { status: 400, description: 'Invalid tenant id.', schema: onboardingStatusErrorSchema },
+    { status: 400, description: 'Invalid tenant id or request origin.', schema: onboardingStatusErrorSchema },
     { status: 404, description: 'Onboarding request not found.', schema: onboardingStatusErrorSchema },
+    { status: 500, description: 'Onboarding status is not configured.', schema: onboardingStatusErrorSchema },
   ],
 }
 
