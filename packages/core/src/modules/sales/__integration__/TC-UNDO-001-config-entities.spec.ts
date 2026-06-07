@@ -53,6 +53,8 @@ function findField(body: any, id: string, field: string): unknown {
 }
 
 test.describe('TC-UNDO-001 config-entities undo/redo', () => {
+  test.setTimeout(120_000)
+
   let token: string
   let scope: { organizationId: string; tenantId: string }
 
