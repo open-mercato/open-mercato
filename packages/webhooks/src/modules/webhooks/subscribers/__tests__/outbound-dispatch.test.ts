@@ -102,6 +102,37 @@ describe('webhooks outbound dispatch subscriber', () => {
     })
   })
 
+  it('normalizes a missing organizationId to null in the decryption scope', async () => {
+    const { rootEm } = createDispatchEntityManagers()
+
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+
+    await handler(
+      {
+        id: 'product-1',
+        tenantId: 'tenant-1',
+      },
+      {
+        eventName: 'catalog.product.deleted',
+        resolve: <T,>(name: string): T => {
+          if (name === 'em') return rootEm as T
+          throw new Error(`Unexpected dependency: ${name}`)
+        },
+      },
+    )
+
+    expect(findWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ tenantId: 'tenant-1' }),
+      expect.anything(),
+      { tenantId: 'tenant-1', organizationId: null },
+    )
+    const decryptionScope = (findWithDecryption as jest.Mock).mock.calls[0][4]
+    expect(decryptionScope.organizationId).toBeNull()
+    expect(decryptionScope.organizationId).not.toBe('')
+  })
+
   it('checks integration state once per organization when multiple webhooks match', async () => {
     const { rootEm, handlerEm } = createDispatchEntityManagers()
 
