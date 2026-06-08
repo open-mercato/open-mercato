@@ -96,6 +96,7 @@
   "integrations.detail.credentials.validation.required": "{field} is required.",
   "integrations.detail.credentials.validation.text": "Enter a valid value.",
   "integrations.detail.credentials.validation.tooLong": "Value is too long.",
+  "integrations.detail.credentials.validation.url": "{field} must be a valid http(s) URL.",
   "integrations.detail.disable": "Deaktivieren",
   "integrations.detail.enable": "Aktivieren",
   "integrations.detail.health.check": "Prüfung ausführen",

@@ -47,6 +47,7 @@ import {
   resolveIntegrationDetailWidgetSpotId,
   resolveRequestedIntegrationDetailTab,
 } from '../detail-page-widgets'
+import { isValidCredentialUrl } from '../../../lib/credentials-field-validation'
 
 type CredentialField = IntegrationCredentialField
 type BuiltInIntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs' | 'data-sync-schedule'
@@ -870,6 +871,18 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             code: z.ZodIssueCode.custom,
             path: [field.key],
             message: t('integrations.detail.credentials.validation.tooLong', 'Value is too long.'),
+          })
+        }
+
+        if (
+          field.type === 'url'
+          && normalizedValue.trim().length > 0
+          && !isValidCredentialUrl(normalizedValue.trim())
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field.key],
+            message: t('integrations.detail.credentials.validation.url', '{field} must be a valid http(s) URL.', { field: field.label }),
           })
         }
 
