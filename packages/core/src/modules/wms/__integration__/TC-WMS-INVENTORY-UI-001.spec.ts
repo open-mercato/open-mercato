@@ -110,12 +110,18 @@ test.describe('TC-WMS-INVENTORY-UI-001: Inventory console mutations', () => {
       const adjustDialog = page.getByRole('dialog').filter({ hasText: /Adjust inventory/i }).first()
       await expect(adjustDialog).toBeVisible()
 
-      await fillCombobox(page, 'Search variant or SKU', variantSku, { scope: adjustDialog })
+      await fillCombobox(page, 'Search variant or SKU', variantSku, {
+        scope: adjustDialog,
+        suggestionsApiPath: '/api/catalog/variants',
+      })
       await fillCombobox(page, 'Select warehouse', warehouseName, {
         scope: adjustDialog,
         waitForEnabledPlaceholder: 'Select location',
       })
-      await fillCombobox(page, 'Select location', locationCode, { scope: adjustDialog })
+      await fillCombobox(page, 'Select location', locationCode, {
+        scope: adjustDialog,
+        suggestionsApiPath: '/api/wms/locations',
+      })
 
       await adjustDialog.locator('input[inputmode="decimal"]').fill(String(adjustDelta))
       await adjustDialog.getByRole('combobox').click()
@@ -261,8 +267,14 @@ test.describe('TC-WMS-INVENTORY-UI-001: Inventory console mutations', () => {
       await cycleDialog.getByRole('button', { name: 'Start counting' }).click()
       await expect(cycleDialog.getByText('Step 2 of 3 · Scan and tally items')).toBeVisible()
 
-      await fillCombobox(page, 'Search variant or SKU', variantSku, { scope: cycleDialog })
-      await fillCombobox(page, 'Select location', locationCode, { scope: cycleDialog })
+      await fillCombobox(page, 'Search variant or SKU', variantSku, {
+        scope: cycleDialog,
+        suggestionsApiPath: '/api/catalog/variants',
+      })
+      await fillCombobox(page, 'Select location', locationCode, {
+        scope: cycleDialog,
+        suggestionsApiPath: '/api/wms/locations',
+      })
 
       const countedInput = cycleDialog.locator('input[inputmode="numeric"]')
       await countedInput.fill(String(countedQty))
