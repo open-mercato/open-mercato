@@ -40,6 +40,33 @@ const deriveOrgFromId = new Set<string>(['directory:organization'])
 const COVERAGE_REFRESH_THROTTLE_MS = 5 * 60 * 1000
 const lastCoverageReset = new Map<string, number>()
 
+const REINDEX_DECRYPT_DEBUG_KEYS = ['display_name', 'first_name', 'last_name', 'brand_name', 'legal_name', 'primary_email', 'primary_phone'] as const
+
+export type ReindexDecryptDebugPayload = {
+  entityType: string
+  tenantId: string | null
+  organizationId: string | null
+  keys: string[]
+}
+
+export function buildReindexDecryptDebugPayload(
+  entityType: string,
+  doc: Record<string, unknown>,
+  scope: { organizationId: string | null; tenantId: string | null },
+): ReindexDecryptDebugPayload {
+  const presentKeys: string[] = []
+  for (const key of REINDEX_DECRYPT_DEBUG_KEYS) {
+    const value = doc[key]
+    if (key in doc && value != null && value !== '') presentKeys.push(key)
+  }
+  return {
+    entityType,
+    tenantId: scope.tenantId ?? null,
+    organizationId: scope.organizationId ?? null,
+    keys: presentKeys,
+  }
+}
+
 async function cleanupLegacyJobScopes(
   db: Kysely<any>,
   options: {
@@ -377,18 +404,7 @@ export async function reindexEntity(
           dekKeyCache,
         )
         if (isSearchDebugEnabled()) {
-          const keysOfInterest = ['display_name', 'first_name', 'last_name', 'brand_name', 'legal_name', 'primary_email', 'primary_phone']
-          const snapshot: Record<string, unknown> = {}
-          for (const key of keysOfInterest) {
-            if (key in result) snapshot[key] = (result as Record<string, unknown>)[key]
-          }
-          console.info('[reindex:decrypt]', {
-            entityType: targetEntity,
-            tenantId: scope.tenantId ?? null,
-            organizationId: scope.organizationId ?? null,
-            keys: Object.keys(snapshot),
-            sample: snapshot,
-          })
+          console.info('[reindex:decrypt]', buildReindexDecryptDebugPayload(targetEntity, result as Record<string, unknown>, scope))
         }
         return result
       }
