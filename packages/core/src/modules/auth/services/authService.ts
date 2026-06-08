@@ -1,7 +1,7 @@
 import { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
 import { User, Role, UserRole, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
-import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
@@ -9,29 +9,29 @@ export class AuthService {
   constructor(private em: EntityManager) {}
 
   async findUserByEmail(email: string) {
-    const emailHash = computeEmailHash(email)
+    const emailHashes = emailHashLookupValues(email)
     return findOneWithDecryption(this.em, User, {
       deletedAt: null,
       $or: [
         { email },
-        { emailHash },
+        { emailHash: { $in: emailHashes } },
       ],
     } as any)
   }
 
   async findUsersByEmail(email: string) {
-    const emailHash = computeEmailHash(email)
+    const emailHashes = emailHashLookupValues(email)
     return findWithDecryption(this.em, User, {
       deletedAt: null,
       $or: [
         { email },
-        { emailHash },
+        { emailHash: { $in: emailHashes } },
       ],
     } as any)
   }
 
   async findUserByEmailAndTenant(email: string, tenantId: string) {
-    const emailHash = computeEmailHash(email)
+    const emailHashes = emailHashLookupValues(email)
     return findOneWithDecryption(
       this.em,
       User,
@@ -40,7 +40,7 @@ export class AuthService {
         deletedAt: null,
         $or: [
           { email },
-          { emailHash },
+          { emailHash: { $in: emailHashes } },
         ],
       } as any,
       undefined,

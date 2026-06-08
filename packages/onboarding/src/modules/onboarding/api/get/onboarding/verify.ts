@@ -356,7 +356,20 @@ export async function GET(req: Request) {
   if (request.status !== 'pending') {
     return redirectWithStatus(baseUrl, 'invalid')
   }
-  await service.startProcessing(request, new Date())
+  const claimed = await service.startProcessing(request, new Date())
+  if (!claimed) {
+    // A concurrent verify request already claimed this token (pending → processing).
+    // Re-read on a fresh fork — the request EM's identity map still holds the stale
+    // pre-claim copy — and route off the winner's committed state instead of re-running
+    // provisioning, which would throw USER_EXISTS and could strand the request (#2742).
+    const current = await new OnboardingService(em.fork()).findById(request.id)
+    if (current?.status === 'completed' && current.tenantId) {
+      return current.preparationCompletedAt
+        ? redirectToLogin(baseUrl, current.tenantId)
+        : redirectToPreparing(baseUrl, current.tenantId)
+    }
+    return redirectToPreparing(baseUrl, current?.tenantId ?? request.tenantId ?? null)
+  }
   if (!request.passwordHash) {
     console.error('[onboarding.verify] missing password hash for request', request.id)
     await service.resetProcessing(request)

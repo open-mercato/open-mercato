@@ -9,6 +9,7 @@ import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
 import { jsonSchemaToZod, toSafeZodSchema } from './schema-utils'
+import { redactSecretForLog, deriveApiKeySessionId } from './log-redaction'
 import type { McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -42,7 +43,7 @@ async function resolveSessionContext(
     const sessionResult = await findSessionApiKeyWithSecret(em, sessionToken)
     if (!sessionResult) {
       if (debug) {
-        console.error(`[MCP HTTP] Session token not found, expired, or secret unavailable: ${sessionToken}`)
+        console.error(`[MCP HTTP] Session token not found, expired, or secret unavailable: ${redactSecretForLog(sessionToken)}`)
       }
       return null
     }
@@ -277,7 +278,7 @@ function createMcpServerForRequest(
             if (!effectiveContext.sessionId && effectiveContext.apiKeySecret) {
               effectiveContext = {
                 ...effectiveContext,
-                sessionId: 'apikey_' + effectiveContext.apiKeySecret.slice(0, 16),
+                sessionId: deriveApiKeySessionId(effectiveContext.apiKeySecret),
               }
             }
           }

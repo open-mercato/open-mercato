@@ -6,7 +6,7 @@ import { buildCustomFieldResetMap, loadCustomFieldSnapshot } from '@open-mercato
 import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLock, enforceRecordGoneIsConflict } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CheckoutLink, CheckoutLinkTemplate } from '../data/entities'
@@ -266,7 +266,17 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
       tenantId: scope.tenantId,
       deletedAt: null,
     }, undefined, scope)
-    if (!template) throw new CrudHttpError(404, { error: 'Template not found' })
+    if (!template) {
+      // The template was deleted in another tab. When the client opted into
+      // optimistic locking, surface the unified conflict bar instead of a bare
+      // 404 (#2529); otherwise the plain 404 still fires for API consumers.
+      enforceRecordGoneIsConflict({
+        resourceKind: 'checkout.template',
+        resourceId: parsed.id,
+        request: ctx.request ?? null,
+      })
+      throw new CrudHttpError(404, { error: 'Template not found' })
+    }
     enforceCommandOptimisticLock({
       resourceKind: 'checkout.template',
       resourceId: template.id,
@@ -422,7 +432,16 @@ const deleteTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
       tenantId: scope.tenantId,
       deletedAt: null,
     }, undefined, scope)
-    if (!template) throw new CrudHttpError(404, { error: 'Template not found' })
+    if (!template) {
+      // Already deleted elsewhere — convert to a 409 conflict when the client
+      // sent the optimistic-lock header so the stale edit surfaces cleanly (#2529).
+      enforceRecordGoneIsConflict({
+        resourceKind: 'checkout.template',
+        resourceId: templateId,
+        request: ctx.request ?? null,
+      })
+      throw new CrudHttpError(404, { error: 'Template not found' })
+    }
     enforceCommandOptimisticLock({
       resourceKind: 'checkout.template',
       resourceId: template.id,
