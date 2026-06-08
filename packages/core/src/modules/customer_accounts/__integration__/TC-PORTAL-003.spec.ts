@@ -1,10 +1,11 @@
 import { expect, test } from '@playwright/test'
-import { randomUUID } from 'node:crypto'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
+  createCustomerCompanyFixture,
   createCustomerRoleFixture,
   createCustomerUserFixture,
+  deleteCustomerCompanyFixture,
   deleteCustomerRoleFixture,
   deleteCustomerUserFixture,
   portalCookieHeaders,
@@ -18,8 +19,8 @@ import {
  * Surface: GET /api/customer_accounts/portal/users
  * Source: issue #2463.
  *
- * Scoping is by `customerEntityId` (a synthetic CRM company id; no FK is
- * enforced) AND `tenantId` — NOT by organization. Default pageSize is 25.
+ * Scoping is by `customerEntityId` (an owned CRM company id) AND `tenantId` —
+ * NOT by organization. Default pageSize is 25.
  */
 
 type PortalUser = {
@@ -51,12 +52,15 @@ test.describe('TC-PORTAL-003: portal users list scoping and pagination', () => {
     const adminToken = await getAuthToken(request, 'admin')
     const { tenantId } = getTokenContext(adminToken)
 
-    const companyA = randomUUID()
-    const companyB = randomUUID()
     const createdUserIds: string[] = []
+    const createdCompanyIds: string[] = []
     let roleId: string | null = null
 
     try {
+      const companyA = await createCustomerCompanyFixture(request, adminToken)
+      const companyB = await createCustomerCompanyFixture(request, adminToken)
+      createdCompanyIds.push(companyA, companyB)
+
       const role = await createCustomerRoleFixture(request, adminToken, {
         features: ['portal.users.view'],
       })
@@ -171,6 +175,7 @@ test.describe('TC-PORTAL-003: portal users list scoping and pagination', () => {
     } finally {
       for (const id of createdUserIds) await deleteCustomerUserFixture(request, adminToken, id)
       await deleteCustomerRoleFixture(request, adminToken, roleId)
+      for (const id of createdCompanyIds) await deleteCustomerCompanyFixture(request, adminToken, id)
     }
   })
 
