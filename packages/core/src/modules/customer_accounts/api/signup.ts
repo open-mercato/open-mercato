@@ -72,7 +72,9 @@ export async function POST(req: Request) {
   let tenantId: string
   let organizationId: string | null
   try {
-    const context = await resolveTenantContext(req, parsed.data.tenantId)
+    const context = await resolveTenantContext(req, parsed.data.tenantId, {
+      organizationId: parsed.data.organizationId ?? null,
+    })
     tenantId = context.tenantId
     organizationId = context.organizationId ?? parsed.data.organizationId ?? null
   } catch (err) {

@@ -1,6 +1,6 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { MfaRecoveryCode, UserMfaMethod } from '../data/entities'
 import { emitSecurityEvent } from '../events'
 import type { MfaEnforcementService } from './MfaEnforcementService'
@@ -27,6 +27,11 @@ type BulkComplianceStatus = {
   lastLoginAt?: Date
 }
 
+type ActorContext = {
+  tenantId: string | null
+  isSuperAdmin: boolean
+}
+
 export class MfaAdminServiceError extends Error {
   constructor(
     message: string,
@@ -43,7 +48,7 @@ export class MfaAdminService {
     private readonly mfaEnforcementService: MfaEnforcementService,
   ) {}
 
-  async resetUserMfa(adminId: string, userId: string, reason: string): Promise<void> {
+  async resetUserMfa(adminId: string, userId: string, reason: string, actor?: ActorContext): Promise<void> {
     if (!adminId.trim()) {
       throw new MfaAdminServiceError('Admin ID is required', 400)
     }
@@ -60,6 +65,7 @@ export class MfaAdminService {
     if (!user) {
       throw new MfaAdminServiceError('User not found', 404)
     }
+    this.assertActorOwnsUser(user, actor)
 
     const activeMethods = await this.em.find(UserMfaMethod, {
       userId,
@@ -95,7 +101,7 @@ export class MfaAdminService {
     })
   }
 
-  async getUserMfaStatus(userId: string): Promise<UserMfaStatus> {
+  async getUserMfaStatus(userId: string, actor?: ActorContext): Promise<UserMfaStatus> {
     if (!userId.trim()) {
       throw new MfaAdminServiceError('User ID is required', 400)
     }
@@ -104,6 +110,7 @@ export class MfaAdminService {
     if (!user) {
       throw new MfaAdminServiceError('User not found', 404)
     }
+    this.assertActorOwnsUser(user, actor)
 
     const methods = await this.em.find(
       UserMfaMethod,
@@ -136,9 +143,12 @@ export class MfaAdminService {
     }
   }
 
-  async bulkComplianceCheck(tenantId: string): Promise<BulkComplianceStatus[]> {
+  async bulkComplianceCheck(tenantId: string, actor?: ActorContext): Promise<BulkComplianceStatus[]> {
     if (!tenantId.trim()) {
       throw new MfaAdminServiceError('Tenant ID is required', 400)
+    }
+    if (actor && !actor.isSuperAdmin && tenantId !== actor.tenantId) {
+      throw new MfaAdminServiceError('Not authorized for the requested tenant scope.', 403)
     }
 
     const users = await findWithDecryption(
@@ -186,8 +196,21 @@ export class MfaAdminService {
     })
   }
 
+  private assertActorOwnsUser(user: User, actor?: ActorContext): void {
+    if (!actor || actor.isSuperAdmin) return
+    if (!user.tenantId || user.tenantId !== actor.tenantId) {
+      throw new MfaAdminServiceError('User not found', 404)
+    }
+  }
+
   private async findUserById(userId: string): Promise<User | null> {
-    return this.em.findOne(User, { id: userId, deletedAt: null })
+    return findOneWithDecryption(
+      this.em,
+      User,
+      { id: userId, deletedAt: null } as FilterQuery<User>,
+      {},
+      { tenantId: null, organizationId: null },
+    )
   }
 }
 

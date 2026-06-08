@@ -75,6 +75,12 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
   runCrudMutationGuardAfterSuccess: jest.fn((...args: unknown[]) => mockRunCrudMutationGuardAfterSuccess(...args)),
 }))
 
+const mockFindOneWithDecryption = jest.fn()
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn((...args: unknown[]) => mockFindOneWithDecryption(...args)),
+  findWithDecryption: jest.fn(async () => []),
+}))
+
 const tenantA = 'a0a0a0a0-a0a0-4a0a-8a0a-a0a0a0a0a0a0'
 const tenantB = 'b0b0b0b0-b0b0-4b0b-8b0b-b0b0b0b0b0b0'
 const userId = 'c0c0c0c0-c0c0-4c0c-8c0c-c0c0c0c0c0c0'
@@ -124,6 +130,7 @@ describe('POST /api/auth/users/resend-invite', () => {
     mockCheckAuthRateLimit.mockResolvedValue({ error: null })
     mockValidateCrudMutationGuard.mockResolvedValue(null)
     mockFindOne.mockResolvedValue(makeUser())
+    mockFindOneWithDecryption.mockResolvedValue(makeUser())
     mockCreate.mockReturnValue({ id: 'new-token-row' })
     mockPersist.mockImplementation(function persist(this: any) { return mockEm })
     mockFlush.mockResolvedValue(undefined)
@@ -153,10 +160,25 @@ describe('POST /api/auth/users/resend-invite', () => {
       orgId,
     })
     mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: false })
-    mockFindOne.mockResolvedValueOnce(null)
+    mockFindOneWithDecryption.mockResolvedValueOnce(makeUser({ tenantId: tenantB }))
 
     const res = await POST(makeRequest({ id: userId }))
     expect(res.status).toBe(404)
+    expect(mockFindOne).not.toHaveBeenCalled()
+  })
+
+  test('still scopes the route load to the actor tenant for non-superadmins', async () => {
+    mockGetAuthFromRequest.mockResolvedValueOnce({
+      sub: actorId,
+      tenantId: tenantA,
+      orgId,
+    })
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: false })
+    mockFindOneWithDecryption.mockResolvedValueOnce(makeUser())
+    mockFindOne.mockResolvedValueOnce(makeUser())
+
+    const res = await POST(makeRequest({ id: userId }))
+    expect(res.status).toBe(200)
 
     const whereArg = mockFindOne.mock.calls[0]?.[1] as Record<string, unknown>
     expect(whereArg.tenantId).toBe(tenantA)

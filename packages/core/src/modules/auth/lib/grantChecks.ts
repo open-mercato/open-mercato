@@ -2,7 +2,7 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { Role, RoleAcl, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, RoleAcl, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 type ActorAcl = {
@@ -124,6 +124,60 @@ export async function assertActorCanModifySuperAdminRoleTarget(input: SuperAdmin
   const targetIsSuperAdmin = await isRoleEffectivelySuperAdmin(input.em, input.targetRoleId)
   if (targetIsSuperAdmin) {
     throw forbidden('Only super administrators can modify super administrator roles.')
+  }
+}
+
+export async function assertActorCanAccessUserTarget(input: SuperAdminUserTargetInput): Promise<void> {
+  const isSuperAdmin = await resolveActorIsSuperAdmin(input)
+  if (isSuperAdmin) return
+
+  const target = await findOneWithDecryption(
+    input.em,
+    User,
+    { id: input.targetUserId } as FilterQuery<User>,
+    {},
+    { tenantId: null, organizationId: null },
+  )
+  // Not found (incl. soft-deleted, which MikroORM's soft-delete filter hides):
+  // delegate to the caller. Every wired call site is itself tenant-scoped — the
+  // ACL/consents reads filter by auth.tenantId and the user commands re-load by
+  // id within tenant — so a missing target yields a safe empty/404 there. The
+  // guard's job is to block a foreign *existing* target, below.
+  if (!target) return
+
+  const actorTenantId = normalizeNullableString(input.tenantId)
+  const targetTenantId = normalizeNullableString((target as { tenantId?: string | null }).tenantId)
+  if (!targetTenantId || targetTenantId !== actorTenantId) {
+    throw new CrudHttpError(404, { error: 'User not found' })
+  }
+
+  const actorAcl = await loadActorAcl(input)
+  if (actorAcl.organizations !== null && !actorAcl.organizations.includes('__all__')) {
+    const targetOrganizationId = normalizeNullableString((target as { organizationId?: string | null }).organizationId)
+    if (!targetOrganizationId || !actorAcl.organizations.includes(targetOrganizationId)) {
+      throw forbidden('Not authorized to access this user.')
+    }
+  }
+}
+
+export async function assertActorCanAccessRoleTarget(input: SuperAdminRoleTargetInput): Promise<void> {
+  const isSuperAdmin = await resolveActorIsSuperAdmin(input)
+  if (isSuperAdmin) return
+
+  const target = await findOneWithDecryption(
+    input.em,
+    Role,
+    { id: input.targetRoleId } as FilterQuery<Role>,
+    {},
+    { tenantId: null, organizationId: null },
+  )
+  // Not found (incl. soft-deleted): delegate (see assertActorCanAccessUserTarget).
+  if (!target) return
+
+  const actorTenantId = normalizeNullableString(input.tenantId)
+  const targetTenantId = normalizeNullableString((target as { tenantId?: string | null }).tenantId)
+  if (!targetTenantId || targetTenantId !== actorTenantId) {
+    throw new CrudHttpError(404, { error: 'Role not found' })
   }
 }
 

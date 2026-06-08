@@ -17,6 +17,7 @@ export const loginSchema = z.object({
   email: emailField,
   password: z.string().min(1).max(128),
   tenantId: z.string().uuid().optional(),
+  organizationId: z.string().uuid().optional(),
 })
 
 export const emailVerifySchema = z.object({
