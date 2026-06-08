@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { CheckCircle } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { KpiCard, DeltaBadge, Sparkline } from '@open-mercato/ui/backend/charts'
 import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
@@ -78,6 +78,20 @@ function DealKpiCard(props: React.ComponentProps<typeof KpiCard>) {
 
 export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, className }: DealsKpiStripProps) {
   const t = useT()
+  const locale = useLocale()
+  const pluralCat = React.useCallback((count: number): string => {
+    try {
+      return new Intl.PluralRules(locale).select(count)
+    } catch {
+      return count === 1 ? 'one' : 'other'
+    }
+  }, [locale])
+  const pf = React.useCallback((base: string, count: number): string => {
+    const cat = pluralCat(count)
+    const key = `${base}.${cat}`
+    const out = t(key, { count })
+    return out === key ? t(`${base}.other`, { count }) : out
+  }, [t, pluralCat])
   const [data, setData] = React.useState<DealsSummaryResponse | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -151,8 +165,8 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
               {t('customers.deals.list.kpi.activeAcrossPipelines', {
-                count: data.activeDeals.value,
-                pipelines: pipelineCount,
+                deals: pf('customers.deals.list.kpi.frag.activeDeals', data.activeDeals.value),
+                pipelines: pf('customers.deals.list.kpi.frag.pipelines', pipelineCount),
               })}
             </p>
             <PipelineStageBar
@@ -175,8 +189,8 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
               {t('customers.deals.list.kpi.ownersNeedAttention', {
-                owners: data.activeDeals.ownersCount,
-                attention: data.activeDeals.needAttention,
+                owners: pf('customers.deals.list.kpi.frag.owners', data.activeDeals.ownersCount),
+                attention: pf('customers.deals.list.kpi.frag.needAttention', data.activeDeals.needAttention),
               })}
             </p>
             {data.activeDeals.owners.length > 0 ? (
@@ -203,7 +217,7 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <CheckCircle className="h-4 w-4 text-status-success-text" aria-hidden />
               <span>
-                {t('customers.deals.list.kpi.dealsClosed', { count: data.wonThisQuarter.dealsClosed })}
+                {pf('customers.deals.list.kpi.frag.dealsClosed', data.wonThisQuarter.dealsClosed)}
               </span>
             </div>
             <p className="text-xs text-muted-foreground">

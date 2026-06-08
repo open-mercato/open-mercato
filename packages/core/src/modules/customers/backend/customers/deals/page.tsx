@@ -1038,6 +1038,7 @@ export default function CustomersDealsPage() {
         <DataTable<DealRow>
           stickyFirstColumn
           stickyActionsColumn
+          actionsColumnAlign="center"
           title={t('customers.deals.list.title')}
           actions={(
             <Button asChild>
