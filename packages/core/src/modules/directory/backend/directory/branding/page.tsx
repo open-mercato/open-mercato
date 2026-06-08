@@ -98,6 +98,7 @@ export default function OrganizationBrandingPage() {
         operation: async () => {
           const uploadedLogoUrl = shouldUpload ? await uploadLogo(data.organizationId) : null
           const resolvedLogoUrl = uploadedLogoUrl ?? nextLogoUrl ?? logoUrl.trim()
+          // optimistic-lock-exempt: selected organization branding uses a scoped command endpoint without an exposed updatedAt token.
           const response = await apiCallOrThrow<BrandingPayload>(
             BRANDING_API,
             {
