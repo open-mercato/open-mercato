@@ -10,7 +10,9 @@ import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import {
   assertActorCanAccessUserTarget,
+  assertActorCanGrantAcl,
   assertActorCanModifySuperAdminUserTarget,
+  normalizeGrantFeatureList,
 } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -148,8 +150,8 @@ export async function PUT(req: Request) {
     }
   }
 
-  const requestedFeatures = normalizeFeatureList(parsed.data.features)
-  const organizations = Array.isArray(parsed.data.organizations) ? parsed.data.organizations : null
+  const requestedFeatures = normalizeGrantFeatureList(parsed.data.features)
+  const organizations = normalizeOrganizations(parsed.data.organizations)
 
   let acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
   // Optimistic lock: refuse a stale per-user ACL overwrite so concurrent edits
@@ -169,13 +171,30 @@ export async function PUT(req: Request) {
     }
   }
   const existingIsSuperAdmin = acl ? !!acl.isSuperAdmin : false
-  const existingFeatures = acl && Array.isArray(acl.featuresJson) ? normalizeFeatureList(acl.featuresJson) : []
+  const existingFeatures = acl ? normalizeGrantFeatureList(acl.featuresJson) : []
+
+  const requestedIsSuperAdmin = parsed.data.isSuperAdmin ?? false
+
+  try {
+    await assertActorCanGrantAcl({
+      em: em as EntityManager,
+      rbacService: rbacService as RbacService,
+      actorUserId: auth.sub,
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
+      isSuperAdmin: requestedIsSuperAdmin,
+      features: requestedFeatures,
+      organizations,
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
+  }
 
   const effectiveFeatures = actorIsSuperAdmin
     ? requestedFeatures
     : sanitizeTenantFeatures(requestedFeatures)
 
-  const requestedIsSuperAdmin = parsed.data.isSuperAdmin ?? false
   let effectiveIsSuperAdmin = requestedIsSuperAdmin
 
   if (!actorIsSuperAdmin) {
@@ -230,16 +249,9 @@ export async function PUT(req: Request) {
   })
 }
 
-function normalizeFeatureList(features: unknown): string[] {
-  if (!Array.isArray(features)) return []
-  const dedup = new Set<string>()
-  for (const value of features) {
-    if (typeof value !== 'string') continue
-    const trimmed = value.trim()
-    if (!trimmed) continue
-    dedup.add(trimmed)
-  }
-  return Array.from(dedup)
+function normalizeOrganizations(organizations: unknown): string[] | null {
+  if (!Array.isArray(organizations)) return null
+  return normalizeGrantFeatureList(organizations)
 }
 
 function sanitizeTenantFeatures(features: string[]): string[] {
