@@ -10,11 +10,17 @@ describe('kms timeout handling', () => {
   })
 
   it('marks Vault unhealthy after a timed out write', async () => {
-    const fetchMock = jest.fn((_url: string, init?: RequestInit) =>
-      new Promise((_resolve, reject) => {
+    // createTenantDek now reads-before-write (#2746): the read probe answers fast
+    // with no existing key so the flow reaches the write, which then times out.
+    const fetchMock = jest.fn((_url: string, init?: RequestInit) => {
+      const method = (init?.method || 'GET').toUpperCase()
+      if (method === 'GET') {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ data: { data: {} } }) })
+      }
+      return new Promise((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
-      }),
-    )
+      })
+    })
     ;(globalThis as { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch
 
     const service = new HashicorpVaultKmsService({
@@ -25,7 +31,7 @@ describe('kms timeout handling', () => {
 
     await expect(service.createTenantDek('tenant-1')).resolves.toBeNull()
     expect(service.isHealthy()).toBe(false)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2) // read probe + the timed-out write
   })
 
   it('falls back to derived keys after the primary Vault call times out', async () => {
