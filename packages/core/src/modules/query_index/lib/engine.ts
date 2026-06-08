@@ -87,6 +87,8 @@ type SearchRuntime = {
   organizationScope?: { ids: string[]; includeNull: boolean } | null
   tenantId?: string | null
   searchSources?: SearchTokenSource[]
+  /** Per-`query()` alias minter for `search_tokens` subqueries (see #2738). */
+  mintAlias: () => string
 }
 
 type EncryptionResolver = () => {
@@ -96,6 +98,18 @@ type EncryptionResolver = () => {
 } | null
 
 type SearchTokenSource = { entity: string; recordIdColumn: string }
+
+/**
+ * Mints `search_tokens` subquery aliases (`st_0`, `st_1`, …). Aliases only need
+ * to be unique within a single SQL statement, so every `query()` invocation owns
+ * a fresh minter. Keeping the counter call-local (rather than on the shared
+ * engine instance) means concurrent queries can never reset or collide on each
+ * other's sequence (#2738).
+ */
+function createSearchAliasMinter(): () => string {
+  let seq = 0
+  return () => `st_${seq++}`
+}
 
 function createQueryProfiler(entity: string): Profiler {
   const enabled = shouldEnableProfiler(entity)
@@ -120,7 +134,6 @@ export class HybridQueryEngine implements QueryEngine {
   private autoReindexEnabled: boolean | null = null
   private coverageOptimizationEnabled: boolean | null = null
   private pendingCoverageRefreshKeys = new Set<string>()
-  private searchAliasSeq = 0
 
   constructor(
     private em: EntityManager,
@@ -201,7 +214,6 @@ export class HybridQueryEngine implements QueryEngine {
     try {
       const debugEnabled = this.isDebugVerbosity()
       if (debugEnabled) this.debug('query:start', { entity })
-      this.searchAliasSeq = 0
 
       const isCustom = await this.isCustomEntity(entity)
       if (isCustom) {
@@ -375,6 +387,7 @@ export class HybridQueryEngine implements QueryEngine {
         config: searchConfig,
         organizationScope: orgScope,
         tenantId: opts.tenantId ?? null,
+        mintAlias: createSearchAliasMinter(),
       }
 
       // Prepare index sources for JSONB custom-field access.
@@ -725,6 +738,7 @@ export class HybridQueryEngine implements QueryEngine {
           recordIdColumn: `${join.alias}.id`,
           tenantId: opts.tenantId ?? null,
           organizationScope: orgScope,
+          mintAlias: searchRuntime.mintAlias,
         })
       }
 
@@ -1040,6 +1054,7 @@ export class HybridQueryEngine implements QueryEngine {
       tenantId?: string | null
       organizationScope?: { ids: string[]; includeNull: boolean } | null
       combineWith?: 'and' | 'or'
+      mintAlias: () => string
     }
   ): boolean {
     if (!opts.hashes.length) {
@@ -1049,7 +1064,7 @@ export class HybridQueryEngine implements QueryEngine {
       })
       return false
     }
-    const alias = `st_${this.searchAliasSeq++}`
+    const alias = opts.mintAlias()
     this.logSearchDebug('search:apply-search-tokens', {
       entity: opts.entity, field: opts.field, alias,
       tokenCount: opts.hashes.length,
@@ -1221,6 +1236,7 @@ export class HybridQueryEngine implements QueryEngine {
           recordIdColumn: `${source.alias}.entity_id`,
           tenantId: search.tenantId ?? null,
           organizationScope: search.organizationScope ?? null,
+          mintAlias: search.mintAlias,
         }))
       )
     ))
@@ -1237,9 +1253,10 @@ export class HybridQueryEngine implements QueryEngine {
       recordIdColumn: string
       tenantId?: string | null
       organizationScope?: { ids: string[]; includeNull: boolean } | null
+      mintAlias: () => string
     }
   ): any {
-    const alias = `st_${this.searchAliasSeq++}`
+    const alias = opts.mintAlias()
     let sub = eb
       .selectFrom(`search_tokens as ${alias}`)
       .select(sql<number>`1`.as('one'))
@@ -1280,6 +1297,7 @@ export class HybridQueryEngine implements QueryEngine {
           recordIdColumn: `${alias}.entity_id`,
           tenantId: search.tenantId ?? null,
           organizationScope: search.organizationScope ?? null,
+          mintAlias: search.mintAlias,
         })))
         this.logSearchDebug('search:cf-filter', {
           entity: entityType, field: key, tokens: tokens.tokens, hashes, applied: true,
@@ -1351,6 +1369,7 @@ export class HybridQueryEngine implements QueryEngine {
           entity: entityType, field: key, hashes, recordIdColumn,
           tenantId: search.tenantId ?? null,
           organizationScope: search.organizationScope ?? null,
+          mintAlias: search.mintAlias,
         })))
         this.logSearchDebug('search:index-doc-filter', {
           entity: entityType, field: key, tokens: tokens.tokens, hashes, applied: true,
@@ -1436,6 +1455,7 @@ export class HybridQueryEngine implements QueryEngine {
                 recordIdColumn: src.recordIdColumn,
                 tenantId: searchRuntime.tenantId ?? null,
                 organizationScope: searchRuntime.organizationScope ?? null,
+                mintAlias: searchRuntime.mintAlias,
               })),
             ),
           )
@@ -1526,6 +1546,7 @@ export class HybridQueryEngine implements QueryEngine {
       config: searchConfig,
       organizationScope: orgScope,
       tenantId: opts.tenantId ?? null,
+      mintAlias: createSearchAliasMinter(),
     }
 
     const normalizedFilters = normalizeFilters(opts.filters)
@@ -2106,6 +2127,7 @@ export class HybridQueryEngine implements QueryEngine {
                 recordIdColumn: src.recordIdColumn,
                 tenantId: search.tenantId ?? null,
                 organizationScope: search.organizationScope ?? null,
+                mintAlias: search.mintAlias,
               })))
           ))
           this.logSearchDebug('search:filter', {
