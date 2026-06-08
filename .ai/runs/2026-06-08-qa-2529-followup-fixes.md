@@ -81,9 +81,9 @@ QA comment id `4638514821` on issue #2529. Three actionable items:
 
 ### Phase 1: Team Member team select prefill
 
-- [ ] 1.1 Render saved team label in `<SelectValue>` + add remount `key` in TeamMemberForm
-- [ ] 1.2 Unit test: TeamMemberForm shows saved team label on edit (component render test)
-- [ ] 1.3 Integration spec: team-member edit Team select prefill (Playwright)
+- [x] 1.1 Render saved team label in `<SelectValue>` + add remount `key` in TeamMemberForm — 0fb45873d
+- [x] 1.2 Unit test: TeamMemberForm shows saved team label on edit (component render test) — 0fb45873d
+- [x] 1.3 Integration spec: team-member edit Team select prefill (Playwright) — c444be4eb
 
 ### Phase 2: Company Domain clearable
 
