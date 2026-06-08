@@ -37,6 +37,13 @@ const clearableUrlSchema = z.preprocess(
   z.string().url().max(300).nullable().optional(),
 )
 
+// Domain is a plain (non-URL) string that maps to a nullable column, so blanking
+// a previously-set value on edit must transmit null to clear it. See #2529.
+const clearableDomainSchema = z.preprocess(
+  emptyStringToNull,
+  z.string().trim().max(200).nullable().optional(),
+)
+
 const interactionPhoneNumberSchema = z.string().trim().max(50).optional().nullable()
 
 const scopedSchema = z.object({
@@ -94,7 +101,7 @@ const personLastNameSchema = z.string().trim().min(1).max(120)
 const companyDetailsSchema = {
   legalName: z.string().trim().max(200).optional(),
   brandName: z.string().trim().max(200).optional(),
-  domain: z.string().trim().max(200).optional(),
+  domain: clearableDomainSchema,
   websiteUrl: clearableUrlSchema,
   industry: z.string().trim().max(150).optional(),
   sizeBucket: z.string().trim().max(100).optional(),
