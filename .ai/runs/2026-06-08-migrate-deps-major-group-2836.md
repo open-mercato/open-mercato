@@ -44,8 +44,8 @@ None (`--skill-url` not supplied).
 
 ### Phase 1: Apply residual bump
 
-- [ ] 1.1 Bump `undici` to `^8.4.1` in `packages/shared/package.json`
-- [ ] 1.2 Relock with `yarn install`; confirm `yarn.lock` diff is scoped to undici
+- [x] 1.1 Bump `undici` to `^8.4.1` in `packages/shared/package.json` — 3a986c5aa
+- [x] 1.2 Relock with `yarn install`; confirm `yarn.lock` diff is scoped to undici — 3a986c5aa (lock diff = single descriptor line; root `resolutions` still pins undici 7.24.0, so installed version is unchanged)
 
 ### Phase 2: Validate
 
