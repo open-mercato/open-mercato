@@ -87,7 +87,7 @@ function minutesToDecimal(minutes: number): string {
 function decimalToMinutes(value: string): number {
   const trimmed = value.trim()
   if (!trimmed) return 0
-  const num = parseFloat(trimmed)
+  const num = parseFloat(trimmed.replace(',', '.'))
   if (isNaN(num) || num < 0) return 0
   return Math.min(Math.round(num * 60), 1440)
 }
@@ -365,8 +365,8 @@ export default function MyTimesheetsPage() {
     })
   }, [])
 
-  const handleCellBlur = React.useCallback((projectId: string, dateKey: string) => {
-    const text = rawText[projectId]?.[dateKey]
+  const handleCellBlur = React.useCallback((projectId: string, dateKey: string, currentValue: string) => {
+    const text = rawText[projectId]?.[dateKey] ?? currentValue
     if (text === undefined) return
     const minutes = decimalToMinutes(text)
     const cellEntries = entries[projectId]?.[dateKey] ?? []
@@ -851,7 +851,7 @@ export default function MyTimesheetsPage() {
                                 hover:border-muted-foreground/40 focus:border-primary focus:bg-background focus:outline-none`}
                               value={rawText[project.id]?.[dateKey] ?? minutesToDecimal(cellMinutes)}
                               onChange={(e) => handleCellChange(project.id, dateKey, e.target.value)}
-                              onBlur={() => handleCellBlur(project.id, dateKey)}
+                              onBlur={(event) => handleCellBlur(project.id, dateKey, event.currentTarget.value)}
                               placeholder={t('staff.timesheets.my.durationPlaceholder', '0')}
                             />
                           )}
