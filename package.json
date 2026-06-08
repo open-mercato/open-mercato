@@ -118,7 +118,6 @@
     "@tanstack/react-query": "^5.100.14",
     "@tanstack/react-table": "^8.20.5",
     "@uiw/react-markdown-preview": "^5.2.1",
-    "@uiw/react-md-editor": "^4.1.1",
     "@xyflow/react": "^12.11.0",
     "ai": "^6.0.194",
     "awilix": "^13.0.3",

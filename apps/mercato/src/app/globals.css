@@ -650,3 +650,85 @@ body[data-ai-chat-open="true"] .om-demo-feedback-floating {
 *::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* MDXEditor (@mdxeditor/editor) — WYSIWYG Markdown editor used by CrudForm. The outer box
+   (border/radius/background) comes from the host wrapper (DS tokens). These rules give the
+   toolbar a divider and the content a minimum editable height + comfortable padding so the
+   field reads as a distinct, clearly bounded input and content never bleeds into the next field. */
+/* MDXEditor themes its chrome (toolbar, selects, popovers, tooltips) via a Radix-style base and
+   accent scale. Map it to DS tokens so the whole editor follows light/dark uniformly. The doubled
+   class out-specifies MDXEditor's own single-class theme regardless of stylesheet order. */
+.om-mdx-editor.om-mdx-editor {
+  --baseBase: var(--background);
+  --basePageBg: var(--background);
+  --baseBgSubtle: var(--muted);
+  --baseBg: var(--background);
+  --baseBgHover: var(--muted);
+  --baseBgActive: var(--muted);
+  --baseLine: var(--border);
+  --baseBorder: var(--border);
+  --baseBorderHover: var(--input);
+  --baseSolid: var(--muted-foreground);
+  --baseSolidHover: var(--foreground);
+  --baseText: var(--foreground);
+  --baseTextContrast: var(--foreground);
+  --accentBase: var(--background);
+  --accentBgSubtle: var(--muted);
+  --accentBg: var(--muted);
+  --accentBgHover: var(--muted);
+  --accentBgActive: var(--muted);
+  --accentLine: var(--border);
+  --accentBorder: var(--border);
+  --accentBorderHover: var(--input);
+  --accentSolid: var(--primary);
+  --accentSolidHover: var(--primary);
+  --accentText: var(--primary);
+  --accentTextContrast: var(--primary);
+}
+.om-mdx-editor [role="toolbar"] {
+  border-bottom: 1px solid var(--border);
+}
+.om-mdx-prose {
+  min-height: 9rem;
+  padding: 0.625rem 0.875rem;
+}
+/* Tailwind Preflight strips heading + list styling globally; MDXEditor relies on browser
+   defaults, so restore them inside the editor content only (scoped to .om-mdx-prose). */
+.om-mdx-prose h1 { font-size: 1.5rem; font-weight: 600; line-height: 1.3; margin: 0.5rem 0; }
+.om-mdx-prose h2 { font-size: 1.25rem; font-weight: 600; line-height: 1.3; margin: 0.5rem 0; }
+.om-mdx-prose h3 { font-size: 1.125rem; font-weight: 600; line-height: 1.35; margin: 0.4rem 0; }
+.om-mdx-prose h4,
+.om-mdx-prose h5,
+.om-mdx-prose h6 { font-size: 1rem; font-weight: 600; margin: 0.4rem 0; }
+.om-mdx-prose ul { list-style: disc outside; padding-left: 1.5rem; }
+.om-mdx-prose ol { list-style: decimal outside; padding-left: 1.5rem; }
+.om-mdx-prose ul ul { list-style: circle outside; }
+.om-mdx-prose li[class*="listItemChecked"],
+.om-mdx-prose li[class*="listItemUnchecked"] { list-style: none; }
+/* Source mode runs on CodeMirror, which ships its own light theme; map it to DS tokens so the
+   raw-markdown view follows light/dark like the rest of the editor (fixes white box in dark mode). */
+.om-mdx-editor .cm-editor,
+.om-mdx-editor .cm-editor .cm-scroller,
+.om-mdx-editor .cm-gutters {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+.om-mdx-editor .cm-gutters {
+  border-right: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+.om-mdx-editor .cm-activeLine,
+.om-mdx-editor .cm-activeLineGutter {
+  background-color: var(--muted);
+}
+.om-mdx-editor .cm-content {
+  caret-color: var(--foreground);
+  color: var(--foreground);
+}
+.om-mdx-editor .cm-line span {
+  color: inherit !important;
+}
+.om-mdx-editor .cm-cursor,
+.om-mdx-editor .cm-dropCursor {
+  border-left-color: var(--foreground);
+}

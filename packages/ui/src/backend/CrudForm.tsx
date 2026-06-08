@@ -29,7 +29,6 @@ import {
   SelectValue,
 } from '../primitives/select'
 import { flash } from './FlashMessages'
-import dynamic from 'next/dynamic'
 import { FormHeader } from './forms/FormHeader'
 import { FormFooter } from './forms/FormFooter'
 import { Button } from '../primitives/button'
@@ -89,7 +88,6 @@ import { withScopedApiRequestHeaders } from './utils/apiCall'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from './utils/optimisticLock'
 import { surfaceRecordConflict } from './conflicts'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
-import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
 import { FieldDefinitionsManager, type FieldDefinitionsManagerHandle } from './custom-fields/FieldDefinitionsManager'
 import { useConfirmDialog } from './confirm-dialog'
@@ -107,6 +105,7 @@ import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/share
 import { evaluateInjectedVisibility } from './injection/visibility-utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { RichEditor, type RichEditorLabels } from '../primitives/rich-editor'
+import MarkdownField from './inputs/MarkdownField'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -3894,74 +3893,11 @@ function TextAreaInput({
   )
 }
 
-// Markdown editor using @uiw/react-md-editor (client-only)
+// Markdown editor — WYSIWYG MDXEditor (Lexical) wired to the CrudForm value/onChange contract.
 type MDProps = { value?: string; onChange: (md: string) => void }
-const MDEditor = dynamic(async () => {
-  const mod = await import('@uiw/react-md-editor')
-  return mod.default
-}, { ssr: false }) as React.ComponentType<UiWMDEditorProps>
-
-type MarkdownPreviewOptions = NonNullable<UiWMDEditorProps['previewOptions']>
-
-let markdownPreviewOptionsPromise: Promise<MarkdownPreviewOptions> | null = null
-
-async function loadMarkdownPreviewOptions(): Promise<MarkdownPreviewOptions> {
-  if (!markdownPreviewOptionsPromise) {
-    markdownPreviewOptionsPromise = import('remark-gfm')
-      .then((mod) => ({ remarkPlugins: [mod.default ?? mod] } as MarkdownPreviewOptions))
-      .catch(() => ({} as MarkdownPreviewOptions))
-  }
-  return markdownPreviewOptionsPromise
-}
-
-const EMPTY_PREVIEW_OPTIONS: MarkdownPreviewOptions = {}
 
 const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange }: MDProps) {
-  const containerRef = React.useRef<HTMLDivElement | null>(null)
-  const [local, setLocal] = React.useState<string>(value)
-  const [previewOptions, setPreviewOptions] = React.useState<MarkdownPreviewOptions>(EMPTY_PREVIEW_OPTIONS)
-  const typingRef = React.useRef(false)
-
-  React.useEffect(() => {
-    if (!typingRef.current) setLocal(value)
-  }, [value])
-
-  React.useEffect(() => {
-    let mounted = true
-    void loadMarkdownPreviewOptions().then((resolved) => {
-      if (!mounted) return
-      setPreviewOptions(resolved)
-    })
-    return () => {
-      mounted = false
-    }
-  }, [])
-
-  const handleChange = React.useCallback((v?: string) => {
-    typingRef.current = true
-    setLocal(v ?? '')
-  }, [])
-
-  const commit = React.useCallback(() => {
-    if (!typingRef.current) return
-    typingRef.current = false
-    onChange(local)
-    requestAnimationFrame(() => {
-      const ta = containerRef.current?.querySelector('textarea') as HTMLTextAreaElement | null
-      ta?.focus()
-    })
-  }, [local, onChange])
-
-  return (
-    <div ref={containerRef} data-color-mode="light" className="w-full" onBlur={() => commit()}>
-      <MDEditor
-        value={local}
-        height={220}
-        onChange={handleChange}
-        previewOptions={previewOptions}
-      />
-    </div>
-  )
+  return <MarkdownField value={value} onChange={onChange} />
 }, (prev, next) => prev.value === next.value)
 
 // HTML Rich Text editor wrapper for the CrudForm builtin `editor: 'html'`.

@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import dynamic from 'next/dynamic'
 import { FileCode, Loader2, Mail, Pencil, Phone, X } from 'lucide-react'
 import type { PluggableList } from 'unified'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
@@ -444,39 +443,9 @@ export type InlineMultilineEditorProps = {
   renderDisplay?: (params: { value: string | null | undefined; emptyLabel: string }) => React.ReactNode
 }
 
-type UiMarkdownEditorProps = {
-  value?: string
-  height?: number
-  onChange?: (value?: string) => void
-  previewOptions?: { remarkPlugins?: unknown[] }
-}
-
 const isTestEnv =
   typeof process !== 'undefined' &&
   (process.env.NODE_ENV === 'test' || typeof process.env.JEST_WORKER_ID !== 'undefined')
-
-function MarkdownEditorFallback() {
-  const t = useT()
-  return (
-    <LoadingMessage label={t('ui.detail.inline.editorLoading', 'Loading editor…')} className="min-h-[200px] justify-center" />
-  )
-}
-
-const MarkdownEditorTestStub: React.ComponentType<UiMarkdownEditorProps> = ({ value, onChange }) => (
-  <Textarea
-    data-testid="markdown-editor"
-    rows={8}
-    value={value ?? ''}
-    onChange={(event) => onChange?.(event.target.value)}
-  />
-)
-
-const MarkdownEditorComponent: React.ComponentType<UiMarkdownEditorProps> = isTestEnv
-  ? MarkdownEditorTestStub
-  : (dynamic(() => import('@uiw/react-md-editor'), {
-      ssr: false,
-      loading: () => <MarkdownEditorFallback />,
-    }) as unknown as React.ComponentType<UiMarkdownEditorProps>)
 
 let markdownPluginsPromise: Promise<PluggableList> | null = null
 
@@ -510,7 +479,6 @@ export function InlineMultilineEditor({
   const [saving, setSaving] = React.useState(false)
   const [isMarkdownEnabled, setIsMarkdownEnabled] = React.useState(true)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
-  const markdownEditorRef = React.useRef<HTMLDivElement | null>(null)
   const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
   const fallbackError = React.useMemo(
     () => t('ui.detail.inline.error', 'Failed to save value.'),
@@ -540,14 +508,6 @@ export function InlineMultilineEditor({
 
   React.useEffect(() => {
     if (!editing) return
-    if (isMarkdownEnabled) {
-      const element = markdownEditorRef.current?.querySelector('textarea')
-      if (!element) return
-      window.requestAnimationFrame(() => {
-        element.focus()
-      })
-      return
-    }
     const element = textareaRef.current
     if (!element) return
     window.requestAnimationFrame(() => {
@@ -674,42 +634,20 @@ export function InlineMultilineEditor({
                 }
               }}
             >
-              {isMarkdownEnabled ? (
-                <div
-                  ref={markdownEditorRef}
-                  className={cn(
-                    'w-full rounded-md border border-muted-foreground/30 bg-background p-2',
-                    saving ? 'pointer-events-none opacity-75' : null,
-                  )}
-                >
-                  <div data-color-mode="light" className="w-full">
-                    <MarkdownEditorComponent
-                      value={draft}
-                      height={220}
-                      onChange={(nextValue) => {
-                        if (error) setError(null)
-                        setDraft(typeof nextValue === 'string' ? nextValue : '')
-                      }}
-                      previewOptions={{ remarkPlugins: markdownPlugins }}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <Textarea
-                  ref={textareaRef}
-                  rows={3}
-                  className="w-full resize-none overflow-hidden rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  placeholder={placeholder}
-                  value={draft}
-                  onChange={(event) => {
-                    if (error) setError(null)
-                    setDraft(event.target.value)
-                  }}
-                  onInput={(event) => adjustTextareaSize(event.currentTarget)}
-                  autoFocus
-                  disabled={saving}
-                />
-              )}
+              <Textarea
+                ref={textareaRef}
+                rows={isMarkdownEnabled ? 8 : 3}
+                className="w-full resize-none overflow-hidden rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder={placeholder}
+                value={draft}
+                onChange={(event) => {
+                  if (error) setError(null)
+                  setDraft(event.target.value)
+                }}
+                onInput={(event) => adjustTextareaSize(event.currentTarget)}
+                autoFocus
+                disabled={saving}
+              />
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               <div className="flex items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>

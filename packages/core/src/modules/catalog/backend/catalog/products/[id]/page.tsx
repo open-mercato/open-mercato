@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
 import { ErrorMessage, RecordNotFoundState } from "@open-mercato/ui/backend/detail";
 import {
@@ -18,6 +17,7 @@ import {
 import { createCrudFormError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { collectCustomFieldValues } from "@open-mercato/ui/backend/utils/customFieldValues";
 import { flash } from "@open-mercato/ui/backend/FlashMessages";
+import MarkdownField from "@open-mercato/ui/backend/inputs/MarkdownField";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { Input } from "@open-mercato/ui/primitives/input";
 import { Label } from "@open-mercato/ui/primitives/label";
@@ -130,20 +130,6 @@ import {
   DialogTitle,
 } from "@open-mercato/ui/primitives/dialog";
 import { SendObjectMessageDialog } from "@open-mercato/ui/backend/messages/SendObjectMessageDialog.tsx";
-
-const MarkdownEditor = dynamic(() => import("@uiw/react-md-editor"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-      <Spinner />
-    </div>
-  ),
-}) as unknown as React.ComponentType<{
-  value?: string;
-  height?: number;
-  onChange?: (value?: string) => void;
-  previewOptions?: { remarkPlugins?: unknown[] };
-}>;
 
 type ProductResponse = {
   items?: Array<Record<string, unknown>>;
@@ -1610,17 +1596,10 @@ function ProductDetailsSection({
           </Button>
         </div>
         {values.useMarkdown ? (
-          <div
-            data-color-mode="light"
-            className="overflow-hidden rounded-md border"
-          >
-            <MarkdownEditor
-              value={values.description}
-              height={260}
-              onChange={(val) => setValue("description", val ?? "")}
-              previewOptions={{ remarkPlugins: [] }}
-            />
-          </div>
+          <MarkdownField
+            value={values.description}
+            onChange={(val) => setValue("description", val ?? "")}
+          />
         ) : (
           <Textarea
             className="min-h-[180px]"
