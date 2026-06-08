@@ -96,13 +96,9 @@ test.describe('TC-PGWY-020: Transaction list pagination boundaries', () => {
     filledUserToken = await getAuthToken(request, filledEmail, PASSWORD)
     emptyUserToken = await getAuthToken(request, emptyEmail, PASSWORD)
 
-    // Warm the session route, then create the remaining transactions concurrently.
-    await createPaymentSession(request, filledUserToken, { providerKey: 'mock', amount: 10, currencyCode: 'USD', captureMethod: 'manual' })
-    await Promise.all(
-      Array.from({ length: TRANSACTION_COUNT - 1 }, () =>
-        createPaymentSession(request, filledUserToken, { providerKey: 'mock', amount: 10, currencyCode: 'USD', captureMethod: 'manual' }),
-      ),
-    )
+    for (let index = 0; index < TRANSACTION_COUNT; index += 1) {
+      await createPaymentSession(request, filledUserToken, { providerKey: 'mock', amount: 10, currencyCode: 'USD', captureMethod: 'manual' })
+    }
   })
 
   test.afterAll(async ({ request }) => {

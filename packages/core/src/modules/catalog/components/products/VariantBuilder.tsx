@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { flushSync } from 'react-dom'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -282,13 +283,21 @@ export function VariantPricesSection({
   embedded = false,
 }: VariantPricesSectionProps) {
   const t = useT()
+  const pricesRef = React.useRef(values.prices)
+
+  React.useEffect(() => {
+    pricesRef.current = values.prices
+  }, [values.prices])
 
   const updatePrice = React.useCallback(
     (priceKindId: string, patch: Partial<VariantPriceDraft>) => {
-      const prev = values.prices?.[priceKindId] ?? { priceKindId, amount: '', displayMode: 'excluding-tax' }
-      setValue('prices', { ...values.prices, [priceKindId]: { ...prev, ...patch, priceKindId } })
+      const currentPrices = pricesRef.current ?? {}
+      const prev = currentPrices[priceKindId] ?? { priceKindId, amount: '', displayMode: 'excluding-tax' }
+      const nextPrices = { ...currentPrices, [priceKindId]: { ...prev, ...patch, priceKindId } }
+      pricesRef.current = nextPrices
+      flushSync(() => setValue('prices', nextPrices))
     },
-    [setValue, values.prices],
+    [setValue],
   )
 
   const containerClass = embedded ? 'space-y-4' : 'space-y-4 rounded-lg border p-4'
@@ -388,6 +397,7 @@ export function VariantPricesSection({
                 <Input
                   className="mt-3"
                   value={draft?.amount ?? ''}
+                  onInput={(event) => updatePrice(kind.id, { amount: event.currentTarget.value })}
                   onChange={(event) => updatePrice(kind.id, { amount: event.target.value })}
                   placeholder="0.00"
                 />

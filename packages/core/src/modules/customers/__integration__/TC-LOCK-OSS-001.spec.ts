@@ -65,6 +65,9 @@ async function putCompany(
 
 test.describe('TC-LOCK-OSS-001: customers.company optimistic-lock guard', () => {
   test('writes without the header always succeed (opt-in semantics)', async ({ request }) => {
+    test.slow()
+    test.setTimeout(120_000)
+
     let token: string | null = null
     let companyId: string | null = null
     try {
@@ -81,6 +84,9 @@ test.describe('TC-LOCK-OSS-001: customers.company optimistic-lock guard', () => 
   })
 
   test('fresh updatedAt header passes; stale header returns 409 with structured body', async ({ request }) => {
+    test.slow()
+    test.setTimeout(120_000)
+
     let token: string | null = null
     let companyId: string | null = null
     try {

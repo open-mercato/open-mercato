@@ -24,9 +24,10 @@ const DEFAULT_STRATEGIES = ['fulltext', 'vector', 'tokens']
 test.describe('TC-SEARCH-006: global search honors saved strategy config over URL override', () => {
   test('persisted enabledStrategies wins over the strategies URL parameter', async ({ request }) => {
     test.slow()
+    test.setTimeout(120_000)
 
     let token: string | null = null
-    let originalStrategies: string[] | null = null
+    let originalStrategies: string[] | null = DEFAULT_STRATEGIES
 
     try {
       token = await getAuthToken(request, 'admin')

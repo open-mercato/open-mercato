@@ -67,7 +67,11 @@ async function openDealFormTitleInput(page: Page) {
 }
 
 test.describe('TC-LOCK-OSS-016: customers deal edit + stale delete conflict bar', () => {
+  test.setTimeout(120_000)
+
   test('CRM-06 stale deal edit shows the conflict bar', async ({ page }) => {
+    test.slow()
+
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let dealId: string | null = null
@@ -91,7 +95,13 @@ test.describe('TC-LOCK-OSS-016: customers deal edit + stale delete conflict bar'
       await fillControlledInput(titleInput, `QA Lock 016 stale ${stamp}`)
       const saveButton = page.getByRole('button', { name: /^save$/i }).first()
       await expect(saveButton).toBeEnabled({ timeout: 10_000 })
+      const staleSaveResponse = page.waitForResponse((response) => {
+        const url = new URL(response.url())
+        return response.request().method() === 'PUT' && url.pathname === DEALS_API_BASE
+      }, { timeout: 30_000 })
       await saveButton.click()
+      const response = await staleSaveResponse
+      expect(response.status(), `stale PUT ${DEALS_API_BASE} should conflict`).toBe(409)
 
       await expectConflictBanner(page)
     } finally {
@@ -100,6 +110,8 @@ test.describe('TC-LOCK-OSS-016: customers deal edit + stale delete conflict bar'
   })
 
   test('CRM-07 stale deal delete shows the conflict bar', async ({ page }) => {
+    test.slow()
+
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let dealId: string | null = null

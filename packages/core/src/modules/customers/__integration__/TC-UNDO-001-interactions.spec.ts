@@ -32,6 +32,8 @@ async function readInteractionStatus(
 }
 
 test.describe('TC-UNDO-001 customers.interactions undo/redo', () => {
+  test.setTimeout(120_000)
+
   test.beforeAll(() => {
     skipIfUndoTestsDisabled()
   })

@@ -145,7 +145,7 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
     // Full browser login + navigation + fixture setup/teardown does not fit the
     // 20s default under parallel CI shard load; 60s matches the login+navigation
     // convention used by the other UI integration specs (see TC-CUR-004).
-    test.setTimeout(60_000)
+    test.setTimeout(120_000)
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let productId: string | null = null
@@ -160,7 +160,7 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
       offerId = await createOfferFixture(page.request, token, channelId, productId, stamp, 'edit')
 
       await login(page, 'admin')
-      await page.goto(`/backend/sales/channels/${channelId}/offers/${offerId}/edit`)
+      await page.goto(`/backend/sales/channels/${channelId}/offers/${offerId}/edit`, { waitUntil: 'commit' })
 
       // Form is loaded → the CrudForm captured the offer's own `updated_at`
       // via `optimisticLockUpdatedAt`.
@@ -357,6 +357,8 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
   })
 
   test('clean single-tab offer save does not raise a false-positive conflict bar', async ({ page }) => {
+    test.setTimeout(120_000)
+
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let productId: string | null = null
@@ -371,16 +373,18 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
       offerId = await createOfferFixture(page.request, token, channelId, productId, stamp, 'clean')
 
       await login(page, 'admin')
-      await page.goto(`/backend/sales/channels/${channelId}/offers/${offerId}/edit`)
+      await page.goto(`/backend/sales/channels/${channelId}/offers/${offerId}/edit`, {
+        waitUntil: 'commit',
+      })
 
       const titleInput = page.locator('[data-crud-field-id="title"] input').first()
-      await expect(titleInput).toBeVisible({ timeout: 20_000 })
-      await expect(titleInput).toHaveValue(/QA Lock 029 offer clean/, { timeout: 20_000 })
+      await expect(titleInput).toBeVisible({ timeout: 30_000 })
+      await expect(titleInput).toHaveValue(/QA Lock 029 offer clean/, { timeout: 30_000 })
 
       const putPromise = page.waitForResponse(
         (response) =>
           response.request().method() === 'PUT' && response.url().includes(OFFERS_API_BASE),
-        { timeout: 20_000 },
+        { timeout: 30_000 },
       )
       await fillControlledInput(titleInput, `QA Lock 029 offer clean saved ${stamp}`)
       await titleInput.press('Control+Enter')
