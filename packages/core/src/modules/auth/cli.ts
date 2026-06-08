@@ -20,6 +20,14 @@ import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from 
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getCliModules } from '@open-mercato/shared/modules/registry'
 
+async function resolveTenantScopedRole(em: any, name: string, normalizedTenantId: string | null) {
+  const existing = await em.findOne(Role, { name, tenantId: normalizedTenantId })
+  if (existing) return existing
+  const role = em.create(Role, { name, tenantId: normalizedTenantId, createdAt: new Date() })
+  await em.persist(role).flush()
+  return role
+}
+
 const addUser: ModuleCli = {
   command: 'add-user',
   async run(rest) {
@@ -63,17 +71,7 @@ const addUser: ModuleCli = {
     if (rolesCsv) {
       const names = rolesCsv.split(',').map(s => s.trim()).filter(Boolean)
       for (const name of names) {
-        let role = await em.findOne(Role, { name, tenantId: normalizedTenantId })
-        if (!role && normalizedTenantId !== null) {
-          role = await em.findOne(Role, { name, tenantId: null })
-        }
-        if (!role) {
-          role = em.create(Role, { name, tenantId: normalizedTenantId, createdAt: new Date() })
-          await em.persist(role).flush()
-        } else if (normalizedTenantId !== null && role.tenantId !== normalizedTenantId) {
-          role.tenantId = normalizedTenantId
-          await em.persist(role).flush()
-        }
+        const role = await resolveTenantScopedRole(em, name, normalizedTenantId)
         const link = em.create(UserRole, { user: u, role })
         await em.persist(link).flush()
       }
