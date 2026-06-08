@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHmac, randomBytes } from 'node:crypto'
 
 /**
  * Redact a bearer-style secret (session token, API key) for safe logging.
@@ -12,13 +12,22 @@ export function redactSecretForLog(value: unknown): string {
   return `${value.slice(0, prefixLength)}...`
 }
 
+// Per-process random key so the API key secret is fingerprinted through a keyed
+// HMAC rather than a fast, unkeyed digest. The session id is only an in-process
+// grouping key for the session-memory cache (a process-local Map), so a key that
+// lives for the process lifetime keeps the same-secret-maps-to-same-id guarantee
+// within an MCP connection while ensuring the digest is not derivable from the
+// secret alone. Mirrors the secret fingerprinter in apiKeyAuthCache.ts.
+const sessionIdHmacKey = randomBytes(32)
+
 /**
  * Derive a stable, non-reversible session-memory id from an API key secret.
- * The same secret always maps to the same id (so tool calls on one MCP
- * connection share a memory cache), but no secret material is exposed because
- * the id is a truncated SHA-256 digest rather than a slice of the secret.
+ * The same secret always maps to the same id within a process (so tool calls on
+ * one MCP connection share a memory cache), but no secret material is exposed:
+ * the id is a truncated keyed HMAC-SHA256 digest, not a slice or recomputable
+ * hash of the secret.
  */
 export function deriveApiKeySessionId(apiKeySecret: string): string {
-  const digest = createHash('sha256').update(apiKeySecret).digest('hex')
+  const digest = createHmac('sha256', sessionIdHmacKey).update(apiKeySecret, 'utf8').digest('hex')
   return `apikey_${digest.slice(0, 16)}`
 }

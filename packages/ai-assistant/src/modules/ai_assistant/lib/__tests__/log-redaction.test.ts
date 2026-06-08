@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
 import { redactSecretForLog, deriveApiKeySessionId } from '../log-redaction'
 
+const SESSION_ID_DIGEST_HEX = 16
+
 describe('redactSecretForLog', () => {
   it('never emits the full session token', () => {
     const token = `sess_${'a'.repeat(32)}`
@@ -43,11 +45,18 @@ describe('deriveApiKeySessionId', () => {
     expect(secret).not.toContain(digestPart)
   })
 
-  it('is a stable truncated sha-256 digest of the secret', () => {
+  it('is stable within a process and shaped as a truncated hex digest', () => {
     const secret = 'omk_test_secret_value'
-    const expected = `apikey_${createHash('sha256').update(secret).digest('hex').slice(0, 16)}`
-    expect(deriveApiKeySessionId(secret)).toBe(expected)
-    expect(deriveApiKeySessionId(secret)).toBe(deriveApiKeySessionId(secret))
+    const sessionId = deriveApiKeySessionId(secret)
+    expect(sessionId).toBe(deriveApiKeySessionId(secret))
+    const digestPart = sessionId.slice('apikey_'.length)
+    expect(digestPart).toMatch(new RegExp(`^[0-9a-f]{${SESSION_ID_DIGEST_HEX}}$`))
+  })
+
+  it('is keyed, not a recomputable unkeyed sha-256 of the secret', () => {
+    const secret = 'omk_test_secret_value'
+    const unkeyed = `apikey_${createHash('sha256').update(secret).digest('hex').slice(0, SESSION_ID_DIGEST_HEX)}`
+    expect(deriveApiKeySessionId(secret)).not.toBe(unkeyed)
   })
 
   it('maps distinct secrets to distinct ids', () => {
