@@ -51,6 +51,8 @@ export async function GET(req: Request) {
         inboxAddress: settings.inboxAddress,
         isActive: settings.isActive,
         workingLanguage: settings.workingLanguage,
+        // Surface only whether a per-tenant secret exists — never the value.
+        webhookSecretSet: Boolean(settings.webhookSecret),
         updatedAt: settings.updatedAt instanceof Date ? settings.updatedAt.toISOString() : (settings.updatedAt ?? null),
       } : null,
     }
@@ -119,6 +121,10 @@ export async function PATCH(req: Request) {
     if (parsed.data.isActive !== undefined) {
       settings.isActive = parsed.data.isActive
     }
+    if (parsed.data.webhookSecret !== undefined) {
+      // Empty/null clears the per-tenant secret (reverts to the global key).
+      settings.webhookSecret = parsed.data.webhookSecret ? parsed.data.webhookSecret : null
+    }
 
     await ctx.em.flush()
 
@@ -132,6 +138,7 @@ export async function PATCH(req: Request) {
         inboxAddress: settings.inboxAddress,
         isActive: settings.isActive,
         workingLanguage: settings.workingLanguage,
+        webhookSecretSet: Boolean(settings.webhookSecret),
         updatedAt: settings.updatedAt instanceof Date ? settings.updatedAt.toISOString() : (settings.updatedAt ?? null),
       },
     })

@@ -59,7 +59,18 @@ describe('inbox_ops defaultEncryptionMaps', () => {
     expect(emailFieldNames).not.toContain('references')
     expect(emailFieldNames).not.toContain('content_hash')
 
+    // inbox_address remains plaintext (UNIQUE-indexed, used in the webhook
+    // WHERE lookup); only the per-tenant webhook_secret credential is encrypted.
     const settingsEntry = defaultEncryptionMaps.find((m) => m.entityId === 'inbox_ops:inbox_settings')
-    expect(settingsEntry).toBeUndefined()
+    const settingsFieldNames = (settingsEntry?.fields ?? []).map((f) => f.field)
+    expect(settingsFieldNames).not.toContain('inbox_address')
+  })
+
+  it('encrypts the per-tenant inbound webhook secret at rest (issue #2698)', () => {
+    const entry = defaultEncryptionMaps.find((m) => m.entityId === 'inbox_ops:inbox_settings')
+    expect(entry).toBeDefined()
+    expect(entry!.fields).toEqual(expect.arrayContaining([
+      { field: 'webhook_secret' },
+    ]))
   })
 })
