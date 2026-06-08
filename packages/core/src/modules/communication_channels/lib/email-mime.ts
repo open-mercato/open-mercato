@@ -71,15 +71,42 @@ function stripTagBlocks(html: string, tag: string): string {
   return current
 }
 
+/**
+ * Drop HTML comments (`<!-- … -->`), including an unterminated comment running
+ * to end-of-input. Comments are stripped first because they can wrap content
+ * that would otherwise survive tag removal (`<!--<script-->`), and a naive
+ * filter that ignores them leaves a tag fragment behind.
+ */
+function stripHtmlComments(html: string): string {
+  return html.replace(/<!--[\s\S]*?(?:-->|$)/g, ' ')
+}
+
+const BASIC_HTML_ENTITIES: Record<string, string> = {
+  '&nbsp;': ' ',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  '&amp;': '&',
+}
+
+/**
+ * Decode the handful of HTML entities we surface in plaintext in ONE
+ * left-to-right pass. A single pass cannot double-unescape: characters produced
+ * by a replacement (e.g. the `&` from `&amp;`) are never re-scanned, so
+ * `&amp;lt;` decodes to the literal `&lt;` rather than collapsing into `<`.
+ */
+function decodeBasicEntities(input: string): string {
+  return input.replace(
+    /&(?:nbsp|lt|gt|quot|amp);/gi,
+    (match) => BASIC_HTML_ENTITIES[match.toLowerCase()] ?? match,
+  )
+}
+
 export function htmlToText(html: string): string {
-  return stripTagBlocks(stripTagBlocks(html, 'style'), 'script')
+  const stripped = stripTagBlocks(stripTagBlocks(stripHtmlComments(html), 'style'), 'script')
     .replace(/<br\s*\/?>(?=\s*)/gi, '\n')
     .replace(/<\/p\s*>/gi, '\n\n')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&amp;/gi, '&')
+  return decodeBasicEntities(stripped)
     .replace(/<[^>]+>/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()

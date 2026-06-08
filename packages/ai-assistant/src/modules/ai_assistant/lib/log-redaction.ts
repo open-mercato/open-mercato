@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from 'node:crypto'
+import { pbkdf2Sync, randomBytes } from 'node:crypto'
 
 /**
  * Redact a bearer-style secret (session token, API key) for safe logging.
@@ -19,15 +19,23 @@ export function redactSecretForLog(value: unknown): string {
 // within an MCP connection while ensuring the digest is not derivable from the
 // secret alone. Mirrors the secret fingerprinter in apiKeyAuthCache.ts.
 const sessionIdHmacKey = randomBytes(32)
+const SESSION_ID_PBKDF2_ITERATIONS = 210000
+// 8 bytes → 16 hex chars: a short in-process grouping key, not a security token.
+const SESSION_ID_PBKDF2_KEYLEN = 8
 
 /**
  * Derive a stable, non-reversible session-memory id from an API key secret.
  * The same secret always maps to the same id within a process (so tool calls on
  * one MCP connection share a memory cache), but no secret material is exposed:
- * the id is a truncated keyed HMAC-SHA256 digest, not a slice or recomputable
- * hash of the secret.
+ * the id is derived with PBKDF2 (slow KDF) using a per-process random salt.
  */
 export function deriveApiKeySessionId(apiKeySecret: string): string {
-  const digest = createHmac('sha256', sessionIdHmacKey).update(apiKeySecret, 'utf8').digest('hex')
-  return `apikey_${digest.slice(0, 16)}`
+  const digest = pbkdf2Sync(
+    apiKeySecret,
+    sessionIdHmacKey,
+    SESSION_ID_PBKDF2_ITERATIONS,
+    SESSION_ID_PBKDF2_KEYLEN,
+    'sha256'
+  ).toString('hex')
+  return `apikey_${digest}`
 }

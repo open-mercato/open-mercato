@@ -309,6 +309,8 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
         type: 'custom',
         component: ({ value, setValue, setFormValue, values, disabled }) => {
           const currentValue = typeof value === 'string' ? value : ''
+          const selectedOption = teamOptions.find((option) => option.value === currentValue)
+          const optionsKey = teamOptions.map((option) => `${option.value}:${option.label}`).join('\0')
           return (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">
@@ -327,6 +329,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
                 </Button>
               </div>
               <Select
+                key={`team:${currentValue}:${optionsKey}`}
                 value={currentValue}
                 onValueChange={(value) => {
                   const nextValue = value || undefined
@@ -346,7 +349,9 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
                 disabled={disabled}
               >
                 <SelectTrigger data-crud-focus-target="">
-                  <SelectValue placeholder={translate('ui.forms.select.emptyOption', '—')} />
+                  <SelectValue placeholder={translate('ui.forms.select.emptyOption', '—')}>
+                    {selectedOption?.label}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {teamOptions.map((option) => (

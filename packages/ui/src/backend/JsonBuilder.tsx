@@ -13,6 +13,8 @@ import {
   SelectValue,
 } from '../primitives/select'
 import { Plus, Trash2, ChevronRight, ChevronDown, Code, LayoutList } from 'lucide-react'
+import { useConfirmDialog } from './confirm-dialog'
+import type { ConfirmDialogOptions } from './confirm-dialog'
 
 function cn(...classes: (string | undefined | null | false)[]) {
     return classes.filter(Boolean).join(' ')
@@ -27,10 +29,29 @@ export type JsonBuilderProps = {
 
 type JsonNodeType = 'string' | 'number' | 'boolean' | 'object' | 'array' | 'null'
 
+type ConfirmFn = (options?: ConfirmDialogOptions) => Promise<boolean>
+
 function getJsonType(value: any): JsonNodeType {
     if (value === null) return 'null'
     if (Array.isArray(value)) return 'array'
     return typeof value as JsonNodeType
+}
+
+function defaultValueForType(type: JsonNodeType): any {
+    switch (type) {
+        case 'string': return ""
+        case 'number': return 0
+        case 'boolean': return false
+        case 'object': return {}
+        case 'array': return []
+        case 'null': return null
+    }
+}
+
+function toRawString(value: any): string {
+    if (value === null || value === undefined) return '{}'
+    if (typeof value === 'object') return JSON.stringify(value, null, 2)
+    return String(value)
 }
 
 export function JsonBuilder({
@@ -40,28 +61,32 @@ export function JsonBuilder({
     error
 }: JsonBuilderProps) {
     const [mode, setMode] = React.useState<'raw' | 'builder'>('raw')
-    const [rawString, setRawString] = React.useState(() => {
-        if (value === null) return '{}'
-        return typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value || '{}')
-    })
+    const [rawString, setRawString] = React.useState(() => toRawString(value))
+    const [rawDirty, setRawDirty] = React.useState(false)
     const [parseError, setParseError] = React.useState<string | null>(null)
+    const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
     React.useEffect(() => {
-        if (value === null) {
-            if (!disabled) {
-                onChange({})
-            }
-            setRawString('{}')
-            setParseError(null)
-            return
-        }
-        if (typeof value === 'object') {
-            setRawString(JSON.stringify(value, null, 2))
-            setParseError(null)
+        if (value === null && !disabled) {
+            onChange({})
         }
     }, [value, disabled, onChange])
 
+    // Mirror external value changes (e.g. async record load, builder edits) into
+    // the raw textarea only while the user has NOT started typing in it. Once the
+    // textarea is dirty it becomes the source of truth, so re-deriving it from
+    // `value` on every keystroke — the parent's onChange identity changes each
+    // render — would clobber typing and make Raw JSON uneditable (issue #2817).
+    React.useEffect(() => {
+        if (rawDirty) return
+        if (value !== null && typeof value === 'object') {
+            setRawString(JSON.stringify(value, null, 2))
+            setParseError(null)
+        }
+    }, [value, rawDirty])
+
     const handleRawChange = (str: string) => {
+        setRawDirty(true)
         setRawString(str)
         try {
             if (str.trim() === '') {
@@ -76,6 +101,15 @@ export function JsonBuilder({
             onChange(str)
             setParseError("Invalid JSON")
         }
+    }
+
+    const switchToRaw = () => {
+        // Re-sync the textarea from the current value and let it mirror external
+        // changes again until the user edits it.
+        setRawDirty(false)
+        setRawString(toRawString(value))
+        setParseError(null)
+        setMode('raw')
     }
 
     const switchToBuilder = () => {
@@ -97,7 +131,7 @@ export function JsonBuilder({
                     variant="ghost"
                     size="sm"
                     className={cn(mode === 'raw' && "bg-muted text-foreground")}
-                    onClick={() => setMode('raw')}
+                    onClick={switchToRaw}
                 >
                     <Code className="w-4 h-4" />
                     Raw JSON
@@ -140,6 +174,7 @@ export function JsonBuilder({
                             data={value}
                             onChange={onChange}
                             readOnly={disabled}
+                            confirm={confirm}
                             isRoot
                         />
                     ) : (
@@ -151,6 +186,7 @@ export function JsonBuilder({
             )}
 
             {error && <div className="text-xs text-red-600">{error}</div>}
+            {ConfirmDialogElement}
         </div>
     )
 }
@@ -162,24 +198,39 @@ interface JsonNodeProps {
     readOnly?: boolean
     label?: string
     isRoot?: boolean
+    confirm?: ConfirmFn
 }
 
-function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNodeProps) {
+function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot, confirm }: JsonNodeProps) {
     const type = getJsonType(data)
     const isContainer = type === 'object' || type === 'array'
     const [collapsed, setCollapsed] = React.useState(false)
 
-    const handleTypeChange = (newType: JsonNodeType) => {
-        let newVal: any = ''
-        switch (newType) {
-            case 'string': newVal = ""; break;
-            case 'number': newVal = 0; break;
-            case 'boolean': newVal = false; break;
-            case 'object': newVal = {}; break;
-            case 'array': newVal = []; break;
-            case 'null': newVal = null; break;
+    const handleTypeChange = async (newType: JsonNodeType) => {
+        if (newType === type) return
+        // Switching away from a non-empty container discards its contents. Ask
+        // for confirmation first so configured properties aren't lost silently
+        // (issue #2817). The Select is controlled by the derived type, so when
+        // the user cancels we simply leave the data untouched and the control
+        // snaps back to its previous value.
+        const itemCount = type === 'object'
+            ? Object.keys(data).length
+            : type === 'array'
+                ? (data as any[]).length
+                : 0
+        if (itemCount > 0 && confirm) {
+            const noun = type === 'object'
+                ? `${itemCount} ${itemCount === 1 ? 'property' : 'properties'}`
+                : `${itemCount} ${itemCount === 1 ? 'item' : 'items'}`
+            const confirmed = await confirm({
+                title: 'Change value type?',
+                text: `Changing the type from ${type} to ${newType} will discard the ${noun} currently configured. This cannot be undone.`,
+                confirmText: 'Discard and change',
+                variant: 'destructive',
+            })
+            if (!confirmed) return
         }
-        onChange(newVal)
+        onChange(defaultValueForType(newType))
     }
 
     const handleAddKey = () => {
@@ -250,7 +301,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                     {!readOnly && (
                         <Select
                             value={type}
-                            onValueChange={(next) => handleTypeChange(next as JsonNodeType)}
+                            onValueChange={(next) => { void handleTypeChange(next as JsonNodeType) }}
                         >
                             <SelectTrigger size="sm" className="w-auto min-w-[6rem]">
                                 <SelectValue />
@@ -342,6 +393,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                                     onChange={(v) => handleChildChange(key, v)}
                                     onDelete={() => handleChildDelete(key)}
                                     readOnly={readOnly}
+                                    confirm={confirm}
                                 />
                             </div>
                         </div>
@@ -355,6 +407,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                             onChange={(v) => handleChildChange(idx, v)}
                             onDelete={() => handleChildDelete(idx)}
                             readOnly={readOnly}
+                            confirm={confirm}
                         />
                     ))}
 
