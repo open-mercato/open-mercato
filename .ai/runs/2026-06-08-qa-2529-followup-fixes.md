@@ -94,5 +94,5 @@ QA comment id `4638514821` on issue #2529. Three actionable items:
 
 ### Phase 3: Checkout template stale-delete conflict
 
-- [ ] 3.1 Import + call `enforceRecordGoneIsConflict` before 404 in update & delete commands
-- [ ] 3.2 Integration spec: deleted template + lock header → 409 conflict (not 404)
+- [x] 3.1 Import + call `enforceRecordGoneIsConflict` before 404 in update & delete commands — 8fdff7dd2
+- [x] 3.2 Integration spec: deleted template + lock header → 409 conflict (not 404) — 061daf3c0
