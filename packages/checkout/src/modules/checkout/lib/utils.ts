@@ -264,6 +264,17 @@ function normalizeCheckoutAccessSessionVersion(value: Date | string | null | und
   return value instanceof Date ? value.toISOString() : value
 }
 
+// Derive a non-reversible cookie-safe representation of `sessionVersion`
+// so the embedded payload never exposes the raw input (typically the
+// checkout link's bcrypt passwordHash — see #2675). The HMAC keeps
+// rotation semantics intact: any change to the input produces a fresh
+// digest, invalidating outstanding cookies.
+function deriveCheckoutAccessSessionVersion(value: Date | string | null | undefined): string | null {
+  const normalized = normalizeCheckoutAccessSessionVersion(value)
+  if (normalized == null) return null
+  return createHmac('sha256', getCheckoutAccessTokenSecret()).update(normalized).digest('base64url')
+}
+
 export function signCheckoutAccessToken(
   slug: string,
   options?: { linkId?: string | null; sessionVersion?: Date | string | null },
@@ -271,7 +282,7 @@ export function signCheckoutAccessToken(
   const payload = Buffer.from(JSON.stringify({
     slug,
     linkId: options?.linkId ?? null,
-    sessionVersion: normalizeCheckoutAccessSessionVersion(options?.sessionVersion),
+    sessionVersion: deriveCheckoutAccessSessionVersion(options?.sessionVersion),
     exp: Date.now() + (60 * 60 * 1000),
   }), 'utf-8').toString('base64url')
   const signature = createHmac('sha256', getCheckoutAccessTokenSecret()).update(payload).digest('base64url')
@@ -299,7 +310,7 @@ export function verifyCheckoutAccessToken(
     if (parsed.slug !== slug || typeof parsed.exp !== 'number' || parsed.exp <= Date.now()) return false
     if (options?.linkId && parsed.linkId !== options.linkId) return false
     if (options?.sessionVersion) {
-      return parsed.sessionVersion === normalizeCheckoutAccessSessionVersion(options.sessionVersion)
+      return parsed.sessionVersion === deriveCheckoutAccessSessionVersion(options.sessionVersion)
     }
     return true
   } catch {
