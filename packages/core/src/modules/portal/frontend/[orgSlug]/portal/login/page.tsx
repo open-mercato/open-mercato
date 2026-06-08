@@ -51,16 +51,10 @@ export default function PortalLoginPage({ params }: Props) {
           return
         }
 
-        if (result.status === 423) {
-          setError(t('portal.login.error.locked', 'Account locked. Try again later.'))
-        } else if (result.status === 401 && result.result?.error === 'Account is deactivated') {
-          setError(
-            t(
-              'portal.login.error.inactive',
-              'Your account is not active yet. An administrator must activate it before you can log in.',
-            ),
-          )
-        } else if (result.status === 401) {
+        if (result.status === 401) {
+          // The login API intentionally returns a single generic 401 for unknown, inactive,
+          // locked, and unverified accounts so account existence cannot be enumerated.
+          // Lockout/deactivation guidance is delivered out-of-band (e.g. email), never here.
           setError(t('portal.login.error.invalidCredentials', 'Invalid email or password.'))
         } else {
           setError(result.result?.error || t('portal.login.error.generic', 'Login failed. Please try again.'))
