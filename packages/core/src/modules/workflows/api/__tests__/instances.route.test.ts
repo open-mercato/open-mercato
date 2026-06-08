@@ -17,6 +17,12 @@ import {
   expectListHandlerScopesToFilterIds,
 } from './helpers/orgScopeAssertions'
 
+function flushBackgroundWorkflowExecution(): Promise<void> {
+  return new Promise((resolve) => {
+    setImmediate(resolve)
+  })
+}
+
 // Mock dependencies
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -104,6 +110,10 @@ describe('Workflow Instances API', () => {
     })
 
     jest.clearAllMocks()
+  })
+
+  afterEach(async () => {
+    await flushBackgroundWorkflowExecution()
   })
 
   // ============================================================================
