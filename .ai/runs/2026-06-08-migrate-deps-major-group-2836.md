@@ -53,5 +53,5 @@ None (`--skill-url` not supplied).
 
 ### Phase 3: Ship & retire original
 
-- [ ] 3.1 Open PR against `develop`, apply labels
-- [ ] 3.2 Close PR #2836 with a pointer to the new PR
+- [x] 3.1 Open PR against `develop`, apply labels — PR #2838 (`dependencies`, `skip-qa`, `review`)
+- [x] 3.2 Close PR #2836 with a pointer to the new PR — closed, commented pointing to #2838
