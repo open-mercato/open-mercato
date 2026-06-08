@@ -295,4 +295,24 @@ describe('person/company clearable URL & email update fields (#2526)', () => {
       companyUpdateSchema.safeParse({ ...companyBase, primaryEmail: 'not-an-email' }).success,
     ).toBe(false)
   })
+
+  it('coerces empty-string and null company domain to null (#2529)', () => {
+    const empties = companyUpdateSchema.safeParse({ ...companyBase, domain: '' })
+    expect(empties.success).toBe(true)
+    if (empties.success) {
+      expect(empties.data.domain).toBeNull()
+    }
+
+    const nulls = companyUpdateSchema.safeParse({ ...companyBase, domain: null })
+    expect(nulls.success).toBe(true)
+    if (nulls.success) {
+      expect(nulls.data.domain).toBeNull()
+    }
+
+    const set = companyUpdateSchema.safeParse({ ...companyBase, domain: 'acme.com' })
+    expect(set.success).toBe(true)
+    if (set.success) {
+      expect(set.data.domain).toBe('acme.com')
+    }
+  })
 })
