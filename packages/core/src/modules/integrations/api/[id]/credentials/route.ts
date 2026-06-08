@@ -9,6 +9,7 @@ import {
   isCredentialsEncryptionUnavailableError,
   type CredentialsService,
 } from '../../../lib/credentials-service'
+import { collectCredentialUrlValidationErrors } from '../../../lib/credentials-field-validation'
 import {
   resolveUserFeatures,
   runIntegrationMutationGuardAfterSuccess,
@@ -128,6 +129,17 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
 
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+
+  const credentialFieldErrors = collectCredentialUrlValidationErrors(
+    credentialsService.getSchema(integration.id),
+    payloadData.credentials,
+  )
+  if (Object.keys(credentialFieldErrors).length > 0) {
+    return NextResponse.json(
+      { error: 'Invalid credentials payload', details: { fieldErrors: credentialFieldErrors } },
+      { status: 422 },
+    )
+  }
 
   try {
     await credentialsService.save(integration.id, payloadData.credentials, scope)
