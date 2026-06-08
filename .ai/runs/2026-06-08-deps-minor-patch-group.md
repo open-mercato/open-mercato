@@ -60,5 +60,10 @@ Reproduce Dependabot PR #2834's 51-package minor-and-patch group bump on top of
 
 ### Phase 2: Validate and ship
 
-- [x] 2.1 Run validation gate (build:packages, generate, typecheck, test, build:app) — all green; build:app required the generate→rebuild ordering
-- [ ] 2.2 Open PR against `develop` and normalize labels
+- [x] 2.1 Run validation gate (build:packages, generate, typecheck, test, build:app) — all green except one pre-existing develop-HEAD failure (see Notes)
+- [x] 2.2 Open PR against `develop` and normalize labels — PR #2841 (`review`, `dependencies`, `skip-qa`)
+
+## Notes
+
+- The local `origin/develop` tracking ref was stale/diverged from GitHub's real `develop` (this repo rewrites `develop` history). The branch was initially built on the stale base and reported `CONFLICTING`; it was **rebuilt cleanly on the true `develop` tip (`8929f04ef`)** and force-pushed. Now `mergeable=MERGEABLE`.
+- **Pre-existing base-branch failure (not caused by this PR):** `packages/ai-assistant/.../log-redaction.test.ts › deriveApiKeySessionId › ...truncated hex digest` fails on develop's HEAD. The tip commit `8929f04ef` ("Potential fix for CodeQL finding 'Use of password hash with insufficient computational effort'") raised `SESSION_ID_PBKDF2_KEYLEN` to 16 **bytes** (→32 hex chars) but left the test constant `SESSION_ID_DIGEST_HEX = 16` (16 hex chars). This PR changes zero ai-assistant source; the failure reproduces on clean `develop`. Out of scope here; needs a separate fix on `develop`.
