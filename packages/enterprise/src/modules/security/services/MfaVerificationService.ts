@@ -87,6 +87,7 @@ export class MfaVerificationService {
     context?: MfaProviderRuntimeContext,
   ): Promise<{ clientData?: Record<string, unknown> }> {
     const challenge = await this.getValidChallenge(challengeId)
+    await this.assertMethodAllowedByPolicy(challenge.userId, methodType)
     const provider = this.mfaProviderRegistry.get(methodType)
     if (!provider) {
       throw new MfaVerificationServiceError(`MFA provider '${methodType}' is not registered`, 400)
@@ -119,12 +120,10 @@ export class MfaVerificationService {
       return false
     }
 
+    await this.assertMethodAllowedByPolicy(challenge.userId, methodType)
+
     if (challenge.methodType && challenge.methodType !== methodType) {
-      challenge.attempts += 1
-      if (challenge.attempts >= this.securityConfig.mfa.maxAttempts) {
-        challenge.expiresAt = new Date()
-      }
-      await this.em.flush()
+      await this.registerFailedAttempt(challenge)
       return false
     }
 
@@ -160,11 +159,7 @@ export class MfaVerificationService {
       return true
     }
 
-    challenge.attempts += 1
-    if (challenge.attempts >= this.securityConfig.mfa.maxAttempts) {
-      challenge.expiresAt = new Date()
-    }
-    await this.em.flush()
+    await this.registerFailedAttempt(challenge)
     return false
   }
 
@@ -184,6 +179,34 @@ export class MfaVerificationService {
       throw new MfaVerificationServiceError('MFA challenge expired', 400)
     }
     return challenge
+  }
+
+  private async assertMethodAllowedByPolicy(userId: string, methodType: string): Promise<void> {
+    const policy = await this.mfaEnforcementService.getEffectivePolicyForUser(userId)
+    if (!policy?.isEnforced || !policy.allowedMethods?.length) {
+      return
+    }
+    if (!policy.allowedMethods.includes(methodType)) {
+      throw new MfaVerificationServiceError(`MFA method '${methodType}' is not allowed by the enforcement policy`, 403)
+    }
+  }
+
+  private async registerFailedAttempt(challenge: MfaChallenge): Promise<void> {
+    const maxAttempts = this.securityConfig.mfa.maxAttempts
+    const rows = await this.em.getConnection().execute<Array<{ attempts: number }>>(
+      'UPDATE mfa_challenges SET attempts = attempts + 1 WHERE id = ? AND verified_at IS NULL AND attempts < ? RETURNING attempts',
+      [challenge.id, maxAttempts],
+    )
+    const updatedAttempts = rows.length > 0 ? Number(rows[0].attempts) : maxAttempts
+    challenge.attempts = updatedAttempts
+    if (updatedAttempts >= maxAttempts) {
+      const now = new Date()
+      await this.em.getConnection().execute(
+        'UPDATE mfa_challenges SET expires_at = ? WHERE id = ?',
+        [now, challenge.id],
+      )
+      challenge.expiresAt = now
+    }
   }
 
   private async getActiveMethods(userId: string): Promise<UserMfaMethod[]> {
