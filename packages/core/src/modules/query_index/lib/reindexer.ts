@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
-import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
 import { upsertIndexBatch, type AnyRow } from './batch'
@@ -145,8 +145,18 @@ export async function reindexEntity(
   const resetCoverage = options?.resetCoverage ?? (!usingPartitions || partitionIndex === 0)
 
   const db = (em as any).getKysely() as Kysely<any>
-  const table = resolveEntityTableName(em, entityType)
-  if (entityType === 'query_index:search_token' || table === 'search_tokens') {
+  // Resolve the source table strictly via registered MikroORM metadata. We must
+  // never fall back to a pluralized guess derived from the caller-supplied id
+  // here: doing so would let a principal with `query_index.reindex` point the
+  // reindexer at arbitrary tables (e.g. `auth_users`, `users`) and read their
+  // rows into the index, bypassing tenant scoping and entity-level encryption.
+  const table = resolveRegisteredEntityTableName(em, entityType)
+  if (!table || entityType === 'query_index:search_token' || table === 'search_tokens') {
+    if (!table) {
+      console.warn('[HybridQueryEngine] Refusing to reindex unregistered entity type', {
+        entityType,
+      })
+    }
     return {
       processed: 0,
       total: 0,
