@@ -14,7 +14,7 @@ import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboar
 import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-app'
 import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { computeConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
-import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { resolveConsentClientIp } from '@open-mercato/onboarding/modules/onboarding/lib/consentClientIp'
 import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
 import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
@@ -403,7 +403,7 @@ export async function GET(req: Request) {
 
     if (request.marketingConsent) {
       const now = new Date()
-      const clientIp = getClientIp(req, 1) ?? null
+      const clientIp = resolveConsentClientIp(req)
       const integrityHash = computeConsentIntegrityHash({
         userId: resolvedUserId,
         consentType: 'marketing_email',
