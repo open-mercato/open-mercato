@@ -14,6 +14,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { AvailabilityRulesEditor } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
 import { buildMemberScheduleItems } from '@open-mercato/core/modules/staff/lib/memberSchedule'
+import { updateMemberScheduleAssignment } from '@open-mercato/core/modules/staff/lib/memberScheduleAssignment'
 import { TeamMemberForm, buildTeamMemberPayload, type TeamMemberFormValues } from '@open-mercato/core/modules/staff/components/TeamMemberForm'
 import { NotesSection } from '@open-mercato/ui/backend/detail'
 import { ActivitiesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
@@ -78,6 +79,11 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
   const [activePanel, setActivePanel] = React.useState<'details' | 'availability' | 'jobHistory'>('details')
+  // Tracks the member's current optimistic-lock version for assignment writes.
+  // The member's `updated_at` is bumped on every schedule-assignment write, so
+  // we refresh this from the server after each one to avoid a false 409 on the
+  // follow-up clear performed while deleting a schedule (#2847).
+  const memberUpdatedAtRef = React.useRef<string | null>(null)
   const [activeTab, setActiveTab] = React.useState<'notes' | 'activities' | 'addresses'>('notes')
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [activityDictionaryId, setActivityDictionaryId] = React.useState<string | null>(null)
@@ -237,6 +243,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
             ...customFields,
           })
           setMemberRecord(record)
+          memberUpdatedAtRef.current = record.updatedAt ?? record.updated_at ?? null
           setAvailabilityRuleSetId(
             typeof record.availabilityRuleSetId === 'string'
               ? record.availabilityRuleSetId
@@ -295,17 +302,37 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
     router.push('/backend/staff/team-members')
   }, [memberId, router, t])
 
+  const readMemberUpdatedAt = React.useCallback(async (): Promise<string | null> => {
+    if (!memberId) return null
+    const params = new URLSearchParams({ page: '1', pageSize: '1', ids: memberId })
+    const payload = await readApiResultOrThrow<TeamMemberResponse>(
+      `/api/staff/team-members?${params.toString()}`,
+      undefined,
+      { errorMessage: t('staff.teamMembers.form.errors.load', 'Failed to load team member.') },
+    )
+    const record = Array.isArray(payload.items) ? payload.items[0] : null
+    if (!record) return null
+    return record.updatedAt ?? record.updated_at ?? null
+  }, [memberId, t])
+
   const handleRulesetChange = React.useCallback(async (nextId: string | null) => {
     if (!memberId) return
-    const headers = buildOptimisticLockHeader(initialValues?.updatedAt)
-    await withScopedApiRequestHeaders(headers, () => (
-      updateCrud('staff/team-members', { id: memberId, availabilityRuleSetId: nextId }, {
-        errorMessage: t('staff.teamMembers.availability.ruleset.updateError', 'Failed to update schedule.'),
-      })
-    ))
+    await updateMemberScheduleAssignment({
+      versionStore: {
+        get: () => memberUpdatedAtRef.current,
+        set: (next) => { memberUpdatedAtRef.current = next },
+      },
+      applyAssignment: (expectedUpdatedAt) => withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(expectedUpdatedAt),
+        () => updateCrud('staff/team-members', { id: memberId, availabilityRuleSetId: nextId }, {
+          errorMessage: t('staff.teamMembers.availability.ruleset.updateError', 'Failed to update schedule.'),
+        }),
+      ),
+      readCurrentVersion: readMemberUpdatedAt,
+    })
     setAvailabilityRuleSetId(nextId)
     flash(t('staff.teamMembers.availability.ruleset.updateSuccess', 'Schedule updated.'), 'success')
-  }, [initialValues?.updatedAt, memberId, t])
+  }, [memberId, readMemberUpdatedAt, t])
 
   const panelTabs = React.useMemo(() => ([
     { id: 'details' as const, label: t('staff.teamMembers.detail.tabs.details', 'Details') },
