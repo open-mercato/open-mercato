@@ -56,6 +56,8 @@ type ResourceRecord = {
   is_active?: boolean
   availabilityRuleSetId?: string | null
   availability_rule_set_id?: string | null
+  customFieldsetCode?: string | null
+  custom_fieldset_code?: string | null
 } & Record<string, unknown>
 
 type ResourceResponse = {
@@ -74,6 +76,7 @@ function normalizeResourceRecord(record: ResourceRecord): ResourceRecord {
     appearanceIcon: record.appearanceIcon ?? record.appearance_icon ?? null,
     appearanceColor: record.appearanceColor ?? record.appearance_color ?? null,
     isActive: record.isActive ?? record.is_active ?? true,
+    customFieldsetCode: record.customFieldsetCode ?? record.custom_fieldset_code ?? null,
   }
 }
 
@@ -491,9 +494,12 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
                 : typeof resource.updated_at === 'string'
                   ? resource.updated_at
                   : null,
-            customFieldsetCode: resource.resourceTypeId
-              ? resolveFieldsetCode(resource.resourceTypeId)
-              : RESOURCES_RESOURCE_FIELDSET_DEFAULT,
+            customFieldsetCode:
+              typeof resource.customFieldsetCode === 'string' && resource.customFieldsetCode.trim().length
+                ? resource.customFieldsetCode.trim()
+                : resource.resourceTypeId
+                  ? resolveFieldsetCode(resource.resourceTypeId)
+                  : RESOURCES_RESOURCE_FIELDSET_DEFAULT,
             ...customValues,
           })
         }
