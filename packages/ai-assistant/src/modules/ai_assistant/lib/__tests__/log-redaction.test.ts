@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { redactSecretForLog, deriveApiKeySessionId } from '../log-redaction'
 
-const SESSION_ID_DIGEST_HEX = 16
+const SESSION_ID_DIGEST_HEX = 32
 
 describe('redactSecretForLog', () => {
   it('never emits the full session token', () => {
@@ -45,7 +45,7 @@ describe('deriveApiKeySessionId', () => {
     expect(secret).not.toContain(digestPart)
   })
 
-  it('is stable within a process and shaped as a truncated hex digest', () => {
+  it('is stable within a process and shaped as a fixed-length hex digest', () => {
     const secret = 'omk_test_secret_value'
     const sessionId = deriveApiKeySessionId(secret)
     expect(sessionId).toBe(deriveApiKeySessionId(secret))
