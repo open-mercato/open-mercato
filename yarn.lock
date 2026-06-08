@@ -7721,7 +7721,7 @@ __metadata:
     reflect-metadata: "npm:^0.2.2"
     sanitize-html: "npm:^2.17.4"
     ts-jest: "npm:^29.4.11"
-    undici: "npm:^8.3.0"
+    undici: "npm:^8.4.1"
   languageName: unknown
   linkType: soft
 
