@@ -166,6 +166,71 @@ sudo chown -R node:node /workspace/packages/*/dist
 ```
 Or rebuild the container to trigger `post-create.sh` again.
 
+### Turbopack runtime error or endless backend compile after switching branches
+
+**Symptom**: After switching branches or pulling recent changes, the app does not start correctly on localhost.
+
+The browser may show:
+
+> Runtime Error
+>
+> An unexpected Turbopack error occurred.
+> Please see the output of `next dev` for more details.
+
+Or the dev server may hang on:
+
+```text
+Compiling /backend ...```
+
+and later print:
+
+`[server] Timed out waiting for dev warmup marker; starting background services anyway.`
+
+This can happen even after running the usual setup commands:
+
+yarn
+yarn install
+yarn build:packages
+yarn generate
+yarn build:packages
+yarn dev
+
+Diagnose: This is usually caused by stale or corrupted local Next.js/Turbopack/Turbo cache artifacts. A common sign is that one branch, for example main, starts correctly, while another branch, for example develop, hangs or fails after switching.
+
+Fix: First try clearing the app-level Next.js cache:
+
+Remove-Item -Recurse -Force apps\mercato\.next -ErrorAction SilentlyContinue
+Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue
+
+yarn install
+yarn build:packages
+yarn generate
+yarn build:packages
+
+$env:AUTO_SPAWN_WORKERS="false"
+$env:AUTO_SPAWN_SCHEDULER="false"
+yarn dev
+
+If the app still hangs on `Compiling /backend ...` or reports a Turbopack warmup timeout, clear the broader local cache set:
+
+Remove-Item -Recurse -Force apps\mercato\.next -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force node_modules\.cache -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force .turbo -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force apps\mercato\.turbo -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force apps\mercato\.mercato\cache -ErrorAction SilentlyContinue
+Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue
+
+yarn install
+yarn build:packages
+yarn generate
+yarn build:packages
+
+$env:AUTO_SPAWN_WORKERS="false"
+$env:AUTO_SPAWN_SCHEDULER="false"
+yarn dev
+
+Notes: Observed on native Windows after switching from a working main branch to develop. Clearing only .next was not sufficient in that case; clearing the broader local cache set resolved the issue without reinstalling Node.js or recloning the repository. 
+
 ## Nuclear Options
 
 When individual fixes don't work, these reset everything:
