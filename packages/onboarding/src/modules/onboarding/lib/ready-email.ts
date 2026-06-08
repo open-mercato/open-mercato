@@ -4,6 +4,7 @@ import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 import { defaultLocale, locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import { getSecurityEmailBaseUrl } from '@open-mercato/shared/lib/url'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import WorkspaceReadyEmail from '@open-mercato/onboarding/modules/onboarding/emails/WorkspaceReadyEmail'
 
@@ -14,7 +15,6 @@ function resolveLocale(rawLocale: string | null | undefined): Locale {
 
 export async function sendWorkspaceReadyEmail(args: {
   requestId: string
-  baseUrl: string
   tenantId: string
 }) {
   const container = await createRequestContainer()
@@ -25,7 +25,8 @@ export async function sendWorkspaceReadyEmail(args: {
   const locale = resolveLocale(request.locale)
   const dict = await loadDictionary(locale)
   const translate = createFallbackTranslator(dict)
-  const loginUrl = `${args.baseUrl}/login?tenant=${encodeURIComponent(args.tenantId)}`
+  const baseUrl = getSecurityEmailBaseUrl()
+  const loginUrl = `${baseUrl}/login?tenant=${encodeURIComponent(args.tenantId)}`
   const firstName = request.firstName?.trim() || request.organizationName?.trim() || request.email
   const subject = translate('onboarding.readyEmail.subject', 'Your Open Mercato workspace is ready')
   const emailCopy = {
