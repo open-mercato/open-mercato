@@ -120,6 +120,11 @@ describe('htmlToText', () => {
     expect(htmlToText('a<style>.x{color:red}')).toBe('a')
   })
 
+  it('strips entity-encoded tags so decoding cannot reintroduce a live <script', () => {
+    expect(htmlToText('a&lt;script&gt;alert(1)&lt;/script&gt;b')).toBe('a b')
+    expect(htmlToText('hello&lt;script')).toBe('hello')
+  })
+
   it('strips HTML comments, including a comment wrapping a tag fragment', () => {
     expect(htmlToText('a<!-- hidden -->b')).toBe('a b')
     expect(htmlToText('a<!--<script-->b')).toBe('a b')

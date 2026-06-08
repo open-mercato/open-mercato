@@ -102,12 +102,37 @@ function decodeBasicEntities(input: string): string {
   )
 }
 
+/**
+ * Remove every remaining `<…>` tag, looping until the string is stable so a tag
+ * reconstructed by a single pass (`<<div>div>`) cannot survive — the same
+ * loop-until-stable shape `stripTagBlocks` uses. A raw `<` that is not part of a
+ * tag (`a < b`) has no closing `>`, never matches, and is intentionally kept.
+ */
+function stripRemainingTags(html: string): string {
+  let previous: string
+  let current = html
+  do {
+    previous = current
+    current = current.replace(/<[^>]*>/g, '')
+  } while (current !== previous)
+  return current
+}
+
+/**
+ * Convert untrusted inbound HTML to plaintext. Entities are decoded FIRST so any
+ * entity-encoded markup (e.g. `&lt;script&gt;`) is normalized into real tag
+ * syntax before the strippers run — otherwise decoding last would reintroduce a
+ * `<script` fragment into the final output after sanitization had finished
+ * (CodeQL `js/incomplete-multi-character-sanitization`). After decoding, all
+ * tag removal (script/style blocks, then remaining tags) happens via
+ * loop-until-stable passes, so no `<tag` prefix can leak into the plaintext.
+ */
 export function htmlToText(html: string): string {
-  const stripped = stripTagBlocks(stripTagBlocks(stripHtmlComments(html), 'style'), 'script')
+  const decoded = decodeBasicEntities(html)
+  const stripped = stripTagBlocks(stripTagBlocks(stripHtmlComments(decoded), 'style'), 'script')
     .replace(/<br\s*\/?>(?=\s*)/gi, '\n')
     .replace(/<\/p\s*>/gi, '\n\n')
-  return decodeBasicEntities(stripped)
-    .replace(/<[^>]+>/g, '')
+  return stripRemainingTags(stripped)
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
