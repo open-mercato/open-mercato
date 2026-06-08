@@ -1,4 +1,4 @@
-import { HybridQueryEngine } from '../../query_index/lib/engine'
+import { HybridQueryEngine, coerceSortDirection } from '../../query_index/lib/engine'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 
 type KyselyMockConfig = {
@@ -649,5 +649,74 @@ describe('HybridQueryEngine', () => {
     const reindexCalls = emitEvent.mock.calls.filter(([name]) => name === 'query_index.reindex')
     expect(reindexCalls).toHaveLength(0)
     warnSpy.mockRestore()
+  })
+})
+
+describe('sort direction coercion (#2704)', () => {
+  const INJECTED_DIR = "asc, CASE WHEN (SELECT secret FROM vault) LIKE '%a%' THEN pg_sleep(2) ELSE 0 END"
+
+  const serializeOrderBys = (db: any): string => {
+    const orderByArgs = (db._chains as ChainLog[]).flatMap((chain) => chain.orderBys).flat()
+    expect(orderByArgs.length).toBeGreaterThan(0)
+    return JSON.stringify(orderByArgs.map((arg: any) =>
+      typeof arg?.toOperationNode === 'function' ? arg.toOperationNode() : arg,
+    ))
+  }
+
+  test('coerceSortDirection only ever returns asc or desc', () => {
+    expect(coerceSortDirection(SortDir.Asc)).toBe(SortDir.Asc)
+    expect(coerceSortDirection(SortDir.Desc)).toBe(SortDir.Desc)
+    expect(coerceSortDirection('DESC')).toBe(SortDir.Desc)
+    expect(coerceSortDirection(undefined)).toBe(SortDir.Asc)
+    expect(coerceSortDirection(null)).toBe(SortDir.Asc)
+    expect(coerceSortDirection(INJECTED_DIR)).toBe(SortDir.Asc)
+  })
+
+  test('hybrid cf sort never inlines an attacker-controlled direction', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 5, indexCount: 5 })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    await engine.query('example:todo', {
+      fields: ['id', 'cf:priority'],
+      includeCustomFields: true,
+      organizationId: 'org1',
+      tenantId: 't1',
+      sort: [{ field: 'cf:priority', dir: INJECTED_DIR as SortDir }],
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    const serialized = serializeOrderBys(db)
+    expect(serialized).not.toContain('pg_sleep')
+    expect(serialized).not.toContain('vault')
+  })
+
+  test('custom entity doc sort never inlines an attacker-controlled direction', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: false,
+      baseCount: 0,
+      indexCount: 0,
+      rows: { custom_entities_storage: [] },
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+    jest.spyOn(engine as any, 'isCustomEntity').mockResolvedValue(true)
+
+    await engine.query('example:custom_thing', {
+      fields: ['id', 'title'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      sort: [{ field: 'title', dir: INJECTED_DIR as SortDir }],
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    const serialized = serializeOrderBys(db)
+    expect(serialized).not.toContain('pg_sleep')
+    expect(serialized).not.toContain('vault')
   })
 })

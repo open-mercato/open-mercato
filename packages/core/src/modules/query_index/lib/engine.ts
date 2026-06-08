@@ -58,6 +58,10 @@ function resolveBooleanEnv(names: readonly string[], defaultValue: boolean): boo
   return defaultValue
 }
 
+export function coerceSortDirection(dir: unknown): SortDir {
+  return String(dir ?? SortDir.Asc).toLowerCase() === SortDir.Desc ? SortDir.Desc : SortDir.Asc
+}
+
 function resolveDebugVerbosity(): boolean {
   const queryIndexDebug = process.env.OM_QUERY_INDEX_DEBUG
   if (queryIndexDebug !== undefined) {
@@ -815,7 +819,7 @@ export class HybridQueryEngine implements QueryEngine {
           if (fieldName.startsWith('cf:')) {
             const textExpr = this.buildCfTextExprSql(fieldName, indexSources)
             if (textExpr) {
-              const direction = sql.raw(String(s.dir ?? SortDir.Asc))
+              const direction = sql.raw(coerceSortDirection(s.dir))
               next = next.orderBy(sql`${textExpr} ${direction}`)
             }
           } else {
@@ -1648,7 +1652,7 @@ export class HybridQueryEngine implements QueryEngine {
         } else if (s.field === 'created_at' || s.field === 'updated_at' || s.field === 'deleted_at') {
           next = next.orderBy(`${alias}.${s.field}`, s.dir ?? SortDir.Asc)
         } else {
-          const direction = sql.raw(String(s.dir ?? SortDir.Asc))
+          const direction = sql.raw(coerceSortDirection(s.dir))
           next = next.orderBy(sql`(${sql.ref(alias + '.doc')} ->> ${s.field}) ${direction}`)
         }
       }
