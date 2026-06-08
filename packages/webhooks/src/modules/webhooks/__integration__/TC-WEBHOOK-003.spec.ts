@@ -1,6 +1,17 @@
+import { createHmac } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000';
+
+// Mirrors the create-app mock inbound webhook adapter: when MOCK_INBOUND_WEBHOOK_SECRET
+// is unset (as in CI), the adapter falls back to this deterministic dev secret and verifies
+// an HMAC-SHA256 signature over the raw request body in the x-mock-webhook-signature header.
+const MOCK_INBOUND_WEBHOOK_SECRET =
+  process.env.MOCK_INBOUND_WEBHOOK_SECRET?.trim() || 'open-mercato-mock-dev-inbound-webhook-secret';
+
+function signMockInboundWebhook(rawBody: string): string {
+  return createHmac('sha256', MOCK_INBOUND_WEBHOOK_SECRET).update(rawBody, 'utf-8').digest('hex');
+}
 
 test.describe('TC-WEBHOOK-003: Inbound webhook receiver', () => {
   test('should accept valid inbound webhooks, mark duplicates, and reject invalid endpoints or signatures', async ({ request }) => {
@@ -13,17 +24,19 @@ test.describe('TC-WEBHOOK-003: Inbound webhook receiver', () => {
         externalId: `ext-${Date.now()}`,
       },
     };
+    const rawBody = JSON.stringify(payload);
+    const validSignature = signMockInboundWebhook(rawBody);
 
     const firstResponse = await request.fetch(`${BASE_URL}/api/webhooks/inbound/mock_inbound`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-mock-webhook-signature': 'valid',
+        'x-mock-webhook-signature': validSignature,
         'webhook-id': messageId,
         'webhook-timestamp': replayTimestamp,
         'webhook-signature': 'v1,mock',
       },
-      data: JSON.stringify(payload),
+      data: rawBody,
     });
     expect(firstResponse.status()).toBe(200);
     await expect(firstResponse.json()).resolves.toEqual({ ok: true });
@@ -32,12 +45,12 @@ test.describe('TC-WEBHOOK-003: Inbound webhook receiver', () => {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-mock-webhook-signature': 'valid',
+        'x-mock-webhook-signature': validSignature,
         'webhook-id': messageId,
         'webhook-timestamp': replayTimestamp,
         'webhook-signature': 'v1,mock',
       },
-      data: JSON.stringify(payload),
+      data: rawBody,
     });
     expect(duplicateResponse.status()).toBe(200);
     await expect(duplicateResponse.json()).resolves.toEqual({ ok: true, duplicate: true });
@@ -46,11 +59,11 @@ test.describe('TC-WEBHOOK-003: Inbound webhook receiver', () => {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-mock-webhook-signature': 'valid',
+        'x-mock-webhook-signature': validSignature,
         'webhook-timestamp': replayTimestamp,
         'webhook-signature': 'v1,mock',
       },
-      data: JSON.stringify(payload),
+      data: rawBody,
     });
     expect(replayWithoutMessageIdResponse.status()).toBe(200);
     await expect(replayWithoutMessageIdResponse.json()).resolves.toEqual({ ok: true });
@@ -59,11 +72,11 @@ test.describe('TC-WEBHOOK-003: Inbound webhook receiver', () => {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-mock-webhook-signature': 'valid',
+        'x-mock-webhook-signature': validSignature,
         'webhook-timestamp': replayTimestamp,
         'webhook-signature': 'v1,mock',
       },
-      data: JSON.stringify(payload),
+      data: rawBody,
     });
     expect(replayWithoutMessageIdDuplicateResponse.status()).toBe(200);
     await expect(replayWithoutMessageIdDuplicateResponse.json()).resolves.toEqual({ ok: true, duplicate: true });
@@ -74,7 +87,7 @@ test.describe('TC-WEBHOOK-003: Inbound webhook receiver', () => {
         'content-type': 'application/json',
         'x-mock-webhook-signature': 'invalid',
       },
-      data: JSON.stringify(payload),
+      data: rawBody,
     });
     expect(invalidSignatureResponse.status()).toBe(400);
     await expect(invalidSignatureResponse.json()).resolves.toEqual({ error: 'Verification failed' });
@@ -83,9 +96,9 @@ test.describe('TC-WEBHOOK-003: Inbound webhook receiver', () => {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-mock-webhook-signature': 'valid',
+        'x-mock-webhook-signature': validSignature,
       },
-      data: JSON.stringify(payload),
+      data: rawBody,
     });
     expect(unknownEndpointResponse.status()).toBe(404);
     await expect(unknownEndpointResponse.json()).resolves.toEqual({ error: 'Webhook endpoint not found' });
