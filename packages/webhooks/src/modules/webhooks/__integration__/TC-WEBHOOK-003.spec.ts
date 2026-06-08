@@ -3,9 +3,11 @@ import { expect, test } from '@playwright/test';
 
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000';
 
-// Mirrors the create-app mock inbound webhook adapter: when MOCK_INBOUND_WEBHOOK_SECRET
-// is unset (as in CI), the adapter falls back to this deterministic dev secret and verifies
-// an HMAC-SHA256 signature over the raw request body in the x-mock-webhook-signature header.
+// Mirrors the create-app mock inbound webhook adapter, which verifies an HMAC-SHA256
+// signature over the raw request body in the x-mock-webhook-signature header. The running
+// app resolves its secret from MOCK_INBOUND_WEBHOOK_SECRET (exported by the CI workflow so
+// it works even when `yarn start` forces NODE_ENV=production); we read the SAME env var here
+// so the test signs with the same key. The dev fallback is only a local-default convenience.
 const MOCK_INBOUND_WEBHOOK_SECRET =
   process.env.MOCK_INBOUND_WEBHOOK_SECRET?.trim() || 'open-mercato-mock-dev-inbound-webhook-secret';
 
