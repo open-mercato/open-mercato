@@ -248,7 +248,7 @@ function sanitizeTenantCandidate(candidate: unknown): unknown {
   return candidate
 }
 
-async function extractTenantCandidate(req: NextRequest): Promise<unknown> {
+export async function extractTenantCandidate(req: NextRequest): Promise<unknown> {
   const tenantParams = req.nextUrl?.searchParams?.getAll?.('tenantId') ?? []
   if (tenantParams.length > 0) {
     return tenantParams[tenantParams.length - 1]
@@ -273,7 +273,7 @@ async function extractTenantCandidate(req: NextRequest): Promise<unknown> {
       const form = await req.clone().formData()
       if (form.has('tenantId')) {
         const value = form.get('tenantId')
-        if (value instanceof File) return value.name
+        if (value instanceof File) return undefined
         return value
       }
     }
