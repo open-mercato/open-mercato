@@ -4,8 +4,10 @@ import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
+  createCustomerCompanyFixture,
   createCustomerRoleFixture,
   createCustomerUserFixture,
+  deleteCustomerCompanyFixture,
   deleteCustomerRoleFixture,
   deleteCustomerUserFixture,
   portalCookieHeaders,
@@ -33,12 +35,14 @@ test.describe('TC-PORTAL-004: portal user deletion guards', () => {
     const adminToken = await getAuthToken(request, 'admin')
     const { tenantId } = getTokenContext(adminToken)
 
-    const company = randomUUID()
+    let company: string | null = null
     let roleId: string | null = null
     let userAId: string | null = null
     let userBId: string | null = null
 
     try {
+      company = await createCustomerCompanyFixture(request, adminToken)
+
       const role = await createCustomerRoleFixture(request, adminToken, {
         features: ['portal.users.manage'],
       })
@@ -128,6 +132,7 @@ test.describe('TC-PORTAL-004: portal user deletion guards', () => {
       await deleteCustomerUserFixture(request, adminToken, userAId)
       await deleteCustomerUserFixture(request, adminToken, userBId)
       await deleteCustomerRoleFixture(request, adminToken, roleId)
+      await deleteCustomerCompanyFixture(request, adminToken, company)
     }
   })
 
@@ -135,11 +140,12 @@ test.describe('TC-PORTAL-004: portal user deletion guards', () => {
     const adminToken = await getAuthToken(request, 'admin')
     const { tenantId } = getTokenContext(adminToken)
 
-    const company = randomUUID()
+    let company: string | null = null
     let roleId: string | null = null
     let userId: string | null = null
 
     try {
+      company = await createCustomerCompanyFixture(request, adminToken)
       // Role without portal.users.manage — the feature gate runs before the
       // company / self / lookup checks, so any DELETE target returns 403.
       const role = await createCustomerRoleFixture(request, adminToken, {
@@ -167,6 +173,7 @@ test.describe('TC-PORTAL-004: portal user deletion guards', () => {
     } finally {
       await deleteCustomerUserFixture(request, adminToken, userId)
       await deleteCustomerRoleFixture(request, adminToken, roleId)
+      await deleteCustomerCompanyFixture(request, adminToken, company)
     }
   })
 })

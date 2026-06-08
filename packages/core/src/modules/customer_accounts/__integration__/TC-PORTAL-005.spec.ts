@@ -3,8 +3,10 @@ import { randomUUID } from 'node:crypto'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
+  createCustomerCompanyFixture,
   createCustomerRoleFixture,
   createCustomerUserFixture,
+  deleteCustomerCompanyFixture,
   deleteCustomerRoleFixture,
   deleteCustomerUserFixture,
   portalCookieHeaders,
@@ -50,11 +52,12 @@ test.describe('TC-PORTAL-005: portal user role assignment', () => {
     const adminToken = await getAuthToken(request, 'admin')
     const { tenantId } = getTokenContext(adminToken)
 
-    const company = randomUUID()
+    let company: string | null = null
     const roleIds: string[] = []
     const userIds: string[] = []
 
     try {
+      company = await createCustomerCompanyFixture(request, adminToken)
       // Caller can both manage roles and view the company roster (for read-back).
       const callerRole = await createCustomerRoleFixture(request, adminToken, {
         features: ['portal.users.roles.manage', 'portal.users.view'],
@@ -119,6 +122,7 @@ test.describe('TC-PORTAL-005: portal user role assignment', () => {
     } finally {
       for (const id of userIds) await deleteCustomerUserFixture(request, adminToken, id)
       for (const id of roleIds) await deleteCustomerRoleFixture(request, adminToken, id)
+      await deleteCustomerCompanyFixture(request, adminToken, company)
     }
   })
 
@@ -126,11 +130,12 @@ test.describe('TC-PORTAL-005: portal user role assignment', () => {
     const adminToken = await getAuthToken(request, 'admin')
     const { tenantId } = getTokenContext(adminToken)
 
-    const company = randomUUID()
+    let company: string | null = null
     const roleIds: string[] = []
     const userIds: string[] = []
 
     try {
+      company = await createCustomerCompanyFixture(request, adminToken)
       const callerRole = await createCustomerRoleFixture(request, adminToken, {
         features: ['portal.users.roles.manage'],
       })
@@ -184,6 +189,7 @@ test.describe('TC-PORTAL-005: portal user role assignment', () => {
     } finally {
       for (const id of userIds) await deleteCustomerUserFixture(request, adminToken, id)
       for (const id of roleIds) await deleteCustomerRoleFixture(request, adminToken, id)
+      await deleteCustomerCompanyFixture(request, adminToken, company)
     }
   })
 })
