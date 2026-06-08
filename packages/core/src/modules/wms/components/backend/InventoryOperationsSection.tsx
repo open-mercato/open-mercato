@@ -41,6 +41,7 @@ export function InventoryOperationsSection({
   const [cycleOpen, setCycleOpen] = React.useState(false)
   const [importOpen, setImportOpen] = React.useState(false)
 
+  if (!access.scopeReady) return null
   if (!access.canAdjust && !access.canCycleCount && !access.canImport) return null
 
   return (

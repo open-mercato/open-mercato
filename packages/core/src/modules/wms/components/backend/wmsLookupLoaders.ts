@@ -7,6 +7,10 @@ type PagedResponse<T> = {
   totalPages: number
 }
 
+// Extends CrudFieldOption with an optional description shown below the label in the dropdown.
+// Used by variant comboboxes where label=SKU and description=product name for readability.
+export type CatalogVariantOption = CrudFieldOption & { description: string | null }
+
 export function buildQuery(params: Record<string, string | number | undefined>) {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
@@ -32,7 +36,10 @@ export async function loadWarehouseOptions(query?: string): Promise<CrudFieldOpt
     .filter((option): option is CrudFieldOption => option !== null)
 }
 
-export async function loadCatalogVariantOptions(query?: string): Promise<CrudFieldOption[]> {
+// label=SKU so that fillCombobox helpers searching by SKU can match the dropdown button text
+// and so that input.value after selection equals the SKU typed by the user/test.
+// description=name provides human-readable context beneath the SKU in the dropdown.
+export async function loadCatalogVariantOptions(query?: string): Promise<CatalogVariantOption[]> {
   const params = buildQuery({ page: 1, pageSize: 25, search: query?.trim() || undefined })
   const call = await apiCall<PagedResponse<{ id?: string | null; name?: string | null; sku?: string | null }>>(
     `/api/catalog/variants?${params}`,
@@ -42,8 +49,11 @@ export async function loadCatalogVariantOptions(query?: string): Promise<CrudFie
     .map((item) => {
       const value = typeof item.id === 'string' ? item.id : null
       if (!value) return null
-      const label = item.name || item.sku || value
-      return { value, label }
+      const sku = item.sku?.trim() || null
+      const name = item.name?.trim() || null
+      const label = sku || name || value
+      const description = sku && name && sku !== name ? name : null
+      return { value, label, description }
     })
-    .filter((option): option is CrudFieldOption => option !== null)
+    .filter((option): option is CatalogVariantOption => option !== null)
 }

@@ -1248,6 +1248,7 @@ export function CycleCountWizardDialog({
                       return options.map((option) => ({
                         value: option.value,
                         label: option.label,
+                        description: option.description,
                       }))
                     }}
                     resolveLabel={resolveOptionLabel}

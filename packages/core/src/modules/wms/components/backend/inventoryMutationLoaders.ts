@@ -49,7 +49,7 @@ export async function resolveCatalogVariantLabel(catalogVariantId: string): Prom
   if (!call.ok) return null
   const item = call.result?.items?.[0]
   if (!item) return null
-  return item.name?.trim() || item.sku?.trim() || id
+  return item.sku?.trim() || item.name?.trim() || id
 }
 
 export async function resolveWarehouseLabel(warehouseId: string): Promise<string | null> {
