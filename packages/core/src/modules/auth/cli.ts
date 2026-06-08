@@ -692,12 +692,12 @@ const listUsers: ModuleCli = {
 
       if (user.organizationId) {
         const org = await em.findOne(Organization, { id: user.organizationId })
-        orgName = org?.name?.substring(0, 19) + '...' || user.organizationId.substring(0, 8) + '...'
+        orgName = org?.name ? `${org.name.substring(0, 19)}...` : `${user.organizationId.substring(0, 8)}...`
       }
 
       if (user.tenantId) {
         const tenant = await em.findOne(Tenant, { id: user.tenantId })
-        tenantName = tenant?.name?.substring(0, 19) + '...' || user.tenantId.substring(0, 8) + '...'
+        tenantName = tenant?.name ? `${tenant.name.substring(0, 19)}...` : `${user.tenantId.substring(0, 8)}...`
       }
 
       const id = user.id || 'N/A'
