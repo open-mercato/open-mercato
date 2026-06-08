@@ -350,7 +350,7 @@ The implementation must read [BACKWARD_COMPATIBILITY.md](../../BACKWARD_COMPATIB
 - `AGENTS.md` (root)
 - `packages/cli/AGENTS.md`
 - `packages/create-app/AGENTS.md`
-- `.ai/skills/spec-writing/SKILL.md`
+- `.ai/skills/om-spec-writing/SKILL.md`
 - `BACKWARD_COMPATIBILITY.md`
 
 ### Compliance Matrix

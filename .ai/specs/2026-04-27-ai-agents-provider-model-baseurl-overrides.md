@@ -544,7 +544,7 @@ a phase are mostly independent.
 - [ ] `4b.10` `apps/docs/docs/framework/ai-assistant/settings.mdx` — admin-editable provider/model/baseURL.
 - [ ] `4b.11` Component tests (`AiAssistantSettingsPageClient.test.tsx`, `ModelPicker.test.tsx`).
 - [ ] `4b.12` Playwright integration test under `.ai/qa/`: settings change → chat turn → playground summary reflects new provider.
-- [ ] `4b.13` Changelog entry per the `auto-update-changelog` convention.
+- [ ] `4b.13` Changelog entry per the `om-auto-update-changelog` convention.
 
 ## Risks & Impact Review
 
@@ -690,7 +690,7 @@ keeps its name and input shape.
 - **Phasing**: 5 phases, each ships independently. Tasks are checkboxed.
 - **Backward compatibility**: all 13 surfaces in `BACKWARD_COMPATIBILITY.md` reviewed; this spec is additive-only.
 - **Out of scope**: OpenCode Code Mode (Docker, `mcp:*` CLIs, `/api/chat`, `docker/opencode/opencode.json`) — explicitly preserved verbatim.
-- **Pre-implementation analysis recommended**: yes — run the `pre-implement-spec` skill against this file before kicking off Phase 0 to confirm the resolution-chain table matches the contributor's mental model and to surface any missed call sites that grep didn't catch.
+- **Pre-implementation analysis recommended**: yes — run the `om-pre-implement-spec` skill against this file before kicking off Phase 0 to confirm the resolution-chain table matches the contributor's mental model and to surface any missed call sites that grep didn't catch.
 - **Integration coverage**: Phase 0 + Phase 1 add unit tests in `model-factory.test.ts` and `agent-runtime.test.ts`. Phase 2 adds adapter tests. Phase 4 adds a settings-route response test. No new HTTP routes, so no new Playwright integration tests are required; the existing AI Assistant suite covers the playground UI.
 
 ## Changelog

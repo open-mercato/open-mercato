@@ -63,7 +63,10 @@ export async function GET(req: Request) {
 
   const byId = new Map<string, any>()
   for (const g of generated) byId.set(g.entityId, g)
-  for (const cu of custom) byId.set(cu.entityId, { ...byId.get(cu.entityId), ...cu })
+  for (const cu of custom) {
+    const existing = byId.get(cu.entityId)
+    byId.set(cu.entityId, { ...existing, ...cu, source: existing?.source ?? cu.source })
+  }
 
   // Count field definitions scoped to current tenant/org (same scoping as custom entities)
   const defsWhere: any = { isActive: true }

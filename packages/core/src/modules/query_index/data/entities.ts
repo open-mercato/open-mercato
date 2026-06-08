@@ -89,6 +89,16 @@ export class EntityIndexRow {
 
 // Track long-running index jobs (reindex/purge) per entity and org scope
 @Entity({ tableName: 'entity_index_jobs' })
+// Coalesced-scope unique index so prepareJob can upsert atomically and two
+// concurrent schedulers cannot insert duplicate rows for the same scope (#2739).
+// Declared via @Unique with a raw expression (not properties) because the scope
+// columns are nullable and NULLs must collapse to one bucket via coalesce; mirrors
+// the entity_indexes coalesced uniqueness and the domain_mappings expression unique.
+@Unique({
+  name: 'entity_index_jobs_scope_unique',
+  expression:
+    `create unique index "entity_index_jobs_scope_unique" on "entity_index_jobs" ("entity_type", coalesce("organization_id", '00000000-0000-0000-0000-000000000000'::uuid), coalesce("tenant_id", '00000000-0000-0000-0000-000000000000'::uuid), coalesce("partition_index", -1), coalesce("partition_count", -1))`,
+})
 export class EntityIndexJob {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

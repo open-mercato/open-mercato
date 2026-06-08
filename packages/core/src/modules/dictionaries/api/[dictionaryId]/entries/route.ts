@@ -15,7 +15,11 @@ import {
   dictionariesErrorSchema,
   dictionariesTag,
 } from '../../openapi'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  resolveDictionaryEntrySortMode,
+  sortDictionaryEntries,
+} from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 
 const paramsSchema = z.object({ dictionaryId: z.string().uuid() })
 
@@ -64,18 +68,21 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
     }
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
     const dictionary = await loadDictionary(context, dictionaryId, { allowInherited: true })
-    const entries = await context.em.find(
+    const entries = await findWithDecryption(
+      context.em,
       DictionaryEntry,
       {
         dictionary,
         organizationId: dictionary.organizationId,
         tenantId: dictionary.tenantId,
       },
-      { orderBy: { position: 'asc', label: 'asc' } },
+      {},
+      { tenantId: dictionary.tenantId, organizationId: dictionary.organizationId },
     )
+    const sortedEntries = sortDictionaryEntries(entries, resolveDictionaryEntrySortMode(dictionary.entrySortMode))
 
     return NextResponse.json({
-      items: entries.map((entry) => ({
+      items: sortedEntries.map((entry) => ({
         id: entry.id,
         value: entry.value,
         label: entry.label,
@@ -162,7 +169,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
 
 const dictionaryEntriesGetDoc: OpenApiMethodDoc = {
   summary: 'List dictionary entries',
-  description: 'Returns entries for the specified dictionary ordered by position.',
+  description: 'Returns entries for the specified dictionary ordered by its configured entry sort mode.',
   tags: [dictionariesTag],
   responses: [
     { status: 200, description: 'Dictionary entries.', schema: dictionaryEntryListResponseSchema },

@@ -228,7 +228,7 @@ This PR does not introduce a new primitive. No existing primitive needed visual 
 
 See [Migration & Backward Compatibility](#migration--backward-compatibility) — all 13 contract surfaces unaffected.
 
-### Code review compliance ([`.ai/skills/code-review/SKILL.md`](../skills/code-review/SKILL.md))
+### Code review compliance ([`.ai/skills/om-code-review/SKILL.md`](../skills/code-review/SKILL.md))
 
 - [x] No new modules without `setup.ts` (no new modules)
 - [x] No new entities (no DB changes)

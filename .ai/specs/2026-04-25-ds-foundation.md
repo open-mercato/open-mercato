@@ -38,7 +38,7 @@ The Open Mercato Design System (DS) workstream began with a 26-hour hackathon (A
 Immediately after the hackathon, three branches landed in `develop`:
 
 1. **`feat/ds-semantic-tokens-v2`** — semantic status color tokens, FormField/StatusBadge/SectionHeader primitives, Alert/Badge/Notice/FlashMessages/Notifications migration to semantic tokens, customers and sales modules migrated.
-2. **`feat/ds-guardian-skill`** — DS Guardian skill agent (in `.ai/skills/ds-guardian/`) that enforces DS compliance at edit time, plus AGENTS.md DS rules and a baseline `ds-health-check.sh` script.
+2. **`feat/ds-guardian-skill`** — DS Guardian skill agent (in `.ai/skills/om-ds-guardian/`) that enforces DS compliance at edit time, plus AGENTS.md DS rules and a baseline `ds-health-check.sh` script.
 3. **`docs/ds-agents-and-guidelines`** — AGENTS.md updates carrying the "Boy Scout Rule" and migration order.
 
 These three branches are referred to in this spec as **Phase 0** — they are already in `develop` and out of scope for review here, but they form the foundation that Phase 1 and Phase 2 build on.
@@ -111,7 +111,7 @@ Delivered before this spec was authored, by:
   - `feat(ds): add FormField, StatusBadge, and SectionHeader components`
   - `refactor(ds): migrate customers module to semantic status tokens`
   - `refactor(ds): migrate sales module to semantic status tokens`
-- `feat/ds-guardian-skill` branch — `.ai/skills/ds-guardian/` skill agent + scripts + baseline `ds-health-2026-04-11.txt`.
+- `feat/ds-guardian-skill` branch — `.ai/skills/om-ds-guardian/` skill agent + scripts + baseline `ds-health-2026-04-11.txt`.
 - `docs/ds-agents-and-guidelines` — AGENTS.md DS rules and PR template updates.
 
 Out of scope for review under this spec; documented for traceability and to make the phasing explicit.
@@ -249,7 +249,7 @@ Each `Select` ships as its own PR (low risk per PR) OR as a single deprecation P
 Codify what we learned in v2:
 - `createRadixSelectFieldHelper(page, fieldId)` Playwright fixture in `packages/shared/src/lib/testing/` (or `.ai/qa/helpers/`).
 - `jsdomRadixPolyfill()` helper for unit tests (currently inlined in [`packages/core/src/modules/catalog/components/products/__tests__/VariantBuilder.test.tsx`](../../packages/core/src/modules/catalog/components/products/__tests__/VariantBuilder.test.tsx)).
-- "Radix Select migration patterns" section in [`.ai/skills/ds-guardian/references/component-guide.md`](../skills/ds-guardian/references/component-guide.md) covering: field-id selectors, placeholder-text scoping for inline editors, label-scoped scoping for ambiguous comboboxes, dialog-nested keyboard navigation, empty-value guard.
+- "Radix Select migration patterns" section in [`.ai/skills/om-ds-guardian/references/component-guide.md`](../skills/ds-guardian/references/component-guide.md) covering: field-id selectors, placeholder-text scoping for inline editors, label-scoped scoping for ambiguous comboboxes, dialog-nested keyboard navigation, empty-value guard.
 
 Single PR with companion spec.
 
@@ -337,7 +337,7 @@ Deprecated (bridges retained for ≥1 minor):
 - Composite components (FormField, *Field) sit alongside primitives but compose them.
 - DS rules: [`.ai/ds-rules.md`](../ds-rules.md) (334 lines) — runtime decision trees for color, spacing, typography, focus.
 - Primitive API reference: [`.ai/ui-components.md`](../ui-components.md) (968 lines) — variants, sizes, props, MUST rules, examples per primitive.
-- Enforcement: DS Guardian skill ([`.ai/skills/ds-guardian/`](../skills/ds-guardian/)) — activates on edits, references [`token-mapping.md`](../skills/ds-guardian/references/token-mapping.md), [`component-guide.md`](../skills/ds-guardian/references/component-guide.md), [`page-templates.md`](../skills/ds-guardian/references/page-templates.md).
+- Enforcement: DS Guardian skill ([`.ai/skills/om-ds-guardian/`](../skills/ds-guardian/)) — activates on edits, references [`token-mapping.md`](../skills/ds-guardian/references/token-mapping.md), [`component-guide.md`](../skills/ds-guardian/references/component-guide.md), [`page-templates.md`](../skills/ds-guardian/references/page-templates.md).
 
 ---
 
@@ -591,7 +591,7 @@ Unit tests stabilized in `c99f53dbf`:
 
 See [Migration & Backward Compatibility](#migration--backward-compatibility) — all 13 contract surfaces are additive only.
 
-### Code review compliance ([`.ai/skills/code-review/SKILL.md`](../skills/code-review/SKILL.md))
+### Code review compliance ([`.ai/skills/om-code-review/SKILL.md`](../skills/code-review/SKILL.md))
 
 Phases 1 and 2 will pass the code-review skill self-check:
 - [x] No new modules without setup.ts (DS work touches no module bootstrap).
@@ -611,7 +611,7 @@ After this spec is committed, run `yarn generate` is **not required** — DS wor
 Captured for future DS workstream phases and similar primitive migrations.
 
 1. **Spec-first prevents `fix(qa)` churn.** Phase 2 accumulated 8 `fix(qa)` commits because tests were stabilized iteratively against CI (each shard surfacing a different selector regression). A spec written before implementation, with phasing that landed unit + integration tests in the same commit as the primitive migration, would have caught these earlier and kept history clean.
-2. **Atomic commits per logical change.** One semantic concern per commit, not one shard's worth of fixes. Acceptable: `fix(qa): TC-CRM-005 placeholder selector`. Not acceptable: `fix(qa): comprehensive Radix Select test migrations across all shards` (covers too much). Phase 3 will use the [`auto-create-pr` skill](../skills/auto-create-pr/SKILL.md) flow, which enforces phase-level commit boundaries.
+2. **Atomic commits per logical change.** One semantic concern per commit, not one shard's worth of fixes. Acceptable: `fix(qa): TC-CRM-005 placeholder selector`. Not acceptable: `fix(qa): comprehensive Radix Select test migrations across all shards` (covers too much). Phase 3 will use the [`om-auto-create-pr` skill](../skills/auto-create-pr/SKILL.md) flow, which enforces phase-level commit boundaries.
 3. **Radix Select is incompatible with empty-value `SelectItem`.** Generic guard introduced in CrudForm in commit `806472e2f`. Pattern documented in DS Guardian. Future Radix migrations (Combobox, etc.) need the same audit.
 4. **jsdom polyfills required for Radix.** `hasPointerCapture`, `releasePointerCapture`, `scrollIntoView` are missing. Currently inlined per test file; Phase 3 will extract to a shared helper.
 5. **Local validation before push.** Running `yarn test:integration --shard 6/15` locally would have caught the empty-value Radix crash without needing CI screenshots to diagnose. Memory entry [`feedback_radix_test_migration_traps.md`](../../../.claude/projects/-Users-merynos-Documents-GitHub-open-mercato/memory/feedback_radix_test_migration_traps.md) documents the trap.
@@ -653,4 +653,4 @@ Captured for future DS workstream phases and similar primitive migrations.
 - `2026-XX-XX-ds-foundation-v3-forwardref-selects-deprecation.md` — Phase 3 sub-track 3.D.
 - `2026-XX-XX-ds-{primitive-slug}.md` — one per primitive in 3.A and 3.B.
 
-**Related runbooks:** [`auto-create-pr`](../skills/auto-create-pr/SKILL.md), [`code-review`](../skills/code-review/SKILL.md), [`ds-guardian`](../skills/ds-guardian/SKILL.md), [`spec-writing`](../skills/spec-writing/SKILL.md).
+**Related runbooks:** [`om-auto-create-pr`](../skills/auto-create-pr/SKILL.md), [`om-code-review`](../skills/code-review/SKILL.md), [`om-ds-guardian`](../skills/ds-guardian/SKILL.md), [`om-spec-writing`](../skills/spec-writing/SKILL.md).

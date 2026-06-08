@@ -1,4 +1,4 @@
-import type { QueryEngine, QueryOptions, QueryResult, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning, QueryExtensionsConfig } from '@open-mercato/shared/lib/query/types'
+import type { QueryEngine, QueryOptions, QueryResult, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning, QueryExtensionsConfig, Sort } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -21,6 +21,7 @@ import {
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
+import { resolveEncryptedSortFields, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
 
 function buildFilterableCustomFieldJoins(
   sources: QueryCustomFieldSource[] | undefined,
@@ -57,6 +58,10 @@ function resolveBooleanEnv(names: readonly string[], defaultValue: boolean): boo
   return defaultValue
 }
 
+export function coerceSortDirection(dir: unknown): SortDir {
+  return String(dir ?? SortDir.Asc).toLowerCase() === SortDir.Desc ? SortDir.Desc : SortDir.Asc
+}
+
 function resolveDebugVerbosity(): boolean {
   const queryIndexDebug = process.env.OM_QUERY_INDEX_DEBUG
   if (queryIndexDebug !== undefined) {
@@ -86,14 +91,29 @@ type SearchRuntime = {
   organizationScope?: { ids: string[]; includeNull: boolean } | null
   tenantId?: string | null
   searchSources?: SearchTokenSource[]
+  /** Per-`query()` alias minter for `search_tokens` subqueries (see #2738). */
+  mintAlias: () => string
 }
 
 type EncryptionResolver = () => {
   decryptEntityPayload?: (entityId: EntityId, payload: Record<string, unknown>, tenantId?: string | null, organizationId?: string | null) => Promise<Record<string, unknown>>
+  getEncryptedFieldNames?: (entityId: EntityId, tenantId?: string | null, organizationId?: string | null) => Promise<readonly string[]>
   isEnabled?: () => boolean
 } | null
 
 type SearchTokenSource = { entity: string; recordIdColumn: string }
+
+/**
+ * Mints `search_tokens` subquery aliases (`st_0`, `st_1`, …). Aliases only need
+ * to be unique within a single SQL statement, so every `query()` invocation owns
+ * a fresh minter. Keeping the counter call-local (rather than on the shared
+ * engine instance) means concurrent queries can never reset or collide on each
+ * other's sequence (#2738).
+ */
+function createSearchAliasMinter(): () => string {
+  let seq = 0
+  return () => `st_${seq++}`
+}
 
 function createQueryProfiler(entity: string): Profiler {
   const enabled = shouldEnableProfiler(entity)
@@ -111,13 +131,13 @@ export class HybridQueryEngine implements QueryEngine {
   private customFieldKeysCache = new Map<string, { expiresAt: number; value: string[] }>()
   private customFieldKeysTtlMs: number
   private columnCache = new Map<string, boolean>()
+  private customEntityCache = new Map<string, boolean>()
   private debugVerbosity: boolean | null = null
   private sqlDebugEnabled: boolean | null = null
   private forcePartialIndexEnabled: boolean | null = null
   private autoReindexEnabled: boolean | null = null
   private coverageOptimizationEnabled: boolean | null = null
   private pendingCoverageRefreshKeys = new Set<string>()
-  private searchAliasSeq = 0
 
   constructor(
     private em: EntityManager,
@@ -198,7 +218,6 @@ export class HybridQueryEngine implements QueryEngine {
     try {
       const debugEnabled = this.isDebugVerbosity()
       if (debugEnabled) this.debug('query:start', { entity })
-      this.searchAliasSeq = 0
 
       const isCustom = await this.isCustomEntity(entity)
       if (isCustom) {
@@ -372,6 +391,7 @@ export class HybridQueryEngine implements QueryEngine {
         config: searchConfig,
         organizationScope: orgScope,
         tenantId: opts.tenantId ?? null,
+        mintAlias: createSearchAliasMinter(),
       }
 
       // Prepare index sources for JSONB custom-field access.
@@ -504,6 +524,28 @@ export class HybridQueryEngine implements QueryEngine {
         if (field === 'organization_id' && columns.has('id')) return 'id'
         return null
       }
+      const fallbackOrgId =
+        opts.organizationId
+        ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
+      const encSvc = this.getEncryptionService()
+      const resolvedSorts: Sort[] = []
+      for (const sort of opts.sort || []) {
+        const field = String(sort.field)
+        if (field.startsWith('cf:')) {
+          resolvedSorts.push({ ...sort, field })
+        } else {
+          const baseField = resolveBaseColumn(field)
+          if (baseField) resolvedSorts.push({ ...sort, field: baseField })
+        }
+      }
+      const encryptedSortFields = await resolveEncryptedSortFields(
+        encSvc,
+        entity,
+        resolvedSorts.filter((sort) => !sort.field.startsWith('cf:')).map((sort) => sort.field),
+        opts.tenantId ?? null,
+        fallbackOrgId,
+      )
+      const requiresPlaintextSort = encryptedSortFields.size > 0
 
       // ────────────────────────────────────────────────────────────────
       // Build a reusable "applyQueryShape" function that applies every
@@ -700,6 +742,7 @@ export class HybridQueryEngine implements QueryEngine {
           recordIdColumn: `${join.alias}.id`,
           tenantId: opts.tenantId ?? null,
           organizationScope: orgScope,
+          mintAlias: searchRuntime.mintAlias,
         })
       }
 
@@ -735,6 +778,9 @@ export class HybridQueryEngine implements QueryEngine {
 
       // Selection (for data query)
       const selectFieldSet = new Set<string>((opts.fields && opts.fields.length) ? opts.fields.map(String) : Array.from(columns.keys()))
+      if (requiresPlaintextSort) {
+        for (const field of encryptedSortFields) selectFieldSet.add(field)
+      }
       if (opts.includeCustomFields === true) {
         const entityIds = Array.from(new Set(indexSources.map((src) => String(src.entityId))))
         try {
@@ -767,12 +813,13 @@ export class HybridQueryEngine implements QueryEngine {
 
       const applySort = (q: AnyBuilder): AnyBuilder => {
         let next = q
-        for (const s of opts.sort || []) {
+        if (requiresPlaintextSort) return next
+        for (const s of resolvedSorts) {
           const fieldName = String(s.field)
           if (fieldName.startsWith('cf:')) {
             const textExpr = this.buildCfTextExprSql(fieldName, indexSources)
             if (textExpr) {
-              const direction = sql.raw(String(s.dir ?? SortDir.Asc))
+              const direction = sql.raw(coerceSortDirection(s.dir))
               next = next.orderBy(sql`${textExpr} ${direction}`)
             }
           } else {
@@ -845,7 +892,9 @@ export class HybridQueryEngine implements QueryEngine {
       let dataBuilder = await applyQueryShape(dataRoot)
       dataBuilder = applySelection(dataBuilder)
       dataBuilder = applySort(dataBuilder)
-      dataBuilder = dataBuilder.limit(pageSize).offset((page - 1) * pageSize)
+      if (!requiresPlaintextSort) {
+        dataBuilder = dataBuilder.limit(pageSize).offset((page - 1) * pageSize)
+      }
 
       if (debugEnabled && sqlDebugEnabled) {
         const compiled = dataBuilder.compile()
@@ -859,15 +908,11 @@ export class HybridQueryEngine implements QueryEngine {
       if (debugEnabled) this.debug('query:complete', { entity, total, items: Array.isArray(itemsRaw) ? itemsRaw.length : 0 })
 
       let items = itemsRaw as any[]
-      const encSvc = this.getEncryptionService()
       const dekKeyCache = new Map<string | null, string | null>()
       if (encSvc?.decryptEntityPayload) {
         const decrypt = encSvc.decryptEntityPayload.bind(encSvc) as (
           entityId: EntityId, payload: Record<string, unknown>, tenantId: string | null, organizationId: string | null,
         ) => Promise<Record<string, unknown>>
-        const fallbackOrgId =
-          opts.organizationId
-          ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
         items = await Promise.all(
           items.map(async (item) => {
             try {
@@ -899,6 +944,10 @@ export class HybridQueryEngine implements QueryEngine {
             } catch { return item }
           }),
         )
+      }
+      if (requiresPlaintextSort) {
+        items = sortRowsInMemory(items as Record<string, unknown>[], resolvedSorts)
+          .slice((page - 1) * pageSize, page * pageSize)
       }
 
       const typedItems = items as unknown as T[]
@@ -943,6 +992,9 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   private async isCustomEntity(entity: string): Promise<boolean> {
+    const cached = this.customEntityCache.get(entity)
+    if (cached !== undefined) return cached
+    let result = false
     try {
       const db = this.getDb() as any
       const row = await db
@@ -950,6 +1002,36 @@ export class HybridQueryEngine implements QueryEngine {
         .select('id')
         .where('entity_id', '=', entity)
         .where('is_active', '=', true)
+        .executeTakeFirst()
+      if (row) {
+        result = true
+      } else {
+        // Read/write symmetry. Records written through the entities data engine
+        // (`de.createCustomEntityRecord`) always land in `custom_entities_storage`,
+        // even for module-declared custom entities whose id is also a frozen system
+        // id — those are NEVER registered in `custom_entities` (install treats a
+        // system id as non-registrable). Without this fallback the query routes to
+        // the empty ORM/index path and those records are write-only (created with
+        // 200 but unreadable on the edit form). A real ORM entity never writes rows
+        // to `custom_entities_storage`, so this can only ever re-classify genuine
+        // doc-storage entities — it cannot misroute table-backed entities.
+        result = await this.hasCustomEntityStorageRows(entity)
+      }
+    } catch {
+      result = false
+    }
+    this.customEntityCache.set(entity, result)
+    return result
+  }
+
+  private async hasCustomEntityStorageRows(entity: string): Promise<boolean> {
+    try {
+      const db = this.getDb() as any
+      const row = await db
+        .selectFrom('custom_entities_storage')
+        .select(sql<number>`1`.as('one'))
+        .where('entity_type', '=', entity)
+        .limit(1)
         .executeTakeFirst()
       return !!row
     } catch {
@@ -976,6 +1058,7 @@ export class HybridQueryEngine implements QueryEngine {
       tenantId?: string | null
       organizationScope?: { ids: string[]; includeNull: boolean } | null
       combineWith?: 'and' | 'or'
+      mintAlias: () => string
     }
   ): boolean {
     if (!opts.hashes.length) {
@@ -985,7 +1068,7 @@ export class HybridQueryEngine implements QueryEngine {
       })
       return false
     }
-    const alias = `st_${this.searchAliasSeq++}`
+    const alias = opts.mintAlias()
     this.logSearchDebug('search:apply-search-tokens', {
       entity: opts.entity, field: opts.field, alias,
       tokenCount: opts.hashes.length,
@@ -1157,6 +1240,7 @@ export class HybridQueryEngine implements QueryEngine {
           recordIdColumn: `${source.alias}.entity_id`,
           tenantId: search.tenantId ?? null,
           organizationScope: search.organizationScope ?? null,
+          mintAlias: search.mintAlias,
         }))
       )
     ))
@@ -1173,9 +1257,10 @@ export class HybridQueryEngine implements QueryEngine {
       recordIdColumn: string
       tenantId?: string | null
       organizationScope?: { ids: string[]; includeNull: boolean } | null
+      mintAlias: () => string
     }
   ): any {
-    const alias = `st_${this.searchAliasSeq++}`
+    const alias = opts.mintAlias()
     let sub = eb
       .selectFrom(`search_tokens as ${alias}`)
       .select(sql<number>`1`.as('one'))
@@ -1216,6 +1301,7 @@ export class HybridQueryEngine implements QueryEngine {
           recordIdColumn: `${alias}.entity_id`,
           tenantId: search.tenantId ?? null,
           organizationScope: search.organizationScope ?? null,
+          mintAlias: search.mintAlias,
         })))
         this.logSearchDebug('search:cf-filter', {
           entity: entityType, field: key, tokens: tokens.tokens, hashes, applied: true,
@@ -1287,6 +1373,7 @@ export class HybridQueryEngine implements QueryEngine {
           entity: entityType, field: key, hashes, recordIdColumn,
           tenantId: search.tenantId ?? null,
           organizationScope: search.organizationScope ?? null,
+          mintAlias: search.mintAlias,
         })))
         this.logSearchDebug('search:index-doc-filter', {
           entity: entityType, field: key, tokens: tokens.tokens, hashes, applied: true,
@@ -1372,6 +1459,7 @@ export class HybridQueryEngine implements QueryEngine {
                 recordIdColumn: src.recordIdColumn,
                 tenantId: searchRuntime.tenantId ?? null,
                 organizationScope: searchRuntime.organizationScope ?? null,
+                mintAlias: searchRuntime.mintAlias,
               })),
             ),
           )
@@ -1462,6 +1550,7 @@ export class HybridQueryEngine implements QueryEngine {
       config: searchConfig,
       organizationScope: orgScope,
       tenantId: opts.tenantId ?? null,
+      mintAlias: createSearchAliasMinter(),
     }
 
     const normalizedFilters = normalizeFilters(opts.filters)
@@ -1563,7 +1652,7 @@ export class HybridQueryEngine implements QueryEngine {
         } else if (s.field === 'created_at' || s.field === 'updated_at' || s.field === 'deleted_at') {
           next = next.orderBy(`${alias}.${s.field}`, s.dir ?? SortDir.Asc)
         } else {
-          const direction = sql.raw(String(s.dir ?? SortDir.Asc))
+          const direction = sql.raw(coerceSortDirection(s.dir))
           next = next.orderBy(sql`(${sql.ref(alias + '.doc')} ->> ${s.field}) ${direction}`)
         }
       }
@@ -1728,17 +1817,25 @@ export class HybridQueryEngine implements QueryEngine {
     withDeleted: boolean
   ): Promise<{ baseCount: number; indexedCount: number } | null> {
     try {
-      if (!this.isCoverageOptimizationEnabled()) {
-        await refreshCoverageSnapshot(this.em, {
-          entityType: entity, tenantId, organizationId, withDeleted,
-        })
-      }
       const db = this.getDb()
-      const row = await readCoverageSnapshot(db as any, {
+      const scope = {
         entityType: entity, tenantId, organizationId, withDeleted,
-      })
-      if (!row) return null
-      return { baseCount: row.baseCount, indexedCount: row.indexedCount }
+      }
+      const row = await readCoverageSnapshot(db as any, scope)
+      if (row && this.isCoverageSnapshotFresh(row)) {
+        return { baseCount: row.baseCount, indexedCount: row.indexedCount }
+      }
+
+      if (this.isCoverageOptimizationEnabled()) {
+        this.scheduleCoverageRefresh(entity, tenantId, organizationId, withDeleted)
+        if (!row) return null
+        return { baseCount: row.baseCount, indexedCount: row.indexedCount }
+      }
+
+      await refreshCoverageSnapshot(this.em, scope)
+      const refreshed = await readCoverageSnapshot(db as any, scope)
+      if (!refreshed) return null
+      return { baseCount: refreshed.baseCount, indexedCount: refreshed.indexedCount }
     } catch (err) {
       if (this.isDebugVerbosity()) {
         this.debug('coverage:snapshot:read-error', {
@@ -1748,6 +1845,21 @@ export class HybridQueryEngine implements QueryEngine {
       }
       return null
     }
+  }
+
+  private isCoverageSnapshotFresh(
+    row: Awaited<ReturnType<typeof readCoverageSnapshot>>
+  ): boolean {
+    if (this.coverageStatsTtlMs <= 0) return false
+    if (!row) return false
+    const refreshedAt = row.refreshed_at instanceof Date
+      ? row.refreshed_at
+      : row.refreshed_at
+        ? new Date(row.refreshed_at)
+        : null
+    const refreshedAtMs = refreshedAt?.getTime()
+    if (!refreshedAtMs || !Number.isFinite(refreshedAtMs)) return false
+    return Date.now() - refreshedAtMs <= this.coverageStatsTtlMs
   }
 
   private scheduleAutoReindex(
@@ -2019,6 +2131,7 @@ export class HybridQueryEngine implements QueryEngine {
                 recordIdColumn: src.recordIdColumn,
                 tenantId: search.tenantId ?? null,
                 organizationScope: search.organizationScope ?? null,
+                mintAlias: search.mintAlias,
               })))
           ))
           this.logSearchDebug('search:filter', {

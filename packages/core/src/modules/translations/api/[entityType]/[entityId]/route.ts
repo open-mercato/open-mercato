@@ -69,7 +69,15 @@ export async function PUT(req: Request, ctx: { params?: { entityType?: string; e
       entityId: ctx.params?.entityId,
     })
 
-    const rawBody = await req.json().catch(() => ({}))
+    const rawText = await req.text()
+    let rawBody: unknown = {}
+    if (rawText.trim().length > 0) {
+      try {
+        rawBody = JSON.parse(rawText)
+      } catch {
+        return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+      }
+    }
     const translations = translationBodySchema.parse(rawBody)
 
     const commandBus = context.container.resolve('commandBus') as CommandBus

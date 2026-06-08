@@ -5,6 +5,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { RoleAcl, Role } from '@open-mercato/core/modules/auth/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
@@ -38,6 +40,7 @@ const roleAclResponseSchema = z.object({
   isSuperAdmin: z.boolean(),
   features: z.array(z.string()),
   organizations: z.array(z.string()).nullable(),
+  updatedAt: z.string().nullable(),
 })
 
 const roleAclUpdateResponseSchema = z.object({
@@ -100,8 +103,9 @@ export async function GET(req: Request) {
         isSuperAdmin: !!acl.isSuperAdmin,
         features: Array.isArray(acl.featuresJson) ? acl.featuresJson : [],
         organizations: Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null,
+        updatedAt: acl.updatedAt instanceof Date ? acl.updatedAt.toISOString() : null,
       }
-    : { isSuperAdmin: false, features: [], organizations: null }
+    : { isSuperAdmin: false, features: [], organizations: null, updatedAt: null }
 
   await logCrudAccess({
     container,
@@ -172,7 +176,24 @@ export async function PUT(req: Request) {
   }
 
   let acl = await em.findOne(RoleAcl, { role, tenantId: targetTenantId })
-  if (!acl) {
+  // Optimistic lock: refuse a stale ACL overwrite so two admins editing the same
+  // role's features in parallel cannot silently clobber each other (#2055). The
+  // check is strictly additive — when the client sends no expected-version header
+  // it is a no-op. Skipped when the ACL row does not exist yet (first grant has
+  // no prior version to conflict with).
+  if (acl) {
+    try {
+      enforceCommandOptimisticLock({
+        resourceKind: 'auth.role_acl',
+        resourceId: acl.id,
+        current: acl.updatedAt ?? null,
+        request: req,
+      })
+    } catch (err) {
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+      throw err
+    }
+  } else {
     acl = em.create(RoleAcl, {
       role,
       tenantId: targetTenantId,
@@ -208,11 +229,22 @@ export async function PUT(req: Request) {
     throw err
   }
 
-  acl.organizationsJson = requestedOrganizations
-  acl.isSuperAdmin = requestedIsSuperAdmin
-  acl.featuresJson = requestedFeatures
-  await em.persist(acl).flush()
-  
+  // Persist the ACL mutation inside a transaction so the role-permission write
+  // commits atomically (proper ACL-edit transaction handling).
+  const aclToPersist = acl
+  await withAtomicFlush(
+    em,
+    [
+      () => {
+        aclToPersist.organizationsJson = requestedOrganizations
+        aclToPersist.isSuperAdmin = requestedIsSuperAdmin
+        aclToPersist.featuresJson = requestedFeatures
+        em.persist(aclToPersist)
+      },
+    ],
+    { transaction: true },
+  )
+
   // Invalidate cache for all users in this tenant since role ACL changed
   if (targetTenantId) {
     await rbacService.invalidateTenantCache(targetTenantId)

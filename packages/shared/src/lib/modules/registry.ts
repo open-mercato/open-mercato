@@ -1,5 +1,6 @@
 import type { Module } from '@open-mercato/shared/modules/registry'
 import { applyModuleOverridesToModules } from '@open-mercato/shared/modules/overrides'
+import { invalidateDictionaryCache } from '../i18n/dictionary-cache'
 
 // Registration pattern for publishable packages.
 // Use globalThis to survive tsx/esbuild module duplication where the same
@@ -24,6 +25,7 @@ export function registerModules(modules: Module[]) {
     console.debug('[Bootstrap] Modules re-registered (this may occur during HMR)')
   }
   setGlobalModules(applyModuleOverridesToModules(modules))
+  invalidateDictionaryCache()
 }
 
 export function getModules(): Module[] {

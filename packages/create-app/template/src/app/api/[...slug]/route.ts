@@ -21,9 +21,21 @@ import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@o
 bootstrap()
 registerApiRouteManifests(apiRoutes)
 
+const warnedDeprecatedRequireRoles = new Set<string>()
+
+function warnDeprecatedRequireRoles(pathname: string, method: HttpMethod): void {
+  const warnKey = `${method} ${pathname}`
+  if (warnedDeprecatedRequireRoles.has(warnKey)) return
+  warnedDeprecatedRequireRoles.add(warnKey)
+  console.warn(
+    '[api] Ignoring deprecated `requireRoles` guard — role names are mutable and spoofable, so they no longer authorize requests. Migrate to `requireFeatures` with immutable acl.ts feature IDs.',
+    { path: pathname, method },
+  )
+}
+
 type MethodMetadata = {
   requireAuth?: boolean
-  /** @deprecated Use `requireFeatures` instead — role names are mutable and can be spoofed */
+  /** @deprecated Ignored at runtime — role names are mutable and can be spoofed. Use `requireFeatures` instead. */
   requireRoles?: string[]
   requireFeatures?: string[]
   rateLimit?: RateLimitConfig
@@ -138,14 +150,14 @@ async function checkAuthorization(
     return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
-  const requiredRoles = methodMetadata?.requireRoles ?? []
   const requiredFeatures = methodMetadata?.requireFeatures ?? []
 
-  if (
-    requiredRoles.length &&
-    (!auth || !Array.isArray(auth.roles) || !requiredRoles.some((role) => auth.roles!.includes(role)))
-  ) {
-    return NextResponse.json({ error: t('api.errors.forbidden', 'Forbidden'), requiredRoles }, { status: 403 })
+  // `requireRoles` is deprecated and intentionally NOT enforced: role names are
+  // tenant-mutable and spoofable, so honoring them would let a tenant admin create
+  // or rename a role to satisfy the guard. Authorization decisions must use
+  // immutable feature IDs via `requireFeatures`. We warn so operators migrate.
+  if (methodMetadata?.requireRoles?.length) {
+    warnDeprecatedRequireRoles(req.nextUrl.pathname, req.method.toUpperCase() as HttpMethod)
   }
 
   let container: Awaited<ReturnType<typeof createRequestContainer>> | null = null
@@ -236,7 +248,7 @@ function sanitizeTenantCandidate(candidate: unknown): unknown {
   return candidate
 }
 
-async function extractTenantCandidate(req: NextRequest): Promise<unknown> {
+export async function extractTenantCandidate(req: NextRequest): Promise<unknown> {
   const tenantParams = req.nextUrl?.searchParams?.getAll?.('tenantId') ?? []
   if (tenantParams.length > 0) {
     return tenantParams[tenantParams.length - 1]
@@ -261,7 +273,7 @@ async function extractTenantCandidate(req: NextRequest): Promise<unknown> {
       const form = await req.clone().formData()
       if (form.has('tenantId')) {
         const value = form.get('tenantId')
-        if (value instanceof File) return value.name
+        if (value instanceof File) return undefined
         return value
       }
     }

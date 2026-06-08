@@ -16,6 +16,7 @@ import {
   type ResourcesResourceTypeUpdateInput,
 } from '../data/validators'
 import { resourcesResourceTypeCrudEvents } from '../lib/crud'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
@@ -170,6 +171,26 @@ const createResourceTypeCommand: CommandHandler<ResourcesResourceTypeCreateInput
       })
     }
   },
+  redo: makeCreateRedo<ResourcesResourceType, ResourceTypeSnapshot, ResourcesResourceTypeCreateInput, { resourceTypeId: string }>({
+    entityClass: ResourcesResourceType,
+    buildResult: (entity) => ({ resourceTypeId: entity.id }),
+    events: resourcesResourceTypeCrudEvents,
+    indexer: resourceTypeCrudIndexer,
+    afterRestore: async ({ ctx, entity, logEntry }) => {
+      const payload = extractUndoPayload<ResourceTypeUndoPayload>(logEntry)
+      if (!payload?.customAfter) return
+      const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+      const reset = buildCustomFieldResetMap(payload.customAfter, undefined)
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: E.resources.resources_resource_type,
+        recordId: entity.id,
+        tenantId: entity.tenantId,
+        organizationId: entity.organizationId,
+        values: reset,
+      })
+    },
+  }),
 }
 
 const updateResourceTypeCommand: CommandHandler<ResourcesResourceTypeUpdateInput, { resourceTypeId: string }> = {

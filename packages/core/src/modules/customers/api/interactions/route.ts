@@ -9,6 +9,7 @@ import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fi
 import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-runner'
 import type { EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -22,6 +23,7 @@ import {
   defaultOkResponseSchema,
 } from '../openapi'
 import { CUSTOMER_INTERACTION_ENTITY_ID } from '../../lib/interactionCompatibility'
+import { applyEmailVisibilityFilter } from '../../lib/visibilityFilter'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
@@ -38,7 +40,7 @@ const interactionSortFieldSchema = z.enum([
   'title',
 ])
 
-const listSchema = z
+export const listSchema = z
   .object({
     limit: z.coerce.number().min(1).max(100).default(25),
     cursor: z.string().optional(),
@@ -49,8 +51,8 @@ const listSchema = z
     type: z.string().optional(),
     excludeInteractionType: z.string().optional(),
     search: z.string().trim().min(1).optional(),
-    from: z.string().optional(),
-    to: z.string().optional(),
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
     pinned: z.enum(['true', 'false']).optional(),
     sortField: interactionSortFieldSchema.optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -301,6 +303,7 @@ async function buildEnricherContext(
   container: { resolve: (name: string) => unknown },
   auth: NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>,
   organizationId: string | null,
+  precomputedUserFeatures?: { userId: string; features: string[] | undefined },
 ): Promise<EnricherContext> {
   const userId =
     (typeof auth.sub === 'string' && auth.sub.trim().length > 0
@@ -311,13 +314,20 @@ async function buildEnricherContext(
           ? auth.keyId
           : 'system')
 
+  // Reuse features already resolved for this same user (the GET handler resolves
+  // them once for the visibility filter) to avoid a second RBAC lookup per request.
+  const userFeatures =
+    precomputedUserFeatures && precomputedUserFeatures.userId === userId
+      ? precomputedUserFeatures.features
+      : await resolveUserFeatures(container, userId, auth.tenantId ?? null, organizationId)
+
   return {
     organizationId: organizationId ?? '',
     tenantId: auth.tenantId ?? '',
     userId,
     em: container.resolve('em'),
     container,
-    userFeatures: await resolveUserFeatures(container, userId, auth.tenantId ?? null, organizationId),
+    userFeatures,
   }
 }
 
@@ -415,14 +425,20 @@ export async function GET(req: Request) {
     }
     if (query.excludeInteractionType) rowsQuery = rowsQuery.where('interaction_type', '!=', query.excludeInteractionType)
     if (query.search) {
-      const searchTerm = `%${query.search}%`
+      // NOTE: for tenants with data encryption enabled, `title`/`body` are
+      // ciphertext at rest (see encryption.ts), so this ILIKE matches encrypted
+      // bytes and returns no rows — substring search over encrypted free-text
+      // columns is unsupported, the same documented limitation as
+      // customer_activity / customer_comment. The returned page's title/body are
+      // still decrypted for display further below.
+      const searchTerm = `%${escapeLikePattern(query.search)}%`
       rowsQuery = rowsQuery.where(sql<boolean>`coalesce(title, '') ilike ${searchTerm} or coalesce(body, '') ilike ${searchTerm}`)
     }
     if (query.from) {
-      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) >= ${new Date(query.from)}`)
+      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) >= ${query.from}`)
     }
     if (query.to) {
-      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${new Date(query.to)}`)
+      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${query.to}`)
     }
 
     if (cursor) {
@@ -437,6 +453,21 @@ export async function GET(req: Request) {
         ]),
       ]))
     }
+
+    // ── Email visibility filter (2026-05-27) ──────────────────────────────
+    // Non-email interactions pass through; email rows with visibility='private'
+    // are filtered out unless the caller is the author or has admin bypass.
+    // API-key callers have no user identity (`auth.sub` undefined): resolve the
+    // viewer to null so they never gain the author bypass and only see shared
+    // emails (fail-closed). Mirrors counts/people/activities routes.
+    const viewerUserId = auth.isApiKey ? null : (auth.sub ?? null)
+    const callerUserFeatures = viewerUserId
+      ? await resolveUserFeatures(container, viewerUserId, auth.tenantId ?? null, selectedOrganizationId)
+      : undefined
+    rowsQuery = applyEmailVisibilityFilter(rowsQuery as any, {
+      currentUserId: viewerUserId,
+      userFeatures: callerUserFeatures,
+    })
 
     rowsQuery = rowsQuery.orderBy(sql`${sql.raw(sortSql)} ${sql.raw(sortDir)}`).orderBy('id', sortDir)
 
@@ -460,7 +491,7 @@ export async function GET(req: Request) {
     )
     const interactionIds = pageRows.map((row) => row.id)
 
-    const [users, deals, customFieldValues] = await Promise.all([
+    const [users, deals, customFieldValues, interactionRecords] = await Promise.all([
       authorIds.length > 0 ? findWithDecryption(em, User, { id: { $in: authorIds } }, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId }) : Promise.resolve([]),
       dealIds.length > 0 ? findWithDecryption(em, CustomerDeal, { id: { $in: dealIds } }, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId }) : Promise.resolve([]),
       interactionIds.length > 0
@@ -473,6 +504,9 @@ export async function GET(req: Request) {
             tenantFallbacks: [auth.tenantId].filter((value): value is string => !!value),
           })
         : Promise.resolve<Record<string, Record<string, unknown>>>({}),
+      interactionIds.length > 0
+        ? findWithDecryption(em, CustomerInteraction, { id: { $in: interactionIds } } as never, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId })
+        : Promise.resolve([]),
     ])
 
     const userMap = new Map(
@@ -487,14 +521,22 @@ export async function GET(req: Request) {
     const dealMap = new Map(
       deals.map((deal) => [deal.id, deal.title]),
     )
+    // title/body are encrypted at rest (see encryption.ts). The kysely rows above
+    // carry ciphertext when tenant encryption is enabled, so override them with the
+    // decrypted values from findWithDecryption for the returned page.
+    const interactionContentMap = new Map(
+      (interactionRecords as Array<{ id: string; title?: string | null; body?: string | null }>).map(
+        (record) => [record.id, { title: record.title ?? null, body: record.body ?? null }],
+      ),
+    )
 
     const baseItems = pageRows.map((row) => ({
       id: row.id,
       entityId: row.entity_id,
       dealId: row.deal_id ?? null,
       interactionType: row.interaction_type,
-      title: row.title ?? null,
-      body: row.body ?? null,
+      title: (interactionContentMap.has(row.id) ? interactionContentMap.get(row.id)!.title : row.title) ?? null,
+      body: (interactionContentMap.has(row.id) ? interactionContentMap.get(row.id)!.body : row.body) ?? null,
       status: row.status,
       scheduledAt: toIsoString(row.scheduled_at),
       occurredAt: toIsoString(row.occurred_at),
@@ -526,7 +568,12 @@ export async function GET(req: Request) {
       customValues: normalizeCustomFieldResponse(customFieldValues[row.id]) ?? null,
     }))
 
-    const enricherContext = await buildEnricherContext(container, auth, selectedOrganizationId)
+    const enricherContext = await buildEnricherContext(
+      container,
+      auth,
+      selectedOrganizationId,
+      viewerUserId ? { userId: viewerUserId, features: callerUserFeatures } : undefined,
+    )
     const enriched = await applyResponseEnrichers(baseItems, 'customers.interaction', enricherContext)
 
     let nextCursor: string | undefined

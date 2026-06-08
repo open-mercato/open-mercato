@@ -7,6 +7,8 @@ import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { SearchX } from 'lucide-react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
@@ -30,7 +32,7 @@ export default function PortalLoginPage({ params }: Props) {
       event.preventDefault()
       setError(null)
 
-      if (!tenant.tenantId) {
+      if (!tenant.organizationId) {
         setError(t('portal.org.invalid', 'Organization not found.'))
         return
       }
@@ -41,7 +43,7 @@ export default function PortalLoginPage({ params }: Props) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ email, password, tenantId: tenant.tenantId }),
+          body: JSON.stringify({ email, password, organizationId: tenant.organizationId }),
         })
 
         if (result.ok && result.result?.ok) {
@@ -49,16 +51,10 @@ export default function PortalLoginPage({ params }: Props) {
           return
         }
 
-        if (result.status === 423) {
-          setError(t('portal.login.error.locked', 'Account locked. Try again later.'))
-        } else if (result.status === 401 && result.result?.error === 'Account is deactivated') {
-          setError(
-            t(
-              'portal.login.error.inactive',
-              'Your account is not active yet. An administrator must activate it before you can log in.',
-            ),
-          )
-        } else if (result.status === 401) {
+        if (result.status === 401) {
+          // The login API intentionally returns a single generic 401 for unknown, inactive,
+          // locked, and unverified accounts so account existence cannot be enumerated.
+          // Lockout/deactivation guidance is delivered out-of-band (e.g. email), never here.
           setError(t('portal.login.error.invalidCredentials', 'Invalid email or password.'))
         } else {
           setError(result.result?.error || t('portal.login.error.generic', 'Login failed. Please try again.'))
@@ -69,7 +65,7 @@ export default function PortalLoginPage({ params }: Props) {
         setSubmitting(false)
       }
     },
-    [email, password, tenant.tenantId, orgSlug, t],
+    [email, password, tenant.organizationId, orgSlug, t],
   )
 
   const injectionContext = useMemo(
@@ -84,9 +80,12 @@ export default function PortalLoginPage({ params }: Props) {
   if (tenant.error) {
     return (
       <div className="mx-auto w-full max-w-md py-12">
-        <Alert variant="destructive">
-          <AlertDescription>{t('portal.org.invalid', 'Organization not found.')}</AlertDescription>
-        </Alert>
+        <EmptyState
+          variant="subtle"
+          size="lg"
+          icon={<SearchX className="h-6 w-6" aria-hidden />}
+          title={t('portal.org.invalid', 'Organization not found.')}
+        />
       </div>
     )
   }

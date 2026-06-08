@@ -3,6 +3,9 @@ import { testLinearRegex } from '../../lib/regex/linear'
 
 export const MAX_CUSTOM_FIELD_REGEX_PATTERN_LENGTH = 500
 export const MAX_CUSTOM_FIELD_REGEX_INPUT_LENGTH = 10_000
+export const MAX_CUSTOM_FIELD_KEYS_PER_RECORD = 128
+export const UNKNOWN_CUSTOM_FIELD_ERROR = '[internal] Unknown custom field'
+export const TOO_MANY_CUSTOM_FIELDS_ERROR = '[internal] Too many custom fields'
 
 // Supported rule types for custom fields validation
 export const VALIDATION_RULES = [
@@ -101,11 +104,44 @@ function evalRule(rule: ValidationRule, value: any, kind: string): string | null
   }
 }
 
+function countPresentValueKeys(values: Record<string, unknown>): number {
+  let count = 0
+  for (const key of Object.keys(values)) {
+    if (values[key] !== undefined) count++
+  }
+  return count
+}
+
+export type ValidateValuesOptions = {
+  // When true, value keys that have no matching CustomFieldDef are rejected
+  // (OWASP A03/A04 EAV mass-assignment guard for untrusted entry points such as
+  // the generic `/api/entities/records` endpoint). Trusted first-party command
+  // writes persist dynamic/internal keys, so they leave this off and rely on the
+  // always-on per-record key cap below as the unbounded-injection backstop.
+  rejectUndeclaredKeys?: boolean
+}
+
 export function validateValuesAgainstDefs(
   values: Record<string, any>,
   defs: CustomFieldDefLike[],
+  options: ValidateValuesOptions = {},
 ): { ok: boolean; fieldErrors: Record<string, string> } {
   const errors: Record<string, string> = {}
+
+  if (options.rejectUndeclaredKeys) {
+    const allowedKeys = new Set(defs.map((def) => def.key))
+    for (const key of Object.keys(values)) {
+      if (values[key] === undefined) continue
+      if (!allowedKeys.has(key)) {
+        errors[`cf_${key}`] = UNKNOWN_CUSTOM_FIELD_ERROR
+      }
+    }
+  }
+
+  if (countPresentValueKeys(values) > MAX_CUSTOM_FIELD_KEYS_PER_RECORD) {
+    errors._customFields = TOO_MANY_CUSTOM_FIELDS_ERROR
+  }
+
   for (const def of defs) {
     const cfg = def?.configJson || {}
     const rules: ValidationRule[] = Array.isArray(cfg.validation) ? cfg.validation : []

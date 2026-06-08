@@ -136,7 +136,7 @@ The root `AGENTS.md` for standalone apps is the primary entry point. It must cov
 | Creating a new custom module | `AGENTS.md` → Module Development |
 | Building CRUD API routes, OpenAPI specs | `AGENTS.md` → API Routes |
 | Adding entities, migrations, validators | `AGENTS.md` → Data Layer |
-| Building backend pages (admin UI) | `AGENTS.md` → Backend Pages + `.ai/skills/backend-ui-design/` |
+| Building backend pages (admin UI) | `AGENTS.md` → Backend Pages + `.ai/skills/om-backend-ui-design/` |
 | Building frontend pages | `AGENTS.md` → Frontend Pages |
 | Adding RBAC features | `AGENTS.md` → Access Control |
 | Adding module setup (tenant init) | `AGENTS.md` → Module Setup |
@@ -164,12 +164,12 @@ The root `AGENTS.md` for standalone apps is the primary entry point. It must cov
 | Adding background sync workers | `AGENTS.md` → Workers |
 | Adding external API clients | `AGENTS.md` → External APIs |
 | **Testing** | |
-| Writing integration tests | `.ai/qa/AGENTS.md` + `.ai/skills/integration-tests/` |
+| Writing integration tests | `.ai/qa/AGENTS.md` + `.ai/skills/om-integration-tests/` |
 | Running tests | `AGENTS.md` → Key Commands |
 | **Spec & Planning** | |
-| Writing a feature spec | `.ai/skills/spec-writing/` |
-| Reviewing code changes | `.ai/skills/code-review/` |
-| Implementing a spec | `.ai/skills/implement-spec/` |
+| Writing a feature spec | `.ai/skills/om-spec-writing/` |
+| Reviewing code changes | `.ai/skills/om-code-review/` |
+| Implementing a spec | `.ai/skills/om-implement-spec/` |
 
 #### Core Principles (Standalone Edition)
 
@@ -371,11 +371,11 @@ The `packages/create-app/build.mjs` must:
 4. Write `.ai/references/module-file-conventions.md` — auto-discovery paths
 5. Write `.ai/references/core-api-reference.md` — essential imports
 6. Write `.ai/references/example-patterns.md` — curated copy-pasteable examples
-7. Adapt `code-review` skill for standalone context
-8. Adapt `spec-writing` skill for standalone context
-9. Adapt `implement-spec` skill for standalone context
-10. Adapt `integration-tests` skill for standalone context
-11. Copy unchanged skills: `backend-ui-design`, `create-agents-md`, `fix-specs`, `skill-creator`
+7. Adapt `om-code-review` skill for standalone context
+8. Adapt `om-spec-writing` skill for standalone context
+9. Adapt `om-implement-spec` skill for standalone context
+10. Adapt `om-integration-tests` skill for standalone context
+11. Copy unchanged skills: `om-backend-ui-design`, `om-create-agents-md`, `om-fix-specs`, `om-skill-creator`
 12. Rewrite template `AGENTS.md` with standalone Task Router
 13. Write `.ai/specs/AGENTS.md` (simplified)
 14. Write `.ai/qa/AGENTS.md` (standalone testing)

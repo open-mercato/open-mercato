@@ -9,6 +9,8 @@ import type {
   TrackingResult,
   ShippingWebhookEvent,
   UnifiedShipmentStatus,
+  DropOffPoint,
+  SearchDropOffPointsInput,
 } from '@open-mercato/core/modules/shipping_carriers/lib/adapter'
 
 /**
@@ -209,5 +211,36 @@ export const mockShippingAdapter: ShippingAdapter = {
       cancelled: 'cancelled',
     }
     return map[carrierStatus] ?? 'unknown'
+  },
+
+  async searchDropOffPoints(input: SearchDropOffPointsInput): Promise<DropOffPoint[]> {
+    const postalCode = typeof input.postCode === 'string' && input.postCode.trim().length > 0
+      ? input.postCode.trim()
+      : '10001'
+    const pointType = typeof input.type === 'string' && input.type.trim().length > 0
+      ? input.type.trim()
+      : 'locker'
+    return [
+      {
+        id: 'MOCK-POP-001',
+        name: 'Mock Locker - Main Street',
+        type: pointType,
+        city: 'New York',
+        postalCode,
+        street: '100 Main Street',
+        latitude: 40.7128,
+        longitude: -74.006,
+      },
+      {
+        id: 'MOCK-POP-002',
+        name: 'Mock Pickup Point - Market Square',
+        type: pointType,
+        city: 'New York',
+        postalCode,
+        street: '250 Market Square',
+        latitude: 40.7138,
+        longitude: -74.001,
+      },
+    ]
   },
 }

@@ -9,7 +9,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -461,9 +462,13 @@ export function EditActionDialog({
 
     setIsSaving(true)
     const result = await runMutation({
-      operation: () => apiCall<{ ok: boolean; error?: string }>(
-        `/api/inbox_ops/proposals/${action.proposalId}/actions/${action.id}`,
-        { method: 'PATCH', body: JSON.stringify({ payload: finalPayload }) },
+      // TODO(#2373-D): thread updatedAt — ActionDetail type lives outside this file's edit scope
+      operation: () => withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(undefined),
+        () => apiCall<{ ok: boolean; error?: string }>(
+          `/api/inbox_ops/proposals/${action.proposalId}/actions/${action.id}`,
+          { method: 'PATCH', body: JSON.stringify({ payload: finalPayload }) },
+        ),
       ),
       context: {},
     })

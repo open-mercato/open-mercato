@@ -11,7 +11,8 @@ import { ContextHelp } from '@open-mercato/ui/backend/ContextHelp'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import Link from 'next/link'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -349,9 +350,12 @@ export RECORD_ID="<record uuid>"`}</code></pre>
                       variant: 'destructive',
                     })
                     if (!confirmed) return
-                    const deleteCall = await apiCall(
-                      `/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(String((row as any).id))}`,
-                      { method: 'DELETE' },
+                    const deleteCall = await withScopedApiRequestHeaders(
+                      buildOptimisticLockHeader((row as any).updatedAt),
+                      () => apiCall(
+                        `/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(String((row as any).id))}`,
+                        { method: 'DELETE' },
+                      ),
                     )
                     if (!deleteCall.ok) {
                       await raiseCrudError(deleteCall.response, 'Failed to delete record')

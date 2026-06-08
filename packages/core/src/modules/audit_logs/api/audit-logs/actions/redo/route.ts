@@ -78,9 +78,10 @@ export async function POST(req: Request) {
   }
 
   const lookupActorId = canRedoTenant ? (log.actorUserId ?? auth.sub) : auth.sub
+  const latestUndoneOrganizationId = log.organizationId ?? null
   const latestUndone = await logs.latestUndoneForActor(lookupActorId, {
     tenantId: auth.tenantId ?? null,
-    organizationId: scopedOrgId,
+    organizationId: latestUndoneOrganizationId,
   })
   if (!latestUndone || latestUndone.id !== log.id) {
     return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
@@ -119,6 +120,7 @@ export async function POST(req: Request) {
       input: commandInput,
       ctx,
       metadata,
+      redoLogEntry: log,
     })
     await logs.markRedone(log.id)
     const actionLog = asActionLog(logEntry)

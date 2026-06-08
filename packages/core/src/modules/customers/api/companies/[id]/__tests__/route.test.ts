@@ -65,6 +65,134 @@ jest.mock('#generated/entities.ids.generated', () => ({
   },
 }), { virtual: true })
 
+describe('GET /api/customers/companies/[id] — company payload fields', () => {
+  beforeEach(() => {
+    jest.resetModules()
+    mockGetAuthFromRequest.mockReset()
+    mockResolveOrganizationScopeForRequest.mockReset()
+    mockResolveCustomerInteractionFeatureFlags.mockReset()
+    mockLoadCustomFieldValues.mockReset()
+    mockResolveCompanyCustomFieldRouting.mockReset()
+    mockMergeCompanyCustomFieldValues.mockReset()
+    mockFindWithDecryption.mockReset()
+    mockFindOneWithDecryption.mockReset()
+    mockEm.findOne.mockReset()
+    mockEm.find.mockReset()
+    mockEm.count.mockReset()
+    mockEm.count.mockResolvedValue(0)
+    mockContainer.resolve.mockClear()
+
+    mockGetAuthFromRequest.mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+      isApiKey: false,
+    })
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      filterIds: ['org-1'],
+      selectedId: 'org-1',
+      tenantId: 'tenant-1',
+    })
+    mockResolveCustomerInteractionFeatureFlags.mockResolvedValue({ unified: false })
+    mockLoadCustomFieldValues.mockResolvedValue({})
+    mockResolveCompanyCustomFieldRouting.mockResolvedValue({})
+    mockMergeCompanyCustomFieldValues.mockReturnValue({})
+    mockEm.find.mockResolvedValue([])
+  })
+
+  it('serializes temperature and renewalQuarter in the company object', async () => {
+    const createdAt = new Date('2026-04-10T08:00:00.000Z')
+
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce({
+        id: '2408107d-0000-4000-8000-000000000001',
+        kind: 'company',
+        deletedAt: null,
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        companyProfile: null,
+        displayName: 'Acme Corp',
+        description: null,
+        ownerUserId: null,
+        primaryEmail: null,
+        primaryPhone: null,
+        status: null,
+        lifecycleStage: null,
+        source: null,
+        nextInteractionAt: null,
+        nextInteractionName: null,
+        nextInteractionRefId: null,
+        nextInteractionIcon: null,
+        nextInteractionColor: null,
+        isActive: true,
+        temperature: 'hot',
+        renewalQuarter: 'Q3',
+        createdAt,
+        updatedAt: createdAt,
+      })
+      .mockResolvedValueOnce(null)
+
+    mockFindWithDecryption.mockResolvedValue([])
+
+    const { GET } = await import('../route')
+    const response = await GET(
+      new Request('http://localhost/api/customers/companies/2408107d-0000-4000-8000-000000000001'),
+      { params: { id: '2408107d-0000-4000-8000-000000000001' } },
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.company.temperature).toBe('hot')
+    expect(body.company.renewalQuarter).toBe('Q3')
+  })
+
+  it('serializes null temperature and renewalQuarter when unset', async () => {
+    const createdAt = new Date('2026-04-10T08:00:00.000Z')
+
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce({
+        id: '2408107d-0000-4000-8000-000000000002',
+        kind: 'company',
+        deletedAt: null,
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        companyProfile: null,
+        displayName: 'Beta Inc',
+        description: null,
+        ownerUserId: null,
+        primaryEmail: null,
+        primaryPhone: null,
+        status: null,
+        lifecycleStage: null,
+        source: null,
+        nextInteractionAt: null,
+        nextInteractionName: null,
+        nextInteractionRefId: null,
+        nextInteractionIcon: null,
+        nextInteractionColor: null,
+        isActive: true,
+        temperature: null,
+        renewalQuarter: null,
+        createdAt,
+        updatedAt: createdAt,
+      })
+      .mockResolvedValueOnce(null)
+
+    mockFindWithDecryption.mockResolvedValue([])
+
+    const { GET } = await import('../route')
+    const response = await GET(
+      new Request('http://localhost/api/customers/companies/2408107d-0000-4000-8000-000000000002'),
+      { params: { id: '2408107d-0000-4000-8000-000000000002' } },
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.company.temperature).toBeNull()
+    expect(body.company.renewalQuarter).toBeNull()
+  })
+})
+
 describe('GET /api/customers/companies/[id]?include=people', () => {
   beforeEach(() => {
     jest.resetModules()

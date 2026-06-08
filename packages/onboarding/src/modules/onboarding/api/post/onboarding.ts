@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
+import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
 import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 import { defaultLocale, locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
@@ -125,7 +125,17 @@ export async function POST(req: Request) {
       throw err
     }
 
-    const baseUrl = getAppBaseUrl(req)
+    let baseUrl: string
+    try {
+      baseUrl = getSecurityEmailBaseUrl(req)
+    } catch (error) {
+      const mapped = mapSecurityEmailUrlError(error, {
+        scope: 'onboarding.start',
+        configMessage: 'Self-service onboarding is not configured.',
+      })
+      if (mapped) return NextResponse.json({ ok: false, error: mapped.body.error }, { status: mapped.status })
+      throw error
+    }
     const verifyUrl = `${baseUrl}/api/onboarding/onboarding/verify?token=${token}`
 
     const firstName = request.firstName || parsed.data.firstName

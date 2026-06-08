@@ -1,0 +1,33 @@
+• turbo 2.9.14
+
+   • Packages in scope: @open-mercato/ai-assistant, @open-mercato/app, @open-mercato/cache, @open-mercato/checkout, @open-mercato/cli, @open-mercato/content, @open-mercato/core, @open-mercato/enterprise, @open-mercato/events, @open-mercato/gateway-stripe, @open-mercato/onboarding, @open-mercato/queue, @open-mercato/scheduler, @open-mercato/search, @open-mercato/shared, @open-mercato/storage-s3, @open-mercato/sync-akeneo, @open-mercato/ui, @open-mercato/webhooks, create-mercato-app, open-mercato-docs
+   • Running typecheck in 21 packages
+   • Remote caching disabled, using shared worktree cache
+
+@open-mercato/app:typecheck: cache miss, executing 0bc26b75355ee0c7
+@open-mercato/ui:typecheck: cache miss, executing c69f93bf919a3dec
+@open-mercato/core:typecheck: cache miss, executing f4da9f71cb0e8655
+@open-mercato/shared:typecheck: cache miss, executing 14be03dec13b2609
+@open-mercato/queue:typecheck: cache hit, replaying logs caa5f5545f37ec1a
+@open-mercato/events:typecheck: cache hit, replaying logs edae38d5aa2ea81a
+@open-mercato/webhooks:typecheck: cache hit, replaying logs 130b4e4f603ac3a1
+@open-mercato/sync-akeneo:typecheck: cache hit, replaying logs bd763da59e287280
+create-mercato-app:typecheck: cache hit, replaying logs da5aba70f06392e5
+@open-mercato/content:typecheck: cache hit, replaying logs c7d3878f6faf22f7
+@open-mercato/checkout:typecheck: cache hit, replaying logs 987a8ab80ded6708
+@open-mercato/cli:typecheck: cache hit, replaying logs 64b62cf1b92a709e
+@open-mercato/search:typecheck: cache hit, replaying logs 503955cb33460afb
+@open-mercato/scheduler:typecheck: cache hit, replaying logs 8abb96e0279a1be1
+@open-mercato/onboarding:typecheck: cache hit, replaying logs 20287b38f7e1bbfb
+@open-mercato/gateway-stripe:typecheck: cache hit, replaying logs 3ecc793f1e1a8207
+@open-mercato/storage-s3:typecheck: cache hit, replaying logs de8944f39550c9dd
+@open-mercato/enterprise:typecheck: cache hit, replaying logs 01b16c89e6ba8c44
+@open-mercato/cache:typecheck: cache hit, replaying logs 086a41227862fc79
+ ERROR  @open-mercato/app#typecheck: command (/home/pkarw/Projects/mercato-development/.ai/tmp/auto-continue-pr/pr-2055-20260525-104412/apps/mercato) /tmp/xfs-a8557719/yarn run typecheck exited (129)
+
+ Tasks:    16 successful, 19 total
+Cached:    15 cached, 19 total
+  Time:    19.71s 
+Failed:    @open-mercato/app#typecheck
+
+ ERROR  run failed: command  exited (129)

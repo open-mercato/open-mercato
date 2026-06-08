@@ -4,6 +4,24 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # Required by the OSS optimistic-locking integration tests (#1981 /
+  # TC-LOCK-OSS-001..004). Set workflow-wide so both `prepare`
+  # (`yarn build:app`) and `ephemeral-integration` see the same value —
+  # divergence between build-time and run-time env can silently
+  # short-circuit the guard.
+  #
+  # `all` activates the auto-registered generic reader for every CRUD
+  # route (Phase 13 of the spec). Hand-wired readers in
+  # `customers/di.ts` and `sales/di.ts` still win — they cover the
+  # polymorphic-table case (`customers.company` / `customers.person`
+  # discriminated by `kind`) and the `sales.order` reference. The
+  # auto-registered reader handles every other entity, including
+  # `customers.deal` exercised by TC-LOCK-OSS-004.
+  #
+  # As of Phase 14 (2026-05-27) the guard is default ON — `all` is now
+  # the same as unset. Kept explicit here to match the snapshot env and
+  # to make the intent obvious in CI logs.
+  OM_OPTIMISTIC_LOCK: 'all'
 
 on:
   push:
@@ -428,6 +446,15 @@ jobs:
       JWT_SECRET: 'ci-ephemeral-test-jwt-secret'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
+      # Enables the OSS opt-in optimistic-locking guard from PR #1981.
+      # `OM_OPTIMISTIC_LOCK=all` (workflow-level env) auto-registers a
+      # generic reader for every CRUD entity (Phase 13). Required by
+      # TC-LOCK-OSS-001..003 (hand-wired readers) and TC-LOCK-OSS-004
+      # (generic reader path on customers.deal). Other tests are
+      # unaffected because the guard SKIPS when the request omits the
+      # `x-om-ext-optimistic-lock-expected-updated-at` header.
+      # OM_OPTIMISTIC_LOCK and OM_OPTIMISTIC_LOCK_DEBUG are set at the
+      # workflow level so both the build and the run-time stack agree.
     steps:
       - name: Compute shard metadata
         id: shard-meta

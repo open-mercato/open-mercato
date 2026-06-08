@@ -5,7 +5,7 @@ import {
   CatalogOptionSchemaTemplate,
   CatalogPriceKind,
 } from '../data/entities'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -73,12 +73,42 @@ export function toNumericString(value: number | null | undefined): string | null
   return value.toString()
 }
 
+export type RequireScope = {
+  tenantId: string | null
+  organizationId: string | null
+}
+
+// Derives the actor's effective tenant/org scope for entry-point lookups, mirroring
+// the bypass semantics of ensureTenantScope/ensureOrganizationScope: tenant is always
+// strict, organization is left unrestricted for super-admins and global-org actors.
+export function commandActorScope(ctx: CommandRuntimeContext): RequireScope {
+  const orgUnrestricted = ctx.auth?.isSuperAdmin === true || ctx.organizationScope?.allowedIds === null
+  return {
+    tenantId: ctx.auth?.tenantId ?? null,
+    organizationId: orgUnrestricted ? null : (ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null),
+  }
+}
+
+function applyScopeToWhere(where: Record<string, unknown>, scope: RequireScope): void {
+  if (scope.tenantId != null) where.tenantId = scope.tenantId
+  if (scope.organizationId != null) where.organizationId = scope.organizationId
+}
+
 export async function requireProduct(
   em: EntityManager,
   id: string,
+  scope: RequireScope,
   message = 'Catalog product not found'
 ): Promise<CatalogProduct> {
-  const product = await findOneWithDecryption(em, CatalogProduct, { id, deletedAt: null })
+  const where: Record<string, unknown> = { id, deletedAt: null }
+  applyScopeToWhere(where, scope)
+  const product = await findOneWithDecryption(
+    em,
+    CatalogProduct,
+    where as FilterQuery<CatalogProduct>,
+    undefined,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
   if (!product) throw new CrudHttpError(404, { error: message })
   return product
 }
@@ -86,13 +116,17 @@ export async function requireProduct(
 export async function requireVariant(
   em: EntityManager,
   id: string,
+  scope: RequireScope,
   message = 'Catalog variant not found'
 ): Promise<CatalogProductVariant> {
+  const where: Record<string, unknown> = { id, deletedAt: null }
+  applyScopeToWhere(where, scope)
   const variant = await findOneWithDecryption(
     em,
     CatalogProductVariant,
-    { id, deletedAt: null },
+    where as FilterQuery<CatalogProductVariant>,
     { populate: ['product'] },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
   if (!variant) throw new CrudHttpError(404, { error: message })
   return variant
@@ -101,9 +135,18 @@ export async function requireVariant(
 export async function requireOffer(
   em: EntityManager,
   id: string,
+  scope: RequireScope,
   message = 'Catalog offer not found'
 ): Promise<CatalogOffer> {
-  const offer = await findOneWithDecryption(em, CatalogOffer, { id })
+  const where: Record<string, unknown> = { id }
+  applyScopeToWhere(where, scope)
+  const offer = await findOneWithDecryption(
+    em,
+    CatalogOffer,
+    where as FilterQuery<CatalogOffer>,
+    undefined,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
   if (!offer) throw new CrudHttpError(404, { error: message })
   return offer
 }
@@ -111,9 +154,21 @@ export async function requireOffer(
 export async function requirePriceKind(
   em: EntityManager,
   id: string,
+  scope: RequireScope,
   message = 'Catalog price kind not found'
 ): Promise<CatalogPriceKind> {
-  const priceKind = await findOneWithDecryption(em, CatalogPriceKind, { id, deletedAt: null })
+  // Price kinds are tenant-global: organization_id is always null and the unique key is
+  // (tenant_id, code). Scope by tenant only — applying a concrete org would never match the
+  // null row. Tenant scoping still closes the cross-tenant read hole this helper guards.
+  const where: Record<string, unknown> = { id, deletedAt: null }
+  applyScopeToWhere(where, { tenantId: scope.tenantId, organizationId: null })
+  const priceKind = await findOneWithDecryption(
+    em,
+    CatalogPriceKind,
+    where as FilterQuery<CatalogPriceKind>,
+    undefined,
+    { tenantId: scope.tenantId, organizationId: null },
+  )
   if (!priceKind) throw new CrudHttpError(404, { error: message })
   return priceKind
 }
@@ -121,9 +176,18 @@ export async function requirePriceKind(
 export async function requireOptionSchemaTemplate(
   em: EntityManager,
   id: string,
+  scope: RequireScope,
   message = 'Option schema not found'
 ): Promise<CatalogOptionSchemaTemplate> {
-  const schema = await findOneWithDecryption(em, CatalogOptionSchemaTemplate, { id, deletedAt: null })
+  const where: Record<string, unknown> = { id, deletedAt: null }
+  applyScopeToWhere(where, scope)
+  const schema = await findOneWithDecryption(
+    em,
+    CatalogOptionSchemaTemplate,
+    where as FilterQuery<CatalogOptionSchemaTemplate>,
+    undefined,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
   if (!schema) throw new CrudHttpError(404, { error: message })
   return schema
 }

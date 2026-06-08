@@ -94,11 +94,25 @@ export async function decorateOffersWithDetails(
     .filter((value): value is string => !!value)
   if (!offerIds.length && !productIds.length) return
   const em = ctx.container.resolve('em') as EntityManager
+  const scopeTenantId = ctx.auth?.tenantId ?? null
+  if (!scopeTenantId) {
+    throw new CrudHttpError(403, '[internal] Missing tenant scope for offer decoration')
+  }
+  const scopeOrgIds =
+    Array.isArray(ctx.organizationIds) && ctx.organizationIds.length
+      ? Array.from(new Set(ctx.organizationIds))
+      : (ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null)
+        ? [(ctx.selectedOrganizationId ?? ctx.auth?.orgId) as string]
+        : []
+  const scopeWhere: Record<string, unknown> = { tenantId: scopeTenantId }
+  if (scopeOrgIds.length === 1) scopeWhere.organizationId = scopeOrgIds[0]
+  else if (scopeOrgIds.length > 1) scopeWhere.organizationId = { $in: scopeOrgIds }
+  const scope = { tenantId: scopeTenantId, organizationId: scopeOrgIds.length === 1 ? scopeOrgIds[0] : null }
   const [products, prices, defaultVariants] = await Promise.all([
     productIds.length
       ? em.find(
           CatalogProduct,
-          { id: { $in: productIds } },
+          { id: { $in: productIds }, ...scopeWhere },
           {
             fields: ['id', 'title', 'description', 'defaultMediaId', 'defaultMediaUrl', 'sku'],
           },
@@ -108,15 +122,15 @@ export async function decorateOffersWithDetails(
       ? findWithDecryption(
           em,
           CatalogProductPrice,
-          { offer: { $in: offerIds } },
+          { offer: { $in: offerIds }, ...scopeWhere },
           { populate: ['priceKind'] },
-          { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+          scope,
         )
       : [],
     productIds.length
       ? em.find(
           CatalogProductVariant,
-          { product: { $in: productIds }, isDefault: true },
+          { product: { $in: productIds }, isDefault: true, ...scopeWhere },
           { fields: ['id', 'product'] },
         )
       : [],
@@ -227,6 +241,7 @@ export async function decorateOffersWithDetails(
         CatalogProductPrice,
         {
           offer: null,
+          ...scopeWhere,
           $and: [
             { $or: fallbackTargets },
             channelFilterValues.includes(null)
@@ -240,7 +255,7 @@ export async function decorateOffersWithDetails(
           ],
         },
         { populate: ['priceKind'] },
-        { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+        scope,
       )
     : []
   fallbackEntries.forEach((entry) => {

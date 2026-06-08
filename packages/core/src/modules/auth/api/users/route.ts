@@ -14,6 +14,7 @@ import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fiel
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
 import {
+  assertActorCanAccessUserTarget,
   assertActorCanGrantRoleTokens,
   assertActorCanModifySuperAdminUserTarget,
   listSuperAdminUserIds,
@@ -80,6 +81,8 @@ const userListItemSchema = z.object({
   tenantName: z.string().nullable(),
   roles: z.array(z.string()),
   roleIds: z.array(z.string().uuid()).optional(),
+  hasPassword: z.boolean().optional(),
+  updatedAt: z.string().nullable().optional(),
 })
 
 const userListResponseSchema = z.object({
@@ -139,6 +142,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
         if (ctx.request) {
           if (typeof parsed.id === 'string' && parsed.id.length) {
             await assertCanModifySuperAdminTarget(ctx.request, parsed.id)
+            await assertCanAccessUserTarget(ctx.request, parsed.id)
           }
           await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
         }
@@ -148,6 +152,14 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     },
     delete: {
       commandId: 'auth.users.delete',
+      mapInput: async ({ parsed, raw, ctx }) => {
+        const targetId = resolveDeleteTargetId(parsed, raw)
+        if (ctx.request && targetId) {
+          await assertCanModifySuperAdminTarget(ctx.request, targetId)
+          await assertCanAccessUserTarget(ctx.request, targetId)
+        }
+        return parsed
+      },
       response: () => ({ ok: true }),
     },
   },
@@ -428,7 +440,8 @@ export async function GET(req: Request) {
       tenantName: u.tenantId ? tenantMap[String(u.tenantId)] ?? String(u.tenantId) : null,
       roles: roleMap[uid] || [],
       roleIds: roleIdMap[uid] || [],
-      hasPassword: !!u.passwordHash,
+      ...(id ? { hasPassword: !!u.passwordHash } : {}),
+      updatedAt: u.updatedAt instanceof Date ? u.updatedAt.toISOString() : null,
       ...(cfByUser[uid] || {}),
     }
   })
@@ -461,6 +474,7 @@ export const DELETE = async (req: Request) => {
   if (targetId) {
     try {
       await assertCanModifySuperAdminTarget(req, targetId)
+      await assertCanAccessUserTarget(req, targetId)
     } catch (err) {
       if (err instanceof CrudHttpError) {
         return NextResponse.json(err.body, { status: err.status })
@@ -518,6 +532,33 @@ async function assertCanModifySuperAdminTarget(req: Request, targetUserId: strin
     organizationId: auth.orgId ?? null,
     targetUserId,
   })
+}
+
+async function assertCanAccessUserTarget(req: Request, targetUserId: string) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.sub) throw new CrudHttpError(401, { error: 'Unauthorized' })
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  await assertActorCanAccessUserTarget({
+    em,
+    rbacService: container.resolve('rbacService') as RbacService,
+    actorUserId: auth.sub,
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    targetUserId,
+  })
+}
+
+function resolveDeleteTargetId(parsed: unknown, raw: unknown): string | null {
+  const fromParsed = readId((parsed as Record<string, unknown> | null | undefined))
+  if (fromParsed) return fromParsed
+  const rawRecord = raw as { body?: Record<string, unknown>; query?: Record<string, unknown> } | null | undefined
+  return readId(rawRecord?.query) ?? readId(rawRecord?.body)
+}
+
+function readId(record: Record<string, unknown> | null | undefined): string | null {
+  const value = record?.id
+  return typeof value === 'string' && value.length > 0 ? value : null
 }
 
 async function assertCanAssignRoles(req: Request, roles: unknown, payload: Record<string, unknown>) {

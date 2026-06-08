@@ -11,7 +11,9 @@ import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced
 import { createEmptyTree, makeRuleTree, makeMultiRuleTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { deserializeTree, deserializeAdvancedFilter, flatToTree, mapDictionaryColorToTone, serializeTree, type FilterFieldDef, type FilterOption as AdvancedFilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { groupBulkDeleteFailures, runBulkDelete } from '@open-mercato/ui/backend/utils/bulkDelete'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -46,6 +48,7 @@ import { useAutoDiscoveredFields } from '@open-mercato/ui/backend/utils/useAutoD
 import { useAdvancedFilterTree } from '@open-mercato/ui/backend/hooks/useAdvancedFilter'
 import { AdvancedFilterPanel } from '@open-mercato/ui/backend/filters/AdvancedFilterPanel'
 import { ActiveFilterChips } from '@open-mercato/ui/backend/filters/ActiveFilterChips'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterPreset } from '@open-mercato/ui/backend/filters/QuickFilters'
 import {
   ensureCurrentUserFilterOption,
@@ -447,14 +450,18 @@ export default function CustomersDealsPage() {
         variant: 'destructive',
       })
       if (!confirmed) return
+      const lockVersion = rows.find((row) => row.id === dealId)?.updatedAt ?? null
       setPendingDeleteId(dealId)
       try {
         await runSingleMutation({
           operation: async () => {
-            await deleteCrud('customers/deals', {
-              body: { id: dealId },
-              errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
-            })
+            await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(lockVersion),
+              () => deleteCrud('customers/deals', {
+                body: { id: dealId },
+                errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
+              }),
+            )
           },
           context: {
             formId: singleMutationContextId,
@@ -468,6 +475,12 @@ export default function CustomersDealsPage() {
         setTotal((prev) => Math.max(0, prev - 1))
         handleRefresh()
       } catch (err) {
+        // A stale delete surfaces the unified conflict bar (via the guarded
+        // mutation) — skip the generic error flash to avoid a double message (#2332).
+        if (surfaceRecordConflict(err, t)) {
+          handleRefresh()
+          return
+        }
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -477,7 +490,7 @@ export default function CustomersDealsPage() {
         setPendingDeleteId(null)
       }
     },
-    [confirm, handleRefresh, pendingDeleteId, retrySingleMutation, runSingleMutation, singleMutationContextId, t],
+    [confirm, handleRefresh, pendingDeleteId, retrySingleMutation, rows, runSingleMutation, singleMutationContextId, t],
   )
 
   const handlePageSizeChange = React.useCallback((newSize: number) => {
@@ -1011,7 +1024,7 @@ export default function CustomersDealsPage() {
                 onOpen={() => setFiltersOpen(true)}
               />
               <ActiveFilterChips
-                tree={filterPanel.tree}
+                tree={filterPanel.appliedTree}
                 fields={advancedFilterFields}
                 popoverOpen={filtersOpen}
                 onRemoveNode={(id) => filterPanel.dispatch({ type: 'removeNode', nodeId: id })}
@@ -1026,6 +1039,13 @@ export default function CustomersDealsPage() {
             onClearAll: handleAdvancedFilterClear,
             onRemoveLast: () => filterPanel.dispatch({ type: 'removeLast' }),
           }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('customers.deals.entityPlural', 'deals')}
+              createHref="/backend/customers/deals/create"
+              createLabel={t('customers.deals.list.actions.new', 'New deal')}
+            />
+          )}
           virtualized
         />
         <AdvancedFilterPanel

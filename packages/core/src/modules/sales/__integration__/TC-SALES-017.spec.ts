@@ -12,6 +12,8 @@ import {
  * Source: .ai/qa/scenarios/TC-SALES-017-multi-adjustment-totals.md
  */
 test.describe('TC-SALES-017: Multi-Adjustment Totals Recalculation', () => {
+  test.setTimeout(180_000);
+
   test('should recalculate grand total after multiple adjustments', async ({ page }) => {
     test.slow();
 

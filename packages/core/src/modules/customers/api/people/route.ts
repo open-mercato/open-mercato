@@ -31,6 +31,8 @@ import {
 import {
   filterActivePersonCompanyLinks,
   withActiveCustomerPersonCompanyLinkFilter,
+  withCustomerPersonCompanyLinkScope,
+  withScopedCustomerDealLinkWhere,
 } from '../../lib/personCompanyLinkTable'
 import { normalizeProfilePayload } from './payload'
 
@@ -105,9 +107,16 @@ const crud = makeCrudRoute({
       'tenant_id',
       'kind',
       'created_at',
+      'updated_at',
     ],
     sortFieldMap: {
       name: 'display_name',
+      email: 'primary_email',
+      primaryEmail: 'primary_email',
+      status: 'status',
+      lifecycleStage: 'lifecycle_stage',
+      source: 'source',
+      nextInteractionAt: 'next_interaction_at',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
@@ -220,7 +229,7 @@ const crud = makeCrudRoute({
           }
           const linkWhere = await withActiveCustomerPersonCompanyLinkFilter(
             em,
-            { company: query.excludeLinkedCompanyId },
+            withCustomerPersonCompanyLinkScope({ company: query.excludeLinkedCompanyId }, decryptionScope),
             'customers.people.GET',
           )
           const links = filterActivePersonCompanyLinks(
@@ -250,9 +259,7 @@ const crud = makeCrudRoute({
           const links = await findWithDecryption(
             em,
             CustomerDealPersonLink,
-            {
-              deal: query.excludeLinkedDealId,
-            },
+            withScopedCustomerDealLinkWhere(query.excludeLinkedDealId, decryptionScope),
             { populate: ['person'] },
             decryptionScope,
           )
@@ -392,7 +399,17 @@ const crud = makeCrudRoute({
         const parsed = personUpdateSchema.parse(base)
         return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
-      response: () => ({ ok: true }),
+      // Return the freshly-bumped updatedAt so inline-edit detail pages can refresh
+      // their optimistic-lock token between sequential saves (#2055).
+      response: (arg: { result?: unknown; updatedAt?: Date | string | null }) => {
+        const raw = arg?.updatedAt
+          ?? (arg?.result as { updatedAt?: Date | string | null } | null | undefined)?.updatedAt
+          ?? null
+        return {
+          ok: true,
+          updatedAt: raw instanceof Date ? raw.toISOString() : (typeof raw === 'string' ? raw : null),
+        }
+      },
     },
     delete: {
       commandId: 'customers.people.delete',

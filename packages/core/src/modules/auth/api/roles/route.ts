@@ -14,7 +14,11 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { roleCrudEvents, roleCrudIndexer } from '@open-mercato/core/modules/auth/commands/roles'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { assertActorCanModifySuperAdminRoleTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import {
+  assertActorCanAccessRoleTarget,
+  assertActorCanModifySuperAdminRoleTarget,
+} from '@open-mercato/core/modules/auth/lib/grantChecks'
+import { enforceTenantSelection } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const querySchema = z.object({
@@ -43,6 +47,7 @@ const roleListItemSchema = z.object({
   tenantId: z.string().uuid().nullable(),
   tenantIds: z.array(z.string().uuid()).optional(),
   tenantName: z.string().nullable(),
+  updatedAt: z.string().nullable().optional(),
 })
 
 const roleListResponseSchema = z.object({
@@ -83,7 +88,18 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     create: {
       commandId: 'auth.roles.create',
       schema: rawBodySchema,
-      mapInput: ({ parsed }) => parsed,
+      mapInput: async ({ parsed, ctx }) => {
+        // Preserve an explicit null so the create command rejects it (400 — global
+        // roles are unsupported); only resolve string/omitted tenantId against the actor.
+        if (parsed.tenantId === null) return parsed
+        const requestedTenantId = typeof parsed.tenantId === 'string' ? parsed.tenantId : undefined
+        const resolvedTenantId = await enforceTenantSelection(
+          { auth: ctx.auth, container: ctx.container },
+          requestedTenantId,
+        )
+        if (resolvedTenantId) parsed.tenantId = resolvedTenantId
+        return parsed
+      },
       response: ({ result }) => ({ id: String(result.id) }),
       status: 201,
     },
@@ -93,6 +109,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       mapInput: async ({ parsed, ctx }) => {
         if (ctx.request && typeof parsed.id === 'string' && parsed.id.length) {
           await assertCanModifySuperAdminRole(ctx.request, parsed.id)
+          await assertCanAccessRoleTarget(ctx.request, parsed.id)
         }
         return parsed
       },
@@ -100,6 +117,14 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     },
     delete: {
       commandId: 'auth.roles.delete',
+      mapInput: async ({ parsed, raw, ctx }) => {
+        const targetId = resolveDeleteTargetId(parsed, raw)
+        if (ctx.request && targetId) {
+          await assertCanModifySuperAdminRole(ctx.request, targetId)
+          await assertCanAccessRoleTarget(ctx.request, targetId)
+        }
+        return parsed
+      },
       response: () => ({ ok: true }),
     },
   },
@@ -223,6 +248,7 @@ export async function GET(req: Request) {
       tenantId: tenantId ?? null,
       tenantIds: exposeTenant && tenantId ? [tenantId] : [],
       tenantName: exposeTenant ? tenantName : null,
+      updatedAt: r.updatedAt instanceof Date ? r.updatedAt.toISOString() : null,
       ...(cfByRole[idStr] || {}),
     }
   })
@@ -249,6 +275,7 @@ export const DELETE = async (req: Request) => {
   if (targetId) {
     try {
       await assertCanModifySuperAdminRole(req, targetId)
+      await assertCanAccessRoleTarget(req, targetId)
     } catch (err) {
       if (err instanceof CrudHttpError) {
         return NextResponse.json(err.body, { status: err.status })
@@ -272,6 +299,33 @@ async function assertCanModifySuperAdminRole(req: Request, targetRoleId: string)
     organizationId: auth.orgId ?? null,
     targetRoleId,
   })
+}
+
+async function assertCanAccessRoleTarget(req: Request, targetRoleId: string) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.sub) throw new CrudHttpError(401, { error: 'Unauthorized' })
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  await assertActorCanAccessRoleTarget({
+    em,
+    rbacService: container.resolve('rbacService') as RbacService,
+    actorUserId: auth.sub,
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    targetRoleId,
+  })
+}
+
+function resolveDeleteTargetId(parsed: unknown, raw: unknown): string | null {
+  const fromParsed = readId(parsed as Record<string, unknown> | null | undefined)
+  if (fromParsed) return fromParsed
+  const rawRecord = raw as { body?: Record<string, unknown>; query?: Record<string, unknown> } | null | undefined
+  return readId(rawRecord?.query) ?? readId(rawRecord?.body)
+}
+
+function readId(record: Record<string, unknown> | null | undefined): string | null {
+  const value = record?.id
+  return typeof value === 'string' && value.length > 0 ? value : null
 }
 
 export const openApi: OpenApiRouteDoc = {

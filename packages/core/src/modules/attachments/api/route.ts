@@ -437,7 +437,26 @@ export async function POST(req: Request) {
     content: extractedContent,
     storageMetadata: metadata,
   })
-  await em.persist(att).flush()
+  // Persist the attachment row and its custom-field values atomically so a
+  // custom-field failure cannot leave behind a committed orphan attachment.
+  try {
+    await em.transactional(async (tx) => {
+      await tx.persist(att).flush()
+      if (dataEngine) {
+        await setCustomFieldsIfAny({
+          dataEngine,
+          entityId: E.attachments.attachment,
+          recordId: attachmentId,
+          tenantId,
+          organizationId: orgId,
+          values: customFieldValues,
+        })
+      }
+    })
+  } catch (error) {
+    console.error('[attachments] failed to persist attachment with custom attributes', error)
+    return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
+  }
 
   if (useLlmOcr) {
     requestOcrProcessing(em, att, uploadDriver, storedPath).catch((error) => {
@@ -448,19 +467,6 @@ export async function POST(req: Request) {
   }
 
   if (dataEngine) {
-    try {
-      await setCustomFieldsIfAny({
-        dataEngine,
-        entityId: E.attachments.attachment,
-        recordId: attachmentId,
-        tenantId,
-        organizationId: orgId,
-        values: customFieldValues,
-      })
-    } catch (error) {
-      console.error('[attachments] failed to persist custom attributes', error)
-      return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
-    }
     await emitCrudSideEffects({
       dataEngine,
       action: 'created',

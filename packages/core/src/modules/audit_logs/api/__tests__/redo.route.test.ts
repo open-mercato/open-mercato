@@ -135,4 +135,36 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
     )
     expect(mockLogs.markRedone).toHaveBeenCalledWith('log-undo')
   })
+
+  it('uses tenant-level latest-undone scope for logs without organization id', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    const log = {
+      id: 'log-tenant',
+      commandId: 'directory.organizations.create',
+      actionLabel: 'Create organization',
+      resourceKind: 'directory.organization',
+      resourceId: 'org-created',
+      executionState: 'undone',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      commandPayload: { __redoInput: {} },
+      contextJson: null,
+    }
+    mockLogs.findById.mockResolvedValue(log)
+    mockLogs.latestUndoneForActor.mockResolvedValue(log)
+
+    const res = await POST(makeRequest({ logId: 'log-tenant' }))
+
+    expect(res.status).toBe(200)
+    expect(mockLogs.latestUndoneForActor).toHaveBeenCalledWith('user-1', {
+      tenantId: 'tenant-1',
+      organizationId: null,
+    })
+  })
 })

@@ -8,6 +8,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import {
   CustomerEntity,
   CustomerPersonCompanyLink,
@@ -115,10 +116,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       throw new CrudHttpError(404, { error: translate('customers.errors.company_not_found', 'Company not found') })
     }
 
-    const allowedOrgIds = new Set<string>()
-    if (scope?.filterIds?.length) scope.filterIds.forEach((entry) => allowedOrgIds.add(entry))
-    else if (auth.orgId) allowedOrgIds.add(auth.orgId)
-    if (allowedOrgIds.size > 0 && company.organizationId && !allowedOrgIds.has(company.organizationId)) {
+    if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: company.organizationId })) {
       throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
     }
 

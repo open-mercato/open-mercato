@@ -1,4 +1,5 @@
 import {
+  commandActorScope,
   ensureTenantScope,
   ensureOrganizationScope,
   ensureSameScope,
@@ -9,10 +10,14 @@ import {
   requireProduct,
   requireVariant,
   requireOffer,
+  requirePriceKind,
   requireOptionSchemaTemplate,
+  type RequireScope,
 } from '../shared'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 
 describe('catalog command shared helpers', () => {
@@ -90,41 +95,110 @@ describe('catalog command shared helpers', () => {
     expect(toNumericString(null)).toBeNull()
   })
 
-  type MockEm = { findOne: jest.Mock }
-  const entityTests: Array<{
-    label: string
-    fn: (em: MockEm) => Promise<unknown>
-    expectedArgs: [Record<string, unknown>, Record<string, unknown>?]
-  }> = [
-    { label: 'requireProduct', fn: (em) => requireProduct(em, 'prod'), expectedArgs: [{ id: 'prod', deletedAt: null }] },
-    {
-      label: 'requireVariant',
-      fn: (em) => requireVariant(em, 'variant'),
-      expectedArgs: [{ id: 'variant', deletedAt: null }, { populate: ['product'] }],
-    },
-    { label: 'requireOffer', fn: (em) => requireOffer(em, 'offer'), expectedArgs: [{ id: 'offer' }] },
-    {
-      label: 'requireOptionSchemaTemplate',
-      fn: (em) => requireOptionSchemaTemplate(em, 'schema'),
-      expectedArgs: [{ id: 'schema', deletedAt: null }],
-    },
+  describe('commandActorScope', () => {
+    it('returns the actor tenant and organization for a scoped user', () => {
+      expect(commandActorScope(createCtx())).toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
+    })
+
+    it('prefers the explicitly selected organization id', () => {
+      expect(commandActorScope(createCtx({ selectedOrganizationId: 'org-9' }))).toEqual({
+        tenantId: 'tenant-1',
+        organizationId: 'org-9',
+      })
+    })
+
+    it('leaves the organization unrestricted for super admins', () => {
+      expect(commandActorScope(createCtx({ auth: { isSuperAdmin: true } }))).toEqual({
+        tenantId: 'tenant-1',
+        organizationId: null,
+      })
+    })
+
+    it('leaves the organization unrestricted for global-org actors', () => {
+      const scope = { selectedId: null, filterIds: null, allowedIds: null, tenantId: 'tenant-1' } as OrganizationScope
+      expect(commandActorScope(createCtx({ organizationScope: scope }))).toEqual({
+        tenantId: 'tenant-1',
+        organizationId: null,
+      })
+    })
+  })
+
+  // The mock EM behaves like the SQL layer: it only returns the seeded record when the
+  // where clause's tenant/org match it. This proves the require* helpers filter by scope
+  // (the test fails on the pre-fix unscoped implementation, which returned the row regardless).
+  type ScopedEntity = { id: string; tenantId: string; organizationId: string }
+  const makeScopedEm = (entity: ScopedEntity) => {
+    const findOne = jest.fn(async (_entityName: unknown, where: Record<string, unknown>) => {
+      if (where.id !== entity.id) return null
+      if (where.tenantId !== undefined && where.tenantId !== entity.tenantId) return null
+      if (where.organizationId !== undefined && where.organizationId !== entity.organizationId) return null
+      return entity
+    })
+    return { em: { findOne } as unknown as EntityManager, findOne }
+  }
+
+  const sameScope: RequireScope = { tenantId: 'tenant-1', organizationId: 'org-1' }
+  const foreignTenantScope: RequireScope = { tenantId: 'tenant-2', organizationId: 'org-1' }
+
+  const scopedHelpers: Array<{ label: string; call: (em: EntityManager, scope: RequireScope) => Promise<unknown> }> = [
+    { label: 'requireProduct', call: (em, scope) => requireProduct(em, 'rec', scope) },
+    { label: 'requireVariant', call: (em, scope) => requireVariant(em, 'rec', scope) },
+    { label: 'requireOffer', call: (em, scope) => requireOffer(em, 'rec', scope) },
+    { label: 'requireOptionSchemaTemplate', call: (em, scope) => requireOptionSchemaTemplate(em, 'rec', scope) },
   ]
 
-  for (const { label, fn, expectedArgs } of entityTests) {
-    it(`${label} resolves entities or throws`, async () => {
-      const entity = { id: 'record' }
-      const findOne = jest.fn().mockResolvedValue(entity)
-      const em = { findOne }
+  for (const { label, call } of scopedHelpers) {
+    describe(label, () => {
+      const entity: ScopedEntity = { id: 'rec', tenantId: 'tenant-1', organizationId: 'org-1' }
 
-      await expect(fn(em)).resolves.toBe(entity)
-      expect(findOne).toHaveBeenCalledWith(
-        expect.any(Function),
-        expectedArgs[0],
-        expectedArgs[1] ?? undefined,
-      )
+      it('returns the record and scopes the query when tenant/org match', async () => {
+        const { em, findOne } = makeScopedEm(entity)
+        await expect(call(em, sameScope)).resolves.toBe(entity)
+        const where = findOne.mock.calls[0][1] as Record<string, unknown>
+        expect(where).toMatchObject({ id: 'rec', tenantId: 'tenant-1', organizationId: 'org-1' })
+      })
 
-      findOne.mockResolvedValue(null)
-      await expect(fn(em)).rejects.toBeInstanceOf(CrudHttpError)
+      it('throws 404 for a cross-tenant id', async () => {
+        const { em } = makeScopedEm(entity)
+        await expect(call(em, foreignTenantScope)).rejects.toBeInstanceOf(CrudHttpError)
+      })
+
+      it('omits the tenant/org filters when scope is null (super-admin lookup)', async () => {
+        const { em, findOne } = makeScopedEm(entity)
+        await expect(call(em, { tenantId: null, organizationId: null })).resolves.toBe(entity)
+        const where = findOne.mock.calls[0][1] as Record<string, unknown>
+        expect(where.tenantId).toBeUndefined()
+        expect(where.organizationId).toBeUndefined()
+      })
     })
   }
+
+  // Price kinds are tenant-global (organization_id is always null, unique key (tenant_id, code)).
+  // requirePriceKind must scope by tenant only; applying a caller's concrete org would never match
+  // the null row — the regression that returned 404 on price create for an org-scoped product/variant.
+  describe('requirePriceKind', () => {
+    const tenantGlobalPriceKind = { id: 'pk', tenantId: 'tenant-1', organizationId: null as string | null }
+    const makePriceKindEm = () => {
+      const findOne = jest.fn(async (_entityName: unknown, where: Record<string, unknown>) => {
+        if (where.id !== tenantGlobalPriceKind.id) return null
+        if (where.tenantId !== undefined && where.tenantId !== tenantGlobalPriceKind.tenantId) return null
+        if (where.organizationId !== undefined && where.organizationId !== tenantGlobalPriceKind.organizationId) return null
+        return tenantGlobalPriceKind
+      })
+      return { em: { findOne } as unknown as EntityManager, findOne }
+    }
+
+    it('scopes by tenant only and ignores the caller org (finds the tenant-global row)', async () => {
+      const { em, findOne } = makePriceKindEm()
+      await expect(requirePriceKind(em, 'pk', sameScope)).resolves.toBe(tenantGlobalPriceKind)
+      const where = findOne.mock.calls[0][1] as Record<string, unknown>
+      expect(where.tenantId).toBe('tenant-1')
+      expect(where.organizationId).toBeUndefined()
+    })
+
+    it('throws 404 for a cross-tenant id', async () => {
+      const { em } = makePriceKindEm()
+      await expect(requirePriceKind(em, 'pk', foreignTenantScope)).rejects.toBeInstanceOf(CrudHttpError)
+    })
+  })
 })

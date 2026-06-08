@@ -89,6 +89,9 @@ describe('sales quote update cache + snapshot refresh', () => {
     const em = {
       findOne,
       flush: jest.fn(async () => {}),
+      begin: jest.fn(async () => {}),
+      commit: jest.fn(async () => {}),
+      rollback: jest.fn(async () => {}),
       fork: () => em,
     }
 

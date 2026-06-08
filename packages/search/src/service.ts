@@ -26,6 +26,31 @@ const DEFAULT_MERGE_CONFIG: ResultMergeConfig = {
  */
 const STRATEGY_AVAILABILITY_CACHE_TTL_MS = 2_000
 
+function normalizeOrganizationFilter(options: SearchOptions): string[] | null {
+  const single = typeof options.organizationId === 'string' ? options.organizationId.trim() : ''
+  if (single) return [single]
+  if (!Array.isArray(options.organizationIds)) return null
+
+  const values = Array.from(new Set(
+    options.organizationIds
+      .map((value) => (typeof value === 'string' ? value.trim() : ''))
+      .filter((value) => value.length > 0),
+  ))
+  return values
+}
+
+function filterResultsByOrganizationScope(results: SearchResult[], options: SearchOptions): SearchResult[] {
+  const organizationIds = normalizeOrganizationFilter(options)
+  if (!organizationIds) return results
+  if (organizationIds.length === 0) return []
+
+  const allowed = new Set(organizationIds)
+  return results.filter((result) => {
+    const organizationId = typeof result.organizationId === 'string' ? result.organizationId.trim() : ''
+    return organizationId.length > 0 && allowed.has(organizationId)
+  })
+}
+
 /**
  * SearchService orchestrates multiple search strategies, executing searches in parallel
  * and merging results using the RRF algorithm.
@@ -87,6 +112,11 @@ export class SearchService {
    * @returns Merged and ranked search results
    */
   async search(query: string, options: SearchOptions): Promise<SearchResult[]> {
+    const organizationIds = normalizeOrganizationFilter(options)
+    if (organizationIds && organizationIds.length === 0) {
+      return []
+    }
+
     const strategyIds = options.strategies ?? this.defaultStrategies
     const activeStrategies = await this.getAvailableStrategies(strategyIds)
 
@@ -126,9 +156,10 @@ export class SearchService {
 
     // Merge and rank results
     const merged = mergeAndRankResults(allResults, this.mergeConfig)
+    const scoped = filterResultsByOrganizationScope(merged, options)
 
     // Enrich results missing presenter or navigation metadata
-    return this.enrichResultsWithPresenter(merged, options.tenantId, options.organizationId)
+    return this.enrichResultsWithPresenter(scoped, options.tenantId, options.organizationId)
   }
 
   /**

@@ -1,7 +1,6 @@
 export { }
 
 import { FeatureToggle } from '../../data/entities'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const registerCommand = jest.fn()
 const invalidateIsEnabledCacheByIdentifierTag = jest.fn().mockResolvedValue(undefined)
@@ -50,10 +49,14 @@ describe('feature_toggles.global commands', () => {
                 flush: jest.fn().mockResolvedValue(undefined),
                 findOne: jest.fn(),
             }
+            const dataEngine = {
+                markOrmEntityChange: jest.fn(),
+            }
 
             const container = {
                 resolve: jest.fn((token: string) => {
                     if (token === 'em') return em
+                    if (token === 'dataEngine') return dataEngine
                     if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
                     return undefined
                 }),
@@ -61,6 +64,7 @@ describe('feature_toggles.global commands', () => {
 
             const ctx: any = {
                 container,
+                auth: { isSuperAdmin: true },
             }
 
             const input = {
@@ -85,6 +89,96 @@ describe('feature_toggles.global commands', () => {
             }))
             expect(em.persist).toHaveBeenCalled()
             expect(em.flush).toHaveBeenCalled()
+            expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+                action: 'created',
+                entity: expect.objectContaining({ id: 'new-toggle-id' }),
+                indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
+            }))
+        })
+
+        it('rejects a non-super-admin caller with 403 and never writes (issue #2266)', async () => {
+            let createCommand: any
+            let updateCommand: any
+            let deleteCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                createCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.create')?.[0]
+                updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.update')?.[0]
+                deleteCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.delete')?.[0]
+            })
+
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                create: jest.fn(),
+                persist: jest.fn(),
+                remove: jest.fn(),
+                flush: jest.fn().mockResolvedValue(undefined),
+                findOne: jest.fn(),
+                find: jest.fn(),
+            }
+            const container = { resolve: jest.fn(() => em) }
+            // Tenant admin (not super-admin) — the cross-tenant escalation vector.
+            const ctx: any = { container, auth: { isSuperAdmin: false, tenantId: 'tenant-a' } }
+
+            await expect(
+                createCommand.execute({ identifier: 'x', name: 'X', type: 'boolean', defaultValue: true }, ctx),
+            ).rejects.toMatchObject({ status: 403 })
+
+            await expect(
+                updateCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx),
+            ).rejects.toMatchObject({ status: 403 })
+
+            await expect(
+                deleteCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx),
+            ).rejects.toMatchObject({ status: 403 })
+
+            // The guard must short-circuit before any persistence work.
+            expect(em.flush).not.toHaveBeenCalled()
+            expect(em.persist).not.toHaveBeenCalled()
+            expect(em.remove).not.toHaveBeenCalled()
+        })
+
+        it('allows a trusted system actor (no auth) to create global toggles for seeding (issue #2278)', async () => {
+            let createCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                createCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.create')?.[0]
+            })
+
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                create: jest.fn((_ctor, data) => ({ ...data, id: 'seeded-toggle-id' })),
+                persist: jest.fn(),
+                flush: jest.fn().mockResolvedValue(undefined),
+                findOne: jest.fn(),
+            }
+            const dataEngine = {
+                markOrmEntityChange: jest.fn(),
+            }
+            const container = {
+                resolve: jest.fn((token: string) => {
+                    if (token === 'em') return em
+                    if (token === 'dataEngine') return dataEngine
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
+                    return undefined
+                }),
+            }
+            // CLI seeding context: no authenticated actor, explicit systemActor flag.
+            const ctx: any = { container, auth: null, systemActor: true }
+
+            const result = await createCommand.execute(
+                { identifier: 'seeded_feature', name: 'Seeded Feature', type: 'boolean', defaultValue: true },
+                ctx,
+            )
+
+            expect(result).toEqual({ toggleId: 'seeded-toggle-id' })
+            expect(em.persist).toHaveBeenCalled()
+            expect(em.flush).toHaveBeenCalled()
+            expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+                action: 'created',
+                entity: expect.objectContaining({ id: 'seeded-toggle-id' }),
+                indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
+            }))
         })
 
         it('undoes creation successfully including potential overrides', async () => {
@@ -110,16 +204,20 @@ describe('feature_toggles.global commands', () => {
                 flush: jest.fn().mockResolvedValue(undefined),
                 resolve: jest.fn()
             }
+            const dataEngine = {
+                markOrmEntityChange: jest.fn(),
+            }
 
             const container = {
                 resolve: jest.fn((token: string) => {
                     if (token === 'em') return em
+                    if (token === 'dataEngine') return dataEngine
                     if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
                     return undefined
                 }),
             }
 
-            const ctx: any = { container }
+            const ctx: any = { container, auth: { isSuperAdmin: true } }
             const logEntry = { resourceId: toggleId }
 
             await createCommand.undo({ logEntry, ctx })
@@ -128,6 +226,59 @@ describe('feature_toggles.global commands', () => {
             expect(em.remove).toHaveBeenCalledWith(potentialOverrides)
             expect(em.remove).toHaveBeenCalledWith(existingToggle)
             expect(em.flush).toHaveBeenCalled()
+            expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+                action: 'deleted',
+                entity: existingToggle,
+                indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
+            }))
+        })
+
+        it('redo emits created side effects for restored toggles', async () => {
+            let createCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                createCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.create')?.[0]
+            })
+
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                findOne: jest.fn().mockResolvedValue(null),
+                create: jest.fn((_ctor, data) => ({ ...data })),
+                persist: jest.fn(),
+                flush: jest.fn().mockResolvedValue(undefined),
+            }
+            const dataEngine = {
+                markOrmEntityChange: jest.fn(),
+            }
+            const container = {
+                resolve: jest.fn((token: string) => {
+                    if (token === 'em') return em
+                    if (token === 'dataEngine') return dataEngine
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
+                    return undefined
+                }),
+            }
+            const ctx: any = { container, auth: { isSuperAdmin: true, tenantId: 'tenant-1' } }
+            const snapshot = {
+                id: 'toggle-id',
+                identifier: 'qa.redo',
+                name: 'QA Redo',
+                description: null,
+                category: 'qa',
+                type: 'boolean',
+                defaultValue: true,
+            }
+
+            const result = await createCommand.redo({ logEntry: { snapshotAfter: snapshot }, ctx })
+
+            expect(result).toEqual({ toggleId: 'toggle-id' })
+            expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+                action: 'created',
+                entity: expect.objectContaining({ id: 'toggle-id', identifier: 'qa.redo' }),
+                identifiers: expect.objectContaining({ id: 'toggle-id', organizationId: null, tenantId: 'tenant-1' }),
+                indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
+            }))
+            expect(invalidateIsEnabledCacheByIdentifierTag).toHaveBeenCalledWith('qa.redo')
         })
     })
 
@@ -153,16 +304,20 @@ describe('feature_toggles.global commands', () => {
                 flush: jest.fn().mockResolvedValue(undefined),
                 resolve: jest.fn()
             }
+            const dataEngine = {
+                markOrmEntityChange: jest.fn(),
+            }
 
             const container = {
                 resolve: jest.fn((token: string) => {
                     if (token === 'em') return em
+                    if (token === 'dataEngine') return dataEngine
                     if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
                     return undefined
                 }),
             }
 
-            const ctx: any = { container }
+            const ctx: any = { container, auth: { isSuperAdmin: true } }
 
             const input = {
                 id: '123e4567-e89b-12d3-a456-426614174000',
@@ -173,10 +328,15 @@ describe('feature_toggles.global commands', () => {
             const result = await updateCommand.execute(input, ctx)
 
             expect(result).toEqual({ toggleId: '123e4567-e89b-12d3-a456-426614174000' })
-            expect(em.findOne).toHaveBeenCalledWith(expect.any(Function), { id: '123e4567-e89b-12d3-a456-426614174000' })
+            expect(em.findOne).toHaveBeenCalledWith(expect.any(Function), { id: '123e4567-e89b-12d3-a456-426614174000', deletedAt: null })
             expect(existingToggle.name).toBe('New Name')
             expect(existingToggle.defaultValue).toBe(true)
             expect(em.flush).toHaveBeenCalled()
+            expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+                action: 'updated',
+                entity: existingToggle,
+                indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
+            }))
             expect(invalidateIsEnabledCacheByIdentifierTag).toHaveBeenCalledWith('test_feature')
         })
 
@@ -199,14 +359,14 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container }
+            const ctx: any = { container, auth: { isSuperAdmin: true } }
 
             await expect(updateCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)).rejects.toThrow('Toggle not found')
         })
     })
 
     describe('deleteToggleCommand', () => {
-        it('deletes a feature toggle and its overrides successfully', async () => {
+        it('soft deletes a feature toggle while preserving overrides', async () => {
             let deleteCommand: any
             jest.isolateModules(() => {
                 require('../global')
@@ -233,6 +393,9 @@ describe('feature_toggles.global commands', () => {
                 create: jest.fn((_ctor, data) => data),
                 persist: jest.fn(),
             }
+            const dataEngine = {
+                markOrmEntityChange: jest.fn(),
+            }
             const mockCommandBus = {
                 execute: jest.fn(),
                 dispatch: jest.fn(),
@@ -243,21 +406,30 @@ describe('feature_toggles.global commands', () => {
             const container = {
                 resolve: jest.fn((key: string) => {
                     if (key === 'em') return em
+                    if (key === 'dataEngine') return dataEngine
                     if (key === 'commandBus') return mockCommandBus
                     if (key === 'featureTogglesService') return mockFeatureTogglesService
                     return null
                 })
             }
 
-            const ctx: any = { container }
+            const ctx: any = { container, auth: { isSuperAdmin: true } }
 
             const result = await deleteCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)
 
             expect(result).toEqual({ toggleId: '123e4567-e89b-12d3-a456-426614174000' })
-            expect(em.find).toHaveBeenCalledWith(expect.anything(), { toggle: '123e4567-e89b-12d3-a456-426614174000' })
-            expect(em.remove).toHaveBeenCalledWith(existingOverrides)
-            expect(em.remove).toHaveBeenCalledWith(existingToggle)
+            expect(em.findOne).toHaveBeenCalledWith(expect.anything(), {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                deletedAt: null,
+            })
+            expect(existingToggle).toEqual(expect.objectContaining({ deletedAt: expect.any(Date) }))
+            expect(em.remove).not.toHaveBeenCalled()
             expect(em.flush).toHaveBeenCalled()
+            expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+                action: 'deleted',
+                entity: existingToggle,
+                indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
+            }))
             expect(invalidateIsEnabledCacheByIdentifierTag).toHaveBeenCalledWith('test_feature')
 
             const prepareResult = await deleteCommand.prepare({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)
@@ -317,7 +489,7 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container }
+            const ctx: any = { container, auth: { isSuperAdmin: true } }
 
             await expect(deleteCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)).rejects.toThrow('Feature toggle not found')
         })

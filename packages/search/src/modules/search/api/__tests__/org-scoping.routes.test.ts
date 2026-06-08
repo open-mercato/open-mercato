@@ -71,12 +71,13 @@ describe('Search API organizationId scoping', () => {
 
     const passedOptions = (searchService.search as jest.Mock).mock.calls[0][1] as Record<string, unknown>
     expect(passedOptions.organizationId).toEqual('org-A')
+    expect(passedOptions.organizationIds).toEqual(['org-A'])
 
     const body = await res.json()
     expect(Array.isArray(body.results)).toBe(true)
   })
 
-  test('/api/search/search/global uses resolved org scope (all orgs, non-superadmin)', async () => {
+  test('/api/search/search/global uses full allowed org scope when no single org is selected', async () => {
     mockGetAuthFromRequest.mockResolvedValue({ tenantId: 't1', orgId: 'org-A', sub: 'user-1', isSuperAdmin: false })
 
     const searchService = {
@@ -99,6 +100,33 @@ describe('Search API organizationId scoping', () => {
 
     const passedOptions = (searchService.search as jest.Mock).mock.calls[0][1] as Record<string, unknown>
     expect(passedOptions.organizationId).toBeUndefined()
+    expect(passedOptions.organizationIds).toEqual(['org-A', 'org-B'])
+  })
+
+  test('/api/search/search uses full allowed org scope when restricted user has no selected org', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({ tenantId: 't1', orgId: 'org-A', sub: 'user-1', isSuperAdmin: false })
+
+    const searchService = {
+      search: jest.fn().mockResolvedValue([]),
+    }
+    const container = {
+      resolve: jest.fn((name: string) => (name === 'searchService' ? searchService : undefined)),
+      dispose: jest.fn(),
+    }
+    mockCreateRequestContainer.mockResolvedValue(container)
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: null,
+      filterIds: ['org-A', 'org-B'],
+      allowedIds: ['org-A', 'org-B'],
+      tenantId: 't1',
+    } satisfies MockOrganizationScope)
+
+    const req = new Request('http://localhost/api/search/search?q=test')
+    await hybridSearchGet(req)
+
+    const passedOptions = (searchService.search as jest.Mock).mock.calls[0][1] as Record<string, unknown>
+    expect(passedOptions.organizationId).toBeUndefined()
+    expect(passedOptions.organizationIds).toEqual(['org-A', 'org-B'])
   })
 
   test('/api/search/index list respects resolved org scope and does not default to org NULL', async () => {

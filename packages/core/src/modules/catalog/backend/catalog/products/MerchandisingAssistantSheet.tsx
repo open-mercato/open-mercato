@@ -45,6 +45,7 @@ import { ChatPaneTabs } from '@open-mercato/ui/ai/ChatPaneTabs'
 import '../../../components/CatalogStatsCard'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { ButtonGroup } from '@open-mercato/ui/primitives/button-group'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import {
   Dialog,
@@ -387,7 +388,7 @@ export function MerchandisingAssistantSheet({
 
   return (
     <>
-      <div className={cn('inline-flex items-center', className)}>
+      <ButtonGroup className={className}>
         <Button
           type="button"
           variant="outline"
@@ -395,10 +396,7 @@ export function MerchandisingAssistantSheet({
           data-ai-merchandising-trigger=""
           aria-label={triggerLabel}
           title={triggerLabel}
-          className={cn(
-            'relative',
-            agents.length > 1 && 'rounded-r-none border-r-0',
-          )}
+          className="relative"
         >
           <AiIcon className="size-4" />
           <span>{labelText}</span>
@@ -417,10 +415,8 @@ export function MerchandisingAssistantSheet({
               <IconButton
                 type="button"
                 variant="outline"
-                size="lg"
                 aria-label={moreAgentsLabel}
                 title={moreAgentsLabel}
-                className="rounded-l-none"
                 data-ai-merchandising-picker=""
               >
                 <ChevronDown className="size-4" aria-hidden />
@@ -454,7 +450,7 @@ export function MerchandisingAssistantSheet({
             </PopoverContent>
           </Popover>
         ) : null}
-      </div>
+      </ButtonGroup>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           className={cn(

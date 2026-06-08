@@ -8,7 +8,11 @@ import { loadQueryIndexRowScope, resolveQueryIndexRecordScope } from '../lib/sub
 export const metadata = { event: 'query_index.delete_one', persistent: false }
 
 export default async function handle(payload: any, ctx: { resolve: <T=any>(name: string) => T }) {
-  const em = ctx.resolve<any>('em')
+  // Forked EntityManager — this awaited subscriber runs synchronously on the request
+  // `em`; isolating it prevents our queries/writes from resetting the originating CRUD
+  // write's UnitOfWork and dropping its pending changes. See upsert_one.ts for detail.
+  const baseEm = ctx.resolve<any>('em')
+  const em = typeof baseEm?.fork === 'function' ? baseEm.fork() : baseEm
   const entityType = String(payload?.entityType || '')
   const recordId = String(payload?.recordId || '')
   if (!entityType || !recordId) return
@@ -73,24 +77,40 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       }
     }
 
+    // The projection row + token removal above are synchronous (the data engine
+    // awaits this subscriber) so list reads are consistent immediately. The coverage
+    // recompute (a COUNT, run inline when delayMs is 0) and the fulltext delete are
+    // secondary, so defer them fire-and-forget to keep write/bulk-delete latency bounded.
     const shouldRefreshCoverage = coverageDelayMs === undefined || coverageDelayMs >= 0
-    if (shouldRefreshCoverage) {
-      const delay = coverageDelayMs ?? 0
+    const coverageRefreshDelay = coverageDelayMs ?? 0
+    void (async () => {
       try {
         const bus = ctx.resolve<any>('eventBus')
-        await bus.emitEvent('query_index.coverage.refresh', {
-          entityType,
-          tenantId: tenantId ?? null,
-          organizationId: organizationId ?? null,
-          delayMs: delay,
-        })
-      } catch {}
-    }
-    // Emit search delete event
-    try {
-      const bus = ctx.resolve<any>('eventBus')
-      await bus.emitEvent('search.delete_record', { entityId: entityType, recordId, organizationId, tenantId })
-    } catch {}
+        if (shouldRefreshCoverage) {
+          await bus.emitEvent('query_index.coverage.refresh', {
+            entityType,
+            tenantId: tenantId ?? null,
+            organizationId: organizationId ?? null,
+            delayMs: coverageRefreshDelay,
+          })
+        }
+        await bus.emitEvent('search.delete_record', { entityId: entityType, recordId, organizationId, tenantId })
+      } catch (error) {
+        await recordIndexerError(
+          { em },
+          {
+            source: 'query_index',
+            handler: 'event:query_index.delete_one:coverage_search',
+            error,
+            entityType,
+            recordId,
+            tenantId: tenantId ?? null,
+            organizationId: organizationId ?? null,
+            payload,
+          },
+        ).catch(() => {})
+      }
+    })()
   } catch (error) {
     await recordIndexerError(
       { em },

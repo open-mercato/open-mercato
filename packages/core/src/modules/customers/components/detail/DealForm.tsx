@@ -805,11 +805,12 @@ export function DealForm({
       label: t('customers.people.detail.deals.fields.pipeline', 'Pipeline'),
       type: 'custom',
       layout: 'half',
-      component: ({ value, setValue }) => (
+      component: ({ value, setValue, setFormValue }) => (
         <Select
           value={typeof value === 'string' && value ? value : undefined}
           onValueChange={(next) => {
             setValue(next ?? '')
+            setFormValue?.('pipelineStageId', '')
             loadStagesForPipeline(next ?? '').catch(() => {})
           }}
           disabled={disabled}
@@ -869,6 +870,7 @@ export function DealForm({
             allowInlineCreate={false}
             allowAppearance={false}
             selectClassName="w-full"
+            sortOptions="none"
             disabled={disabled}
             showLabelInput={false}
           />

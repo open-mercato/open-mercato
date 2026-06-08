@@ -12,8 +12,19 @@ const mockDataEngine = {
   updateCustomEntityRecord: jest.fn(async () => undefined),
 }
 
+const mockRbac = {
+  resolveVisibleOrganizations: jest.fn(async () => ['org']),
+  loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: [], organizations: null })),
+}
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: async () => ({ resolve: (k: string) => (k === 'em' ? mockEm : mockDataEngine) }),
+  createRequestContainer: async () => ({
+    resolve: (k: string) => {
+      if (k === 'em') return mockEm
+      if (k === 'rbacService') return mockRbac
+      return mockDataEngine
+    },
+  }),
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] }) }))

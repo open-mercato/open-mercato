@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
+import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboarding/lib/ready-email'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -14,9 +14,29 @@ export const metadata = {
   },
 }
 
+const ONBOARDING_LOGIN_TENANT_COOKIE = 'om_login_tenant'
+
 const onboardingStatusQuerySchema = z.object({
   tenantId: z.string().uuid(),
 })
+
+function readCookie(req: Request, name: string): string | null {
+  const header = req.headers.get('cookie')
+  if (!header) return null
+  for (const part of header.split(';')) {
+    const separatorIndex = part.indexOf('=')
+    if (separatorIndex === -1) continue
+    const key = part.slice(0, separatorIndex).trim()
+    if (key !== name) continue
+    const rawValue = part.slice(separatorIndex + 1).trim()
+    try {
+      return decodeURIComponent(rawValue)
+    } catch {
+      return rawValue
+    }
+  }
+  return null
+}
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
@@ -26,7 +46,22 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid tenant id.' }, { status: 400 })
   }
 
-  const baseUrl = getAppBaseUrl(req)
+  const loginTenantCookie = readCookie(req, ONBOARDING_LOGIN_TENANT_COOKIE)
+  if (!loginTenantCookie || loginTenantCookie !== parsed.data.tenantId) {
+    return NextResponse.json({ ok: false, error: 'Not authorized for this tenant.' }, { status: 403 })
+  }
+
+  let baseUrl: string
+  try {
+    baseUrl = getSecurityEmailBaseUrl(req)
+  } catch (error) {
+    const mapped = mapSecurityEmailUrlError(error, {
+      scope: 'onboarding.status',
+      configMessage: 'Onboarding status is not configured.',
+    })
+    if (mapped) return NextResponse.json({ ok: false, error: mapped.body.error }, { status: mapped.status })
+    throw error
+  }
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const service = new OnboardingService(em)
@@ -43,7 +78,6 @@ export async function GET(req: Request) {
     try {
       emailSent = await sendWorkspaceReadyEmail({
         requestId: request.id,
-        baseUrl,
         tenantId: request.tenantId,
       })
     } catch (error) {
@@ -91,8 +125,10 @@ const onboardingStatusDoc: OpenApiMethodDoc = {
     { status: 200, description: 'Onboarding status resolved.', schema: onboardingStatusSuccessSchema },
   ],
   errors: [
-    { status: 400, description: 'Invalid tenant id.', schema: onboardingStatusErrorSchema },
+    { status: 400, description: 'Invalid tenant id or request origin.', schema: onboardingStatusErrorSchema },
+    { status: 403, description: 'Caller is not authorized for this tenant.', schema: onboardingStatusErrorSchema },
     { status: 404, description: 'Onboarding request not found.', schema: onboardingStatusErrorSchema },
+    { status: 500, description: 'Onboarding status is not configured.', schema: onboardingStatusErrorSchema },
   ],
 }
 

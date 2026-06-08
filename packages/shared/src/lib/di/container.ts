@@ -1,4 +1,4 @@
-import { createContainer, asValue, AwilixContainer, InjectionMode, type Resolver } from 'awilix'
+import { asFunction, createContainer, asValue, AwilixContainer, InjectionMode, type Resolver } from 'awilix'
 import { RequestContext } from '@mikro-orm/core'
 import { getOrm } from '@open-mercato/shared/lib/db/mikro'
 import { EntityManager } from '@mikro-orm/postgresql'
@@ -6,6 +6,8 @@ import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
 import { commandRegistry, CommandBus } from '@open-mercato/shared/lib/commands'
 import { applyDiOverridesToContainer } from '@open-mercato/shared/modules/overrides'
+import { createOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock'
+import { getAllOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 
 type DynamicCradle = Record<string, any>
 
@@ -155,6 +157,20 @@ export async function createRequestContainer(): Promise<AppContainer> {
     dataEngine: asValue(new DefaultDataEngine(em, container as any)),
     commandRegistry: asValue(commandRegistry),
     commandBus: asValue(new CommandBus()),
+    // Default OSS optimistic-lock guard. Reads from the global reader store
+    // (populated by `makeCrudRoute` auto-registration + any module-DI
+    // hand-wired calls to `registerOptimisticLockReaders`). Service is
+    // strictly additive: when `OM_OPTIMISTIC_LOCK=off` (or no header is
+    // sent) it short-circuits at validateMutation. Module-level di.ts
+    // registrations override this default via Awilix replace semantics —
+    // see the enterprise `record_locks` module for the canonical override.
+    // Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md
+    crudMutationGuardService: asFunction(({ em: scopedEm }: { em: EntityManager }) =>
+      createOptimisticLockGuardService({
+        getEm: () => scopedEm,
+        readers: getAllOptimisticLockReaders(),
+      }),
+    ).scoped(),
   })
   // Allow modules to override/extend
   for (const reg of diRegistrars) {

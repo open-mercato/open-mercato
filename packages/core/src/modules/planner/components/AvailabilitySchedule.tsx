@@ -12,6 +12,8 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
 import { GanttChart } from 'lucide-react'
 
@@ -27,6 +29,8 @@ export type AvailabilityRule = {
   kind?: 'availability' | 'unavailability'
   note?: string | null
   createdAt?: string | null
+  updatedAt?: string | null
+  updated_at?: string | null
 }
 
 export type AvailabilityScheduleItemBuilder = (params: {
@@ -368,9 +372,12 @@ export function AvailabilitySchedule({
       exdates: normalizeExdatesInput(values.exdates),
     }
     if (editingRule) {
-      await updateCrud('planner/availability', { id: editingRule.id, ...payload }, {
-        errorMessage: availabilityLabels.updateError,
-      })
+      const headers = buildOptimisticLockHeader(editingRule.updatedAt ?? editingRule.updated_at ?? null)
+      await withScopedApiRequestHeaders(headers, () => (
+        updateCrud('planner/availability', { id: editingRule.id, ...payload }, {
+          errorMessage: availabilityLabels.updateError,
+        })
+      ))
       flash(availabilityLabels.updatedFlash, 'success')
     } else {
       await createCrud('planner/availability', payload, {
@@ -386,10 +393,17 @@ export function AvailabilitySchedule({
 
   const handleAvailabilityDelete = React.useCallback(async () => {
     if (!editingRule) return
-    await deleteCrud('planner/availability', editingRule.id, {
-      errorMessage: availabilityLabels.deleteError,
-    })
-    flash(availabilityLabels.deletedFlash, 'success')
+    const headers = buildOptimisticLockHeader(editingRule.updatedAt ?? editingRule.updated_at ?? null)
+    await withScopedApiRequestHeaders(headers, () => (
+      deleteCrud('planner/availability', editingRule.id, {
+        errorMessage: availabilityLabels.deleteError,
+      })
+    ))
+    // Success/conflict UX is owned by the host CrudForm (it flashes delete success
+    // and surfaces an optimistic-lock 409 on the conflict bar). Do NOT flash success
+    // here: deleteCrud throws on a 409 so this line only ran on a real delete, but the
+    // extra toast duplicated CrudForm's and read as a misleading success (#2409). The
+    // side effects below still run only after a successful delete.
     setDialogOpen(false)
     setEditingRule(null)
     setSlotSeed(null)
@@ -477,6 +491,7 @@ export function AvailabilitySchedule({
             embedded
             fields={availabilityFields}
             initialValues={availabilityInitialValues}
+            optimisticLockUpdatedAt={editingRule?.updatedAt ?? editingRule?.updated_at ?? null}
             submitLabel={editingRule ? availabilityLabels.submitSave : availabilityLabels.submitCreate}
             onSubmit={handleAvailabilitySubmit}
             onDelete={editingRule ? handleAvailabilityDelete : undefined}

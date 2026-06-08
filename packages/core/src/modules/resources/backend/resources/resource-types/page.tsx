@@ -10,8 +10,9 @@ import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/Dat
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Package } from 'lucide-react'
@@ -228,7 +229,10 @@ export default function ResourcesResourceTypesPage() {
     })
     if (!confirmed) return
     try {
-      await deleteCrud('resources/resource-types', entry.id, { errorMessage: translations.errors.delete })
+      const headers = buildOptimisticLockHeader(entry.updatedAt)
+      await withScopedApiRequestHeaders(headers, () => (
+        deleteCrud('resources/resource-types', entry.id, { errorMessage: translations.errors.delete })
+      ))
       flash(translations.messages.deleted, 'success')
       handleRefresh()
     } catch (error) {
@@ -314,4 +318,3 @@ function mapApiResourceType(item: Record<string, unknown>): ResourceTypeRow {
       : 0
   return withDataTableNamespaces({ id, name, description, appearanceIcon, appearanceColor, updatedAt, resourceCount }, item)
 }
-

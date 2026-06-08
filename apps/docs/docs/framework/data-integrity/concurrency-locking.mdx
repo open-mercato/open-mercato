@@ -1,0 +1,503 @@
+---
+id: concurrency-locking
+title: Concurrency & Record Locking
+sidebar_label: Concurrency & Locking
+---
+
+# Concurrency & Record Locking
+
+Open Mercato ships a two-tier locking story:
+
+1. **OSS — optimistic locking via `updated_at`.** Lightweight, additive,
+   no migration. Detects conflicts at write time and surfaces a
+   structured 409 to the client. **Default ON** for every CRUD entity
+   (since 2026-05-27). Operators opt out with `OM_OPTIMISTIC_LOCK=off`.
+2. **Enterprise — full pessimistic locking** via the
+   [`record_locks`](https://github.com/open-mercato/open-mercato/tree/develop/packages/enterprise/src/modules/record_locks)
+   module: acquire/release/heartbeat, presence widgets, force-release,
+   conflict-merge UX, ACL features (`record_locks.*`).
+
+This page documents the **OSS optimistic-lock layer**. The enterprise
+pessimistic layer composes on top of it.
+
+---
+
+## Default state
+
+The OSS optimistic-lock guard is **ON by default** for every CRUD entity
+behind `makeCrudRoute`. There is no per-module wiring step: the platform
+DI bootstrap registers the guard service, and the CRUD factory
+auto-registers a generic `updated_at` reader for every route's
+`resourceKind` at module-load time.
+
+The guard is still strictly additive at runtime:
+
+- Requests that omit the `x-om-ext-optimistic-lock-expected-updated-at`
+  header continue to pass through unchanged (no 409, no behavior change).
+- The only client surface that automatically sends the header is
+  `CrudForm` with `optimisticLockUpdatedAt` set, plus any code that
+  explicitly calls `buildOptimisticLockHeader(...)`.
+
+That means default ON gives every page access to the protection without
+forcing pages to start receiving 409s before they have wired the round-
+trip.
+
+## Opting out
+
+Set `OM_OPTIMISTIC_LOCK=off` in the server environment (also accepted:
+`false` / `0` / `no` / `disabled` / `none`). The guard short-circuits at
+`config.mode === 'off'` before consulting the reader store, so the
+mutation path runs unchanged.
+
+When the enterprise `record_locks` module is also active it owns
+mutation guarding (its `di.ts` overrides the platform-default Awilix
+registration with the pessimistic lock service); the OSS check is
+documented here as the OSS-only path.
+
+---
+
+## Architecture in one diagram
+
+```
+┌──────────────────────┐         ┌─────────────────────────────────────────┐
+│ Client (CrudForm /   │         │ Server                                  │
+│ raw apiCall caller)  │         │                                         │
+│                      │         │   makeCrudRoute (update/delete)         │
+│  Loads record.       │         │     └─ collectAndRunGuards(container)   │
+│  Holds updatedAt.    │ ──PUT─▶ │         └─ runMutationGuards([...])     │
+│  Sends extension     │         │             └─ OptimisticLockGuard      │
+│  header on next      │         │                  ├─ read OM_OPTIMISTIC_LOCK
+│  write.              │ ◀─409── │                  ├─ read header         │
+└──────────────────────┘         │                  ├─ em.findOne(.updatedAt)
+                                 │                  └─ compare → 409?      │
+                                 └─────────────────────────────────────────┘
+```
+
+---
+
+## Scoping in your environment
+
+`OM_OPTIMISTIC_LOCK` lets you narrow or disable the default coverage:
+
+| Value | Behavior |
+|-------|----------|
+| _unset_ / empty / whitespace | **Default ON** — every CRUD entity. Auto-coverage via `makeCrudRoute`. |
+| `all` (any case) | Explicit ON (same as the default). |
+| `customers.company,sales.order` | Allow-list — narrow to these entityTypes (comma-separated, lowercased, trimmed). |
+| `all,customers.company` | `all` wins. |
+| `off` / `false` / `0` / `no` / `disabled` / `none` | OFF — guard short-circuits and the mutation path runs unchanged. |
+| Off-token mixed with entries (e.g. `off,customers.company`) | OFF wins (invalid input → fail safe). |
+
+```bash
+# .env or .env.local — opt out completely
+OM_OPTIMISTIC_LOCK=off
+
+# Or narrow coverage to a specific allow-list
+OM_OPTIMISTIC_LOCK=customers.company,sales.order
+```
+
+Reading happens once at module-load time (process boot). Restart the
+app/dev server after changing the value.
+
+### What does `all` actually cover?
+
+Every CRUD route that goes through `makeCrudRoute` — every entity in
+`apps/mercato`-managed modules (customers, sales, catalog, attachments,
+audit_logs, etc.) — gets an auto-registered generic reader at module
+load time. That reader uses the route's own `orm` config (`idField` /
+`tenantField` / `orgField` / `softDeleteField`) so scope rules match the
+route exactly. There is no per-entity wiring step.
+
+When the auto-registered generic reader would not produce the right
+answer (e.g. a polymorphic table shared between two `resourceKind`s),
+register a more specific reader from the module's `di.ts` via
+`registerOptimisticLockReaders({ … })` BEFORE the factory runs. Hand-
+wired readers always win — the auto-registration uses
+`registerOptimisticLockReaderIfAbsent`, which is a no-op for keys that
+already have a reader.
+
+If a route's entity has no `updated_at` column (rare, but possible —
+legacy tables, virtual entities) the generic reader fails open: the
+`findOne` projection throws, the reader returns `null`, and the guard
+SKIPS the optimistic check for that mutation. The mutation still
+proceeds. The guard never 500s a request because of a schema mismatch.
+
+---
+
+## Wire format
+
+### Client → server
+
+The client echoes the `updatedAt` it last read back as an extension
+header on every `PUT`/`PATCH`/`DELETE`:
+
+```
+x-om-ext-optimistic-lock-expected-updated-at: 2026-05-25T08:42:18.123Z
+```
+
+- Header name follows the project's `x-om-ext-<moduleId>-<key>`
+  convention (see `packages/shared/src/lib/umes/extension-headers.ts`).
+- Value is an ISO-8601 timestamp with **millisecond** precision.
+- **Header absent → guard skips.** This is the opt-in lever for clients
+  that have not been updated to round-trip the token.
+
+### Server → client (409 conflict)
+
+```json
+{
+  "error": "record_modified",
+  "code": "optimistic_lock_conflict",
+  "currentUpdatedAt": "2026-05-25T08:42:18.500Z",
+  "expectedUpdatedAt": "2026-05-25T08:42:18.123Z"
+}
+```
+
+- `code` is the stable machine-readable identifier; pin against this in
+  client helpers (`extractOptimisticLockConflict()` does exactly this).
+- `currentUpdatedAt` is what the DB has right now — enough for a
+  future merge UI to fetch the canonical record without a second
+  round-trip.
+
+---
+
+## Which mechanism to use — DI service vs static guard
+
+> **Read this before adding any new server-side mutation check.** Picking
+> the wrong tool will silently no-op.
+
+The mutation-guard registry exposes two paths:
+
+| | Static `data/guards.ts` | DI `crudMutationGuardService` |
+|---|---|---|
+| Registration | Module exports `guards: MutationGuard[]` | Module's `di.ts` calls `container.register({ crudMutationGuardService: ... })` |
+| Receives `MutationGuardInput` | Yes | Yes |
+| Has access to `em` / container | **No** — pure function | **Yes** — service is container-bound |
+| Right for stateless checks | ✅ | ✅ (heavier) |
+| Right for checks that read DB | ❌ | ✅ |
+
+**Rule:** if your guard compares the request against current DB state —
+optimistic version, presence of a row, current status — register it via
+the DI service path. The optimistic-lock guard in this page does exactly
+that.
+
+---
+
+## Reference implementation (OSS)
+
+For most entities **no module-level wiring is needed** — `makeCrudRoute`
+auto-registers a generic reader at module-load time and the platform DI
+bootstrap registers a default `crudMutationGuardService`. The reference
+below shows the pattern when you do need a hand-wired override (e.g. a
+polymorphic table with a `kind` discriminator).
+
+### 1. Reader: how to fetch the current `updated_at` (polymorphic-table override)
+
+```ts
+// packages/core/src/modules/customers/di.ts
+import type { OptimisticLockCurrentReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
+import { registerOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
+import { CustomerEntity } from './data/entities'
+
+const RESOURCE_KIND_COMPANY = 'customers.company'
+
+const readCustomerCompanyUpdatedAt: OptimisticLockCurrentReader = async (
+  em,
+  { resourceId, tenantId, organizationId },
+) => {
+  const row = await em.findOne(
+    CustomerEntity,
+    {
+      id: resourceId,
+      tenantId,
+      ...(organizationId ? { organizationId } : {}),
+      kind: 'company',
+      deletedAt: null,
+    },
+    { fields: ['updatedAt'] as const },
+  )
+  return row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null
+}
+
+// Module-load-time registration — runs BEFORE makeCrudRoute's
+// IfAbsent auto-registration, so this hand-wired reader wins.
+registerOptimisticLockReaders({
+  [RESOURCE_KIND_COMPANY]: readCustomerCompanyUpdatedAt,
+})
+
+export function register(container) {
+  // ... existing registrations ...
+  // No need to register `crudMutationGuardService` — the shared DI
+  // bootstrap already does it. The service consults the global reader
+  // store at request time, so the hand-wired reader above is picked up
+  // automatically.
+}
+```
+
+Notes:
+
+- The reader only requests `['updatedAt']` so no encrypted PII materializes.
+- The reader narrows by `kind: 'company'` because `customer_entities` is
+  the polymorphic table shared with `customers.person`.
+- `findOneWithDecryption` is **not** required here because no decrypted
+  column is read.
+- Registration is unconditional — the guard's mode check short-circuits
+  when `OM_OPTIMISTIC_LOCK=off`, so registering the reader at boot is
+  cheap and removes any risk of order-dependent gating.
+
+### 2. Client: round-trip the token
+
+```ts
+// On the page that owns the form
+import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+
+async function saveCompany(id: string, payload: CompanyUpdatePayload, record: { updatedAt: string }) {
+  return withScopedApiRequestHeaders(
+    buildOptimisticLockHeader(record.updatedAt),
+    () => updateCrud('customers/companies', id, payload),
+  )
+}
+```
+
+### 3. Client: surface the conflict
+
+The conflict surfaces as a **unified, persistent, error-styled bar** (rendered
+once in `AppShell`, like the undo `LastOperationBanner`) — **not** a transient
+toast. `CrudForm` and `useGuardedMutation` route 409s through it automatically,
+so every standard form behaves the same way. Custom pages call
+`surfaceRecordConflict(err, t, opts)` in their catch:
+
+```ts
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+try {
+  await saveCompany(/* ... */)
+} catch (err) {
+  // Pushes the localized "record modified" message onto the shared conflict
+  // bar and returns true when `err` is an optimistic-lock 409; returns false
+  // otherwise so you can fall through to your normal error handling.
+  if (surfaceRecordConflict(err, t, { onRefresh: () => refetchRecord() })) return
+  throw err
+}
+```
+
+The bar exposes a **Refresh** action (reloads the page, or runs your
+`onRefresh` handler to re-fetch) and a **Dismiss** action. `surfaceRecordConflict`
+wraps `extractOptimisticLockConflict` internally, so callers no longer pin
+against the 409 code directly. `CrudForm` additionally keeps an inline form
+error in place — the bar and the inline error are complementary.
+
+The message key `ui.forms.flash.recordModified` and the bar chrome keys
+`ui.forms.conflict.{title,refresh,dismiss}` ship in all four locales
+(`en`/`de`/`es`/`pl`) with copy that asks the user to refresh and try again.
+
+---
+
+## Roll out to a new entity
+
+If the entity goes through `makeCrudRoute`, the server side is already
+done — the factory auto-registers a generic reader at module-load
+time. The remaining work is the client + env + tests:
+
+1. Make sure detail/list responses expose `updatedAt` as an ISO string
+   (most `serializeEntity` helpers already do).
+2. Wire the client page(s) to use `buildOptimisticLockHeader(...)` and
+   surface 409s with `surfaceRecordConflict(err, t)` from
+   `@open-mercato/ui/backend/conflicts` — or pass
+   `optimisticLockUpdatedAt={record.updatedAt}` to `CrudForm`, which
+   merges the header into every PUT/PATCH/DELETE the form issues and routes
+   the conflict to the shared bar automatically.
+3. Add `<entityType>` to `OM_OPTIMISTIC_LOCK` in your deployment, or
+   set `OM_OPTIMISTIC_LOCK=all` to opt in platform-wide.
+4. Add an integration test that mirrors
+   [`TC-LOCK-OSS-001`](https://github.com/open-mercato/open-mercato/blob/develop/packages/core/src/modules/customers/__integration__/TC-LOCK-OSS-001.spec.ts):
+   create the record, snapshot its `updatedAt`, perform a fresh update,
+   then a stale update and assert the 409 body shape.
+
+### When to hand-wire a reader
+
+The auto-registered generic reader uses the route's `id` +
+`organizationId` + `tenantId` + soft-delete filter only. Register a
+specific reader from your module's `di.ts` via
+`registerOptimisticLockReaders({ … })` when:
+
+- Your entity sits in a **polymorphic table** shared with other
+  `resourceKind`s and you need a discriminator (`kind`, `type`,
+  `category`). See `customers.company` / `customers.person` for the
+  reference — both live in `customer_entities` with a `kind` discriminator.
+- The "live" check needs to ignore certain rows beyond the soft-delete
+  marker (e.g. an `archived_at` column with different semantics).
+- You want to decrypt and project a different timestamp source (e.g.
+  the entity stores `last_modified_at` instead of `updated_at`).
+
+Module-DI registrations always win because they land before any route
+file's first import, and the factory uses the `IfAbsent` variant.
+
+---
+
+## Protecting command/action endpoints (not `makeCrudRoute`)
+
+The CRUD guard only covers mutations that flow through `makeCrudRoute` and
+expose a top-level `id` to the factory. Domain writes implemented via the
+**Command pattern** — sales document sub-resources (lines, adjustments,
+returns), status transitions, quote→order conversion, and any custom action
+route — run their own logic in a command handler and may mutate an **aggregate**
+the CRUD guard never sees. Use the generalist command-level helper to give
+those endpoints the same protection:
+
+```ts
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+
+// inside a CommandHandler.execute(input, ctx), after loading the target record:
+enforceCommandOptimisticLock({
+  resourceKind: 'sales.order',   // the record you are version-checking
+  resourceId: order.id,
+  current: order.updatedAt,       // current DB version (Date | ISO string)
+  request: ctx.request,           // reads the expected version from the header
+  // expected: input.expectedUpdatedAt,  // optional: accept it as a typed input field instead
+})
+// throws CrudHttpError(409, { error, code, currentUpdatedAt, expectedUpdatedAt }) on mismatch
+```
+
+Behavior matches the CRUD guard exactly: it reads the expected `updated_at`
+from the same extension header (or an explicit `expected` override), normalizes
+both sides identically, is strictly additive (no header → no 409), and honors
+`OM_OPTIMISTIC_LOCK`.
+
+**Pick the right record to version-check (granularity).** For an aggregate like
+a sales order, guard the **aggregate root**, not each child row: the client
+sends the parent document's `updated_at`, and the command compares it against
+the loaded order/quote. This is the "document-aggregate" model. It works because
+sub-resource commands recalculate the document totals — dirtying the parent so
+its `updated_at` advances on flush — which makes concurrent sub-edits conflict.
+After each successful sub-resource mutation the client must re-fetch the document
+to pick up the new version (the sales document detail page does this via its
+totals-refresh flow); otherwise the next edit would 409 against a stale version.
+
+Do **not** add a document-aggregate command check to a route that already runs
+the `makeCrudRoute` row-level guard (one that exposes a top-level `id`): the two
+would compare different versions against the single header and produce false
+409s. Sales lines/adjustments avoid this because `makeSalesLineRoute` wraps the
+command input in `{ body }`, which nulls the factory `candidateId` and skips the
+row-level guard — leaving the command-level check as the sole guard. Payments and
+shipments keep their row-level guard and are intentionally not double-checked.
+
+Sales wraps the helper as `enforceSalesDocumentOptimisticLock(ctx, document, resourceKind)`
+in `packages/core/src/modules/sales/commands/shared.ts` — see the line,
+adjustment, return, and quote-conversion commands for the reference usage.
+
+### Command-level extension point (DI-overridable seam)
+
+`enforceCommandOptimisticLock` is the inline default. For an overridable seam —
+mirroring the CRUD `crudMutationGuardService` override — use the service factory:
+
+```ts
+import {
+  createCommandOptimisticLockGuardService,
+  type ResolveExpectedUpdatedAt,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+
+// OSS default: header/version compare (== enforceCommandOptimisticLock).
+const guard = createCommandOptimisticLockGuardService()
+
+// Enterprise: resolve the expected version from a different source
+// (e.g. the held record_locks pessimistic lock) WITHOUT touching any
+// command handler — registered via DI.
+const resolveExpected: ResolveExpectedUpdatedAt = async (input) => /* … */
+const guard = createCommandOptimisticLockGuardService({ resolveExpected })
+```
+
+With no options the service behaves identically to the inline helper (reads the
+expected version from the extension header). `resolveExpected` is the reserved
+enterprise seam: the `record_locks` module can register a service that resolves
+the expected token from the held pessimistic lock instead of the client header,
+so command handlers gain pessimistic-lock-aware concurrency without any
+handler-side change. Tracked for enterprise in
+[#2232](https://github.com/open-mercato/open-mercato/issues/2232).
+
+### OSS client coverage (sales document sub-sections)
+
+OSS coverage is now complete across CRM (companies-v2 / people-v2 / deals),
+catalog (product + product-variant delete), and sales — including the sales
+document **sub-sections**:
+
+| Sub-section | Header semantics | Server guard |
+|---|---|---|
+| Items / Adjustments / Returns | **Document-aggregate** — send the parent document's `updated_at` | `enforceSalesDocumentOptimisticLock` (command-level) |
+| Payments / Shipments | **Row-level** — send the child row's own `updatedAt` | `makeCrudRoute` row-level guard |
+
+The split is deliberate: lines/adjustments/returns recalculate document totals,
+so they conflict at the document level and share the aggregate version; payments
+and shipments are standalone rows with their own `updated_at`, so they keep the
+row-level guard. Never double-guard a route (see the false-409 warning above).
+
+---
+
+## Coexisting with the enterprise `record_locks` module
+
+When both layers are active, the enterprise pessimistic check runs first
+(its registration overrides the OSS slot, because Awilix's `register`
+replaces existing bindings). The enterprise module already handles:
+
+- Pessimistic acquire with heartbeat.
+- Presence widgets ("User X is editing now").
+- Force-release.
+- Merge UX on conflicts.
+
+The OSS optimistic check is not run alongside; it's a fallback for OSS-
+only deployments. A future improvement (tracked separately) will compose
+the two layers via priorities so the OSS optimistic check still runs as
+a second-line defense when the enterprise pessimistic check passes.
+
+---
+
+## Spec & FAQ
+
+- **Spec:** [`.ai/specs/2026-05-25-oss-optimistic-locking.md`](https://github.com/open-mercato/open-mercato/blob/develop/.ai/specs/2026-05-25-oss-optimistic-locking.md)
+- **Source files:**
+  - `packages/shared/src/lib/crud/optimistic-lock.ts`
+  - `packages/shared/src/lib/crud/optimistic-lock-headers.ts`
+  - `packages/shared/src/lib/crud/optimistic-lock-command.ts` (command-level guard + extension seam)
+  - `packages/ui/src/backend/utils/optimisticLock.ts`
+  - `packages/ui/src/backend/conflicts/` (unified conflict bar + `surfaceRecordConflict`)
+  - `packages/core/src/modules/customers/di.ts` (reference wiring)
+  - `packages/core/src/modules/sales/commands/shared.ts` (sales document-aggregate wrapper)
+
+### FAQ
+
+**Q: Why not `If-Unmodified-Since`?**
+A: HTTP-date format is second-granular. A burst of writes within the
+same second would silently bypass the check. The extension header is
+millisecond-precise.
+
+**Q: What about clock skew?**
+A: The client echoes the server's `updatedAt`. Wall-clock skew is
+irrelevant — the server is the only timestamp authority.
+
+**Q: Will this break older API clients?**
+A: No. The guard SKIPS when the header is absent — even with the guard
+default ON, requests that do not send
+`x-om-ext-optimistic-lock-expected-updated-at` pass through unchanged.
+Only clients that have explicitly opted into the round-trip (via
+`CrudForm`'s `optimisticLockUpdatedAt` prop or by calling
+`buildOptimisticLockHeader`) can receive a 409.
+
+**Q: Why was the default flipped to ON?**
+A: Silent last-write-wins is the failure mode users hit first; default
+OFF protected nobody by default. Because the guard is strictly additive
+at runtime (no header → pass), default ON costs zero behavior change for
+existing clients while making every page that opts into the header
+protected automatically.
+
+**Q: Does the guard run on `create`?**
+A: No. Only `update` and `delete`. There is no "expected previous
+version" for a create.
+
+**Q: Can the enterprise module override the resolved token source?**
+A: Yes — `createOptimisticLockGuardService({ resolveExpected: … })` is
+the reserved extension point for the CRUD guard, and
+`createCommandOptimisticLockGuardService({ resolveExpected: … })` is the
+mirrored seam for command-level checks (see #2232). The OSS default uses
+the header value on both.

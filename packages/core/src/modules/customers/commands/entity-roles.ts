@@ -24,6 +24,7 @@ import {
   requireCustomerEntity,
   resolveParentResourceKind,
 } from './shared'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 
 type EntityRoleSnapshot = {
   role: {
@@ -269,6 +270,54 @@ const createEntityRoleCommand: CommandHandler<EntityRoleCreateInput, { roleId: s
       events: entityRoleCrudEvents,
       indexer: { entityType: 'customers:entity_role' },
     })
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<EntityRoleSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for entity role create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let role = await findOneWithDecryption(
+      em,
+      CustomerEntityRole,
+      { id: after.role.id },
+      undefined,
+      { tenantId: after.role.tenantId, organizationId: after.role.organizationId },
+    )
+    if (!role) {
+      role = em.create(CustomerEntityRole, {
+        id: after.role.id,
+        entityType: after.role.entityType,
+        entityId: after.role.entityId,
+        userId: after.role.userId,
+        roleType: after.role.roleType,
+        organizationId: after.role.organizationId,
+        tenantId: after.role.tenantId,
+      })
+      em.persist(role)
+    } else {
+      role.deletedAt = null
+      role.userId = after.role.userId
+    }
+    await em.flush()
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: role,
+      identifiers: getRoleIdentifiers(role),
+      syncOrigin: ctx.syncOrigin,
+      events: entityRoleCrudEvents,
+      indexer: { entityType: 'customers:entity_role' },
+    })
+
+    return {
+      roleId: role.id,
+      wasUndelete: false,
+      previousUserId: null,
+      previousDeletedAt: null,
+    }
   },
 }
 

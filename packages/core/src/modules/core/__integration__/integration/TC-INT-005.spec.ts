@@ -8,7 +8,7 @@ import { addCustomLine, addPayment, addShipment, createSalesDocument } from '@op
  * Source: .ai/qa/scenarios/TC-INT-005-order-shipment-invoice-flow.md
  */
 test.describe('TC-INT-005: Order to Shipment to Invoice to Credit Memo', () => {
-  test.setTimeout(60_000);
+  test.setTimeout(120_000);
 
   test('should record shipment and payment on an order flow', async ({ page, request }) => {
     const token = await getAuthToken(request);

@@ -572,11 +572,14 @@ export class DefaultDataEngine implements DataEngine {
         enrichedPayload.crudAction = action
         if (coverageBaseDelta !== undefined) enrichedPayload.coverageBaseDelta = coverageBaseDelta
         if (ctx.syncOrigin) enrichedPayload.syncOrigin = ctx.syncOrigin
-        try {
-          await bus.emitEvent('query_index.delete_one', enrichedPayload)
-        } catch {
-          // non-blocking
-        }
+        // Await the index update so query-index reads (the `customValues`/scalar
+        // projection that list endpoints serve) are consistent the moment the write
+        // returns. The subscriber removes the projection row + tokens synchronously and
+        // defers the coverage recompute + fulltext delete, so this stays bounded.
+        // Errors are logged, not thrown — index drift never fails the originating write.
+        await bus.emitEvent('query_index.delete_one', enrichedPayload).catch((err: unknown) => {
+          console.error('[data-engine] query_index.delete_one emit failed', err)
+        })
       } else {
         const payload = indexer.buildUpsertPayload
           ? indexer.buildUpsertPayload(ctx)
@@ -590,11 +593,13 @@ export class DefaultDataEngine implements DataEngine {
         enrichedPayload.crudAction = action
         if (coverageBaseDelta !== undefined) enrichedPayload.coverageBaseDelta = coverageBaseDelta
         if (ctx.syncOrigin) enrichedPayload.syncOrigin = ctx.syncOrigin
-        try {
-          await bus.emitEvent('query_index.upsert_one', enrichedPayload)
-        } catch {
-          // non-blocking
-        }
+        // Await the projection upsert so list reads observe the new doc immediately
+        // (see delete_one above). The subscriber updates `entity_indexes` synchronously
+        // and defers the heavy token-reindex pipeline (build doc + encrypt + decrypt +
+        // tokenize + DELETE + chunked INSERT) so write latency stays bounded.
+        await bus.emitEvent('query_index.upsert_one', enrichedPayload).catch((err: unknown) => {
+          console.error('[data-engine] query_index.upsert_one emit failed', err)
+        })
       }
 
       if (shouldTriggerCoverageRefresh(indexer.entityType, ctx.identifiers.tenantId ?? null)) {

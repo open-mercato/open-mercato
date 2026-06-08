@@ -8,7 +8,8 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -197,11 +198,15 @@ export function StatusSettings() {
     })
     if (!confirmed) return
     try {
-      const call = await apiCall(apiPaths[kind], {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: entry.id }),
-      })
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(entry.updatedAt),
+        () =>
+          apiCall(apiPaths[kind], {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: entry.id }),
+          })
+      )
       if (!call.ok) {
         await raiseCrudError(call.response, translate('sales.config.statuses.error.delete', 'Failed to delete status.'))
       }
@@ -238,11 +243,15 @@ export function StatusSettings() {
         if (nextColor !== (entry.color ?? null)) body.color = nextColor
         const nextIcon = values.icon ?? null
         if (nextIcon !== (entry.icon ?? null)) body.icon = nextIcon
-        const call = await apiCall(path, {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        })
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(entry.updatedAt),
+          () =>
+            apiCall(path, {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(body),
+            })
+        )
         if (!call.ok) {
           await raiseCrudError(call.response, translate('sales.config.statuses.error.save', 'Failed to save status.'))
         }

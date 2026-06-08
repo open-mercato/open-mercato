@@ -22,7 +22,7 @@ This spec introduces tiered installation so:
 
 2. **Editorial trim is not durable.** Description shortening is a one-shot win. The skill catalog is growing (28+ recent commits to `.ai/skills/`), so the budget will overflow again. We need a structural fix that scales with skill count.
 
-3. **One-shot skills tax every session.** `auto-upgrade-0.4.10-to-0.5.0` and `migrate-mikro-orm` are version-pinned migrations that 99% of sessions never need. `dev-container-maintenance` only matters when editing `.devcontainer/`. They currently consume budget on every session.
+3. **One-shot skills tax every session.** `om-auto-upgrade-0.4.10-to-0.5.0` and `om-migrate-mikro-orm` are version-pinned migrations that 99% of sessions never need. `om-dev-container-maintenance` only matters when editing `.devcontainer/`. They currently consume budget on every session.
 
 4. **No discoverability mechanism for installed-but-unused skills.** A user who needs a security audit today has no list of available-but-uninstalled skills. We need a `--list` surface so opt-in stays discoverable.
 
@@ -38,7 +38,7 @@ Drive skill installation from a single manifest, `.ai/skills/tiers.json`. Rewrit
 
 We choose a manifest over reorganizing folders into tier subdirectories because:
 
-- Zero risk of breaking external references to skill paths (the Task Router in root `AGENTS.md` cites concrete paths like `.ai/skills/auto-create-pr/SKILL.md`).
+- Zero risk of breaking external references to skill paths (the Task Router in root `AGENTS.md` cites concrete paths like `.ai/skills/om-auto-create-pr/SKILL.md`).
 - Re-tiering = JSON edit, not `git mv`.
 - The manifest is also the source for the README's "Available Skills" table, eliminating drift.
 
@@ -64,45 +64,45 @@ Tier membership is stored in JSON, **not** in `SKILL.md` frontmatter — the Ant
     "core": {
       "description": "Daily-driver skills installed by default.",
       "skills": [
-        "code-review",
-        "ds-guardian",
-        "backend-ui-design",
-        "check-and-commit",
-        "spec-writing",
-        "implement-spec",
-        "pre-implement-spec",
-        "integration-tests",
-        "smart-test",
-        "create-agents-md",
-        "skill-creator",
-        "fix-specs"
+        "om-code-review",
+        "om-ds-guardian",
+        "om-backend-ui-design",
+        "om-check-and-commit",
+        "om-spec-writing",
+        "om-implement-spec",
+        "om-pre-implement-spec",
+        "om-integration-tests",
+        "om-smart-test",
+        "om-create-agents-md",
+        "om-skill-creator",
+        "om-fix-specs"
       ]
     },
     "automation": {
       "description": "PR/issue automation skills. Opt-in; agent-driven workflows.",
       "skills": [
-        "auto-create-pr",
-        "auto-continue-pr",
-        "auto-review-pr",
-        "auto-fix-github",
-        "review-prs",
-        "merge-buddy",
-        "sync-merged-pr-issues",
-        "auto-update-changelog",
-        "auto-qa-scenarios"
+        "om-auto-create-pr",
+        "om-auto-continue-pr",
+        "om-auto-review-pr",
+        "om-auto-fix-github",
+        "om-review-prs",
+        "om-merge-buddy",
+        "om-sync-merged-pr-issues",
+        "om-auto-update-changelog",
+        "om-auto-qa-scenarios"
       ]
     },
     "security": {
       "description": "Security audit skills. Opt-in.",
-      "skills": ["auto-sec-report", "auto-sec-report-pr"]
+      "skills": ["om-auto-sec-report", "om-auto-sec-report-pr"]
     },
     "migration": {
       "description": "One-shot, version-pinned migrations. Install only when needed.",
-      "skills": ["auto-upgrade-0.4.10-to-0.5.0", "migrate-mikro-orm"]
+      "skills": ["om-auto-upgrade-0.4.10-to-0.5.0", "om-migrate-mikro-orm"]
     },
     "infra": {
       "description": "Rare, special-case skills.",
-      "skills": ["dev-container-maintenance", "integration-builder"]
+      "skills": ["om-dev-container-maintenance", "om-integration-builder"]
     }
   }
 }
@@ -227,11 +227,11 @@ This is a behavior change visible to existing users. Mitigation:
 
 | # | Risk | Severity | Affected Area | Mitigation | Residual |
 |---|---|---|---|---|---|
-| R1 | User runs `yarn install-skills` post-upgrade and silently loses access to `auto-review-pr`, `auto-sec-report`, etc. | Medium | Developer workflow | First-run hint + README upgrade note + CHANGELOG entry. `--all` reproduces old behavior in one command. | Some users hit "skill not found" on first invocation; recoverable in 30s. |
+| R1 | User runs `yarn install-skills` post-upgrade and silently loses access to `om-auto-review-pr`, `om-auto-sec-report`, etc. | Medium | Developer workflow | First-run hint + README upgrade note + CHANGELOG entry. `--all` reproduces old behavior in one command. | Some users hit "skill not found" on first invocation; recoverable in 30s. |
 | R2 | Codex symlink resolution differs from Claude Code's | Medium | Codex compatibility | Plan-time spike: prototype with one skill in both harnesses before bulk install. If Codex requires absolute paths, script branches per harness. | Spike may invalidate the per-skill scheme; fallback would be tier-specific umbrella dirs. |
 | R3 | New skill added without tier assignment → fails validation → blocks install | Low | DX | Validation prints the unassigned skill name and a hint to add it to `tiers.json`. CI lint can run the validator on PRs touching `.ai/skills/`. | One-line fix for contributor; better than silent drift. |
 | R4 | Tier assignment becomes a contested editorial decision | Low | Maintenance | Document tier semantics in README ("core = always-on daily; opt-in = workflow-specific"). Treat re-tiering as a normal PR. | Bikeshedding overhead. |
-| R5 | Skill auto-trigger silently fails when user expected it (e.g., `auto-update-changelog` not in core) | Medium | UX | `--list` is discoverable; README's Available Skills table groups by tier. Skill names that hint at automation (the `auto-` prefix) are all in the `automation` tier so the heuristic is teachable. | Education problem; reduces over time. |
+| R5 | Skill auto-trigger silently fails when user expected it (e.g., `om-auto-update-changelog` not in core) | Medium | UX | `--list` is discoverable; README's Available Skills table groups by tier. Skill names that hint at automation (the `auto-` prefix) are all in the `automation` tier so the heuristic is teachable. | Education problem; reduces over time. |
 | R6 | Stale `.claude/skills` directory left after uninstalling a tier (from old install or interrupted run) | Low | Filesystem hygiene | Sweep step removes symlinks not in the selected set. `--clean` provides nuclear option. | None significant. |
 | R7 | Two contributors merge changes to `tiers.json` and a skill folder simultaneously, leaving an unassigned folder | Low | CI | Validator fails the install / CI lint. Post-merge fix is one PR. | Minor. |
 | R8 | Tiering encourages unbounded skill growth ("we can always add more, they're opt-in") | Low | Long-term context budget | Treat new optional skills with the same scrutiny as core skills; this spec doesn't relax the description-trim discipline. | Catalog hygiene depends on review culture. |
@@ -304,9 +304,9 @@ Phased so each phase is mergeable.
 
 ## Open Questions
 
-1. ~~**Should `auto-create-pr` / `auto-continue-pr` live in `core` instead of `automation`?**~~ **Resolved 2026-05-05: stay in `automation`.** Keeping the `auto-*` family together is teachable; users who want them on default install can run `yarn install-skills --with automation` once.
+1. ~~**Should `om-auto-create-pr` / `om-auto-continue-pr` live in `core` instead of `automation`?**~~ **Resolved 2026-05-05: stay in `automation`.** Keeping the `auto-*` family together is teachable; users who want them on default install can run `yarn install-skills --with automation` once.
 
-2. **Should `migrate-mikro-orm` live in `migration` despite not being version-pinned to a specific Open Mercato release?** It's framework-version-pinned (v6→v7) rather than app-version-pinned. The `migration` semantics are "you only need this once when crossing a version boundary," which fits.
+2. **Should `om-migrate-mikro-orm` live in `migration` despite not being version-pinned to a specific Open Mercato release?** It's framework-version-pinned (v6→v7) rather than app-version-pinned. The `migration` semantics are "you only need this once when crossing a version boundary," which fits.
 
 3. **Do we want a `--default` flag** that means "whatever `tiers.json` says is default" so `tiers.json` can evolve the default without flag-name churn? **Default in this spec: yes, `yarn install-skills` with no flags already does this.** No additional flag needed.
 
@@ -314,5 +314,5 @@ Phased so each phase is mergeable.
 
 | Date | Change |
 |---|---|
-| 2026-05-05 | Initial draft. Tier assignments proposed; per-skill manifest-driven install scheme. Open questions on `auto-create-pr`/`auto-continue-pr` core membership flagged. |
-| 2026-05-05 | Resolved Q1: `auto-create-pr` and `auto-continue-pr` stay in `automation`. Spec is implementation-ready. |
+| 2026-05-05 | Initial draft. Tier assignments proposed; per-skill manifest-driven install scheme. Open questions on `om-auto-create-pr`/`om-auto-continue-pr` core membership flagged. |
+| 2026-05-05 | Resolved Q1: `om-auto-create-pr` and `om-auto-continue-pr` stay in `automation`. Spec is implementation-ready. |

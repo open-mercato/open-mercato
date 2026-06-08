@@ -96,8 +96,15 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-log-policy.mjs'),
     rel: 'scripts/dev-runtime-log-policy.mjs',
   },
+  {
+    sourceFile: path.join(ROOT, 'docker', 'redis', 'redis.conf'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'docker', 'redis', 'redis.conf'),
+    rel: 'docker/redis/redis.conf',
+  },
 ] as const
 const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
+  'app/api/healthz/__tests__/route.test.ts',
+  'app/api/healthz/route.ts',
   'modules/auth/__integration__/TC-AUTH-001.spec.ts',
   'modules/auth/__integration__/helpers/auth.ts',
 ])

@@ -405,11 +405,18 @@ Cache keys include:
 - Tenant ID
 - Selected organization ID
 - Organization scope (array of allowed org IDs)
+- Active-enricher signature (only when the route has enrichers active for the caller)
 
 ```ts
 // Example cache key structure
 crud|customers.customer_entity|GET|/api/customers/people|tenant:123|selectedOrg:456|scope:456,789|query:page=1&pageSize=50&search=test
 ```
+
+### Response Enrichers and the List Cache
+
+When a route opts into [response enrichers](/framework/widget-injection#umes-phase-d--response-enrichers), the cache stores the enriched payload and appends an `enrichers:<signature>` segment to the key, derived from the enrichers active for the caller after ACL + tenant filtering. This partitions entries by feature cohort, so a caller never receives ACL-gated fields enriched for a different cohort.
+
+On a cache hit the factory re-runs the active enrichers **unless every one of them sets `cacheableOnListHit: true`** — in which case the stored enriched fields are served directly (the fast path). Non-cacheable enrichers (cross-module reads, time-relative values, cross-table aggregates) keep re-running on every hit so the response stays fresh, and for those routes the cache stores the base pre-enrichment payload. See the [`cacheableOnListHit` guidance](/framework/widget-injection#list-cache-interaction-cacheableonlisthit) for when to opt in.
 
 ### Automatic Invalidation
 

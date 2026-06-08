@@ -7,6 +7,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { E } from '#generated/entities.ids.generated'
@@ -21,6 +22,8 @@ type CategoryRow = {
   description: string | null
   parentId: string | null
   isActive: boolean
+  updatedAt?: string | null
+  updated_at?: string | null
   pathLabel?: string
 }
 
@@ -35,6 +38,7 @@ type CategoryFormValues = {
   description?: string
   parentId?: string | null
   isActive?: boolean
+  updatedAt?: string | null
 }
 
 async function submitCategoryUpdate(
@@ -81,6 +85,7 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
   const [pathLabel, setPathLabel] = React.useState<string>('')
   const [loading, setLoading] = React.useState<boolean>(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState<boolean>(false)
 
   React.useEffect(() => {
     if (!categoryId) return
@@ -88,13 +93,23 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
     async function load() {
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
-        const { ok, result } = await apiCall<CategoryResponse>(
+        const { ok, status, result } = await apiCall<CategoryResponse>(
           `/api/catalog/categories?view=manage&ids=${encodeURIComponent(categoryId)}&status=all&page=1&pageSize=1`,
         )
-        if (!ok) throw new Error(t('catalog.categories.form.errors.load', 'Failed to load category'))
+        if (!ok) {
+          if (status === 404) {
+            if (!cancelled) setIsNotFound(true)
+            return
+          }
+          throw new Error(t('catalog.categories.form.errors.load', 'Failed to load category'))
+        }
         const record = Array.isArray(result?.items) ? result.items?.[0] : null
-        if (!record) throw new Error(t('catalog.categories.form.errors.notFound', 'Category not found'))
+        if (!record) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         if (cancelled) return
         const customValues = extractCustomFieldEntries(record as Record<string, unknown>)
         setInitialValues({
@@ -104,6 +119,7 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
           description: record.description ?? '',
           parentId: record.parentId ?? '',
           isActive: record.isActive,
+          updatedAt: record.updatedAt ?? record.updated_at ?? null,
           ...customValues,
         })
         setPathLabel(record.pathLabel ?? '')
@@ -191,14 +207,33 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('catalog.categories.form.errors.notFound', 'Category not found')}
+            backHref="/backend/catalog/categories"
+            backLabel={t('catalog.categories.form.actions.backToList', 'Back to categories')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error && !loading) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
-        {error ? (
-          <div className="mb-4 rounded border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </div>
-        ) : null}
         <CrudForm<CategoryFormValues>
           title={t('catalog.categories.form.editTitle', 'Edit category')}
           backHref="/backend/catalog/categories"
@@ -207,6 +242,7 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
           groups={groups}
           entityId={E.catalog.catalog_product_category}
           initialValues={initialValues ?? { id: categoryId, name: '', slug: '', description: '', parentId: '', isActive: true }}
+          optimisticLockUpdatedAt={initialValues?.updatedAt}
           isLoading={loading}
           loadingMessage={t('catalog.categories.form.loading', 'Loading category...')}
           submitLabel={t('catalog.categories.form.action.save', 'Save')}

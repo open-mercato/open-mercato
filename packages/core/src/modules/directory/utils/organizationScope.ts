@@ -131,29 +131,56 @@ export function getSelectedTenantFromRequest(
   return parseSelectedTenantCookie(header)
 }
 
-async function collectWithDescendants(em: EntityManager, tenantId: string, ids: string[]): Promise<Set<string>> {
-  if (!ids.length) return new Set()
-  const unique = Array.from(new Set(
+function normalizeOrganizationIds(ids: string[]): string[] {
+  return Array.from(new Set(
     ids.map((value) => normalizeOrganizationId(value)).filter((value): value is string => {
       if (!value) return false
       if (isAllOrganizationsSelection(value)) return false
       return true
     })
   ))
-  if (!unique.length) return new Set()
+}
+
+// Map each organization id to itself plus its persisted descendant ids. Only
+// orgs that exist for the tenant and are not soft-deleted are included, so an
+// unknown/inaccessible id simply has no entry (matching the per-id query that
+// returned an empty set for it).
+type OrgDescendantMap = Map<string, string[]>
+
+// Issue #2228 — single round-trip for org-scope resolution. Instead of issuing
+// one `organizations` SELECT per `collectWithDescendants` call (up to 3-4
+// sequential queries per request: accessible set, fallback set, selected set),
+// gather every candidate id up front and fetch their descendant expansions in
+// one `em.find(Organization, { id: $in })`. Expansion then happens in-memory.
+async function loadOrgDescendantMap(em: EntityManager, tenantId: string, ids: string[]): Promise<OrgDescendantMap> {
+  const unique = normalizeOrganizationIds(ids)
+  if (!unique.length) return new Map()
   const filter: FilterQuery<Organization> = {
     tenant: tenantId,
     id: { $in: unique },
     deletedAt: null,
   }
   const orgs = await em.find(Organization, filter)
-  const set = new Set<string>()
+  const map: OrgDescendantMap = new Map()
   for (const org of orgs) {
     const id = String(org.id)
-    set.add(id)
+    const expansion = [id]
     if (Array.isArray(org.descendantIds)) {
-      for (const desc of org.descendantIds) set.add(String(desc))
+      for (const desc of org.descendantIds) expansion.push(String(desc))
     }
+    map.set(id, expansion)
+  }
+  return map
+}
+
+function expandWithDescendants(map: OrgDescendantMap, ids: string[]): Set<string> {
+  const set = new Set<string>()
+  for (const value of ids) {
+    const id = normalizeOrganizationId(value)
+    if (!id || isAllOrganizationsSelection(id)) continue
+    const expansion = map.get(id)
+    if (!expansion) continue
+    for (const entry of expansion) set.add(entry)
   }
   return set
 }
@@ -214,14 +241,18 @@ export async function resolveOrganizationScope({
 
   const accountOrgId = actorTenantId && actorTenantId === tenantId ? normalizeOrganizationId(auth.orgId) : null
   const fallbackOrgId = accountOrgId ?? null
-  let fallbackSet: Set<string> | null = null
-  const loadFallbackSet = async (): Promise<Set<string> | null> => {
-    if (!fallbackOrgId) return null
-    if (!fallbackSet) {
-      fallbackSet = await collectWithDescendants(em, tenantId, [fallbackOrgId])
-    }
-    return fallbackSet
-  }
+
+  // Every id that could be expanded below — accessible set, fallback (account)
+  // org, and the requested selection — is known up front, so fetch them all in
+  // a single `organizations` query and expand from the in-memory map.
+  const candidateIds = [
+    ...(accessibleList ?? []),
+    ...(fallbackOrgId ? [fallbackOrgId] : []),
+    ...(normalizedSelectedId ? [normalizedSelectedId] : []),
+  ]
+  const orgDescendants = await loadOrgDescendantMap(em, tenantId, candidateIds)
+  const loadFallbackSet = (): Set<string> | null =>
+    fallbackOrgId ? expandWithDescendants(orgDescendants, [fallbackOrgId]) : null
 
   let allowedSet: Set<string> | null = null
   if (accessibleList === null) {
@@ -229,11 +260,11 @@ export async function resolveOrganizationScope({
   } else if (accessibleList.length === 0) {
     allowedSet = new Set()
   } else {
-    allowedSet = await collectWithDescendants(em, tenantId, accessibleList)
+    allowedSet = expandWithDescendants(orgDescendants, accessibleList)
   }
 
   if (allowedSet && allowedSet.size === 0 && fallbackOrgId) {
-    const computed = await loadFallbackSet()
+    const computed = loadFallbackSet()
     if (computed && computed.size > 0) {
       allowedSet = computed
     }
@@ -256,17 +287,17 @@ export async function resolveOrganizationScope({
 
   let filterSet: Set<string> | null = null
   if (effectiveSelected) {
-    filterSet = await collectWithDescendants(em, tenantId, [effectiveSelected])
+    filterSet = expandWithDescendants(orgDescendants, [effectiveSelected])
   } else if (allowedSet !== null) {
     filterSet = allowedSet
   } else if (widenToAllOrgs) {
     filterSet = null
   } else if (auth.orgId) {
-    filterSet = await loadFallbackSet()
+    filterSet = loadFallbackSet()
   }
 
   if ((!filterSet || filterSet.size === 0) && fallbackOrgId && !widenToAllOrgs) {
-    const computed = await loadFallbackSet()
+    const computed = loadFallbackSet()
     if (computed && computed.size > 0) {
       filterSet = computed
       if (!effectiveSelected) {

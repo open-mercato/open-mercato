@@ -506,6 +506,23 @@ describe('scheduleUpdateSchema', () => {
 
     expect(result.targetPayload).toBeNull()
   })
+
+  it('should strip scope fields so scope stays immutable after creation', () => {
+    const result = scheduleUpdateSchema.parse({
+      id: scheduleId,
+      name: 'Updated name',
+      scopeType: 'organization',
+      organizationId,
+      tenantId,
+    })
+
+    // Scope is derived from the creator's auth context at create time and must
+    // not be mutable via update. The edit form locks the Scope field to mirror
+    // this contract (see scheduledJobFormConfig lockScope).
+    expect((result as Record<string, unknown>).scopeType).toBeUndefined()
+    expect((result as Record<string, unknown>).organizationId).toBeUndefined()
+    expect((result as Record<string, unknown>).tenantId).toBeUndefined()
+  })
 })
 
 describe('scheduleDeleteSchema', () => {

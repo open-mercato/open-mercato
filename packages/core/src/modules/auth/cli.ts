@@ -7,7 +7,7 @@ import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { ensureRoles, setupInitialTenant, ensureDefaultRoleAcls, ensureCustomRoleAcls, OrgSlugExistsError } from './lib/setup-app'
 import { normalizeTenantId } from './lib/tenantAccess'
-import { computeEmailHash } from './lib/emailHash'
+import { computeEmailHash, emailHashLookupValues } from './lib/emailHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
@@ -19,6 +19,14 @@ import crypto from 'node:crypto'
 import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getCliModules } from '@open-mercato/shared/modules/registry'
+
+async function resolveTenantScopedRole(em: any, name: string, normalizedTenantId: string | null) {
+  const existing = await em.findOne(Role, { name, tenantId: normalizedTenantId })
+  if (existing) return existing
+  const role = em.create(Role, { name, tenantId: normalizedTenantId, createdAt: new Date() })
+  await em.persist(role).flush()
+  return role
+}
 
 const addUser: ModuleCli = {
   command: 'add-user',
@@ -63,17 +71,7 @@ const addUser: ModuleCli = {
     if (rolesCsv) {
       const names = rolesCsv.split(',').map(s => s.trim()).filter(Boolean)
       for (const name of names) {
-        let role = await em.findOne(Role, { name, tenantId: normalizedTenantId })
-        if (!role && normalizedTenantId !== null) {
-          role = await em.findOne(Role, { name, tenantId: null })
-        }
-        if (!role) {
-          role = em.create(Role, { name, tenantId: normalizedTenantId, createdAt: new Date() })
-          await em.persist(role).flush()
-        } else if (normalizedTenantId !== null && role.tenantId !== normalizedTenantId) {
-          role.tenantId = normalizedTenantId
-          await em.persist(role).flush()
-        }
+        const role = await resolveTenantScopedRole(em, name, normalizedTenantId)
         const link = em.create(UserRole, { user: u, role })
         await em.persist(link).flush()
       }
@@ -539,11 +537,7 @@ const setupApp: ModuleCli = {
       if (env.NODE_ENV !== 'test') {
         for (const snapshot of result.users) {
           if (snapshot.created) {
-            if (snapshot.user.email === email && password) {
-              console.log('🎉 Created user', snapshot.user.email, 'password:', password)
-            } else {
-              console.log('🎉 Created user', snapshot.user.email)
-            }
+            console.log('🎉 Created user', snapshot.user.email)
           } else {
             console.log(`Updated user ${snapshot.user.email}`)
           }
@@ -698,12 +692,12 @@ const listUsers: ModuleCli = {
 
       if (user.organizationId) {
         const org = await em.findOne(Organization, { id: user.organizationId })
-        orgName = org?.name?.substring(0, 19) + '...' || user.organizationId.substring(0, 8) + '...'
+        orgName = org?.name ? `${org.name.substring(0, 19)}...` : `${user.organizationId.substring(0, 8)}...`
       }
 
       if (user.tenantId) {
         const tenant = await em.findOne(Tenant, { id: user.tenantId })
-        tenantName = tenant?.name?.substring(0, 19) + '...' || user.tenantId.substring(0, 8) + '...'
+        tenantName = tenant?.name ? `${tenant.name.substring(0, 19)}...` : `${user.tenantId.substring(0, 8)}...`
       }
 
       const id = user.id || 'N/A'
@@ -736,8 +730,13 @@ const setPassword: ModuleCli = {
 
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
-    const emailHash = computeEmailHash(email)
-    const user = await em.findOne(User, { $or: [{ email }, { emailHash }] })
+    const user = await findOneWithDecryption(
+      em,
+      User,
+      { $or: [{ email }, { emailHash: { $in: emailHashLookupValues(email) } }] } as any,
+      undefined,
+      { tenantId: null, organizationId: null },
+    )
 
     if (!user) {
       console.error(`User with email "${email}" not found`)

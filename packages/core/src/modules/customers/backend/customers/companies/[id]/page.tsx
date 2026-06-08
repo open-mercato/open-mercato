@@ -8,7 +8,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
@@ -70,6 +71,7 @@ type CompanyOverview = {
     nextInteractionIcon?: string | null
     nextInteractionColor?: string | null
     organizationId?: string | null
+    updatedAt?: string | null
   }
   profile: {
     id: string
@@ -324,19 +326,31 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     async (patch: Record<string, unknown>, apply: (prev: CompanyOverview) => CompanyOverview) => {
       if (!data) return
       const payload = { id: data.company.id, ...patch }
-      await runMutationWithContext(
-        () => apiCallOrThrow(
-          '/api/customers/companies',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          },
-          { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+      const result = await runMutationWithContext(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader((data?.company as { updatedAt?: string } | undefined)?.updatedAt),
+          () => apiCallOrThrow<{ ok?: boolean; updatedAt?: string | null }>(
+            '/api/customers/companies',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+          ),
         ),
         payload,
       )
-      setData((prev) => (prev ? apply(prev) : prev))
+      // Refresh the optimistic-lock token so the next sequential inline edit does
+      // not send a stale updatedAt and falsely 409 (#2055, default-ON locking).
+      const nextUpdatedAt = result?.result?.updatedAt ?? null
+      setData((prev) => {
+        if (!prev) return prev
+        const applied = apply(prev)
+        return nextUpdatedAt
+          ? { ...applied, company: { ...applied.company, updatedAt: nextUpdatedAt } }
+          : applied
+      })
     },
     [data, runMutationWithContext, t],
   )
@@ -417,19 +431,24 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         id: data.company.id,
         customFields: customPayload,
       }
+      let customFieldsUpdatedAt: string | null = null
       try {
-        await runMutationWithContext(
-          () => apiCallOrThrow(
-            '/api/customers/companies',
-            {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload),
-            },
-            { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+        const result = await runMutationWithContext(
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader((data?.company as { updatedAt?: string } | undefined)?.updatedAt),
+            () => apiCallOrThrow<{ ok?: boolean; updatedAt?: string | null }>(
+              '/api/customers/companies',
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+            ),
           ),
           payload,
         )
+        customFieldsUpdatedAt = result?.result?.updatedAt ?? null
       } catch (err) {
         const { message: helperMessage, fieldErrors } = mapCrudServerErrorToFormErrors(err)
         const message = helperMessage ?? t('customers.companies.detail.inline.error', 'Unable to update company.')
@@ -448,6 +467,9 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         if (!prev) return prev
         return {
           ...prev,
+          company: customFieldsUpdatedAt
+            ? { ...prev.company, updatedAt: customFieldsUpdatedAt }
+            : prev.company,
           customFields: {
             ...prev.customFields,
             ...normalized,
@@ -493,13 +515,16 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     setIsDeleting(true)
     try {
       await runMutationWithContext(
-        () => apiCallOrThrow(
-          `/api/customers/companies?id=${encodeURIComponent(currentCompanyId)}`,
-          {
-            method: 'DELETE',
-            headers: { 'content-type': 'application/json' },
-          },
-          { errorMessage: t('customers.companies.list.deleteError', 'Failed to delete company.') },
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader((data?.company as { updatedAt?: string } | undefined)?.updatedAt),
+          () => apiCallOrThrow(
+            `/api/customers/companies?id=${encodeURIComponent(currentCompanyId)}`,
+            {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+            },
+            { errorMessage: t('customers.companies.list.deleteError', 'Failed to delete company.') },
+          ),
         ),
         { id: currentCompanyId },
       )

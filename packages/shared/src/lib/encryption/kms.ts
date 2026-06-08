@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { generateDek, hashForLookup } from './aes'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from './toggles'
+import { parseBooleanToken } from '../boolean'
 import { fetchWithTimeout, resolveTimeoutMs } from '../http/fetchWithTimeout'
 
 const DEFAULT_VAULT_REQUEST_TIMEOUT_MS = 1_000
@@ -21,6 +22,7 @@ export interface KmsService {
   getTenantDek(tenantId: string): Promise<TenantDek | null>
   createTenantDek(tenantId: string): Promise<TenantDek | null>
   isHealthy(): boolean
+  invalidateDek?(tenantId: string): void
 }
 
 class FallbackKmsService implements KmsService {
@@ -75,6 +77,11 @@ class FallbackKmsService implements KmsService {
     }
     return null
   }
+
+  invalidateDek(tenantId: string): void {
+    this.primary.invalidateDek?.(tenantId)
+    this.fallback?.invalidateDek?.(tenantId)
+  }
 }
 
 type VaultClientOpts = {
@@ -89,6 +96,10 @@ type VaultReadResponse = {
   data?: { data?: { key?: string; version?: number }; metadata?: Record<string, unknown> }
 }
 
+// 'conflict' = a check-and-set write lost to a concurrent writer (normal race
+// outcome, Vault still healthy); 'error' = the write genuinely failed.
+type VaultWriteOutcome = 'ok' | 'conflict' | 'error'
+
 function normalizeEnv(value: string | undefined): string {
   if (!value) return ''
   return value.trim().replace(/(?:^['"]|['"]$)/g, '')
@@ -100,14 +111,15 @@ function resolveDerivedKeySecret(): DerivedSecret | null {
   const candidates: Array<{ value: string | null; envName: string }> = [
     { value: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? null, envName: 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY' },
     { value: process.env.TENANT_DATA_ENCRYPTION_KEY ?? null, envName: 'TENANT_DATA_ENCRYPTION_KEY' },
-    { value: process.env.AUTH_SECRET ?? null, envName: 'AUTH_SECRET' },
-    { value: process.env.NEXTAUTH_SECRET ?? null, envName: 'NEXTAUTH_SECRET' },
   ]
   for (const raw of candidates) {
     const normalized = normalizeEnv(raw.value ?? undefined)
     if (normalized) return { secret: normalized, source: 'explicit', envName: raw.envName }
   }
-  if (process.env.NODE_ENV !== 'production') {
+  if (
+    process.env.NODE_ENV !== 'production'
+    && parseBooleanToken(process.env.ALLOW_DERIVED_KMS_FALLBACK) === true
+  ) {
     return { secret: 'om-dev-tenant-encryption', source: 'dev-default', envName: 'DEV_DEFAULT' }
   }
   return null
@@ -228,11 +240,13 @@ export class HashicorpVaultKmsService implements KmsService {
     }
   }
 
-  private async writeVault(path: string, key: string): Promise<boolean> {
+  private async writeVault(path: string, key: string, opts?: { cas?: number }): Promise<VaultWriteOutcome> {
     if (!this.vaultAddr || !this.vaultToken) {
       this.healthy = false
-      return false
+      return 'error'
     }
+    const body: { data: { key: string }; options?: { cas: number } } = { data: { key } }
+    if (typeof opts?.cas === 'number') body.options = { cas: opts.cas }
     try {
       const res = await fetchWithTimeout(`${this.vaultAddr}/v1/${path}`, {
         method: 'POST',
@@ -240,14 +254,23 @@ export class HashicorpVaultKmsService implements KmsService {
           'X-Vault-Token': this.vaultToken,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ data: { key } }),
+        body: JSON.stringify(body),
         timeoutMs: this.requestTimeoutMs,
       })
-      this.healthy = res.ok
-      if (!res.ok) {
-        console.warn('⚠️ [encryption][kms] Vault write failed', { path, status: res.status })
+      if (res.ok) {
+        this.healthy = true
+        return 'ok'
       }
-      return res.ok
+      // KV v2 returns 400 when a check-and-set write loses to a concurrent
+      // writer (path already at a newer version). That is a normal race outcome,
+      // not an unhealthy Vault — don't flip `healthy`.
+      if (typeof opts?.cas === 'number' && res.status === 400) {
+        console.warn('⚠️ [encryption][kms] Vault write CAS conflict (concurrent DEK create)', { path, status: res.status })
+        return 'conflict'
+      }
+      this.healthy = false
+      console.warn('⚠️ [encryption][kms] Vault write failed', { path, status: res.status })
+      return 'error'
     } catch (err) {
       this.healthy = false
       console.warn('⚠️ [encryption][kms] Vault write error', {
@@ -255,7 +278,7 @@ export class HashicorpVaultKmsService implements KmsService {
         error: (err as Error)?.message || String(err),
         timeoutMs: this.requestTimeoutMs,
       })
-      return false
+      return 'error'
     }
   }
 
@@ -285,20 +308,59 @@ export class HashicorpVaultKmsService implements KmsService {
   }
 
   async createTenantDek(tenantId: string): Promise<TenantDek | null> {
-    const key = generateDek()
     const path = this.buildKeyPath(tenantId)
-    const ok = await this.writeVault(path, key)
-    if (ok) {
-      console.info('🔑 [encryption][kms] Stored tenant DEK in Vault', { tenantId, path })
-    } else {
-      console.warn('⚠️ [encryption][kms] Failed to store tenant DEK in Vault', { tenantId, path })
+    // Read-before-write: if a DEK already exists for this tenant (another request
+    // or process created it first), adopt it instead of overwriting the active
+    // key — overwriting orphans every row already encrypted under it (#2746).
+    const existing = await this.readVault(path)
+    const existingKey = existing?.data?.data?.key
+    if (existingKey) {
+      return this.remember({ tenantId, key: existingKey, fetchedAt: this.now() })
     }
-    if (!ok) return null
-    return this.remember({ tenantId, key, fetchedAt: this.now() })
+    // A read failure (timeout / 5xx) flips `healthy` off; don't blind-write a new
+    // key over a possibly-existing one we just couldn't read — let the caller fall back.
+    if (!this.healthy) return null
+    const key = generateDek()
+    const outcome = await this.writeVault(path, key, { cas: 0 })
+    if (outcome === 'ok') {
+      console.info('🔑 [encryption][kms] Stored tenant DEK in Vault', { tenantId, path })
+      return this.remember({ tenantId, key, fetchedAt: this.now() })
+    }
+    if (outcome === 'conflict') {
+      // A concurrent create won the CAS race — adopt the winner's key so both
+      // callers encrypt under the same DEK.
+      const winner = await this.readVault(path)
+      const winnerKey = winner?.data?.data?.key
+      if (winnerKey) {
+        console.info('🔑 [encryption][kms] Adopted concurrently-created tenant DEK', { tenantId, path })
+        return this.remember({ tenantId, key: winnerKey, fetchedAt: this.now() })
+      }
+    }
+    console.warn('⚠️ [encryption][kms] Failed to store tenant DEK in Vault', { tenantId, path })
+    return null
+  }
+
+  invalidateDek(tenantId: string): void {
+    this.cache.delete(tenantId)
   }
 }
 
 let loggedDerivedKeyFallbackBanner = false
+
+function fingerprintSecret(secret: string): string {
+  return crypto.createHash('sha256').update(secret, 'utf8').digest('hex').slice(0, 16)
+}
+
+export function buildDerivedKeyFallbackBannerLines(opts: DerivedSecret): string[] {
+  const sourceLine =
+    opts.source === 'explicit' ? `Source: ${opts.envName}` : 'Source: dev default secret (do NOT use in production)'
+  return [
+    '🚨 Using derived tenant encryption keys (Vault unavailable / no DEK)',
+    sourceLine,
+    `Secret fingerprint (sha256, truncated): ${fingerprintSecret(opts.secret)}`,
+    'Persist this secret securely. Without it, encrypted tenant data cannot be recovered after restart.',
+  ]
+}
 
 function logDerivedKeyFallbackBanner(opts: DerivedSecret): void {
   if (process.env.NODE_ENV === 'test' || loggedDerivedKeyFallbackBanner) return
@@ -308,15 +370,7 @@ function logDerivedKeyFallbackBanner(opts: DerivedSecret): void {
   const reset = '\x1b[0m'
   const width = 110
   const border = `${redBg}${white}${'━'.repeat(width)}${reset}`
-  const isProduction = process.env.NODE_ENV === 'production'
-  const sourceLine =
-    opts.source === 'explicit' ? `Source: ${opts.envName}` : 'Source: dev default secret (do NOT use in production)'
-  const body = [
-    '🚨 Using derived tenant encryption keys (Vault unavailable / no DEK)',
-    sourceLine,
-    isProduction ? 'Secret: [redacted in production]' : `Secret: ${opts.secret}`,
-    'Persist this secret securely. Without it, encrypted tenant data cannot be recovered after restart.',
-  ]
+  const body = buildDerivedKeyFallbackBannerLines(opts)
   console.warn(border)
   for (const line of body) {
     const padded = line.padEnd(width - 2, ' ')

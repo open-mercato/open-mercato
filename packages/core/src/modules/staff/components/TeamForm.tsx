@@ -12,6 +12,7 @@ export type TeamFormValues = {
   name: string
   description?: string | null
   isActive?: boolean
+  updatedAt?: string | null
 } & Record<string, unknown>
 
 export type TeamFormProps = {
@@ -67,7 +68,7 @@ export function TeamForm(props: TeamFormProps) {
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: t('staff.teams.form.fields.name', 'Name'), type: 'text', required: true },
-    { id: 'description', label: t('staff.teams.form.fields.description', 'Description'), type: 'richtext', editor: 'html' },
+    { id: 'description', label: t('staff.teams.form.fields.description', 'Description'), type: 'richtext', editor: 'uiw' },
     { id: 'isActive', label: t('staff.teams.form.fields.active', 'Active'), type: 'checkbox' },
   ], [t])
 
@@ -89,6 +90,7 @@ export function TeamForm(props: TeamFormProps) {
       groups={groups}
       entityId={E.staff.staff_team}
       initialValues={initialValues}
+      optimisticLockUpdatedAt={initialValues.updatedAt}
       onSubmit={onSubmit}
       onDelete={onDelete}
       isLoading={isLoading}

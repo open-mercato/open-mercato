@@ -693,6 +693,7 @@ export const searchConfig: SearchModuleConfig = {
         hashOnly: ['primary_email', 'primary_phone', 'personal_email'],
         excluded: ['date_of_birth', 'government_id', 'ssn', 'tax_id'],
       },
+      aclFeatures: ['customers.people.view'],
     },
 
     // =========================================================================
@@ -782,6 +783,7 @@ export const searchConfig: SearchModuleConfig = {
         hashOnly: ['tax_id', 'registration_number'],
         excluded: ['bank_account', 'billing_info', 'credit_info'],
       },
+      aclFeatures: ['customers.companies.view'],
     },
 
     // =========================================================================
@@ -858,6 +860,7 @@ export const searchConfig: SearchModuleConfig = {
         hashOnly: [],
         excluded: [],
       },
+      aclFeatures: ['customers.activities.view'],
     },
 
     // =========================================================================
@@ -944,6 +947,7 @@ export const searchConfig: SearchModuleConfig = {
         hashOnly: [],
         excluded: ['value_amount', 'value_currency'],
       },
+      aclFeatures: ['customers.deals.view'],
     },
 
     // =========================================================================
@@ -1016,6 +1020,7 @@ export const searchConfig: SearchModuleConfig = {
         hashOnly: [],
         excluded: [],
       },
+      aclFeatures: ['customers.activities.view'],
     },
 
     // =========================================================================
@@ -1082,6 +1087,7 @@ export const searchConfig: SearchModuleConfig = {
         hashOnly: [],
         excluded: [],
       },
+      aclFeatures: ['customers.activities.view'],
     },
   ],
 }

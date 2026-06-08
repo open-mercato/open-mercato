@@ -66,8 +66,21 @@ export function createMeilisearchDriver(
   function buildFilters(options: FullTextSearchQuery): string[] {
     const filters: string[] = []
 
-    if (options.organizationId) {
-      filters.push(`_organizationId = "${escapeFilterValue(options.organizationId)}"`)
+    const organizationId = typeof options.organizationId === 'string' ? options.organizationId.trim() : ''
+    if (organizationId) {
+      filters.push(`_organizationId = "${escapeFilterValue(organizationId)}"`)
+    } else if (Array.isArray(options.organizationIds)) {
+      const organizationIds = Array.from(new Set(
+        options.organizationIds
+          .map((value) => (typeof value === 'string' ? value.trim() : ''))
+          .filter((value) => value.length > 0),
+      ))
+      if (organizationIds.length === 0) {
+        filters.push('_organizationId = "__open_mercato_no_matching_organization__"')
+      } else {
+        const orgFilter = organizationIds.map((id) => `"${escapeFilterValue(id)}"`).join(', ')
+        filters.push(`_organizationId IN [${orgFilter}]`)
+      }
     }
 
     if (options.entityTypes?.length) {
@@ -216,6 +229,7 @@ export function createMeilisearchDriver(
           recordId: hit._id as string,
           entityId: hit._entityId as EntityId,
           score: (hit._rankingScore as number) ?? 0.5,
+          organizationId: hit._organizationId as string | null | undefined,
           presenter: hit._presenter as FullTextSearchHit['presenter'],
           url: hit._url as string | undefined,
           links: hit._links as FullTextSearchHit['links'],

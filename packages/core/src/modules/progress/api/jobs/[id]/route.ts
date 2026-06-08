@@ -73,6 +73,12 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   }
 
   const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  const existing = await em.findOne(ProgressJob, { id: params.id, tenantId: auth.tenantId })
+  if (!existing) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
   const progressService = container.resolve('progressService') as ProgressService
 
   const job = await progressService.updateProgress(params.id, parsed.data, {
@@ -122,6 +128,7 @@ export const openApi = {
     responses: {
       200: { description: 'Progress updated' },
       400: { description: 'Invalid input' },
+      404: { description: 'Job not found' },
     },
   },
   DELETE: {

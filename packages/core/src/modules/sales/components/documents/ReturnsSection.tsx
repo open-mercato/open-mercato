@@ -26,6 +26,7 @@ type ReturnRow = {
 type SalesReturnsSectionProps = {
   orderId: string
   currencyCode?: string | null
+  documentUpdatedAt?: string | null
 }
 
 function formatDisplayDate(value: string | null | undefined): string | null {
@@ -35,7 +36,7 @@ function formatDisplayDate(value: string | null | undefined): string | null {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
 }
 
-export function SalesReturnsSection({ orderId, currencyCode }: SalesReturnsSectionProps) {
+export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }: SalesReturnsSectionProps) {
   const t = useT()
   const [returns, setReturns] = React.useState<ReturnRow[]>([])
   const [lines, setLines] = React.useState<ReturnOrderLine[]>([])
@@ -208,6 +209,7 @@ export function SalesReturnsSection({ orderId, currencyCode }: SalesReturnsSecti
           open={dialogOpen}
           orderId={orderId}
           lines={lines}
+          documentUpdatedAt={documentUpdatedAt}
           onClose={() => setDialogOpen(false)}
           onSaved={async () => {
             emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
@@ -258,6 +260,7 @@ export function SalesReturnsSection({ orderId, currencyCode }: SalesReturnsSecti
         open={dialogOpen}
         orderId={orderId}
         lines={lines}
+        documentUpdatedAt={documentUpdatedAt}
         onClose={() => setDialogOpen(false)}
         onSaved={async () => {
           emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })

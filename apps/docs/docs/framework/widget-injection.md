@@ -381,6 +381,33 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
 - EntityManager usage is **read-only** — no writes in enrichers
 - Non-critical enrichers fail silently (use `fallback`); set `critical: true` to propagate errors
 - Export paths automatically strip enricher fields (anything prefixed with `_`)
+- Keep `cacheableOnListHit` at its `false` default unless the enriched output is record-pure — see below
+
+### List Cache Interaction (`cacheableOnListHit`)
+
+When the opt-in CRUD list cache (`ENABLE_CRUD_API_CACHE`) is on, the factory stores the **enriched** list payload and partitions cache entries by the set of enrichers active for the caller (after ACL + tenant filtering). What happens on a cache hit depends on whether the active enrichers are cacheable:
+
+- If **every** active enricher sets `cacheableOnListHit: true`, the hit serves the stored enriched fields directly **without re-running enrichers** — this is the fast path that makes list caching actually eliminate enrichment cost.
+- Otherwise the hit **re-runs all active enrichers** and the cache stores only the base (pre-enrichment) payload, so non-cacheable enrichers always reflect current data.
+
+```ts
+const customerStatusBadge: ResponseEnricher = {
+  id: 'example.customer-status-badge',
+  targetEntity: 'customers.person',
+  cacheableOnListHit: true, // pure function of the record's own cached fields → safe on a hit
+  // ...
+}
+```
+
+The shipped `example.customer-todo-count` enricher, by contrast, reads other modules' tables, so it keeps the `false` default and re-runs on every hit.
+
+Set `cacheableOnListHit: true` **only** when the enricher's output for a record is a pure function of that record's own cached state and is invalidated together with it. Leave it `false` (the fail-closed default) for any enricher whose output depends on data the list cache does not invalidate on:
+
+- cross-module / cross-entity reads (e.g. a product image fetched for a sales line),
+- wall-clock-relative values (e.g. "days in stage"),
+- aggregates over other tables.
+
+Opting in on such an enricher would serve stale values from the shared cache entry on a hit.
 
 ### Directory Structure
 

@@ -9,7 +9,8 @@ import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -76,6 +77,7 @@ type SalesDocumentRow = {
   totalGross?: number | null
   currency?: string | null
   date?: string | null
+  updatedAt?: string | null
 }
 
 const PAGE_SIZE = 20
@@ -251,7 +253,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         undefined,
         { fallback: { items: [] } }
       )
-      const entries = normalizeDictionaryEntries(response.result?.items ?? [])
+      const entries = normalizeDictionaryEntries(response.result?.items ?? [], { sort: false })
       setStatusMap(createDictionaryMap(entries))
     } catch (err) {
       console.error('sales.documents.statuses.load', err)
@@ -464,6 +466,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         totalGross,
         currency: doc.currencyCode ?? null,
         date,
+        updatedAt: doc.updatedAt ?? null,
       }, item)
     },
     [kind]
@@ -540,9 +543,13 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       })
       if (!confirmed) return
       try {
-        const result = await deleteCrud(`sales/${resource}`, row.id, {
-          errorMessage: t('sales.documents.list.table.deleteError', 'Failed to delete document.'),
-        })
+        const result = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(row.updatedAt),
+          () =>
+            deleteCrud(`sales/${resource}`, row.id, {
+              errorMessage: t('sales.documents.list.table.deleteError', 'Failed to delete document.'),
+            }),
+        )
         if (result.ok) {
           flash(
             kind === 'order'

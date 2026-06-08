@@ -10,6 +10,9 @@
 export interface WorkflowActivityJobBase {
   workflowInstanceId: string
   stepInstanceId?: string
+  // Set when the job belongs to a parallel branch; resume targets that branch.
+  // Absent on jobs enqueued before parallel support shipped → instance-level resume.
+  branchInstanceId?: string | null
   tenantId: string
   organizationId: string
   userId?: string

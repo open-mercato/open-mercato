@@ -82,7 +82,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [SPEC-062](SPEC-062-2026-03-18-sales-native-shipping-carrier-refactor.md) | 2026-03-18 | Sales Native Shipping Carrier Refactor | Refactor sales module shipping carrier integration to native pattern |
 | [SPEC-067](SPEC-067-2026-03-17-cli-standalone-app-support.md) | 2026-03-17 | CLI Standalone App Support | CLI tooling support for standalone app development |
 | [SPEC-068](SPEC-068-2026-03-02-use-case-examples-framework.md) | 2026-03-02 | Use-Case Examples Framework | `create-mercato-app --example` pattern for bootstrapping use-case solutions |
-| [SPEC-069](SPEC-069-2026-02-23-core-timesheets.md) | 2026-02-23 | Core Timesheets Functionality | Core timesheets functionality in the `staff` module with My Timesheets, Projects, and phase-based approvals/policies |
+| [SPEC-069](2026-02-23-core-timesheets.md) | 2026-02-23 | Core Timesheets Functionality | Core timesheets functionality in the `staff` module with My Timesheets, Projects, and phase-based approvals/policies |
 | [Checkout](2026-03-19-checkout-simple-checkout.md) | 2026-03-19 | Simple Checkout | Checkout flow specification for Phase B |
 | [Checkout Wireframes](2026-03-19-checkout-simple-checkout-wireframes.md) | 2026-03-19 | Simple Checkout Wireframes | Companion wireframes for the Simple Checkout spec |
 | [Registry](2026-03-20-decentralize-module-registry-generator.md) | 2026-03-20 | Decentralize Module Registry Generator | CLI refactoring for decentralized module registry generation |
@@ -93,6 +93,11 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Not Found](2026-03-23-unified-record-not-found-ui-state.md) | 2026-03-23 | Unified Record Not-Found UI State | Consistent UI state for missing/deleted records |
 | [Sync Excel Customers Import Foundation](2026-03-29-sync-excel-customers-import-foundation.md) | 2026-03-29 | Sync Excel Customers Import Foundation | Partially implemented `sync_excel` CSV import provider for `customers.person`, including upload/preview/import flow, integration-detail UI, and an explicit pending DB migration blocker |
 | [API Key Error](2026-04-16-actionable-missing-api-key-error.md) | 2026-04-16 | Actionable Missing API Key Error | Include expected env var names in missing AI provider API key error (#1433) |
+| [Harness Validation Gate](2026-05-28-harness-validation-gate.md) | 2026-05-28 | Harness Validation Gate + Module Scaffold Template Fixes | Correct stale API patterns in module-scaffold skill template; add a SKILL-level post-scaffold validation gate (yarn generate → structural cache purge → ACL sync → typecheck → /login check) in `module-scaffold/SKILL.md` §12 (#2209) |
+| [Dictionary Entry Sort Mode](2026-06-02-dictionary-entry-sort-mode.md) | 2026-06-02 | Dictionary Entry Sort Mode | Configurable server-side dictionary entry ordering for generic and customer dictionaries |
+| [runCrudCommandWrite](2026-06-05-run-crud-command-write-helper.md) | 2026-06-05 | runCrudCommandWrite Helper | Unified command-write helper composing fork → atomic flush → custom fields → side-effects in the only correct order (#2598) |
+| [Sales Payments Tenant Scope](2026-06-06-sales-recompute-order-payment-totals-tenant-scope.md) | 2026-06-06 | sales(payments): scope `recomputeOrderPaymentTotals` order lookups by tenant/organization | Defence-in-depth scope filter + `ensureSameScope` on 7 `findOne(SalesOrder, …)` sites in `payments.ts` (#2111) |
+| [Checkout Cookie sessionVersion](2026-06-06-checkout-access-cookie-non-reversible-session-version.md) | 2026-06-06 | Derive checkout access cookie sessionVersion | Non-reversible HMAC-SHA256 derivation of the embedded `sessionVersion` so the bcrypt `passwordHash` never appears in the client-readable cookie payload (#2675) |
 
 ### Implemented Specifications
 

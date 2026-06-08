@@ -18,6 +18,8 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const commentCrudIndexer: CrudIndexerConfig<CustomerComment> = {
   entityType: E.customers.customer_comment,
@@ -152,6 +154,34 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       await em.flush()
     }
   },
+  redo: makeCreateRedo<CustomerComment, CommentSnapshot, CommentCreateInput, { commentId: string; authorUserId: string | null }>({
+    entityClass: CustomerComment,
+    indexer: commentCrudIndexer,
+    events: commentCrudEvents,
+    findRow: ({ em, id, snapshot }) =>
+      findOneWithDecryption(
+        em,
+        CustomerComment,
+        { id },
+        undefined,
+        { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+      ),
+    seedFromSnapshot: (snapshot) => ({
+      id: snapshot.id,
+      organizationId: snapshot.organizationId,
+      tenantId: snapshot.tenantId,
+      body: snapshot.body,
+      authorUserId: snapshot.authorUserId,
+      appearanceIcon: snapshot.appearanceIcon,
+      appearanceColor: snapshot.appearanceColor,
+    }),
+    beforeRestore: async ({ em, snapshot }) => {
+      const entity = await requireTimelineParentEntity(em, snapshot.entityId)
+      const deal = await requireDealInScope(em, snapshot.dealId, snapshot.tenantId, snapshot.organizationId)
+      return { entity, deal }
+    },
+    buildResult: (entity) => ({ commentId: entity.id, authorUserId: entity.authorUserId ?? null }),
+  }),
 }
 
 const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: string }> = {

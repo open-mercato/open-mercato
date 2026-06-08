@@ -228,6 +228,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     const rawActivity = activity as unknown as Record<string, unknown>
     openScheduleEdit({
       id: activity.id,
+      updatedAt: typeof rawActivity.updatedAt === 'string' ? rawActivity.updatedAt as string : typeof rawActivity.updated_at === 'string' ? rawActivity.updated_at as string : null,
       interactionType: activity.interactionType,
       title: activity.title ?? null,
       body: activity.body ?? null,

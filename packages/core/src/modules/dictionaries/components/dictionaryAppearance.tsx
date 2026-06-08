@@ -451,7 +451,10 @@ export function renderDictionaryColor(color: string | null | undefined, classNam
   )
 }
 
-export function normalizeDictionaryEntries(items: unknown): DictionaryDisplayEntry[] {
+export function normalizeDictionaryEntries(
+  items: unknown,
+  options: { sort?: boolean } = {},
+): DictionaryDisplayEntry[] {
   if (!Array.isArray(items)) return []
   const entries: DictionaryDisplayEntry[] = []
   for (const item of items) {
@@ -468,6 +471,7 @@ export function normalizeDictionaryEntries(items: unknown): DictionaryDisplayEnt
     const icon = typeof candidate.icon === 'string' && candidate.icon.trim().length ? candidate.icon.trim() : null
     entries.push({ value: rawValue, label, color, icon })
   }
+  if (options.sort === false) return entries
   return entries.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
 }
 

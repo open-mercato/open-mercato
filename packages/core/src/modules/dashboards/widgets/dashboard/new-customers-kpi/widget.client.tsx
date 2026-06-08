@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useWidgetData, type WidgetDataFetcher } from '@open-mercato/ui/backend/dashboard/widgetData'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { KpiCard, type KpiTrend } from '@open-mercato/ui/backend/charts'
 import {
@@ -14,7 +14,7 @@ import {
 import { DEFAULT_SETTINGS, hydrateSettings, type NewCustomersKpiSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 
-async function fetchNewCustomersData(settings: NewCustomersKpiSettings): Promise<WidgetDataResponse> {
+async function fetchNewCustomersData(settings: NewCustomersKpiSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
   const body = {
     entityType: 'customers:entities',
     metric: {
@@ -28,18 +28,7 @@ async function fetchNewCustomersData(settings: NewCustomersKpiSettings): Promise
     comparison: settings.showComparison ? { type: 'previous_period' } : undefined,
   }
 
-  const call = await apiCall<WidgetDataResponse>('/api/dashboards/widgets/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-
-  if (!call.ok) {
-    const errorMsg = (call.result as Record<string, unknown>)?.error
-    throw new Error(typeof errorMsg === 'string' ? errorMsg : 'Failed to fetch new customers data')
-  }
-
-  return call.result as WidgetDataResponse
+  return fetchWidgetData<WidgetDataResponse>(body)
 }
 
 const NewCustomersKpiWidget: React.FC<DashboardWidgetComponentProps<NewCustomersKpiSettings>> = ({
@@ -56,12 +45,13 @@ const NewCustomersKpiWidget: React.FC<DashboardWidgetComponentProps<NewCustomers
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
+  const fetchWidgetData = useWidgetData()
   const refresh = React.useCallback(async () => {
     onRefreshStateChange?.(true)
     setLoading(true)
     setError(null)
     try {
-      const data = await fetchNewCustomersData(hydrated)
+      const data = await fetchNewCustomersData(hydrated, fetchWidgetData)
       setValue(data.value)
       if (data.comparison) {
         setTrend({
@@ -78,7 +68,7 @@ const NewCustomersKpiWidget: React.FC<DashboardWidgetComponentProps<NewCustomers
       setLoading(false)
       onRefreshStateChange?.(false)
     }
-  }, [hydrated, onRefreshStateChange, t])
+  }, [hydrated, fetchWidgetData, onRefreshStateChange, t])
 
   React.useEffect(() => {
     refresh().catch(() => {})

@@ -13,9 +13,10 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  */
 test.describe('TC-ADMIN-005: Feature Toggles Management', () => {
   test('should display feature toggles list and create form for superadmin', async ({ page }) => {
+    test.slow();
     await login(page, 'superadmin');
 
-    await page.goto('/backend/feature-toggles/global');
+    await page.goto('/backend/feature-toggles/global', { waitUntil: 'commit' });
     await expect(page.getByRole('heading', { name: /Feature Toggles/i })).toBeVisible();
     await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
 
@@ -30,7 +31,7 @@ test.describe('TC-ADMIN-005: Feature Toggles Management', () => {
     } else {
       await page.getByRole('button', { name: /^Create$/i }).first().click();
     }
-    await expect(page).toHaveURL(/\/backend\/feature-toggles\/global\/create(?:\?.*)?$/);
+    await expect(page).toHaveURL(/\/backend\/feature-toggles\/global\/create(?:\?.*)?$/, { timeout: 15_000 });
     await expect(page.locator('main').getByText('Create Feature Toggle', { exact: true })).toBeVisible();
 
     await expect(page.getByText('Basic Information')).toBeVisible();

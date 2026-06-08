@@ -4,6 +4,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { StaffTeamMemberJobHistory } from '../data/entities'
 import {
+  optimisticUpdatedAtSchema,
   staffTeamMemberJobHistoryCreateSchema,
   staffTeamMemberJobHistoryUpdateSchema,
 } from '../data/validators'
@@ -11,6 +12,11 @@ import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkRespons
 import { E } from '#generated/entities.ids.generated'
 
 const rawBodySchema = z.object({}).passthrough()
+
+const optimisticDeleteSchema = z.object({
+  id: z.string().uuid(),
+  updatedAt: optimisticUpdatedAtSchema.optional(),
+})
 
 const listSchema = z
   .object({
@@ -94,7 +100,11 @@ const crud = makeCrudRoute({
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
         const id = resolveCrudRecordId(parsed, ctx, translate)
-        return { id }
+        const parsedBody = (parsed as { body?: Record<string, unknown> })?.body
+        return {
+          id,
+          updatedAt: typeof parsedBody?.updatedAt === 'string' ? parsedBody.updatedAt : undefined,
+        }
       },
       response: () => ({ ok: true }),
     },
@@ -137,7 +147,7 @@ export const openApi = createStaffCrudOpenApi({
     description: 'Updates a team member job history entry.',
   },
   del: {
-    schema: z.object({ id: z.string().uuid() }),
+    schema: optimisticDeleteSchema,
     responseSchema: defaultOkResponseSchema,
     description: 'Deletes a team member job history entry.',
   },

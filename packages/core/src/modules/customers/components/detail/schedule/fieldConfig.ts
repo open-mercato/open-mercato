@@ -1,4 +1,4 @@
-export type ActivityType = 'meeting' | 'call' | 'task' | 'email'
+export type ActivityType = 'meeting' | 'call' | 'task' | 'email' | 'note'
 
 export type ScheduleFieldId =
   | 'title'
@@ -39,6 +39,9 @@ export const FIELD_VISIBILITY: Record<ActivityType, Set<ScheduleFieldId>> = {
     'participants', 'linkedEntities', 'description',
     'reminder', 'visibility',
   ]),
+  note: new Set([
+    'title', 'linkedEntities', 'description', 'visibility',
+  ]),
 }
 
 type LabelOverride = { key: string; fallback: string }
@@ -70,6 +73,10 @@ export const FIELD_LABEL_OVERRIDES: Partial<
     participants: { key: 'customers.schedule.to', fallback: 'To' },
     linkedEntities: { key: 'customers.schedule.connections', fallback: 'Connections' },
     description: { key: 'customers.schedule.message', fallback: 'Message' },
+  },
+  note: {
+    linkedEntities: { key: 'customers.schedule.connections', fallback: 'Connections' },
+    description: { key: 'customers.schedule.note.content', fallback: 'Note' },
   },
 }
 

@@ -8,6 +8,7 @@ import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import spawn from 'cross-spawn'
+import { fetchWithTimeout, type FetchWithTimeoutInit } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import { resolveEnvironment } from '../resolver'
 import { resolveSpawnCommand } from '../spawn'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
@@ -774,6 +775,14 @@ function delay(milliseconds: number): Promise<void> {
   })
 }
 
+// Each readiness probe fetch is bounded so a single stuck connection cannot consume the whole
+// readiness budget; on timeout it surfaces as a probe failure and the next cycle retries.
+const READINESS_PROBE_FETCH_TIMEOUT_MS = 15_000
+
+function probeFetch(input: string, init: FetchWithTimeoutInit = {}): Promise<Response> {
+  return fetchWithTimeout(input, { timeoutMs: READINESS_PROBE_FETCH_TIMEOUT_MS, ...init })
+}
+
 export function resolveBuildCacheTtlSeconds(logPrefix: string): number {
   const rawValue = process.env[BUILD_CACHE_TTL_ENV_VAR]
   if (!rawValue) {
@@ -1105,10 +1114,17 @@ export async function shouldRebuildBuildArtifacts(
 }
 
 async function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
+  const tryListen = (host: string): Promise<number | null> => new Promise((resolve, reject) => {
     const server = createServer()
-    server.on('error', reject)
-    server.listen(0, '127.0.0.1', () => {
+    server.on('error', (error) => {
+      const errorCode = (error as NodeJS.ErrnoException).code
+      if (errorCode === 'EAFNOSUPPORT') {
+        resolve(null)
+        return
+      }
+      reject(error)
+    })
+    server.listen(0, host, () => {
       const address = server.address()
       if (!address || typeof address === 'string') {
         server.close()
@@ -1125,6 +1141,8 @@ async function getFreePort(): Promise<number> {
       })
     })
   })
+
+  return (await tryListen('::')) ?? await tryListen('127.0.0.1') ?? Promise.reject(new Error('Unable to allocate free port'))
 }
 
 async function isPortAvailable(port: number): Promise<boolean> {
@@ -1145,17 +1163,17 @@ async function isPortAvailable(port: number): Promise<boolean> {
     })
   })
 
+  const wildcardIpv6Availability = await canBind('::')
+  if (wildcardIpv6Availability === false) {
+    return false
+  }
+
   const ipv4Availability = await canBind('127.0.0.1')
   if (ipv4Availability === false) {
     return false
   }
 
-  const ipv6Availability = await canBind('::1')
-  if (ipv6Availability === false) {
-    return false
-  }
-
-  return ipv4Availability === true || ipv6Availability === true
+  return wildcardIpv6Availability === true || ipv4Availability === true
 }
 
 async function getPreferredPort(preferredPort: number): Promise<number> {
@@ -1263,7 +1281,7 @@ function isSuccessfulBrowserNavigationStatus(status: number): boolean {
 
 async function probeLoginPage(baseUrl: string): Promise<LoginPageProbeResult> {
   try {
-    const response = await fetch(`${baseUrl}/login`, {
+    const response = await probeFetch(`${baseUrl}/login`, {
       method: 'GET',
       redirect: 'manual',
     })
@@ -1309,7 +1327,7 @@ async function probeBackendLoginEndpoint(baseUrl: string): Promise<BackendLoginP
     const form = new URLSearchParams()
     form.set('email', 'integration-healthcheck@example.invalid')
     form.set('password', 'invalid-password')
-    const response = await fetch(`${baseUrl}/api/auth/login`, {
+    const response = await probeFetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       redirect: 'manual',
       headers: {
@@ -1341,7 +1359,7 @@ async function probeAuthenticatedApi(baseUrl: string): Promise<AuthenticatedApiP
     const form = new URLSearchParams()
     form.set('email', 'admin@acme.com')
     form.set('password', 'secret')
-    const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+    const loginResponse = await probeFetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       redirect: 'manual',
       headers: {
@@ -1372,7 +1390,7 @@ async function probeAuthenticatedApi(baseUrl: string): Promise<AuthenticatedApiP
       }
     }
 
-    const apiResponse = await fetch(`${baseUrl}/api/customers/people?pageSize=1`, {
+    const apiResponse = await probeFetch(`${baseUrl}/api/customers/people?pageSize=1`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -1732,30 +1750,51 @@ export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptio
   }
 }
 
-async function waitForApplicationReadiness(
+export async function waitForApplicationReadiness(
   baseUrl: string,
   appProcess: ChildProcess,
-  options: { timeoutMs: number },
+  options: { timeoutMs: number; intervalMs?: number; stabilizationMs?: number },
 ): Promise<void> {
   const startTimestamp = Date.now()
-  const exitPromise = getProcessExitPromise(appProcess)
-  const readinessStabilizationMs = 600
+  const intervalMs = options.intervalMs ?? APP_READY_INTERVAL_MS
+  const readinessStabilizationMs = options.stabilizationMs ?? 600
   let lastProbe: ApplicationReadinessProbeResult | null = null
 
+  // Wrap process exit into a single never-rejecting promise so we can race it without piling up
+  // rejection handlers or losing the exit code across loop iterations.
+  let exitCode: number | null = null
+  const exitSignal = getProcessExitPromise(appProcess).then(
+    (code) => {
+      exitCode = code ?? null
+      return { exited: true as const }
+    },
+    () => {
+      exitCode = null
+      return { exited: true as const }
+    },
+  )
+  const exitError = () =>
+    new Error(`Application process exited before readiness check (exit ${exitCode ?? 'unknown'})`)
+
   while (Date.now() - startTimestamp < options.timeoutMs) {
-    const result = await Promise.race([
-      probeApplicationReadiness(baseUrl).then((probe) => ({ kind: 'probe' as const, probe })),
-      exitPromise.then((code) => ({ kind: 'exit' as const, code })),
-      delay(APP_READY_INTERVAL_MS).then(() => ({ kind: 'timeout' as const })),
+    // Run one probe cycle to completion before starting the next. Overlapping cycles (the previous
+    // race-against-a-1s-tick design) abandoned slow probes without cancelling them, so every second
+    // a fresh /api/auth/login attempt piled onto the most expensive endpoint — amplifying the very
+    // contention that delays readiness when 15 ephemeral shards boot in parallel. Each fetch is
+    // independently bounded by fetchWithTimeout, so a stuck connection cannot stall the cycle.
+    const cycle = await Promise.race([
+      probeApplicationReadiness(baseUrl).then((probe) => ({ probe })),
+      exitSignal,
     ])
 
-    if (result.kind === 'probe') {
-      lastProbe = result.probe
-      if (!result.probe.ready) {
-        continue
-      }
+    if ('exited' in cycle) {
+      throw exitError()
+    }
+
+    lastProbe = cycle.probe
+    if (cycle.probe.ready) {
       const processExited = await Promise.race([
-        exitPromise.then(() => true),
+        exitSignal.then(() => true),
         delay(readinessStabilizationMs).then(() => false),
       ])
       if (processExited) {
@@ -1763,8 +1802,15 @@ async function waitForApplicationReadiness(
       }
       return
     }
-    if (result.kind === 'exit') {
-      throw new Error(`Application process exited before readiness check (exit ${result.code ?? 'unknown'})`)
+
+    const remainingMs = options.timeoutMs - (Date.now() - startTimestamp)
+    if (remainingMs <= 0) break
+    const waited = await Promise.race([
+      exitSignal,
+      delay(Math.min(intervalMs, remainingMs)).then(() => null),
+    ])
+    if (waited && 'exited' in waited) {
+      throw exitError()
     }
   }
 

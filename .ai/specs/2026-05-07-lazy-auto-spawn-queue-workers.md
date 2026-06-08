@@ -488,7 +488,7 @@ type AutoSpawnWorkersMode = 'off' | 'eager' | 'lazy'
 - `packages/queue/AGENTS.md`
 - `packages/cli/AGENTS.md`
 - `BACKWARD_COMPATIBILITY.md`
-- `.ai/skills/spec-writing/SKILL.md`
+- `.ai/skills/om-spec-writing/SKILL.md`
 
 ### Compliance Matrix
 | Rule Source | Rule | Status | Notes |

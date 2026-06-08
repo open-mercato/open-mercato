@@ -128,6 +128,7 @@ export function DocumentNumberSettings() {
         orderNextNumber: Number.parseInt(formState.orderNextNumber, 10) || undefined,
         quoteNextNumber: Number.parseInt(formState.quoteNextNumber, 10) || undefined,
       }
+      // optimistic-lock-exempt: single-row tenant numbering settings blob — no per-record version / concurrent record edit
       const call = await apiCall<SettingsResponse>('/api/sales/settings/document-numbers', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { SyncSchedule } from '../data/entities'
 
 type SyncScope = {
@@ -129,10 +130,20 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
       timezone: string
       fullSync: boolean
       isEnabled: boolean
+      expectedUpdatedAt?: string | null
     }, scope: SyncScope): Promise<SyncSchedule> {
       const existing = input.id
         ? await getById(input.id, scope)
         : await getByKey(input.integrationId, input.entityType, input.direction, scope)
+
+      if (existing) {
+        enforceCommandOptimisticLock({
+          resourceKind: 'data_sync.schedule',
+          resourceId: existing.id,
+          current: existing.updatedAt ?? null,
+          expected: input.expectedUpdatedAt ?? null,
+        })
+      }
 
       const row = existing ?? em.create(SyncSchedule, {
         id: randomUUID(),

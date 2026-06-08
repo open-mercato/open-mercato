@@ -77,6 +77,7 @@ export default async function handle(
     await fireTimer(em, container, {
       instanceId: payload.workflowInstanceId,
       stepInstanceId: payload.stepInstanceId,
+      branchInstanceId: payload.branchInstanceId,
       tenantId: payload.tenantId,
       organizationId: payload.organizationId,
       userId: payload.userId,
@@ -108,6 +109,7 @@ export default async function handle(
       workflowContext: payload.workflowContext,
       stepContext: payload.stepContext,
       stepInstanceId: payload.stepInstanceId,
+      branchInstanceId: payload.branchInstanceId,
       userId: payload.userId,
     }
 
@@ -177,6 +179,7 @@ export default async function handle(
     await logWorkflowEvent(em, {
       workflowInstanceId: payload.workflowInstanceId,
       stepInstanceId: payload.stepInstanceId,
+      branchInstanceId: payload.branchInstanceId,
       eventType: 'ACTIVITY_COMPLETED',
       eventData: {
         activityId: payload.activityId,
@@ -198,7 +201,7 @@ export default async function handle(
     )
 
     // Attempt to resume workflow if all activities complete
-    await checkAndResumeWorkflow(em, ctx, payload.workflowInstanceId)
+    await checkAndResumeWorkflow(em, ctx, payload.workflowInstanceId, payload.branchInstanceId)
   } catch (error: any) {
     const executionTimeMs = Date.now() - startTime
 
@@ -211,6 +214,7 @@ export default async function handle(
     await logWorkflowEvent(em, {
       workflowInstanceId: payload.workflowInstanceId,
       stepInstanceId: payload.stepInstanceId,
+      branchInstanceId: payload.branchInstanceId,
       eventType: 'ACTIVITY_FAILED',
       eventData: {
         activityId: payload.activityId,
@@ -235,7 +239,7 @@ export default async function handle(
         `[workflows:activity-worker] Activity ${payload.activityId} (${payload.activityType}) failed after ${maxAttempts} attempts for workflow instance ${payload.workflowInstanceId} - triggering workflow failure handling`
       )
       // Final failure - attempt to resume workflow (may transition to FAILED state)
-      await checkAndResumeWorkflow(em, ctx, payload.workflowInstanceId)
+      await checkAndResumeWorkflow(em, ctx, payload.workflowInstanceId, payload.branchInstanceId)
     }
 
     // Re-throw to let BullMQ handle retry logic
@@ -256,7 +260,8 @@ export default async function handle(
 async function checkAndResumeWorkflow(
   em: EntityManager,
   ctx: HandlerContext,
-  workflowInstanceId: string
+  workflowInstanceId: string,
+  branchInstanceId?: string | null
 ): Promise<void> {
   // Import here to avoid circular dependency
   const { resumeWorkflowAfterActivities } = await import('../lib/workflow-executor')
@@ -265,7 +270,7 @@ async function checkAndResumeWorkflow(
   const container = ctx as unknown as AwilixContainer
 
   try {
-    await resumeWorkflowAfterActivities(em, container, workflowInstanceId)
+    await resumeWorkflowAfterActivities(em, container, workflowInstanceId, branchInstanceId)
   } catch (error: any) {
     // Ignore error if workflow not ready to resume yet (activities still pending)
     if (!error.message?.includes('Activities still pending')) {

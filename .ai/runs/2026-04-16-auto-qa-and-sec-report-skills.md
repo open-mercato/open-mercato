@@ -3,23 +3,23 @@ title: Add auto-qa-scenarios and auto-sec-report skills
 status: complete
 ---
 
-# Execution Plan — `auto-qa-scenarios` and `auto-sec-report` skills
+# Execution Plan — `om-auto-qa-scenarios` and `om-auto-sec-report` skills
 
 ## Goal
 
 Add two autonomous reporting skills to `.ai/skills/` that take a PR range
 (date, PR number floor, or default "last 7 days") and deliver a human-readable
 report as a docs-only PR against `develop`. Both skills reuse the
-`auto-create-pr` workflow for branch/worktree/commit/PR discipline and leave
-resumable progress via `auto-continue-pr` when the run cannot finish in one
+`om-auto-create-pr` workflow for branch/worktree/commit/PR discipline and leave
+resumable progress via `om-auto-continue-pr` when the run cannot finish in one
 pass.
 
 ## Scope
 
-- `.ai/skills/auto-qa-scenarios/SKILL.md` — QA-tester-facing report that
+- `.ai/skills/om-auto-qa-scenarios/SKILL.md` — QA-tester-facing report that
   groups merged PRs by practical testing routes (P0/P1/P2), tells QA where
   to click, what to verify, and what can go wrong.
-- `.ai/skills/auto-sec-report/SKILL.md` — Security-engineer-facing report
+- `.ai/skills/om-auto-sec-report/SKILL.md` — Security-engineer-facing report
   that maps each merged PR against OWASP Top 10 categories, calls out
   security-fix PRs, and proposes where the same fix should also be applied.
 - Both reports land under `.ai/analysis/` with a dated filename and both a
@@ -28,8 +28,8 @@ pass.
 
 ## Non-goals
 
-- Do not change the existing `auto-create-pr` / `auto-continue-pr` /
-  `auto-review-pr` skills. The new skills reuse them by reference.
+- Do not change the existing `om-auto-create-pr` / `om-auto-continue-pr` /
+  `om-auto-review-pr` skills. The new skills reuse them by reference.
 - Do not run any real analysis in this PR. This PR only adds the skill
   definitions; actual analysis runs will be triggered later by the user.
 - Do not touch packages, apps, or generated files.
@@ -50,7 +50,7 @@ convention so we can use `.ai/analysis/` with a dated `auto-qa-scenarios-*`
 - Draft `auto-qa-scenarios/SKILL.md` covering argument parsing (date / PR
   floor / default last week), data gathering with `gh`, grouping heuristics,
   the exact markdown report sections, the HTML rendering rule, the
-  `auto-create-pr` handoff, and the `auto-continue-pr` resume contract.
+  `om-auto-create-pr` handoff, and the `om-auto-continue-pr` resume contract.
 - Draft `auto-sec-report/SKILL.md` with the same shape but focused on OWASP
   Top 10 2021 categories, PR-level security-fix detection, and
   cross-codebase "apply the same fix elsewhere" audit prompts.
@@ -72,7 +72,7 @@ convention so we can use `.ai/analysis/` with a dated `auto-qa-scenarios-*`
 - Skill descriptions must be precise enough that agents auto-select them
   without accidentally firing on unrelated PR-reporting requests. Mitigation:
   keep the trigger words narrow ("QA scenarios", "QA report for PRs",
-  "security audit", "OWASP", "auto-sec-report").
+  "security audit", "OWASP", "om-auto-sec-report").
 - Reports can run long. SKILL.md must cap the per-PR narrative and push raw
   inventory to an appendix so the artifact stays usable.
 
@@ -96,10 +96,10 @@ convention so we can use `.ai/analysis/` with a dated `auto-qa-scenarios-*`
 
 ### Phase 4: Revision — split sec-report into single-unit + driver
 
-- [x] 4.1 Add `auto-sec-report-pr` single-unit skill covering PR / spec / branch inputs with paranoid deep vectors and "Next steps — go deeper"
-- [x] 4.2 Add `references/deep-attack-vectors.md` paranoid checklist bundled with `auto-sec-report-pr`
-- [x] 4.3 Refactor `auto-sec-report` to loop `auto-sec-report-pr` in sub-unit mode and aggregate per-unit fragments
-- [x] 4.4 Update README.md skills index: new row for `auto-sec-report-pr`, updated row for driver `auto-sec-report`, folder added to structure tree
+- [x] 4.1 Add `om-auto-sec-report-pr` single-unit skill covering PR / spec / branch inputs with paranoid deep vectors and "Next steps — go deeper"
+- [x] 4.2 Add `references/deep-attack-vectors.md` paranoid checklist bundled with `om-auto-sec-report-pr`
+- [x] 4.3 Refactor `om-auto-sec-report` to loop `om-auto-sec-report-pr` in sub-unit mode and aggregate per-unit fragments
+- [x] 4.4 Update README.md skills index: new row for `om-auto-sec-report-pr`, updated row for driver `om-auto-sec-report`, folder added to structure tree
 
 ### Phase 5: CI stabilization
 

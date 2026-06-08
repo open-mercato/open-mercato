@@ -47,7 +47,7 @@ Move a spec to `implemented/` when all phases are complete and the feature is de
 ## Detailed Guidance
 
 For detailed spec writing and review, use the spec-writing skill:
-- `.ai/skills/spec-writing/SKILL.md`
+- `.ai/skills/om-spec-writing/SKILL.md`
 
 ## Create/Update Triggers
 

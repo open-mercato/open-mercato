@@ -50,6 +50,8 @@ export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
     admin: ['sales.*', 'sales.documents.number.edit'],
     employee: [
+      'sales.channels.view',
+      'sales.settings.view',
       'sales.orders.view',
       'sales.orders.manage',
       'sales.orders.approve',

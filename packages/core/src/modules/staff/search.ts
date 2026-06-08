@@ -188,6 +188,41 @@ export const searchConfig: SearchModuleConfig = {
         searchable: ['name', 'description', 'appearance_icon', 'appearance_color'],
       },
     },
+    {
+      entityId: 'staff:staff_time_project',
+      enabled: true,
+      priority: 7,
+      buildSource: async (ctx) => {
+        const { t } = await resolveTranslations()
+        const record = ctx.record
+        const lines: string[] = []
+        appendLine(lines, 'Name', record.name)
+        appendLine(lines, 'Code', record.code)
+        appendLine(lines, 'Description', record.description)
+        appendLine(lines, 'Type', record.project_type ?? record.projectType)
+        appendLine(lines, 'Cost Center', record.cost_center ?? record.costCenter)
+        const presenter: SearchResultPresenter = {
+          title: String(record.name ?? record.id ?? t('staff.search.badge.timeProject', 'Project')),
+          subtitle: formatSubtitle(record.code, record.project_type ?? record.projectType),
+          icon: 'clock',
+          badge: t('staff.search.badge.timeProject', 'Project'),
+        }
+        return buildIndexSource(ctx, presenter, lines)
+      },
+      formatResult: async (ctx) => {
+        const { t } = await resolveTranslations()
+        return {
+          title: String(ctx.record.name ?? ctx.record.id ?? ''),
+          subtitle: formatSubtitle(ctx.record.code, ctx.record.project_type ?? ctx.record.projectType),
+          icon: 'clock',
+          badge: t('staff.search.badge.timeProject', 'Project'),
+        }
+      },
+      resolveUrl: async (ctx) => `/backend/staff/timesheets/projects/${encodeURIComponent(String(ctx.record.id))}`,
+      fieldPolicy: {
+        searchable: ['name', 'code', 'description', 'project_type', 'cost_center'],
+      },
+    },
   ],
 }
 

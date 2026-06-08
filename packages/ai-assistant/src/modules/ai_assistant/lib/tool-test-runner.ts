@@ -212,14 +212,18 @@ async function loadGeneratedTools(): Promise<{ moduleId: string; tools: AiToolDe
   return result
 }
 
-async function pickDefaultTenant(
+export async function pickDefaultTenant(
   container: AwilixContainer,
 ): Promise<{ tenantId: string; organizationId: string | null; userId: string | null } | null> {
   try {
     const em = container.resolve<{
-      getConnection: () => { execute: (sql: string) => Promise<unknown[]> }
+      getConnection: () => {
+        execute: (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>
+      }
     }>('em') as unknown as {
-      getConnection: () => { execute: (sql: string) => Promise<Record<string, unknown>[]> }
+      getConnection: () => {
+        execute: (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>
+      }
     }
     const conn = em.getConnection()
     const tenantRows = await conn.execute(
@@ -230,16 +234,17 @@ async function pickDefaultTenant(
         ? String((tenantRows[0] as Record<string, unknown>).id)
         : null
     if (!tenantId) return null
-    const escaped = tenantId.replace(/'/g, "''")
     const orgRows = await conn.execute(
-      `SELECT id FROM organizations WHERE tenant_id = '${escaped}' AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
+      `SELECT id FROM organizations WHERE tenant_id = ? AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
+      [tenantId],
     )
     const organizationId =
       Array.isArray(orgRows) && orgRows[0]
         ? String((orgRows[0] as Record<string, unknown>).id)
         : null
     const userRows = await conn.execute(
-      `SELECT id FROM users WHERE tenant_id = '${escaped}' AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
+      `SELECT id FROM users WHERE tenant_id = ? AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
+      [tenantId],
     )
     const userId =
       Array.isArray(userRows) && userRows[0]

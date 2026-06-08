@@ -7,6 +7,7 @@ import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@op
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerEntity, CustomerEntityRole } from '../data/entities'
@@ -69,24 +70,13 @@ async function buildContext(request: Request) {
   }
 }
 
-function collectAllowedOrganizationIds(
-  scope: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['scope'],
-  auth: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['auth'],
-) {
-  const allowedOrgIds = new Set<string>()
-  if (scope?.filterIds?.length) scope.filterIds.forEach((id) => allowedOrgIds.add(id))
-  else if (auth.orgId) allowedOrgIds.add(auth.orgId)
-  return allowedOrgIds
-}
-
 function ensureRouteOrganizationAccess(
   organizationId: string,
   scope: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['scope'],
   auth: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['auth'],
   translate: Translator,
 ) {
-  const allowedOrgIds = collectAllowedOrganizationIds(scope, auth)
-  if (allowedOrgIds.size > 0 && !allowedOrgIds.has(organizationId)) {
+  if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId })) {
     throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
   }
 }

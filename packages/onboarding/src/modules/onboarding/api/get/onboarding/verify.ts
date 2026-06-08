@@ -3,14 +3,18 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SearchIndexer } from '@open-mercato/search'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
+import {
+  AppOriginConfigurationError,
+  AppOriginRejectedError,
+  getSecurityEmailBaseUrl,
+} from '@open-mercato/shared/lib/url'
 import { onboardingVerifySchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboarding/lib/ready-email'
 import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-app'
 import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { computeConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
-import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { resolveConsentClientIp } from '@open-mercato/onboarding/modules/onboarding/lib/consentClientIp'
 import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
 import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
@@ -24,6 +28,21 @@ export const metadata = {
   GET: {
     requireAuth: false,
   },
+}
+
+function resolveTrustedBaseUrl(req: Request): string {
+  try {
+    return getSecurityEmailBaseUrl(req)
+  } catch (error) {
+    if (error instanceof AppOriginRejectedError || error instanceof AppOriginConfigurationError) {
+      console.error('[onboarding.verify] rejected request origin for redirect base', {
+        requestUrl: req.url,
+        reason: error.message,
+      })
+      return new URL(req.url).origin
+    }
+    throw error
+  }
 }
 
 function clearAuthCookies(response: NextResponse) {
@@ -218,7 +237,6 @@ async function rebuildTenantQueryIndexes(args: {
 
 async function runDeferredProvisioning(args: {
   requestId: string
-  baseUrl: string
   tenantId: string
   organizationId: string
 }) {
@@ -256,7 +274,6 @@ async function runDeferredProvisioning(args: {
 
   await sendWorkspaceReadyEmail({
     requestId: args.requestId,
-    baseUrl: args.baseUrl,
     tenantId: args.tenantId,
   }).catch((error) => {
     console.error('[onboarding.verify] ready email failed', {
@@ -289,7 +306,7 @@ async function runDeferredProvisioning(args: {
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
-  const baseUrl = getAppBaseUrl(req)
+  const baseUrl = resolveTrustedBaseUrl(req)
   const token = url.searchParams.get('token') ?? ''
   const parsed = onboardingVerifySchema.safeParse({ token })
   if (!parsed.success) {
@@ -314,7 +331,6 @@ export async function GET(req: Request) {
       after(async () => {
         await sendWorkspaceReadyEmail({
           requestId: request.id,
-          baseUrl,
           tenantId: request.tenantId!,
         }).catch((error) => {
           console.error('[onboarding.verify] retry ready email failed', {
@@ -340,7 +356,20 @@ export async function GET(req: Request) {
   if (request.status !== 'pending') {
     return redirectWithStatus(baseUrl, 'invalid')
   }
-  await service.startProcessing(request, new Date())
+  const claimed = await service.startProcessing(request, new Date())
+  if (!claimed) {
+    // A concurrent verify request already claimed this token (pending → processing).
+    // Re-read on a fresh fork — the request EM's identity map still holds the stale
+    // pre-claim copy — and route off the winner's committed state instead of re-running
+    // provisioning, which would throw USER_EXISTS and could strand the request (#2742).
+    const current = await new OnboardingService(em.fork()).findById(request.id)
+    if (current?.status === 'completed' && current.tenantId) {
+      return current.preparationCompletedAt
+        ? redirectToLogin(baseUrl, current.tenantId)
+        : redirectToPreparing(baseUrl, current.tenantId)
+    }
+    return redirectToPreparing(baseUrl, current?.tenantId ?? request.tenantId ?? null)
+  }
   if (!request.passwordHash) {
     console.error('[onboarding.verify] missing password hash for request', request.id)
     await service.resetProcessing(request)
@@ -387,7 +416,7 @@ export async function GET(req: Request) {
 
     if (request.marketingConsent) {
       const now = new Date()
-      const clientIp = getClientIp(req, 1) ?? null
+      const clientIp = resolveConsentClientIp(req)
       const integrityHash = computeConsentIntegrityHash({
         userId: resolvedUserId,
         consentType: 'marketing_email',
@@ -396,19 +425,25 @@ export async function GET(req: Request) {
         ipAddress: clientIp,
         source: 'onboarding',
       })
-      em.create(UserConsent, {
-        userId: resolvedUserId,
-        tenantId: resolvedTenantId,
-        organizationId: resolvedOrganizationId,
-        consentType: 'marketing_email',
-        isGranted: true,
-        grantedAt: now,
-        source: 'onboarding',
-        ipAddress: clientIp,
-        integrityHash,
-        createdAt: now,
+      // Wrap the request-em consent write in a transaction so it commits
+      // all-or-nothing. setupInitialTenant already manages its own internal
+      // transactions, and the seedDefaults hooks below resolve container
+      // services that fork their own EM (and may enqueue work), so neither can
+      // join this transaction — only the direct request-em writes are wrapped.
+      await em.transactional(async (txEm) => {
+        txEm.create(UserConsent, {
+          userId: resolvedUserId,
+          tenantId: resolvedTenantId,
+          organizationId: resolvedOrganizationId,
+          consentType: 'marketing_email',
+          isGranted: true,
+          grantedAt: now,
+          source: 'onboarding',
+          ipAddress: clientIp,
+          integrityHash,
+          createdAt: now,
+        })
       })
-      await em.flush()
     }
 
     // Call module seedDefaults + seedExamples hooks
@@ -438,7 +473,6 @@ export async function GET(req: Request) {
     after(async () => {
       await runDeferredProvisioning({
         requestId: request.id,
-        baseUrl,
         tenantId: resolvedTenantId,
         organizationId: resolvedOrganizationId,
       })

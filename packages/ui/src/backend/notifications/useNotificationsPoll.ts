@@ -6,6 +6,7 @@ import {
   emitNotificationCountChanged,
 } from '@open-mercato/shared/lib/frontend/notificationEvents'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
+import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
 import {
   dispatchNotificationHandlers,
   getRequiredNotificationHandlerFeatures,
@@ -36,6 +37,9 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const grantedFeaturesRef = React.useRef<string[]>([])
+  const translate = useOptionalT()
+  const translateRef = React.useRef(translate)
+  React.useEffect(() => { translateRef.current = translate }, [translate])
   const lastIdRef = React.useRef<string | null>(null)
   const prevUnreadRef = React.useRef(0)
   const {
@@ -76,6 +80,7 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
         if (newNotifications.length > 0) {
           dispatchNotificationHandlers(newNotifications, {
             features: grantedFeaturesRef.current,
+            t: translateRef.current,
             currentPath:
               typeof window === 'undefined'
                 ? '/'
