@@ -13,6 +13,10 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 
+// Captures the column definitions passed to the (mocked) DataTable so individual
+// cell renderers can be exercised directly in tests.
+let mockLatestColumns: any[] = []
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   I18nProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
@@ -24,7 +28,9 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
     ...mappedRow,
     ...Object.fromEntries(Object.entries(sourceItem).filter(([key]) => key.startsWith('_'))),
   }),
-  DataTable: (props: any) => (
+  DataTable: (props: any) => {
+    mockLatestColumns = props.columns
+    return (
     <div data-testid="data-table-mock">
       <div data-testid="data-table-title">{props.title}</div>
       <div data-testid="data-table-cache-status">{props.pagination?.cacheStatus ?? ''}</div>
@@ -42,7 +48,8 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
       ) : null}
       {props.actions}
     </div>
-  ),
+    )
+  },
 }))
 
 jest.mock('@open-mercato/ui/primitives/button', () => ({
@@ -181,5 +188,23 @@ describe('ProductsDataTable', () => {
     fireEvent.click(refreshButton)
 
     await waitFor(() => expect(apiCall).toHaveBeenCalledTimes(2))
+  })
+
+  it('strips markdown formatting from the product description cell', async () => {
+    render(<ProductsDataTable />)
+    await waitFor(() => expect(mockLatestColumns.length).toBeGreaterThan(0))
+
+    const titleColumn = mockLatestColumns.find((col) => col.accessorKey === 'title')
+    expect(titleColumn).toBeTruthy()
+
+    const cell = titleColumn.cell({
+      row: { original: { id: 'p1', title: 'Widget', description: '# Heading\n\n**bold** _em_' } },
+    }) as React.ReactElement
+    const { container } = render(cell)
+
+    expect(container.textContent).toContain('Heading bold em')
+    expect(container.textContent).not.toContain('**')
+    expect(container.textContent).not.toContain('#')
+    expect(container.textContent).not.toContain('_')
   })
 })
