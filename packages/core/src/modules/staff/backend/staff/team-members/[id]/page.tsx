@@ -5,10 +5,10 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { switchTeamMemberSchedule } from '@open-mercato/core/modules/staff/lib/scheduleSwitch'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -297,12 +297,17 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
 
   const handleRulesetChange = React.useCallback(async (nextId: string | null) => {
     if (!memberId) return
-    const headers = buildOptimisticLockHeader(initialValues?.updatedAt)
-    await withScopedApiRequestHeaders(headers, () => (
-      updateCrud('staff/team-members', { id: memberId, availabilityRuleSetId: nextId }, {
-        errorMessage: t('staff.teamMembers.availability.ruleset.updateError', 'Failed to update schedule.'),
-      })
-    ))
+    const { updatedAt: nextUpdatedAt } = await switchTeamMemberSchedule({
+      memberId,
+      nextRuleSetId: nextId,
+      expectedUpdatedAt: initialValues?.updatedAt,
+      t,
+    })
+    // Advance the optimistic-lock token so the next sequential switch sends the
+    // fresh updatedAt instead of the stale one and does not falsely 409 (#2848).
+    if (nextUpdatedAt) {
+      setInitialValues((prev) => (prev ? { ...prev, updatedAt: nextUpdatedAt } : prev))
+    }
     setAvailabilityRuleSetId(nextId)
     flash(t('staff.teamMembers.availability.ruleset.updateSuccess', 'Schedule updated.'), 'success')
   }, [initialValues?.updatedAt, memberId, t])

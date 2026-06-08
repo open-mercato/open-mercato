@@ -225,7 +225,12 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         return parseScopedCommandInput(staffTeamMemberUpdateSchema, raw ?? {}, ctx, translate)
       },
-      response: () => ({ ok: true }),
+      // Surface the freshly-bumped updatedAt so inline (non-CrudForm) callers can
+      // refresh their optimistic-lock token between sequential edits (#2848).
+      response: (arg: { result?: { updatedAt?: string | null } | null }) => ({
+        ok: true,
+        updatedAt: arg?.result?.updatedAt ?? null,
+      }),
     },
     delete: {
       commandId: 'staff.team-members.delete',
@@ -287,7 +292,9 @@ export const openApi = createStaffCrudOpenApi({
   },
   update: {
     schema: staffTeamMemberUpdateSchema,
-    responseSchema: defaultOkResponseSchema,
+    responseSchema: defaultOkResponseSchema.extend({
+      updatedAt: z.string().nullable().optional(),
+    }),
     description: 'Updates a team member by id.',
   },
   del: {
