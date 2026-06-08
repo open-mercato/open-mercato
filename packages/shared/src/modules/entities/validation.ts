@@ -52,8 +52,22 @@ export type CustomFieldDefLike = {
   configJson?: any
 }
 
-// Evaluate a single rule against a value
+// Evaluate a single rule against a value. Multi-value fields (e.g. tags inputs
+// with `multi: true`) submit arrays, so every rule except `required` is applied
+// element-by-element — otherwise the array is stringified to "a,b" and rules
+// such as a slug regex fail on the join separator (issue #2650).
 function evalRule(rule: ValidationRule, value: any, kind: string): string | null {
+  if (rule.rule !== 'required' && Array.isArray(value)) {
+    for (const element of value) {
+      const msg = evalRuleScalar(rule, element, kind)
+      if (msg) return msg
+    }
+    return null
+  }
+  return evalRuleScalar(rule, value, kind)
+}
+
+function evalRuleScalar(rule: ValidationRule, value: any, kind: string): string | null {
   const isEmpty = (v: any) => v == null || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0)
 
   switch (rule.rule) {

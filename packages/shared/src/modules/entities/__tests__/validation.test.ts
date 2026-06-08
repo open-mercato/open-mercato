@@ -56,6 +56,44 @@ describe('validateValuesAgainstDefs', () => {
     expect(r.ok).toBe(true)
   })
 
+  it('validates multi-value fields against rules element-by-element', () => {
+    const defs = [
+      { key: 'labels', kind: 'text', configJson: { validation: [ { rule: 'regex', param: '^[a-z0-9_-]+$', message: 'Labels must be slug-like' } ] } },
+    ]
+
+    // A single tag (single-element array) is slug-like → valid
+    let r = validateValuesAgainstDefs({ labels: ['frontend'] }, defs as any)
+    expect(r.ok).toBe(true)
+
+    // Multiple slug-like tags must pass (regression for #2650 — previously the
+    // array was stringified to "frontend,backend" and failed on the comma)
+    r = validateValuesAgainstDefs({ labels: ['frontend', 'backend', 'ops'] }, defs as any)
+    expect(r.ok).toBe(true)
+    expect(Object.keys(r.fieldErrors).length).toBe(0)
+
+    // A non-slug element still fails, reporting the rule message
+    r = validateValuesAgainstDefs({ labels: ['frontend', 'Not OK!'] }, defs as any)
+    expect(r.ok).toBe(false)
+    expect(r.fieldErrors['cf_labels']).toBe('Labels must be slug-like')
+
+    // An empty multi-value array is treated as empty (no regex error)
+    r = validateValuesAgainstDefs({ labels: [] }, defs as any)
+    expect(r.ok).toBe(true)
+  })
+
+  it('still enforces required against empty multi-value arrays', () => {
+    const defs = [
+      { key: 'tags', kind: 'text', configJson: { validation: [ { rule: 'required', message: 'tags required' }, { rule: 'regex', param: '^[a-z0-9_-]+$', message: 'bad tag' } ] } },
+    ]
+
+    let r = validateValuesAgainstDefs({ tags: [] }, defs as any)
+    expect(r.ok).toBe(false)
+    expect(r.fieldErrors['cf_tags']).toBe('tags required')
+
+    r = validateValuesAgainstDefs({ tags: ['a', 'b'] }, defs as any)
+    expect(r.ok).toBe(true)
+  })
+
   it('evaluates dangerous backtracking regex rules in bounded time', () => {
     const defs = [
       {
