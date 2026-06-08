@@ -87,10 +87,10 @@ QA comment id `4638514821` on issue #2529. Three actionable items:
 
 ### Phase 2: Company Domain clearable
 
-- [ ] 2.1 Make `companyDetailsSchema.domain` clearable (nullable) in validators.ts
-- [ ] 2.2 Add `assignClearable(payload, 'domain', …)` + widen `CompanyEditFormValues.domain`
-- [ ] 2.3 Unit tests: validator accepts null/'' and edit payload sends `domain: null`
-- [ ] 2.4 Integration spec: company domain clear persists (Playwright)
+- [x] 2.1 Make `companyDetailsSchema.domain` clearable (nullable) in validators.ts — 527c5f5d7
+- [x] 2.2 Add `assignClearable(payload, 'domain', …)` + widen `CompanyEditFormValues.domain` — 527c5f5d7
+- [x] 2.3 Unit tests: validator accepts null/'' and edit payload sends `domain: null` — 796057e54
+- [x] 2.4 Integration spec: company domain clear persists (Playwright) — 796057e54
 
 ### Phase 3: Checkout template stale-delete conflict
 
