@@ -302,6 +302,21 @@ export class HashicorpVaultKmsService implements KmsService {
 
 let loggedDerivedKeyFallbackBanner = false
 
+function fingerprintSecret(secret: string): string {
+  return crypto.createHash('sha256').update(secret, 'utf8').digest('hex').slice(0, 16)
+}
+
+export function buildDerivedKeyFallbackBannerLines(opts: DerivedSecret): string[] {
+  const sourceLine =
+    opts.source === 'explicit' ? `Source: ${opts.envName}` : 'Source: dev default secret (do NOT use in production)'
+  return [
+    '🚨 Using derived tenant encryption keys (Vault unavailable / no DEK)',
+    sourceLine,
+    `Secret fingerprint (sha256, truncated): ${fingerprintSecret(opts.secret)}`,
+    'Persist this secret securely. Without it, encrypted tenant data cannot be recovered after restart.',
+  ]
+}
+
 function logDerivedKeyFallbackBanner(opts: DerivedSecret): void {
   if (process.env.NODE_ENV === 'test' || loggedDerivedKeyFallbackBanner) return
   loggedDerivedKeyFallbackBanner = true
@@ -310,15 +325,7 @@ function logDerivedKeyFallbackBanner(opts: DerivedSecret): void {
   const reset = '\x1b[0m'
   const width = 110
   const border = `${redBg}${white}${'━'.repeat(width)}${reset}`
-  const isProduction = process.env.NODE_ENV === 'production'
-  const sourceLine =
-    opts.source === 'explicit' ? `Source: ${opts.envName}` : 'Source: dev default secret (do NOT use in production)'
-  const body = [
-    '🚨 Using derived tenant encryption keys (Vault unavailable / no DEK)',
-    sourceLine,
-    isProduction ? 'Secret: [redacted in production]' : `Secret: ${opts.secret}`,
-    'Persist this secret securely. Without it, encrypted tenant data cannot be recovered after restart.',
-  ]
+  const body = buildDerivedKeyFallbackBannerLines(opts)
   console.warn(border)
   for (const line of body) {
     const padded = line.padEnd(width - 2, ' ')
