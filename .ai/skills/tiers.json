@@ -38,6 +38,8 @@
         "om-open-pr",
         "om-review-prs",
         "om-merge-buddy",
+        "om-approve-merge-pr",
+        "om-followup-issue-from-pr",
         "om-sync-merged-pr-issues",
         "om-auto-update-changelog",
         "om-auto-qa-scenarios"
