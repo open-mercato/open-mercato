@@ -1,4 +1,4 @@
-import { encryptWithAesGcm } from '../aes'
+import { decryptWithAesGcm, encryptWithAesGcm, hashForLookup } from '../aes'
 import {
   TenantDataEncryptionService,
   parseDecryptedFieldValue,
@@ -126,6 +126,73 @@ describe('TenantDataEncryptionService.decryptFields (issue #1734)', () => {
     )
     expect(out.display_name).toBe('true')
     expect(out.description).toBe('null')
+  })
+})
+
+describe('TenantDataEncryptionService.encryptFields (issue #2720)', () => {
+  function makeService() {
+    type Anything = Record<string, unknown>
+    const service = new TenantDataEncryptionService({} as never) as unknown as {
+      encryptFields: (
+        obj: Anything,
+        fields: { field: string; hashField?: string | null }[],
+        dek: { key: string },
+      ) => Anything
+    }
+    return service
+  }
+
+  it('encrypts a forged ciphertext-shaped value instead of storing it verbatim', () => {
+    const service = makeService()
+    const forged = 'aaaa:bbbb:cccc:v1'
+    const out = service.encryptFields(
+      { email: forged },
+      [{ field: 'email', hashField: 'email_hash' }],
+      { key: fixedKey } as never,
+    )
+    expect(out.email).not.toBe(forged)
+    expect(typeof out.email).toBe('string')
+    // The stored value must be real ciphertext that decrypts back to the forged input.
+    expect(decryptWithAesGcm(out.email as string, fixedKey)).toBe(forged)
+    // The lookup hash must be generated (the bypass previously skipped it).
+    expect(out.email_hash).toBe(hashForLookup(forged))
+  })
+
+  it('does not re-encrypt a value that genuinely decrypts under the DEK', () => {
+    const service = makeService()
+    const real = encryptWithAesGcm('mail@example.com', fixedKey).value as string
+    const out = service.encryptFields(
+      { email: real },
+      [{ field: 'email' }],
+      { key: fixedKey } as never,
+    )
+    expect(out.email).toBe(real)
+  })
+
+  it('encrypts a structurally-valid payload that was sealed with a different key', () => {
+    const service = makeService()
+    const otherKey = Buffer.alloc(32, 2).toString('base64')
+    const sealedElsewhere = encryptWithAesGcm('secret', otherKey).value as string
+    const out = service.encryptFields(
+      { email: sealedElsewhere },
+      [{ field: 'email' }],
+      { key: fixedKey } as never,
+    )
+    expect(out.email).not.toBe(sealedElsewhere)
+    expect(decryptWithAesGcm(out.email as string, fixedKey)).toBe(sealedElsewhere)
+  })
+
+  it('encrypts plaintext that happens to look like a v1 payload', () => {
+    const service = makeService()
+    const plaintext = 'user:supplied:colon:v1'
+    const out = service.encryptFields(
+      { email: plaintext },
+      [{ field: 'email', hashField: 'email_hash' }],
+      { key: fixedKey } as never,
+    )
+    expect(out.email).not.toBe(plaintext)
+    expect(decryptWithAesGcm(out.email as string, fixedKey)).toBe(plaintext)
+    expect(out.email_hash).toBe(hashForLookup(plaintext))
   })
 })
 
