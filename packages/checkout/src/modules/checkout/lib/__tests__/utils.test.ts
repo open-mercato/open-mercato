@@ -1,3 +1,4 @@
+import { createHmac } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { clearPaymentGatewayDescriptors, registerPaymentGatewayDescriptor } from '@open-mercato/shared/modules/payment_gateways/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -155,6 +156,32 @@ describe('checkout utils', () => {
       },
     })
     expect(buildConsentProof(link, { terms: true, privacyPolicy: false })).not.toHaveProperty('privacyPolicy')
+  })
+
+  it('derives consent markdownHash from the server secret so it is tamper-evident', () => {
+    const link = createLink({
+      legalDocuments: {
+        terms: { title: 'Terms', markdown: 'terms body', required: true },
+      },
+    })
+
+    process.env.AUTH_SECRET = 'consent-secret-a'
+    const proofWithSecretA = buildConsentProof(link, { terms: true, privacyPolicy: false }) as {
+      terms: { markdownHash: string }
+    }
+    const hashWithSecretA = proofWithSecretA.terms.markdownHash
+
+    const forgedHashFromPublicConstant = createHmac('sha256', 'terms').update('terms body').digest('hex')
+    expect(hashWithSecretA).not.toBe(forgedHashFromPublicConstant)
+
+    const forgedHashFromPlainSha = createHmac('sha256', 'terms').update('terms\nterms body').digest('hex')
+    expect(hashWithSecretA).not.toBe(forgedHashFromPlainSha)
+
+    process.env.AUTH_SECRET = 'consent-secret-b'
+    const proofWithSecretB = buildConsentProof(link, { terms: true, privacyPolicy: false }) as {
+      terms: { markdownHash: string }
+    }
+    expect(proofWithSecretB.terms.markdownHash).not.toBe(hashWithSecretA)
   })
 
   it('verifies password access tokens only for the matching slug', () => {

@@ -350,6 +350,17 @@ export function applyTerminalTransactionState(
   }
 }
 
+// Security model: the consent proof is a GDPR/consent audit trail, so `markdownHash`
+// must be tamper-evident. It is an HMAC keyed with the server-side checkout secret
+// (never a public constant), which an attacker who can edit a stored consent row
+// cannot recompute without the secret. The document key is folded into the HMAC
+// message to namespace each document while keeping a single server-held key.
+export function computeConsentMarkdownHash(documentKey: string, markdown: string): string {
+  return createHmac('sha256', getCheckoutAccessTokenSecret())
+    .update(`${documentKey}\n${markdown}`)
+    .digest('hex')
+}
+
 export function buildConsentProof(link: CheckoutLink, acceptedLegalConsents: PublicSubmitInput['acceptedLegalConsents']) {
   const proof: Record<string, unknown> = {}
   const legalDocuments = link.legalDocuments && typeof link.legalDocuments === 'object'
@@ -364,7 +375,7 @@ export function buildConsentProof(link: CheckoutLink, acceptedLegalConsents: Pub
       title: document.title ?? key,
       required: document.required === true,
       acceptedAt: new Date().toISOString(),
-      markdownHash: createHmac('sha256', key).update(document.markdown).digest('hex'),
+      markdownHash: computeConsentMarkdownHash(key, document.markdown),
     }
   }
   return proof
