@@ -131,7 +131,7 @@
     "lucide-react": "^1.16.0",
     "newrelic": "^14.0.0",
     "next": "16.2.6",
-    "pdfjs-dist": "^5.7.284",
+    "pdfjs-dist": "^6.0.227",
     "pg": "8.21.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
