@@ -6,6 +6,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { ChannelAdapterRegistry } from './registry'
 import { htmlToText } from './email-mime'
 import { getSystemEmailProviderConfigResolver } from './system-email-provider-config'
+import { isTestChannelSeedingEnabled, TEST_SEED_PROVIDER_KEY } from './test-seed'
 import { CommunicationChannel } from '../data/entities'
 
 export const DEFAULT_SYSTEM_EMAIL_PROVIDER = 'resend'
@@ -107,6 +108,17 @@ async function resolveSystemEmailChannel(
     }
   }
   if (!channel) {
+    if (
+      !explicitChannelId &&
+      isTestChannelSeedingEnabled() &&
+      resolveSystemEmailProvider() === TEST_SEED_PROVIDER_KEY
+    ) {
+      return {
+        providerKey: TEST_SEED_PROVIDER_KEY,
+        channelType: 'email',
+        organizationId: payload.organizationId ?? null,
+      }
+    }
     throw new Error('SYSTEM_EMAIL_CHANNEL_NOT_CONFIGURED: configure a tenant-wide email channel')
   }
   if (!channel.isActive || channel.status !== 'connected') {

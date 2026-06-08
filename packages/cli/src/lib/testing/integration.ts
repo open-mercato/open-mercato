@@ -1652,6 +1652,7 @@ function buildReusableEnvironment(
   captureScreenshots: boolean,
 ): NodeJS.ProcessEnv {
   const enterpriseModulesFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false'
+  const emailCapturePath = path.resolve(queueBaseDir, '..', 'test-email-capture.jsonl')
   return buildEnvironment({
     DATABASE_URL: databaseUrl,
     BASE_URL: baseUrl,
@@ -1675,6 +1676,15 @@ function buildReusableEnvironment(
     OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
     OM_TEST_MODE: '1',
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+    OM_ENABLE_CORS_VALIDATION: 'false',
+    OM_DISABLE_EMAIL_DELIVERY: '0',
+    OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
+    OM_TEST_EMAIL_CAPTURE_PATH: process.env.OM_TEST_EMAIL_CAPTURE_PATH ?? emailCapturePath,
+    SYSTEM_EMAIL_PROVIDER: '__test_seed__',
+    EMAIL_FROM: process.env.EMAIL_FROM ?? 'system@test-seed.local',
+    NOTIFICATIONS_EMAIL_FROM: process.env.NOTIFICATIONS_EMAIL_FROM ?? 'notifications@test-seed.local',
+    ADMIN_EMAIL: process.env.ADMIN_EMAIL ?? 'admin@test-seed.local',
+    SELF_SERVICE_ONBOARDING_ENABLED: 'true',
     // Tests assert on access_logs immediately after CRUD reads; keep the
     // blocking write path on inside the integration runtime so tests do
     // not have to call flushPendingCrudAccessLogs() explicitly.
@@ -2996,7 +3006,15 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
       OM_TEST_MODE: '1',
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
-      OM_DISABLE_EMAIL_DELIVERY: '1',
+      OM_ENABLE_CORS_VALIDATION: 'false',
+      OM_DISABLE_EMAIL_DELIVERY: '0',
+      OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
+      OM_TEST_EMAIL_CAPTURE_PATH: process.env.OM_TEST_EMAIL_CAPTURE_PATH ?? path.resolve(EPHEMERAL_QUEUE_BASE_DIR, '..', 'test-email-capture.jsonl'),
+      SYSTEM_EMAIL_PROVIDER: '__test_seed__',
+      EMAIL_FROM: process.env.EMAIL_FROM ?? 'system@test-seed.local',
+      NOTIFICATIONS_EMAIL_FROM: process.env.NOTIFICATIONS_EMAIL_FROM ?? 'notifications@test-seed.local',
+      ADMIN_EMAIL: process.env.ADMIN_EMAIL ?? 'admin@test-seed.local',
+      SELF_SERVICE_ONBOARDING_ENABLED: 'true',
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
       ENABLE_CRUD_API_CACHE: 'true',
       MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',

@@ -6,16 +6,24 @@ export type EmailTransport = {
   isConfigured?: () => boolean
 }
 
-let registeredTransport: EmailTransport | null = null
+const EMAIL_TRANSPORT_REGISTRY = Symbol.for('open-mercato.email.transport')
+
+type EmailTransportRegistryGlobal = typeof globalThis & {
+  [EMAIL_TRANSPORT_REGISTRY]?: EmailTransport | null
+}
+
+function emailTransportRoot(): EmailTransportRegistryGlobal {
+  return globalThis as EmailTransportRegistryGlobal
+}
 
 export function registerEmailTransport(transport: EmailTransport): void {
-  registeredTransport = transport
+  emailTransportRoot()[EMAIL_TRANSPORT_REGISTRY] = transport
 }
 
 export function getRegisteredEmailTransport(): EmailTransport | null {
-  return registeredTransport
+  return emailTransportRoot()[EMAIL_TRANSPORT_REGISTRY] ?? null
 }
 
 export function clearRegisteredEmailTransportForTests(): void {
-  registeredTransport = null
+  emailTransportRoot()[EMAIL_TRANSPORT_REGISTRY] = null
 }

@@ -16,6 +16,25 @@ export type SeedAddressField =
   | { address: string; name?: string }
   | Array<string | { address: string; name?: string }>;
 
+export type CapturedTestSeedEmail = {
+  capturedAt: string;
+  externalMessageId: string;
+  conversationId?: string;
+  content: {
+    text?: string;
+    html?: string;
+    bodyFormat?: 'text' | 'markdown' | 'html';
+    attachments?: Array<{ url: string; mimeType: string; fileName: string; fileSize?: number; inline?: boolean }>;
+    raw?: Record<string, unknown>;
+  };
+  credentials: Record<string, unknown>;
+  scope: {
+    tenantId: string;
+    organizationId: string;
+  };
+  metadata?: Record<string, unknown>;
+};
+
 const TEST_SEED_PATH = '/api/communication_channels/test-seed';
 
 /**
@@ -54,6 +73,75 @@ export async function seedConnectedChannel(
   ).toBe(201);
   const body = await readJsonSafe<{ channelId?: string }>(response);
   return expectId(body?.channelId, 'connect-channel response should include channelId');
+}
+
+export async function seedSystemEmailChannel(
+  request: APIRequestContext,
+  token: string,
+  input: { displayName?: string; externalIdentifier?: string } = {},
+): Promise<string> {
+  const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {
+    token,
+    data: { action: 'seed-system-channel', ...input },
+  });
+  expect(
+    response.status(),
+    'POST /api/communication_channels/test-seed (seed-system-channel) should return 201',
+  ).toBe(201);
+  const body = await readJsonSafe<{ channelId?: string }>(response);
+  return expectId(body?.channelId, 'seed-system-channel response should include channelId');
+}
+
+export async function clearCapturedSystemEmails(
+  request: APIRequestContext,
+  token: string,
+): Promise<void> {
+  const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {
+    token,
+    data: { action: 'clear-capture' },
+  });
+  expect(response.ok(), 'POST /api/communication_channels/test-seed (clear-capture) should succeed').toBeTruthy();
+}
+
+export async function listCapturedSystemEmails(
+  request: APIRequestContext,
+  token: string,
+): Promise<CapturedTestSeedEmail[]> {
+  const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {
+    token,
+    data: { action: 'list-capture' },
+  });
+  expect(response.ok(), 'POST /api/communication_channels/test-seed (list-capture) should succeed').toBeTruthy();
+  const body = await readJsonSafe<{ items?: CapturedTestSeedEmail[] }>(response);
+  return Array.isArray(body?.items) ? body.items : [];
+}
+
+export async function waitForCapturedSystemEmail(
+  request: APIRequestContext,
+  token: string,
+  predicate: (email: CapturedTestSeedEmail) => boolean,
+  options: { timeoutMs?: number; intervalMs?: number; description?: string } = {},
+): Promise<CapturedTestSeedEmail> {
+  const timeoutMs = options.timeoutMs ?? 10_000;
+  const intervalMs = options.intervalMs ?? 250;
+  const deadline = Date.now() + timeoutMs;
+  let lastItems: CapturedTestSeedEmail[] = [];
+  while (Date.now() < deadline) {
+    lastItems = await listCapturedSystemEmails(request, token);
+    const found = lastItems.find(predicate);
+    if (found) return found;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  const summary = lastItems.map((item) => ({
+    to: item.metadata?.to,
+    from: item.metadata?.from,
+    subject: item.metadata?.subject,
+    scope: item.scope,
+    bodyFormat: item.content?.bodyFormat,
+  }));
+  throw new Error(
+    `Timed out waiting for captured system email${options.description ? `: ${options.description}` : ''}. Captured ${lastItems.length} message(s): ${JSON.stringify(summary)}`,
+  );
 }
 
 /**

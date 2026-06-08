@@ -146,6 +146,20 @@ describe('sendEmail', () => {
     expect(sendMock).not.toHaveBeenCalled()
   })
 
+  it('lets explicit OM_DISABLE_EMAIL_DELIVERY=0 override test-mode delivery suppression', async () => {
+    process.env.OM_TEST_MODE = '1'
+    process.env.OM_DISABLE_EMAIL_DELIVERY = '0'
+    registerEmailTransport({ id: 'test', send: sendMock })
+
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+    })
+
+    expect(sendMock).toHaveBeenCalledTimes(1)
+  })
+
   it('reports configured only when a sender and configured transport are present', () => {
     expect(isEmailDeliveryConfigured()).toBe(false)
 

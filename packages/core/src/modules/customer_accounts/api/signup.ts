@@ -137,7 +137,7 @@ export async function POST(req: Request) {
       ),
     }
 
-    void sendEmail({
+    await sendEmail({
       to: existing.email,
       subject,
       react: CustomerExistingAccountEmail({ loginUrl, copy }),
@@ -192,7 +192,7 @@ export async function POST(req: Request) {
     ),
   }
 
-  void sendEmail({
+  await sendEmail({
     to: user.email,
     subject,
     react: CustomerSignupVerificationEmail({ verifyUrl, copy }),

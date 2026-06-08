@@ -5,7 +5,12 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import { ChannelThreadMapping, ExternalConversation, MessageChannelLink } from '../../../data/entities'
+import {
+  ChannelThreadMapping,
+  CommunicationChannel,
+  ExternalConversation,
+  MessageChannelLink,
+} from '../../../data/entities'
 import {
   COMMUNICATION_CHANNELS_CONNECT_CREDENTIAL_CHANNEL_COMMAND_ID,
   type ConnectCredentialChannelInput,
@@ -14,8 +19,10 @@ import {
 import { emitCommunicationChannelsEvent } from '../../../events'
 import {
   TEST_SEED_PROVIDER_KEY,
+  clearTestSeedCapturedMessages,
   ensureTestSeedAdapterRegistered,
   isTestChannelSeedingEnabled,
+  listTestSeedCapturedMessages,
 } from '../../../lib/test-seed'
 
 /**
@@ -56,6 +63,20 @@ const connectChannelSchema = z.object({
   externalIdentifier: z.string().min(1).max(255).optional(),
 })
 
+const seedSystemChannelSchema = z.object({
+  action: z.literal('seed-system-channel'),
+  displayName: z.string().min(1).max(255).optional(),
+  externalIdentifier: z.string().min(1).max(255).optional(),
+})
+
+const clearCaptureSchema = z.object({
+  action: z.literal('clear-capture'),
+})
+
+const listCaptureSchema = z.object({
+  action: z.literal('list-capture'),
+})
+
 const emitInboundSchema = z.object({
   action: z.literal('emit-inbound'),
   /** Channel that owns the inbound message; controls authorUserId + default visibility. */
@@ -89,7 +110,13 @@ const emitInboundSchema = z.object({
   createThreadMapping: z.boolean().optional(),
 })
 
-const bodySchema = z.discriminatedUnion('action', [connectChannelSchema, emitInboundSchema])
+const bodySchema = z.discriminatedUnion('action', [
+  connectChannelSchema,
+  emitInboundSchema,
+  seedSystemChannelSchema,
+  clearCaptureSchema,
+  listCaptureSchema,
+])
 
 export async function POST(req: Request): Promise<Response> {
   // Fail-closed: invisible in production. Mirrors an unknown route (404) rather
@@ -121,6 +148,51 @@ export async function POST(req: Request): Promise<Response> {
   const tenantId = auth.tenantId as string
   const organizationId = (auth as { orgId?: string | null }).orgId ?? null
   const userId = auth.sub as string
+
+  if (body.action === 'clear-capture') {
+    await clearTestSeedCapturedMessages()
+    return NextResponse.json({ ok: true })
+  }
+
+  if (body.action === 'list-capture') {
+    return NextResponse.json({ items: await listTestSeedCapturedMessages() })
+  }
+
+  if (body.action === 'seed-system-channel') {
+    const em = (container.resolve('em') as EntityManager).fork()
+    let channel = await em.findOne(CommunicationChannel, {
+      providerKey: TEST_SEED_PROVIDER_KEY,
+      channelType: 'email',
+      tenantId,
+      organizationId,
+      userId: null,
+      deletedAt: null,
+    })
+    if (!channel) {
+      const stamp = Date.now()
+      channel = em.create(CommunicationChannel, {
+        providerKey: TEST_SEED_PROVIDER_KEY,
+        channelType: 'email',
+        displayName: body.displayName ?? `Test Seed System Email ${stamp}`,
+        externalIdentifier: body.externalIdentifier ?? `system-${stamp}@test-seed.local`,
+        userId: null,
+        isPrimary: false,
+        isActive: true,
+        status: 'connected',
+        tenantId,
+        organizationId,
+      })
+      em.persist(channel)
+      await em.flush()
+    } else if (!channel.isActive || channel.status !== 'connected') {
+      channel.isActive = true
+      channel.status = 'connected'
+      channel.lastError = null
+      await em.flush()
+    }
+
+    return NextResponse.json({ channelId: channel.id }, { status: 201 })
+  }
 
   if (body.action === 'connect-channel') {
     const stamp = Date.now()

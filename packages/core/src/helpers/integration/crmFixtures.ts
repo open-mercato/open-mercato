@@ -55,7 +55,7 @@ export async function createCompanyFixture(
 export async function createPersonFixture(
   request: APIRequestContext,
   token: string,
-  input: { firstName: string; lastName: string; displayName: string; companyEntityId?: string },
+  input: { firstName: string; lastName: string; displayName: string; companyEntityId?: string; primaryEmail?: string },
 ): Promise<string> {
   const data: Record<string, unknown> = {
     firstName: input.firstName,
@@ -64,6 +64,9 @@ export async function createPersonFixture(
   };
   if (input.companyEntityId) {
     data.companyEntityId = input.companyEntityId;
+  }
+  if (input.primaryEmail) {
+    data.primaryEmail = input.primaryEmail;
   }
   return createEntity(request, token, '/api/customers/people', data, ['id', 'entityId', 'personId']);
 }
