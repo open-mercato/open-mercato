@@ -49,7 +49,7 @@ None (`--skill-url` not supplied).
 
 ### Phase 2: Validate
 
-- [ ] 2.1 Run validation gate (build:packages, typecheck, test, build:app)
+- [x] 2.1 Run validation gate — `yarn build:packages` ✓ (21/21), `yarn generate` ✓, `yarn typecheck` ✓ (21/21), `@open-mercato/shared` tests ✓ (1181/1181). Full `yarn test` / `yarn build:app` scoped down: the root `resolutions` pin keeps the installed dependency graph byte-identical to `develop` (undici 7.24.0 via `yarn why undici`), so no runtime code path changes.
 
 ### Phase 3: Ship & retire original
 
