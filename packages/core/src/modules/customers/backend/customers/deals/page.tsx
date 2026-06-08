@@ -21,13 +21,18 @@ import { coalesceLastOperations } from '@open-mercato/ui/backend/operations/stor
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
+import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
+import { Tag } from '@open-mercato/ui/primitives/tag'
+import { Briefcase, AlertTriangle } from 'lucide-react'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { ViewTabsRow } from './pipeline/components/ViewTabsRow'
+import { DealsKpiStrip } from '../../../components/DealsKpiStrip'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
-  DictionaryValue,
   type CustomerDictionaryKind,
   type CustomerDictionaryMap,
 } from '../../../lib/dictionaries'
@@ -149,25 +154,35 @@ function extractIdsFromParams(params: URLSearchParams | null | undefined, key: s
   return normalizeIdCandidates(values)
 }
 
-function formatCurrency(amount: number | null | undefined, currency: string | null | undefined, fallback: string): string {
-  if (typeof amount !== 'number' || Number.isNaN(amount)) return fallback
-  try {
-    if (currency && currency.trim().length) {
-      const formatter = new Intl.NumberFormat(undefined, { style: 'currency', currency })
-      return formatter.format(amount)
-    }
-    const formatter = new Intl.NumberFormat(undefined, { style: 'decimal', maximumFractionDigits: 2 })
-    return formatter.format(amount)
-  } catch {
-    return currency ? `${amount} ${currency}` : String(amount)
-  }
-}
-
 function formatDateValue(value: string | null | undefined, fallback: string): string {
   if (!value) return fallback
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return fallback
   return date.toLocaleDateString()
+}
+
+const STATUS_BADGE_VARIANTS: ReadonlySet<StatusBadgeVariant> = new Set([
+  'success',
+  'warning',
+  'error',
+  'info',
+  'neutral',
+])
+
+function coerceStatusBadgeVariant(
+  tone: ReturnType<typeof mapDictionaryColorToTone>,
+): StatusBadgeVariant {
+  if (tone && STATUS_BADGE_VARIANTS.has(tone as StatusBadgeVariant)) {
+    return tone as StatusBadgeVariant
+  }
+  return 'neutral'
+}
+
+const groupedAmountFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 })
+
+function formatGroupedAmount(amount: number | null | undefined): string | null {
+  if (typeof amount !== 'number' || Number.isNaN(amount)) return null
+  return groupedAmountFormatter.format(amount)
 }
 
 export default function CustomersDealsPage() {
@@ -586,15 +601,27 @@ export default function CustomersDealsPage() {
   })
   const currentUserId = useCurrentUserId()
   const [ownerFilterOptions, setOwnerFilterOptions] = React.useState<AdvancedFilterOption[]>([])
+  // Single staff load drives both the owner FILTER options and the owner-name
+  // map shared with the OWNER cell + the KPI strip (userId → display name).
+  // No per-row fetch — see spec audit "Owner names" resolution.
+  const [ownerNames, setOwnerNames] = React.useState<Record<string, string>>({})
   React.useEffect(() => {
     const controller = new AbortController()
     let cancelled = false
     void fetchAssignableStaffMembers('', { pageSize: 100, signal: controller.signal })
       .then((items) => {
-        if (!cancelled) setOwnerFilterOptions(mapAssignableStaffToFilterOptions(items))
+        if (cancelled) return
+        setOwnerFilterOptions(mapAssignableStaffToFilterOptions(items))
+        const names: Record<string, string> = {}
+        for (const item of items) {
+          if (item.userId) names[item.userId] = item.displayName
+        }
+        setOwnerNames(names)
       })
       .catch(() => {
-        if (!cancelled) setOwnerFilterOptions([])
+        if (cancelled) return
+        setOwnerFilterOptions([])
+        setOwnerNames({})
       })
     return () => {
       cancelled = true
@@ -614,32 +641,19 @@ export default function CustomersDealsPage() {
     return mapAssignableStaffToFilterOptions(items)
   }, [])
 
+  const startOfToday = React.useMemo(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return today
+  }, [])
+  const isDealOverdue = React.useCallback(
+    (row: DealRow): boolean =>
+      !!row.expectedCloseAt && new Date(row.expectedCloseAt) < startOfToday && row.status === 'open',
+    [startOfToday],
+  )
+
   const columns = React.useMemo<ColumnDef<DealRow>[]>(() => {
     const noValue = <span className="text-muted-foreground text-sm">{t('customers.deals.list.noValue')}</span>
-    const renderDictionaryCell = (kind: DictionaryKey, value: string | null | undefined) => (
-      <DictionaryValue
-        value={value}
-        map={dictionaryMaps[kind]}
-        fallback={value ? <span className="text-sm">{value}</span> : noValue}
-        className="text-sm"
-        iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
-        iconClassName="h-4 w-4"
-        colorClassName="h-3 w-3 rounded-full"
-      />
-    )
-    const renderAssociationSummary = (
-      items: { id: string; label: string }[],
-      fallbackLabel: string,
-    ) => {
-      if (!items.length) return noValue
-      const labels = normalizeCollectionLabels(
-        items.map((entry) => (entry.label && entry.label.trim().length ? entry.label : fallbackLabel)),
-      )
-      if (!labels.length) return noValue
-      return (
-        <CollectionPreviewCell labels={labels} maxVisible={1} />
-      )
-    }
 
     const customColumns = customFieldDefs
       .filter((def) => supportsCustomFieldColumn(def))
@@ -695,7 +709,20 @@ export default function CustomersDealsPage() {
           filterGroup: 'Deal',
           maxWidth: '280px',
         },
-        cell: ({ row }) => <span className="font-medium text-sm">{row.original.title}</span>,
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+              <Briefcase className="h-4 w-4" />
+            </span>
+            <span className="font-medium text-foreground truncate">{row.original.title}</span>
+            {isDealOverdue(row.original) ? (
+              <AlertTriangle
+                className="h-4 w-4 shrink-0 text-status-warning-text"
+                aria-label={t('customers.deals.list.close.overdue')}
+              />
+            ) : null}
+          </div>
+        ),
       },
       {
         accessorKey: 'status',
@@ -707,7 +734,14 @@ export default function CustomersDealsPage() {
           filterKey: 'status',
           filterGroup: 'Deal',
         },
-        cell: ({ row }) => renderDictionaryCell('deal-statuses', row.original.status),
+        cell: ({ row }) => {
+          const status = row.original.status
+          if (!status) return noValue
+          const entry = dictionaryMaps['deal-statuses']?.[status]
+          const label = entry?.label ?? status
+          const variant = coerceStatusBadgeVariant(mapDictionaryColorToTone(entry?.color))
+          return <StatusBadge variant={variant} dot>{label}</StatusBadge>
+        },
       },
       {
         accessorKey: 'pipelineStage',
@@ -719,7 +753,12 @@ export default function CustomersDealsPage() {
           filterKey: 'pipeline_stage',
           filterGroup: 'Deal',
         },
-        cell: ({ row }) => renderDictionaryCell('pipeline-stages', row.original.pipelineStage),
+        cell: ({ row }) => {
+          const stage = row.original.pipelineStage
+          if (!stage) return noValue
+          const label = dictionaryMaps['pipeline-stages']?.[stage]?.label ?? stage
+          return <span className="text-foreground">{label}</span>
+        },
       },
       {
         accessorKey: 'pipelineId',
@@ -744,11 +783,17 @@ export default function CustomersDealsPage() {
           filterKey: 'value_amount',
           filterGroup: 'Deal',
         },
-        cell: ({ row }) => (
-          <span className="text-sm font-medium">
-            {formatCurrency(row.original.valueAmount ?? null, row.original.valueCurrency ?? null, t('customers.deals.list.noValue'))}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const amount = formatGroupedAmount(row.original.valueAmount ?? null)
+          if (amount === null) return noValue
+          const currency = row.original.valueCurrency
+          return (
+            <div className="flex flex-col">
+              <span className="font-medium text-foreground">{amount}</span>
+              {currency ? <span className="text-xs text-muted-foreground">{currency}</span> : null}
+            </div>
+          )
+        },
       },
       {
         accessorKey: 'probability',
@@ -762,7 +807,7 @@ export default function CustomersDealsPage() {
         cell: ({ row }) => {
           const value = row.original.probability
           if (typeof value === 'number' && Number.isFinite(value)) {
-            return <span className="text-sm">{`${Math.min(Math.max(value, 0), 100)}%`}</span>
+            return <span className="font-medium text-foreground">{`${Math.min(Math.max(value, 0), 100)}%`}</span>
           }
           return noValue
         },
@@ -776,11 +821,37 @@ export default function CustomersDealsPage() {
           filterGroup: 'Activity',
           filterIconName: 'calendar',
         },
-        cell: ({ row }) => (
-          <span className="text-sm">
-            {formatDateValue(row.original.expectedCloseAt ?? null, t('customers.deals.list.noValue'))}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const expectedCloseAt = row.original.expectedCloseAt
+          if (!expectedCloseAt) return noValue
+          let subtitle: React.ReactNode = null
+          if (isDealOverdue(row.original)) {
+            subtitle = (
+              <span className="text-xs text-status-error-text">{t('customers.deals.list.close.overdue')}</span>
+            )
+          } else if (row.original.status === 'win') {
+            subtitle = (
+              <span className="text-xs text-muted-foreground">{t('customers.deals.list.close.won')}</span>
+            )
+          } else if (row.original.status === 'loose') {
+            subtitle = (
+              <span className="text-xs text-muted-foreground">{t('customers.deals.list.close.lost')}</span>
+            )
+          } else {
+            const relative = formatRelativeTime(expectedCloseAt, { translate: t })
+            if (relative) {
+              subtitle = <span className="text-xs text-muted-foreground">{relative}</span>
+            }
+          }
+          return (
+            <div className="flex flex-col">
+              <span className="text-foreground">
+                {formatDateValue(expectedCloseAt, t('customers.deals.list.noValue'))}
+              </span>
+              {subtitle}
+            </div>
+          )
+        },
       },
       {
         accessorKey: 'ownerUserId',
@@ -793,9 +864,18 @@ export default function CustomersDealsPage() {
           filterGroup: 'CRM',
           filterIconName: 'user-round',
           filterKey: 'owner_user_id',
-          hidden: true,
         },
-        cell: ({ row }) => row.original.ownerUserId ?? null,
+        cell: ({ row }) => {
+          const ownerUserId = row.original.ownerUserId
+          if (!ownerUserId) return null
+          const label = ownerNames[ownerUserId] ?? ownerUserId
+          return (
+            <div className="flex items-center gap-2 min-w-0">
+              <Avatar label={label} size="sm" />
+              <span className="text-foreground truncate">{label}</span>
+            </div>
+          )
+        },
       },
       {
         accessorKey: 'companies',
@@ -811,7 +891,22 @@ export default function CustomersDealsPage() {
               row.companies.map((entry) => (entry.label && entry.label.trim().length ? entry.label : t('customers.deals.list.unnamedCompany'))),
             ).join(', '),
         },
-        cell: ({ row }) => renderAssociationSummary(row.original.companies, t('customers.deals.list.unnamedCompany')),
+        cell: ({ row }) => {
+          const companies = row.original.companies
+          if (!companies.length) return noValue
+          const first = companies[0]
+          const firstLabel =
+            first.label && first.label.trim().length ? first.label : t('customers.deals.list.unnamedCompany')
+          const overflow = companies.length - 1
+          return (
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Tag variant="neutral" className="max-w-36">
+                <span className="truncate">{firstLabel}</span>
+              </Tag>
+              {overflow > 0 ? <Tag variant="neutral">{`+${overflow}`}</Tag> : null}
+            </div>
+          )
+        },
       },
       {
         accessorKey: 'people',
@@ -827,7 +922,21 @@ export default function CustomersDealsPage() {
               row.people.map((entry) => (entry.label && entry.label.trim().length ? entry.label : t('customers.deals.list.unnamedPerson'))),
             ).join(', '),
         },
-        cell: ({ row }) => renderAssociationSummary(row.original.people, t('customers.deals.list.unnamedPerson')),
+        cell: ({ row }) => {
+          const people = row.original.people
+          if (!people.length) return null
+          return (
+            <AvatarStack max={4} size="sm">
+              {people.map((person) => (
+                <Avatar
+                  key={person.id}
+                  label={person.label || t('customers.deals.list.unnamedPerson')}
+                  size="sm"
+                />
+              ))}
+            </AvatarStack>
+          )
+        },
       },
       {
         accessorKey: 'updatedAt',
@@ -846,7 +955,7 @@ export default function CustomersDealsPage() {
       },
       ...customColumns,
     ]
-  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, loadOwnerFilterOptions, pipelineNames, resolvedOwnerFilterOptions, t])
+  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, isDealOverdue, loadOwnerFilterOptions, ownerNames, pipelineNames, resolvedOwnerFilterOptions, t])
 
   const { advancedFilterFields } = useAutoDiscoveredFields({ columns, customFieldDefs })
 
@@ -920,6 +1029,12 @@ export default function CustomersDealsPage() {
     <Page>
       <PageBody>
         <ViewTabsRow active="list" className="mb-4" />
+        <DealsKpiStrip
+          ownerNames={ownerNames}
+          stageDictionary={dictionaryMaps['pipeline-stages'] ?? {}}
+          pipelineCount={Object.keys(pipelineNames).length}
+          className="mb-4"
+        />
         <DataTable<DealRow>
           stickyFirstColumn
           stickyActionsColumn

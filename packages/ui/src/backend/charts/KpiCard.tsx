@@ -20,6 +20,8 @@ export type KpiCardProps = {
   suffix?: string
   className?: string
   headerAction?: React.ReactNode
+  footer?: React.ReactNode
+  titleClassName?: string
 }
 
 function defaultFormatValue(value: number): string {
@@ -32,17 +34,20 @@ function defaultFormatValue(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 })
 }
 
-function formatPercentageChange(value: number): string {
-  const formatted = Math.abs(value).toFixed(1)
-  return `${formatted}%`
+function formatPercentageChange(value: number, unit: string = '%'): string {
+  const abs = Math.abs(value)
+  const formatted = Number.isInteger(abs) ? String(abs) : abs.toFixed(1)
+  return `${formatted}${unit}`
 }
 
 type BadgeDeltaProps = {
   direction: 'up' | 'down' | 'unchanged'
   value: number
+  unit?: string
+  className?: string
 }
 
-function BadgeDelta({ direction, value }: BadgeDeltaProps) {
+function BadgeDelta({ direction, value, unit = '%', className = '' }: BadgeDeltaProps) {
   const baseClasses = 'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium'
 
   const directionClasses = {
@@ -71,14 +76,16 @@ function BadgeDelta({ direction, value }: BadgeDeltaProps) {
 
   return (
     <span
-      className={`${baseClasses} ${directionClasses[direction]}`}
+      className={`${baseClasses} ${directionClasses[direction]}${className ? ` ${className}` : ''}`}
       title="Compared to previous period"
     >
       {icons[direction]}
-      {formatPercentageChange(value)}
+      {formatPercentageChange(value, unit)}
     </span>
   )
 }
+
+export const DeltaBadge = BadgeDelta
 
 export function KpiCard({
   title,
@@ -92,13 +99,15 @@ export function KpiCard({
   suffix = '',
   className = '',
   headerAction,
+  footer,
+  titleClassName,
 }: KpiCardProps) {
   const hasWrapper = !!title
   const wrapperClass = hasWrapper ? `rounded-lg border bg-card p-4 ${className}` : className
 
   const headerRow = (title || headerAction) ? (
     <div className="flex items-center justify-between gap-2 mb-2">
-      {title && <p className="text-sm font-medium text-muted-foreground">{title}</p>}
+      {title && <p className={titleClassName ?? 'text-sm font-medium text-muted-foreground'}>{title}</p>}
       {headerAction}
     </div>
   ) : null
@@ -136,10 +145,9 @@ export function KpiCard({
     <div className={wrapperClass}>
       {headerRow}
       <div className="flex items-baseline gap-3">
-        <p className="text-2xl sm:text-3xl font-semibold tracking-tight text-card-foreground">
-          {prefix}
-          {formatValue(value)}
-          {suffix}
+        <p className="flex items-baseline gap-1.5 text-2xl sm:text-3xl font-semibold tracking-tight text-card-foreground">
+          <span>{prefix}{formatValue(value)}</span>
+          {suffix ? <span className="text-sm font-medium text-muted-foreground">{suffix}</span> : null}
         </p>
         {trend && (
           <BadgeDelta direction={trend.direction} value={trend.value} />
@@ -148,6 +156,7 @@ export function KpiCard({
       {trend && comparisonLabel && (
         <p className="mt-1 text-xs text-muted-foreground">{comparisonLabel}</p>
       )}
+      {footer != null && <div className="mt-3">{footer}</div>}
     </div>
   )
 }
