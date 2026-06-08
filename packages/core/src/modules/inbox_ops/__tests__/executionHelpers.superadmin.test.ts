@@ -117,7 +117,9 @@ describe('inbox_ops userHasFeature super-admin gate', () => {
     )
   })
 
-  it('short-circuits to true for an empty feature requirement', async () => {
+  it('fails closed for an empty feature requirement without calling rbac', async () => {
+    // Regression for #2700: an empty/undefined required feature must deny, not
+    // bypass — a blank feature id is a programming error, never an open grant.
     const ctx = makeContext(
       {
         sub: 'user-1',
@@ -131,7 +133,7 @@ describe('inbox_ops userHasFeature super-admin gate', () => {
 
     const allowed = await userHasFeature(ctx, '')
 
-    expect(allowed).toBe(true)
+    expect(allowed).toBe(false)
     expect(rbac.userHasAllFeatures).not.toHaveBeenCalled()
   })
 })
