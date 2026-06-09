@@ -32,5 +32,5 @@ Ship the enterprise spec that plans unified `record_locks` coverage across CRM v
 
 ### Phase 1: Land spec + index
 
-- [ ] 1.1 Add spec file under `.ai/specs/enterprise/`
-- [ ] 1.2 Add Pending Specifications index entry in README
+- [x] 1.1 Add spec file under `.ai/specs/enterprise/` — 558523b7a
+- [x] 1.2 Add Pending Specifications index entry in README — 558523b7a
