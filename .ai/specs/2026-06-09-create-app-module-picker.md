@@ -278,24 +278,88 @@ After the picker returns `{ coreEntries, officialIds }`:
 
 ### Shipping the official-modules tooling into the template (decision)
 
-To make `yarn official-modules add <x>` work in a generated app, the template gains:
+To make `yarn official-modules add <x>` work in a generated app, the template gains copies of the three
+monorepo scripts plus config + `package.json` wiring. **A source-level audit (done while writing this spec)
+found three monorepo-only assumptions that block a verbatim copy — they are the real Phase-2 work, not
+hypotheticals:**
 
-- `scripts/official-modules.mjs`, `scripts/official-modules-setup.mjs`, `scripts/lib/official-modules.mjs`
-  (copied from the monorepo; these are already path-relative and repo-root anchored).
-- `official-modules.json` (committed, with `activated` seeded by the picker).
-- `official-modules.local.json` added to the template's `.gitignore`.
-- `package.json` scripts: `"official-modules": "node scripts/official-modules.mjs"` and a
-  `"postinstall": "node scripts/official-modules-setup.mjs"` (merged with any existing postinstall).
+#### Blocker A — `GENERATED_PATH` is hardcoded to `apps/mercato/src/`
 
-These scripts must run **unchanged** outside the monorepo. The spec includes a Phase-2 audit step to confirm
-they have no monorepo-only assumptions (e.g. workspace globs); any that exist are parameterized via
-`official-modules.json` (`repo`, `path`, `branch`) which already drive them.
+`scripts/lib/official-modules.mjs:20` defines:
 
-> **Maintenance contract:** these three scripts now have **two homes** (monorepo root + template). Per
-> `packages/create-app/AGENTS.md` template-sync rules, the Phase-2 work adds them to the template-sync
-> checklist and the existing `scripts/__tests__/official-modules.test.mjs` is extended to assert the template
-> copy stays byte-identical to the monorepo copy (drift guard), the same way the test already asserts the
-> template ships `official-modules.generated.ts`.
+```js
+export const GENERATED_PATH = path.join(repoRoot, 'apps', 'mercato', 'src', 'official-modules.generated.ts')
+```
+
+A standalone app has no `apps/mercato/` — its registry lives at `src/official-modules.generated.ts` (app
+root). `repoRoot` itself is fine (`path.resolve(here, '..', '..')` → app root when the file sits at
+`<app>/scripts/lib/official-modules.mjs`), but the `apps/mercato/src` segment is wrong.
+
+**Fix (BC-preserving, keeps all three scripts byte-identical across both homes):** add an optional
+`generatedPath` key to `official-modules.json`, consumed by `readConfig()` and used to derive
+`GENERATED_PATH`. Default value `apps/mercato/src/official-modules.generated.ts` (monorepo behavior
+unchanged — its `official-modules.json` omits the key). The template's `official-modules.json` sets
+`"generatedPath": "src/official-modules.generated.ts"`. `writeGenerated()` / `writeConfig()` /
+`renderGenerated()` are otherwise unchanged. Because the *behavior* is config-driven, the **script files
+remain identical** between monorepo and template → the drift guard (below) stays a simple equality check.
+
+> The location-decision rationale comment baked into `renderGenerated()` output (and the shipped
+> `template/src/official-modules.generated.ts`) still references `apps/mercato/src/` and the
+> `2026-05-19-...` decision spec. That comment is informational and identical in both homes — leave it as-is
+> so the generated content stays byte-identical; do not branch the comment per layout.
+
+#### Blocker B — submodule packages must be Yarn workspaces, and git must exist
+
+The postinstall worker (`scripts/official-modules-setup.mjs`) runs `git submodule add` at `cwd: repoRoot` and
+**no-ops entirely when the dir is not a git work-tree** (`isGitWorkTree()` guard, line 50). And even after the
+submodule is cloned, Yarn only links `external/official-modules/packages/*` if they are declared as
+workspaces. The monorepo root `package.json:9-13` already lists `"external/official-modules/packages/*"` in
+`workspaces`; the template's `package.json.template` has **no `workspaces` field at all** (it is a single
+app).
+
+**Consequence the spec must make explicit:** official modules in a scaffolded app require (1) the app to be a
+git repo, and (2) a `workspaces` entry. Therefore Phase 2 adds a minimal `workspaces`:
+`["external/official-modules/packages/*"]` to `package.json.template`, and Phase 3 makes the git-init prompt
+**default-yes and strongly recommended** whenever official modules were selected (a plain non-git app can
+still pick core modules freely). The install flow becomes a documented two-pass dance (see "Install
+ordering" below).
+
+#### Blocker C — the generated `modules.ts` template omits the official-modules merge
+
+`src/lib/templates/modules-ts.template` (used by `generateModulesTs()` for every non-classic preset) does
+**not** import or merge `officialModuleEntries`. Only the full classic `template/src/modules.ts` does
+(lines 11, 140-142). So today, an `empty`/`crm` scaffold already silently loses official-modules support.
+Phase 2 fixes the template to include the import + merge loop so the picker's generated `modules.ts` supports
+official modules:
+
+```ts
+import { officialModuleEntries } from './official-modules.generated'
+// …after the enterprise blocks…
+for (const entry of officialModuleEntries) {
+  if (!enabledModules.some((existing) => existing.id === entry.id)) enabledModules.push(entry)
+}
+```
+
+#### Install ordering (document in the generated app's next-steps + docs)
+
+When official modules are selected, the post-scaffold flow is:
+
+1. Scaffolder seeds `official-modules.json` `activated`, writes `src/official-modules.generated.ts`
+   (via shared `renderGenerated`), adds the `workspaces` entry, and defaults git-init to yes.
+2. `git init` (offered by the scaffolder) → app is a git work-tree.
+3. First `yarn install` → `postinstall` runs → git repo + `activated > 0` → `git submodule add` clones
+   `external/official-modules` → refreshes `available` → regenerates the registry → prints
+   "run `yarn install` once more so Yarn links them as workspaces".
+4. Second `yarn install` → Yarn links the now-present submodule packages.
+
+This mirrors the monorepo's own behavior exactly (the worker already prints the same "run yarn install once
+more" hint). `printTemplateNextSteps()` (`src/index.ts:439`) must surface this when official modules were
+chosen.
+
+> **Maintenance contract:** the three scripts now have **two homes** (monorepo `scripts/` + template
+> `scripts/`). Per `packages/create-app/AGENTS.md` § "Template Sync Checklist", Phase 2 adds three rows and
+> extends `scripts/__tests__/official-modules.test.mjs` with a byte-identical drift guard — exactly as the
+> test already asserts the template ships `official-modules.generated.ts`.
 
 ### CLI / non-interactive path
 
@@ -334,55 +398,175 @@ create-mercato-app my-app \
 
 ## Phasing
 
+> Every step below names the **exact files** to add or edit. New files are marked `(new)`; edits cite the
+> current line anchors confirmed against `develop` at spec time. A consolidated table follows in
+> "Exact File Inventory".
+
 ### Phase 1 — Catalog generation & fetch (no UX yet)
 
-Deliver the catalog plumbing behind a flag, fully testable in isolation.
+Deliver the catalog plumbing as pure, isolated modules. No change to the CLI flow yet.
 
-- **1.1** Build-time generator: scan first-party module packages' `index.ts` `metadata` and emit
-  `module-catalog.json` (core) into `dist/` (baked offline snapshot) **and** publishable artifact. Add to
-  `packages/create-app/build.mjs`.
-- **1.2** `CatalogModule` / `ModuleCatalog` types + `fetchCatalog()` with timeout, retry, version-tag URL, and
-  offline fallback to the baked snapshot (core) / free-text (official). Pure, unit-tested with a mocked
-  fetch.
-- **1.3** Publish an official `module-catalog.json` manifest contract in `open-mercato/official-modules`
-  (documented here; the manifest file itself is a coordinated change in that repo). Define the exact JSON
-  shape and the raw-URL the scaffolder reads.
-- **1.4** `resolveWithDependencies()` — transitive closure, cycle-safe, warnings for missing deps. Unit tests
-  including `sales → catalog,customers,dictionaries` and `staff → planner,resources` (resources → planner).
+- **1.1 — Catalog build-time generator.**
+  - `(new)` `packages/create-app/scripts/generate-module-catalog.mjs` — walks the first-party module packages'
+    `index.ts` `metadata` exports (core modules under `packages/core/src/modules/*/index.ts`, plus the
+    package-backed first-party modules already referenced by presets: `@open-mercato/events`,
+    `@open-mercato/ai-assistant`) and emits `{ id, from, title, description, requires }[]`.
+  - Edit `packages/create-app/build.mjs` — after the esbuild step (around line 18) and the
+    `src/lib/templates` copy (line 24-27), run the generator and write the baked snapshot to
+    `dist/module-catalog.core.json`. Mirror the existing `cpSync`/`console.log` style.
+  - `(new)` `packages/create-app/src/lib/catalog/baked-core-catalog.json` is **not** hand-authored; it is the
+    generator output committed for offline use, or generated into `dist/` only — decide in 1.1 whether to
+    commit it (preferred: commit so the published npm tarball always carries it, since `dist/` is published).
+- **1.2 — Catalog types + fetch.**
+  - `(new)` `packages/create-app/src/lib/catalog/types.ts` — `CatalogModule`, `ModuleCatalog` (shapes in
+    "The module catalog").
+  - `(new)` `packages/create-app/src/lib/catalog/fetch-catalog.ts` — `fetchCatalog(version, opts)`: version-tag
+    raw-GitHub URLs for core (`open-mercato/open-mercato`) and official
+    (`open-mercato/official-modules`), 4s timeout + 1 retry, `main` fallback, then baked-core-snapshot /
+    free-text fallbacks. Uses global `fetch` (Node 18+ target already set in `build.mjs`).
+  - `(new)` `packages/create-app/src/lib/catalog/fetch-catalog.test.ts`.
+- **1.3 — Official manifest contract (coordinated, external repo).** Document in this spec the JSON shape and
+  the exact raw URL (`https://raw.githubusercontent.com/open-mercato/official-modules/<ref>/module-catalog.json`).
+  The manifest file itself is a **separate PR in `open-mercato/official-modules`** — note the merge-order
+  dependency (see Risks). Until it lands, official picker uses the free-text fallback.
+- **1.4 — Dependency resolver.**
+  - `(new)` `packages/create-app/src/lib/catalog/resolve-deps.ts` — `resolveWithDependencies()` (transitive
+    closure, cycle-safe, missing-dep warnings).
+  - `(new)` `packages/create-app/src/lib/catalog/resolve-deps.test.ts` — cases:
+    `sales → catalog,customers,dictionaries`; `staff → planner,resources` (and `resources → planner`
+    transitively); cycle; missing-dep warning; no-op.
 
-**Exit:** `fetchCatalog()` + `resolveWithDependencies()` covered by unit tests; no behavior change to the CLI.
+**Exit:** `fetchCatalog()` + `resolveWithDependencies()` green under `yarn test:create-app`; CLI unchanged.
 
 ### Phase 2 — Ship official-modules tooling into the template
 
-- **2.1** Copy `scripts/official-modules.mjs`, `scripts/official-modules-setup.mjs`,
-  `scripts/lib/official-modules.mjs` into `packages/create-app/template/scripts/`.
-- **2.2** Add `official-modules.json` to the template; add `official-modules.local.json` to template
-  `.gitignore`; add `official-modules` + `postinstall` scripts to template `package.json`.
-- **2.3** Audit scripts for monorepo-only assumptions; parameterize anything not already driven by
-  `official-modules.json`.
-- **2.4** Extend `scripts/__tests__/official-modules.test.mjs` with a drift guard asserting the template copies
-  match the monorepo originals; add to `packages/create-app/AGENTS.md` template-sync checklist.
+Fixes Blockers A/B/C from the design section.
 
-**Exit:** a freshly scaffolded app (with no picker selection) can run `yarn official-modules add forms` and
-get a working submodule + regenerated registry.
+- **2.1 — Parameterize `GENERATED_PATH` (Blocker A).** Edit `scripts/lib/official-modules.mjs`:
+  - `readConfig()` (line 45-60) returns a new `generatedPath` field (default
+    `apps/mercato/src/official-modules.generated.ts`).
+  - `GENERATED_PATH` (line 20) becomes derived from config inside `writeGenerated()` (line 102) — or convert
+    it to a `resolveGeneratedPath(config)` helper. Keep the exported constant for BC (mark `@deprecated`,
+    point to the helper) per BACKWARD_COMPATIBILITY.md.
+  - Edit `scripts/official-modules-setup.mjs` (line 105 `writeGenerated(activated)` and line 61
+    `writeGenerated([])`) to pass the resolved path / config.
+  - Add a unit test in `scripts/__tests__/official-modules.test.mjs` for the new default + override.
+- **2.2 — Copy the three scripts into the template.** `(new)`
+  `packages/create-app/template/scripts/official-modules.mjs`,
+  `packages/create-app/template/scripts/official-modules-setup.mjs`,
+  `packages/create-app/template/scripts/lib/official-modules.mjs` — byte-identical to the monorepo originals
+  after 2.1. (They must be plain copies, not `.template` files — they contain no `{{PLACEHOLDER}}` and the
+  copier renames `.template`.)
+- **2.3 — Template config + gitignore (Blocker B partial).**
+  - `(new)` `packages/create-app/template/official-modules.json` — `{ repo, path, branch, available: [],
+    activated: [], generatedPath: "src/official-modules.generated.ts" }`.
+  - Edit `packages/create-app/template/gitignore` (currently 2 lines around 63-64) — add
+    `official-modules.local.json`.
+- **2.4 — Template `package.json.template` (Blocker B).** Edit
+  `packages/create-app/template/package.json.template`:
+  - Add `"workspaces": ["external/official-modules/packages/*"]`.
+  - Add scripts `"official-modules": "node scripts/official-modules.mjs"` and
+    `"postinstall": "node scripts/official-modules-setup.mjs"` to the `"scripts"` block (lines 7-30; today
+    there is **no** `postinstall`, so this is a clean add, not a merge).
+- **2.5 — Generated `modules.ts` template gains official merge (Blocker C).** Edit
+  `packages/create-app/src/lib/templates/modules-ts.template` — add the
+  `import { officialModuleEntries } from './official-modules.generated'` line and the merge `for` loop after
+  the enterprise blocks (current lines 27-29). This also fixes the pre-existing `empty`/`crm` gap.
+- **2.6 — Drift guard + sync checklist.**
+  - Edit `scripts/__tests__/official-modules.test.mjs` — add a test asserting
+    `template/scripts/official-modules.mjs`, `…-setup.mjs`, and `lib/official-modules.mjs` are byte-identical
+    to the monorepo `scripts/` originals; assert `template/official-modules.json` exists with `generatedPath`
+    set; assert `package.json.template` contains the two scripts + the workspaces entry.
+  - Edit `packages/create-app/AGENTS.md` § "Template Sync Checklist" (the numbered list) — add rows mapping
+    `scripts/official-modules.mjs` / `…-setup.mjs` / `scripts/lib/official-modules.mjs` ↔ their
+    `template/scripts/**` copies.
 
-### Phase 3 — Interactive picker & writers
+**Exit:** a scaffolded app with **no** picker selection but a manual `git init` + `yarn official-modules add
+forms` clones the submodule and regenerates `src/official-modules.generated.ts`; `yarn test:create-app` and
+the drift guard pass.
 
-- **3.1** `runModulePicker()` readline UX: seed from preset, toggle, auto-include notice, deselect-blocking.
-- **3.2** `writeModulesTs(coreEntries)` (reuse `generateModulesTs`) and
-  `writeOfficialModulesSelection(officialIds)` (`official-modules.json` activated + `official-modules.generated.ts`
-  via shared `renderGenerated`).
-- **3.3** Wire into `main()` after `resolvePreset`; respect `rejectWithReadyApps`; default-N opt-in prompt.
-- **3.4** `--modules`, `--official-modules`, `--no-module-picker` flags in `parseArgs()` + `--help` text.
+### Phase 3 — Interactive picker, writers & CLI flags
 
-**Exit:** end-to-end interactive and flag-driven scaffolds produce a valid `modules.ts` + seeded
-`official-modules.json` that passes `yarn generate`.
+- **3.1 — Picker UX.** `(new)` `packages/create-app/src/lib/module-picker.ts` exporting
+  `runModulePicker({ preset, catalog, ask })` → `{ coreEntries: ModuleEntry[]; officialIds: string[] }`.
+  Readline list, toggle, auto-include notice, deselect-blocking (see "The picker UX"). `(new)`
+  `module-picker.test.ts` driving it with a scripted `ask`.
+- **3.2 — Writers.**
+  - Edit `packages/create-app/src/lib/apply-starter-preset.ts` — export a `writeModulesTs(targetDir, entries)`
+    that reuses `generateModulesTs()` (line 82), so the picker and `applyStarterPreset` share one writer.
+  - `(new)` `packages/create-app/src/lib/write-official-selection.ts` — given `officialIds` and `targetDir`,
+    rewrite `<app>/official-modules.json` `activated` and `<app>/src/official-modules.generated.ts` using the
+    shared `renderGenerated`/`writeConfig` from the **template's** copied `scripts/lib/official-modules.mjs`
+    (import the JS helper directly, or re-implement the 6-line `renderGenerated` to avoid a runtime dep on a
+    template file — decide in 3.2; prefer importing the monorepo `scripts/lib/official-modules.mjs` at build
+    time so output is guaranteed identical). `(new)` `write-official-selection.test.ts`.
+- **3.3 — Wire into `main()`.** Edit `packages/create-app/src/index.ts`:
+  - New `runModulePicker` orchestration after `applyStarterPreset(presetId, targetDir)` (line 556), gated on
+    `!readyAppSource`, on a TTY, and on the opt-in `y/N` prompt (default N). Reuse the `resolvePreset` result
+    as the seed (export it from `applyStarterPreset` or call `resolvePreset` again).
+  - When official modules were selected, set git-init default to **yes** and extend
+    `printTemplateNextSteps()` (line 439) with the two-pass install note.
+  - Respect `constraints.rejectWithReadyApps` — picker never runs for `--app`/`--app-url`.
+- **3.4 — CLI flags.** Edit `parseArgs()` (lines 84-131) + `Options` (lines 24-34) + `showHelp()` (lines
+  36-69): add `--modules <csv>`, `--official-modules <csv>`, `--no-module-picker`. Flag path skips the prompt
+  and runs the same writers. Add a `parseArgs` unit test (`packages/create-app/src/lib/` already holds
+  sibling `.test.ts` files — add `index-parse-args.test.ts` or extend an existing suite).
+
+**Exit:** interactive and flag-driven scaffolds produce a valid `src/modules.ts` (with official merge) +
+seeded `official-modules.json` that passes `yarn generate`; default no-flag invocation is byte-identical to
+today.
 
 ### Phase 4 — Docs & polish
 
-- **4.1** Update `packages/create-app/AGENTS.md` (new flags, template-sync entries, picker behavior).
-- **4.2** Update standalone-app docs / `apps/docs` create-app page with the picker + official-modules walkthrough.
-- **4.3** Update `RELEASE_NOTES.md` / changelog (additive feature).
+- **4.1** Edit `packages/create-app/AGENTS.md` — new flags under "Ready App Import Modes" / a new "Module
+  Picker" subsection; the template-sync rows from 2.6.
+- **4.2** Edit `apps/docs/docs/customization/standalone-app.mdx` and
+  `apps/docs/docs/installation/setup.mdx` — document the picker, the `--modules` / `--official-modules` flags,
+  and the official-modules two-pass install ordering. (Both already mention `create-mercato-app`.)
+- **4.3** Edit `packages/create-app/template/AGENTS.md` — note that `yarn official-modules` is now available in
+  the scaffolded app (today its "Agent Automation" table and module docs assume the monorepo CLI).
+- **4.4** Add a `RELEASE_NOTES.md` entry (additive feature) and update this spec's Changelog.
+
+---
+
+## Exact File Inventory
+
+| # | File | Action | What changes |
+|---|------|--------|--------------|
+| **Phase 1 — catalog** | | | |
+| 1 | `packages/create-app/scripts/generate-module-catalog.mjs` | new | Build-time core-catalog generator (scans module `metadata`). |
+| 2 | `packages/create-app/build.mjs` | edit | Invoke generator; write `dist/module-catalog.core.json`. |
+| 3 | `packages/create-app/src/lib/catalog/types.ts` | new | `CatalogModule`, `ModuleCatalog`. |
+| 4 | `packages/create-app/src/lib/catalog/fetch-catalog.ts` (+ `.test.ts`) | new | Live fetch + timeout/retry/offline fallback. |
+| 5 | `packages/create-app/src/lib/catalog/resolve-deps.ts` (+ `.test.ts`) | new | Transitive `requires` closure. |
+| 6 | `packages/create-app/src/lib/catalog/baked-core-catalog.json` | new (generated, committed) | Offline core snapshot shipped in tarball. |
+| **Phase 2 — tooling into template** | | | |
+| 7 | `scripts/lib/official-modules.mjs` | edit | Add `generatedPath` to `readConfig`; derive `GENERATED_PATH` from config. |
+| 8 | `scripts/official-modules-setup.mjs` | edit | Pass resolved generated path to `writeGenerated`. |
+| 9 | `packages/create-app/template/scripts/official-modules.mjs` | new (copy) | Byte-identical to monorepo. |
+| 10 | `packages/create-app/template/scripts/official-modules-setup.mjs` | new (copy) | Byte-identical to monorepo. |
+| 11 | `packages/create-app/template/scripts/lib/official-modules.mjs` | new (copy) | Byte-identical to monorepo. |
+| 12 | `packages/create-app/template/official-modules.json` | new | `activated: []`, `generatedPath: "src/official-modules.generated.ts"`. |
+| 13 | `packages/create-app/template/gitignore` | edit | Add `official-modules.local.json`. |
+| 14 | `packages/create-app/template/package.json.template` | edit | Add `workspaces` + `official-modules` + `postinstall` scripts. |
+| 15 | `packages/create-app/src/lib/templates/modules-ts.template` | edit | Add `officialModuleEntries` import + merge loop (Blocker C). |
+| 16 | `scripts/__tests__/official-modules.test.mjs` | edit | `generatedPath` test + template byte-identical drift guard. |
+| 17 | `packages/create-app/AGENTS.md` | edit | Template-sync rows for the three scripts. |
+| **Phase 3 — picker + writers + flags** | | | |
+| 18 | `packages/create-app/src/lib/module-picker.ts` (+ `.test.ts`) | new | Interactive picker. |
+| 19 | `packages/create-app/src/lib/apply-starter-preset.ts` | edit | Export shared `writeModulesTs`. |
+| 20 | `packages/create-app/src/lib/write-official-selection.ts` (+ `.test.ts`) | new | Seed `official-modules.json` + generated registry in the app. |
+| 21 | `packages/create-app/src/index.ts` | edit | `parseArgs`/`Options`/`showHelp` flags; picker wiring in `main()`; git-init default + next-steps note. |
+| 22 | `packages/create-app/src/lib/index-parse-args.test.ts` | new | Cover new flags. |
+| **Phase 4 — docs** | | | |
+| 23 | `apps/docs/docs/customization/standalone-app.mdx` | edit | Picker + flags + two-pass install. |
+| 24 | `apps/docs/docs/installation/setup.mdx` | edit | Mention module picker. |
+| 25 | `packages/create-app/template/AGENTS.md` | edit | `yarn official-modules` now available in-app. |
+| 26 | `RELEASE_NOTES.md` | edit | Additive feature entry. |
+
+> **Untouched on purpose:** `template/src/modules.ts` (classic file already merges `officialModuleEntries`);
+> monorepo `apps/mercato/src/official-modules.generated.ts` and root `official-modules.json` (no activation
+> change); `scripts/official-modules.mjs` CLI (no logic change — only the lib it imports gains `generatedPath`).
 
 ---
 
@@ -402,8 +586,15 @@ Per project rule, every new feature lists integration coverage for all affected 
 
 ### Catalog/drift guards (`scripts/__tests__/official-modules.test.mjs`)
 
-- Template `scripts/official-modules*.mjs` are byte-identical to monorepo originals (sync guard).
-- Template ships `official-modules.json` and the `official-modules` + `postinstall` package scripts.
+- `readConfig()` returns the default `generatedPath` (`apps/mercato/src/official-modules.generated.ts`) and
+  honors an override.
+- Template `scripts/official-modules.mjs`, `…-setup.mjs`, `lib/official-modules.mjs` are **byte-identical** to
+  the monorepo `scripts/` originals (sync guard).
+- `template/official-modules.json` exists with `generatedPath: "src/official-modules.generated.ts"`.
+- `package.json.template` contains `"official-modules"` + `"postinstall"` scripts and the
+  `external/official-modules/packages/*` workspaces entry.
+- `src/lib/templates/modules-ts.template` contains the `officialModuleEntries` import + merge loop
+  (regression lock for Blocker C).
 
 ### Integration tests (`yarn test:create-app:integration`)
 
@@ -428,12 +619,16 @@ Per project rule, every new feature lists integration coverage for all affected 
 | Existing `--preset` flag | **None** | Unchanged; picker seeds from the resolved preset. |
 | `src/modules.ts` shape | **None** | Same `ModuleEntry[]` written via the same `generateModulesTs` template. |
 | `official-modules.generated.ts` contract | **None** | Same shape, produced by the same shared `renderGenerated`. |
-| Template `package.json` | **Additive** | Adds `official-modules` + `postinstall` scripts; merges, does not replace, any existing postinstall. |
-| Monorepo-root `official-modules` CLI | **None** | Not modified; template gets copies guarded by a drift test. |
+| Template `package.json.template` | **Additive** | Adds `workspaces`, `official-modules` + `postinstall` scripts (no `postinstall` existed before — clean add). |
+| `official-modules.json` schema | **Additive** | New optional `generatedPath` key; absent → monorepo default `apps/mercato/src/official-modules.generated.ts`. Existing configs unaffected. |
+| `scripts/lib/official-modules.mjs` `GENERATED_PATH` export | **Additive / deprecation** | Constant retained for BC, marked `@deprecated`; path now resolved via `resolveGeneratedPath(config)`. CLI surface (a generated-files/CLI contract) keeps working. |
+| Monorepo-root `official-modules` CLI | **None** | Behavior unchanged; template gets byte-identical copies guarded by a drift test. |
 | `ModuleInfo.requires` / generate-time validator | **None** | Reused as-is; picker is an early-warning layer above it. |
+| `src/lib/templates/modules-ts.template` | **Fix (additive)** | Gains the official-modules merge it was missing; `empty`/`crm` scaffolds gain official support they silently lacked. |
 
-No frozen/stable contract surface is removed. New CLI flags are additive. New template files are additive.
-The deprecation protocol is not triggered.
+No frozen/stable contract surface is removed. New CLI flags, the `generatedPath` key, and new template files
+are all additive; the one touched export (`GENERATED_PATH`) keeps a deprecated bridge. The deprecation
+protocol is satisfied (retain + `@deprecated` + bridge).
 
 ---
 
@@ -444,9 +639,12 @@ The deprecation protocol is not triggered.
 | Network fetch slows or hangs scaffolding | 4s timeout + 1 retry + baked core snapshot fallback; never block on official fetch. |
 | Catalog dep graph drifts from installed package version | Picker is advisory; generate-time validator is the authority; notice warns snapshot may lag. |
 | Official manifest missing/stale in official-modules repo | Free-text entry path + postinstall validation against the cloned submodule (existing behavior). |
-| Two copies of `official-modules*.mjs` drift | Byte-identical drift guard test + template-sync checklist entry. |
+| Two copies of `official-modules*.mjs` drift | Byte-identical drift guard test (Phase 2.6) + template-sync checklist entry. |
 | User builds a broken set despite picker | Deselect-blocking + auto-include keep interactive sets valid; generate-time check is the final gate. |
 | Ready-app import + picker conflict | Picker skipped for `--app`/`--app-url` via `rejectWithReadyApps`, matching the agentic wizard. |
+| Official modules selected but app never `git init`-ed → postinstall no-ops, build fails on missing packages | Phase 3 defaults git-init to **yes** when official modules chosen; next-steps + docs spell out the two-pass install; postinstall already no-ops safely without git. |
+| `generatedPath` change breaks monorepo regeneration | Default value reproduces today's exact path; covered by a `readConfig()` default test (Phase 2.1). |
+| Official `module-catalog.json` manifest not yet in `open-mercato/official-modules` | Free-text fallback works without it; manifest is a **separate coordinated PR** in that repo (no atomic cross-repo PR) — call out merge order to reviewers. |
 
 ---
 
@@ -461,3 +659,7 @@ resolved with the maintainer on 2026-06-09 and are recorded under "Proposed Solu
 
 - 2026-06-09 — Initial draft. Decisions captured: ship full official-modules tooling into the template; live
   remote catalog fetch with baked core offline fallback; auto-include transitive `requires` with a notice.
+- 2026-06-09 — Deepened Phases 2+ to file-level precision. Source audit surfaced three concrete monorepo-only
+  blockers (A: `GENERATED_PATH` hardcoded to `apps/mercato/src`; B: missing `workspaces` + git-init
+  dependency; C: `modules-ts.template` omits the official-modules merge). Added a 26-row "Exact File
+  Inventory", the two-pass install ordering, and updated BC/Risks/tests accordingly.

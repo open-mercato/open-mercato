@@ -68,3 +68,10 @@ This run is **docs-only**: the deliverable is the spec file plus this plan. No p
 
 - [x] 3.1 Docs gate: re-read diff, naming-convention check, link sanity
 - [x] 3.2 Open PR against develop with labels, run auto-review, post summary — PR #2871
+
+### Phase 4: Deepen Phases 2+ to file-level precision (follow-up request)
+
+- [x] 4.1 Source-audit create-app + official-modules tooling for exact touch-points
+- [x] 4.2 Rewrite design "ship tooling" section with Blockers A/B/C + install ordering
+- [x] 4.3 Rewrite Phasing with exact files; add 26-row Exact File Inventory
+- [x] 4.4 Update BC table, Risks, test coverage, changelog
