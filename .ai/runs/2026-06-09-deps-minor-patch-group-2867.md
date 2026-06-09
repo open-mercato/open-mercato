@@ -64,8 +64,8 @@ files and regenerate `yarn.lock` against `develop`'s tree.
 
 ### Phase 1: Apply dependency bumps
 
-- [ ] 1.1 Edit workspace package.json files to target versions
-- [ ] 1.2 Regenerate yarn.lock via yarn install
+- [x] 1.1 Edit workspace package.json files to target versions — 016a7a02b
+- [x] 1.2 Regenerate yarn.lock via yarn install — 016a7a02b
 
 ### Phase 2: Validate
 
