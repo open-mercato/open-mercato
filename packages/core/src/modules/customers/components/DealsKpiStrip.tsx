@@ -80,6 +80,24 @@ function DealKpiCard(props: React.ComponentProps<typeof KpiCard>) {
   return <KpiCard titleClassName={KPI_TITLE_CLASS} {...props} />
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+// Guard the summary payload before rendering: a non-conforming response (an unrelated
+// endpoint mock, an error body, or a future contract drift) must surface the error card,
+// never crash the whole deals page by dereferencing missing sections/arrays.
+function isDealsSummaryResponse(value: unknown): value is DealsSummaryResponse {
+  if (!isObject(value)) return false
+  const { pipelineValue, activeDeals, wonThisQuarter, winRate } = value
+  return (
+    isObject(pipelineValue) && Array.isArray(pipelineValue.stages) &&
+    isObject(activeDeals) && Array.isArray(activeDeals.owners) &&
+    isObject(wonThisQuarter) &&
+    isObject(winRate) && Array.isArray(winRate.series)
+  )
+}
+
 export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, className, scopeVersion, reloadToken }: DealsKpiStripProps) {
   const t = useT()
   const locale = useLocale()
@@ -107,7 +125,7 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
     apiCall<DealsSummaryResponse>('/api/customers/deals/summary')
       .then((call) => {
         if (cancelled) return
-        if (!call.ok || !call.result) {
+        if (!call.ok || !isDealsSummaryResponse(call.result)) {
           setError(t('customers.deals.list.kpi.error'))
           setData(null)
           return
