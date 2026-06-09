@@ -54,17 +54,17 @@ This run is **docs-only**: the deliverable is the spec file plus this plan. No p
 
 ### Phase 1: Plan & scaffold
 
-- [ ] 1.1 Commit execution plan on feature branch
+- [x] 1.1 Commit execution plan on feature branch — (plan commit)
 
 ### Phase 2: Author the specification
 
-- [ ] 2.1 Write spec skeleton (TLDR, problem, decisions, architecture overview)
-- [ ] 2.2 Write catalog model + live-fetch/offline-fallback design
-- [ ] 2.3 Write per-module picker UX + dependency auto-resolution design
-- [ ] 2.4 Write official-modules-in-template design (tooling ship + activation seeding)
-- [ ] 2.5 Write phasing, integration/test coverage, BC analysis, changelog
+- [x] 2.1 Write spec skeleton (TLDR, problem, decisions, architecture overview)
+- [x] 2.2 Write catalog model + live-fetch/offline-fallback design
+- [x] 2.3 Write per-module picker UX + dependency auto-resolution design
+- [x] 2.4 Write official-modules-in-template design (tooling ship + activation seeding)
+- [x] 2.5 Write phasing, integration/test coverage, BC analysis, changelog
 
 ### Phase 3: Validate & ship
 
-- [ ] 3.1 Docs gate: re-read diff, naming-convention check, link sanity
+- [x] 3.1 Docs gate: re-read diff, naming-convention check, link sanity
 - [ ] 3.2 Open PR against develop with labels, run auto-review, post summary
