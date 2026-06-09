@@ -20,7 +20,8 @@ export function redactSecretForLog(value: unknown): string {
 // secret alone. Mirrors the secret fingerprinter in apiKeyAuthCache.ts.
 const sessionIdHmacKey = randomBytes(32)
 const SESSION_ID_PBKDF2_ITERATIONS = 210000
-const SESSION_ID_PBKDF2_KEYLEN = 16
+// 8 bytes → 16 hex chars: a short in-process grouping key, not a security token.
+const SESSION_ID_PBKDF2_KEYLEN = 8
 
 /**
  * Derive a stable, non-reversible session-memory id from an API key secret.
