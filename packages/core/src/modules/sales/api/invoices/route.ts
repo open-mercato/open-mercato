@@ -3,7 +3,7 @@ import { SalesInvoice } from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { invoiceCreateSchema, invoiceUpdateSchema } from '../../data/validators'
 import { createSalesCrudOpenApi, createPagedListResponseSchema, defaultDeleteRequestSchema } from '../openapi'
-import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
+import { parseScopedCommandInput, resolveCrudRecordId, withScopedPayload } from '../utils'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -133,7 +133,7 @@ const crud = makeCrudRoute({
       mapInput: async ({ parsed, ctx }: { parsed: unknown; ctx: CrudCtx }) => {
         const { translate } = await resolveTranslations()
         const id = resolveCrudRecordId(parsed, ctx, translate)
-        return { id }
+        return withScopedPayload({ id }, ctx, translate)
       },
       response: () => ({ ok: true }),
     },
