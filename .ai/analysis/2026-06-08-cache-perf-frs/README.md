@@ -16,19 +16,21 @@
 1. **Manual cache on custom GET handlers** (bypass the factory cache) — most of the wins below.
 2. **Enable + harden the generic CRUD cache** for hot `makeCrudRoute` reads — turn on `ENABLE_CRUD_API_CACHE` and close cross-resource invalidation gaps (see FR 06 / 08).
 
-## FR issues (deep-analyzed, ready to file)
+## FR issues (deep-analyzed, filed)
 
-| # | ROI | Endpoint | Verdict | Class | FR file |
-|---|---|---|---|---|---|
-| 1 | 86 | `GET /api/catalog/categories` | strong-quick-win | Manual cache | [01-cache-catalog-categories-list.md](./01-cache-catalog-categories-list.md) |
-| 2 | 84 | `GET /api/directory/organization-switcher` | good | Manual cache | [02-cache-organization-switcher-menu.md](./02-cache-organization-switcher-menu.md) |
-| 3 | 82 | `GET /api/notifications/unread-count` | good | Manual cache | [03-cache-notifications-unread-count.md](./03-cache-notifications-unread-count.md) |
-| 4 | 82 | `GET /api/inbox_ops/proposals` | good | Manual cache | [04-cache-inbox-ops-proposals-list.md](./04-cache-inbox-ops-proposals-list.md) |
-| 5 | 82 | `GET /api/dictionaries` | good | Manual cache | [05-cache-dictionaries-list.md](./05-cache-dictionaries-list.md) |
-| 6 | 78 | `GET /api/catalog/products` | good | CRUD cache | [06-enable-and-fix-catalog-products-list-cache.md](./06-enable-and-fix-catalog-products-list-cache.md) |
-| 7 | 72 | `GET /api/dashboards/layout` | good | Manual cache | [07-cache-dashboards-layout-bootstrap.md](./07-cache-dashboards-layout-bootstrap.md) |
-| 8 | 72 | `GET /api/catalog/offers` | good | CRUD cache | [08-catalog-offers-decoration-cache.md](./08-catalog-offers-decoration-cache.md) |
-| 9 | 58 | `GET /api/messages` | good | Manual cache | [09-cache-messages-list-per-user.md](./09-cache-messages-list-per-user.md) |
+Tracked in GitHub (proposed in PR #2905):
+
+| # | ROI | Endpoint | Verdict | Class | Issue | FR file |
+|---|---|---|---|---|---|---|
+| 1 | 86 | `GET /api/catalog/categories` | strong-quick-win | Manual cache | #2906 | [01-cache-catalog-categories-list.md](./01-cache-catalog-categories-list.md) |
+| 2 | 84 | `GET /api/directory/organization-switcher` | good | Manual cache | #2907 | [02-cache-organization-switcher-menu.md](./02-cache-organization-switcher-menu.md) |
+| 3 | 82 | `GET /api/notifications/unread-count` | good | Manual cache | #2908 | [03-cache-notifications-unread-count.md](./03-cache-notifications-unread-count.md) |
+| 4 | 82 | `GET /api/inbox_ops/proposals` | good | Manual cache | #2909 | [04-cache-inbox-ops-proposals-list.md](./04-cache-inbox-ops-proposals-list.md) |
+| 5 | 82 | `GET /api/dictionaries` | good | Manual cache | #2910 | [05-cache-dictionaries-list.md](./05-cache-dictionaries-list.md) |
+| 6 | 78 | `GET /api/catalog/products` | good | CRUD cache | #2911 | [06-enable-and-fix-catalog-products-list-cache.md](./06-enable-and-fix-catalog-products-list-cache.md) |
+| 7 | 72 | `GET /api/dashboards/layout` | good | Manual cache | #2912 | [07-cache-dashboards-layout-bootstrap.md](./07-cache-dashboards-layout-bootstrap.md) |
+| 8 | 72 | `GET /api/catalog/offers` | good | CRUD cache | #2913 | [08-catalog-offers-decoration-cache.md](./08-catalog-offers-decoration-cache.md) |
+| 9 | 58 | `GET /api/messages` | good | Manual cache | #2914 | [09-cache-messages-list-per-user.md](./09-cache-messages-list-per-user.md) |
 
 ## Full candidate ranking (20 discovered; top 9 deep-dived above)
 
