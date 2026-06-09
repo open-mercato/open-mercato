@@ -147,42 +147,176 @@ All CRM v2 entities already expose `updated_at` (camel + snake in API responses)
 
 > **Module coverage contract:** Phases 2–6 must collectively cover **every module audited by `optimistic-lock-editable-entities.test.ts`** — `customers`, `sales`, `catalog`, `auth`, `directory`, `staff`, `resources`, `dictionaries`, `currencies`, `workflows`, `feature_toggles`, `business_rules` — plus any module added to that audit after this spec. Each entity ends in one of two states: **record-lock enabled** (presence + unified guard) or **intentionally exempt** (append-only logs, junction/assignment rows, sub-resources guarded by a parent aggregate, state-machine rows) with a one-line reason in the coverage guard test.
 
-### Phase 2 — Customers: subforms + delete flows (customers-first)
-1. Notes, interactions, activities, tasks subforms on person/company/deal detail → record-lock headers + (where a detail/presence experience exists) `backend:record:current` mount; conflicts via merge dialog.
-2. Person↔company link/role subforms.
-3. List-managed customer entities: tags, labels, pipelines, pipeline stages (edit dialogs/forms).
-4. Delete flows for person/company/deal (and subforms) → confirm delete sends lock headers and surfaces `record.deleted` conflict state.
-5. Integration + unit tests; extend the record_locks coverage guard test for the customers module.
+> **How to read the per-phase manifests below.** Each phase lists the exact sites to touch, grouped by the three kinds of work this spec defines:
+> - **Presence mount** — render `<InjectionSpot spotId="backend:record:current" …>` (S2) on a top-level **detail/edit screen** so acquire/heartbeat/presence starts on load. Today **no core page renders this spot** (it is only declared in `packages/ui/src/backend/injection/spotIds.ts` and injected by `record_locks/widgets/injection-table.ts`); every screen below that wants presence is therefore a net-new one-line mount. **Subforms inherit** the parent screen's mount — they never add their own.
+> - **Guard wiring** — ensure the write path runs the unified guard: `<CrudForm>` hosts and `makeCrudRoute` entities are **auto-covered** by `crudMutationGuardService` once the resource is record-lock enabled; **custom** mutation paths (raw `apiCall`, `useGuardedMutation`, command/action endpoints) need the header on the client and the command-guard seam (S1) on the server, then route their 409 to the merge dialog via `surfaceRecordConflict` (S3).
+> - **Decision** — every audited entity ends **enabled** (presence + unified guard) or **exempt** (documented reason). Junction/assignment add-remove, reorder/position writes, append-only logs, derived documents, and sub-resource lines guarded by a parent aggregate are the standard exempt classes.
+>
+> Paths are relative to repo root. `entityId` is the `makeCrudRoute` `indexer.entityType` (also the `crud-form:<entityId>` spot suffix). `resourceKind` is the `record_locks` resource key (`<module>.<entity>`).
 
-### Phase 3 — Sales: documents, sub-resources, and config dialogs
-1. Bridge the command guard seam to record_locks for `sales.order` / `sales.quote` aggregates (the `enforceSalesDocumentOptimisticLock` wrapper delegates to the guard service).
-2. Sub-resource sections (lines, adjustments, returns, payments, shipments) presence/conflict coverage on the order/quote detail screens.
-3. Sales config/settings dialogs: channels, channel offers, payment methods, shipping methods, tax rates, status settings, adjustment kinds.
-4. Delete flows for sales entities.
-5. Tests + coverage guard extension for sales.
+### Phase 2 — Customers: subforms, links, config entities, deletes (customers-first)
+
+Phase 1 already mounts presence and guards the header/commands on the three CRM v2 screens. Phase 2 finishes the module: the subforms those screens embed, the link/role/config entities, and every delete.
+
+**Presence mounts:** none new — all customers subforms render inside the Phase-1 person/company/deal detail screens and inherit their `backend:record:current` mount. (Legacy v1 pages `backend/customers/people/[id]/page.tsx` and `companies/[id]/page.tsx` use custom inline `savePerson`/`saveCompany` writes that already send the OSS header; decide per Q whether to retire them or mount presence — default: **retire-track, no new mount** since v2 supersedes them.)
+
+**Guard wiring (custom write paths — already flow through `runMutationWithContext`; add the merge-dialog surface + confirm the command guard covers the entity):**
+- **Activities / interactions** — UI `components/detail/ActivitiesSection.tsx`, `ActivityForm.tsx`, `ActivityDialog.tsx`, `ScheduleActivityDialog.tsx`; commands `commands/interactions.ts`, `commands/activities.ts`; routes `api/interactions/route.ts`, `api/activities/route.ts`. State-action endpoints `api/interactions/complete/route.ts`, `api/interactions/cancel/route.ts`, `api/interactions/[id]/visibility/route.ts` are **status transitions** → guard via the command seam or mark exempt (state-machine).
+- **Tasks / todos** — `components/detail/TasksSection.tsx`, `TaskForm.tsx`, `TaskDialog.tsx`; command `commands/todos.ts`; route `api/todos/route.ts`.
+- **Notes** — `components/detail/notesAdapter.ts`; command `commands/comments.ts`; route `api/comments/route.ts`.
+- **Addresses** — `components/detail/AddressesSection.tsx`; command `commands/addresses.ts`; route `api/addresses/route.ts`.
+
+**Links & roles (mostly exempt; only role *attribute* edits guard against the parent entity version):**
+- `components/detail/PersonCompaniesSection.tsx`, `CompanyPeopleSection.tsx`, `RolesSection.tsx`, `RoleAssignmentRow.tsx`, `AssignRoleDialog.tsx`, `DealLinkedEntitiesTab.tsx`; commands `commands/personCompanyLinks.ts`, `commands/entity-roles.ts`; routes `api/people/[id]/companies/route.ts`, `api/companies/[id]/people/route.ts`, `api/people/[id]/roles/route.ts`, `api/companies/[id]/roles/route.ts`, `api/deals/[id]/people/route.ts`, `api/deals/[id]/companies/route.ts`.
+- Bulk endpoints `api/deals/bulk-update-stage/route.ts`, `api/deals/bulk-update-owner/route.ts` — multi-row writes: apply per-row skip-if-changed or mark exempt with a documented bulk policy.
+
+**Config entities (auto-covered by CRUD guard once enabled; assignment writes exempt):**
+- Tags `customers:customer_tag` — `commands/tags.ts`, `api/tags/route.ts`, UI `ManageTagsDialog.tsx`/`EntityTagsDialog.tsx`; `api/tags/assign|unassign` = junction (exempt).
+- Labels `customers:customer_label` — `commands/labels.ts`, custom `api/labels/route.ts` (already uses `validateCrudMutationGuard`) + `api/labels/assign|unassign` (exempt).
+- Pipelines `customers:customer_pipeline` — `commands/pipelines.ts`, `api/pipelines/route.ts`.
+- Pipeline stages `customers:customer_pipeline_stage` — `commands/pipeline-stages.ts`, `api/pipeline-stages/route.ts`; `api/pipeline-stages/reorder/route.ts` = position write (exempt).
+
+**Deletes:** person/company/deal deletes already send the header (Phase 1); confirm activity/task/address/note deletes surface the `record_locks.record.deleted` conflict state.
+
+| Site | Files | entityId / command | Work | Decision |
+|------|-------|--------------------|------|----------|
+| Activities/interactions | `components/detail/ActivitiesSection.tsx`,`ActivityForm.tsx`; `commands/interactions.ts`,`activities.ts`; `api/interactions/route.ts`,`api/activities/route.ts` | `customers:customer_interaction` / `customers:customer_activity` | merge-dialog surface; status endpoints via command seam | enabled (status txn exempt) |
+| Tasks | `components/detail/TasksSection.tsx`,`TaskForm.tsx`; `commands/todos.ts`; `api/todos/route.ts` | `customers:customer_todo_link` | merge-dialog surface | enabled |
+| Notes | `components/detail/notesAdapter.ts`; `commands/comments.ts`; `api/comments/route.ts` | `customers:customer_comment` | merge-dialog surface | enabled |
+| Addresses | `components/detail/AddressesSection.tsx`; `commands/addresses.ts`; `api/addresses/route.ts` | `customers:customer_address` | merge-dialog surface | enabled |
+| Person↔company links / roles | `PersonCompaniesSection.tsx`,`CompanyPeopleSection.tsx`,`RolesSection.tsx`; `commands/personCompanyLinks.ts`,`entity-roles.ts` | role assignment routes | role-attribute edits guard vs parent | exempt (link add/remove); enabled (role fields) |
+| Tags / Labels | `commands/tags.ts`,`labels.ts`; `api/tags/route.ts`,`api/labels/route.ts` | `customers:customer_tag`,`customers:customer_label` | enable on entity edit | enabled; assignment exempt |
+| Pipelines / stages | `commands/pipelines.ts`,`pipeline-stages.ts`; `api/pipelines/route.ts`,`api/pipeline-stages/route.ts` | `customers:customer_pipeline`,`customers:customer_pipeline_stage` | reorder exempt | enabled; reorder exempt |
+
+Extend the record_locks coverage guard assertion for `customers`; integration TC-LOCK-CUST-{activities,tasks,notes,tags,pipeline}.
+
+### Phase 3 — Sales: documents, sub-resources, config dialogs, deletes
+
+Sales is command-pattern, not `CrudForm`. The order/quote aggregate version is already enforced for most writes by `enforceSalesDocumentOptimisticLock` (in `packages/core/src/modules/sales/commands/shared.ts`, with `SALES_RESOURCE_KIND_ORDER='sales.order'` / `SALES_RESOURCE_KIND_QUOTE='sales.quote'`). The work is (a) route that wrapper through the record_locks command guard seam (S1), (b) mount presence on the document screen, and (c) **close the two verified command-guard gaps**.
+
+**Presence mounts:**
+- `backend/sales/documents/[id]/page.tsx` (the shared order/quote detail host; `orders/[id]/page.tsx` and `quotes/[id]/page.tsx` delegate to it) — render `backend:record:current` with `resourceKind` `sales.order`/`sales.quote` resolved from the document kind, `resourceId` = document id. Sub-resource sections (`components/documents/ItemsSection.tsx`, `AdjustmentsSection.tsx`, `PaymentsSection.tsx`, `ShipmentsSection.tsx`, `ReturnsSection.tsx`) inherit it.
+
+**Guard wiring:**
+- Bridge `enforceSalesDocumentOptimisticLock` → `createCommandOptimisticLockGuardService` (S1) so the aggregate check defers to record_locks' action-log diff when the resource is enabled. Already-guarded commands (verified): `commands/documents.ts` (quotes.update, quote→order convert, order/quote line upsert+delete, order/quote adjustment upsert+delete) and `commands/returns.ts` (return create).
+- **Gap A — `commands/payments.ts`:** verified **zero** `enforceSalesDocumentOptimisticLock` calls. Wrap payment create/update/delete to guard the parent order's aggregate version.
+- **Gap B — `commands/shipments.ts`:** verified **zero** calls. Wrap shipment create/update/delete to guard the parent order.
+- **Confirm** `sales.orders.update` header update and derived `invoices`/`credit_memos` writes guard the parent; if a header path is unguarded, add it (or document derived docs as exempt).
+- Sub-resource section components already build the OSS lock header on their custom `apiCall` writes (`components/documents/optimisticLock.tsx` `handleSectionMutationError`); ensure their 409 routes to the merge dialog under S3.
+
+**Config dialogs (auto-covered `makeCrudRoute`; add no presence — they are list/dialog editors, not detail screens):**
+- Channels `sales:sales_channel` (`api/channels/route.ts`; `components/channels/*`), payment methods `sales:sales_payment_method` (`api/payment-methods/route.ts`), shipping methods `sales:sales_shipping_method` (`api/shipping-methods/route.ts`), tax rates `sales:sales_tax_rate` (`api/tax-rates/route.ts`), delivery windows `sales:sales_delivery_window`, order/payment/shipment statuses + adjustment kinds (status-config routes). Enable record_locks on the three audited config entities (`SalesChannel`, `SalesPaymentMethod`, `SalesShippingMethod`); the rest are small single-admin config — **enable or exempt with reason** per the coverage guard.
+
+| Site | Files | entityId / resourceKind | Work | Decision |
+|------|-------|-------------------------|------|----------|
+| Order/Quote document | `backend/sales/documents/[id]/page.tsx`; `commands/shared.ts`,`documents.ts` | `sales.order` / `sales.quote` | presence mount + S1 seam bridge | enabled |
+| Lines / adjustments | `components/documents/ItemsSection.tsx`,`AdjustmentsSection.tsx`; `commands/documents.ts` | aggregate-guarded | route 409 → merge dialog | enabled (via parent aggregate) |
+| Payments | `components/documents/PaymentsSection.tsx`; `commands/payments.ts` | parent `sales.order` | **add aggregate guard (Gap A)** | enabled |
+| Shipments | `components/documents/ShipmentsSection.tsx`; `commands/shipments.ts` | parent `sales.order` | **add aggregate guard (Gap B)** | enabled |
+| Returns | `components/documents/ReturnsSection.tsx`; `commands/returns.ts` | parent `sales.order` | route 409 → merge dialog | enabled |
+| Invoices / credit memos | `commands/documents.ts` | derived | confirm parent guard | exempt (derived) or enabled |
+| Config dialogs | `api/channels|payment-methods|shipping-methods|tax-rates/route.ts`; `components/*Settings.tsx` | `sales:sales_channel`/`…payment_method`/`…shipping_method` | enable on CRUD route | enabled; status enums exempt |
+
+Extend coverage guard for `sales`; integration TC-LOCK-SALES-{order,quote,payment,shipment,channel}.
 
 ### Phase 4 — Catalog
-1. Products, variants, categories, prices, offers, price kinds, adjustment kinds: presence mount (on detail/edit screens) + unified guard.
-2. Catalog edit dialogs and delete flows.
-3. Tests + coverage guard extension for catalog.
+
+`CrudForm`-hosted (auto-covered) entities plus one custom dialog editor and a bulk-delete worker.
+
+**Presence mounts (top-level detail/edit screens):**
+- Product — `backend/catalog/products/[id]/page.tsx` (already `crud-form:catalog.product`; add `backend:record:current`).
+- Variant — `backend/catalog/products/[productId]/variants/[variantId]/page.tsx` (+ create page); **also add missing `injectionSpotId`** so `crud-form:catalog.variant` mounts.
+- Category — `backend/catalog/categories/[id]/edit/page.tsx` (+ create); **add missing `injectionSpotId`** for `crud-form:catalog.product_category`.
+
+**Guard wiring:**
+- Auto-covered `makeCrudRoute` entities: products `catalog:catalog_product` (`api/products/route.ts`), variants `catalog:catalog_product_variant` (`api/variants/route.ts`), categories `catalog:catalog_product_category` (`api/categories/route.ts`), prices `catalog:catalog_product_price` (`api/prices/route.ts`), offers `catalog:catalog_offer` (`api/offers/route.ts`), price kinds `catalog:catalog_price_kind` (`api/price-kinds/route.ts`), option-schema templates `catalog:catalog_option_schema_template` (`api/option-schemas/route.ts`).
+- **Custom dialog (not CrudForm):** `components/PriceKindSettings.tsx` — Dialog + raw `apiCall` POST/PUT/DELETE to `/api/catalog/price-kinds`. Ensure it sends the lock header and routes its 409 to the merge dialog.
+- **Custom routes:** `api/bulk-delete/route.ts` (+ worker `workers/catalog-product-bulk-delete.ts`, `lib/bulkDelete.ts`) and `api/product-media/route.ts` — neither uses the CRUD guard contract today. Bulk delete loops `catalog.products.delete` per item: apply per-item skip-if-changed or document bulk exemption; media upload/delete = attachment side-table (exempt).
+
+**Prices / offers / option-schemas** have no dedicated detail screen (managed inline in the product/variant forms or API-only): presence is inherited from the product screen; the entity itself stays record-lock enabled at the CRUD route.
+
+| Site | Files | entityId | Work | Decision |
+|------|-------|----------|------|----------|
+| Product | `backend/catalog/products/[id]/page.tsx`; `api/products/route.ts` | `catalog:catalog_product` | presence mount | enabled |
+| Variant | `backend/catalog/products/[productId]/variants/[variantId]/page.tsx`; `api/variants/route.ts` | `catalog:catalog_product_variant` | presence + add `injectionSpotId` | enabled |
+| Category | `backend/catalog/categories/[id]/edit/page.tsx`; `api/categories/route.ts` | `catalog:catalog_product_category` | presence + add `injectionSpotId` | enabled |
+| Price kinds | `components/PriceKindSettings.tsx`; `api/price-kinds/route.ts` | `catalog:catalog_price_kind` | header on custom dialog + 409 surface | enabled |
+| Prices / offers / option schemas | `api/prices|offers|option-schemas/route.ts` | `catalog:catalog_product_price`/`…offer`/`…option_schema_template` | inherit product presence | enabled |
+| Bulk delete / media | `api/bulk-delete/route.ts`,`api/product-media/route.ts` | — | per-item skip-if-changed | exempt (bulk/side-table) |
+
+Extend coverage guard for `catalog`; integration TC-LOCK-CAT-{product,variant,category,price-kind}.
 
 ### Phase 5 — Identity & org modules: auth, directory, staff, resources
-1. **auth**: users, roles (edit pages) → presence + unified guard.
-2. **directory**: organizations (edit page).
-3. **staff**: teams, team-members, leave requests (`TeamMemberForm`, `LeaveRequestForm`).
-4. **resources**: resource-types, resources (edit screens).
-5. Delete flows for the above; tests + coverage guard extensions per module.
+
+All four are `CrudForm`-hosted (directly or via thin wrappers) and auto-covered by the CRUD guard. Work is presence mounts on the edit screens + confirming custom action endpoints.
+
+**auth** — User `auth:user` (`backend/users/[id]/edit/page.tsx`, `api/users/route.ts`), Role `auth:role` (`backend/roles/[id]/edit/page.tsx`, `api/roles/route.ts`). Presence mount on both edit pages. **Custom:** `api/users/acl/route.ts`, `api/roles/acl/route.ts` carry their **own** `updatedAt` versioning — keep separate (do not double-lock); `resend-invite`/`consents` = no entity mutation (exempt).
+
+**directory** — Organization `directory:organization` (`backend/directory/organizations/[id]/edit/page.tsx`, `api/organizations/route.ts`), Tenant `directory:tenant` (`backend/directory/tenants/[id]/edit/page.tsx`, `api/tenants/route.ts`). Presence mounts; `organization-switcher` = UX state (exempt).
+
+**staff** — Team `staff:staff_team` (`components/TeamForm.tsx`, `api/teams.ts`), team-member `staff:staff_team_member` (`components/TeamMemberForm.tsx`, `api/team-members.ts`), team-role `staff:staff_team_role` (`components/TeamRoleForm.tsx`, `api/team-roles.ts`), leave-request `staff:staff_leave_request` (`components/LeaveRequestForm.tsx`, `api/leave-requests.ts`). Presence mounts on edit/detail pages under `backend/staff/{teams,team-members,team-roles,leave-requests}/`. **Custom:** `api/leave-requests/accept|reject/route.ts` = approve/reject status transitions → guard via command seam (decision-state) or exempt with reason; `api/team-members/tags/assign|unassign`, `api/resources/.../tags/*` = junction (exempt). *Note:* the audit table lists `StaffTeam`/`StaffTeamRole`; team-member/leave-request edits are field edits and should be enabled too.
+
+**resources** — ResourcesResource `resources:resources_resource` (`components/ResourceCrudForm.tsx`, `api/resources.ts`), ResourcesResourceType `resources:resources_resource_type` (`components/ResourceTypeCrudForm.tsx`, `api/resource-types.ts`). Presence mounts on `backend/resources/{resources,resource-types}/` edit screens; tag assign/unassign exempt.
+
+| Module | Entity | Edit screen | entityId | Decision |
+|--------|--------|-------------|----------|----------|
+| auth | User, Role | `backend/users/[id]/edit`, `backend/roles/[id]/edit` | `auth:user`,`auth:role` | enabled; ACL routes separate |
+| directory | Organization, Tenant | `backend/directory/{organizations,tenants}/[id]/edit` | `directory:organization`,`directory:tenant` | enabled |
+| staff | Team, TeamRole, TeamMember, LeaveRequest | `backend/staff/{teams,team-roles,team-members,leave-requests}/…` | `staff:staff_team`,`…team_role`,`…team_member`,`…leave_request` | enabled; accept/reject = status txn |
+| resources | Resource, ResourceType | `backend/resources/{resources,resource-types}/…` | `resources:resources_resource`,`…resource_type` | enabled; tags exempt |
+
+Extend coverage guard per module; integration TC-LOCK-{AUTH-role,DIR-org,STAFF-team,RES-resource}.
 
 ### Phase 6 — Platform-config modules: dictionaries, currencies, workflows, feature_toggles, business_rules
-1. **dictionaries** + **currencies**: CRUD edit dialogs/pages.
-2. **workflows**: workflow definitions and editor save paths.
-3. **feature_toggles** + **business_rules**: edit forms.
-4. Delete flows; tests + coverage guard extensions per module.
+
+Mixed: some custom inline/dialog editors and a bespoke visual editor that need explicit header + merge-dialog wiring.
+
+**dictionaries** — Dictionary `dictionaries:dictionary`, DictionaryEntry `dictionaries:dictionary_entry`. **No `[id]` detail page** — editing is inline in `components/DictionariesManager.tsx` + `DictionaryEntriesEditor.tsx` (`DictionaryForm.tsx` hosts a CrudForm in a dialog). Routes: `api/route.ts` (dictionary), `api/[dictionaryId]/entries/route.ts` (entries). **Custom:** `api/[dictionaryId]/entries/reorder/route.ts` (position — exempt), `set-default/route.ts` (single-flag toggle — exempt or guard). Presence: dialog-scoped — mount `backend:record:current` on the manager when a dictionary is open, or rely on the `crud-form:` widget (decide during impl).
+
+**currencies** — Currency `currencies:currency` (`backend/currencies/[id]/page.tsx`, `api/currencies/route.ts`), ExchangeRate `currencies:exchange_rate` (`backend/exchange-rates/[id]/page.tsx`, `api/exchange-rates/route.ts`). Both are CrudForm detail pages already sending the OSS header; add presence mounts. List-row deletes in `backend/currencies/page.tsx` / `exchange-rates/page.tsx` use raw `apiCall` with the header — route their 409 to the merge dialog.
+
+**workflows** — WorkflowDefinition `workflows:workflow_definition`. **Two edit paths:** (1) form detail `backend/definitions/[id]/page.tsx` (CrudForm); (2) **custom visual editor** `backend/definitions/visual-editor/page.tsx` — React-Flow graph saving via raw `apiCall` PUT with a hand-built `buildOptimisticLockHeader`. Route `api/definitions/[id]/route.ts` already uses `validateCrudMutationGuard` + a generic optimistic-lock reader. Presence mount on **both** edit screens; ensure the visual editor's 409 surfaces the merge dialog (it is the highest-value record_locks target — long-lived edits). Custom `api/definitions/[id]/customize/route.ts`, `reset-to-code/route.ts` = override toggles → guard or exempt.
+
+**feature_toggles** — FeatureToggle `feature_toggles:feature_toggle` (`backend/feature-toggles/global/[id]/edit/page.tsx`, `api/global/route.ts`) — CrudForm, auto-covered; **global (non-tenant) entity, superadmin-only** → record_locks scope must handle the null-tenant case or this stays OSS-guarded only. Overrides `api/global/[id]/override/route.ts` = per-tenant junction (exempt). Presence mount optional (single-admin surface) — **document the decision**.
+
+**business_rules** — BusinessRule `business_rules:business_rule` (`backend/rules/[id]/page.tsx`), RuleSet `business_rules:rule_set` (`backend/sets/[id]/page.tsx`). Both pages use CrudForm but the routes (`api/rules/route.ts`, `api/rules/[id]/route.ts`, `api/sets/route.ts`, `api/sets/[id]/route.ts`) already call `enforceCommandOptimisticLock` — so they bridge to the command seam (S1) cleanly. Presence mounts on both detail pages. `RuleSetMembers.tsx` + `api/sets/[id]/members/route.ts` = junction (exempt); `api/execute/*` = read/eval (exempt).
+
+| Module | Entity | Edit surface | entityId | Custom path | Decision |
+|--------|--------|--------------|----------|-------------|----------|
+| dictionaries | Dictionary, DictionaryEntry | inline `DictionariesManager`/`DictionaryEntriesEditor` | `dictionaries:dictionary`,`…dictionary_entry` | `api/route.ts`,`api/[dictionaryId]/entries/route.ts` | enabled; reorder/set-default exempt |
+| currencies | Currency, ExchangeRate | `backend/currencies/[id]`,`exchange-rates/[id]` | `currencies:currency`,`…exchange_rate` | list-row raw `apiCall` delete | enabled |
+| workflows | WorkflowDefinition | `definitions/[id]` + `visual-editor` | `workflows:workflow_definition` | visual editor raw PUT | enabled (visual editor = key target) |
+| feature_toggles | FeatureToggle | `feature-toggles/global/[id]/edit` | `feature_toggles:feature_toggle` | global/non-tenant scope | enabled or OSS-only (scope note) |
+| business_rules | BusinessRule, RuleSet | `backend/rules/[id]`,`sets/[id]` | `business_rules:business_rule`,`…rule_set` | routes already `enforceCommandOptimisticLock` | enabled; members/execute exempt |
+
+Extend coverage guard per module; integration TC-LOCK-{DICT-entry,CUR-currency,WF-visual-editor,BR-rule}.
 
 ### Phase 7 — Cross-cutting delete sweep + completeness verdict
-1. Sweep all remaining delete flows that send the OSS lock header but were not yet routed through the unified guard.
-2. Final alignment of both OSS guard tests (`optimistic-lock-editable-entities.test.ts`, `optimistic-lock-ui-coverage.test.ts`) with the new record_locks coverage assertion.
-3. Produce a coverage matrix proving every audited module/entity has an explicit record_locks decision (enabled → record_locks; exempt → documented reason). This is the spec's done-definition.
+1. Sweep all remaining delete flows across the modules above that send the OSS lock header but were not yet routed through the unified guard/merge surface (the `optimistic-lock-ui-coverage.test.ts` `MUTATION` scan is the worklist: every file matching `deleteCrud(` / `method:'DELETE'`). Confirm each enabled resource's delete surfaces `record_locks.record.deleted`.
+2. Final alignment of both OSS guard tests (`optimistic-lock-editable-entities.test.ts`, `optimistic-lock-ui-coverage.test.ts`) with the new record_locks coverage assertion — add a parallel `record_locks` decision map (enabled vs exempt+reason) keyed by the same entity universe so a new editable entity cannot ship without a record_locks decision.
+3. Produce the coverage matrix below as the spec's done-definition.
+
+### Coverage Matrix (done-definition — every audited entity has a record_locks decision)
+| Module | Entity (audited) | Phase | record_locks decision |
+|--------|------------------|-------|-----------------------|
+| customers | CustomerEntity (person/company) | 1 | enabled (presence + unified guard) |
+| customers | CustomerDeal | 1 | enabled (form + command guard) |
+| customers | CustomerInteraction | 2 | enabled (status txn exempt) |
+| customers | CustomerTag, CustomerLabel | 2 | enabled (entity); assignment exempt |
+| customers | CustomerPipeline, CustomerPipelineStage | 2 | enabled; reorder exempt |
+| sales | SalesOrder, SalesQuote | 3 | enabled (aggregate command guard) |
+| sales | SalesChannel, SalesPaymentMethod, SalesShippingMethod | 3 | enabled (CRUD route) |
+| catalog | CatalogProduct, CatalogProductVariant, CatalogProductCategory | 4 | enabled (presence + CRUD guard) |
+| catalog | CatalogProductPrice, CatalogOffer, CatalogPriceKind, CatalogOptionSchemaTemplate | 4 | enabled (CRUD guard; inherit product presence) |
+| auth | User, Role | 5 | enabled (ACL routes versioned separately) |
+| directory | Organization, Tenant | 5 | enabled |
+| staff | StaffTeam, StaffTeamRole | 5 | enabled (team-member/leave-request also enabled) |
+| resources | ResourcesResource, ResourcesResourceType | 5 | enabled |
+| dictionaries | Dictionary, DictionaryEntry | 6 | enabled; reorder/set-default exempt |
+| currencies | Currency | 6 | enabled (+ ExchangeRate enabled) |
+| workflows | WorkflowDefinition | 6 | enabled (form + visual editor) |
+| feature_toggles | FeatureToggle | 6 | enabled or OSS-only (global/non-tenant scope note) |
+| business_rules | BusinessRule, RuleSet | 6 | enabled (routes already command-guarded) |
 
 ### File Manifest (Phase 1)
 | File | Action | Purpose |
@@ -284,6 +418,10 @@ All CRM v2 entities already expose `updated_at` (camel + snake in API responses)
 - **Fully compliant** — approved for phased implementation, starting Phase 1 (CRM v2).
 
 ## Changelog
+### 2026-06-09 (deepening)
+- Expanded Phases 2–7 from high-level bullets into **file-level manifests** grounded in a full codebase audit of every editable-entity lock site. Each phase now enumerates the exact presence mounts to add, the custom write paths / command-guard seams to wire, the auto-covered `makeCrudRoute` entities (with `entityId`s), and a per-entity enabled/exempt decision.
+- Verified facts now baked into the plan: **no core page renders `backend:record:current` today**; CRM v2 person/company pass `injectionSpotId` but `DealForm` does not; sales `enforceSalesDocumentOptimisticLock` already guards `documents.ts`/`returns.ts` but **`commands/payments.ts` and `commands/shipments.ts` have zero guard calls (Gap A/B)**; catalog category/variant edit pages are missing `injectionSpotId`; workflows has a bespoke visual-editor save path; business_rules routes already call `enforceCommandOptimisticLock`.
+- Added a how-to-read preamble distinguishing **presence mount** vs **guard wiring** vs **decision**, and a **Coverage Matrix** done-definition listing a record_locks decision for every entity audited by `optimistic-lock-editable-entities.test.ts`.
 ### 2026-06-09
 - Initial specification. Open Questions resolved: single-guard via DI seam (Q1), full Phase-1 experience (Q2), guard Deal form + command endpoints (Q3), customers-first Phase 2+ ordering (Q4).
 - Tracking issue: #2187 (CRM ↔ enterprise record-locking). Related: #2232 (command-level pessimistic locking seam), SPEC-ENT-003 (record-locking module), SPEC-035 (mutation-guard mechanism), `2026-05-25/28/29` OSS optimistic-locking specs.
