@@ -1054,12 +1054,18 @@ async function applyDocumentUpdate({
     if (input.channelId === null) {
       entity.channelId = null;
     } else {
-      const channel = await em.findOne(SalesChannel, {
-        id: input.channelId,
-        organizationId,
-        tenantId,
-        deletedAt: null,
-      });
+      const channel = await findOneWithDecryption(
+        em,
+        SalesChannel,
+        {
+          id: input.channelId,
+          organizationId,
+          tenantId,
+          deletedAt: null,
+        },
+        {},
+        { tenantId, organizationId },
+      );
       if (!channel) {
         throw new CrudHttpError(400, {
           error: translate(
@@ -3789,7 +3795,16 @@ async function restoreQuoteGraph(
   em: EntityManager,
   snapshot: QuoteGraphSnapshot,
 ): Promise<SalesQuote> {
-  let quote = await em.findOne(SalesQuote, { id: snapshot.quote.id });
+  let quote = await findOneWithDecryption(
+    em,
+    SalesQuote,
+    { id: snapshot.quote.id },
+    {},
+    {
+      tenantId: snapshot.quote.tenantId,
+      organizationId: snapshot.quote.organizationId,
+    },
+  );
   if (!quote) {
     quote = em.create(SalesQuote, {
       id: snapshot.quote.id,
@@ -4079,7 +4094,16 @@ async function restoreOrderGraph(
   em: EntityManager,
   snapshot: OrderGraphSnapshot,
 ): Promise<SalesOrder> {
-  let order = await em.findOne(SalesOrder, { id: snapshot.order.id });
+  let order = await findOneWithDecryption(
+    em,
+    SalesOrder,
+    { id: snapshot.order.id },
+    {},
+    {
+      tenantId: snapshot.order.tenantId,
+      organizationId: snapshot.order.organizationId,
+    },
+  );
   if (!order) {
     order = em.create(SalesOrder, {
       id: snapshot.order.id,
@@ -4775,7 +4799,16 @@ const createQuoteCommand: CommandHandler<
     const after = payload?.after;
     if (!after) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, { id: after.quote.id });
+    const quote = await findOneWithDecryption(
+      em,
+      SalesQuote,
+      { id: after.quote.id },
+      {},
+      {
+        tenantId: after.quote.tenantId,
+        organizationId: after.quote.organizationId,
+      },
+    );
     if (!quote) return;
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
@@ -4806,7 +4839,7 @@ const deleteQuoteCommand: CommandHandler<
   async execute(input, ctx) {
     const id = requireId(input, "Quote id is required");
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, { id });
+    const quote = await findOneWithDecryption(em, SalesQuote, { id });
     if (!quote)
       throw new CrudHttpError(404, { error: "Sales quote not found" });
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
@@ -4933,7 +4966,7 @@ const updateQuoteCommand: CommandHandler<
   async execute(rawInput, ctx) {
     const parsed = documentUpdateSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.id,
       deletedAt: null,
     });
@@ -5165,7 +5198,7 @@ const updateOrderCommand: CommandHandler<
   async execute(rawInput, ctx) {
     const parsed = documentUpdateSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, {
+    const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.id,
       deletedAt: null,
     });
@@ -5771,7 +5804,16 @@ const createOrderCommand: CommandHandler<
     const after = payload?.after;
     if (!after) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, { id: after.order.id });
+    const order = await findOneWithDecryption(
+      em,
+      SalesOrder,
+      { id: after.order.id },
+      {},
+      {
+        tenantId: after.order.tenantId,
+        organizationId: after.order.organizationId,
+      },
+    );
     if (!order) return;
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await em.nativeDelete(SalesOrderAdjustment, { order: order.id });
@@ -5802,7 +5844,7 @@ const deleteOrderCommand: CommandHandler<
   async execute(input, ctx) {
     const id = requireId(input, "Order id is required");
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, { id });
+    const order = await findOneWithDecryption(em, SalesOrder, { id });
     if (!order)
       throw new CrudHttpError(404, { error: "Sales order not found" });
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
@@ -6236,14 +6278,32 @@ const convertQuoteToOrderCommand: CommandHandler<
       });
 
       const [addresses, notes, tags] = await Promise.all([
-        em.find(SalesDocumentAddress, {
-          documentId: snapshot.quote.id,
-          documentKind: "quote",
-        }),
-        em.find(SalesNote, {
-          contextType: "quote",
-          contextId: snapshot.quote.id,
-        }),
+        findWithDecryption(
+          em,
+          SalesDocumentAddress,
+          {
+            documentId: snapshot.quote.id,
+            documentKind: "quote",
+          },
+          {},
+          {
+            tenantId: snapshot.quote.tenantId,
+            organizationId: snapshot.quote.organizationId,
+          },
+        ),
+        findWithDecryption(
+          em,
+          SalesNote,
+          {
+            contextType: "quote",
+            contextId: snapshot.quote.id,
+          },
+          {},
+          {
+            tenantId: snapshot.quote.tenantId,
+            organizationId: snapshot.quote.organizationId,
+          },
+        ),
         em.find(SalesDocumentTagAssignment, {
           documentId: snapshot.quote.id,
           documentKind: "quote",
@@ -6468,7 +6528,7 @@ const orderLineUpsertCommand: CommandHandler<
     const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
     const parsed = orderLineUpsertSchema.parse(rawBody);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, {
+    const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.orderId,
       deletedAt: null,
     });
@@ -6784,7 +6844,7 @@ const orderLineDeleteCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, {
+    const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.orderId,
       deletedAt: null,
     });
@@ -6960,7 +7020,7 @@ const quoteLineUpsertCommand: CommandHandler<
     const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
     const parsed = quoteLineUpsertSchema.parse(rawBody);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.quoteId,
       deletedAt: null,
     });
@@ -7272,7 +7332,7 @@ const quoteLineDeleteCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.quoteId,
       deletedAt: null,
     });
@@ -7426,7 +7486,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, {
+    const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.orderId,
       deletedAt: null,
     });
@@ -7720,7 +7780,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, {
+    const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.orderId,
       deletedAt: null,
     });
@@ -7885,7 +7945,7 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.quoteId,
       deletedAt: null,
     });
@@ -8177,7 +8237,7 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.quoteId,
       deletedAt: null,
     });
@@ -8369,12 +8429,21 @@ const createInvoiceCommand: CommandHandler<
 
     // Validate orderId belongs to same org/tenant
     if (parsed.orderId) {
-      const orderExists = await em.findOne(SalesOrder, {
-        id: parsed.orderId,
-        organizationId: parsed.organizationId,
-        tenantId: parsed.tenantId,
-        deletedAt: null,
-      });
+      const orderExists = await findOneWithDecryption(
+        em,
+        SalesOrder,
+        {
+          id: parsed.orderId,
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          deletedAt: null,
+        },
+        {},
+        {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+        },
+      );
       if (!orderExists) {
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }
@@ -8855,12 +8924,21 @@ const createCreditMemoCommand: CommandHandler<
 
     // Validate orderId belongs to same org/tenant
     if (parsed.orderId) {
-      const orderExists = await em.findOne(SalesOrder, {
-        id: parsed.orderId,
-        organizationId: parsed.organizationId,
-        tenantId: parsed.tenantId,
-        deletedAt: null,
-      });
+      const orderExists = await findOneWithDecryption(
+        em,
+        SalesOrder,
+        {
+          id: parsed.orderId,
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          deletedAt: null,
+        },
+        {},
+        {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+        },
+      );
       if (!orderExists) {
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }
