@@ -379,6 +379,7 @@
   "checkout.payPage.validation.priceSelectionRequired": "Bitte eine Zahlungsoption auswaehlen, um fortzufahren.",
   "checkout.payPage.validation.requiredField": "Bitte {field} ausfuellen.",
   "checkout.payPage.validation.thisField": "dieses Feld",
+  "checkout.search.subtitle.linkTemplate": "Link-Vorlage",
   "checkout.statusPage.backToPayment": "Zuruck zur Zahlungsseite",
   "checkout.statusPage.cancel.cancelled": "Zahlung abgebrochen",
   "checkout.statusPage.cancel.failed": "Zahlung fehlgeschlagen",

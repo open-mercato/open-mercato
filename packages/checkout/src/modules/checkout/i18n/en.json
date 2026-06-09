@@ -379,6 +379,7 @@
   "checkout.payPage.validation.priceSelectionRequired": "Choose a payment option to continue.",
   "checkout.payPage.validation.requiredField": "Enter {field}.",
   "checkout.payPage.validation.thisField": "this field",
+  "checkout.search.subtitle.linkTemplate": "Link Template",
   "checkout.statusPage.backToPayment": "Back to payment page",
   "checkout.statusPage.cancel.cancelled": "Payment cancelled",
   "checkout.statusPage.cancel.failed": "Payment failed",
