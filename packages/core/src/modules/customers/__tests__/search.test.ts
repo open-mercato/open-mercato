@@ -42,4 +42,26 @@ describe('customers search config', () => {
     )
     expect(query.mock.calls[0]?.[1]).not.toHaveProperty('customFieldSources')
   })
+
+  test('person search results link to the v2 detail page (#2843)', async () => {
+    const personConfig = searchConfig.entities.find((entity) => entity.entityId === 'customers:customer_person_profile')
+    const ctx = { record: { entity_id: 'entity-1' } } as any
+
+    const url = await personConfig!.resolveUrl!(ctx)
+    expect(url).toBe('/backend/customers/people-v2/entity-1')
+
+    const links = await personConfig!.resolveLinks!(ctx)
+    expect(links?.[0]?.href).toContain('/backend/customers/people-v2/entity-1')
+  })
+
+  test('company search results link to the v2 detail page (#2843)', async () => {
+    const companyConfig = searchConfig.entities.find((entity) => entity.entityId === 'customers:customer_company_profile')
+    const ctx = { record: { entity_id: 'entity-2' } } as any
+
+    const url = await companyConfig!.resolveUrl!(ctx)
+    expect(url).toBe('/backend/customers/companies-v2/entity-2')
+
+    const links = await companyConfig!.resolveLinks!(ctx)
+    expect(links?.[0]?.href).toContain('/backend/customers/companies-v2/entity-2')
+  })
 })

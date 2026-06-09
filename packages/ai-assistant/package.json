@@ -89,7 +89,7 @@
     "@ai-sdk/google": "^3.0.80",
     "@ai-sdk/openai": "^3.0.68",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "ai": "^6.0.197",
+    "ai": "^6.0.198",
     "cmdk": "^1.0.0",
     "framer-motion": "^12.40.0",
     "isolated-vm": "^7.0.0",
