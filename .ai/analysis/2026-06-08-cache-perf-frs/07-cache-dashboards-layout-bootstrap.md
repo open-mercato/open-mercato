@@ -67,6 +67,7 @@ const cacheTags = [
   'dashboards:layout',
   `dashboards:layout:user:${scope.userId}`,
   scope.organizationId ? `dashboards:layout:org:${scope.organizationId}` : 'dashboards:layout:org:none',
+  `rbac:user:${scope.userId}`, // REUSED: flushed by rbacService on every role/ACL change — closes the cross-module gap for free
 ]
 
 const cached = await runWithCacheTenant(scope.tenantId, () => cache.get(cacheKey))
@@ -99,7 +100,7 @@ All `deleteByTags` calls MUST run **post-commit** (after `await em.flush()` / `e
 | `PATCH /api/dashboards/layout/[itemId]` (`api/layout/[itemId]/route.ts`, after `await em.flush()` at line 78) | end of `PATCH`, post-flush | `dashboards:layout:user:${scope.userId}` |
 | `PUT /api/dashboards/users/widgets` (`api/users/widgets/route.ts` `PUT`, after each `flush`/`remove(...).flush()` at lines 132/149) | post-flush; use the **target** `parsed.data.userId` (admin edits another user) | `dashboards:layout:user:${parsed.data.userId}` |
 | `PUT /api/dashboards/roles/widgets` (`api/roles/widgets/route.ts` `PUT`, after `flush`/`remove(...).flush()` at lines 131/147) | post-flush; role change affects all members in scope | `dashboards:layout:org:${organizationId ?? 'none'}` **and** `dashboards:layout` (role membership per user is not known here, so fall back to the org-wide + coarse tags) |
-| Role-membership / ACL feature change (cross-module: `auth` UserRole / RBAC grants) | Not directly hooked in v1 — rely on the **15 min TTL backstop**. Optionally, follow-up: emit/handle an `auth.user_role.changed`-style event and call `deleteByTags(['dashboards:layout:user:${userId}'])` in a dashboards subscriber once such an event id exists. | `dashboards:layout:user:${userId}` (future) |
+| Role-membership / ACL feature change (cross-module: `auth` UserRole / RBAC grants) | **Already flushed** — the cached entry carries the existing `rbac:user:${userId}` tag, which `auth/services/rbacService.ts` flushes on every user/role ACL write (`deleteCacheByTags` covers the current, global, and hinted tenant namespaces, `rbacService.ts:167-187`). No new wiring; no subscriber needed. | `rbac:user:${userId}` (existing) |
 
 Rationale for the role-widget writer using the coarse + org tags: `DashboardRoleWidgets` changes affect every user holding that role, and the writer does not enumerate members. Invalidating `dashboards:layout:org:${organizationId}` (members share the org scope) plus the coarse `dashboards:layout` tag guarantees correctness; the blast radius is acceptable because role-widget edits are rare admin actions.
 
@@ -115,7 +116,8 @@ Rationale for the role-widget writer using the coarse + org tags: `DashboardRole
 ## Risks & staleness window
 
 - **Self-heal skipped on hit (acceptable):** because invalidation fires whenever an input that the heal depends on changes (layout, user-override, role-widget assignment), a cache hit only occurs when the healed output is still valid. The first request after any change is a miss and re-runs the heal/persist.
-- **Cross-module convergence window:** role-membership / ACL grant changes are not directly hooked in v1, so a user could briefly (up to the 15 min TTL) see widgets per their previous role set. Risk is low: widget *visibility* is cosmetic, not a security boundary — actual widget data endpoints (`api/widgets/data/route.ts`) re-check ACL independently, so a stale `allowedWidgetIds` cannot expose data the user is not entitled to. The follow-up event hook closes the window entirely when available.
+- **Cross-module convergence window (double-checked):** role/ACL changes flush the reused `rbac:user:${userId}` tag immediately, so the previous-role widget set disappears on the next load — no 15-min wait. Residual edge: a superadmin editing a user's ACL from *another tenant's* request context flushes in the actor's + global namespaces, which may miss the target tenant's namespace; bounded by the 15 min TTL. Either way widget *visibility* is cosmetic, not a security boundary — widget data endpoints (`api/widgets/data/route.ts`) re-check ACL independently, so a stale `allowedWidgetIds` can never expose data the user is not entitled to.
+- **Module-local writes need inline flushes (unavoidable, but small):** the dashboards module has no commands and no events, so its four write routes cannot piggyback on command-bus tags — the four post-flush `deleteByTags` calls in the table above are the minimal possible wiring, kept in one shared `lib/cacheKeys.ts` helper. These run inside the mutating request, so the tenant namespace matches the GET-side entries automatically.
 - **Not financial/stock/auth data** — short staleness is tolerable per the cache-safety contract (`packages/cache/AGENTS.md` → Consistency vs commit timing).
 - Invalidation is best-effort; TTL guarantees eventual convergence.
 

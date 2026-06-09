@@ -1,70 +1,86 @@
 # Cache Performance — Feature Request Backlog
 
 > Generated 2026-06-08 by a multi-agent workflow (4 discovery lanes → 9 deep-dive agents).
+> Revised 2026-06-09: invalidation reworked to **connect to already-flushed tags** instead of adding bespoke per-entity flush wiring; overlap with the existing CRUD API cache audited (2 FRs rescoped/demoted); 7 new candidates added (FR 10–16).
 > Goal: highest-ROI API endpoints to cache **with tag-based invalidation** so data stays fresh. Quick wins, most-used read paths.
 
 ## How caching works here (read first)
 
 - **Cache service**: `container.resolve('cache')` — API `get/set(key,val,{ttl,tags})/deleteByTags(tags[])`. No `getOrSet`; do manual get-then-set.
-- **Tenant scoping is mandatory**: wrap every `get`/`set`/`deleteByTags` in `runWithCacheTenant(tenantId, …)` from `@open-mercato/cache`. It namespaces keys+tags per tenant, so cross-tenant reads are impossible even when the literal key omits the tenant.
-- **Reference pattern to copy**: `packages/core/src/modules/customer_accounts/services/domainMappingService.ts` (get-then-set + ttl + tags, `deleteByTags` on every mutation, TTL as backstop).
-- **Invalidation timing**: fire `deleteByTags` **post-commit** (outside `withAtomicFlush`) — event subscribers and `emitCrudSideEffects` already run post-commit. Tags carry correctness; TTL is only a backstop for missed invalidations.
-- **Generic CRUD list cache already exists** (`packages/shared/src/lib/crud/factory.ts`) but is gated OFF behind env `ENABLE_CRUD_API_CACHE`. It only covers `makeCrudRoute` GETs and invalidates via collection/record tags from the command bus. **Custom GET handlers bypass it entirely** — those are the biggest manual-cache quick wins.
+- **Tenant scoping is automatic in API handlers**: the API dispatcher wraps every route handler in `runWithCacheTenant(auth.tenantId, …)` (`apps/mercato/src/app/api/[...slug]/route.ts:382`). Keys and tags are SHA1-hashed under a `tenant:<id>:` namespace (`packages/cache/src/service.ts`), so cross-tenant reads are impossible even when the literal key omits the tenant.
+- **Generic CRUD list cache already exists** (`packages/shared/src/lib/crud/factory.ts`) but is gated OFF behind env `ENABLE_CRUD_API_CACHE`. It only covers `makeCrudRoute` GETs. **Custom GET handlers bypass it entirely** — those are the manual-cache quick wins below.
 
-## Two classes of work
+## Invalidation doctrine: connect to already-flushed tags (do NOT add bespoke flush wiring)
 
-1. **Manual cache on custom GET handlers** (bypass the factory cache) — most of the wins below.
-2. **Enable + harden the generic CRUD cache** for hot `makeCrudRoute` reads — turn on `ENABLE_CRUD_API_CACHE` and close cross-resource invalidation gaps (see FR 06 / 08).
+The platform already flushes a rich set of tags post-commit. A new manual cache should **carry one of these existing tags** so it is invalidated for free — new subscribers or per-write `deleteByTags` calls are a last resort, not the default.
+
+**Tags that are already flushed today:**
+
+| Tag (literal) | Flushed by | When |
+|---|---|---|
+| `crud:<module>.<entity>:tenant:<T>:org:<O>:collection` | `makeCrudRoute` POST/PUT/DELETE (`factory.ts:2266/2597/2882`) **and** the command bus after every command execute/undo (`packages/shared/src/lib/commands/command-bus.ts:610/642`, resource derived from `resourceKind` + `deriveResourceFromCommandId` + `context.cacheAliases`) | post-commit, every domain write |
+| `crud:<module>.<entity>:tenant:<T>:record:<id>` | same | post-commit |
+| `org-scope:tenant:<T>`, `org-scope:user:<U>` | `directory/subscribers/invalidateOrgScopeCache.ts` + `invalidateOrganizationScopeCacheForUser/Tenant` | org create/update/delete, membership change |
+| `rbac:user:<U>`, `rbac:tenant:<T>`, `rbac:org:<O>`, `rbac:all` | `auth/services/rbacService.ts` (`deleteCacheByTags` flushes across current + global + hinted tenant namespaces) | role/user ACL change |
+| `nav:sidebar:user:<U>`, `nav:sidebar:role:<R>`, `nav:sidebar:scope:<U>:<T>:<O>:<locale>` | `auth/api/sidebar/preferences/route.ts` PUT (lines 488–503) | sidebar preference write |
+| `inbox_ops:counts:<T>` | `invalidateCountsCache` at 9 write sites (7 routes + extraction worker + ai-tools) | every proposal mutation |
+| `customers:dictionaries:<T>:<kind>[…:org:<O>]` | `customers/api/dictionaries/cache.ts` `invalidateDictionaryCache` | customer dictionary entry write |
+| `feature_toggles:identifier:<id>`, `module-config:module:<id>`, `domain_routing`, `perspectives:*`, `custom-entity:*`, `nav:entities:<T>` | their owning modules | respective writes |
+
+**Two safety rules that make piggybacking correct:**
+
+1. **The `ENABLE_CRUD_API_CACHE` gate.** Every `crud:*` flush goes through `invalidateCrudCache`, which **no-ops when the flag is off** (`packages/shared/src/lib/crud/cache.ts:180`). Therefore any manual cache that carries `crud:*` tags MUST itself be gated on `isCrudCacheEnabled()` — when the flag is off, skip caching (fall back to uncached behavior or a very short TTL-only cache). Otherwise entries would never be invalidated and would serve stale data for the full TTL.
+2. **Tenant-namespace matching.** Tags only match within the same tenant namespace. Request-side `get`/`set` inherit the namespace from the dispatcher wrapper; `invalidateCrudCache` wraps its flush in `runWithCacheTenant(tenantId, …)` explicitly — these match. But a flush issued from a **subscriber or queue worker** without an explicit `runWithCacheTenant(payload.tenantId, …)` wrapper lands in the `global` namespace and silently misses tenant-scoped entries. Any subscriber-based flush MUST wrap explicitly (FR 02 fixes one such latent gap in the existing org-scope subscriber).
+
+**Universal safety backstops (every FR below assumes these):**
+
+- Always set a TTL. Tags carry correctness; TTL bounds staleness when a flush is missed (e.g. a command whose metadata lacks `organizationId` flushes only the `org:null` collection tag, leaving org-scoped entries until TTL; or an out-of-band SQL write).
+- Never cache error/early-return responses (401/400/empty-auth branches).
+- Per-user payloads MUST include `userId` in the cache key; per-org payloads MUST include the org axis in key or tags.
+- Cache resolution is defensive (`try { container.resolve('cache') } catch { null }`) — behavior with no cache service is byte-identical to today.
+- Audit side effects (`logCrudAccess`) always run outside the cached block.
+
+## Overlap audit (vs the existing CRUD API cache and module caches)
+
+- **FR 05 `GET /api/dictionaries` — demoted (skip).** The hot dictionary-select surface is the **customers** module's dictionary API, which is **already cached** (`customers:dictionaries:*`, 5 min TTL + invalidation). The `dictionaries`-module list endpoint mostly serves the admin manager page — low traffic, not worth the change. Issue #2910 recommended for closure.
+- **FR 08 `GET /api/catalog/offers` — rescoped.** The originally proposed decoration cache (snapshot store + 4-event subscriber + price→product mapping) is exactly the bespoke complexity this backlog now avoids. v1 is reduced to extending FR 06's `cacheAliases` mechanism (`['catalog.offer']` on price/variant commands) so the generic CRUD offers list cache stays correct; the decoration cache is explicitly deferred.
+- `catalog/variants` and `catalog/prices` (from the original candidate ranking) are `makeCrudRoute` reads — enabling `ENABLE_CRUD_API_CACHE` (FR 06) covers them; **no separate FR is warranted**.
+- `GET /api/auth/admin/nav` and `GET /api/entities/definitions` are **already cached** (`nav.ts:138/166`; `definitions.cache.ts`) — disqualified as new candidates.
 
 ## FR issues (deep-analyzed, filed)
 
 Tracked in GitHub (proposed in PR #2905):
 
-| # | ROI | Endpoint | Verdict | Class | Issue | FR file |
+| # | ROI | Endpoint | Verdict | Invalidation source | Issue | FR file |
 |---|---|---|---|---|---|---|
-| 1 | 86 | `GET /api/catalog/categories` | strong-quick-win | Manual cache | #2906 | [01-cache-catalog-categories-list.md](./01-cache-catalog-categories-list.md) |
-| 2 | 84 | `GET /api/directory/organization-switcher` | good | Manual cache | #2907 | [02-cache-organization-switcher-menu.md](./02-cache-organization-switcher-menu.md) |
-| 3 | 82 | `GET /api/notifications/unread-count` | good | Manual cache | #2908 | [03-cache-notifications-unread-count.md](./03-cache-notifications-unread-count.md) |
-| 4 | 82 | `GET /api/inbox_ops/proposals` | good | Manual cache | #2909 | [04-cache-inbox-ops-proposals-list.md](./04-cache-inbox-ops-proposals-list.md) |
-| 5 | 82 | `GET /api/dictionaries` | good | Manual cache | #2910 | [05-cache-dictionaries-list.md](./05-cache-dictionaries-list.md) |
-| 6 | 78 | `GET /api/catalog/products` | good | CRUD cache | #2911 | [06-enable-and-fix-catalog-products-list-cache.md](./06-enable-and-fix-catalog-products-list-cache.md) |
-| 7 | 72 | `GET /api/dashboards/layout` | good | Manual cache | #2912 | [07-cache-dashboards-layout-bootstrap.md](./07-cache-dashboards-layout-bootstrap.md) |
-| 8 | 72 | `GET /api/catalog/offers` | good | CRUD cache | #2913 | [08-catalog-offers-decoration-cache.md](./08-catalog-offers-decoration-cache.md) |
-| 9 | 58 | `GET /api/messages` | good | Manual cache | #2914 | [09-cache-messages-list-per-user.md](./09-cache-messages-list-per-user.md) |
+| 1 | 86 | `GET /api/catalog/categories` | strong-quick-win | existing `crud:catalog.category:*` tags (command bus) | #2906 | [01](./01-cache-catalog-categories-list.md) |
+| 2 | 84 | `GET /api/directory/organization-switcher` | good | existing `org-scope:tenant:*` + `rbac:user:*` tags | #2907 | [02](./02-cache-organization-switcher-menu.md) |
+| 3 | 82 | `GET /api/notifications/unread-count` | good | TTL-only v1 (no command-bus writes exist) | #2908 | [03](./03-cache-notifications-unread-count.md) |
+| 4 | 82 | `GET /api/inbox_ops/proposals` | good | existing `inbox_ops:counts:<T>` tag (9 sites already flush it) | #2909 | [04](./04-cache-inbox-ops-proposals-list.md) |
+| 5 | 82 | `GET /api/dictionaries` | **skip — overlap** | n/a (hot surface already cached in customers module) | #2910 | [05](./05-cache-dictionaries-list.md) |
+| 6 | 78 | `GET /api/catalog/products` | good | enable CRUD cache + `cacheAliases` cross-resource fix | #2911 | [06](./06-enable-and-fix-catalog-products-list-cache.md) |
+| 7 | 72 | `GET /api/dashboards/layout` | good | module-local writes (4 routes) + existing `rbac:user:*` tag | #2912 | [07](./07-cache-dashboards-layout-bootstrap.md) |
+| 8 | 72 | `GET /api/catalog/offers` | **rescoped** | folded into FR 06's `cacheAliases` mechanism | #2913 | [08](./08-catalog-offers-decoration-cache.md) |
+| 9 | 58 | `GET /api/messages` | good | existing `crud:messages.message:*` tags (command bus) | #2914 | [09](./09-cache-messages-list-per-user.md) |
 
-## Full candidate ranking (20 discovered; top 9 deep-dived above)
+## New candidates (round 2 — verified non-cached, invalidation piggybacks on existing tags)
 
-Remaining candidates are pre-vetted but not yet written up — good follow-up backlog.
-
-| ROI | Endpoint | Module | makeCrudRoute? | Why it is a candidate |
+| # | Endpoint | Hotness | Invalidation source | FR file |
 |---|---|---|---|---|
-| 92 ✅ FR | `GET /api/directory/organization-switcher` | directory | no | Heavy compute: em.find(Organization), em.find(Tenant), computeHierarchyForOrganizations (builds ancestor/descendant maps for each org), reso… |
-| 92 ✅ FR | `GET /api/catalog/products` | catalog | yes | Massive afterList enricher (decorateProductsAfterList, lines 351–741): parallel lookups of offers, channels, categories, tags, variants, pri… |
-| 92 ✅ FR | `GET /api/messages` | messages | no | 5-6 sequential/parallel queries: Kysely base query + findWithDecryption (Message entities with encryption overhead) + em.find (MessageObject… |
-| 88 ✅ FR | `GET /api/notifications/unread-count` | notifications | no | Single em.count(Notification) query, but the COUNT is executed on every request without batching or coalescing. Lightweight query but extrem… |
-| 88 ✅ FR | `GET /api/catalog/categories` | catalog | no | Custom GET (no makeCrudRoute): full hierarchy computation (computeHierarchyForCategories), tree-view node construction, custom field values … |
-| 88 ✅ FR | `GET /api/dashboards/layout` | dashboards | no | Custom GET: loadAllWidgets (dynamic imports of ~40+ dashboard widgets across all modules + Promise.all(widgetEntries.map...)), loadScopeLayo… |
-| 88 ✅ FR | `GET /api/inbox_ops/proposals` | inbox_ops | no | findAndCountWithDecryption (proposals with encryption overhead) + Promise.all parallel fetch of InboxEmail, InboxProposalAction, InboxDiscre… |
-| 85 ✅ FR | `GET /api/dictionaries` | dictionaries | no | Custom GET handler with em.find() to fetch all active dictionaries, org-scoped filtering, inheritance resolution (reads both org and parent-… |
-| 85 ✅ FR | `GET /api/catalog/offers` | catalog | yes | decorateOffersWithDetails (lines 84–337): Promise.all of products fetch, prices with priceKind populate, variant defaults. Then complex pric… |
-| 85 | `GET /api/messages/unread-count` | messages | no | Joins message_recipients table to messages with 6+ filter conditions (status, deleted_at, archived_at, organization scoping, tenant scoping)… |
-| 82 | `GET /api/dictionaries/[dictionaryId]/entries` | dictionaries | no | Custom handler: loadDictionary (em.findOne), findWithDecryption for all entries (encryption overhead), sortDictionaryEntries computation, ma… |
-| 82 | `GET /api/catalog/product-media` | catalog | no | Custom GET (not makeCrudRoute): findOne product scope check + find attachments. Lightweight but called at high frequency (product detail pag… |
-| 80 | `GET /api/currencies/options` | currencies | no | Custom GET: em.find with complex $or search filter (code + name), optional active/inactive filter, limit loop, response mapping to options f… |
-| 80 | `GET /api/notifications` | notifications | no | em.find (main query) + em.count (separate count query, 2 ORM calls). Filter applied in code requires both queries to run before filtering. F… |
-| 78 | `GET /api/auth/roles` | auth | no | Multiple em.find/em.count calls per request: findWithDecryption(UserRole) to count users per role (count grows with users), findWithDecrypti… |
-| 78 | `GET /api/catalog/variants` | catalog | yes | makeCrudRoute with buildCustomFieldFiltersFromQuery + decorateCustomFields. Custom field resolution per variant can be 100+ items per page. … |
-| 75 | `GET /api/catalog/prices` | catalog | yes | resolveNormalizedQuantityForFilter (lines 67–139) runs on filter and in afterList hook: variant + product lookups, unit-conversion table sca… |
-| 72 | `GET /api/messages/types` | messages | no | Registry lookup via getAllMessageTypes() + JS transformation/map. Cost is in-memory only (not database), but the response is large (all mess… |
-| 70 | `GET /api/auth/sidebar/preferences` | auth | no | Multiple helper calls: loadSidebarPreference (em.findOne), loadRolesPayload (em.find(Role) + em.findOne RoleSidebarPreference per role), loa… |
-| 65 | `GET /api/auth/roles/acl` | auth | no | Simple em.findOne(RoleAcl) query but called with full validation chain: resolveIsSuperAdmin (rbacService.loadAcl), assertActorCanModifySuper… |
+| 10 | `GET /api/messages/unread-count` | polled every 5 s (`useMessagesPoll.ts`) | existing `crud:messages.message:*` tags | [10](./10-cache-messages-unread-count.md) |
+| 11 | `GET /api/notifications` (list) | polled every 5 s (`useNotificationsPoll.ts`) | TTL-only v1 (no command-bus writes) | [11](./11-cache-notifications-list.md) |
+| 12 | `GET /api/dictionaries/[dictionaryId]/entries` | every dictionary-backed custom-field select (`entities/api/definitions.ts:366`) | existing `crud:dictionaries.entry:*` tags | [12](./12-cache-dictionary-entries.md) |
+| 13 | `GET /api/currencies/options` | currency selects in pricing/order forms | existing `crud:currencies.currency:*` tags | [13](./13-cache-currencies-options.md) |
+| 14 | `GET /api/auth/roles` | admin roles page + role selects; N+1 per-role user counts | existing `crud:auth.role:*` + `crud:auth.user:*` tags | [14](./14-cache-auth-roles-list.md) |
+| 15 | `GET /api/auth/sidebar/preferences` | sidebar bootstrap | existing `nav:sidebar:*` tags (PUT already flushes them) | [15](./15-cache-sidebar-preferences.md) |
+| 16 | `GET /api/catalog/product-media` | product detail media | `crud:catalog.product:*:record:<id>` tag + TTL | [16](./16-cache-product-media.md) |
 
 ## Suggested rollout order
 
-1. **FR 03 `notifications/unread-count`** + **`messages/unread-count`** — polled badges, extreme request volume, tiny risk, short TTL. Biggest QPS reduction for least code.
-2. **FR 01 `catalog/categories`** + **FR 05 `dictionaries`** — read-mostly reference data, expensive hierarchy/inheritance compute, simple event-tag invalidation.
-3. **FR 02 `directory/organization-switcher`** + **FR 07 `dashboards/layout`** — bootstrap-critical, per-user scoped, invalidate on org/layout mutation.
-4. **FR 06 `catalog/products`** + **FR 08 `catalog/offers`** — enable `ENABLE_CRUD_API_CACHE` AND close the cross-resource (price/offer/category) invalidation gap into `catalog.product`. Highest payoff, highest care.
-5. **FR 04 `inbox_ops/proposals`** + **FR 09 `messages`** — encrypted-decryption-heavy lists, per-user scope.
+1. **FR 06** — enable `ENABLE_CRUD_API_CACHE` + `cacheAliases` fix. This is the keystone: most other FRs piggyback on `crud:*` flushes, which are live only when this flag is on.
+2. **FR 03 + FR 10 + FR 11** — polled badges/lists, extreme request volume, tiny risk, short TTL. Biggest QPS reduction for least code.
+3. **FR 01 + FR 12 + FR 13** — read-mostly reference data on existing `crud:*` tags, zero new flush wiring.
+4. **FR 02 + FR 07 + FR 15** — bootstrap-critical per-user payloads on existing `org-scope`/`rbac`/`nav:sidebar` tags.
+5. **FR 04 + FR 09 + FR 14 + FR 16** — remaining list/detail surfaces.
 
 > Each FR file contains: exact cache key shape, literal tag strings, a Trigger→Where→Tags invalidation table, an implementation checklist, risks/staleness window, and acceptance tests.

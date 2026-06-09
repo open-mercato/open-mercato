@@ -1,6 +1,7 @@
 > Auto-generated cache-performance Feature Request — candidate 6 of 9
 > Endpoint: `GET /api/catalog/products` · ROI 78 · Verdict: good
 > Source: `packages/core/src/modules/catalog/api/products/route.ts`
+> Revised 2026-06-09: this FR is the **keystone of the whole backlog** — `invalidateCrudCache` no-ops while `ENABLE_CRUD_API_CACHE` is off (`packages/shared/src/lib/crud/cache.ts:180`), so every other FR that piggybacks on `crud:*` tags (01, 09, 10, 12, 13, 14) depends on this flag being enabled. Roll this out first. Scope extended to also alias `catalog.offer` (absorbing rescoped FR 08).
 
 ## Summary
 
@@ -78,7 +79,7 @@ All invalidation fires **post-commit** via the command bus (`invalidateCacheAfte
 | Trigger (route/command/event) | Where to call deleteByTags | Tags invalidated |
 |---|---|---|
 | `catalog.products.create` / `.update` / `.delete` (`route.ts:848/869/887`) | Already handled by command bus from `resourceKind: 'catalog.product'` (`commands/products.ts:1408/1765/1972`) → `invalidateCrudCache` (`command-bus.ts:610`) | `crud:catalog.product:tenant:<T>:org:<O>:collection`, `crud:catalog.product:tenant:<T>:record:<P>` |
-| `catalog.prices.create/update/delete` (`commands/prices.ts:432/734/874`, resourceKind `catalog.price`) | Add `context: { cacheAliases: ['catalog.product'] }` to each price command's log metadata so `extractAliasList` (`command-bus.ts:182-194`) adds the product alias; invalidation runs in `invalidateCacheAfterExecute` | `crud:catalog.price:...` (own) **+** `crud:catalog.product:tenant:<T>:org:<O>:collection` |
+| `catalog.prices.create/update/delete` (`commands/prices.ts:432/734/874`, resourceKind `catalog.price`) | Add `context: { cacheAliases: ['catalog.product', 'catalog.offer'] }` to each price command's log metadata so `extractAliasList` (`command-bus.ts:182-194`) adds both aliases; invalidation runs in `invalidateCacheAfterExecute`. (The `catalog.offer` alias keeps the offers list cache correct too — absorbed from rescoped FR 08.) | `crud:catalog.price:...` (own) **+** `crud:catalog.product:tenant:<T>:org:<O>:collection` **+** `crud:catalog.offer:...:collection` |
 | `catalog.offers.create/update/delete` (`commands/offers.ts:193/358/482`, resourceKind `catalog.offer`) | Add `context: { cacheAliases: ['catalog.product'] }` to offer command metadata | `crud:catalog.offer:...` **+** `crud:catalog.product:...:collection` |
 | `catalog.categories.*` + category **assignment** writes (`commands/categories.ts:228/393/538`) | Add `cacheAliases: ['catalog.product']` to the category-**assignment** command(s) (assignment is what changes a product's embedded `categories[]`); plain category rename also affects embedded `name`, so include it there too | `crud:catalog.category:...` **+** `crud:catalog.product:...:collection` |
 | Tag-assignment writes (`CatalogProductTagAssignment`) | Add `cacheAliases: ['catalog.product']` to the tag-assignment command metadata. NOTE: tags have **no declared event** in `events.ts`, so an event-subscriber hook is NOT available — `cacheAliases` is the correct mechanism | `crud:catalog.product:...:collection` |
@@ -104,6 +105,8 @@ Event-subscriber alternative (only viable where an event id exists): a single ep
 - **Tenant isolation**: enforced by `runWithCacheTenant` + tenant-segmented keys/tags; no cross-tenant exposure.
 - **Hit-path re-run of `afterList`**: the factory re-runs `afterList` on hits (`factory.ts:1556`), so even with a missed invalidation the decorated fields can be refreshed on read for the part the decorator recomputes; the cached portion is the base list. This further reduces staleness blast radius.
 - **Cross-resource alias correctness**: the main risk is forgetting one related command (e.g. a future new entity embedded into the decorator). Mitigate by listing the dependency set in a code comment on `decorateProductsAfterList` and asserting it in tests.
+- **Org-axis flush mismatch (double-checked)**: `invalidateCrudCache` flushes the collection tag for the org recorded in the command metadata (`cache.ts:191-198`). A command whose metadata lacks `organizationId` flushes only `org:null`, leaving org-scoped entries until TTL. Verify each aliased command (prices/offers/variants/tag-assignments/unit-conversions) records `organizationId` in its log metadata; the 120 s TTL backstops any that cannot.
+- **Tenant-namespace matching (double-checked)**: the factory's `cache.set` inherits the request namespace from the API dispatcher (`apps/mercato/src/app/api/[...slug]/route.ts:382`); `invalidateCrudCache` wraps its flush in `runWithCacheTenant(tenantId, …)` with the write's tenant — these match. Any future flush from a queue worker must wrap explicitly or it lands in the `global` namespace and silently misses.
 
 ## Acceptance criteria / tests
 
