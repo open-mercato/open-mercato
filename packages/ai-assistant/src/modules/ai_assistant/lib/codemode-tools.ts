@@ -1002,6 +1002,14 @@ const DOUBLE_DOT_SEGMENTS = new Set(['..', '.%2e', '%2e.', '%2e%2e'])
 export function isUnsafeApiRequestPath(path: string): boolean {
   const [rawPath] = String(path ?? '').split('?')
 
+  // The WHATWG URL parser strips ASCII tab/newline/carriage-return from the URL
+  // before parsing, so a smuggled `.<TAB>.` segment collapses to `..` on the
+  // wire even though the literal segment never equals a dot segment here. Raw
+  // control characters never appear in legitimate REST paths, so reject them.
+  if (/[\u0000-\u001f]/.test(rawPath)) {
+    return true
+  }
+
   // http(s) URLs treat backslashes as path separators, so they can smuggle
   // separators past the segment-based authorizer.
   if (rawPath.includes('\\')) {

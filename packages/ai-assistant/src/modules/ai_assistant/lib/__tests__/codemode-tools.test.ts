@@ -306,6 +306,12 @@ describe('path traversal hardening (issue #2667)', () => {
       '/api/foo%5cadmin',
       'foo/../admin',
       '/api/foo/../admin?expand=1',
+      // Raw ASCII tab/newline/CR are stripped by the WHATWG URL parser before
+      // the fetch, so `.<ctrl>.` collapses to `..` on the wire.
+      '/api/foo/.\t./admin',
+      '/api/foo/.\n./admin',
+      '/api/foo/.\r./admin',
+      '/api/foo/\t../admin',
     ])('flags %s as unsafe', (path) => {
       expect(isUnsafeApiRequestPath(path)).toBe(true)
     })
