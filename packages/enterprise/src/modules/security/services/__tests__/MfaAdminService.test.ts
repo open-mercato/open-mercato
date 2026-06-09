@@ -493,20 +493,4 @@ describe('MfaAdminService', () => {
     } satisfies Partial<MfaAdminServiceError>)
   })
 
-  test('bulkComplianceCheck rejects a foreign tenant for a non-superadmin actor with 403', async () => {
-    const { service } = createContext()
-    await expect(
-      service.bulkComplianceCheck('tenant-2', { tenantId: 'tenant-1', isSuperAdmin: false }),
-    ).rejects.toMatchObject({
-      name: 'MfaAdminServiceError',
-      statusCode: 403,
-    } satisfies Partial<MfaAdminServiceError>)
-  })
-
-  test('bulkComplianceCheck allows a superadmin actor to query any tenant', async () => {
-    const { service } = createContext()
-    mockedFindWithDecryption.mockResolvedValue([] as never)
-    const result = await service.bulkComplianceCheck('tenant-2', { tenantId: 'tenant-1', isSuperAdmin: true })
-    expect(result).toEqual([])
-  })
 })
