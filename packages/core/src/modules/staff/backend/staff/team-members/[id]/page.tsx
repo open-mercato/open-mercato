@@ -276,6 +276,11 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
     }
   }, [memberId, router, searchParams, t])
 
+  // optimistic-lock-exempt: the inline updateCrud/deleteCrud below run inside the
+  // TeamMemberForm <CrudForm> host, which auto-derives the version header from
+  // initialValues.updatedAt and surfaces 409 conflicts for both submit and delete.
+  // The availability-schedule switch is version-locked separately via
+  // switchTeamMemberSchedule (see ../../../../lib/scheduleSwitch).
   const handleSubmit = React.useCallback(async (values: TeamMemberFormValues) => {
     if (!memberId) return
     const payload = buildTeamMemberPayload(values, { id: memberId })
