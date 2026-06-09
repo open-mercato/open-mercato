@@ -5,6 +5,13 @@ import { emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/email
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
+// A fixed, valid bcrypt hash (cost 10) of a throwaway value no real password
+// can match. verifyPassword compares against it whenever the user is missing or
+// has no password hash, so a failed login spends the same bcrypt CPU time
+// regardless of whether the account exists — closing the timing side channel
+// for account enumeration (issue #2242).
+const TIMING_EQUALIZER_PASSWORD_HASH = '$2b$10$OcZrhmZpIzJOjkfwUrk7d.Nl0eHNzOvalBcBlt5Ran.4lj8R3HZg6'
+
 export class AuthService {
   constructor(private em: EntityManager) {}
 
@@ -48,9 +55,13 @@ export class AuthService {
     )
   }
 
-  async verifyPassword(user: User, password: string) {
-    if (!user.passwordHash) return false
-    return compare(password, user.passwordHash)
+  async verifyPassword(user: User | null, password: string) {
+    const storedHash = user?.passwordHash ?? null
+    // Always run a bcrypt comparison — against a fixed dummy hash when the user
+    // is absent or has no password — so login latency does not reveal whether
+    // the account exists (timing-based enumeration, issue #2242).
+    const matched = await compare(password, storedHash ?? TIMING_EQUALIZER_PASSWORD_HASH)
+    return storedHash !== null && matched
   }
 
   async updateLastLoginAt(user: User) {
