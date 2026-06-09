@@ -35,8 +35,8 @@ pre-bump state, so the bump applies cleanly.
 
 ### Phase 1: Apply the bump
 
-- [ ] 1.1 Update `yarn.lock` so dompurify resolves to 3.4.8 (single consolidated entry)
-- [ ] 1.2 Validate lockfile consistency with Yarn
+- [x] 1.1 Update `yarn.lock` so dompurify resolves to 3.4.8 (single consolidated entry) — 1ef49d88c
+- [x] 1.2 Validate lockfile consistency with Yarn — 1ef49d88c (yarn install --mode=update-lockfile: resolution clean, no dompurify drift)
 
 ### Phase 2: Ship
 
