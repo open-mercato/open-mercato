@@ -486,38 +486,50 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       const doc = item as ApiDocument
       const id = typeof doc.id === 'string' ? doc.id : ''
 
+      // Order/quote routes transform query-engine rows to camelCase, while the
+      // invoice/credit-memo routes expose the raw snake_case index fields. Read
+      // either spelling so this shared table works across both conventions.
+      const pick = (camelKey: string): unknown => {
+        const camelValue = item[camelKey]
+        if (camelValue !== undefined && camelValue !== null) return camelValue
+        const snakeKey = camelKey.replace(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`)
+        return item[snakeKey]
+      }
+
       const numberFieldKey = kindConfig.numberField
-      const snakeFallback = numberFieldKey.replace(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`)
-      const rawNumber = doc[numberFieldKey] ?? item[snakeFallback]
+      const rawNumber = pick(numberFieldKey)
       const number = typeof rawNumber === 'string' && rawNumber.trim().length ? rawNumber : id
 
-      const customerSnapshot = (doc.customerSnapshot ?? null) as CustomerSnapshot | null
-      const customerName = resolveCustomerName(customerSnapshot, doc.customerEntityId ?? null)
+      const customerSnapshot = (pick('customerSnapshot') ?? null) as CustomerSnapshot | null
+      const customerName = resolveCustomerName(customerSnapshot, (pick('customerEntityId') as string | null) ?? null)
       const customerEmail = resolveCustomerEmail(customerSnapshot)
-      const totalNet = toNumber(doc.grandTotalNetAmount)
-      const totalGross = toNumber(doc.grandTotalGrossAmount)
+      const totalNet = toNumber(pick('grandTotalNetAmount'))
+      const totalGross = toNumber(pick('grandTotalGrossAmount'))
 
+      const createdAt = (pick('createdAt') as string | null) ?? null
       const date = (() => {
-        if (kind === 'invoice' || kind === 'credit-memo') return doc.issueDate ?? doc.createdAt ?? null
-        return doc.placedAt ?? doc.validUntil ?? doc.createdAt ?? null
+        if (kind === 'invoice' || kind === 'credit-memo') return (pick('issueDate') as string | null) ?? createdAt
+        return (pick('placedAt') as string | null) ?? (pick('validUntil') as string | null) ?? createdAt
       })()
+
+      const reasonValue = pick('reason')
 
       return withDataTableNamespaces({
         id,
         number,
-        status: doc.status ?? null,
+        status: (pick('status') as string | null) ?? null,
         customerName,
         customerEmail,
-        channelId: doc.channelId ?? null,
-        lineItemCount: doc.lineItemCount ?? null,
+        channelId: (pick('channelId') as string | null) ?? null,
+        lineItemCount: (pick('lineItemCount') as number | null) ?? null,
         totalNet,
         totalGross,
-        currency: doc.currencyCode ?? null,
+        currency: (pick('currencyCode') as string | null) ?? null,
         date,
-        updatedAt: doc.updatedAt ?? null,
-        dueDate: doc.dueDate ?? null,
-        outstandingAmount: toNumber(doc.outstandingAmount),
-        reason: typeof doc.reason === 'string' ? doc.reason : null,
+        updatedAt: (pick('updatedAt') as string | null) ?? null,
+        dueDate: (pick('dueDate') as string | null) ?? null,
+        outstandingAmount: toNumber(pick('outstandingAmount')),
+        reason: typeof reasonValue === 'string' ? reasonValue : null,
       }, item)
     },
     [kind, kindConfig.numberField]

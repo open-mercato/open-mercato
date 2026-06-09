@@ -46,6 +46,27 @@ const crud = makeCrudRoute({
   list: {
     schema: listSchema,
     entityId: E.sales.sales_invoice,
+    fields: [
+      'id',
+      'order_id',
+      'invoice_number',
+      'status_entry_id',
+      'status',
+      'issue_date',
+      'due_date',
+      'currency_code',
+      'subtotal_net_amount',
+      'subtotal_gross_amount',
+      'discount_total_amount',
+      'tax_total_amount',
+      'grand_total_net_amount',
+      'grand_total_gross_amount',
+      'paid_total_amount',
+      'outstanding_amount',
+      'metadata',
+      'created_at',
+      'updated_at',
+    ],
     sortFieldMap: {
       invoiceNumber: 'invoice_number',
       status: 'status',
@@ -56,12 +77,12 @@ const crud = makeCrudRoute({
     },
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
-      if (query.id) filters.id = query.id
-      if (query.orderId) filters.orderId = query.orderId
+      if (query.id) filters.id = { $eq: query.id }
+      if (query.orderId) filters.order_id = { $eq: query.orderId }
       if (query.search) {
         const term = `%${escapeLikePattern(query.search.trim())}%`
         filters.$or = [
-          { invoiceNumber: { $ilike: term } },
+          { invoice_number: { $ilike: term } },
           { status: { $ilike: term } },
         ]
       }
