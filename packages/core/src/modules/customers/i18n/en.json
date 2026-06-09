@@ -1179,6 +1179,7 @@
   "customers.deals.list.kpi.activeAcrossPipelines": "{deals} across {pipelines}",
   "customers.deals.list.kpi.activeDeals": "Active deals",
   "customers.deals.list.kpi.avgDeal": "avg deal {value}",
+  "customers.deals.list.kpi.deltaTooltip": "Compared to previous period",
   "customers.deals.list.kpi.error": "Couldn't load deal metrics",
   "customers.deals.list.kpi.frag.activeDeals.few": "{count} active deals",
   "customers.deals.list.kpi.frag.activeDeals.many": "{count} active deals",

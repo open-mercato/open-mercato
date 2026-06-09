@@ -1179,6 +1179,7 @@
   "customers.deals.list.kpi.activeAcrossPipelines": "{deals} w {pipelines}",
   "customers.deals.list.kpi.activeDeals": "Aktywne szanse",
   "customers.deals.list.kpi.avgDeal": "śr. szansa {value}",
+  "customers.deals.list.kpi.deltaTooltip": "W porównaniu z poprzednim okresem",
   "customers.deals.list.kpi.error": "Nie udało się załadować metryk",
   "customers.deals.list.kpi.frag.activeDeals.few": "{count} aktywne szanse",
   "customers.deals.list.kpi.frag.activeDeals.many": "{count} aktywnych szans",

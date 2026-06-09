@@ -177,6 +177,8 @@ describe('customers deals summary route', () => {
       ])
       // 7) overdue open deal ids
       .mockResolvedValueOnce([{ id: overdueDealId }])
+      // 8) open-status intersection for the stuck ids (both seeded ids resolve as open here)
+      .mockResolvedValueOnce([{ id: stuckDealId }, { id: overdueDealId }])
 
     const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
     expect(response.status).toBe(200)
@@ -206,7 +208,7 @@ describe('customers deals summary route', () => {
     // Active deals: total open count = 2 + 1 + 1 = 4; distinct owners = 2.
     expect(body.activeDeals.value).toBe(4)
     expect(body.activeDeals.ownersCount).toBe(2)
-    // Need attention = union of overdue {overdueDealId} and stuck {stuckDealId, overdueDealId} = 2.
+    // Need attention = overdue {overdueDealId} ∪ (stuck ∩ open) {stuckDealId, overdueDealId} = 2.
     expect(body.activeDeals.needAttention).toBe(2)
     expect(body.activeDeals.delta).toEqual({ value: 100, direction: 'up' })
     // Owners ranked by open-deal count: ownerA (3) before ownerB (1).
@@ -276,5 +278,38 @@ describe('customers deals summary route', () => {
     // Win rate degrades to 0 with no closed deals.
     expect((body.winRate as { value: number }).value).toBe(0)
     expect((body.winRate as { direction: string }).direction).toBe('unchanged')
+  })
+
+  it('excludes terminal (non-open) stuck deals from need-attention via the open-status intersection', async () => {
+    // fetchStuckDealIds does not filter status, so it can return won/lost/closed deals. The route
+    // intersects them with the open (OPEN_STATUSES) set: only still-open stuck deals must count.
+    const openStuckId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    fetchStuckDealIdsMock.mockResolvedValue([openStuckId, stuckDealId])
+
+    executeMock
+      // 1) base currency
+      .mockResolvedValueOnce([{ code: 'USD' }])
+      // 2) open pipeline rows
+      .mockResolvedValueOnce([
+        { stage: 'qualification', currency: 'USD', total: '500', count: '1', owner_user_id: ownerA },
+      ])
+      // 3) inflow
+      .mockResolvedValueOnce([])
+      // 4) won
+      .mockResolvedValueOnce([])
+      // 5) win/loss
+      .mockResolvedValueOnce([{ current_won: '0', current_lost: '0', previous_won: '0', previous_lost: '0' }])
+      // 6) series
+      .mockResolvedValueOnce([])
+      // 7) overdue (none)
+      .mockResolvedValueOnce([])
+      // 8) open-status intersection: only `openStuckId` is still open; `stuckDealId` is terminal → excluded
+      .mockResolvedValueOnce([{ id: openStuckId }])
+
+    const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { activeDeals: { needAttention: number } }
+    // Only the open stuck deal counts; the terminal stuck deal is filtered out by the intersection.
+    expect(body.activeDeals.needAttention).toBe(1)
   })
 })

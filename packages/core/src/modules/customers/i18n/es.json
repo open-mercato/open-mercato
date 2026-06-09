@@ -1179,6 +1179,7 @@
   "customers.deals.list.kpi.activeAcrossPipelines": "{deals} en {pipelines}",
   "customers.deals.list.kpi.activeDeals": "Negocios activos",
   "customers.deals.list.kpi.avgDeal": "negocio medio {value}",
+  "customers.deals.list.kpi.deltaTooltip": "Comparado con el período anterior",
   "customers.deals.list.kpi.error": "No se pudieron cargar las métricas",
   "customers.deals.list.kpi.frag.activeDeals.few": "{count} negocios activos",
   "customers.deals.list.kpi.frag.activeDeals.many": "{count} negocios activos",

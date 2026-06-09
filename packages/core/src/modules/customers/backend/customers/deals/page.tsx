@@ -1033,6 +1033,8 @@ export default function CustomersDealsPage() {
           ownerNames={ownerNames}
           stageDictionary={dictionaryMaps['pipeline-stages'] ?? {}}
           pipelineCount={Object.keys(pipelineNames).length}
+          scopeVersion={scopeVersion}
+          reloadToken={reloadToken}
           className="mb-4"
         />
         <DataTable<DealRow>

@@ -288,14 +288,33 @@ export async function GET(req: Request) {
       WHERE ${scopeWhere} AND status = 'open' AND expected_close_at IS NOT NULL AND expected_close_at < CURRENT_DATE`,
     [...scopeValues],
   )
-  const stuckIds = await fetchStuckDealIds(
-    em as unknown as PgEntityManager,
-    orgFilterIds[0],
-    effectiveTenantId,
+  // `fetchStuckDealIds` is single-org; run it for every org in scope so multi-org callers don't
+  // undercount stuck deals (the aggregates above already span every org in `orgFilterIds`).
+  const stuckIdLists = await Promise.all(
+    orgFilterIds.map((orgId) =>
+      fetchStuckDealIds(em as unknown as PgEntityManager, orgId, effectiveTenantId)),
   )
+  const stuckIdSet = new Set<string>()
+  for (const list of stuckIdLists) for (const id of list) stuckIdSet.add(id)
+
+  // The stuck-deal query does not filter status, so a stuck id can be a won/lost/closed deal.
+  // "Need attention" is an active-deal metric — intersect with the open (OPEN_STATUSES) set so
+  // terminal deals never inflate the count.
+  let openStuckIds: string[] = []
+  if (stuckIdSet.size > 0) {
+    const stuckIdValues = Array.from(stuckIdSet)
+    const stuckPlaceholders = stuckIdValues.map(() => '?').join(',')
+    const openStuckRows: Array<{ id: string }> = await connection.execute<Array<{ id: string }>>(
+      `SELECT id FROM customer_deals
+        WHERE ${scopeWhere} AND status IN (${openPlaceholders}) AND id IN (${stuckPlaceholders})`,
+      [...scopeValues, ...OPEN_STATUSES, ...stuckIdValues],
+    )
+    openStuckIds = openStuckRows.map((row) => row.id)
+  }
+
   const attentionIds = new Set<string>()
   for (const row of overdueRows) attentionIds.add(row.id)
-  for (const id of stuckIds) attentionIds.add(id)
+  for (const id of openStuckIds) attentionIds.add(id)
 
   // Reduce open rows: per-stage sums, distinct owners, owner counts, and a flat
   // per-currency list for the converted pipeline total.

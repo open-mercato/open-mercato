@@ -54,6 +54,10 @@ export type DealsKpiStripProps = {
   stageDictionary: DictionaryMap
   pipelineCount: number
   className?: string
+  /** Bumped by the host when the active org scope changes — forces a KPI refetch so the cards never show another org's data. */
+  scopeVersion?: number
+  /** Bumped by the host on manual refresh / after mutations — forces a KPI refetch so totals stay in sync with the table. */
+  reloadToken?: number
 }
 
 const compactNumberFormatter = new Intl.NumberFormat(undefined, {
@@ -76,7 +80,7 @@ function DealKpiCard(props: React.ComponentProps<typeof KpiCard>) {
   return <KpiCard titleClassName={KPI_TITLE_CLASS} {...props} />
 }
 
-export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, className }: DealsKpiStripProps) {
+export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, className, scopeVersion, reloadToken }: DealsKpiStripProps) {
   const t = useT()
   const locale = useLocale()
   const pluralCat = React.useCallback((count: number): string => {
@@ -121,7 +125,7 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
     return () => {
       cancelled = true
     }
-  }, [t])
+  }, [t, scopeVersion, reloadToken])
 
   const gridClassName = cn('grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4', className)
 
@@ -150,6 +154,7 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
 
   const currencySuffix = buildCurrencySuffix(data.baseCurrencyCode, data.convertedAll)
   const unassignedLabel = t('customers.deals.list.kpi.unassignedStage')
+  const deltaTooltip = t('customers.deals.list.kpi.deltaTooltip')
 
   return (
     <div className={gridClassName}>
@@ -159,7 +164,7 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
         formatValue={formatCompact}
         suffix={currencySuffix}
         headerAction={
-          <DeltaBadge direction={data.pipelineValue.delta.direction} value={data.pipelineValue.delta.value} />
+          <DeltaBadge direction={data.pipelineValue.delta.direction} value={data.pipelineValue.delta.value} title={deltaTooltip} />
         }
         footer={
           <div className="space-y-2">
@@ -183,7 +188,7 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
         value={data.activeDeals.value}
         formatValue={formatCompact}
         headerAction={
-          <DeltaBadge direction={data.activeDeals.delta.direction} value={data.activeDeals.delta.value} />
+          <DeltaBadge direction={data.activeDeals.delta.direction} value={data.activeDeals.delta.value} title={deltaTooltip} />
         }
         footer={
           <div className="space-y-2">
@@ -194,7 +199,7 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
               })}
             </p>
             {data.activeDeals.owners.length > 0 ? (
-              <AvatarStack max={4} size="sm">
+              <AvatarStack max={4} size="sm" overflowCount={data.activeDeals.ownersOverflow}>
                 {data.activeDeals.owners.map((owner) => (
                   <Avatar key={owner.id} label={ownerNames[owner.id] ?? owner.id} size="sm" />
                 ))}
@@ -210,7 +215,7 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
         formatValue={formatCompact}
         suffix={currencySuffix}
         headerAction={
-          <DeltaBadge direction={data.wonThisQuarter.delta.direction} value={data.wonThisQuarter.delta.value} />
+          <DeltaBadge direction={data.wonThisQuarter.delta.direction} value={data.wonThisQuarter.delta.value} title={deltaTooltip} />
         }
         footer={
           <div className="space-y-1">
@@ -234,7 +239,7 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
         value={data.winRate.value}
         suffix="%"
         headerAction={
-          <DeltaBadge direction={data.winRate.direction} value={Math.abs(data.winRate.deltaPp)} unit="pp" />
+          <DeltaBadge direction={data.winRate.direction} value={Math.abs(data.winRate.deltaPp)} unit="pp" title={deltaTooltip} />
         }
         footer={
           <div className="space-y-2">

@@ -45,9 +45,10 @@ type BadgeDeltaProps = {
   value: number
   unit?: string
   className?: string
+  title?: string
 }
 
-function BadgeDelta({ direction, value, unit = '%', className = '' }: BadgeDeltaProps) {
+function BadgeDelta({ direction, value, unit = '%', className = '', title = 'Compared to previous period' }: BadgeDeltaProps) {
   const baseClasses = 'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium'
 
   const directionClasses = {
@@ -77,7 +78,7 @@ function BadgeDelta({ direction, value, unit = '%', className = '' }: BadgeDelta
   return (
     <span
       className={`${baseClasses} ${directionClasses[direction]}${className ? ` ${className}` : ''}`}
-      title="Compared to previous period"
+      title={title}
     >
       {icons[direction]}
       {formatPercentageChange(value, unit)}
