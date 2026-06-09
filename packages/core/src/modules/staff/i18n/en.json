@@ -950,6 +950,7 @@
   "staff.timesheets.errors.projectsKpis": "Failed to load project KPIs.",
   "staff.timesheets.errors.segmentCreate": "Failed to create time entry segment.",
   "staff.timesheets.errors.staffMemberNotFound": "Staff member not found or not accessible.",
+  "staff.timesheets.errors.timerAlreadyRunning": "Another timer is already running. Stop it before starting a new one.",
   "staff.timesheets.errors.timerAlreadyStarted": "Timer is already started for this entry.",
   "staff.timesheets.errors.timerStart": "Failed to start timer.",
   "staff.timesheets.errors.timerStop": "Failed to stop timer.",
