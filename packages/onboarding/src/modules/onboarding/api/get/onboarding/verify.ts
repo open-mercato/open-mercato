@@ -1,4 +1,4 @@
-import { after, NextResponse } from 'next/server'
+import { after } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SearchIndexer } from '@open-mercato/search'
@@ -11,6 +11,11 @@ import {
 import { onboardingVerifySchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboarding/lib/ready-email'
+import {
+  redirectToLogin,
+  redirectToPreparing,
+  redirectWithStatus,
+} from '@open-mercato/onboarding/modules/onboarding/lib/verify-redirects'
 import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-app'
 import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { computeConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
@@ -43,50 +48,6 @@ function resolveTrustedBaseUrl(req: Request): string {
     }
     throw error
   }
-}
-
-function clearAuthCookies(response: NextResponse) {
-  response.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
-  response.cookies.set('session_token', '', { path: '/', maxAge: 0 })
-  response.cookies.set('om_login_tenant', '', { path: '/', maxAge: 0 })
-}
-
-function redirectWithStatus(baseUrl: string, status: string) {
-  const response = NextResponse.redirect(`${baseUrl}/onboarding?status=${encodeURIComponent(status)}`)
-  clearAuthCookies(response)
-  return response
-}
-
-function redirectToPreparing(baseUrl: string, tenantId: string | null) {
-  const tenantParam = tenantId ? `?tenant=${encodeURIComponent(tenantId)}` : ''
-  const response = NextResponse.redirect(`${baseUrl}/onboarding/preparing${tenantParam}`)
-  clearAuthCookies(response)
-  if (tenantId) {
-    response.cookies.set('om_login_tenant', tenantId, {
-      httpOnly: false,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 14,
-    })
-  }
-  return response
-}
-
-function redirectToLogin(baseUrl: string, tenantId: string | null) {
-  const tenantParam = tenantId ? `?tenant=${encodeURIComponent(tenantId)}` : ''
-  const response = NextResponse.redirect(`${baseUrl}/login${tenantParam}`)
-  clearAuthCookies(response)
-  if (tenantId) {
-    response.cookies.set('om_login_tenant', tenantId, {
-      httpOnly: false,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 14,
-    })
-  }
-  return response
 }
 
 const VECTOR_REINDEX_ENQUEUE_TIMEOUT_MS = 5_000
