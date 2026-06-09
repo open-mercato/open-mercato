@@ -293,7 +293,11 @@ const listOffersTool = defineApiBackedAiTool<
   description:
     'List catalog offers for the caller tenant + organization, optionally narrowed to a product (or a variant via its prices).',
   inputSchema: listOffersInput,
-  requiredFeatures: ['catalog.products.view'],
+  // Must cover the underlying route. `GET /catalog/offers` requires
+  // `sales.channels.manage` (offers are sales-channel scoped); the API-backed
+  // runner fails closed when the tool's features don't cover the route's.
+  // `catalog.products.view` stays for the variant→offer resolution path.
+  requiredFeatures: ['catalog.products.view', 'sales.channels.manage'],
   toOperation: async (input, ctx) => {
     const { tenantId } = assertTenantScope(ctx as unknown as CatalogToolContext)
     const limit = input.limit ?? 50
