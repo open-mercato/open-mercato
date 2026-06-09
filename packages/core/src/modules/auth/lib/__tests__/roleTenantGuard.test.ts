@@ -42,7 +42,7 @@ describe('enforceRoleTenantAccess — update mode', () => {
 
       await expect(
         enforceRoleTenantAccess('update', { id: roleId }, ctx),
-      ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 403 })
+      ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 404 })
     })
 
     it('rejects a non-superadmin with a blank tenant string attempting to update a global role', async () => {
@@ -50,7 +50,7 @@ describe('enforceRoleTenantAccess — update mode', () => {
 
       await expect(
         enforceRoleTenantAccess('update', { id: roleId }, ctx),
-      ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 403 })
+      ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 404 })
     })
   })
 
@@ -60,7 +60,7 @@ describe('enforceRoleTenantAccess — update mode', () => {
 
       await expect(
         enforceRoleTenantAccess('update', { id: roleId }, ctx),
-      ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 403 })
+      ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 404 })
     })
 
     it('allows a non-superadmin to update their own tenant role', async () => {
@@ -142,7 +142,7 @@ describe('enforceRoleTenantAccess — delete mode', () => {
 
     await expect(
       enforceRoleTenantAccess('delete', { body: { id: roleId } }, ctx),
-    ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 403 })
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 404 })
   })
 
   it('rejects a non-superadmin deleting a role when actor has no tenant', async () => {
@@ -150,7 +150,7 @@ describe('enforceRoleTenantAccess — delete mode', () => {
 
     await expect(
       enforceRoleTenantAccess('delete', { body: { id: roleId } }, ctx),
-    ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 403 })
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 404 })
   })
 
   it('allows a non-superadmin to delete their own tenant role', async () => {

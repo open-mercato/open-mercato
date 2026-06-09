@@ -268,7 +268,7 @@ describe('roles route — cross-tenant tenant guard wiring (finding #3)', () => 
 
     await expect(
       action!.mapInput({ parsed: { id: roleIdForeign, name: 'Renamed' }, raw: {}, ctx }),
-    ).rejects.toMatchObject({ status: 403 })
+    ).rejects.toMatchObject({ status: 404 })
   })
 
   test('update.mapInput allows own-tenant role update for non-superadmin', async () => {
@@ -310,7 +310,7 @@ describe('roles route — cross-tenant tenant guard wiring (finding #3)', () => 
         raw: { body: {}, query: { id: roleIdForeign } },
         ctx,
       }),
-    ).rejects.toMatchObject({ status: 403 })
+    ).rejects.toMatchObject({ status: 404 })
   })
 
   test('delete.mapInput allows own-tenant role for non-superadmin', async () => {

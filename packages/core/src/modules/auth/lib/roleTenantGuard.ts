@@ -1,8 +1,12 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { enforceTenantSelection, normalizeTenantId, resolveIsSuperAdmin } from './tenantAccess'
+
+function roleNotFound(): never {
+  throw new CrudHttpError(404, { error: 'Role not found' })
+}
 
 type RoleTenantAccessCtx = {
   auth: {
@@ -52,8 +56,10 @@ async function assertActorOwnsRole(
 
   const actorTenant = normalizeTenantId(auth.tenantId ?? null) ?? null
   const existingTenantId = normalizeTenantId(existing.tenantId ?? null) ?? null
-  if (!actorTenant) throw forbidden('Not authorized')
-  if (existingTenantId !== actorTenant) throw forbidden('Not authorized')
+  // Unified 404 for "out of scope" — matches grantChecks.assertActorCanAccessRoleTarget
+  // and prevents existence enumeration of foreign-tenant or global roles.
+  if (!actorTenant) roleNotFound()
+  if (existingTenantId !== actorTenant) roleNotFound()
   return { matched: true }
 }
 
