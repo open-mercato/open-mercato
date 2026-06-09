@@ -31,6 +31,7 @@
   "directory.organizations.form.field.slug": "Slug",
   "directory.organizations.form.field.slug.description": "URL-sicherer Bezeichner für das Kundenportal (Kleinbuchstaben, Zahlen, Bindestriche, Unterstriche).",
   "directory.organizations.form.field.tenant": "Mandant",
+  "directory.organizations.form.field.tenant.readonly": "Der Mandant kann für eine bestehende Organisation nicht geändert werden.",
   "directory.organizations.form.group.customFields": "Benutzerdefinierte Daten",
   "directory.organizations.form.group.details": "Details",
   "directory.organizations.form.loading": "Organisation wird geladen...",
