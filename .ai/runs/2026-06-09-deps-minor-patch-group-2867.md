@@ -69,5 +69,5 @@ files and regenerate `yarn.lock` against `develop`'s tree.
 
 ### Phase 2: Validate
 
-- [ ] 2.1 Run build:packages / typecheck / test
+- [x] 2.1 Run build:packages / typecheck / test — gate green (build:packages, generate, typecheck 21/21, test 22/22, build:app)
 - [ ] 2.2 Open PR against develop and close #2867
