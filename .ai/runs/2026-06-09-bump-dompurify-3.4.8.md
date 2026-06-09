@@ -40,5 +40,5 @@ pre-bump state, so the bump applies cleanly.
 
 ### Phase 2: Ship
 
-- [ ] 2.1 Open PR against `develop` with normalized labels
-- [ ] 2.2 Close original Dependabot PR #2864 with a migration note
+- [x] 2.1 Open PR against `develop` with normalized labels — PR #2866 (review, dependencies, skip-qa)
+- [x] 2.2 Close original Dependabot PR #2864 with a migration note — closed, superseded by #2866
