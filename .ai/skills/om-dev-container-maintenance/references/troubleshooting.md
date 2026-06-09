@@ -168,7 +168,7 @@ Or rebuild the container to trigger `post-create.sh` again.
 
 ### Turbopack runtime error or endless backend compile after switching branches
 
-**Symptom**: After switching branches or pulling recent changes, the app does not start correctly on localhost.
+**Symptom**: After switching branches or pulling recent changes, the app does not start correctly on `localhost`.
 
 The browser may show:
 
@@ -180,56 +180,50 @@ The browser may show:
 Or the dev server may hang on:
 
 ```text
-Compiling /backend ...```
+Compiling /backend ...
+```
 
 and later print:
 
-`[server] Timed out waiting for dev warmup marker; starting background services anyway.`
+```text
+[server] Timed out waiting for dev warmup marker; starting background services anyway.
+```
 
-This can happen even after running the usual setup commands:
+This can happen even after running the usual setup commands (`yarn install`, `yarn build:packages`, `yarn generate`, `yarn dev`). A common sign is that one branch (for example `main`) starts correctly, while another (for example `develop`) hangs or fails after switching.
 
-yarn
+**Diagnose**: Stale or corrupted local Next.js/Turbopack cache artifacts under `apps/mercato/.mercato/next/dev` and `apps/mercato/.next/cache`.
+
+**Fix**: Run the canonical reset, which clears `.mercato/next/dev` plus the legacy `.next` Turbopack/webpack caches, then restart the dev server:
+
+```bash
+yarn dev:reset
+yarn dev
+```
+
+If the app still hangs on `Compiling /backend ...` or reports a Turbopack warmup timeout, rebuild packages and regenerate before restarting:
+
+```bash
+yarn dev:reset
 yarn install
 yarn build:packages
 yarn generate
 yarn build:packages
 yarn dev
+```
 
-Diagnose: This is usually caused by stale or corrupted local Next.js/Turbopack/Turbo cache artifacts. A common sign is that one branch, for example main, starts correctly, while another branch, for example develop, hangs or fails after switching.
+As a last resort, also clear the broader Turbo and module caches:
 
-Fix: First try clearing the app-level Next.js cache:
-
-Remove-Item -Recurse -Force apps\mercato\.next -ErrorAction SilentlyContinue
-Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue
-
+```bash
+yarn dev:reset
+rm -rf node_modules/.cache .turbo apps/mercato/.turbo apps/mercato/.mercato/cache
 yarn install
 yarn build:packages
 yarn generate
 yarn build:packages
-
-$env:AUTO_SPAWN_WORKERS="false"
-$env:AUTO_SPAWN_SCHEDULER="false"
 yarn dev
+```
 
-If the app still hangs on `Compiling /backend ...` or reports a Turbopack warmup timeout, clear the broader local cache set:
-
-Remove-Item -Recurse -Force apps\mercato\.next -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force node_modules\.cache -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force .turbo -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force apps\mercato\.turbo -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force apps\mercato\.mercato\cache -ErrorAction SilentlyContinue
-Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue
-
-yarn install
-yarn build:packages
-yarn generate
-yarn build:packages
-
-$env:AUTO_SPAWN_WORKERS="false"
-$env:AUTO_SPAWN_SCHEDULER="false"
-yarn dev
-
-Notes: Observed on native Windows after switching from a working main branch to develop. Clearing only .next was not sufficient in that case; clearing the broader local cache set resolved the issue without reinstalling Node.js or recloning the repository. 
+**Notes**: `yarn dev:reset` is the supported escape hatch for stale Turbopack chunks (see root `AGENTS.md` → Key Commands). Clearing only `.next` is often not enough; the broader cache clear above resolves the issue without reinstalling Node.js or recloning the repository.
 
 ## Nuclear Options
 
