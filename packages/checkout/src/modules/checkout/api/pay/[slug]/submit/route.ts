@@ -107,18 +107,45 @@ function addAllowedOrigin(allowedOrigins: Set<string>, candidate: string) {
   }
 }
 
-function buildAllowedOrigins(req: Request): string[] {
-  const requestUrl = new URL(req.url)
-  const allowedOrigins = new Set<string>()
-  addAllowedOrigin(allowedOrigins, requestUrl.origin)
+function collectConfiguredOrigins(): string[] {
+  const origins = [...CONFIGURED_ALLOWED_ORIGINS]
+  for (const origin of [process.env.APP_URL, process.env.NEXT_PUBLIC_APP_URL]) {
+    if (origin) origins.push(origin)
+  }
+  return origins
+}
 
-  for (const origin of CONFIGURED_ALLOWED_ORIGINS) {
+// Allowed origins are built ONLY from server-configured values. The inbound
+// request URL, Host and X-Forwarded-Host headers are attacker-controllable on
+// deployments that do not normalize them at the edge, so they must never seed
+// the allowlist (otherwise a spoofed Host self-passes the origin check).
+function buildAllowedOrigins(): string[] {
+  const allowedOrigins = new Set<string>()
+  for (const origin of collectConfiguredOrigins()) {
     addAllowedOrigin(allowedOrigins, origin)
   }
-  for (const origin of [process.env.APP_URL, process.env.NEXT_PUBLIC_APP_URL]) {
-    if (origin) addAllowedOrigin(allowedOrigins, origin)
-  }
+  return Array.from(allowedOrigins)
+}
 
+// Resolve the origin used to build gateway-bound success/cancel/return URLs.
+// Always prefer a server-pinned configured origin; only fall back to the request
+// origin on loopback (local dev/test), where the Host cannot be spoofed by a
+// remote attacker. A non-loopback request with no configured origin is a
+// misconfiguration and is rejected rather than emitting an attacker-controllable URL.
+function resolveServerOrigin(req: Request): string {
+  for (const candidate of collectConfiguredOrigins()) {
+    const normalized = normalizeConfiguredOrigin(candidate)
+    if (normalized) return normalized
+  }
+  const requestUrl = new URL(req.url)
+  if (isLoopbackHostname(requestUrl.hostname)) return requestUrl.origin
+  throw new CrudHttpError(500, { error: 'Checkout origin is not configured' })
+}
+
+// Origins derived from the request Host / X-Forwarded-Host headers, used only to
+// reject spoofed hosts against the configured allowlist — never to extend it.
+function requestHostOrigins(req: Request): string[] {
+  const requestUrl = new URL(req.url)
   const hostCandidates = [
     ...splitHeaderValues(req.headers.get('x-forwarded-host')),
     ...splitHeaderValues(req.headers.get('host')),
@@ -127,14 +154,14 @@ function buildAllowedOrigins(req: Request): string[] {
     ...splitHeaderValues(req.headers.get('x-forwarded-proto')),
     requestUrl.protocol.replace(/:$/, ''),
   ])
-
+  const origins: string[] = []
   for (const host of hostCandidates) {
     for (const proto of protoCandidates) {
-      addAllowedOrigin(allowedOrigins, `${proto}://${host}`)
+      const normalized = normalizeConfiguredOrigin(`${proto}://${host}`)
+      if (normalized) origins.push(normalized)
     }
   }
-
-  return Array.from(allowedOrigins)
+  return origins
 }
 
 function isIdempotencyConflict(error: unknown): boolean {
@@ -191,7 +218,7 @@ async function buildSubmitResponse(
       deletedAt: null,
     })
     : null
-  const requestUrl = new URL(req.url)
+  const serverOrigin = resolveServerOrigin(req)
   const clientSession = gatewayTransaction
     ? readClientSession(gatewayTransaction.gatewayMetadata)
     : null
@@ -202,8 +229,8 @@ async function buildSubmitResponse(
           ? {
               payload: {
                 ...(clientSession.payload ?? {}),
-                returnUrl: `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/success/${encodeURIComponent(transaction.id)}`,
-                cancelUrl: `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/cancel/${encodeURIComponent(transaction.id)}`,
+                returnUrl: `${serverOrigin}/pay/${encodeURIComponent(link.slug)}/success/${encodeURIComponent(transaction.id)}`,
+                cancelUrl: `${serverOrigin}/pay/${encodeURIComponent(link.slug)}/cancel/${encodeURIComponent(transaction.id)}`,
               },
             }
           : {}),
@@ -236,13 +263,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     }
     const resolvedParams = await params
 
-    const origin = req.headers.get('origin')
-    const referer = req.headers.get('referer')
-    if (origin || referer) {
-      const allowedOrigins = buildAllowedOrigins(req)
-      const submittedOrigin = origin ?? (referer ? new URL(referer).origin : null)
-      if (submittedOrigin && !allowedOrigins.some((allowedOrigin) => isAllowedRequestOrigin(submittedOrigin, allowedOrigin))) {
-        return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 })
+    const allowedOrigins = buildAllowedOrigins()
+    if (allowedOrigins.length > 0) {
+      // Reject spoofed Host / X-Forwarded-Host before any business logic runs so
+      // an attacker-controlled host can never flow into gateway-bound URLs.
+      const hostOrigins = requestHostOrigins(req)
+      if (
+        hostOrigins.length > 0
+        && !hostOrigins.every((hostOrigin) =>
+          allowedOrigins.some((allowedOrigin) => isAllowedRequestOrigin(hostOrigin, allowedOrigin)))
+      ) {
+        return NextResponse.json({ error: 'Invalid request host' }, { status: 403 })
+      }
+
+      const origin = req.headers.get('origin')
+      const referer = req.headers.get('referer')
+      if (origin || referer) {
+        const submittedOrigin = origin ?? (referer ? new URL(referer).origin : null)
+        if (submittedOrigin && !allowedOrigins.some((allowedOrigin) => isAllowedRequestOrigin(submittedOrigin, allowedOrigin))) {
+          return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 })
+        }
       }
     }
 
@@ -374,9 +414,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     if (!transactionId) {
       throw new CrudHttpError(500, { error: 'Failed to initialize checkout transaction' })
     }
-    const requestUrl = new URL(req.url)
-    const successUrl = `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/success/${encodeURIComponent(transactionId)}`
-    const cancelUrl = `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/cancel/${encodeURIComponent(transactionId)}`
+    const serverOrigin = resolveServerOrigin(req)
+    const successUrl = `${serverOrigin}/pay/${encodeURIComponent(link.slug)}/success/${encodeURIComponent(transactionId)}`
+    const cancelUrl = `${serverOrigin}/pay/${encodeURIComponent(link.slug)}/cancel/${encodeURIComponent(transactionId)}`
     const transaction = await findOneWithDecryption(em, CheckoutTransaction, {
       id: transactionId,
       organizationId: link.organizationId,

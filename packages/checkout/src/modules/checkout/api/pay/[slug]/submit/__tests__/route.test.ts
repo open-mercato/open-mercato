@@ -68,8 +68,20 @@ function createTransaction(overrides: Record<string, unknown> = {}) {
 }
 
 describe('POST /api/checkout/pay/[slug]/submit', () => {
+  const originalAppUrl = process.env.APP_URL
+  const originalPublicAppUrl = process.env.NEXT_PUBLIC_APP_URL
+
+  afterEach(() => {
+    if (originalAppUrl === undefined) delete process.env.APP_URL
+    else process.env.APP_URL = originalAppUrl
+    if (originalPublicAppUrl === undefined) delete process.env.NEXT_PUBLIC_APP_URL
+    else process.env.NEXT_PUBLIC_APP_URL = originalPublicAppUrl
+  })
+
   beforeEach(() => {
     jest.clearAllMocks()
+    process.env.APP_URL = 'https://merchant.example'
+    delete process.env.NEXT_PUBLIC_APP_URL
 
     ;(checkRateLimit as jest.Mock).mockResolvedValue(null)
     ;(getClientIp as jest.Mock).mockReturnValue('127.0.0.1')
@@ -140,5 +152,115 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
         currencyCode: 'USD',
       }),
     )
+  })
+
+  it('pins gateway success/cancel URLs to the configured origin instead of the spoofable request Host', async () => {
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(createLink())
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction({ gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
+
+    // Bare Next.js: the inbound Host flows into req.url and there is no Origin/Referer.
+    const response = await POST(
+      new Request('https://evil.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'pin-key-1234567890',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(201)
+    expect(mockCreatePaymentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        successUrl: `https://merchant.example/pay/donate/success/${TRANSACTION_ID}`,
+        cancelUrl: `https://merchant.example/pay/donate/cancel/${TRANSACTION_ID}`,
+      }),
+    )
+  })
+
+  it('pins the embedded session returnUrl/cancelUrl to the configured origin', async () => {
+    mockEmFindOne.mockResolvedValue({
+      id: GATEWAY_TRANSACTION_ID,
+      providerKey: 'test_gateway',
+      redirectUrl: null,
+      gatewayMetadata: {
+        clientSession: {
+          type: 'embedded',
+          rendererKey: 'inline',
+          payload: {},
+        },
+      },
+    })
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(createLink())
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction({ gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
+
+    const response = await POST(
+      new Request('https://evil.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'embedded-key-1234567',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(201)
+    const payload = await response.json()
+    expect(payload.paymentSession.payload.returnUrl).toBe(
+      `https://merchant.example/pay/donate/success/${TRANSACTION_ID}`,
+    )
+    expect(payload.paymentSession.payload.cancelUrl).toBe(
+      `https://merchant.example/pay/donate/cancel/${TRANSACTION_ID}`,
+    )
+  })
+
+  it('rejects a spoofed X-Forwarded-Host that is not in the configured allowlist', async () => {
+    const response = await POST(
+      new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'spoof-key-1234567890',
+          'x-forwarded-host': 'evil.example',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(403)
+    const payload = await response.json()
+    expect(payload.error).toBe('Invalid request host')
+    expect(findOneWithDecryption as jest.Mock).not.toHaveBeenCalled()
+  })
+
+  it('closes the self-pass bypass where a matching spoofed Origin and Host are supplied together', async () => {
+    const response = await POST(
+      new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'self-pass-key-123456',
+          origin: 'https://evil.example',
+          host: 'evil.example',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(403)
+    const payload = await response.json()
+    expect(payload.error).toBe('Invalid request host')
   })
 })
