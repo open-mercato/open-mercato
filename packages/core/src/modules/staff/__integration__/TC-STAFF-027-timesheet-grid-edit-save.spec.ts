@@ -111,4 +111,92 @@ test.describe('TC-STAFF-027: Timesheets grid decimal edit save', () => {
       }
     }
   })
+
+  test('should not mark an unchanged multi-entry cell dirty on focus blur', async ({ page, request }) => {
+    test.setTimeout(90_000)
+
+    const stamp = Date.now()
+    const projectName = `QA Grid No Dirty ${stamp}`
+    const projectCode = `QGND-${stamp}`
+    const weekStart = getMonday(new Date())
+    const entryDate = formatDateKey(weekStart)
+    const weekEnd = new Date(weekStart)
+    weekEnd.setDate(weekStart.getDate() + 6)
+
+    const adminToken = await getAuthToken(request, 'admin')
+    const employeeToken = await getAuthToken(request, 'employee')
+    let projectId: string | null = null
+    const entryIds: string[] = []
+
+    try {
+      const selfRes = await apiRequest(request, 'GET', '/api/staff/team-members/self', { token: employeeToken })
+      expect(selfRes.ok(), 'GET /api/staff/team-members/self should succeed').toBeTruthy()
+      const selfBody = (await selfRes.json()) as { member?: { id?: string } }
+      const employeeStaffMemberId = selfBody.member?.id ?? ''
+      expect(employeeStaffMemberId.length > 0, 'Employee must have a staff member profile').toBeTruthy()
+
+      projectId = await createTimeProjectFixture(request, adminToken, {
+        name: projectName,
+        code: projectCode,
+      })
+      await assignEmployeeToProjectFixture(request, adminToken, projectId, employeeStaffMemberId)
+      const showInGridResponse = await apiRequest(
+        request,
+        'PATCH',
+        `/api/staff/timesheets/my-projects/${projectId}`,
+        { token: employeeToken, data: { showInGrid: true } },
+      )
+      expect(showInGridResponse.ok(), 'PATCH /api/staff/timesheets/my-projects/{id} should enable grid visibility').toBeTruthy()
+      entryIds.push(await createTimeEntryFixture(request, employeeToken, {
+        staffMemberId: employeeStaffMemberId,
+        timeProjectId: projectId,
+        date: entryDate,
+        durationMinutes: 30,
+      }))
+      entryIds.push(await createTimeEntryFixture(request, employeeToken, {
+        staffMemberId: employeeStaffMemberId,
+        timeProjectId: projectId,
+        date: entryDate,
+        durationMinutes: 45,
+      }))
+
+      await login(page, 'employee')
+      await page.goto('/backend/staff/timesheets')
+      await expect(page.getByRole('table')).toBeVisible({ timeout: 30_000 })
+
+      const row = page.getByRole('row').filter({ hasText: projectName })
+      await expect(row).toBeVisible()
+      const firstWeekdayInput = row.getByRole('textbox').first()
+      await expect(firstWeekdayInput).toHaveValue('1.25')
+
+      const saveButton = page.getByRole('button', { name: /save changes/i })
+      await expect(saveButton).toBeDisabled()
+      await firstWeekdayInput.click()
+      await firstWeekdayInput.blur()
+      await page.waitForTimeout(750)
+      await expect(firstWeekdayInput).toHaveValue('1.25')
+      await expect(saveButton).toBeDisabled()
+
+      const listEntriesResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/staff/timesheets/time-entries?staffMemberId=${encodeURIComponent(employeeStaffMemberId)}&projectId=${encodeURIComponent(projectId)}&from=${entryDate}&to=${formatDateKey(weekEnd)}&pageSize=50`,
+        { token: employeeToken },
+      )
+      expect(listEntriesResponse.ok(), 'GET /api/staff/timesheets/time-entries should succeed').toBeTruthy()
+      const listEntriesBody = (await listEntriesResponse.json()) as { items?: Array<Record<string, unknown>> }
+      const savedEntries = (listEntriesBody.items ?? [])
+        .filter((item) => String(item.date ?? '').slice(0, 10) === entryDate)
+        .sort((a, b) => Number(a.duration_minutes ?? 0) - Number(b.duration_minutes ?? 0))
+      expect(savedEntries).toHaveLength(2)
+      expect(savedEntries.map((entry) => entry.duration_minutes)).toEqual([30, 45])
+    } finally {
+      for (const entryId of entryIds) {
+        await deleteStaffEntityIfExists(request, employeeToken, 'staff/timesheets/time-entries', entryId)
+      }
+      if (projectId) {
+        await deleteStaffEntityIfExists(request, adminToken, 'staff/timesheets/time-projects', projectId)
+      }
+    }
+  })
 })

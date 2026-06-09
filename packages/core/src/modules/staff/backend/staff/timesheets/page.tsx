@@ -366,14 +366,14 @@ export default function MyTimesheetsPage() {
   }, [])
 
   const handleCellBlur = React.useCallback((projectId: string, dateKey: string, currentValue: string) => {
-    const text = rawText[projectId]?.[dateKey] ?? currentValue
+    const editedText = rawText[projectId]?.[dateKey]
+    const text = editedText ?? currentValue
     if (text === undefined) return
     const minutes = decimalToMinutes(text)
     const cellEntries = entries[projectId]?.[dateKey] ?? []
     const existingMinutes = cellEntries.reduce((sum, e) => sum + e.minutes, 0)
 
-    // Only mark dirty if the value actually changed
-    if (minutes !== existingMinutes || cellEntries.length > 0) {
+    if (minutes !== existingMinutes || (editedText !== undefined && cellEntries.length > 0)) {
       setDirty((prev) => {
         const projectEntries: Record<string, CellEntry> = { ...(prev[projectId] ?? {}) }
         const firstId = cellEntries[0]?.id
