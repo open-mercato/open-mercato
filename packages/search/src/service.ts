@@ -10,7 +10,6 @@ import type {
 } from './types'
 import { mergeAndRankResults } from './lib/merger'
 import { searchError } from './lib/debug'
-import { needsSearchResultEnrichment } from './lib/search-result-enrichment'
 
 /**
  * Default merge configuration.
@@ -174,10 +173,8 @@ export class SearchService {
     // If no enricher configured, return as-is
     if (!this.presenterEnricher) return results
 
-    const hasMissing = results.some(needsSearchResultEnrichment)
-    if (!hasMissing) return results
-
-    // Use the configured presenter enricher
+    // The enricher self-gates (config-aware) and early-returns when there is
+    // nothing to enrich, so always delegate.
     try {
       return await this.presenterEnricher(results, tenantId, organizationId)
     } catch {

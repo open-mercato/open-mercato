@@ -203,8 +203,12 @@ export function createPresenterEnricher(
   encryptionService?: TenantDataEncryptionService | null,
 ): PresenterEnricherFn {
   return async (results, tenantId, organizationId) => {
-    // Find results missing presenter OR with encrypted presenter
-    const missingResults = results.filter(needsSearchResultEnrichment)
+    const shouldEnrich = (result: SearchResult): boolean =>
+      needsSearchResultEnrichment(result) || entityConfigMap.has(result.entityId as EntityId)
+
+    // Find results missing presenter, with encrypted presenter, or whose entity
+    // has a registered search config (re-render at request time for locale).
+    const missingResults = results.filter(shouldEnrich)
     if (missingResults.length === 0) return results
 
     // Group by entity type for config lookup
@@ -285,7 +289,7 @@ export function createPresenterEnricher(
 
     // Enrich results with computed presenter, URL, and links
     return results.map((result) => {
-      if (!needsSearchResultEnrichment(result)) return result
+      if (!shouldEnrich(result)) return result
       const key = `${result.entityId}:${result.recordId}`
       const enriched = enrichmentMap.get(key)
       if (!enriched) return result
