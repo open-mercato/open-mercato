@@ -846,8 +846,9 @@ export const searchConfig: SearchModuleConfig = {
 
       formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id as string ?? ctx.record.entityId as string)
-        const title = (parent?.display_name as string | undefined) ?? 'Customer note'
+        const title = (parent?.display_name as string | undefined) ?? t('customers.search.fallback.customerNote', 'Customer note')
         return {
           title,
           subtitle: snippet(ctx.record.body),
@@ -986,6 +987,7 @@ export const searchConfig: SearchModuleConfig = {
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id as string ?? ctx.record.entityId as string)
         const lines: string[] = []
         if (parent?.display_name) lines.push(`Customer: ${parent.display_name}`)
@@ -994,7 +996,11 @@ export const searchConfig: SearchModuleConfig = {
         if (ctx.record.body) lines.push(`Body: ${ctx.record.body}`)
 
         const presenter: SearchResultPresenter = {
-          title: ctx.record.subject ? String(ctx.record.subject) : `Activity: ${ctx.record.activity_type ?? 'update'}`,
+          title: ctx.record.subject
+            ? String(ctx.record.subject)
+            : t('customers.search.fallback.activity', 'Activity: {{type}}', {
+                type: String(ctx.record.activity_type ?? t('customers.search.fallback.activityUpdate', 'update')),
+              }),
           subtitle: (parent?.display_name as string | undefined) ?? snippet(ctx.record.body),
           icon: 'bolt',
         }
@@ -1016,7 +1022,11 @@ export const searchConfig: SearchModuleConfig = {
         const { t } = await resolveTranslations()
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id as string ?? ctx.record.entityId as string)
         return {
-          title: ctx.record.subject ? String(ctx.record.subject) : `Activity: ${ctx.record.activity_type ?? 'update'}`,
+          title: ctx.record.subject
+            ? String(ctx.record.subject)
+            : t('customers.search.fallback.activity', 'Activity: {{type}}', {
+                type: String(ctx.record.activity_type ?? t('customers.search.fallback.activityUpdate', 'update')),
+              }),
           subtitle: (parent?.display_name as string | undefined) ?? snippet(ctx.record.body),
           icon: 'bolt',
           badge: t('customers.search.badge.activity', 'Activity'),
