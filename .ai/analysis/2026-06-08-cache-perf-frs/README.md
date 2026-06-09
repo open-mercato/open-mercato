@@ -65,15 +65,15 @@ Tracked in GitHub (proposed in PR #2905):
 
 ## New candidates (round 2 — verified non-cached, invalidation piggybacks on existing tags)
 
-| # | Endpoint | Hotness | Invalidation source | FR file |
-|---|---|---|---|---|
-| 10 | `GET /api/messages/unread-count` | polled every 5 s (`useMessagesPoll.ts`) | existing `crud:messages.message:*` tags | [10](./10-cache-messages-unread-count.md) |
-| 11 | `GET /api/notifications` (list) | polled every 5 s (`useNotificationsPoll.ts`) | TTL-only v1 (no command-bus writes) | [11](./11-cache-notifications-list.md) |
-| 12 | `GET /api/dictionaries/[dictionaryId]/entries` | every dictionary-backed custom-field select (`entities/api/definitions.ts:366`) | existing `crud:dictionaries.entry:*` tags | [12](./12-cache-dictionary-entries.md) |
-| 13 | `GET /api/currencies/options` | currency selects in pricing/order forms | existing `crud:currencies.currency:*` tags | [13](./13-cache-currencies-options.md) |
-| 14 | `GET /api/auth/roles` | admin roles page + role selects; N+1 per-role user counts | existing `crud:auth.role:*` + `crud:auth.user:*` tags | [14](./14-cache-auth-roles-list.md) |
-| 15 | `GET /api/auth/sidebar/preferences` | sidebar bootstrap | existing `nav:sidebar:*` tags (PUT already flushes them) | [15](./15-cache-sidebar-preferences.md) |
-| 16 | `GET /api/catalog/product-media` | product detail media | `crud:catalog.product:*:record:<id>` tag + TTL | [16](./16-cache-product-media.md) |
+| # | Endpoint | Hotness | Invalidation source | Issue | FR file |
+|---|---|---|---|---|---|
+| 10 | `GET /api/messages/unread-count` | polled every 5 s (`useMessagesPoll.ts`) | existing `crud:messages.message:*` tags | #2915 | [10](./10-cache-messages-unread-count.md) |
+| 11 | `GET /api/notifications` (list) | polled every 5 s (`useNotificationsPoll.ts`) | TTL-only v1 (no command-bus writes) | #2916 | [11](./11-cache-notifications-list.md) |
+| 12 | `GET /api/dictionaries/[dictionaryId]/entries` | every dictionary-backed custom-field select (`entities/api/definitions.ts:366`) | existing `crud:dictionaries.entry:*` tags | #2917 | [12](./12-cache-dictionary-entries.md) |
+| 13 | `GET /api/currencies/options` | currency selects in pricing/order forms | existing `crud:currencies.currency:*` tags | #2918 | [13](./13-cache-currencies-options.md) |
+| 14 | `GET /api/auth/roles` | admin roles page + role selects; N+1 per-role user counts | existing `crud:auth.role:*` + `crud:auth.user:*` tags | #2919 | [14](./14-cache-auth-roles-list.md) |
+| 15 | `GET /api/auth/sidebar/preferences` | sidebar bootstrap | existing `nav:sidebar:*` tags (PUT already flushes them) | #2920 | [15](./15-cache-sidebar-preferences.md) |
+| 16 | `GET /api/catalog/product-media` | product detail media | `crud:catalog.product:*:record:<id>` tag + TTL | #2921 | [16](./16-cache-product-media.md) |
 
 ## Suggested rollout order
 
