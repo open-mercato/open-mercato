@@ -75,6 +75,38 @@ function createMockEm(overrides: Record<string, unknown> = {}): MockEm {
   } as unknown as MockEm
 }
 
+type DbRow = { id: string; status: string; processingStartedAt: Date | null }
+
+// EntityManager mock backed by a single persisted row. `nativeUpdate` honours the
+// status guard in its WHERE clause (so it returns 0 when the row has already moved
+// on), while `flush` writes the tracked managed entity's scalars back to the row —
+// reproducing MikroORM's last-write-wins behaviour for the unconditional code path.
+function createRowBackedEm(dbRow: DbRow, trackedEntity?: OnboardingRequest): EntityManager {
+  const flush = jest.fn(async () => {
+    if (!trackedEntity) return
+    dbRow.status = trackedEntity.status
+    dbRow.processingStartedAt = trackedEntity.processingStartedAt ?? null
+  })
+  const nativeUpdate = jest.fn(
+    async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+      const matches = Object.entries(where).every(
+        ([key, value]) => (dbRow as unknown as Record<string, unknown>)[key] === value,
+      )
+      if (!matches) return 0
+      if ('status' in data) dbRow.status = data.status as string
+      if ('processingStartedAt' in data) dbRow.processingStartedAt = (data.processingStartedAt as Date | null) ?? null
+      return 1
+    },
+  )
+  return {
+    findOne: jest.fn().mockResolvedValue(null),
+    create: jest.fn(),
+    persist: jest.fn(() => ({ flush })),
+    flush,
+    nativeUpdate,
+  } as unknown as EntityManager
+}
+
 describe('OnboardingService', () => {
   describe('createOrUpdateRequest', () => {
     it('creates a new pending request when no existing email found', async () => {
@@ -124,6 +156,56 @@ describe('OnboardingService', () => {
       expect(request.status).toBe('completed')
       expect(request.passwordHash).toBeNull()
       expect(em.flush).toHaveBeenCalled()
+    })
+  })
+
+  // Regression coverage for #2742: two concurrent verify requests carrying the same
+  // token must not corrupt the persisted state. The fix makes the pending→processing
+  // transition an atomic claim and the processing→pending reset conditional, so a
+  // request that lost the race can never clobber a sibling that already completed.
+  describe('startProcessing (atomic claim, #2742)', () => {
+    it('lets only one concurrent caller claim a pending request', async () => {
+      const dbRow: DbRow = { id: 'req-1', status: 'pending', processingStartedAt: null }
+      const em = createRowBackedEm(dbRow)
+      const service = new OnboardingService(em)
+      const requestA = makeRequest({ id: 'req-1', status: 'pending', processingStartedAt: null })
+      const requestB = makeRequest({ id: 'req-1', status: 'pending', processingStartedAt: null })
+
+      const claimedA = await service.startProcessing(requestA, new Date())
+      const claimedB = await service.startProcessing(requestB, new Date())
+
+      expect(claimedA).toBe(true)
+      expect(claimedB).toBe(false)
+      expect(dbRow.status).toBe('processing')
+    })
+  })
+
+  describe('resetProcessing (conditional revert, #2742)', () => {
+    it('does not revert a request a concurrent worker already completed', async () => {
+      // A sibling worker already advanced the persisted row to 'completed'.
+      const dbRow: DbRow = { id: 'req-1', status: 'completed', processingStartedAt: null }
+      // This worker still holds an in-memory copy it believes is 'processing'.
+      const staleRequest = makeRequest({ id: 'req-1', status: 'processing', processingStartedAt: new Date() })
+      const em = createRowBackedEm(dbRow, staleRequest)
+      const service = new OnboardingService(em)
+
+      const reverted = await service.resetProcessing(staleRequest)
+
+      expect(reverted).toBe(false)
+      expect(dbRow.status).toBe('completed')
+    })
+
+    it('reverts a request that is still processing', async () => {
+      const dbRow: DbRow = { id: 'req-1', status: 'processing', processingStartedAt: new Date() }
+      const request = makeRequest({ id: 'req-1', status: 'processing', processingStartedAt: new Date() })
+      const em = createRowBackedEm(dbRow, request)
+      const service = new OnboardingService(em)
+
+      const reverted = await service.resetProcessing(request)
+
+      expect(reverted).toBe(true)
+      expect(dbRow.status).toBe('pending')
+      expect(dbRow.processingStartedAt).toBeNull()
     })
   })
 })

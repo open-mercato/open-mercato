@@ -1464,11 +1464,12 @@ export function buildCompanyPayload(
 
 // URL/email/phone fields are clearable on edit: blanking a previously-set value transmits null,
 // so the edit-form value types widen to `string | null` to match the edit-schema output. See #2526.
-export type CompanyEditFormValues = Omit<CompanyFormValues, 'addresses' | 'primaryEmail' | 'primaryPhone' | 'websiteUrl'> & {
+export type CompanyEditFormValues = Omit<CompanyFormValues, 'addresses' | 'primaryEmail' | 'primaryPhone' | 'websiteUrl' | 'domain'> & {
   id: string
   primaryEmail?: string | null
   primaryPhone?: string | null
   websiteUrl?: string | null
+  domain?: string | null
 }
 
 export type PersonEditFormValues = Omit<PersonFormValues, 'addresses' | 'primaryEmail' | 'primaryPhone'> & {
@@ -1517,6 +1518,18 @@ const clearableEmailField = () =>
     .transform((val) => (val === '' ? null : val))
     .optional()
 
+// Domain maps to a nullable column; on edit a blanked value must transmit null
+// (not undefined) so it actually clears — mirroring the website field. See #2529.
+const clearableDomainField = () =>
+  z
+    .string()
+    .trim()
+    .max(200)
+    .optional()
+    .or(z.literal(''))
+    .transform((val) => (val === '' ? null : val))
+    .optional()
+
 const clearablePhoneField = () =>
   z
     .string()
@@ -1534,6 +1547,7 @@ export const createCompanyEditSchema = () =>
     primaryEmail: clearableEmailField(),
     primaryPhone: clearablePhoneField(),
     websiteUrl: clearableUrlField(),
+    domain: clearableDomainField(),
   })
 
 export const createPersonEditSchema = () =>
@@ -1844,6 +1858,7 @@ export function buildCompanyEditPayload(values: CompanyEditFormValues, organizat
   assignClearable(payload, 'primaryEmail', values.primaryEmail)
   assignClearable(payload, 'primaryPhone', values.primaryPhone)
   assignClearable(payload, 'websiteUrl', values.websiteUrl)
+  assignClearable(payload, 'domain', typeof values.domain === 'string' ? values.domain.toLowerCase() : values.domain)
 
   return payload
 }

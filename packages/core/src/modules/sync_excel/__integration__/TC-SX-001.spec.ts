@@ -554,7 +554,8 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
   })
 
   test('upload preview and import create then update a customer person', async ({ request }) => {
-    test.setTimeout(60_000)
+    test.slow()
+    test.setTimeout(240_000)
 
     const token = await getAuthToken(request, 'admin')
     const scope = decodeTokenScope(token)

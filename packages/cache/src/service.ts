@@ -180,6 +180,9 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
   const close = base.close
     ? async () => base.close!()
     : undefined
+  const healthcheck = base.healthcheck
+    ? async () => base.healthcheck!()
+    : undefined
 
   return {
     get,
@@ -190,6 +193,7 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
     clear,
     keys,
     stats,
+    healthcheck,
     cleanup,
     close,
   }
@@ -375,6 +379,9 @@ function withDependencyFallback(strategy: CacheStrategy, strategyType: CacheStra
     clear: wrapMethod('clear'),
     keys: wrapMethod('keys'),
     stats: wrapMethod('stats'),
+    healthcheck: typeof strategy.healthcheck === 'function'
+      ? async () => strategy.healthcheck!()
+      : undefined,
     cleanup: typeof strategy.cleanup === 'function' ? wrapMethod('cleanup') : undefined,
     close: typeof strategy.close === 'function' ? wrapMethod('close') : undefined,
   }

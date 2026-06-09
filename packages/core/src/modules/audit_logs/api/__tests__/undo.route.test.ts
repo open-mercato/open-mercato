@@ -152,4 +152,69 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
     )
     expect(mockCommandBus.undo).toHaveBeenCalledWith('token-org-1', expect.anything())
   })
+
+  // Regression for issue #2685 — a caller with a null tenantId (tenant-less global
+  // account or unscoped API key) must NOT undo a tenant-scoped row. The old guard
+  // (`target.tenantId && auth.tenantId && ...`) short-circuited to "allow" whenever
+  // auth.tenantId was null, leaking cross-tenant undo.
+  it('rejects a tenant-less caller undoing a tenant-scoped row', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: null,
+      orgId: null,
+    })
+    const target = {
+      id: 'log-1',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'auth.user',
+      resourceId: 'user-42',
+      executionState: 'done',
+    }
+    mockLogs.findByUndoToken.mockResolvedValue(target)
+    mockLogs.latestUndoableForResource.mockResolvedValue(target)
+    mockLogs.latestUndoableForActor.mockResolvedValue(target)
+
+    const res = await POST(makeRequest({ undoToken: 'token-1' }))
+    expect(res.status).toBe(400)
+    expect(mockCommandBus.undo).not.toHaveBeenCalled()
+  })
+
+  // Regression for issue #2685 — a regular caller (no audit_logs.undo_tenant) whose
+  // organization scope resolves to null must NOT undo an org-scoped row. The old org
+  // guard (`target.organizationId && scopedOrgId && ...`) skipped rejection when
+  // scopedOrgId was null; only tenant-level undoers may legitimately leave org null.
+  it('rejects a regular caller with null org scope undoing an org-scoped row', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: null,
+    })
+    ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({
+      organizationId: null,
+      scope: { allowedIds: null },
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+
+    const target = {
+      id: 'log-2',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'auth.user',
+      resourceId: 'user-42',
+      executionState: 'done',
+    }
+    mockLogs.findByUndoToken.mockResolvedValue(target)
+    mockLogs.latestUndoableForResource.mockResolvedValue(target)
+    mockLogs.latestUndoableForActor.mockResolvedValue(target)
+
+    const res = await POST(makeRequest({ undoToken: 'token-2' }))
+    expect(res.status).toBe(400)
+    expect(mockCommandBus.undo).not.toHaveBeenCalled()
+  })
 })

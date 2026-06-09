@@ -38,6 +38,7 @@ import {
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
 import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
+import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -375,10 +376,13 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const interactionFlags = await resolveCustomerInteractionFeatureFlags(container, scope?.tenantId ?? auth.tenantId)
   const interactionMode = interactionFlags.unified ? 'canonical' : 'legacy'
 
+  const tenantScope = resolveCustomerDetailTenantScope(parse.data.id, 'company', auth)
+  if (!tenantScope.allowed) return notFound('Company not found')
+
   const company = await findOneWithDecryption(
     em,
     CustomerEntity,
-    { id: parse.data.id, kind: 'company', deletedAt: null },
+    tenantScope.where,
     { populate: ['companyProfile'] },
     {
       tenantId: auth.tenantId ?? null,
@@ -387,7 +391,6 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   )
   if (!company) return notFound('Company not found')
 
-  if (auth.tenantId && company.tenantId !== auth.tenantId) return notFound('Company not found')
   if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: company.organizationId })) {
     return forbidden('Access denied')
   }

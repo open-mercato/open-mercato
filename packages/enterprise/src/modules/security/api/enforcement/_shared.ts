@@ -2,15 +2,22 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { MfaEnforcementPolicy } from '../../data/entities'
+import { enforceTenantSelection, resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { EnforcementScope, type MfaEnforcementPolicy } from '../../data/entities'
 import type { MfaEnforcementServiceError, MfaEnforcementService } from '../../services/MfaEnforcementService'
 import { localizeSecurityApiBody, securityApiError } from '../i18n'
 
 type RequestContainer = Awaited<ReturnType<typeof createRequestContainer>>
 type Auth = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
+
+export type EnforcementActorContext = {
+  tenantId: string | null
+  isSuperAdmin: boolean
+}
 
 export type EnforcementRequestContext = {
   auth: Auth
@@ -39,6 +46,80 @@ export async function resolveEnforcementContext(req: Request): Promise<Enforceme
     },
     enforcementService: container.resolve<MfaEnforcementService>('mfaEnforcementService'),
   }
+}
+
+function normalizeNullableString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function normalizeOrganizationList(values: unknown): string[] | null {
+  if (values === null || values === undefined) return null
+  if (!Array.isArray(values)) return null
+  const result: string[] = []
+  for (const value of values) {
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (trimmed) result.push(trimmed)
+  }
+  return result
+}
+
+export async function resolveActorContext(ctx: EnforcementRequestContext): Promise<EnforcementActorContext> {
+  const isSuperAdmin = await resolveIsSuperAdmin({ auth: ctx.auth, container: ctx.container })
+  return {
+    tenantId: normalizeNullableString(ctx.auth.tenantId),
+    isSuperAdmin,
+  }
+}
+
+async function assertActorOwnsOrganization(
+  ctx: EnforcementRequestContext,
+  organizationId: string,
+): Promise<void> {
+  const rbacService = ctx.container.resolve<RbacService>('rbacService')
+  const acl = await rbacService.loadAcl(ctx.auth.sub, {
+    tenantId: normalizeNullableString(ctx.auth.tenantId),
+    organizationId: normalizeNullableString(ctx.auth.orgId),
+  })
+  const organizations = normalizeOrganizationList(acl?.organizations)
+  if (organizations === null || organizations.includes('__all__')) return
+  if (!organizations.includes(organizationId)) {
+    throw forbidden('Not authorized to target this organization.')
+  }
+}
+
+export async function assertActorOwnsEnforcementScope(
+  ctx: EnforcementRequestContext,
+  scope: EnforcementScope,
+  scopeId: string | null | undefined,
+): Promise<void> {
+  if (scope === EnforcementScope.PLATFORM) {
+    const isSuperAdmin = await resolveIsSuperAdmin({ auth: ctx.auth, container: ctx.container })
+    if (!isSuperAdmin) {
+      throw forbidden('Platform scope requires platform administrator privileges.')
+    }
+    return
+  }
+
+  if (scope === EnforcementScope.TENANT) {
+    await enforceTenantSelection({ auth: ctx.auth, container: ctx.container }, scopeId)
+    return
+  }
+
+  const normalizedScopeId = normalizeNullableString(scopeId)
+  if (!normalizedScopeId) {
+    throw new CrudHttpError(400, { error: "organisation scopeId must use '<tenantId>:<organizationId>' format" })
+  }
+  const [tenantId, organizationId] = normalizedScopeId.split(':')
+  if (!tenantId || !organizationId) {
+    throw new CrudHttpError(400, { error: "organisation scopeId must use '<tenantId>:<organizationId>' format" })
+  }
+
+  await enforceTenantSelection({ auth: ctx.auth, container: ctx.container }, tenantId)
+
+  const isSuperAdmin = await resolveIsSuperAdmin({ auth: ctx.auth, container: ctx.container })
+  if (isSuperAdmin) return
+  await assertActorOwnsOrganization(ctx, organizationId)
 }
 
 export async function mapEnforcementError(error: unknown): Promise<NextResponse> {

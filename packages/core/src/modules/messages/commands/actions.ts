@@ -266,13 +266,15 @@ const executeActionCommand: CommandHandler<
         throw new Error('Action failed')
       }
     } else if (action.href) {
-      result = {
-        redirect: resolveActionHref(action, message, {
-          tenantId: input.tenantId,
-          organizationId: input.organizationId,
-          userId: input.userId,
-        }) ?? action.href,
+      const safeRedirect = resolveActionHref(action, message, {
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+        userId: input.userId,
+      })
+      if (!safeRedirect) {
+        throw new Error('Action has an unsafe redirect target')
       }
+      result = { redirect: safeRedirect }
     } else {
       throw new Error('Action has no executable target')
     }

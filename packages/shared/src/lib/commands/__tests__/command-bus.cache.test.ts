@@ -61,6 +61,8 @@ describe('CommandBus cache invalidation for sales documents', () => {
       actionLogService: asValue({
         log: logMock,
         findByUndoToken: jest.fn(async () => logRecord),
+        claimForUndo: jest.fn(async () => true),
+        releaseUndoClaim: jest.fn(async () => true),
         markUndone: jest.fn(async () => {}),
       }),
       dataEngine: asValue({ flushOrmEntityChanges: jest.fn() }),

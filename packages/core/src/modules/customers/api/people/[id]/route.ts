@@ -41,6 +41,7 @@ import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/dire
 import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/personCompanies'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
+import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
@@ -454,10 +455,17 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     })
     const em = (container.resolve('em') as EntityManager)
 
+    const tenantScope = resolveCustomerDetailTenantScope(parse.data.id, 'person', auth)
+    if (!tenantScope.allowed) {
+      statusCode = 404
+      profileMeta = { reason: 'person_tenant_mismatch' }
+      return notFound('Person not found')
+    }
+
     const person = await findOneWithDecryption(
       em,
       CustomerEntity,
-      { id: parse.data.id, kind: 'person', deletedAt: null },
+      tenantScope.where,
       {},
       {
         tenantId: scope?.tenantId ?? auth.tenantId ?? null,
@@ -471,11 +479,6 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       return notFound('Person not found')
     }
 
-    if (auth.tenantId && person.tenantId !== auth.tenantId) {
-      statusCode = 404
-      profileMeta = { reason: 'person_tenant_mismatch' }
-      return notFound('Person not found')
-    }
     if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: person.organizationId })) {
       statusCode = 403
       profileMeta = { reason: 'organization_forbidden' }

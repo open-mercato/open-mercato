@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/channel-gmail",
-  "version": "0.1.0",
+  "version": "0.6.4",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -75,13 +75,13 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/react": "^19.2.15",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "esbuild": "^0.28.0",
     "glob": "^13.0.6",
     "jest": "^30.4.2",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
     "ts-jest": "^29.4.11"
   },
   "publishConfig": {

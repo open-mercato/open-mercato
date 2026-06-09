@@ -107,12 +107,50 @@ export async function setCustomerRoleAcl(
   expect(res.status(), 'PUT /admin/roles/[id]/acl should return 200').toBe(200)
 }
 
+/**
+ * Create a real owned CRM company (staff admin) and return its `CustomerEntity`
+ * id. `POST /admin/users` validates `customerEntityId` against an owned company
+ * in the caller's tenant+org (kind=company), so portal scoping fixtures must
+ * link users to a company that actually exists rather than a synthetic UUID.
+ */
+export async function createCustomerCompanyFixture(
+  request: APIRequestContext,
+  adminToken: string,
+  displayName?: string,
+): Promise<string> {
+  const name = displayName ?? `QA Portal Company ${uniqueSuffix()}`
+  const res = await apiRequest(request, 'POST', '/api/customers/companies', {
+    token: adminToken,
+    data: { displayName: name },
+  })
+  expect(res.status(), 'POST /customers/companies should return 201').toBe(201)
+  const body = await readJsonSafe<{ id?: string; entityId?: string }>(res)
+  return expectId(body?.id ?? body?.entityId, 'Company creation response should include the entity id')
+}
+
+/** Best-effort soft-delete of a CRM company (cleanup). */
+export async function deleteCustomerCompanyFixture(
+  request: APIRequestContext,
+  adminToken: string | null,
+  companyEntityId: string | null,
+): Promise<void> {
+  if (!adminToken || !companyEntityId) return
+  await apiRequest(request, 'DELETE', `/api/customers/companies?id=${companyEntityId}`, {
+    token: adminToken,
+  }).catch(() => undefined)
+}
+
 export type CreateCustomerUserInput = {
   email?: string
   password?: string
   displayName?: string
   roleIds?: string[]
-  /** Synthetic CRM company id (no FK is enforced) used for portal company scoping. */
+  /**
+   * Owned CRM company id (a `CustomerEntity` of kind=company in the caller's
+   * tenant+org) used for portal company scoping. `POST /admin/users` rejects an
+   * id that is not an owned company, so create one via
+   * {@link createCustomerCompanyFixture} rather than passing a synthetic UUID.
+   */
   customerEntityId?: string | null
 }
 

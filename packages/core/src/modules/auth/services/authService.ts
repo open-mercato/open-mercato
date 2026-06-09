@@ -1,7 +1,7 @@
 import { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
 import { User, Role, UserRole, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
-import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
@@ -9,29 +9,29 @@ export class AuthService {
   constructor(private em: EntityManager) {}
 
   async findUserByEmail(email: string) {
-    const emailHash = computeEmailHash(email)
+    const emailHashes = emailHashLookupValues(email)
     return findOneWithDecryption(this.em, User, {
       deletedAt: null,
       $or: [
         { email },
-        { emailHash },
+        { emailHash: { $in: emailHashes } },
       ],
     } as any)
   }
 
   async findUsersByEmail(email: string) {
-    const emailHash = computeEmailHash(email)
+    const emailHashes = emailHashLookupValues(email)
     return findWithDecryption(this.em, User, {
       deletedAt: null,
       $or: [
         { email },
-        { emailHash },
+        { emailHash: { $in: emailHashes } },
       ],
     } as any)
   }
 
   async findUserByEmailAndTenant(email: string, tenantId: string) {
-    const emailHash = computeEmailHash(email)
+    const emailHashes = emailHashLookupValues(email)
     return findOneWithDecryption(
       this.em,
       User,
@@ -40,7 +40,7 @@ export class AuthService {
         deletedAt: null,
         $or: [
           { email },
-          { emailHash },
+          { emailHash: { $in: emailHashes } },
         ],
       } as any,
       undefined,
@@ -84,10 +84,7 @@ export class AuthService {
 
   async deleteSessionByToken(token: string) {
     const hashedToken = hashAuthToken(token)
-    const deleted = await this.em.nativeDelete(Session, { token: hashedToken })
-    if (!deleted) {
-      await this.em.nativeDelete(Session, { token })
-    }
+    await this.em.nativeDelete(Session, { token: hashedToken })
   }
 
   async deleteSessionById(sessionId: string) {
@@ -108,10 +105,7 @@ export class AuthService {
   async refreshFromSessionToken(token: string) {
     const now = new Date()
     const hashedToken = hashAuthToken(token)
-    let sess = await this.em.findOne(Session, { token: hashedToken })
-    if (!sess) {
-      sess = await this.em.findOne(Session, { token })
-    }
+    const sess = await this.em.findOne(Session, { token: hashedToken })
     if (!sess || sess.expiresAt <= now) return null
     const user = await findOneWithDecryption(this.em, User, { id: sess.user.id, deletedAt: null })
     if (!user) return null
@@ -133,10 +127,7 @@ export class AuthService {
   async confirmPasswordReset(token: string, newPassword: string): Promise<User | null> {
     const now = new Date()
     const hashedToken = hashAuthToken(token)
-    let row = await this.em.findOne(PasswordReset, { token: hashedToken })
-    if (!row) {
-      row = await this.em.findOne(PasswordReset, { token })
-    }
+    const row = await this.em.findOne(PasswordReset, { token: hashedToken })
     if (!row || (row.usedAt && row.usedAt <= now) || row.expiresAt <= now) return null
 
     // Atomic compare-and-set: only mark used if still unused — prevents token replay under concurrency

@@ -27,10 +27,6 @@ jest.mock('next/dynamic', () => () => {
   }
 })
 
-jest.mock('@uiw/react-md-editor', () => (props: any) => {
-  return <textarea data-testid="markdown-editor" value={props.value ?? ''} onChange={(event) => props.onChange?.(event.target.value)} />
-})
-
 jest.mock('@open-mercato/ui/primitives/button', () => ({
   Button: ({ children, ...props }: any) => (
     <button type={props.type || 'button'} {...props}>

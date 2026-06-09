@@ -9,6 +9,7 @@ import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/Dat
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
+import { markdownToPlainText } from '@open-mercato/ui/backend/markdown/markdownToPlainText'
 import { readApiResultOrThrow, apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -175,7 +176,7 @@ export default function StaffTeamMembersPage() {
             <div className="flex flex-col">
               <span className="font-medium pl-6">{row.original.displayName}</span>
               {row.original.description ? (
-                <span className="text-xs text-muted-foreground line-clamp-2 pl-6">{row.original.description}</span>
+                <span className="text-xs text-muted-foreground line-clamp-2 pl-6">{markdownToPlainText(row.original.description)}</span>
               ) : null}
             </div>
           )

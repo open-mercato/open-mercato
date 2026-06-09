@@ -31,6 +31,8 @@ import {
 import {
   filterActivePersonCompanyLinks,
   withActiveCustomerPersonCompanyLinkFilter,
+  withCustomerPersonCompanyLinkScope,
+  withScopedCustomerDealLinkWhere,
 } from '../../lib/personCompanyLinkTable'
 import { normalizeProfilePayload } from './payload'
 
@@ -227,7 +229,7 @@ const crud = makeCrudRoute({
           }
           const linkWhere = await withActiveCustomerPersonCompanyLinkFilter(
             em,
-            { company: query.excludeLinkedCompanyId },
+            withCustomerPersonCompanyLinkScope({ company: query.excludeLinkedCompanyId }, decryptionScope),
             'customers.people.GET',
           )
           const links = filterActivePersonCompanyLinks(
@@ -257,9 +259,7 @@ const crud = makeCrudRoute({
           const links = await findWithDecryption(
             em,
             CustomerDealPersonLink,
-            {
-              deal: query.excludeLinkedDealId,
-            },
+            withScopedCustomerDealLinkWhere(query.excludeLinkedDealId, decryptionScope),
             { populate: ['person'] },
             decryptionScope,
           )

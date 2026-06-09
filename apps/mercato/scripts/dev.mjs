@@ -6,6 +6,7 @@ import {
   createRuntimeNoiseFilter,
   isStatelessRuntimeNoiseLine,
 } from './dev-runtime-log-policy.mjs'
+import { getProcessTreeMemoryBytes } from './dev-memory-monitor.mjs'
 
 function resolveSplashHelpersImport() {
   const candidates = [
@@ -1079,74 +1080,6 @@ function maybeStartTargetedRouteWarmup() {
   if (runtimeWarmupState.failed) return
   if (!runtimeWarmupState.baseUrl || !runtimeWarmupState.readySignalSeen) return
   runtimeWarmupState.promise = runTargetedRouteWarmup()
-}
-
-async function getProcessTreeMemoryBytes(rootPid) {
-  if (!Number.isInteger(rootPid) || rootPid <= 0) return null
-  if (process.platform === 'win32') return null
-
-  return new Promise((resolve) => {
-    const inspector = spawn('ps', ['-axo', 'pid=,ppid=,rss='], {
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-
-    let output = ''
-    inspector.stdout?.setEncoding('utf8')
-    inspector.stdout?.on('data', (chunk) => {
-      output += chunk
-    })
-
-    inspector.on('error', () => resolve(null))
-    inspector.on('close', (code) => {
-      if ((code ?? 1) !== 0) {
-        resolve(null)
-        return
-      }
-
-      const nodes = new Map()
-
-      for (const rawLine of output.split('\n')) {
-        const line = rawLine.trim()
-        if (!line) continue
-
-        const match = line.match(/^(\d+)\s+(\d+)\s+(\d+)$/)
-        if (!match) continue
-
-        const pid = Number.parseInt(match[1], 10)
-        const ppid = Number.parseInt(match[2], 10)
-        const rssKb = Number.parseInt(match[3], 10)
-        nodes.set(pid, { ppid, rssKb })
-      }
-
-      if (!nodes.has(rootPid)) {
-        resolve(null)
-        return
-      }
-
-      let totalKb = 0
-      const pending = [rootPid]
-      const seen = new Set()
-
-      while (pending.length > 0) {
-        const pid = pending.pop()
-        if (!Number.isInteger(pid) || seen.has(pid)) continue
-        seen.add(pid)
-
-        const node = nodes.get(pid)
-        if (node) {
-          totalKb += node.rssKb
-        }
-
-        for (const [candidatePid, candidateNode] of nodes.entries()) {
-          if (candidateNode.ppid === pid && !seen.has(candidatePid)) {
-            pending.push(candidatePid)
-          }
-        }
-      }
-
-      resolve(totalKb > 0 ? totalKb * 1024 : null)
-    })
-  })
 }
 
 function stopMemoryMonitor() {

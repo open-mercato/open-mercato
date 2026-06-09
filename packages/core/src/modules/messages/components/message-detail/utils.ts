@@ -31,6 +31,24 @@ export function formatDateTime(value: string | null | undefined): string {
   return date.toLocaleString()
 }
 
+const SAFE_NAVIGATION_SCHEMES = new Set(['http:', 'https:', 'mailto:', 'tel:'])
+
+export function isSafeNavigationHref(value: string): boolean {
+  const trimmed = value.trim()
+  if (!trimmed) return false
+  if (trimmed.startsWith('//')) return false
+  if (trimmed.startsWith('/') || trimmed.startsWith('./') || trimmed.startsWith('../')) {
+    return true
+  }
+  const base = typeof window !== 'undefined' ? window.location.href : 'http://localhost'
+  try {
+    const parsed = new URL(trimmed, base)
+    return SAFE_NAVIGATION_SCHEMES.has(parsed.protocol)
+  } catch {
+    return false
+  }
+}
+
 export function parseObjectActionId(value: string): { objectId: string; actionId: string } | null {
   if (!value.startsWith('object:')) return null
   const [, objectId, ...rest] = value.split(':')
