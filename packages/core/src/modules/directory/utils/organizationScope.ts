@@ -21,9 +21,11 @@ export type OrganizationScope = {
 // OrganizationScope is a pure function of (userId, tenantId, selectedOrgId,
 // requestedTenant) between membership changes; caching it bypasses 1
 // SELECT on `organizations` per CRUD request. TTL is short (60s default)
-// to keep staleness bounded for membership/visibility changes. Tag-based
-// invalidation kicks the cache when user_organizations or organizations
-// mutate (wired via invalidateOrganizationScopeCacheFor).
+// to keep staleness bounded as a backstop. Tag-based invalidation also fires
+// eagerly: per-user entries are dropped by RbacService.invalidateUserCache
+// (every ACL/role grant change goes through it — see buildOrgScopeUserCacheTag)
+// and per-tenant entries by the directory.organization.* subscriber plus
+// RbacService.invalidateTenantCache (role-ACL changes).
 const ORG_SCOPE_CACHE_KEY_PREFIX = 'org-scope'
 // Phase 4 default-off until the same readiness probe (`GET /api/customers/people`)
 // stays green with the cache layer engaged. Set `OM_ORG_SCOPE_CACHE_TTL_MS=60000`
@@ -49,10 +51,23 @@ function buildOrgScopeCacheKey(parts: {
   return `${ORG_SCOPE_CACHE_KEY_PREFIX}:${parts.userId}:${parts.effectiveTenantId}:${selected}:${requested}`
 }
 
+// Tag builders are exported so the modules that own the "this user's scope
+// changed" / "this tenant's org tree changed" signals (auth RBAC invalidation,
+// the directory.organization.* subscriber) can drop the matching cross-request
+// cache entries without re-deriving the tag format. Keeping the format in one
+// place is what lets the TTL be enabled safely (issue #2259).
+export function buildOrgScopeUserCacheTag(userId: string): string {
+  return `${ORG_SCOPE_CACHE_KEY_PREFIX}:user:${userId}`
+}
+
+export function buildOrgScopeTenantCacheTag(tenantId: string): string {
+  return `${ORG_SCOPE_CACHE_KEY_PREFIX}:tenant:${tenantId}`
+}
+
 function buildOrgScopeCacheTags(parts: { userId: string; effectiveTenantId: string }): string[] {
   return [
-    `${ORG_SCOPE_CACHE_KEY_PREFIX}:user:${parts.userId}`,
-    `${ORG_SCOPE_CACHE_KEY_PREFIX}:tenant:${parts.effectiveTenantId}`,
+    buildOrgScopeUserCacheTag(parts.userId),
+    buildOrgScopeTenantCacheTag(parts.effectiveTenantId),
   ]
 }
 
@@ -82,7 +97,7 @@ export async function invalidateOrganizationScopeCacheForUser(
   const cache = resolveCacheFromContainer(container)
   if (!cache?.deleteByTags) return
   try {
-    await cache.deleteByTags([`${ORG_SCOPE_CACHE_KEY_PREFIX}:user:${userId}`])
+    await cache.deleteByTags([buildOrgScopeUserCacheTag(userId)])
   } catch (err) {
     console.warn('[org-scope:cache] invalidate user failed', err)
   }
@@ -95,10 +110,34 @@ export async function invalidateOrganizationScopeCacheForTenant(
   const cache = resolveCacheFromContainer(container)
   if (!cache?.deleteByTags) return
   try {
-    await cache.deleteByTags([`${ORG_SCOPE_CACHE_KEY_PREFIX}:tenant:${tenantId}`])
+    await cache.deleteByTags([buildOrgScopeTenantCacheTag(tenantId)])
   } catch (err) {
     console.warn('[org-scope:cache] invalidate tenant failed', err)
   }
+}
+
+// Issue #2259 — per-request memoization. resolveOrganizationScopeForRequest
+// runs at least twice per CRUD request: once for the route-level feature check
+// (resolveFeatureCheckContext) and once inside the shared factory's withCtx.
+// Those two call sites use different request-scoped DI containers but are handed
+// the SAME Request instance, so memoizing the resolved scope on a WeakMap keyed
+// by that request collapses the duplicate work — and the duplicate
+// `organizations` SELECT — into a single resolution. The inner map is keyed by
+// the same identity tuple as the cross-request cache key, so distinct explicit
+// selectedId/tenant overrides on one request stay independent. There is no
+// staleness risk: the memo lives only for the lifetime of one request and is
+// dropped with the request object by the GC.
+const orgScopeRequestMemo = new WeakMap<object, Map<string, Promise<OrganizationScope>>>()
+
+function getRequestScopeMemo(request: unknown): Map<string, Promise<OrganizationScope>> | null {
+  if (!request || (typeof request !== 'object' && typeof request !== 'function')) return null
+  const key = request as object
+  let memo = orgScopeRequestMemo.get(key)
+  if (!memo) {
+    memo = new Map<string, Promise<OrganizationScope>>()
+    orgScopeRequestMemo.set(key, memo)
+  }
+  return memo
 }
 
 function normalizeOrganizationId(value: unknown): string | null {
@@ -402,35 +441,51 @@ export async function resolveOrganizationScopeForRequest({
       })
     : null
 
-  if (cache && cacheKey && typeof cache.get === 'function') {
-    try {
-      const cached = await cache.get(cacheKey)
-      if (isValidCachedScope(cached)) return cached
-    } catch (err) {
-      console.warn('[org-scope:cache] read failed', err)
-    }
+  const requestMemo = getRequestScopeMemo(request)
+  if (requestMemo && cacheKey) {
+    const memoized = requestMemo.get(cacheKey)
+    if (memoized) return memoized
   }
 
-  const baseScope = await resolveOrganizationScope({
-    em,
-    rbac,
-    auth: scopedAuth,
-    selectedId: rawSelected,
-    tenantId: effectiveTenantId,
-  })
-
-  if (cache && cacheKey && userId && typeof cache.set === 'function') {
-    try {
-      await cache.set(cacheKey, baseScope, {
-        ttl: ttlMs,
-        tags: buildOrgScopeCacheTags({ userId, effectiveTenantId }),
-      })
-    } catch (err) {
-      console.warn('[org-scope:cache] write failed', err)
+  const resolveScope = async (): Promise<OrganizationScope> => {
+    if (cache && cacheKey && typeof cache.get === 'function') {
+      try {
+        const cached = await cache.get(cacheKey)
+        if (isValidCachedScope(cached)) return cached
+      } catch (err) {
+        console.warn('[org-scope:cache] read failed', err)
+      }
     }
+
+    const baseScope = await resolveOrganizationScope({
+      em,
+      rbac,
+      auth: scopedAuth,
+      selectedId: rawSelected,
+      tenantId: effectiveTenantId,
+    })
+
+    if (cache && cacheKey && userId && typeof cache.set === 'function') {
+      try {
+        await cache.set(cacheKey, baseScope, {
+          ttl: ttlMs,
+          tags: buildOrgScopeCacheTags({ userId, effectiveTenantId }),
+        })
+      } catch (err) {
+        console.warn('[org-scope:cache] write failed', err)
+      }
+    }
+
+    return baseScope
   }
 
-  return baseScope
+  if (requestMemo && cacheKey) {
+    const pending = resolveScope()
+    requestMemo.set(cacheKey, pending)
+    return pending
+  }
+
+  return resolveScope()
 }
 
 export type FeatureCheckContext = {
