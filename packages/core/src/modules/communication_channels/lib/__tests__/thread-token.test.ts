@@ -47,7 +47,8 @@ describe('thread-token', () => {
     it('verifyToken rejects a token tampered in the random portion', () => {
       const token = generateToken()
       // Mutate the random part by flipping one character.
-      const tampered = `${token.slice(0, 5)}A${token.slice(6)}`
+      const replacement = token[5] === 'A' ? 'B' : 'A'
+      const tampered = `${token.slice(0, 5)}${replacement}${token.slice(6)}`
       expect(verifyToken(tampered)).toBe(false)
     })
 

@@ -117,7 +117,7 @@ describe('inbox_ops userHasFeature super-admin gate', () => {
     )
   })
 
-  it('short-circuits to true for an empty feature requirement', async () => {
+  it('fails closed for an empty feature requirement', async () => {
     const ctx = makeContext(
       {
         sub: 'user-1',
@@ -131,7 +131,7 @@ describe('inbox_ops userHasFeature super-admin gate', () => {
 
     const allowed = await userHasFeature(ctx, '')
 
-    expect(allowed).toBe(true)
+    expect(allowed).toBe(false)
     expect(rbac.userHasAllFeatures).not.toHaveBeenCalled()
   })
 })
