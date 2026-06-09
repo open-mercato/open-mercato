@@ -1,0 +1,245 @@
+---
+title: MCP Server (Claude Code & external clients)
+description: Connect Claude Code or any MCP client to Open Mercato's tools — server modes, setup, what's exposed, reaching API endpoints, tools vs agents, extending, and troubleshooting.
+---
+
+# MCP Server
+
+Open Mercato ships an **MCP (Model Context Protocol) server** that exposes your tenant's tools to an external AI client — [Claude Code](https://claude.com/claude-code), the MCP Inspector, or any MCP-compatible client — over HTTP. Point the client at a running Open Mercato server and it can discover and call your tools, scoped to an API key's permissions.
+
+:::note Two complementary AI surfaces
+This is the **client-facing** MCP entry point. It is distinct from the in-app **AI Framework** (typed agents, mutation approvals, `<AiChat>`) documented in [AI Framework Overview](./overview.mdx). The MCP server serves **tools**; agents are a separate in-app surface (see the "Tools vs agents" note below).
+:::
+
+## Setup & connecting Claude Code
+
+The MCP server exposes Open Mercato's tools to an external AI client — Claude Code, MCP Inspector, or any MCP-compatible client — over HTTP using the MCP StreamableHTTP transport. Point Claude Code at a running Open Mercato dev server and it can call your tenant's tools directly.
+
+### Two server modes
+
+The server runs in one of two modes depending on how you intend to use it:
+
+| | **Dev** (`yarn mcp:dev`) | **Production** (`yarn mcp:serve`) |
+|---|---|---|
+| Alias for | `mercato ai_assistant mcp:dev` | `mercato ai_assistant mcp:serve-http` |
+| Use for | Claude Code / local testing | In-app web chat |
+| Port | **3001** (override with `MCP_DEV_PORT`) | — |
+| Endpoint | `http://localhost:3001/mcp` | — |
+| Health | `http://localhost:3001/health` | — |
+| Auth | A single API key, read **once** at startup | Two-tier: server key + per-user session tokens, checked per tool call |
+| Key source | `.mcp.json` → `mcpServers.open-mercato.headers.x-api-key` (no env fallback) | `MCP_SERVER_API_KEY` env var + session tokens |
+
+:::note
+You do **not** need `MCP_SERVER_API_KEY` for `mcp:dev`. The `MCP_SERVER_API_KEY not set` message on the in-app AI Assistant **Settings page** is only a status badge for the production/web-chat path — it does **not** block Claude Code connecting via `mcp:dev`.
+:::
+
+### How ACL gates which tools appear
+
+The dev server filters the available tools by the API key's ACL **at startup**. The key's roles and features decide which tools are visible:
+
+- A key with **no** roles or features sees **only** the `context_whoami` tool — the one tool with no required features.
+- Bind the key to a role like `admin` (which aggregates every module's `<module>.*` grants) so all tools appear.
+- Wildcard grants (`module.*`, `*`) satisfy concrete required features.
+
+### Setup steps
+
+1. **Create an API key.** Via the CLI:
+
+   ```bash
+   yarn mercato api_keys add --name claude-code \
+     --tenantId <tenant-uuid> \
+     --organizationId <org-uuid> \
+     --roles admin
+   ```
+
+   This prints a secret like `omk_<prefix>.<secret>` **once** — store it immediately. You can also create or edit keys in the app UI under **Settings → API Keys**.
+
+2. **Write `.mcp.json`.** Place it at your project root, where Claude Code auto-discovers it. The same file serves two purposes: it tells Claude Code how to connect, and the dev server reads its own API key from it.
+
+   ```json
+   {
+     "mcpServers": {
+       "open-mercato": {
+         "type": "http",
+         "url": "http://localhost:3001/mcp",
+         "headers": { "x-api-key": "omk_your_key_here" }
+       }
+     }
+   }
+   ```
+
+3. **Start the dev server.**
+
+   ```bash
+   yarn mcp:dev
+   ```
+
+   The server authenticates once at startup using the `x-api-key` from `.mcp.json` and filters tools by that key's ACL.
+
+   :::tip
+   Some tools — the `execute` Code Mode tool and the API-backed module tools — call back into the running Next.js app over HTTP (base URL defaults to `http://localhost:3000`). For those to work, also run `yarn dev` in a separate terminal. The `context_whoami` and `search` tools do **not** need the app running.
+   :::
+
+4. **Connect in Claude Code.** Run `/mcp` to approve and trust the project server. After editing `.mcp.json` or restarting the server, restart Claude Code or reconnect via `/mcp`.
+
+5. **Verify connectivity.**
+
+   ```bash
+   curl http://localhost:3001/health
+   ```
+
+   A healthy server returns:
+
+   ```json
+   {"status":"ok","mode":"development","tools":N,...}
+   ```
+
+:::warning
+**Zero-features pitfall:** if your API key has no roles or features, the server starts fine but exposes **only** `context_whoami` — every other tool silently disappears. If Claude Code sees just one tool, your key is missing grants. Bind it to a role such as `admin` (or a role with the relevant `<module>.*` wildcard grants) and reconnect.
+:::
+
+## What's available & how to use it
+
+After a correct setup with an `admin`-scoped API key, the MCP server exposes **70 tools** total, organized into three groups. The key thing to internalize: MCP serves **tools**, and any documented API route is reachable through the Code Mode meta-tools — you do not get one MCP tool per route, and you do not connect to agents over MCP.
+
+| Group | Tools | Required feature | What it does |
+|-------|-------|------------------|--------------|
+| **Built-in context** | `context_whoami` | none | Returns the current auth context — `tenantId`, `organizationId`, `userId`, `isSuperAdmin`, and the granted features. Use it to confirm your scope. |
+| **Code Mode meta-tools** | `search`, `execute` | `ai_assistant.view` | Discover and call the full API surface from JavaScript (see below). |
+| **Module tool packs** | 67 typed tools | per-tool `requiredFeatures` | Typed `defineAiTool` tools such as `customers.list_people`, `customers.list_companies`, `customers.list_deals`, `catalog.list_products`, `catalog.list_offers`, `catalog.search_products`, `search.hybrid_search`, `search.get_record_context`, `attachments.list_record_attachments`, `attachments.read_attachment`, `meta.list_agents`, `meta.describe_agent`, and more. |
+
+Each module tool declares its own `requiredFeatures`, so a tool appears only if the API key's ACL covers it. In dev the tool list is filtered by the key's features at startup; in production each call is checked. Wildcard grants (`module.*`, `*`) match concrete required features.
+
+### Reaching any API endpoint
+
+The boot log line `Registered N API route manifests for API-backed tools` refers to an **internal** registry that API-backed tools (like `customers.list_companies`) use to call documented routes in-process. Those ~500+ routes are **not** exposed as hundreds of individual MCP tools.
+
+To reach **any** endpoint from MCP, use the two Code Mode meta-tools — `search` to discover, `execute` to call:
+
+1. **`search`** — the AI writes a JavaScript arrow function that queries the OpenAPI `spec` (paths + entity schemas) to discover endpoints and shapes:
+
+   ```js
+   search({ code: 'async () => Object.keys(spec.paths).filter(p => p.includes("customer"))' })
+   ```
+
+2. **`execute`** — the AI writes JS that calls `api.request({ method, path, query, body })` against the live app to read or write data:
+
+   ```js
+   execute({ code: 'async () => api.request({ method: "GET", path: "/api/customers/companies", query: { city: "New York" } })' })
+   ```
+
+`execute` runs in a `node:vm` sandbox: `fetch`, `require`, `process`, and `fs` are blocked, there is a 30-second timeout, and a maximum of 50 API calls per execution. Between `search` and `execute`, the entire documented API surface is reachable from MCP — via code, not via one-tool-per-route.
+
+:::note Tools vs agents
+
+MCP serves **tools, not agents**. The typed AI agents (`defineAiAgent` definitions such as `catalog.catalog_assistant`, `catalog.merchandising_assistant`, and the customers agents) are a **separate in-app surface** served by the Next.js app at `POST /api/ai_assistant/ai/chat?agent=<module>.<agent>` and listed at `GET /api/ai_assistant/ai/agents`. The MCP server does **not** expose agents as a connectable surface — you cannot "run an agent" end-to-end over MCP.
+
+You can still **see** the agent catalog from within MCP: `meta.list_agents` enumerates the agents the caller is allowed to invoke, and `meta.describe_agent` returns an agent's details. And because every tool an agent is allowed to call is itself in the MCP tool list, an MCP client already has the full underlying toolset — just not the agent orchestration layer.
+
+:::
+
+## Extending the MCP server
+
+There are two ways to add tools that become available over MCP.
+
+### 1. Typed tool packs (preferred)
+
+Define the tool with `defineAiTool` from `@open-mercato/ai-assistant` inside a module's `ai-tools/` directory and export it from the module's `ai-tools.ts`. These typed tools are also what AI agents reference in their `allowedTools`.
+
+```ts
+import { z } from 'zod'
+import { defineAiTool } from '@open-mercato/ai-assistant'
+
+export const archiveCustomer = defineAiTool({
+  name: 'customers.archive_customer',
+  description: 'Archive a customer by id.',
+  inputSchema: z.object({
+    customerId: z.string().uuid(),
+    reason: z.string().optional(),
+  }),
+  requiredFeatures: ['customers.manage'],
+  isMutation: true,
+  async handler(input, ctx) {
+    const result = await ctx.someService.archive(input.customerId, input.reason)
+    return { archived: true, customerId: result.id }
+  },
+})
+```
+
+A typed tool requires:
+
+- `name` — namespaced like `mymodule.do_thing`.
+- `description`.
+- `inputSchema` — a Zod schema.
+- `requiredFeatures` — an array of ACL feature ids.
+- `isMutation` — `true` for writes.
+- `handler(input, ctx)` — an async function returning a serializable object.
+
+### 2. Low-level `registerMcpTool`
+
+For a directly-registered MCP tool, call:
+
+```ts
+registerMcpTool(
+  {
+    name: 'mymodule.do_thing',
+    description: 'Do the thing.',
+    inputSchema: z.object({ id: z.string().uuid() }),
+    requiredFeatures: ['mymodule.manage'],
+    handler: async (input) => ({ ok: true }),
+  },
+  { moduleId: 'mymodule' },
+)
+```
+
+### MUST rules when adding a tool
+
+- Set `requiredFeatures` for anything that reads or writes tenant data — never leave it empty for data tools.
+- Use Zod for `inputSchema` — never raw JSON Schema.
+- Return a serializable object from the handler.
+- Route every mutation through the mutation-approval path (`prepareMutation`).
+- Add the feature ids to the module's `acl.ts` and grant them in `setup.ts` `defaultRoleFeatures`.
+
+After adding or changing tools, run `yarn generate` (so the generated tool registry picks them up) and restart the MCP server.
+
+:::note
+The API key's ACL still gates visibility — a new tool only appears for keys whose roles grant its `requiredFeatures`.
+:::
+
+### API-backed tools
+
+API-backed tools are built with `defineApiBackedAiTool`, which wraps a documented API route.
+
+:::warning Coverage rule (enforced fail-closed)
+The tool's `requiredFeatures` MUST be a **superset** of the underlying route's `requireFeatures`. If they don't cover it, the operation runner rejects the call with:
+
+```
+AI tool "<name>" requiredFeatures do not cover route <METHOD> <path> requiredFeatures
+```
+
+Fix it by adding the route's feature(s) to the tool — **never** by weakening the route.
+:::
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Only `context_whoami` is listed (just 1 tool) | The API key has no roles/features, so RBAC strips every tool that requires features | Bind the key to a role like `admin` (CLI `--roles admin` or via Settings → API Keys) and reconnect |
+| `Tool error: AI tool "<name>" requiredFeatures do not cover route GET <path> requiredFeatures` | An API-backed tool declares fewer features than the route it calls | Add the route's required feature(s) to the tool's `requiredFeatures` |
+| `Operation runner manifest unavailable: No API route manifest registered` | The standalone server didn't register the API route manifest | Ensure you are on a build where the MCP boot registers it; update or rebuild if missing |
+| `ERR_MODULE_NOT_FOUND: Cannot find package '@/.mercato' …` then `Registered 0 module-contributed AI tools` (historical) | The generated registry was imported through the Next.js-only `@/` path alias, which a standalone Node process can't resolve | Update to a build where the loader resolves the generated registry from disk for standalone servers |
+| `MCP_SERVER_API_KEY not set` badge in the app | Only concerns the production `mcp:serve` / in-app web-chat path | Ignore it for `mcp:dev` + Claude Code; set `MCP_SERVER_API_KEY` only if you run `yarn mcp:serve` |
+| `execute` / API-backed tools fail to reach data | The Next.js app isn't running | Run `yarn dev` (the app on port 3000; override the base URL via `APP_URL` / `NEXT_PUBLIC_APP_URL`) |
+| Claude Code doesn't see updated tools after a change | Stale server or stale connection | `yarn generate`, restart `yarn mcp:dev`, then reconnect via `/mcp` in Claude Code |
+
+### Notes
+
+- **Only one tool listed?** This almost always means the API key carries no features. `context_whoami` has no `requiredFeatures`, so it survives RBAC filtering while every data tool is stripped. Grant the key a role and reconnect.
+- **Manifest / module-not-found errors** are build-level problems with the standalone server, not configuration mistakes — the fix is to update or rebuild to a version where the MCP boot registers the API route manifest and resolves the generated registry from disk. A healthy boot log shows `Registered N API route manifests for API-backed tools`.
+- **`MCP_SERVER_API_KEY`** is unrelated to the `mcp:dev` + Claude Code workflow. It only matters for the production `yarn mcp:serve` path and the in-app web chat.
+
+:::tip Verify the connection
+- `curl http://localhost:3001/health` checks the server is up.
+- In Claude Code, `/mcp` shows the current connection state.
+- `yarn mercato ai_assistant mcp:list-tools --verbose` lists all registered tools and their required features.
+:::
