@@ -80,7 +80,11 @@ test.describe('TC-ONBOARDING-EMAIL-001: Onboarding emails use system channel', (
       await markOnboardingReady(onboardingEmail, scope.tenantId, scope.organizationId, scope.userId)
       await clearCapturedSystemEmails(request, token)
 
-      const status = await request.get(`/api/onboarding/onboarding/status?tenantId=${encodeURIComponent(scope.tenantId)}`)
+      const status = await request.get(`/api/onboarding/onboarding/status?tenantId=${encodeURIComponent(scope.tenantId)}`, {
+        headers: {
+          cookie: `om_login_tenant=${encodeURIComponent(scope.tenantId)}`,
+        },
+      })
       expect(status.status()).toBe(200)
       const readyEmail = await waitForCapturedSystemEmail(
         request,
