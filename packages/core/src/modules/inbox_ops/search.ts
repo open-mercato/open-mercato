@@ -4,6 +4,7 @@ import type {
   SearchResultPresenter,
   SearchIndexSource,
 } from '@open-mercato/shared/modules/search'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 type SearchContext = SearchBuildContext & {
   tenantId: string
@@ -30,6 +31,14 @@ export const searchConfig: SearchModuleConfig = {
         const record = ctx.record
         if (!record.summary) return null
 
+        const { t } = await resolveTranslations()
+        const confidence = String(record.confidence ?? '')
+        const status = String(record.status ?? '')
+        const category = record.category ? String(record.category) : ''
+        const subtitle = category
+          ? t('inbox_ops.search.subtitle.templateWithCategory', 'Confidence: {{confidence}} · Status: {{status}} · Category: {{category}}', { confidence, status, category })
+          : t('inbox_ops.search.subtitle.template', 'Confidence: {{confidence}} · Status: {{status}}', { confidence, status })
+
         return {
           text: String(record.summary || ''),
           fields: {
@@ -39,8 +48,8 @@ export const searchConfig: SearchModuleConfig = {
             detected_language: record.detected_language,
           },
           presenter: {
-            title: String(record.summary || 'Inbox Proposal').slice(0, 80),
-            subtitle: `Confidence: ${record.confidence} - Status: ${record.status}${record.category ? ` - Category: ${record.category}` : ''}`,
+            title: String(record.summary || t('inbox_ops.search.fallback.title', 'Inbox Proposal')).slice(0, 80),
+            subtitle,
             icon: 'inbox',
           },
           checksumSource: {
@@ -53,9 +62,16 @@ export const searchConfig: SearchModuleConfig = {
         }
       },
       formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
+        const { t } = await resolveTranslations()
+        const confidence = String(ctx.record.confidence ?? '')
+        const status = String(ctx.record.status ?? '')
+        const category = ctx.record.category ? String(ctx.record.category) : ''
+        const subtitle = category
+          ? t('inbox_ops.search.subtitle.templateWithCategory', 'Confidence: {{confidence}} · Status: {{status}} · Category: {{category}}', { confidence, status, category })
+          : t('inbox_ops.search.subtitle.template', 'Confidence: {{confidence}} · Status: {{status}}', { confidence, status })
         return {
-          title: String(ctx.record.summary || 'Inbox Proposal').slice(0, 80),
-          subtitle: `Confidence: ${ctx.record.confidence} - Status: ${ctx.record.status}${ctx.record.category ? ` - Category: ${ctx.record.category}` : ''}`,
+          title: String(ctx.record.summary || t('inbox_ops.search.fallback.title', 'Inbox Proposal')).slice(0, 80),
+          subtitle,
           icon: 'inbox',
         }
       },
