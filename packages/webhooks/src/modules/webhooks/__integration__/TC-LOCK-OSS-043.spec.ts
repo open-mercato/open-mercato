@@ -247,9 +247,11 @@ test.describe('TC-LOCK-OSS-043: webhooks + inbox settings + data-sync schedule o
       await expect(row, 'created webhook should appear in the list').toBeVisible({ timeout: 20_000 })
 
       // Advance updated_at out-of-band → the in-page row token is now stale.
+      // NOTE: bump description (not name) so the row locator stays valid even if
+      // the list re-fetches after the PUT.
       const bump = await apiRequest(page.request, 'PUT', `${WEBHOOKS_API}/${webhookId}`, {
         token,
-        data: { name: `QA Lock 043 bumped ${stamp}` },
+        data: { description: `bumped-${stamp}` },
       })
       expect(bump.status(), 'out-of-band webhook PUT should succeed').toBeLessThan(300)
 
