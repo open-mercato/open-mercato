@@ -142,26 +142,44 @@ function resolveServerOrigin(req: Request): string {
   throw new CrudHttpError(500, { error: 'Checkout origin is not configured' })
 }
 
-// Origins derived from the request Host / X-Forwarded-Host headers, used only to
-// reject spoofed hosts against the configured allowlist — never to extend it.
-function requestHostOrigins(req: Request): string[] {
-  const requestUrl = new URL(req.url)
-  const hostCandidates = [
-    ...splitHeaderValues(req.headers.get('x-forwarded-host')),
-    ...splitHeaderValues(req.headers.get('host')),
-  ]
-  const protoCandidates = new Set<string>([
-    ...splitHeaderValues(req.headers.get('x-forwarded-proto')),
-    requestUrl.protocol.replace(/:$/, ''),
-  ])
-  const origins: string[] = []
-  for (const host of hostCandidates) {
-    for (const proto of protoCandidates) {
-      const normalized = normalizeConfiguredOrigin(`${proto}://${host}`)
-      if (normalized) origins.push(normalized)
-    }
+// Normalize a host value (bare host, host:port, or full origin) to its authority
+// (`hostname` plus any non-default port), lower-cased. Protocol is intentionally
+// dropped: the gateway-bound URLs are already pinned to the configured origin, so
+// the host guard below only needs to reject foreign hosts — not enforce protocol
+// or internal-upstream-host parity, which would 403 legitimate proxied requests.
+function hostAuthority(value: string): string | null {
+  const candidate = value.includes('://') ? value : `https://${value}`
+  try {
+    const url = new URL(candidate)
+    if (!url.hostname) return null
+    const port = url.port && url.port !== '80' && url.port !== '443' ? `:${url.port}` : ''
+    return `${url.hostname.toLowerCase()}${port}`
+  } catch {
+    return null
   }
-  return origins
+}
+
+function allowedHostAuthorities(allowedOrigins: string[]): Set<string> {
+  const authorities = new Set<string>()
+  for (const origin of allowedOrigins) {
+    const authority = hostAuthority(origin)
+    if (authority) authorities.add(authority)
+  }
+  return authorities
+}
+
+// The externally-asserted host: the proxy-forwarded X-Forwarded-Host when present,
+// otherwise the Host header. The internal upstream Host (and protocol) are ignored
+// so a correctly-proxied request is not rejected for not matching the public origin.
+function requestHostAuthorities(req: Request): string[] {
+  const forwarded = splitHeaderValues(req.headers.get('x-forwarded-host'))
+  const hostValues = forwarded.length > 0 ? forwarded : splitHeaderValues(req.headers.get('host'))
+  const authorities: string[] = []
+  for (const value of hostValues) {
+    const authority = hostAuthority(value)
+    if (authority) authorities.push(authority)
+  }
+  return authorities
 }
 
 function isIdempotencyConflict(error: unknown): boolean {
@@ -266,12 +284,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     const allowedOrigins = buildAllowedOrigins()
     if (allowedOrigins.length > 0) {
       // Reject spoofed Host / X-Forwarded-Host before any business logic runs so
-      // an attacker-controlled host can never flow into gateway-bound URLs.
-      const hostOrigins = requestHostOrigins(req)
+      // an attacker-controlled host can never flow into gateway-bound URLs. Hosts
+      // are matched by authority (protocol-independent) so a correctly TLS-proxied
+      // request — internal http, X-Forwarded-Proto https — is not rejected.
+      const allowedAuthorities = allowedHostAuthorities(allowedOrigins)
+      const hostAuthorities = requestHostAuthorities(req)
       if (
-        hostOrigins.length > 0
-        && !hostOrigins.every((hostOrigin) =>
-          allowedOrigins.some((allowedOrigin) => isAllowedRequestOrigin(hostOrigin, allowedOrigin)))
+        hostAuthorities.length > 0
+        && !hostAuthorities.every((authority) => allowedAuthorities.has(authority))
       ) {
         return NextResponse.json({ error: 'Invalid request host' }, { status: 403 })
       }

@@ -244,6 +244,39 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
     expect(findOneWithDecryption as jest.Mock).not.toHaveBeenCalled()
   })
 
+  it('accepts a correctly TLS-proxied request (internal http upstream, X-Forwarded-Proto https)', async () => {
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(createLink())
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction({ gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
+
+    // Proxy terminated TLS: the upstream connection is plain http to an internal
+    // host, while X-Forwarded-* carry the real public origin (matches APP_URL).
+    const response = await POST(
+      new Request('http://10.0.0.5:3000/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'proxied-key-12345678',
+          'x-forwarded-proto': 'https',
+          'x-forwarded-host': 'merchant.example',
+          host: '10.0.0.5:3000',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(201)
+    expect(mockCreatePaymentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        successUrl: `https://merchant.example/pay/donate/success/${TRANSACTION_ID}`,
+        cancelUrl: `https://merchant.example/pay/donate/cancel/${TRANSACTION_ID}`,
+      }),
+    )
+  })
+
   it('closes the self-pass bypass where a matching spoofed Origin and Host are supplied together', async () => {
     const response = await POST(
       new Request('https://merchant.example/api/checkout/pay/donate/submit', {
