@@ -119,7 +119,7 @@
     "@ai-sdk/google": "^3.0.80",
     "@ai-sdk/mistral": "^3.0.37",
     "@ai-sdk/openai": "^3.0.68",
-    "ai": "^6.0.197",
+    "ai": "^6.0.198",
     "ai-sdk-ollama": "3.8.6",
     "meilisearch": "^0.58.0",
     "pg": "8.21.0",
