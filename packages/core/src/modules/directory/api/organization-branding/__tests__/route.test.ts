@@ -147,6 +147,85 @@ describe('/api/directory/organization-branding', () => {
     })
   })
 
+  it('accepts an internal attachment URL with a query string', async () => {
+    const logoUrl = '/api/attachments/image/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/acme.svg?width=320&height=320'
+    commandBusExecute.mockResolvedValue({ result: makeOrganization({ logoUrl }) })
+
+    const response = await PUT(new Request('http://localhost/api/directory/organization-branding', {
+      method: 'PUT',
+      body: JSON.stringify({ logoUrl }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(commandBusExecute).toHaveBeenCalledWith(
+      'directory.organizations.update',
+      expect.objectContaining({
+        input: {
+          id: organizationId,
+          tenantId,
+          logoUrl,
+        },
+      }),
+    )
+    await expect(response.json()).resolves.toEqual({
+      organizationId,
+      organizationName: 'Acme',
+      tenantId,
+      logoUrl,
+    })
+  })
+
+  it('allows an explicit null logo URL to reset branding', async () => {
+    commandBusExecute.mockResolvedValue({ result: makeOrganization({ logoUrl: null }) })
+
+    const response = await PUT(new Request('http://localhost/api/directory/organization-branding', {
+      method: 'PUT',
+      body: JSON.stringify({ logoUrl: null }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(commandBusExecute).toHaveBeenCalledWith(
+      'directory.organizations.update',
+      expect.objectContaining({
+        input: {
+          id: organizationId,
+          tenantId,
+          logoUrl: null,
+        },
+      }),
+    )
+    await expect(response.json()).resolves.toEqual({
+      organizationId,
+      organizationName: 'Acme',
+      tenantId,
+      logoUrl: null,
+    })
+  })
+
+  it('rejects requests that omit logoUrl', async () => {
+    const response = await PUT(new Request('http://localhost/api/directory/organization-branding', {
+      method: 'PUT',
+      body: JSON.stringify({}),
+    }))
+
+    expect(response.status).toBe(422)
+    expect(commandBusExecute).not.toHaveBeenCalled()
+    const body = await response.json() as { error?: string }
+    expect(body.error).toBe('Enter a valid image URL.')
+  })
+
+  it('rejects malformed JSON instead of resetting branding', async () => {
+    const response = await PUT(new Request('http://localhost/api/directory/organization-branding', {
+      method: 'PUT',
+      body: '{',
+    }))
+
+    expect(response.status).toBe(422)
+    expect(commandBusExecute).not.toHaveBeenCalled()
+    const body = await response.json() as { error?: string }
+    expect(body.error).toBe('Enter a valid image URL.')
+  })
+
   it('rejects malformed logo URLs', async () => {
     const response = await PUT(new Request('http://localhost/api/directory/organization-branding', {
       method: 'PUT',

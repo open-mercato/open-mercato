@@ -170,4 +170,22 @@ describe('OrganizationBrandingPage', () => {
     )
     expect(dispatchEventSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'om:refresh-sidebar' }))
   })
+
+  it('keeps the selected file preview when the file picker is cancelled', async () => {
+    readApiResultOrThrowMock.mockResolvedValueOnce({ ...brandingPayload, logoUrl: null })
+
+    renderWithProviders(<OrganizationBrandingPage />)
+
+    const input = await screen.findByLabelText('Upload logo')
+    const file = new File(['<svg />'], 'acme.svg', { type: 'image/svg+xml' })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() => {
+      expect(screen.getByAltText('Acme logo preview')).toHaveAttribute('src', 'blob:organization-logo-preview')
+    })
+
+    fireEvent.change(input, { target: { files: [] } })
+
+    expect(screen.getByAltText('Acme logo preview')).toHaveAttribute('src', 'blob:organization-logo-preview')
+  })
 })

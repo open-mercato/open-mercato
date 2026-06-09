@@ -19,7 +19,13 @@ jest.mock('next/link', () => {
   ))
 })
 
-jest.mock('next/image', () => (props: any) => <img alt={props.alt} {...props} />)
+jest.mock('next/image', () => {
+  const React = require('react')
+  return (props: any) => {
+    const { unoptimized, ...rest } = props
+    return <img alt={rest.alt} data-unoptimized={unoptimized ? 'true' : 'false'} {...rest} />
+  }
+})
 
 jest.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
@@ -240,10 +246,12 @@ describe('AppShell', () => {
       )
 
       await waitFor(() => {
-        expect(screen.getByAltText('Acme logo')).toHaveAttribute(
+        const logo = screen.getByAltText('Acme logo')
+        expect(logo).toHaveAttribute(
           'src',
           '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.png?width=320',
         )
+        expect(logo).toHaveAttribute('data-unoptimized', 'true')
       })
       expect(screen.getByText('Acme')).toBeInTheDocument()
     } finally {

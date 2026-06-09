@@ -194,7 +194,8 @@ export default function OrganizationBrandingPage() {
                   type="file"
                   accept="image/png,image/jpeg,image/webp,image/svg+xml"
                   onChange={(event) => {
-                    const file = event.currentTarget.files?.[0] ?? null
+                    const file = event.currentTarget.files?.[0]
+                    if (!file) return
                     setSelectedFile(file)
                   }}
                 />

@@ -141,7 +141,22 @@ export async function PUT(req: Request) {
   const resolved = await resolveCurrentOrganization(req)
   if ('response' in resolved) return resolved.response
 
-  const body = await req.json().catch(() => ({}))
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json(
+      { error: resolved.translate('directory.branding.errors.invalidLogoUrl', 'Enter a valid image URL.') },
+      { status: 422 },
+    )
+  }
+  if (!body || typeof body !== 'object' || !Object.prototype.hasOwnProperty.call(body, 'logoUrl')) {
+    return NextResponse.json(
+      { error: resolved.translate('directory.branding.errors.invalidLogoUrl', 'Enter a valid image URL.') },
+      { status: 422 },
+    )
+  }
+
   const parsed = brandingUpdateSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json(
