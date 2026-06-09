@@ -1,5 +1,5 @@
 import { promises as fs } from 'fs'
-import path from 'path'
+import { resolveContainedPath, resolveLegacyPublicRoot } from '../pathContainment'
 import type { StorageDriver, StoreFilePayload, StoredFile, ReadFileResult } from './types'
 
 export class LegacyPublicStorageDriver implements StorageDriver {
@@ -35,12 +35,6 @@ export class LegacyPublicStorageDriver implements StorageDriver {
   }
 
   private resolveAbsolutePath(storagePath: string): string {
-    let safeRelative = storagePath.replace(/^\/*/, '')
-    let prev: string
-    do {
-      prev = safeRelative
-      safeRelative = safeRelative.replace(/\.\.(\/|\\)/g, '')
-    } while (safeRelative !== prev)
-    return path.join(process.cwd(), safeRelative)
+    return resolveContainedPath(process.cwd(), storagePath, resolveLegacyPublicRoot())
   }
 }

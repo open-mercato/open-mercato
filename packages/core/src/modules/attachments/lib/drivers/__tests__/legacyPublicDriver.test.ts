@@ -50,12 +50,14 @@ describe('LegacyPublicStorageDriver', () => {
       expect(mockReadFile).toHaveBeenCalledWith(path.join(process.cwd(), 'public/img.png'))
     })
 
-    it('removes path traversal segments', async () => {
-      await driver.read('', '../../etc/passwd')
+    it('rejects traversal that escapes the public/ root', async () => {
+      await expect(driver.read('', '../../etc/passwd')).rejects.toThrow()
+      expect(mockReadFile).not.toHaveBeenCalled()
+    })
 
-      const calledPath = String(mockReadFile.mock.calls[0][0])
-      expect(calledPath).not.toContain('..')
-      expect(calledPath).toContain(process.cwd())
+    it('rejects a stored path that resolves outside public/', async () => {
+      await expect(driver.read('', '.env')).rejects.toThrow()
+      expect(mockReadFile).not.toHaveBeenCalled()
     })
   })
 
@@ -70,7 +72,7 @@ describe('LegacyPublicStorageDriver', () => {
 
     it('does not throw on ENOENT (best-effort)', async () => {
       mockUnlink.mockRejectedValueOnce(new Error('ENOENT'))
-      await expect(driver.delete('', 'missing.txt')).resolves.not.toThrow()
+      await expect(driver.delete('', 'public/missing.txt')).resolves.not.toThrow()
     })
   })
 
