@@ -207,6 +207,8 @@
   "messages.replyBody": "Respuesta",
   "messages.saveDraft": "Guardar borrador",
   "messages.savingDraft": "Guardando borrador...",
+  "messages.search.badge.message": "Mensaje",
+  "messages.search.fallback.title": "Mensaje",
   "messages.searchPlaceholder": "Buscar mensajes",
   "messages.send": "Enviar",
   "messages.sendViaEmail": "Enviar también por correo",
