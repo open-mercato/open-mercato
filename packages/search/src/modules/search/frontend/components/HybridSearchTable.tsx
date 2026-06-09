@@ -11,6 +11,7 @@ import type { SearchResult, SearchStrategyId } from '@open-mercato/shared/module
 import { cn } from '@open-mercato/shared/lib/utils'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { resolveEntityTypeLabel } from '../lib/entityTypeLabel'
 import {
   getCurrentOrganizationScope,
   subscribeOrganizationScopeChanged,
@@ -60,7 +61,7 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
         const title = resolveRowTitle(item)
         const iconName = item.presenter?.icon
         const Icon = iconName ? resolveIcon(iconName) : null
-        const typeLabel = formatEntityId(item.entityId)
+        const typeLabel = resolveEntityTypeLabel(t, item.entityId)
         const snapshot = item.presenter?.subtitle ?? extractSnapshot(item.metadata)
         const links = normalizeLinks(item.links)
         return (
@@ -158,22 +159,6 @@ function resolveIcon(name?: string): LucideIcon | null {
     return candidate as LucideIcon
   }
   return null
-}
-
-function humanizeSegment(segment: string): string {
-  return segment
-    .split(/[_-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
-}
-
-function formatEntityId(entityId: string): string {
-  if (!entityId.includes(':')) return humanizeSegment(entityId)
-  const [module, entity] = entityId.split(':')
-  const moduleLabel = humanizeSegment(module)
-  const entityLabel = humanizeSegment(entity)
-  return `${moduleLabel} · ${entityLabel}`
 }
 
 function resolveRowTitle(row: Row): string {
