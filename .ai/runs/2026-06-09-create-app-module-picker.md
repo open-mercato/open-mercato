@@ -67,4 +67,4 @@ This run is **docs-only**: the deliverable is the spec file plus this plan. No p
 ### Phase 3: Validate & ship
 
 - [x] 3.1 Docs gate: re-read diff, naming-convention check, link sanity
-- [ ] 3.2 Open PR against develop with labels, run auto-review, post summary
+- [x] 3.2 Open PR against develop with labels, run auto-review, post summary — PR #2871
