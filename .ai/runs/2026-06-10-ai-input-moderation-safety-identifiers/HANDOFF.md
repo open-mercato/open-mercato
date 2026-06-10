@@ -1,28 +1,28 @@
 # Handoff — 2026-06-10-ai-input-moderation-safety-identifiers
 
-**Last updated:** 2026-06-10T12:52:09Z
-**Branch:** feat/ai-input-moderation-safety-identifiers
-**PR:** not yet opened
-**Current phase/step:** Phase 1 Step 1.1 (not started)
-**Last commit:** (seed) docs(runs): add execution plan
+**Last updated:** 2026-06-10T13:17:27Z
+**Branch:** feat/ai-input-moderation-safety-identifiers (pushed to `fork`)
+**PR:** not yet opened (opens after final gate)
+**Current phase/step:** Phase 1 complete (checkpoint 1 green). Next: Phase 2 Step 2.1.
+**Last commit:** f3d4a8d0c — fix(ai-assistant): cast safety-identifier providerOptions to SDK type
 
 ## What just happened
-- Classified as a Spec-implementation run; spec PR #2511 confirmed merged upstream on 2026-06-04 (implementation gate resolved).
-- Mapped all code seams (shared contract, adapters, runtime, model-factory, di, events, entities, settings route, chat SSE path, AiChat, i18n, migrations).
-- Created isolated worktree from `origin/develop`, installed deps (Node 24).
+- Phase 1 (safety identifiers) landed: shared contract additive members (1.1), HMAC helper (1.2), OpenAI/Anthropic adapter mappings + OpenAI moderation flag (1.3), runtime threading via providerOptions (1.4), SDK-type cast fix (1.4-fix).
+- Checkpoint 1: shared 46 tests + ai-assistant 138 tests pass; `yarn generate` + full `yarn typecheck` clean (21/21). See `checkpoint-1-checks.md`.
 
 ## Next concrete action
-- Start Step 1.1: extend `LlmCreateModelOptions` + `LlmProvider` in `packages/shared/src/lib/ai/llm-provider.ts` with the three additive optional members; add contract unit tests.
+- Step 2.1: implement `ModerationService` in `lib/moderation.ts` (OpenAI `/v1/moderations` client, zod-parsed response, timeout+retry), typed `AiModerationBlockedError` + `AiModerationUnavailableError`, register in `di.ts`; unit tests with mocked HTTP (flagged/clean/timeout/5xx).
 
 ## Blockers / open questions
 - none
 
 ## Environment caveats
-- Dev runtime runnable: unknown (will attempt at first UI-touching checkpoint; Phase 1–2 are pure logic + tests)
-- Playwright / browser checks: deferred to Phase 3 UI checkpoints
+- Dev runtime runnable: unknown (Phase 2 still pure logic + tests; first UI/Playwright at Phase 3 checkpoints)
+- Playwright / browser checks: deferred to Phase 3
 - Database/migration state: clean; migration generated in Step 3.1 (no `yarn db:migrate` locally)
-- Node 24 required for build/generate/typecheck/test (`/home/bernard/.nvm/versions/node/v24.16.0/bin`)
-- Fork workflow: push to `fork`, PR to upstream `develop`; labels/reviews degrade to comments-only
+- Node 24 required for build/generate/typecheck/test. Fresh worktree needs `yarn generate` before typecheck (proven this checkpoint — sync-akeneo barrel error).
+- ai-assistant has no local `jest` bin in node_modules/.bin — run `../../node_modules/.bin/jest --config jest.config.cjs <pattern>` from the package dir.
+- Fork workflow: push to `fork`, PR to upstream `develop`; labels/reviews comments-only.
 
 ## Worktree
 - Path: /home/bernard/workspace/OpenMercatoTest/.ai/tmp/auto-create-pr/ai-input-moderation-safety-identifiers-20260610-145153

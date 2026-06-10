@@ -7,3 +7,9 @@
 - External skill URLs: none
 - Spec status: merged upstream (PR #2511, issue #2510) on 2026-06-04 — implementation gate resolved.
 - Mode: Spec-implementation run; 17 steps across 3 phases. Fork workflow (push `fork`, PR upstream `develop`, labels/reviews comments-only).
+
+## 2026-06-10T13:17:27Z — checkpoint 1 (Phase 1 complete)
+- Steps 1.1..1.4 + 1.4-fix landed (SHA range 18962f889..f3d4a8d0c).
+- Validation: shared 46 + ai-assistant 138 unit tests pass; `yarn generate` + full `yarn typecheck` clean (21/21).
+- Decision: checkpoint typecheck surfaced `providerOptions: Record<string,unknown>` not assignable to AI SDK `SharedV2ProviderOptions` at streamText/ToolLoopAgent call sites → fixed forward as Step 1.4-fix (`as never` cast, matching existing file style). No per-step UI in this window (pure contract + runtime logic), so no Playwright pass.
+- Backfill pattern adopted for the Commit column (no `--amend`): each step's real SHA is recorded in the following step's commit to avoid the amend-rewrites-SHA mismatch seen on step 1.1.
