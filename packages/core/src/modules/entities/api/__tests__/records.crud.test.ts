@@ -32,6 +32,7 @@ const mockDataEngine = {
 
 const mockRbac = {
   resolveVisibleOrganizations: jest.fn(async () => ['org']),
+  loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: [], organizations: null })),
 }
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({

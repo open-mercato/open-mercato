@@ -59,6 +59,27 @@ function createServiceContext(
     verifiedAt?: Date | null
   }> = []
 
+  const execute = jest.fn(async (sql: string, params: unknown[]) => {
+    if (sql.startsWith('UPDATE mfa_challenges SET attempts = attempts + 1')) {
+      const [id, maxAttempts] = params as [string, number]
+      const challenge = challenges.find((item) => item.id === id)
+      if (!challenge || challenge.verifiedAt || challenge.attempts >= maxAttempts) {
+        return []
+      }
+      challenge.attempts += 1
+      return [{ attempts: challenge.attempts }]
+    }
+    if (sql.startsWith('UPDATE mfa_challenges SET expires_at')) {
+      const [expiresAt, id] = params as [Date, string]
+      const challenge = challenges.find((item) => item.id === id)
+      if (challenge) {
+        challenge.expiresAt = expiresAt
+      }
+      return []
+    }
+    return []
+  })
+
   const em = {
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({
       id: `challenge-${challenges.length + 1}`,
@@ -75,6 +96,7 @@ function createServiceContext(
       challenges.push(challenge)
     }),
     flush: jest.fn().mockResolvedValue(undefined),
+    getConnection: jest.fn(() => ({ execute })),
     find: jest.fn(async () => methods),
     findOne: jest.fn(async (_entity: unknown, query: Record<string, unknown>) => {
       if ('id' in query && 'userId' in query) {
@@ -296,6 +318,82 @@ describe('MfaVerificationService', () => {
       name: 'MfaVerificationServiceError',
       statusCode: 400,
       message: 'MFA challenge already verified',
+    })
+  })
+
+  test('verifyChallenge increments attempts atomically via a conditional UPDATE', async () => {
+    const { service, challenges, em, registry } = createServiceContext()
+    const provider = registry.get('totp')
+    if (!provider) {
+      throw new Error('Expected TOTP provider to be registered')
+    }
+    provider.verify = jest.fn(async () => false)
+    const created = await service.createChallenge('user-1')
+
+    await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' })
+
+    expect(challenges[0].attempts).toBe(1)
+    const execute = em.getConnection().execute as jest.Mock
+    expect(execute).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE mfa_challenges SET attempts = attempts + 1'),
+      [created.challengeId, defaultSecurityModuleConfig.mfa.maxAttempts],
+    )
+  })
+
+  test('verifyChallenge never advances attempts past the cap and locks out', async () => {
+    const { service, challenges, registry } = createServiceContext({
+      ...defaultSecurityModuleConfig,
+      mfa: {
+        ...defaultSecurityModuleConfig.mfa,
+        maxAttempts: 3,
+      },
+    })
+    const provider = registry.get('totp')
+    if (!provider) {
+      throw new Error('Expected TOTP provider to be registered')
+    }
+    provider.verify = jest.fn(async () => false)
+    const created = await service.createChallenge('user-1')
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      try {
+        await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' })
+      } catch {
+        // After lockout the challenge is expired and getValidChallenge rejects further attempts.
+      }
+    }
+
+    expect(challenges[0].attempts).toBe(3)
+    expect(challenges[0].expiresAt.getTime()).toBeLessThanOrEqual(Date.now())
+  })
+
+  test('verifyChallenge rejects a method type disallowed by the enforcement policy', async () => {
+    const { service, mfaEnforcementService } = createServiceContext()
+    const created = await service.createChallenge('user-1')
+    mfaEnforcementService.getEffectivePolicyForUser.mockResolvedValue({
+      id: 'policy-1',
+      isEnforced: true,
+      allowedMethods: ['passkey'],
+    })
+
+    await expect(service.verifyChallenge(created.challengeId, 'totp', { code: '123456' })).rejects.toMatchObject({
+      name: 'MfaVerificationServiceError',
+      statusCode: 403,
+    })
+  })
+
+  test('prepareChallenge rejects a method type disallowed by the enforcement policy', async () => {
+    const { service, mfaEnforcementService } = createServiceContext()
+    const created = await service.createChallenge('user-1')
+    mfaEnforcementService.getEffectivePolicyForUser.mockResolvedValue({
+      id: 'policy-1',
+      isEnforced: true,
+      allowedMethods: ['passkey'],
+    })
+
+    await expect(service.prepareChallenge(created.challengeId, 'totp')).rejects.toMatchObject({
+      name: 'MfaVerificationServiceError',
+      statusCode: 403,
     })
   })
 

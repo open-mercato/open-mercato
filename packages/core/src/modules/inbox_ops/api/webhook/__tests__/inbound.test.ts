@@ -48,17 +48,21 @@ jest.mock('@open-mercato/core/modules/inbox_ops/lib/rateLimiter', () => ({
 
 const WEBHOOK_SECRET = 'test-webhook-secret'
 
-function makeSignature(body: string, timestamp: string) {
-  const expected = createHmac('sha256', WEBHOOK_SECRET)
+function makeSignatureWith(secret: string, body: string, timestamp: string) {
+  const expected = createHmac('sha256', secret)
     .update(`${timestamp}.${body}`)
     .digest('hex')
   return `sha256=${expected}`
 }
 
-function makeSignedRequest(payload: Record<string, unknown>) {
+function makeSignature(body: string, timestamp: string) {
+  return makeSignatureWith(WEBHOOK_SECRET, body, timestamp)
+}
+
+function makeSignedRequestWith(secret: string, payload: Record<string, unknown>) {
   const body = JSON.stringify(payload)
   const timestamp = String(Math.floor(Date.now() / 1000))
-  const signature = makeSignature(body, timestamp)
+  const signature = makeSignatureWith(secret, body, timestamp)
 
   return new Request('http://localhost/api/inbox_ops/webhook/inbound', {
     method: 'POST',
@@ -70,6 +74,10 @@ function makeSignedRequest(payload: Record<string, unknown>) {
     },
     body,
   })
+}
+
+function makeSignedRequest(payload: Record<string, unknown>) {
+  return makeSignedRequestWith(WEBHOOK_SECRET, payload)
 }
 
 const validPayload = {
@@ -313,5 +321,94 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
     expect(response.status).toBe(429)
     expect(result.error).toContain('Rate limit')
     expect(response.headers.get('Retry-After')).toBe('30')
+  })
+
+  it('keys the pre-DB global bucket on the secret, not the per-request signature (issue #2698)', async () => {
+    // Regression: keying the global bucket on the mutable per-request signature
+    // would mint a fresh bucket for every request (different body/timestamp), so
+    // the throttle could never accumulate. The key must be request-invariant for
+    // a fixed signing secret so a flood with a rotating body is still capped.
+    const { checkRateLimit } = jest.requireMock('@open-mercato/core/modules/inbox_ops/lib/rateLimiter') as {
+      checkRateLimit: jest.Mock
+    }
+    mockFindOneWithDecryption.mockResolvedValue(null)
+
+    await POST(makeSignedRequest({ ...validPayload, subject: 'first body variant' }))
+    await POST(makeSignedRequest({ ...validPayload, subject: 'second different body' }))
+
+    const customGlobalKeys = checkRateLimit.mock.calls
+      .map((call) => call[1] as string)
+      .filter((key) => key.startsWith('webhook:secret:'))
+
+    expect(customGlobalKeys.length).toBe(2)
+    expect(customGlobalKeys[0]).toBe(customGlobalKeys[1])
+  })
+
+  describe('per-tenant webhook secret binding (issue #2698)', () => {
+    const TENANT_SECRET = 'per-tenant-secret-abcdefabcdef'
+    const settingsWithSecret = { ...mockSettings, webhookSecret: TENANT_SECRET }
+
+    it('rejects the GLOBAL secret when the target inbox has its own secret', async () => {
+      // Settings (with a per-tenant secret) resolve fine, but the request was
+      // signed with the global secret — it must NOT be accepted for this inbox.
+      mockFindOneWithDecryption.mockResolvedValueOnce(settingsWithSecret)
+
+      const response = await POST(makeSignedRequestWith(WEBHOOK_SECRET, validPayload))
+      const result = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(result.error).toContain('Invalid signature')
+      expect(mockEm.create).not.toHaveBeenCalled()
+    })
+
+    it('accepts a signature made with the inbox-specific secret', async () => {
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(settingsWithSecret) // settings found
+        .mockResolvedValueOnce(null) // no dup by messageId
+        .mockResolvedValueOnce(null) // no dup by contentHash
+
+      const response = await POST(makeSignedRequestWith(TENANT_SECRET, validPayload))
+      const result = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(result.ok).toBe(true)
+      expect(mockEm.create).toHaveBeenCalled()
+    })
+
+    it('still accepts the global secret when the inbox has no per-tenant secret', async () => {
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(mockSettings) // no webhookSecret on this inbox
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+
+      const response = await POST(makeSignedRequestWith(WEBHOOK_SECRET, validPayload))
+      const result = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(result.ok).toBe(true)
+      expect(mockEm.create).toHaveBeenCalled()
+    })
+
+    it('returns silent 200 for an unknown inbox only when the global signature is valid', async () => {
+      mockFindOneWithDecryption.mockResolvedValueOnce(null) // no settings for this `to`
+
+      const response = await POST(makeSignedRequestWith(WEBHOOK_SECRET, validPayload))
+      const result = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(result.ok).toBe(true)
+      expect(mockEm.create).not.toHaveBeenCalled()
+    })
+
+    it('rejects a bogus-secret signature for an unknown inbox (no probe oracle)', async () => {
+      mockFindOneWithDecryption.mockResolvedValueOnce(null)
+
+      const response = await POST(makeSignedRequestWith('attacker-guessed-secret-xyz', validPayload))
+      const result = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(result.error).toContain('Invalid signature')
+      expect(mockEm.create).not.toHaveBeenCalled()
+    })
   })
 })

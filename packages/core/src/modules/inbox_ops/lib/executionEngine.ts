@@ -452,7 +452,12 @@ async function resolveUnknownContactDiscrepanciesInProposal(
 
 async function ensureUserCanExecuteAction(action: InboxProposalAction, ctx: ExecutionContext): Promise<void> {
   const requiredFeature = getRequiredFeatureForAction(action)
-  if (!requiredFeature) return
+  if (!requiredFeature || requiredFeature.trim().length === 0) {
+    throw new ExecutionError(
+      `No required feature is mapped for action type "${action.actionType}"; refusing to execute`,
+      403,
+    )
+  }
 
   const rbacService = ctx.container.resolve('rbacService') as {
     userHasAllFeatures: (

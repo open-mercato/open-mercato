@@ -114,4 +114,39 @@ describe('createApiKeyAuthCache', () => {
     cache.setMiss('')
     expect(cache.get('')).toBeUndefined()
   })
+
+  it('never retains the plaintext secret as a cache key (success and miss paths)', () => {
+    const clock = fakeClock()
+    const cache = createApiKeyAuthCache({ successTtlMs: 60_000, negativeTtlMs: 5_000, now: clock.now })
+    const liveSecret = 'sk_live_0123456789abcdef'
+    const badGuess = 'sk_live_brute_force_guess'
+
+    cache.setSuccess(liveSecret, sampleAuth, null)
+    cache.setMiss(badGuess)
+
+    expect(cache.get(liveSecret)).toEqual(sampleAuth)
+    expect(cache.get(badGuess)).toBeNull()
+
+    const storedKeys = cache.inspectEntryKeysForTests()
+    expect(storedKeys.length).toBe(2)
+    for (const key of storedKeys) {
+      expect(key).not.toContain(liveSecret)
+      expect(key).not.toContain(badGuess)
+      expect(key).toMatch(/^[0-9a-f]{32}$/)
+    }
+  })
+
+  it('uses an independent per-cache key so the same secret fingerprints differently across caches', () => {
+    const clock = fakeClock()
+    const secret = 'sk_live_shared_secret'
+    const cacheA = createApiKeyAuthCache({ successTtlMs: 60_000, now: clock.now })
+    const cacheB = createApiKeyAuthCache({ successTtlMs: 60_000, now: clock.now })
+
+    cacheA.setSuccess(secret, sampleAuth, null)
+    cacheB.setSuccess(secret, sampleAuth, null)
+
+    expect(cacheA.get(secret)).toEqual(sampleAuth)
+    expect(cacheB.get(secret)).toEqual(sampleAuth)
+    expect(cacheA.inspectEntryKeysForTests()[0]).not.toBe(cacheB.inspectEntryKeysForTests()[0])
+  })
 })

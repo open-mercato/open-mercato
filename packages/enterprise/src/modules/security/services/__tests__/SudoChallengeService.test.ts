@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ChallengeMethod, SudoChallengeConfig } from '../../data/entities'
@@ -39,6 +40,21 @@ type SessionRecord = {
 }
 
 const mockedFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+
+function getSudoTestSecret(): string {
+  return process.env.OM_SECURITY_SUDO_SECRET
+    ?? process.env.AUTH_JWT_SECRET
+    ?? process.env.JWT_SECRET
+    ?? 'open-mercato-sudo-secret'
+}
+
+function signSudoTokenWithPayload(payload: unknown): string {
+  const encodedPayload = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+  const signature = createHmac('sha256', getSudoTestSecret())
+    .update(encodedPayload)
+    .digest('base64url')
+  return `${encodedPayload}.${signature}`
+}
 
 function createServiceContext(
   securityConfig: SecurityModuleConfig = defaultSecurityModuleConfig,
@@ -437,6 +453,99 @@ describe('SudoChallengeService', () => {
 
       await service.deleteConfig('config-a', superAdminScope)
       expect(configs[0].deletedAt).toBeInstanceOf(Date)
+    })
+  })
+
+  describe('signed token payload shape validation', () => {
+    const validPayload = {
+      sid: 'session-shape-1',
+      sub: 'user-1',
+      tid: 'tenant-1',
+      oid: 'org-1',
+      tgt: 'security.sudo.manage',
+      exp: Date.now() + 60_000,
+    }
+
+    function seedMatchingSession(sessions: SessionRecord[], token: string) {
+      sessions.push({
+        id: validPayload.sid,
+        userId: validPayload.sub,
+        tenantId: 'tenant-1',
+        sessionToken: token,
+        challengeMethod: 'password',
+        expiresAt: new Date(Date.now() + 60_000),
+        createdAt: new Date(),
+      })
+    }
+
+    test('rejects an HMAC-valid token whose payload is missing the exp field even when a live session exists', async () => {
+      const { service, sessions } = createServiceContext()
+      const { exp: _exp, ...withoutExp } = validPayload
+      const token = signSudoTokenWithPayload(withoutExp)
+      seedMatchingSession(sessions, token)
+
+      await expect(
+        service.validateToken(token, 'security.sudo.manage', {
+          expectedUserId: 'user-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+      ).resolves.toBe(false)
+    })
+
+    test('rejects an HMAC-valid token whose exp is not numeric even when a live session exists', async () => {
+      const { service, sessions } = createServiceContext()
+      const token = signSudoTokenWithPayload({ ...validPayload, exp: 'not-a-number' })
+      seedMatchingSession(sessions, token)
+
+      await expect(
+        service.validateToken(token, 'security.sudo.manage', {
+          expectedUserId: 'user-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+      ).resolves.toBe(false)
+    })
+
+    test('rejects an HMAC-valid token whose payload is not an object', async () => {
+      const { service } = createServiceContext()
+      const token = signSudoTokenWithPayload('totally-not-a-payload')
+
+      await expect(
+        service.validateToken(token, 'security.sudo.manage', {
+          expectedUserId: 'user-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+      ).resolves.toBe(false)
+    })
+
+    test('rejects an HMAC-valid token whose tid has the wrong type even when a live session exists', async () => {
+      const { service, sessions } = createServiceContext()
+      const token = signSudoTokenWithPayload({ ...validPayload, tid: 42 })
+      seedMatchingSession(sessions, token)
+
+      await expect(
+        service.validateToken(token, 'security.sudo.manage', {
+          expectedUserId: 'user-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+      ).resolves.toBe(false)
+    })
+
+    test('accepts an HMAC-valid token with a well-formed payload and a live session', async () => {
+      const { service, sessions } = createServiceContext()
+      const token = signSudoTokenWithPayload(validPayload)
+      seedMatchingSession(sessions, token)
+
+      await expect(
+        service.validateToken(token, 'security.sudo.manage', {
+          expectedUserId: 'user-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+      ).resolves.toBe(true)
     })
   })
 })

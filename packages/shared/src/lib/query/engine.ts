@@ -42,6 +42,15 @@ type ResolvedCustomFieldSource = {
 
 type ResultRow = Record<string, unknown>
 
+/**
+ * Canonical `module:entity` entity-id shape (both segments snake_case,
+ * starting with a lowercase letter). Used to validate caller-supplied entity
+ * ids at security-sensitive boundaries before they reach table resolution.
+ */
+export const ENTITY_ID_PATTERN = /^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$/
+
+export const isValidEntityIdShape = (value: string): boolean => ENTITY_ID_PATTERN.test(value)
+
 const pluralizeBaseName = (name: string): string => {
   if (!name) return name
   if (name.endsWith('s')) return name
@@ -65,44 +74,64 @@ const candidateClassNames = (rawName: string): string[] => {
   return Array.from(candidates)
 }
 
+/**
+ * Resolve an entity id to a table name strictly via registered MikroORM metadata.
+ *
+ * Unlike {@link resolveEntityTableName}, this never falls back to a pluralized
+ * guess: it returns `null` when no registered entity matches. Use it for
+ * security-sensitive call sites (e.g. the reindexer) that must refuse to read
+ * arbitrary, attacker-chosen tables that happen to exist in the schema.
+ */
+export function resolveRegisteredEntityTableName(
+  em: EntityManager | undefined,
+  entity: EntityId,
+): string | null {
+  const parts = String(entity || '').split(':')
+  const rawName = (parts[1] && parts[1].trim().length > 0) ? parts[1] : (parts[0] || '').trim()
+  const metadata = (em as any)?.getMetadata?.()
+
+  if (!metadata || !rawName) return null
+
+  const candidates = candidateClassNames(rawName)
+  for (const candidate of candidates) {
+    try {
+      const meta = metadata.find?.(candidate)
+      if (meta?.tableName) {
+        return String(meta.tableName)
+      }
+    } catch {}
+  }
+
+  // Secondary lookup: search ORM metadata by candidate table names
+  const modulePrefix = parts[0] ?? ''
+  const candidateTables = [
+    `${modulePrefix}_${rawName}`,
+    pluralizeBaseName(rawName),
+    `${modulePrefix}_${pluralizeBaseName(rawName)}`,
+  ]
+  try {
+    const allMeta: any[] = metadata.getAll?.() ?? []
+    for (const meta of allMeta) {
+      if (meta?.tableName && candidateTables.includes(String(meta.tableName))) {
+        return String(meta.tableName)
+      }
+    }
+  } catch {}
+
+  return null
+}
+
 export function resolveEntityTableName(em: EntityManager | undefined, entity: EntityId): string {
   if (entityTableCache.has(entity)) {
     return entityTableCache.get(entity)!
   }
   const parts = String(entity || '').split(':')
   const rawName = (parts[1] && parts[1].trim().length > 0) ? parts[1] : (parts[0] || '').trim()
-  const metadata = (em as any)?.getMetadata?.()
 
-  if (metadata && rawName) {
-    const candidates = candidateClassNames(rawName)
-    for (const candidate of candidates) {
-      try {
-        const meta = metadata.find?.(candidate)
-        if (meta?.tableName) {
-          const tableName = String(meta.tableName)
-          entityTableCache.set(entity, tableName)
-          return tableName
-        }
-      } catch {}
-    }
-
-    // Secondary lookup: search ORM metadata by candidate table names
-    const modulePrefix = parts[0] ?? ''
-    const candidateTables = [
-      `${modulePrefix}_${rawName}`,
-      pluralizeBaseName(rawName),
-      `${modulePrefix}_${pluralizeBaseName(rawName)}`,
-    ]
-    try {
-      const allMeta: any[] = metadata.getAll?.() ?? []
-      for (const meta of allMeta) {
-        if (meta?.tableName && candidateTables.includes(String(meta.tableName))) {
-          const tableName = String(meta.tableName)
-          entityTableCache.set(entity, tableName)
-          return tableName
-        }
-      }
-    } catch {}
+  const registered = resolveRegisteredEntityTableName(em, entity)
+  if (registered) {
+    entityTableCache.set(entity, registered)
+    return registered
   }
 
   const fallback = pluralizeBaseName(rawName || '')

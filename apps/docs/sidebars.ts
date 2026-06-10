@@ -66,6 +66,11 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Deployment",
+      items: ["deployment/railway"],
+    },
+    {
+      type: "category",
       label: "User Guide",
       items: [
         "user-guide/overview",
@@ -406,6 +411,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/ai-assistant/overview",
             "framework/ai-assistant/architecture",
+            "framework/ai-assistant/mcp",
             "framework/ai-assistant/developer-guide",
             "framework/ai-assistant/agents",
             "framework/ai-assistant/ui-parts",

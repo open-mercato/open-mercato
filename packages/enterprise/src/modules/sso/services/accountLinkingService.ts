@@ -4,6 +4,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { SsoConfig, SsoIdentity, SsoRoleGrant, ScimToken } from '../data/entities'
 import { emitSsoEvent } from '../events'
+import { EmailNotVerifiedError } from '../lib/errors'
 import type { SsoIdentityPayload } from '../lib/types'
 
 export class AccountLinkingService {
@@ -21,7 +22,7 @@ export class AccountLinkingService {
     }
 
     if (idpPayload.emailVerified === false) {
-      throw new Error('IdP explicitly reported email as unverified — cannot link or provision account')
+      throw new EmailNotVerifiedError('IdP explicitly reported email as unverified — cannot link or provision account')
     }
 
     const emailDomain = idpPayload.email.split('@')[1]?.toLowerCase()

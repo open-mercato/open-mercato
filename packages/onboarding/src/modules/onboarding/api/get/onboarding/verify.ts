@@ -1,16 +1,25 @@
-import { after, NextResponse } from 'next/server'
+import { after } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SearchIndexer } from '@open-mercato/search'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
+import {
+  AppOriginConfigurationError,
+  AppOriginRejectedError,
+  getSecurityEmailBaseUrl,
+} from '@open-mercato/shared/lib/url'
 import { onboardingVerifySchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboarding/lib/ready-email'
+import {
+  redirectToLogin,
+  redirectToPreparing,
+  redirectWithStatus,
+} from '@open-mercato/onboarding/modules/onboarding/lib/verify-redirects'
 import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-app'
 import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { computeConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
-import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { resolveConsentClientIp } from '@open-mercato/onboarding/modules/onboarding/lib/consentClientIp'
 import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
 import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
@@ -26,48 +35,19 @@ export const metadata = {
   },
 }
 
-function clearAuthCookies(response: NextResponse) {
-  response.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
-  response.cookies.set('session_token', '', { path: '/', maxAge: 0 })
-  response.cookies.set('om_login_tenant', '', { path: '/', maxAge: 0 })
-}
-
-function redirectWithStatus(baseUrl: string, status: string) {
-  const response = NextResponse.redirect(`${baseUrl}/onboarding?status=${encodeURIComponent(status)}`)
-  clearAuthCookies(response)
-  return response
-}
-
-function redirectToPreparing(baseUrl: string, tenantId: string | null) {
-  const tenantParam = tenantId ? `?tenant=${encodeURIComponent(tenantId)}` : ''
-  const response = NextResponse.redirect(`${baseUrl}/onboarding/preparing${tenantParam}`)
-  clearAuthCookies(response)
-  if (tenantId) {
-    response.cookies.set('om_login_tenant', tenantId, {
-      httpOnly: false,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 14,
-    })
+function resolveTrustedBaseUrl(req: Request): string {
+  try {
+    return getSecurityEmailBaseUrl(req)
+  } catch (error) {
+    if (error instanceof AppOriginRejectedError || error instanceof AppOriginConfigurationError) {
+      console.error('[onboarding.verify] rejected request origin for redirect base', {
+        requestUrl: req.url,
+        reason: error.message,
+      })
+      return new URL(req.url).origin
+    }
+    throw error
   }
-  return response
-}
-
-function redirectToLogin(baseUrl: string, tenantId: string | null) {
-  const tenantParam = tenantId ? `?tenant=${encodeURIComponent(tenantId)}` : ''
-  const response = NextResponse.redirect(`${baseUrl}/login${tenantParam}`)
-  clearAuthCookies(response)
-  if (tenantId) {
-    response.cookies.set('om_login_tenant', tenantId, {
-      httpOnly: false,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 14,
-    })
-  }
-  return response
 }
 
 const VECTOR_REINDEX_ENQUEUE_TIMEOUT_MS = 5_000
@@ -218,7 +198,6 @@ async function rebuildTenantQueryIndexes(args: {
 
 async function runDeferredProvisioning(args: {
   requestId: string
-  baseUrl: string
   tenantId: string
   organizationId: string
 }) {
@@ -256,7 +235,6 @@ async function runDeferredProvisioning(args: {
 
   await sendWorkspaceReadyEmail({
     requestId: args.requestId,
-    baseUrl: args.baseUrl,
     tenantId: args.tenantId,
   }).catch((error) => {
     console.error('[onboarding.verify] ready email failed', {
@@ -289,7 +267,7 @@ async function runDeferredProvisioning(args: {
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
-  const baseUrl = getAppBaseUrl(req)
+  const baseUrl = resolveTrustedBaseUrl(req)
   const token = url.searchParams.get('token') ?? ''
   const parsed = onboardingVerifySchema.safeParse({ token })
   if (!parsed.success) {
@@ -314,7 +292,6 @@ export async function GET(req: Request) {
       after(async () => {
         await sendWorkspaceReadyEmail({
           requestId: request.id,
-          baseUrl,
           tenantId: request.tenantId!,
         }).catch((error) => {
           console.error('[onboarding.verify] retry ready email failed', {
@@ -340,7 +317,20 @@ export async function GET(req: Request) {
   if (request.status !== 'pending') {
     return redirectWithStatus(baseUrl, 'invalid')
   }
-  await service.startProcessing(request, new Date())
+  const claimed = await service.startProcessing(request, new Date())
+  if (!claimed) {
+    // A concurrent verify request already claimed this token (pending → processing).
+    // Re-read on a fresh fork — the request EM's identity map still holds the stale
+    // pre-claim copy — and route off the winner's committed state instead of re-running
+    // provisioning, which would throw USER_EXISTS and could strand the request (#2742).
+    const current = await new OnboardingService(em.fork()).findById(request.id)
+    if (current?.status === 'completed' && current.tenantId) {
+      return current.preparationCompletedAt
+        ? redirectToLogin(baseUrl, current.tenantId)
+        : redirectToPreparing(baseUrl, current.tenantId)
+    }
+    return redirectToPreparing(baseUrl, current?.tenantId ?? request.tenantId ?? null)
+  }
   if (!request.passwordHash) {
     console.error('[onboarding.verify] missing password hash for request', request.id)
     await service.resetProcessing(request)
@@ -387,7 +377,7 @@ export async function GET(req: Request) {
 
     if (request.marketingConsent) {
       const now = new Date()
-      const clientIp = getClientIp(req, 1) ?? null
+      const clientIp = resolveConsentClientIp(req)
       const integrityHash = computeConsentIntegrityHash({
         userId: resolvedUserId,
         consentType: 'marketing_email',
@@ -444,7 +434,6 @@ export async function GET(req: Request) {
     after(async () => {
       await runDeferredProvisioning({
         requestId: request.id,
-        baseUrl,
         tenantId: resolvedTenantId,
         organizationId: resolvedOrganizationId,
       })

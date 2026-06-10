@@ -295,6 +295,114 @@ describe('MfaEnforcementService', () => {
     })
   })
 
+  test('getComplianceReport rejects platform scope for a non-superadmin without querying users', async () => {
+    const { service, em } = createContext()
+
+    await expect(
+      service.getComplianceReport(EnforcementScope.PLATFORM, undefined, {
+        tenantId: 'tenant-1',
+        isSuperAdmin: false,
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 })
+
+    expect(em.find).not.toHaveBeenCalledWith(User, expect.anything())
+  })
+
+  test('getComplianceReport rejects a foreign tenant for a non-superadmin without querying users', async () => {
+    const { service, em } = createContext()
+
+    await expect(
+      service.getComplianceReport(EnforcementScope.TENANT, 'tenant-2', {
+        tenantId: 'tenant-1',
+        isSuperAdmin: false,
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 })
+
+    expect(em.find).not.toHaveBeenCalledWith(User, expect.anything())
+  })
+
+  test('getComplianceReport allows a superadmin to query platform scope', async () => {
+    const { service, users } = createContext()
+    users.push({ id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null })
+
+    const report = await service.getComplianceReport(EnforcementScope.PLATFORM, undefined, {
+      tenantId: 'tenant-9',
+      isSuperAdmin: true,
+    })
+
+    expect(report.total).toBe(1)
+  })
+
+  test('listPolicies constrains a non-superadmin to its own tenant', async () => {
+    const { service, em } = createContext()
+
+    await service.listPolicies(undefined, { tenantId: 'tenant-1', isSuperAdmin: false })
+
+    expect(em.find).toHaveBeenCalledWith(
+      MfaEnforcementPolicy,
+      expect.objectContaining({ tenantId: 'tenant-1' }),
+      expect.anything(),
+    )
+  })
+
+  test('listPolicies does not constrain a superadmin', async () => {
+    const { service, em } = createContext()
+
+    await service.listPolicies(undefined, { tenantId: 'tenant-1', isSuperAdmin: true })
+
+    const call = em.find.mock.calls.find((entry) => entry[0] === MfaEnforcementPolicy)
+    expect(call?.[1]).not.toHaveProperty('tenantId')
+  })
+
+  test('createPolicy rejects a foreign tenant scope for a non-superadmin', async () => {
+    const { service, policies } = createContext()
+
+    await expect(
+      service.createPolicy(
+        { scope: EnforcementScope.TENANT, tenantId: 'tenant-2', isEnforced: true },
+        'admin-1',
+        { tenantId: 'tenant-1', isSuperAdmin: false },
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 })
+
+    expect(policies).toHaveLength(0)
+  })
+
+  test('deletePolicy rejects when the actor does not own the policy scope', async () => {
+    const { service, policies } = createContext()
+    policies.push({
+      id: 'policy-1',
+      scope: EnforcementScope.TENANT,
+      tenantId: 'tenant-2',
+      organizationId: null,
+      isEnforced: true,
+      allowedMethods: null,
+      enforcementDeadline: null,
+      enforcedBy: 'admin-1',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    })
+
+    await expect(
+      service.deletePolicy('policy-1', { tenantId: 'tenant-1', isSuperAdmin: false }),
+    ).rejects.toMatchObject({ statusCode: 403 })
+
+    expect(policies[0].deletedAt).toBeNull()
+  })
+
+  test('getComplianceReport allows a non-superadmin to query its own tenant', async () => {
+    const { service, users } = createContext()
+    users.push({ id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null })
+
+    const report = await service.getComplianceReport(EnforcementScope.TENANT, 'tenant-1', {
+      tenantId: 'tenant-1',
+      isSuperAdmin: false,
+    })
+
+    expect(report.total).toBe(1)
+  })
+
   test('checkUserCompliance enforces allowed methods filter', async () => {
     const { service, policies, methods } = createContext()
     mockedFindOneWithDecryption.mockResolvedValue({

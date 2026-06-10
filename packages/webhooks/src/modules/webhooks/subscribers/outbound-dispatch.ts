@@ -67,7 +67,7 @@ export default async function handler(
       ...(organizationId ? { organizationId } : {}),
     },
     {},
-    { tenantId, organizationId: organizationId ?? '' },
+    { tenantId, organizationId: organizationId ?? null },
   )
 
   if (!webhooks.length) return

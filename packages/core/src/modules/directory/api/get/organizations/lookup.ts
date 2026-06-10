@@ -29,23 +29,16 @@ export async function GET(req: Request) {
   const organization = await em.findOne(
     Organization,
     { slug: parsed.data.slug, deletedAt: null },
-    { populate: ['tenant'] },
   )
   if (!organization) {
     return NextResponse.json({ ok: false, error: 'Organization not found.' }, { status: 404 })
   }
-  const tenantId = typeof organization.tenant === 'string'
-    ? organization.tenant
-    : organization.tenant?.id
-      ? String(organization.tenant.id)
-      : null
   return NextResponse.json({
     ok: true,
     organization: {
       id: String(organization.id),
       name: organization.name,
       slug: organization.slug,
-      tenantId,
     },
   })
 }
@@ -58,7 +51,6 @@ const orgLookupSuccessSchema = z.object({
     id: z.string().uuid(),
     name: z.string(),
     slug: z.string(),
-    tenantId: z.string().uuid().nullable(),
   }),
 })
 

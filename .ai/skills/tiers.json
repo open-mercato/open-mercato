@@ -18,7 +18,8 @@
         "om-skill-creator",
         "om-fix-specs",
         "om-migrate-mikro-orm",
-        "om-create-ai-agent"
+        "om-create-ai-agent",
+        "om-help"
       ]
     },
     "automation": {
@@ -38,6 +39,8 @@
         "om-open-pr",
         "om-review-prs",
         "om-merge-buddy",
+        "om-approve-merge-pr",
+        "om-followup-issue-from-pr",
         "om-sync-merged-pr-issues",
         "om-auto-update-changelog",
         "om-auto-qa-scenarios"

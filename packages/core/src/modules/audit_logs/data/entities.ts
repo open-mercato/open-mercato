@@ -1,7 +1,7 @@
 import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 import type { ActionLogProjectionType, ActionLogSourceKey } from '@open-mercato/core/modules/audit_logs/lib/projections'
 
-export type ActionLogExecutionState = 'done' | 'undone' | 'failed' | 'redone'
+export type ActionLogExecutionState = 'done' | 'undoing' | 'undone' | 'failed' | 'redone'
 
 @Entity({ tableName: 'action_logs' })
 @Index({ name: 'action_logs_tenant_idx', properties: ['tenantId', 'createdAt'] })

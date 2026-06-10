@@ -320,6 +320,17 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     try {
       const extractEntities = (value: any): any[] => {
         if (!value) return []
+        // MikroORM Collection wrapper — MUST be checked before the Reference branch: both wrappers
+        // expose isInitialized(), but only a Collection exposes getItems(). Matching the Reference
+        // branch first returned the Collection wrapper itself instead of its items, so collection
+        // relations were never deep-decrypted and leaked ciphertext (issue #2744).
+        if (typeof value === 'object' && typeof (value as any).isInitialized === 'function' && typeof (value as any).getItems === 'function') {
+          try {
+            return (value as any).isInitialized() ? (value as any).getItems() ?? [] : []
+          } catch {
+            return []
+          }
+        }
         // MikroORM Reference wrapper
         if (typeof value === 'object' && typeof (value as any).isInitialized === 'function') {
           try {
@@ -331,14 +342,6 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
             // ignore
           }
           return []
-        }
-        // Collection wrapper
-        if (typeof value === 'object' && typeof (value as any).isInitialized === 'function' && typeof (value as any).getItems === 'function') {
-          try {
-            return (value as any).isInitialized() ? (value as any).getItems() ?? [] : []
-          } catch {
-            return []
-          }
         }
         if (Array.isArray(value)) return value
         if (typeof value === 'object') return [value]

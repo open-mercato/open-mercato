@@ -203,6 +203,32 @@ describe('clearing v2 URL & email edit fields (#2526)', () => {
     expect(payload.websiteUrl).toBeNull()
   })
 
+  it('transmits null when a previously-set company domain is blanked (#2529)', () => {
+    const parsed = createCompanyEditSchema().safeParse({
+      id: COMPANY_ID,
+      displayName: 'Acme',
+      domain: '',
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+
+    const payload = buildCompanyEditPayload(parsed.data as any)
+    expect(payload.domain).toBeNull()
+  })
+
+  it('keeps and lowercases a non-empty company domain on edit (#2529)', () => {
+    const parsed = createCompanyEditSchema().safeParse({
+      id: COMPANY_ID,
+      displayName: 'Acme',
+      domain: 'Acme.COM',
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+
+    const payload = buildCompanyEditPayload(parsed.data as any)
+    expect(payload.domain).toBe('acme.com')
+  })
+
   it('keeps non-empty company website/email/phone values on edit', () => {
     const parsed = createCompanyEditSchema().safeParse({
       id: COMPANY_ID,

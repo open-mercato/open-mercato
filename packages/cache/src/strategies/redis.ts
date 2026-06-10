@@ -13,6 +13,7 @@ type RedisPipeline = {
 }
 
 type RedisClient = {
+  ping(): Promise<string>
   get(key: string): Promise<string | null>
   set(key: string, value: string): Promise<unknown>
   setex(key: string, ttlSeconds: number, value: string): Promise<unknown>
@@ -420,6 +421,11 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     redis = null
   }
 
+  const healthcheck = async (): Promise<void> => {
+    const client = await getRedisClient()
+    await client.ping()
+  }
+
   return {
     get,
     set,
@@ -429,6 +435,7 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     clear,
     keys,
     stats,
+    healthcheck,
     cleanup,
     close,
   }
