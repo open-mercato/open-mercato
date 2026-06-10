@@ -19,7 +19,8 @@
 | 2 | 2.1 | ModerationService + typed errors (AiModerationBlockedError/Unavailable) + DI registration + tests | done | 29da4fb0a |
 | 2 | 2.2 | resolveModerationPolicy 5-step precedence + untrustedInput on AiAgentDefinition + tests | done | 7c2b035a0 |
 | 2 | 2.3 | Wire pre-loop moderation gate into runAiAgentText (fail-open/fail-closed) + tests | done | d9e130beb |
-| 2 | 2.4 | SSE moderation_blocked code + AiChat translated rendering + i18n keys (all locales) | done | pending |
+| 2 | 2.4 | SSE moderation_blocked code + AiChat translated rendering + i18n keys (all locales) | done | c61927404 |
+| 2 | 2.4-fix | Lazy moderation API-key resolution (don't break registry-mock tests) + AiChat moderation render test | done | pending |
 | 3 | 3.1 | AiModerationFlag entity + input_moderation column + migration + snapshot | todo | — |
 | 3 | 3.2 | moderation_flag.created event + repository + best-effort audit insert wired into gate + tests | todo | — |
 | 3 | 3.3 | Extend settings GET/PUT with inputModeration + effective policy + openApi + tests | todo | — |

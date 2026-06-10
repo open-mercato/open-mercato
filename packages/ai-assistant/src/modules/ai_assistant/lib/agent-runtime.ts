@@ -1069,7 +1069,13 @@ export interface InputModerationGateParams {
   supportsInputModeration: boolean
   userText: string
   service: ModerationService | null
-  apiKey: string | null
+  /**
+   * Lazy resolver for the moderation provider's API key. Invoked only when the
+   * gate actually proceeds (policy active, provider supports moderation, text
+   * non-empty, service present) — so callers never pay for (or fail on) key
+   * resolution on the common skip paths.
+   */
+  resolveApiKey: () => string | null
   baseURL?: string
   moderationModel?: string
   perAgentOverride?: boolean | null
@@ -1117,7 +1123,8 @@ export async function runInputModerationGate(params: InputModerationGateParams):
   if (!params.service) {
     return failOpenOrThrow('moderation service is not available in the container')
   }
-  if (!params.apiKey) {
+  const apiKey = params.resolveApiKey()
+  if (!apiKey) {
     return failOpenOrThrow('no API key available for the moderation provider')
   }
 
@@ -1125,7 +1132,7 @@ export async function runInputModerationGate(params: InputModerationGateParams):
   try {
     result = await params.service.checkInput({
       text,
-      apiKey: params.apiKey,
+      apiKey,
       baseURL: params.baseURL,
       model: params.moderationModel,
     })
@@ -1687,7 +1694,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     supportsInputModeration: resolvedModel.supportsInputModeration,
     userText: extractLatestUserText(normalizedMessages),
     service: moderationService,
-    apiKey: llmProviderRegistry.get(resolvedModel.providerId)?.resolveApiKey() ?? null,
+    resolveApiKey: () => llmProviderRegistry.get(resolvedModel.providerId)?.resolveApiKey() ?? null,
     baseURL: resolvedModel.baseURL,
     moderationModel: process.env.OM_AI_MODERATION_MODEL,
   })

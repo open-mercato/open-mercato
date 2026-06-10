@@ -19,7 +19,7 @@ const FLAGGED: ModerationResult = { flagged: true, categories: { hate: { flagged
 const base = {
   supportsInputModeration: true,
   userText: 'hello there',
-  apiKey: 'sk-test',
+  resolveApiKey: () => 'sk-test' as string | null,
   env: {} as Record<string, string | undefined>,
 }
 
@@ -108,8 +108,14 @@ describe('runInputModerationGate', () => {
   it('fails OPEN on opt-in when the API key is missing', async () => {
     const service = serviceReturning(CLEAN)
     await expect(
-      runInputModerationGate({ ...base, perAgentOverride: true, apiKey: null, service }),
+      runInputModerationGate({ ...base, perAgentOverride: true, resolveApiKey: () => null, service }),
     ).resolves.toBeUndefined()
     expect(service.checkInput).not.toHaveBeenCalled()
+  })
+
+  it('does not resolve the API key on the common skip path (policy off)', async () => {
+    const resolveApiKey = jest.fn(() => 'sk-test' as string | null)
+    await expect(runInputModerationGate({ ...base, resolveApiKey, service: serviceReturning(CLEAN) })).resolves.toBeUndefined()
+    expect(resolveApiKey).not.toHaveBeenCalled()
   })
 })
