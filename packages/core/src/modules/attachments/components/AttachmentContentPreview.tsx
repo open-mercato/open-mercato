@@ -93,9 +93,12 @@ export function AttachmentContentPreview({
           id={previewPanelId}
           aria-labelledby={previewTabId}
           data-testid="markdown-preview"
-          className="text-sm text-muted-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
         >
-          <MarkdownContent body={text} format="markdown" />
+          <MarkdownContent
+            body={text}
+            format="markdown"
+            className="text-sm text-muted-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+          />
         </div>
       )}
 
