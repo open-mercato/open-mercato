@@ -54,7 +54,7 @@ against `develop`, then close the originals:
 
 ### Phase 2: Validate
 
-- [ ] 2.1 Run validation gate (build:packages, generate, typecheck, test, build:app)
+- [x] 2.1 Run validation gate — build:packages ✓, generate ✓, typecheck ✓ (post-generate), test ✓ (22/22 tasks, 5784 core tests, sanitize-channel-html 17/17). `build:app` fails locally with the documented pre-existing generated-shim / turbo cross-worktree cache artifact (`Module not found: generated/entities.ids.generated.js` across 199 unrelated core page files) — orthogonal to a transitive lockfile bump; CI runs a clean build. — badd97ab5
 
 ### Phase 3: Ship
 
