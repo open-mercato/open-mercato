@@ -160,7 +160,7 @@ export interface SearchStrategy {
   bulkIndex?(records: IndexableRecord[]): Promise<void>
 
   /** Purge all records for an entity type (optional) */
-  purge?(entityId: EntityId, tenantId: string): Promise<void>
+  purge?(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void>
 }
 
 // =============================================================================
