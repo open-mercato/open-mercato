@@ -27,7 +27,7 @@
 | 3 | 3.4 | Settings UI: input moderation section (Inherit/On/Off + enforced badge) | done | 2614c2e9e |
 | 3 | 3.5 | GET /api/ai_assistant/moderation-flags route (guarded, zod query, openApi) + tests | done | ade0166da |
 | 3 | 3.5-fix | Declare [OptionalProps] on AiModerationFlag so em.create() typechecks (checkpoint 3) | done | d457c1c74 |
-| 3 | 3.6 | Moderation flags audit DataTable backend page + nav | todo | — |
+| 3 | 3.6 | Moderation flags audit DataTable backend page + nav | done | pending |
 | 3 | 3.7 | Docs page + ai-assistant AGENTS.md update + yarn generate | todo | — |
 | 3 | 3.8 | API integration tests (settings roundtrip, moderation-flags tenant isolation) | todo | — |
 | 3 | 3.9 | Playwright integration tests (chat enforced/off, settings UI enforced badge) | todo | — |
