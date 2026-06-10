@@ -17,8 +17,8 @@
 | 1 | 1.4 | Thread endUserIdentifier through runAiAgentText into merged providerOptions + tests | done | 70471d046 |
 | 1 | 1.4-fix | Cast providerOptions to SDK type at streamText/ToolLoopAgent call sites (checkpoint typecheck fix) | done | f3d4a8d0c |
 | 2 | 2.1 | ModerationService + typed errors (AiModerationBlockedError/Unavailable) + DI registration + tests | done | 29da4fb0a |
-| 2 | 2.2 | resolveModerationPolicy 5-step precedence + untrustedInput on AiAgentDefinition + tests | done | pending |
-| 2 | 2.3 | Wire pre-loop moderation gate into runAiAgentText (fail-open/fail-closed) + tests | todo | — |
+| 2 | 2.2 | resolveModerationPolicy 5-step precedence + untrustedInput on AiAgentDefinition + tests | done | 7c2b035a0 |
+| 2 | 2.3 | Wire pre-loop moderation gate into runAiAgentText (fail-open/fail-closed) + tests | done | pending |
 | 2 | 2.4 | SSE moderation_blocked code + AiChat translated rendering + i18n keys (all locales) | todo | — |
 | 3 | 3.1 | AiModerationFlag entity + input_moderation column + migration + snapshot | todo | — |
 | 3 | 3.2 | moderation_flag.created event + repository + best-effort audit insert wired into gate + tests | todo | — |

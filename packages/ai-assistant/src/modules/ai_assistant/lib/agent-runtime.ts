@@ -27,6 +27,18 @@ import type { StopCondition } from 'ai'
 import type { ZodTypeAny } from 'zod'
 import { createModelFactory, resolveAllowRuntimeOverride } from './model-factory'
 import { computeEndUserIdentifier } from '@open-mercato/shared/lib/ai/safety-identifier'
+import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import type { EnvLookup } from '@open-mercato/shared/lib/ai/llm-provider'
+import {
+  AiModerationBlockedError,
+  AiModerationUnavailableError,
+  type ModerationService,
+} from './moderation'
+import {
+  isModerationActive,
+  resolveModerationPolicy,
+  shouldFailClosed,
+} from './moderation-policy'
 import type {
   AiAgentDefinition,
   AiAgentLoopConfig,
@@ -988,6 +1000,8 @@ interface ResolvedAgentModel {
   providerOptions?: Record<string, unknown>
   /** Whether the resolved chat provider supports input moderation. */
   supportsInputModeration: boolean
+  /** Resolved base URL (if any), reused by the moderation endpoint call. */
+  baseURL?: string
 }
 
 function resolveAgentModel(
@@ -1022,6 +1036,116 @@ function resolveAgentModel(
     providerId: resolution.providerId,
     providerOptions: resolution.providerOptions,
     supportsInputModeration: resolution.supportsInputModeration === true,
+    baseURL: resolution.baseURL,
+  }
+}
+
+/**
+ * Concatenates the text parts of the most recent user message. Only the new
+ * user turn is moderated (prior history was screened on its own turn). Returns
+ * an empty string when there is no user message or no text content.
+ */
+export function extractLatestUserText(messages: UIMessage[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const raw = messages[index] as unknown as {
+      role?: string
+      content?: string
+      parts?: Array<{ type?: string; text?: string }>
+    }
+    if (raw.role !== 'user') continue
+    if (Array.isArray(raw.parts)) {
+      return raw.parts
+        .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+        .map((part) => part.text as string)
+        .join('\n')
+    }
+    return typeof raw.content === 'string' ? raw.content : ''
+  }
+  return ''
+}
+
+export interface InputModerationGateParams {
+  untrustedInput?: boolean
+  supportsInputModeration: boolean
+  userText: string
+  service: ModerationService | null
+  apiKey: string | null
+  baseURL?: string
+  moderationModel?: string
+  perAgentOverride?: boolean | null
+  tenantWideOverride?: boolean | null
+  env?: EnvLookup
+  /**
+   * Best-effort side effect invoked with the flagged categories right before
+   * the gate throws {@link AiModerationBlockedError}. Phase 3 wires the audit
+   * insert + event emit here; it MUST NOT throw (failures are swallowed by the
+   * caller) and MUST NOT block the rejection.
+   */
+  onFlagged?: (categories: Record<string, { flagged: boolean; score: number }>) => void | Promise<void>
+}
+
+/**
+ * Pre-loop input moderation gate. Runs the moderation check for the current
+ * user turn before the model call. Decoupled from the registry/container so it
+ * is unit-testable: the caller resolves the {@link ModerationService} and API
+ * key. Throws {@link AiModerationBlockedError} when flagged; honors
+ * fail-closed (enforced) vs fail-open (opt-in) on endpoint unavailability.
+ */
+export async function runInputModerationGate(params: InputModerationGateParams): Promise<void> {
+  const policy = resolveModerationPolicy({
+    untrustedInput: params.untrustedInput,
+    perAgentOverride: params.perAgentOverride,
+    tenantWideOverride: params.tenantWideOverride,
+    env: params.env,
+  })
+  if (!isModerationActive(policy)) return
+  // The resolved chat provider has no moderation endpoint — rely on its own
+  // server-side filtering and skip the gate.
+  if (!params.supportsInputModeration) return
+  const text = params.userText.trim()
+  if (!text) return
+
+  const failClosed = shouldFailClosed(policy)
+  const failOpenOrThrow = (reason: string, error?: unknown): void => {
+    if (failClosed) {
+      if (error instanceof AiModerationUnavailableError) throw error
+      throw new AiModerationUnavailableError(reason, error)
+    }
+    console.warn(`[ai_assistant] input moderation unavailable; failing open for opt-in surface: ${reason}`)
+  }
+
+  if (!params.service) {
+    return failOpenOrThrow('moderation service is not available in the container')
+  }
+  if (!params.apiKey) {
+    return failOpenOrThrow('no API key available for the moderation provider')
+  }
+
+  let result
+  try {
+    result = await params.service.checkInput({
+      text,
+      apiKey: params.apiKey,
+      baseURL: params.baseURL,
+      model: params.moderationModel,
+    })
+  } catch (error) {
+    if (error instanceof AiModerationUnavailableError) {
+      return failOpenOrThrow(error.message, error)
+    }
+    throw error
+  }
+
+  if (result.flagged) {
+    if (params.onFlagged) {
+      try {
+        await params.onFlagged(result.categories)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.error('[ai_assistant] moderation flag side effect failed (rejection still applies):', message)
+      }
+    }
+    throw new AiModerationBlockedError(result.categories)
   }
 }
 
@@ -1547,6 +1671,27 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   const { model } = resolvedModel
   const modelProviderOptions = resolvedModel.providerOptions
   const normalizedMessages = ensureUiMessageShape(input.messages)
+
+  // Pre-loop input moderation gate (spec 2026-06-04). Runs before the model
+  // call on enabled/enforced surfaces where the provider supports moderation.
+  // Throws AiModerationBlockedError (flagged) or AiModerationUnavailableError
+  // (enforced + outage); both are surfaced by the SSE error path.
+  let moderationService: ModerationService | null = null
+  try {
+    moderationService = input.container?.resolve<ModerationService>('moderationService') ?? null
+  } catch {
+    moderationService = null
+  }
+  await runInputModerationGate({
+    untrustedInput: agent.untrustedInput,
+    supportsInputModeration: resolvedModel.supportsInputModeration,
+    userText: extractLatestUserText(normalizedMessages),
+    service: moderationService,
+    apiKey: llmProviderRegistry.get(resolvedModel.providerId)?.resolveApiKey() ?? null,
+    baseURL: resolvedModel.baseURL,
+    moderationModel: process.env.OM_AI_MODERATION_MODEL,
+  })
+
   const hydratedMessages = attachAttachmentsToMessages(normalizedMessages, resolvedAttachments)
   const modelMessages = await convertToModelMessages(hydratedMessages)
 
