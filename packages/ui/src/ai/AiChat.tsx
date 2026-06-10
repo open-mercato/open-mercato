@@ -432,7 +432,7 @@ function formatToolCaption(call: AiChatToolCallSnapshot): string {
 
 /**
  * Visible agent task plan rendered above raw tool-call rows. Phase 1
- * implementation of spec `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`:
+ * implementation of spec `.ai/specs/implemented/2026-05-13-ai-chat-visible-task-plan.md`:
  * compact, fixed-height rows with icon + label + status badge so the
  * panel does not jump while streaming. Source of truth is the
  * client-local `taskPlan` array on the assistant message.

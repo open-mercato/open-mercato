@@ -310,7 +310,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   // When true, shows Delete button whenever onDelete is provided, even without an id
   deleteVisible?: boolean
   /**
-   * OSS opt-in optimistic locking (spec: .ai/specs/2026-05-25-oss-optimistic-locking.md).
+   * OSS opt-in optimistic locking (spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md).
    *
    * When set to a non-empty ISO-8601 string (typically `record.updatedAt`
    * from the API response), the form auto-injects the

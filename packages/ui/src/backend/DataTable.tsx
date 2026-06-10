@@ -272,7 +272,7 @@ export type DataTableProps<T> = {
    * or the legacy flat `AdvancedFilterState` shape as a backward-compatibility
    * bridge. The bridge is provided for one minor version; legacy callers SHOULD
    * migrate to the tree shape — see the spec
-   * `.ai/specs/2026-05-10-crm-list-filter-redesign.md` "Migration & Backward
+   * `.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md` "Migration & Backward
    * Compatibility" section and `RELEASE_NOTES.md`.
    *
    * When the legacy flat shape is detected, DataTable converts it to a tree via
@@ -1023,7 +1023,7 @@ export function DataTable<T>({
   // (`triggerRef`, `externalPopover`, `onApplyTree`, `onTriggerClick`) are
   // undefined for legacy callers — they were added in this PR and didn't exist
   // in the legacy contract.
-  // See spec `.ai/specs/2026-05-10-crm-list-filter-redesign.md` ("Migration &
+  // See spec `.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md` ("Migration &
   // Backward Compatibility") and BACKWARD_COMPATIBILITY.md §3.
   type AdvancedFilterNormalized = {
     fields?: AdvancedFilterFieldDef[]
