@@ -31,7 +31,7 @@
 | 3 | 3.7 | Docs page + ai-assistant AGENTS.md update + yarn generate | done | dfc373e4e |
 | 3 | 3.8 | API integration tests (settings roundtrip, moderation-flags tenant isolation) | done | fc4d45419 |
 | 3 | 3.9 | Playwright integration tests (chat enforced/off, settings UI enforced badge) | done | 262d99624 |
-| 3 | 3.8-fix | Tenant-scope the moderation-flags listing (drop org narrowing) + stabilize integration tests for empty-registry env | done | pending |
+| 3 | 3.8-fix | Tenant-scope the moderation-flags listing (drop org narrowing) + stabilize integration tests for empty-registry env | done | 2b739fa31 |
 
 ## Goal
 

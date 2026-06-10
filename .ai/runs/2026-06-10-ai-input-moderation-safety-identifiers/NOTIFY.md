@@ -33,3 +33,12 @@
 - 3.7 (commit dfc373e4e): docs page `framework/ai-assistant/moderation.mdx` + sidebar entry + `packages/ai-assistant/AGENTS.md` moderation section.
 - Validation: full typecheck 21/21 clean; i18n sync clean.
 - PAUSE: remaining steps 3.8 (API integration tests) + 3.9 (Playwright) and the final gate's `yarn test:integration` require the ephemeral Postgres + app stack. Resuming there is the right boundary. Branch fully pushed; resume from PLAN Tasks row 3.8.
+
+## 2026-06-10T15:44:41Z — auto-continue-pr-loop resume (PR #2949) → COMPLETE
+- Resumed from Tasks row 3.8. Claimed comment-only (upstream fork PR — no label/assignee perm).
+- 3.8 (fc4d45419): API integration spec `TC-AI-MODERATION-008` + DB fixtures (`seedModerationFlagInDb`, `deleteModerationFlagsInDb`).
+- 3.9 (262d99624): Playwright spec `TC-AI-MODERATION-009` (audit page + settings section). Chat enforced/off NOT e2e'd (server-side gate can't be page.route-stubbed; live-provider e2e is non-deterministic per .ai/qa/AGENTS.md) — covered by gate unit tests + AiChat RTL render test.
+- Final gate: deterministic gate fully green (build×2/generate/i18n/typecheck 21-21/unit test/build:app). Docker available → ran `yarn test:integration:ephemeral --filter TC-AI-MODERATION`.
+- Blocker resolved (3.8-fix, 2b739fa31): first ephemeral run had 2 failures — (a) audit listing narrowed by organization_id hiding null-org rows → made it tenant-scoped only; (b) settings test depended on empty-in-CI agent registry → rewrote to synthetic-agent PUT echo. Re-run: 7/7 pass.
+- create-app integration skipped (justified). ds-guardian: changed UI DS-clean. BC: additive-only.
+- PR #2949 flipped to Status: complete + marked ready-for-review; comprehensive summary comment posted. Run COMPLETE.

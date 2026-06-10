@@ -1,42 +1,22 @@
 # Handoff — 2026-06-10-ai-input-moderation-safety-identifiers
 
-**Last updated:** 2026-06-10T14:06:26Z
+**Last updated:** 2026-06-10T15:44:41Z
 **Branch:** feat/ai-input-moderation-safety-identifiers (pushed to `fork`)
-**PR:** https://github.com/open-mercato/open-mercato/pull/2949 (DRAFT, in-progress — opened early on request; flip to ready-for-review after the final gate)
-**Current phase/step:** Phase 3 steps 3.1–3.7 complete. Next: Step 3.8 (needs the ephemeral DB/app integration stack).
-**Last commit:** dfc373e4e — docs(ai-assistant): moderation docs page + AGENTS.md section
+**PR:** https://github.com/open-mercato/open-mercato/pull/2949 (ready for review)
+**Current phase/step:** COMPLETE — all 19 Tasks rows + 4 checkpoint fixes done.
+**Last commit:** 2b739fa31 — fix(ai-assistant): tenant-scope moderation-flags audit listing + stabilize integration specs
 
-## What just happened
-- 3.1–3.5 (see checkpoint-3), 3.6 moderation-flags audit DataTable page + nav, 3.7 docs page (`apps/docs/docs/framework/ai-assistant/moderation.mdx` + sidebar) + AGENTS.md section.
-- After 3.6 and 3.7: full typecheck 21/21 clean, i18n sync clean. (Two quick in-step typecheck fixes folded in: `[OptionalProps]` on the entity at 3.5-fix; `PaginationProps.totalPages` on the audit table.)
+## Final status: COMPLETE
+- Full feature implemented across Phases 1–3 (safety identifiers, moderation gate, persistence/audit, settings, UI, docs, integration tests).
+- Final gate green: build:packages ×2, generate, i18n:check-sync, i18n:check-usage (advisory), typecheck 21/21, test (full unit), build:app — all ✓.
+- Integration: `yarn test:integration:ephemeral --filter TC-AI-MODERATION` → 7/7 pass on the ephemeral Docker stack (migration applied).
+- ds-guardian: changed UI DS-clean. BC: additive-only. See `final-gate-checks.md`.
+- PR #2949 body flipped to `Status: complete` and marked ready-for-review; comprehensive summary comment posted.
 
-## Next concrete action
-- Step 3.8: API integration tests under the module's `__integration__/` (or `.ai/qa/tests/`) per `.ai/qa/AGENTS.md` — self-contained (API fixtures + `finally` teardown):
-  1. `PUT /api/ai_assistant/settings` with `inputModeration` → `GET` reflects effective per-agent policy; reset to inherit in teardown.
-  2. `GET /api/ai_assistant/moderation-flags` — a flag created for tenant A is visible to A only; tenant B gets an empty list (isolation probe).
-  Then Step 3.9 (Playwright: chat enforced→rejection with stubbed moderation, chat off→reaches mock model, settings UI toggle + enforced badge).
-- These steps + the final gate's `yarn test:integration` need the ephemeral Postgres + app stack — run them where that stack is available.
-
-## Remaining steps
-- 3.6 audit DataTable page + nav
-- 3.7 docs page under apps/docs/docs/framework/ai-assistant/ + AGENTS.md update + yarn generate
-- 3.8 API integration tests (settings inputModeration roundtrip; moderation-flags tenant isolation probe) — self-contained per .ai/qa/AGENTS.md
-- 3.9 Playwright integration tests (chat enforced→rejection stubbed, chat off→reaches mock model, settings UI toggle + enforced badge)
-- Final gate (step 7): full validation gate + yarn test:integration + yarn test:create-app:integration (likely skip — document) + ds-guardian; then open PR to upstream develop.
-
-## Key wiring already in place (for later steps)
-- GET `/api/ai_assistant/settings` returns per-agent `moderation: { enforced, override, effective }`.
-- `AiModerationFlagRepository.list({ tenantId, organizationId?, agentId?, userId?, from?, to?, page, pageSize })` → `{ items, total }`.
-- Route `GET /api/ai_assistant/moderation-flags` returns `{ items, total, page, pageSize }`.
-- Audit page should use `DataTable` from `@open-mercato/ui` + `apiCall`. Reference an existing config DataTable page (e.g. usage stats `AiUsageStatsPageClient.tsx`).
-
-## Blockers / open questions
-- none
-
-## Environment caveats
-- Node 24 required; ai-assistant has no local jest bin (use `../../node_modules/.bin/jest --config jest.config.cjs <pattern>`).
-- `yarn db:generate` re-introduces the unrelated `ai_chat_conv_participants_active_conv_user_idx` drop (pre-existing develop drift) — if regenerating, strip it again + keep the snapshot index.
-- Fork workflow: push `fork`, PR upstream `develop`, labels/reviews comments-only.
+## Notes for reviewers / follow-up
+- `auto-review-pr` formal pass is N/A on this upstream fork PR (no triage perm for this account) — degraded to the documented self code-review + BC review.
+- `test:create-app:integration` was skipped (justified: only an additive `packages/shared` file).
+- Worktree retained at the path below (not auto-removed since the run completed in-place); safe to `git worktree remove` after merge.
 
 ## Worktree
 - Path: /home/bernard/workspace/OpenMercatoTest/.ai/tmp/auto-create-pr/ai-input-moderation-safety-identifiers-20260610-145153
