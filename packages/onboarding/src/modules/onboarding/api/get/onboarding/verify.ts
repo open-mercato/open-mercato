@@ -411,16 +411,18 @@ export async function GET(req: Request) {
       )
     }
 
-    // Call module seedDefaults hooks. Each hook is best-effort and runs on an
-    // isolated EM fork: a single module's throw or 15s timeout must not strand
-    // the freshly provisioned workspace — the tenant/org/user already exist and
-    // the request must still reach markCompleted so the user can sign in.
-    // Failures are logged for follow-up (deferred seedExamples is already
-    // non-fatal in the same way).
+    // Call module seedDefaults hooks. Each hook is best-effort and runs on its
+    // own isolated EM fork: a single module's throw or 15s timeout must not
+    // strand the freshly provisioned workspace — the tenant/org/user already
+    // exist and the request must still reach markCompleted so the user can sign
+    // in. A per-module fork also keeps a failed module's unflushed unit of work
+    // from leaking into (or aborting) the next module's flush. Failures are
+    // logged for follow-up (deferred seedExamples is already non-fatal in the
+    // same way).
     const modules = getModules()
-    const seedEm = em.fork()
     for (const mod of modules) {
       if (!mod.setup?.seedDefaults) continue
+      const seedEm = em.fork()
       await runBestEffortProvisioningStep(`seedDefaults:${mod.id}`, () =>
         runModuleSetupHook({
           moduleId: mod.id,
