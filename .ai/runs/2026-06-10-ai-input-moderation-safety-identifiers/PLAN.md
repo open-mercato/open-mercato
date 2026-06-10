@@ -11,8 +11,8 @@
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
-| 1 | 1.1 | Extend shared LLM provider contract (endUserIdentifier / mapEndUserIdentifier / supportsInputModeration) + tests | done | 35bbc3d51 |
-| 1 | 1.2 | Add safety-identifier HMAC helper (deriveAiSafetyIdentifierSecret + computeEndUserIdentifier) + tests | todo | — |
+| 1 | 1.1 | Extend shared LLM provider contract (endUserIdentifier / mapEndUserIdentifier / supportsInputModeration) + tests | done | 18962f889 |
+| 1 | 1.2 | Add safety-identifier HMAC helper (deriveAiSafetyIdentifierSecret + computeEndUserIdentifier) + tests | done | pending |
 | 1 | 1.3 | Implement mapEndUserIdentifier + supportsInputModeration in OpenAI/Anthropic adapters + tests | todo | — |
 | 1 | 1.4 | Thread endUserIdentifier through runAiAgentText into merged providerOptions + tests | todo | — |
 | 2 | 2.1 | ModerationService + typed errors (AiModerationBlockedError/Unavailable) + DI registration + tests | todo | — |
