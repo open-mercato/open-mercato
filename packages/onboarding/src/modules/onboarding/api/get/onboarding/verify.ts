@@ -20,6 +20,7 @@ import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-ap
 import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { computeConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
 import { resolveConsentClientIp } from '@open-mercato/onboarding/modules/onboarding/lib/consentClientIp'
+import { runBestEffortProvisioningStep } from '@open-mercato/onboarding/modules/onboarding/lib/provisioning'
 import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
 import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
@@ -386,43 +387,53 @@ export async function GET(req: Request) {
         ipAddress: clientIp,
         source: 'onboarding',
       })
-      // Wrap the request-em consent write in a transaction so it commits
-      // all-or-nothing. setupInitialTenant already manages its own internal
-      // transactions, and the seedDefaults hooks below resolve container
-      // services that fork their own EM (and may enqueue work), so neither can
-      // join this transaction — only the direct request-em writes are wrapped.
-      await em.transactional(async (txEm) => {
-        txEm.create(UserConsent, {
-          userId: resolvedUserId,
-          tenantId: resolvedTenantId,
-          organizationId: resolvedOrganizationId,
-          consentType: 'marketing_email',
-          isGranted: true,
-          grantedAt: now,
-          source: 'onboarding',
-          ipAddress: clientIp,
-          integrityHash,
-          createdAt: now,
-        })
-      })
+      // Persist the marketing consent on an isolated EM fork wrapped in a
+      // transaction so it commits all-or-nothing AND a failure here can neither
+      // abort provisioning nor poison the request EM's unit of work before
+      // markCompleted runs. Recording the consent is best-effort: the workspace
+      // is already provisioned, and a lost consent record fails safe (treated as
+      // not granted) and is logged for follow-up rather than stranding the user.
+      await runBestEffortProvisioningStep('marketing-consent', () =>
+        em.fork().transactional(async (txEm) => {
+          txEm.create(UserConsent, {
+            userId: resolvedUserId,
+            tenantId: resolvedTenantId,
+            organizationId: resolvedOrganizationId,
+            consentType: 'marketing_email',
+            isGranted: true,
+            grantedAt: now,
+            source: 'onboarding',
+            ipAddress: clientIp,
+            integrityHash,
+            createdAt: now,
+          })
+        }),
+      )
     }
 
-    // Call module seedDefaults + seedExamples hooks
+    // Call module seedDefaults hooks. Each hook is best-effort and runs on an
+    // isolated EM fork: a single module's throw or 15s timeout must not strand
+    // the freshly provisioned workspace — the tenant/org/user already exist and
+    // the request must still reach markCompleted so the user can sign in.
+    // Failures are logged for follow-up (deferred seedExamples is already
+    // non-fatal in the same way).
     const modules = getModules()
+    const seedEm = em.fork()
     for (const mod of modules) {
-      if (mod.setup?.seedDefaults) {
-        await runModuleSetupHook({
+      if (!mod.setup?.seedDefaults) continue
+      await runBestEffortProvisioningStep(`seedDefaults:${mod.id}`, () =>
+        runModuleSetupHook({
           moduleId: mod.id,
           phase: 'seedDefaults',
           timeoutMs: SEED_DEFAULTS_TIMEOUT_MS,
           run: () => mod.setup!.seedDefaults!({
-            em,
+            em: seedEm,
             tenantId: resolvedTenantId,
             organizationId: resolvedOrganizationId,
             container,
           }),
-        })
-      }
+        }),
+      )
     }
     await service.markCompleted(request, {
       tenantId: resolvedTenantId,
