@@ -284,6 +284,8 @@
   "ai_assistant.dock.left": "Dokuj po lewej",
   "ai_assistant.dock.minimize": "Minimalizuj",
   "ai_assistant.dock.right": "Dokuj po prawej",
+  "ai_assistant.errors.moderationBlocked": "Twoja wiadomość została zablokowana przez filtr bezpieczeństwa treści. Przeformułuj ją i spróbuj ponownie.",
+  "ai_assistant.errors.moderationUnavailable": "Sprawdzanie bezpieczeństwa treści jest chwilowo niedostępne. Spróbuj ponownie za chwilę.",
   "ai_assistant.launcher.composerPlaceholder": "Zapytaj o cokolwiek…",
   "ai_assistant.launcher.dialogTitle": "AI assistants",
   "ai_assistant.launcher.dock.subtitle": "AI assistant",

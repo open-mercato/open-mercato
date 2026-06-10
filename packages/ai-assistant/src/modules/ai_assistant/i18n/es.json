@@ -284,6 +284,8 @@
   "ai_assistant.dock.left": "Anclar a la izquierda",
   "ai_assistant.dock.minimize": "Minimizar",
   "ai_assistant.dock.right": "Anclar a la derecha",
+  "ai_assistant.errors.moderationBlocked": "Tu mensaje fue bloqueado por el filtro de seguridad de contenido. Reformúlalo e inténtalo de nuevo.",
+  "ai_assistant.errors.moderationUnavailable": "La verificación de seguridad de contenido no está disponible temporalmente. Inténtalo de nuevo en un momento.",
   "ai_assistant.launcher.composerPlaceholder": "Pregunte lo que necesite…",
   "ai_assistant.launcher.dialogTitle": "AI assistants",
   "ai_assistant.launcher.dock.subtitle": "AI assistant",

@@ -14,6 +14,7 @@ import {
   type AiAgentLoopBudgetPreset,
 } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
+import { AiModerationBlockedError, AiModerationUnavailableError } from '../../../lib/moderation'
 import { readBaseurlAllowlist, isBaseurlAllowlisted } from '../../../lib/baseurl-allowlist'
 import {
   canonicalProviderId,
@@ -689,6 +690,15 @@ export async function POST(req: NextRequest): Promise<Response> {
   } catch (error) {
     if (error instanceof AgentPolicyError) {
       return jsonError(statusForDenyCode(error.code), error.message, error.code)
+    }
+    // Input pre-moderation outcomes (spec 2026-06-04). The blocked categories
+    // are NEVER sent to the client — only the typed code, which the chat UI
+    // maps to a generic translated message.
+    if (error instanceof AiModerationBlockedError) {
+      return jsonError(400, 'Input rejected by the content safety filter.', 'moderation_blocked')
+    }
+    if (error instanceof AiModerationUnavailableError) {
+      return jsonError(503, 'Content safety check temporarily unavailable.', 'moderation_unavailable')
     }
     console.error('[AI Chat Agent] Dispatch failure:', error)
     return jsonError(

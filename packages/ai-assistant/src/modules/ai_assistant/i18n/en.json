@@ -284,6 +284,8 @@
   "ai_assistant.dock.left": "Dock Left",
   "ai_assistant.dock.minimize": "Minimize",
   "ai_assistant.dock.right": "Dock Right",
+  "ai_assistant.errors.moderationBlocked": "Your message was blocked by the content safety filter. Please rephrase and try again.",
+  "ai_assistant.errors.moderationUnavailable": "The content safety check is temporarily unavailable. Please try again in a moment.",
   "ai_assistant.launcher.composerPlaceholder": "Ask anything…",
   "ai_assistant.launcher.dialogTitle": "AI assistants",
   "ai_assistant.launcher.dock.subtitle": "AI assistant",

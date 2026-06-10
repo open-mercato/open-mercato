@@ -284,6 +284,8 @@
   "ai_assistant.dock.left": "Links andocken",
   "ai_assistant.dock.minimize": "Minimieren",
   "ai_assistant.dock.right": "Rechts andocken",
+  "ai_assistant.errors.moderationBlocked": "Ihre Nachricht wurde vom Inhaltssicherheitsfilter blockiert. Bitte formulieren Sie sie um und versuchen Sie es erneut.",
+  "ai_assistant.errors.moderationUnavailable": "Die Inhaltssicherheitsprüfung ist vorübergehend nicht verfügbar. Bitte versuchen Sie es in einem Moment erneut.",
   "ai_assistant.launcher.composerPlaceholder": "Fragen Sie mich etwas…",
   "ai_assistant.launcher.dialogTitle": "AI assistants",
   "ai_assistant.launcher.dock.subtitle": "AI assistant",
