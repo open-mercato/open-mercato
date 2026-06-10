@@ -28,7 +28,12 @@ const validSummary = {
 function renderStrip() {
   return renderWithProviders(
     <DealsKpiStrip ownerNames={{}} stageDictionary={{}} pipelineCount={0} />,
-    { dict: { 'customers.deals.list.kpi.error': "Couldn't load deal metrics" } },
+    {
+      dict: {
+        'customers.deals.list.kpi.error': "Couldn't load deal metrics",
+        'customers.deals.list.kpi.retry': 'Retry',
+      },
+    },
   )
 }
 
@@ -50,7 +55,8 @@ describe('DealsKpiStrip — resilience to summary response shape', () => {
     // `data.pipelineValue.value` and unmount the whole deals page.
     mockedApiCall.mockResolvedValue({ ok: true, result: { items: [], total: 0, totalPages: 0 }, cacheStatus: null } as unknown as ApiResult)
     renderStrip()
-    const errorCards = await screen.findAllByText("Couldn't load deal metrics")
-    expect(errorCards).toHaveLength(4)
+    const errorMessages = await screen.findAllByText("Couldn't load deal metrics")
+    expect(errorMessages).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
   })
 })

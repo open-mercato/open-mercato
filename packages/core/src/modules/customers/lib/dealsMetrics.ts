@@ -90,13 +90,10 @@ export function getTrailingMonths(now: Date, count: number): TrailingMonth[] {
 
 /**
  * Percentage change of `current` relative to `previous`, rounded to whole percent.
- * Edge cases mirror the spec: a jump from zero to a positive number is +100% (up);
- * zero-to-zero is unchanged.
+ * When there is no previous-period baseline, avoid reporting artificial growth.
  */
 export function computeDelta(current: number, previous: number): Delta {
   if (previous === 0) {
-    if (current > 0) return { value: 100, direction: 'up' }
-    if (current < 0) return { value: 100, direction: 'down' }
     return { value: 0, direction: 'unchanged' }
   }
   const change = ((current - previous) / Math.abs(previous)) * 100

@@ -85,8 +85,8 @@ describe('dealsMetrics pure helpers', () => {
     expect(months[0].start.toISOString()).toBe('2025-09-01T00:00:00.000Z')
   })
 
-  it('computes delta edge cases (zero previous, both zero, decrease)', () => {
-    expect(computeDelta(50, 0)).toEqual({ value: 100, direction: 'up' })
+  it('computes delta edge cases without artificial zero-baseline growth', () => {
+    expect(computeDelta(50, 0)).toEqual({ value: 0, direction: 'unchanged' })
     expect(computeDelta(0, 0)).toEqual({ value: 0, direction: 'unchanged' })
     expect(computeDelta(150, 100)).toEqual({ value: 50, direction: 'up' })
     expect(computeDelta(80, 100)).toEqual({ value: -20, direction: 'down' })

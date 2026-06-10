@@ -7,6 +7,8 @@ import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { KpiCard, DeltaBadge, Sparkline } from '@open-mercato/ui/backend/charts'
 import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import type { DictionaryMap } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { PipelineStageBar } from './kpi/PipelineStageBar'
 
@@ -58,6 +60,7 @@ export type DealsKpiStripProps = {
   scopeVersion?: number
   /** Bumped by the host on manual refresh / after mutations — forces a KPI refetch so totals stay in sync with the table. */
   reloadToken?: number
+  onNeedsAttentionClick?: () => void
 }
 
 const compactNumberFormatter = new Intl.NumberFormat(undefined, {
@@ -80,6 +83,30 @@ function DealKpiCard(props: React.ComponentProps<typeof KpiCard>) {
   return <KpiCard titleClassName={KPI_TITLE_CLASS} {...props} />
 }
 
+function KpiDeltaBadge({
+  direction,
+  value,
+  unit,
+  title,
+}: {
+  direction: DeltaDirection
+  value: number
+  unit?: string
+  title: string
+}) {
+  if (direction === 'unchanged' && value === 0) {
+    return (
+      <span
+        className="inline-flex items-center rounded-md bg-status-neutral-bg px-2 py-0.5 text-xs font-medium text-status-neutral-text"
+        title={title}
+      >
+        --
+      </span>
+    )
+  }
+  return <DeltaBadge direction={direction} value={value} unit={unit} title={title} />
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
@@ -98,7 +125,15 @@ function isDealsSummaryResponse(value: unknown): value is DealsSummaryResponse {
   )
 }
 
-export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, className, scopeVersion, reloadToken }: DealsKpiStripProps) {
+export function DealsKpiStrip({
+  ownerNames,
+  stageDictionary,
+  pipelineCount,
+  className,
+  scopeVersion,
+  reloadToken,
+  onNeedsAttentionClick,
+}: DealsKpiStripProps) {
   const t = useT()
   const locale = useLocale()
   const pluralCat = React.useCallback((count: number): string => {
@@ -117,9 +152,18 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
   const [data, setData] = React.useState<DealsSummaryResponse | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [retryToken, setRetryToken] = React.useState(0)
+  const previousScopeVersionRef = React.useRef(scopeVersion)
+
+  const retry = React.useCallback(() => {
+    setRetryToken((token) => token + 1)
+  }, [])
 
   React.useEffect(() => {
     let cancelled = false
+    const scopeChanged = previousScopeVersionRef.current !== scopeVersion
+    previousScopeVersionRef.current = scopeVersion
+    if (scopeChanged) setData(null)
     setLoading(true)
     setError(null)
     apiCall<DealsSummaryResponse>('/api/customers/deals/summary')
@@ -127,7 +171,6 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
         if (cancelled) return
         if (!call.ok || !isDealsSummaryResponse(call.result)) {
           setError(t('customers.deals.list.kpi.error'))
-          setData(null)
           return
         }
         setData(call.result)
@@ -135,7 +178,6 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
       .catch(() => {
         if (cancelled) return
         setError(t('customers.deals.list.kpi.error'))
-        setData(null)
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -143,29 +185,34 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
     return () => {
       cancelled = true
     }
-  }, [t, scopeVersion, reloadToken])
+  }, [t, scopeVersion, reloadToken, retryToken])
 
-  const gridClassName = cn('grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4', className)
+  const wrapperClassName = cn('space-y-2', className)
+  const gridClassName = 'grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4'
 
-  if (loading) {
+  if (loading && !data) {
     return (
-      <div className={gridClassName}>
-        <DealKpiCard loading title={t('customers.deals.list.kpi.pipelineValue')} value={null} />
-        <DealKpiCard loading title={t('customers.deals.list.kpi.activeDeals')} value={null} />
-        <DealKpiCard loading title={t('customers.deals.list.kpi.wonThisQuarter')} value={null} />
-        <DealKpiCard loading title={t('customers.deals.list.kpi.winRate')} value={null} />
+      <div className={wrapperClassName}>
+        <div className={gridClassName}>
+          <DealKpiCard loading title={t('customers.deals.list.kpi.pipelineValue')} value={null} />
+          <DealKpiCard loading title={t('customers.deals.list.kpi.activeDeals')} value={null} />
+          <DealKpiCard loading title={t('customers.deals.list.kpi.wonThisQuarter')} value={null} />
+          <DealKpiCard loading title={t('customers.deals.list.kpi.winRate')} value={null} />
+        </div>
       </div>
     )
   }
 
-  if (error || !data) {
+  if (!data) {
     const errorMessage = error ?? t('customers.deals.list.kpi.error')
     return (
-      <div className={gridClassName}>
-        <DealKpiCard title={t('customers.deals.list.kpi.pipelineValue')} value={null} error={errorMessage} />
-        <DealKpiCard title={t('customers.deals.list.kpi.activeDeals')} value={null} error={errorMessage} />
-        <DealKpiCard title={t('customers.deals.list.kpi.wonThisQuarter')} value={null} error={errorMessage} />
-        <DealKpiCard title={t('customers.deals.list.kpi.winRate')} value={null} error={errorMessage} />
+      <div className={wrapperClassName}>
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+          <p className="text-sm text-destructive">{errorMessage}</p>
+          <Button type="button" variant="destructive-outline" size="sm" onClick={retry}>
+            {t('customers.deals.list.kpi.retry')}
+          </Button>
+        </div>
       </div>
     )
   }
@@ -173,106 +220,168 @@ export function DealsKpiStrip({ ownerNames, stageDictionary, pipelineCount, clas
   const currencySuffix = buildCurrencySuffix(data.baseCurrencyCode, data.convertedAll)
   const unassignedLabel = t('customers.deals.list.kpi.unassignedStage')
   const deltaTooltip = t('customers.deals.list.kpi.deltaTooltip')
+  const deltaUnavailableTooltip = t('customers.deals.list.kpi.deltaUnavailable')
+  const scopeLabel = t('customers.deals.list.kpi.scopeAllPipelinesThisQuarter')
+  const unknownOwner = t('customers.deals.list.unknownOwner')
+  const currencyHint = !data.convertedAll
+    ? data.baseCurrencyCode
+      ? t('customers.deals.list.kpi.currencyApproxMissing', {
+          currencies: data.missingRateCurrencies.length ? data.missingRateCurrencies.join(', ') : currencySuffix,
+        })
+      : t('customers.deals.list.kpi.currencyApproxNoBase')
+    : null
+  const attentionLabel = pf('customers.deals.list.kpi.frag.needAttention', data.activeDeals.needAttention)
 
   return (
-    <div className={gridClassName}>
-      <DealKpiCard
-        title={t('customers.deals.list.kpi.pipelineValue')}
-        value={data.pipelineValue.value}
-        formatValue={formatCompact}
-        suffix={currencySuffix}
-        headerAction={
-          <DeltaBadge direction={data.pipelineValue.delta.direction} value={data.pipelineValue.delta.value} title={deltaTooltip} />
-        }
-        footer={
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">
-              {t('customers.deals.list.kpi.activeAcrossPipelines', {
-                deals: pf('customers.deals.list.kpi.frag.activeDeals', data.activeDeals.value),
-                pipelines: pf('customers.deals.list.kpi.frag.pipelines', pipelineCount),
-              })}
-            </p>
-            <PipelineStageBar
-              stages={data.pipelineValue.stages}
-              stageDictionary={stageDictionary}
-              unassignedLabel={unassignedLabel}
+    <div className={wrapperClassName}>
+      {error ? (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+          <p className="text-xs text-destructive">{error}</p>
+          <Button type="button" variant="destructive-outline" size="2xs" onClick={retry}>
+            {t('customers.deals.list.kpi.retry')}
+          </Button>
+        </div>
+      ) : null}
+      {loading ? (
+        <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
+          <Spinner className="h-3 w-3" />
+          <span>{t('customers.deals.list.kpi.updating')}</span>
+        </div>
+      ) : null}
+      <div className={gridClassName}>
+        <DealKpiCard
+          title={t('customers.deals.list.kpi.pipelineValue')}
+          value={data.pipelineValue.value}
+          formatValue={formatCompact}
+          suffix={currencySuffix}
+          headerAction={
+            <KpiDeltaBadge
+              direction={data.pipelineValue.delta.direction}
+              value={data.pipelineValue.delta.value}
+              title={data.pipelineValue.delta.direction === 'unchanged' && data.pipelineValue.delta.value === 0 ? deltaUnavailableTooltip : deltaTooltip}
             />
-          </div>
-        }
-      />
-
-      <DealKpiCard
-        title={t('customers.deals.list.kpi.activeDeals')}
-        value={data.activeDeals.value}
-        formatValue={formatCompact}
-        headerAction={
-          <DeltaBadge direction={data.activeDeals.delta.direction} value={data.activeDeals.delta.value} title={deltaTooltip} />
-        }
-        footer={
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">
-              {t('customers.deals.list.kpi.ownersNeedAttention', {
-                owners: pf('customers.deals.list.kpi.frag.owners', data.activeDeals.ownersCount),
-                attention: pf('customers.deals.list.kpi.frag.needAttention', data.activeDeals.needAttention),
-              })}
-            </p>
-            {data.activeDeals.owners.length > 0 ? (
-              <AvatarStack max={4} size="sm" overflowCount={data.activeDeals.ownersOverflow}>
-                {data.activeDeals.owners.map((owner) => (
-                  <Avatar key={owner.id} label={ownerNames[owner.id] ?? owner.id} size="sm" />
-                ))}
-              </AvatarStack>
-            ) : null}
-          </div>
-        }
-      />
-
-      <DealKpiCard
-        title={t('customers.deals.list.kpi.wonThisQuarter')}
-        value={data.wonThisQuarter.value}
-        formatValue={formatCompact}
-        suffix={currencySuffix}
-        headerAction={
-          <DeltaBadge direction={data.wonThisQuarter.delta.direction} value={data.wonThisQuarter.delta.value} title={deltaTooltip} />
-        }
-        footer={
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <CheckCircle className="h-4 w-4 text-status-success-text" aria-hidden />
-              <span>
-                {pf('customers.deals.list.kpi.frag.dealsClosed', data.wonThisQuarter.dealsClosed)}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {t('customers.deals.list.kpi.avgDeal', {
-                value: `${formatCompact(data.wonThisQuarter.avgDeal)}${currencySuffix ? ` ${currencySuffix}` : ''}`,
-              })}
-            </p>
-          </div>
-        }
-      />
-
-      <DealKpiCard
-        title={t('customers.deals.list.kpi.winRate')}
-        value={data.winRate.value}
-        suffix="%"
-        headerAction={
-          <DeltaBadge direction={data.winRate.direction} value={Math.abs(data.winRate.deltaPp)} unit="pp" title={deltaTooltip} />
-        }
-        footer={
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">
-              {t('customers.deals.list.kpi.fromLastQuarter', { value: data.winRate.previousValue })}
-            </p>
-            <div className="text-primary">
-              <Sparkline
-                values={data.winRate.series.map((point) => point.rate)}
-                ariaLabel={t('customers.deals.list.kpi.winRate')}
+          }
+          footer={
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">{scopeLabel}</p>
+              <p className="text-xs text-muted-foreground">
+                {t('customers.deals.list.kpi.activeAcrossPipelines', {
+                  deals: pf('customers.deals.list.kpi.frag.activeDeals', data.activeDeals.value),
+                  pipelines: pf('customers.deals.list.kpi.frag.pipelines', pipelineCount),
+                })}
+              </p>
+              {currencyHint ? <p className="text-xs text-muted-foreground">{currencyHint}</p> : null}
+              <PipelineStageBar
+                stages={data.pipelineValue.stages}
+                stageDictionary={stageDictionary}
+                unassignedLabel={unassignedLabel}
               />
             </div>
-          </div>
-        }
-      />
+          }
+        />
+
+        <DealKpiCard
+          title={t('customers.deals.list.kpi.activeDeals')}
+          value={data.activeDeals.value}
+          formatValue={formatCompact}
+          headerAction={
+            <KpiDeltaBadge
+              direction={data.activeDeals.delta.direction}
+              value={data.activeDeals.delta.value}
+              title={data.activeDeals.delta.direction === 'unchanged' && data.activeDeals.delta.value === 0 ? deltaUnavailableTooltip : deltaTooltip}
+            />
+          }
+          footer={
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">{scopeLabel}</p>
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+                <span>{pf('customers.deals.list.kpi.frag.owners', data.activeDeals.ownersCount)}</span>
+                <span aria-hidden="true">·</span>
+                {onNeedsAttentionClick && data.activeDeals.needAttention > 0 ? (
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="2xs"
+                    className="h-auto p-0 text-xs"
+                    onClick={onNeedsAttentionClick}
+                  >
+                    {attentionLabel}
+                  </Button>
+                ) : (
+                  <span>{attentionLabel}</span>
+                )}
+              </div>
+              {data.activeDeals.owners.length > 0 ? (
+                <AvatarStack max={4} size="sm" overflowCount={data.activeDeals.ownersOverflow}>
+                  {data.activeDeals.owners.map((owner) => {
+                    const ownerLabel = ownerNames[owner.id]?.trim() || unknownOwner
+                    return <Avatar key={owner.id} label={ownerLabel} size="sm" />
+                  })}
+                </AvatarStack>
+              ) : null}
+            </div>
+          }
+        />
+
+        <DealKpiCard
+          title={t('customers.deals.list.kpi.wonThisQuarter')}
+          value={data.wonThisQuarter.value}
+          formatValue={formatCompact}
+          suffix={currencySuffix}
+          headerAction={
+            <KpiDeltaBadge
+              direction={data.wonThisQuarter.delta.direction}
+              value={data.wonThisQuarter.delta.value}
+              title={data.wonThisQuarter.delta.direction === 'unchanged' && data.wonThisQuarter.delta.value === 0 ? deltaUnavailableTooltip : deltaTooltip}
+            />
+          }
+          footer={
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">{scopeLabel}</p>
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <CheckCircle className="h-4 w-4 text-status-success-text" aria-hidden />
+                <span>
+                  {pf('customers.deals.list.kpi.frag.dealsClosed', data.wonThisQuarter.dealsClosed)}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t('customers.deals.list.kpi.avgDeal', {
+                  value: `${formatCompact(data.wonThisQuarter.avgDeal)}${currencySuffix ? ` ${currencySuffix}` : ''}`,
+                })}
+              </p>
+              {currencyHint ? <p className="text-xs text-muted-foreground">{currencyHint}</p> : null}
+            </div>
+          }
+        />
+
+        <DealKpiCard
+          title={t('customers.deals.list.kpi.winRate')}
+          value={data.winRate.value}
+          suffix="%"
+          headerAction={
+            <KpiDeltaBadge
+              direction={data.winRate.direction}
+              value={Math.abs(data.winRate.deltaPp)}
+              unit="pp"
+              title={data.winRate.previousValue === 0 ? deltaUnavailableTooltip : deltaTooltip}
+            />
+          }
+          footer={
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">{scopeLabel}</p>
+              <p className="text-xs text-muted-foreground">
+                {t('customers.deals.list.kpi.fromLastQuarter', { value: data.winRate.previousValue })}
+              </p>
+              <div className="text-primary">
+                <Sparkline
+                  values={data.winRate.series.map((point) => point.rate)}
+                  ariaLabel={t('customers.deals.list.kpi.winRate')}
+                />
+              </div>
+            </div>
+          }
+        />
+      </div>
     </div>
   )
 }

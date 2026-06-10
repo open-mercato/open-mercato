@@ -21,10 +21,12 @@ import { coalesceLastOperations } from '@open-mercato/ui/backend/operations/stor
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 import { Tag } from '@open-mercato/ui/primitives/tag'
-import { Briefcase, AlertTriangle } from 'lucide-react'
+import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
+import { Briefcase, AlertTriangle, X } from 'lucide-react'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { ViewTabsRow } from './pipeline/components/ViewTabsRow'
 import { DealsKpiStrip } from '../../../components/DealsKpiStrip'
@@ -207,6 +209,7 @@ export default function CustomersDealsPage() {
   const [isLoading, setIsLoading] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [pendingDeleteId, setPendingDeleteId] = React.useState<string | null>(null)
+  const [needsAttentionOnly, setNeedsAttentionOnly] = React.useState(() => searchParams?.get('needsAttention') === 'true')
   // One-shot URL hydration used as the hook's initial value. The hook is the
   // single source of truth from this point on — the page MUST NOT keep a
   // parallel `useState<AdvancedFilterTree>` (see spec "Migration & Backward
@@ -338,12 +341,13 @@ export default function CustomersDealsPage() {
     if (search.trim().length) params.set('search', search.trim())
     if (selectedPersonIds.length) params.set('personId', selectedPersonIds.join(','))
     if (selectedCompanyIds.length) params.set('companyId', selectedCompanyIds.join(','))
+    if (needsAttentionOnly) params.set('needsAttention', 'true')
     const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }
     return params.toString()
-  }, [advancedFilterState, page, pageSize, search, selectedCompanyIds, selectedPersonIds, sorting])
+  }, [advancedFilterState, needsAttentionOnly, page, pageSize, search, selectedCompanyIds, selectedPersonIds, sorting])
 
   const currentParams = React.useMemo(
     () => Object.fromEntries(new URLSearchParams(queryParams)),
@@ -415,6 +419,7 @@ export default function CustomersDealsPage() {
     if (search.trim().length) params.set('search', search.trim())
     if (selectedPersonIds.length) selectedPersonIds.forEach((id) => params.append('personId', id))
     if (selectedCompanyIds.length) selectedCompanyIds.forEach((id) => params.append('companyId', id))
+    if (needsAttentionOnly) params.set('needsAttention', 'true')
     if (page > 1) params.set('page', String(page))
     const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
@@ -424,7 +429,7 @@ export default function CustomersDealsPage() {
     if (queryRef.current === next) return
     queryRef.current = next
     router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
-  }, [pathname, router, page, search, selectedPersonIds, selectedCompanyIds, advancedFilterState])
+  }, [pathname, router, page, search, selectedPersonIds, selectedCompanyIds, needsAttentionOnly, advancedFilterState])
 
   const handleRefresh = React.useCallback(() => {
     void Promise.all([
@@ -510,6 +515,16 @@ export default function CustomersDealsPage() {
 
   const handlePageSizeChange = React.useCallback((newSize: number) => {
     setPageSize(newSize)
+    setPage(1)
+  }, [])
+
+  const handleNeedsAttentionFilter = React.useCallback(() => {
+    setNeedsAttentionOnly(true)
+    setPage(1)
+  }, [])
+
+  const handleNeedsAttentionClear = React.useCallback(() => {
+    setNeedsAttentionOnly(false)
     setPage(1)
   }, [])
 
@@ -654,6 +669,7 @@ export default function CustomersDealsPage() {
 
   const columns = React.useMemo<ColumnDef<DealRow>[]>(() => {
     const noValue = <span className="text-muted-foreground text-sm">{t('customers.deals.list.noValue')}</span>
+    const unknownOwner = t('customers.deals.list.unknownOwner')
 
     const customColumns = customFieldDefs
       .filter((def) => supportsCustomFieldColumn(def))
@@ -867,8 +883,8 @@ export default function CustomersDealsPage() {
         },
         cell: ({ row }) => {
           const ownerUserId = row.original.ownerUserId
-          if (!ownerUserId) return null
-          const label = ownerNames[ownerUserId] ?? ownerUserId
+          if (!ownerUserId) return noValue
+          const label = ownerNames[ownerUserId]?.trim() || unknownOwner
           return (
             <div className="flex items-center gap-2 min-w-0">
               <Avatar label={label} size="sm" />
@@ -924,17 +940,26 @@ export default function CustomersDealsPage() {
         },
         cell: ({ row }) => {
           const people = row.original.people
-          if (!people.length) return null
+          if (!people.length) return noValue
+          const labels = normalizeCollectionLabels(
+            people.map((person) =>
+              person.label && person.label.trim().length ? person.label : t('customers.deals.list.unnamedPerson')),
+          )
+          const tooltip = labels.join(', ')
           return (
-            <AvatarStack max={4} size="sm">
-              {people.map((person) => (
-                <Avatar
-                  key={person.id}
-                  label={person.label || t('customers.deals.list.unnamedPerson')}
-                  size="sm"
-                />
-              ))}
-            </AvatarStack>
+            <SimpleTooltip content={tooltip} side="top">
+              <span className="inline-flex">
+                <AvatarStack max={4} size="sm">
+                  {people.map((person) => (
+                    <Avatar
+                      key={person.id}
+                      label={person.label || t('customers.deals.list.unnamedPerson')}
+                      size="sm"
+                    />
+                  ))}
+                </AvatarStack>
+              </span>
+            </SimpleTooltip>
           )
         },
       },
@@ -1035,6 +1060,7 @@ export default function CustomersDealsPage() {
           pipelineCount={Object.keys(pipelineNames).length}
           scopeVersion={scopeVersion}
           reloadToken={reloadToken}
+          onNeedsAttentionClick={handleNeedsAttentionFilter}
           className="mb-4"
         />
         <DataTable<DealRow>
@@ -1134,6 +1160,29 @@ export default function CustomersDealsPage() {
           }}
           activeFilterChips={(
             <>
+              {needsAttentionOnly ? (
+                <div
+                  className="flex items-center gap-2 overflow-x-auto border-b border-border bg-background px-4 py-2"
+                  data-testid="active-filter-chips"
+                >
+                  <div
+                    className="inline-flex items-center gap-1"
+                    data-testid="active-filter-chip"
+                    aria-label={t('customers.deals.list.filters.needsAttention')}
+                  >
+                    <Tag variant="warning" dot>{t('customers.deals.list.filters.needsAttention')}</Tag>
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      aria-label={t('customers.deals.list.filters.needsAttentionRemove')}
+                      onClick={handleNeedsAttentionClear}
+                    >
+                      <X className="size-3" />
+                    </IconButton>
+                  </div>
+                </div>
+              ) : null}
               <ActiveFilterChips
                 tree={associationFilterTree}
                 fields={associationFilterFields}
@@ -1151,11 +1200,32 @@ export default function CustomersDealsPage() {
             </>
           )}
           filterAwareEmptyState={{
-            active: advancedFilterState.root.children.length > 0,
+            active: needsAttentionOnly || associationFilterTree.root.children.length > 0 || advancedFilterState.root.children.length > 0,
             entityNamePlural: t('customers.deals.entityPlural', 'deals'),
-            canRemoveLast: filterPanel.tree.root.children.length > 0,
-            onClearAll: handleAdvancedFilterClear,
-            onRemoveLast: () => filterPanel.dispatch({ type: 'removeLast' }),
+            canRemoveLast: needsAttentionOnly || associationFilterTree.root.children.length > 0 || filterPanel.tree.root.children.length > 0,
+            onClearAll: () => {
+              handleAdvancedFilterClear()
+              setSelectedPersonIds([])
+              setSelectedCompanyIds([])
+              setNeedsAttentionOnly(false)
+            },
+            onRemoveLast: () => {
+              if (needsAttentionOnly) {
+                handleNeedsAttentionClear()
+                return
+              }
+              if (selectedCompanyIds.length > 0) {
+                setSelectedCompanyIds([])
+                setPage(1)
+                return
+              }
+              if (selectedPersonIds.length > 0) {
+                setSelectedPersonIds([])
+                setPage(1)
+                return
+              }
+              filterPanel.dispatch({ type: 'removeLast' })
+            },
           }}
           emptyState={(
             <ListEmptyState
