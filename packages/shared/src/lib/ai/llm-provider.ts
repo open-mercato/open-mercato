@@ -147,10 +147,13 @@ export interface LlmProvider {
    * Optional. Maps a runtime-computed end-user identifier (see
    * {@link LlmCreateModelOptions.endUserIdentifier}) into the AI SDK
    * `providerOptions` fragment this provider understands — e.g. OpenAI returns
-   * `{ openai: { safety_identifier } }`, Anthropic returns
-   * `{ anthropic: { user: { id } } }`. The runtime merges the returned fragment
-   * into the per-call `providerOptions`. Adapters that omit this method send no
-   * identifier (today's behavior). Implementations MUST be pure and stateless.
+   * `{ openai: { safetyIdentifier } }`, Anthropic returns
+   * `{ anthropic: { metadata: { userId } } }`. Keys MUST be the AI SDK
+   * provider-option names (camelCase); the SDK translates them to the
+   * provider's request-body fields and strips unknown keys. The runtime merges
+   * the returned fragment into the per-call `providerOptions`. Adapters that
+   * omit this method send no identifier (today's behavior). Implementations
+   * MUST be pure and stateless.
    */
   mapEndUserIdentifier?(identifier: string): Record<string, unknown>
 

@@ -1211,12 +1211,12 @@ describe('createModelFactory — end-user safety identifier + moderation capabil
   }
 
   it('emits the provider-mapped providerOptions fragment when an identifier is supplied', () => {
-    const mapEndUserIdentifier = jest.fn((id: string) => ({ openai: { safety_identifier: id } }))
+    const mapEndUserIdentifier = jest.fn((id: string) => ({ openai: { safetyIdentifier: id } }))
     const provider = makeIdentifierProvider({ mapEndUserIdentifier, supportsInputModeration: true })
     const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
     const resolution = factory.resolveModel({ endUserIdentifier: 'hashed-user' })
     expect(mapEndUserIdentifier).toHaveBeenCalledWith('hashed-user')
-    expect(resolution.providerOptions).toEqual({ openai: { safety_identifier: 'hashed-user' } })
+    expect(resolution.providerOptions).toEqual({ openai: { safetyIdentifier: 'hashed-user' } })
     expect(resolution.supportsInputModeration).toBe(true)
   })
 
@@ -1224,7 +1224,7 @@ describe('createModelFactory — end-user safety identifier + moderation capabil
     const createModel = jest.fn((options: { modelId: string; apiKey: string }) => ({ ...options }))
     const provider = makeIdentifierProvider({
       createModel,
-      mapEndUserIdentifier: (id: string) => ({ openai: { safety_identifier: id } }),
+      mapEndUserIdentifier: (id: string) => ({ openai: { safetyIdentifier: id } }),
     })
     const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
     factory.resolveModel({ endUserIdentifier: 'hashed-user' })

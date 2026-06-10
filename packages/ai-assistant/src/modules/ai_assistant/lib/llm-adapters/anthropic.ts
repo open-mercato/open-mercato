@@ -91,9 +91,13 @@ export function createAnthropicAdapter(): LlmProvider {
     },
 
     mapEndUserIdentifier(identifier: string): Record<string, unknown> {
-      // Anthropic Messages API accepts a top-level `metadata.user_id` so abuse
-      // enforcement can target a single hashed end user instead of the org key.
-      return { anthropic: { metadata: { user_id: identifier } } }
+      // Anthropic Messages API accepts `metadata.user_id` so abuse enforcement
+      // can target a single hashed end user instead of the org key. The key MUST
+      // be the AI SDK provider-option name `userId` (camelCase) — the SDK
+      // translates it to the `metadata.user_id` request-body field and strips
+      // unknown providerOptions keys, so a snake_case key would be dropped and
+      // never reach Anthropic.
+      return { anthropic: { metadata: { userId: identifier } } }
     },
 
     createModel(options: LlmCreateModelOptions): unknown {
