@@ -26,6 +26,7 @@ import {
 import type { StopCondition } from 'ai'
 import type { ZodTypeAny } from 'zod'
 import { createModelFactory, resolveAllowRuntimeOverride } from './model-factory'
+import { computeEndUserIdentifier } from '@open-mercato/shared/lib/ai/safety-identifier'
 import type {
   AiAgentDefinition,
   AiAgentLoopConfig,
@@ -336,6 +337,16 @@ export interface PreparedAiSdkOptions {
    * Phase 5 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
    */
   toolLoopAgent?: ToolLoopAgent<never, ToolSet>
+  /**
+   * Provider-specific `providerOptions` fragment carrying the mapped end-user
+   * safety identifier (e.g. OpenAI `safety_identifier`). Present only when an
+   * identifier was derived and the resolved provider supports the mapping.
+   * Callers using the `generateText` escape-hatch MUST forward it to the SDK
+   * call so the identifier reaches the provider.
+   *
+   * Spec `2026-06-04-ai-input-moderation-and-safety-identifiers`.
+   */
+  providerOptions?: Record<string, unknown>
 }
 
 /**
@@ -970,6 +981,13 @@ interface ResolvedAgentModel {
   model: LanguageModel
   modelId: string
   providerId: string
+  /**
+   * Provider-specific `providerOptions` fragment carrying the mapped end-user
+   * safety identifier (undefined when no identifier or no provider mapping).
+   */
+  providerOptions?: Record<string, unknown>
+  /** Whether the resolved chat provider supports input moderation. */
+  supportsInputModeration: boolean
 }
 
 function resolveAgentModel(
@@ -981,6 +999,7 @@ function resolveAgentModel(
   tenantOverride?: { providerId?: string | null; modelId?: string | null; baseURL?: string | null } | null,
   requestOverride?: { providerId?: string | null; modelId?: string | null; baseURL?: string | null } | null,
   tenantAllowlist?: TenantAllowlistSnapshot | null,
+  endUserIdentifier?: string,
 ): ResolvedAgentModel {
   const effectiveContainer = container ?? createContainer()
   const resolution = createModelFactory(effectiveContainer).resolveModel({
@@ -995,11 +1014,30 @@ function resolveAgentModel(
     tenantOverride: tenantOverride ?? undefined,
     requestOverride: requestOverride ?? undefined,
     tenantAllowlist: tenantAllowlist ?? null,
+    endUserIdentifier,
   })
   return {
     model: resolution.model as LanguageModel,
     modelId: resolution.modelId,
     providerId: resolution.providerId,
+    providerOptions: resolution.providerOptions,
+    supportsInputModeration: resolution.supportsInputModeration === true,
+  }
+}
+
+/**
+ * Compute the tenant-salted end-user safety identifier for a chat turn,
+ * best-effort. Returns undefined (never throws) so a derivation failure — e.g.
+ * a missing base secret in a misconfigured environment — degrades to "no
+ * identifier attached" instead of breaking the chat. Failures are logged.
+ */
+function resolveEndUserIdentifier(authContext: AiChatRequestContext): string | undefined {
+  try {
+    return computeEndUserIdentifier(authContext.tenantId, authContext.userId)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn('[ai_assistant] failed to derive end-user safety identifier:', message)
+    return undefined
   }
 }
 
@@ -1504,8 +1542,10 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     tenantRuntimeOverride,
     input.requestOverride,
     tenantAllowlistSnapshot,
+    resolveEndUserIdentifier(input.authContext),
   )
   const { model } = resolvedModel
+  const modelProviderOptions = resolvedModel.providerOptions
   const normalizedMessages = ensureUiMessageShape(input.messages)
   const hydratedMessages = attachAttachmentsToMessages(normalizedMessages, resolvedAttachments)
   const modelMessages = await convertToModelMessages(hydratedMessages)
@@ -1599,6 +1639,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
         : {}),
       ...(sdkActiveTools !== undefined ? { activeTools: sdkActiveTools } : {}),
       ...(sdkToolChoice !== undefined ? { toolChoice: sdkToolChoice } : {}),
+      ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions } : {}),
     }
     builtToolLoopAgent = new ToolLoopAgent(agentSettings)
   }
@@ -1620,6 +1661,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     toolChoice: sdkToolChoice,
     abortSignal: abortController.signal,
     finalizeLoopTrace: () => loopTraceCollector.finalize(budgetEnforcer.abortReason),
+    ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions } : {}),
     ...(builtToolLoopAgent !== undefined ? { toolLoopAgent: builtToolLoopAgent } : {}),
   }
 
@@ -1692,6 +1734,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     experimental_repairToolCall: effectiveLoop.repairToolCall as never,
     ...(sdkActiveTools !== undefined ? { activeTools: sdkActiveTools } : {}),
     ...(sdkToolChoice !== undefined ? { toolChoice: sdkToolChoice } : {}),
+    ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions } : {}),
     abortSignal: abortController.signal,
   })
   if (wallClockTimer !== undefined) {

@@ -1190,3 +1190,63 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeOverride (re
     expect(resolution.modelId).toBe('override-model')
   })
 })
+
+describe('createModelFactory — end-user safety identifier + moderation capability', () => {
+  // The shared makeProvider helper lists fields explicitly and does not carry
+  // the optional mapEndUserIdentifier / supportsInputModeration members, so we
+  // build providers inline here.
+  type IdentifierProvider = FakeProvider & {
+    mapEndUserIdentifier?: (identifier: string) => Record<string, unknown>
+    supportsInputModeration?: boolean
+  }
+  function makeIdentifierProvider(overrides: Partial<IdentifierProvider> = {}): IdentifierProvider {
+    return {
+      id: 'test-provider',
+      defaultModel: 'provider-default-model',
+      resolveApiKey: () => 'test-api-key',
+      createModel: (options) => ({ kind: 'fake-model', ...options }),
+      isConfigured: () => true,
+      ...overrides,
+    }
+  }
+
+  it('emits the provider-mapped providerOptions fragment when an identifier is supplied', () => {
+    const mapEndUserIdentifier = jest.fn((id: string) => ({ openai: { safety_identifier: id } }))
+    const provider = makeIdentifierProvider({ mapEndUserIdentifier, supportsInputModeration: true })
+    const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
+    const resolution = factory.resolveModel({ endUserIdentifier: 'hashed-user' })
+    expect(mapEndUserIdentifier).toHaveBeenCalledWith('hashed-user')
+    expect(resolution.providerOptions).toEqual({ openai: { safety_identifier: 'hashed-user' } })
+    expect(resolution.supportsInputModeration).toBe(true)
+  })
+
+  it('forwards the identifier to the adapter createModel options', () => {
+    const createModel = jest.fn((options: { modelId: string; apiKey: string }) => ({ ...options }))
+    const provider = makeIdentifierProvider({
+      createModel,
+      mapEndUserIdentifier: (id: string) => ({ openai: { safety_identifier: id } }),
+    })
+    const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
+    factory.resolveModel({ endUserIdentifier: 'hashed-user' })
+    expect(createModel).toHaveBeenCalledWith(
+      expect.objectContaining({ endUserIdentifier: 'hashed-user' }),
+    )
+  })
+
+  it('omits providerOptions when no identifier is supplied', () => {
+    const mapEndUserIdentifier = jest.fn((id: string) => ({ openai: { safety_identifier: id } }))
+    const provider = makeIdentifierProvider({ mapEndUserIdentifier })
+    const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
+    const resolution = factory.resolveModel({})
+    expect(mapEndUserIdentifier).not.toHaveBeenCalled()
+    expect(resolution.providerOptions).toBeUndefined()
+  })
+
+  it('omits providerOptions when the provider has no mapping, and reports moderation unsupported', () => {
+    const provider = makeIdentifierProvider()
+    const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
+    const resolution = factory.resolveModel({ endUserIdentifier: 'hashed-user' })
+    expect(resolution.providerOptions).toBeUndefined()
+    expect(resolution.supportsInputModeration).toBe(false)
+  })
+})

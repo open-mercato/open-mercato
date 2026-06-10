@@ -13,8 +13,8 @@
 |-------|------|-------|--------|--------|
 | 1 | 1.1 | Extend shared LLM provider contract (endUserIdentifier / mapEndUserIdentifier / supportsInputModeration) + tests | done | 18962f889 |
 | 1 | 1.2 | Add safety-identifier HMAC helper (deriveAiSafetyIdentifierSecret + computeEndUserIdentifier) + tests | done | 81155e2a9 |
-| 1 | 1.3 | Implement mapEndUserIdentifier + supportsInputModeration in OpenAI/Anthropic adapters + tests | done | pending |
-| 1 | 1.4 | Thread endUserIdentifier through runAiAgentText into merged providerOptions + tests | todo | — |
+| 1 | 1.3 | Implement mapEndUserIdentifier + supportsInputModeration in OpenAI/Anthropic adapters + tests | done | 56bd75d55 |
+| 1 | 1.4 | Thread endUserIdentifier through runAiAgentText into merged providerOptions + tests | done | pending |
 | 2 | 2.1 | ModerationService + typed errors (AiModerationBlockedError/Unavailable) + DI registration + tests | todo | — |
 | 2 | 2.2 | resolveModerationPolicy 5-step precedence + untrustedInput on AiAgentDefinition + tests | todo | — |
 | 2 | 2.3 | Wire pre-loop moderation gate into runAiAgentText (fail-open/fail-closed) + tests | todo | — |
