@@ -102,7 +102,9 @@ export async function GET(req: NextRequest): Promise<Response> {
     const repo = new AiModerationFlagRepository(em)
     const { items, total } = await repo.list({
       tenantId: auth.tenantId,
-      organizationId: auth.orgId ?? null,
+      // Tenant-scoped abuse audit: do NOT narrow by organization_id. Tenant is
+      // the hard isolation boundary; portal-surface flags often carry no org,
+      // and a tenant admin reviewing abuse needs every flag in the tenant.
       agentId,
       userId,
       // `to` is an inclusive day; extend to end-of-day so same-day rows match.

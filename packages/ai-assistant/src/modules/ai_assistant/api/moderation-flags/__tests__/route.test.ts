@@ -94,9 +94,11 @@ describe('GET /api/ai_assistant/moderation-flags', () => {
     expect(json.page).toBe(2)
     expect(json.pageSize).toBe(25)
     expect(json.items[0]).toMatchObject({ id: 'flag-1', userId: 'user-9', categories: { hate: { flagged: true, score: 0.97 } } })
+    // Tenant-scoped only — the listing does NOT narrow by organization_id.
     expect(listMock).toHaveBeenCalledWith(
-      expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1', page: 2, pageSize: 25 }),
+      expect.objectContaining({ tenantId: 'tenant-1', page: 2, pageSize: 25 }),
     )
+    expect(listMock.mock.calls[0][0].organizationId).toBeUndefined()
   })
 
   it('passes agentId/userId/date filters through to the repository', async () => {
