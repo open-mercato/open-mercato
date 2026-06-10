@@ -200,6 +200,7 @@
     "yaml": "2.8.3",
     "webpack": "5.104.1",
     "fast-xml-builder": "1.2.0",
-    "shell-quote": "1.8.4"
+    "shell-quote": "1.8.4",
+    "dompurify": "3.4.9"
   }
 }
