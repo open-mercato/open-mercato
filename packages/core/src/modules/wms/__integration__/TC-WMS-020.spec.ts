@@ -63,7 +63,7 @@ test.describe('TC-WMS-020: ACL denial and warehouse UI CRUD', () => {
       await login(page, 'admin')
       await page.goto('/backend/config/wms')
 
-      await page.getByRole('button', { name: /Add warehouse/i }).click()
+      await page.getByRole('button', { name: /Add warehouse/i }).first().click()
       const createDialog = page.getByRole('dialog').filter({ hasText: /Create warehouse/i }).first()
       await expect(createDialog).toBeVisible()
       const createInputs = createDialog.getByRole('textbox')

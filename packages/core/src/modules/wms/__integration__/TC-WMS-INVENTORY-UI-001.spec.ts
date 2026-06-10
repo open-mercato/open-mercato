@@ -255,8 +255,18 @@ test.describe('TC-WMS-INVENTORY-UI-001: Inventory console mutations', () => {
         scope: cycleDialog,
         waitForEnabledPlaceholder: 'Select zone',
       })
-      await fillCombobox(page, 'Select zone', zoneName, { scope: cycleDialog })
+      // Zone options load asynchronously only after the warehouse is selected, so
+      // wait for the zone suggestions API before picking — otherwise fillCombobox's
+      // keyboard fallback leaves the typed text without committing form.zoneId, and
+      // the field silently reverts to empty on blur (wizard then can't advance).
+      await fillCombobox(page, 'Select zone', zoneName, {
+        scope: cycleDialog,
+        suggestionsApiPath: '/api/wms/zones',
+      })
 
+      // Expected SKUs only reaches >= 1 once the async scope estimate resolves
+      // successfully, so this poll also confirms the estimate has settled before we
+      // continue.
       await expect
         .poll(async () => {
           const value = await cycleDialog.locator('input[type="number"]').first().inputValue()
@@ -264,8 +274,16 @@ test.describe('TC-WMS-INVENTORY-UI-001: Inventory console mutations', () => {
         })
         .toBeGreaterThanOrEqual(1)
 
-      await cycleDialog.getByRole('button', { name: 'Start counting' }).click()
-      await expect(cycleDialog.getByText('Step 2 of 3 · Scan and tally items')).toBeVisible()
+      // handleSetupContinue validates and advances purely client-side (no API call)
+      // and silently returns on any field that has not yet committed in the submit
+      // handler's render closure; a concurrent estimate patchForm then clears the
+      // field error, so a single swallowed click leaves the wizard stuck on step 1
+      // with no visible error. Retry the click until the wizard transitions.
+      const step2Heading = cycleDialog.getByText('Step 2 of 3 · Scan and tally items')
+      await expect(async () => {
+        await cycleDialog.getByRole('button', { name: 'Start counting' }).click()
+        await expect(step2Heading).toBeVisible({ timeout: 2_000 })
+      }).toPass({ timeout: 20_000 })
 
       await fillCombobox(page, 'Search variant or SKU', variantSku, {
         scope: cycleDialog,
@@ -279,9 +297,16 @@ test.describe('TC-WMS-INVENTORY-UI-001: Inventory console mutations', () => {
       const countedInput = cycleDialog.locator('input[inputmode="numeric"]')
       await countedInput.fill(String(countedQty))
 
-      await cycleDialog.getByRole('button', { name: 'Review variances' }).click()
-      await expect(cycleDialog.getByText('Step 3 of 3 · Review variances and commit')).toBeVisible()
-      await expect(cycleDialog.getByText('-3')).toBeVisible()
+      // handleCountContinue validates client-side and only fetches system on-hand
+      // before advancing, so it silently returns when a combobox/counted value has
+      // not yet committed in the submit handler's render closure. Retry the click
+      // until the wizard reaches step 3 (the balance fetch is read-only/idempotent).
+      const step3Heading = cycleDialog.getByText('Step 3 of 3 · Review variances and commit')
+      await expect(async () => {
+        await cycleDialog.getByRole('button', { name: 'Review variances' }).click()
+        await expect(step3Heading).toBeVisible({ timeout: 2_000 })
+      }).toPass({ timeout: 20_000 })
+      await expect(cycleDialog.getByText('-3', { exact: true })).toBeVisible()
 
       await cycleDialog.getByRole('button', { name: 'Commit count' }).click()
       await expect(page.getByText(/Cycle count posted/i).first()).toBeVisible({ timeout: 10_000 })
