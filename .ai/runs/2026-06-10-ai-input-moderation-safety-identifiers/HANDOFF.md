@@ -3,15 +3,19 @@
 **Last updated:** 2026-06-10T14:06:26Z
 **Branch:** feat/ai-input-moderation-safety-identifiers (pushed to `fork`)
 **PR:** not yet opened (opens after final gate)
-**Current phase/step:** Phase 3 part 1 complete (checkpoint 3 green). Next: Step 3.6.
-**Last commit:** d457c1c74 — fix(ai-assistant): declare [OptionalProps] on AiModerationFlag
+**Current phase/step:** Phase 3 steps 3.1–3.7 complete. Next: Step 3.8 (needs the ephemeral DB/app integration stack).
+**Last commit:** dfc373e4e — docs(ai-assistant): moderation docs page + AGENTS.md section
 
 ## What just happened
-- 3.1 entity+migration+snapshot, 3.2 event+repo+recorder wired to gate, 3.3 settings GET/PUT + runtime override honoring, 3.4 settings UI moderation section, 3.5 moderation-flags read route, 3.5-fix OptionalProps.
-- Checkpoint 3 green: generate ok, full typecheck 21/21, ai-assistant 1254 tests, i18n sync clean. See `checkpoint-3-checks.md`.
+- 3.1–3.5 (see checkpoint-3), 3.6 moderation-flags audit DataTable page + nav, 3.7 docs page (`apps/docs/docs/framework/ai-assistant/moderation.mdx` + sidebar) + AGENTS.md section.
+- After 3.6 and 3.7: full typecheck 21/21 clean, i18n sync clean. (Two quick in-step typecheck fixes folded in: `[OptionalProps]` on the entity at 3.5-fix; `PaginationProps.totalPages` on the audit table.)
 
 ## Next concrete action
-- Step 3.6: build the moderation-flags audit `<DataTable>` backend page under `backend/config/ai-assistant/` (a new sub-route, e.g. `moderation-flags/page.tsx` + `page.meta.ts`), reading `GET /api/ai_assistant/moderation-flags`. Columns: agent, user, categories (render flagged ones as `<StatusBadge>` semantic tokens), createdAt. `<EmptyState>` via `emptyState`, date-range filter, `pageSize ≤ 100`. Add a nav entry (settings group) gated by `ai_assistant.settings.manage`. i18n: `ai_assistant.moderationFlags.*` keys (all 4 locales).
+- Step 3.8: API integration tests under the module's `__integration__/` (or `.ai/qa/tests/`) per `.ai/qa/AGENTS.md` — self-contained (API fixtures + `finally` teardown):
+  1. `PUT /api/ai_assistant/settings` with `inputModeration` → `GET` reflects effective per-agent policy; reset to inherit in teardown.
+  2. `GET /api/ai_assistant/moderation-flags` — a flag created for tenant A is visible to A only; tenant B gets an empty list (isolation probe).
+  Then Step 3.9 (Playwright: chat enforced→rejection with stubbed moderation, chat off→reaches mock model, settings UI toggle + enforced badge).
+- These steps + the final gate's `yarn test:integration` need the ephemeral Postgres + app stack — run them where that stack is available.
 
 ## Remaining steps
 - 3.6 audit DataTable page + nav

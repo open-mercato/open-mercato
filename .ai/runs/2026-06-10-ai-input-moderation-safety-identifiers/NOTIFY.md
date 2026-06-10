@@ -27,3 +27,9 @@
   1. `yarn db:generate` emitted an unrelated `ai_chat_conv_participants_active_conv_user_idx` index drop (pre-existing develop drift). Per AGENTS.md coding-agent exception, stripped it from the migration and restored the index in the snapshot; verified the only semantic snapshot removal was that index.
   2. Checkpoint typecheck surfaced `em.create(AiModerationFlag)` needing `[OptionalProps]` (sibling entities declare it). Fixed forward as 3.5-fix.
 - UI (3.4 settings section) verified via typecheck + settings-route unit tests; live toggle exercise deferred to 3.9 stubbed integration test.
+
+## 2026-06-10T14:20:00Z — steps 3.6 + 3.7 landed (no checkpoint — 2 steps since checkpoint 3)
+- 3.6 (commit cd45ea21d): moderation-flags audit DataTable page + settings nav entry + i18n (4 locales). In-step fix: `PaginationProps.totalPages` required.
+- 3.7 (commit dfc373e4e): docs page `framework/ai-assistant/moderation.mdx` + sidebar entry + `packages/ai-assistant/AGENTS.md` moderation section.
+- Validation: full typecheck 21/21 clean; i18n sync clean.
+- PAUSE: remaining steps 3.8 (API integration tests) + 3.9 (Playwright) and the final gate's `yarn test:integration` require the ephemeral Postgres + app stack. Resuming there is the right boundary. Branch fully pushed; resume from PLAN Tasks row 3.8.
