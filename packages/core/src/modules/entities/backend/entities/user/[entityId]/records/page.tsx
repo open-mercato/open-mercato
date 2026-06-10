@@ -17,6 +17,9 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { useRecordsEntityGuard } from '@open-mercato/core/modules/entities/components/useRecordsEntityGuard'
 
 type RecordsResponse = {
   items: any[]
@@ -44,6 +47,26 @@ function normalizeCell(v: any): string {
 }
 
 export default function RecordsPage({ params }: { params: { entityId?: string } }) {
+  const t = useT()
+  const entityId = decodeURIComponent(params?.entityId || '')
+  const guard = useRecordsEntityGuard(entityId)
+  if (guard !== 'allowed') {
+    return (
+      <Page>
+        <PageBody>
+          {guard === 'blocked' ? (
+            <ErrorMessage label={t('entities.userEntities.records.errors.systemEntity', 'This entity is system-managed. Records are available for custom entities only.')} />
+          ) : (
+            <LoadingMessage label={t('entities.userEntities.records.loading', 'Loading records...')} />
+          )}
+        </PageBody>
+      </Page>
+    )
+  }
+  return <RecordsPageInner params={params} />
+}
+
+function RecordsPageInner({ params }: { params: { entityId?: string } }) {
   const entityId = decodeURIComponent(params?.entityId || '')
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'id', desc: false }])
   const [page, setPage] = React.useState(1)
