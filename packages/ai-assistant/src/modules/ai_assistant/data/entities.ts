@@ -955,6 +955,8 @@ export class AiChatMessage {
 @Index({ name: 'ai_moderation_flags_tenant_created_idx', properties: ['tenantId', 'createdAt'] })
 @Index({ name: 'ai_moderation_flags_tenant_user_idx', properties: ['tenantId', 'userId'] })
 export class AiModerationFlag {
+  [OptionalProps]?: 'id' | 'createdAt' | 'organizationId'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
