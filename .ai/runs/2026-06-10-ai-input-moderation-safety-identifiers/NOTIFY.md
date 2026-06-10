@@ -19,3 +19,11 @@
 - Validation: full typecheck 21/21; ai-assistant 1241 unit tests; ui AiChat 13 tests (incl. new moderation render case); i18n sync clean (en/de/es/pl gained `ai_assistant.errors.moderation*`).
 - Decision/blocker resolved: checkpoint surfaced that existing runtime tests mock `llmProviderRegistry` without `.get`; the gate resolved the API key eagerly in its call args. Fixed forward (2.4-fix) by switching to a lazy `resolveApiKey()` thunk invoked only on the proceed path. No functional change to enforcement.
 - UI verification done via AiChat RTL test (deterministic) rather than live Playwright; full chat integration deferred to Step 3.9 with stubbed moderation responses.
+
+## 2026-06-10T14:06:26Z — checkpoint 3 (Phase 3 part 1 complete)
+- Steps 3.1..3.5 + 3.5-fix landed (SHA range 359bde1c0..d457c1c74): entity+migration+snapshot, event+repo+recorder, settings GET/PUT + runtime override honoring, settings UI moderation section, moderation-flags read route.
+- Validation: yarn generate ok; full typecheck 21/21; ai-assistant 1254 unit tests; i18n sync clean.
+- Decisions/blockers resolved:
+  1. `yarn db:generate` emitted an unrelated `ai_chat_conv_participants_active_conv_user_idx` index drop (pre-existing develop drift). Per AGENTS.md coding-agent exception, stripped it from the migration and restored the index in the snapshot; verified the only semantic snapshot removal was that index.
+  2. Checkpoint typecheck surfaced `em.create(AiModerationFlag)` needing `[OptionalProps]` (sibling entities declare it). Fixed forward as 3.5-fix.
+- UI (3.4 settings section) verified via typecheck + settings-route unit tests; live toggle exercise deferred to 3.9 stubbed integration test.
