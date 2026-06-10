@@ -24,8 +24,8 @@
 | 3 | 3.1 | AiModerationFlag entity + input_moderation column + migration + snapshot | done | 359bde1c0 |
 | 3 | 3.2 | moderation_flag.created event + repository + best-effort audit insert wired into gate + tests | done | 0860a1020 |
 | 3 | 3.3 | Extend settings GET/PUT with inputModeration + effective policy + openApi + tests | done | 2ef7c290f |
-| 3 | 3.4 | Settings UI: input moderation section (Inherit/On/Off + enforced badge) | done | pending |
-| 3 | 3.5 | GET /api/ai_assistant/moderation-flags route (guarded, zod query, openApi) + tests | todo | — |
+| 3 | 3.4 | Settings UI: input moderation section (Inherit/On/Off + enforced badge) | done | 2614c2e9e |
+| 3 | 3.5 | GET /api/ai_assistant/moderation-flags route (guarded, zod query, openApi) + tests | done | pending |
 | 3 | 3.6 | Moderation flags audit DataTable backend page + nav | todo | — |
 | 3 | 3.7 | Docs page + ai-assistant AGENTS.md update + yarn generate | todo | — |
 | 3 | 3.8 | API integration tests (settings roundtrip, moderation-flags tenant isolation) | todo | — |
