@@ -87,4 +87,14 @@ describe('AnthropicAdapter', () => {
     })
     expect(model).toBeDefined()
   })
+
+  it('maps an end-user identifier into the Anthropic metadata.user_id providerOptions fragment', () => {
+    expect(adapter.mapEndUserIdentifier?.('hashed-id')).toEqual({
+      anthropic: { metadata: { user_id: 'hashed-id' } },
+    })
+  })
+
+  it('does not advertise input moderation support (Anthropic has no moderation endpoint)', () => {
+    expect(adapter.supportsInputModeration).toBeFalsy()
+  })
 })

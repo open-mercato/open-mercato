@@ -304,3 +304,24 @@ describe('LM Studio preset', () => {
     expect(model).toBeDefined()
   })
 })
+
+describe('OpenAIAdapter — safety identifier + moderation capability', () => {
+  it('maps an end-user identifier into the OpenAI safety_identifier providerOptions fragment', () => {
+    const provider = createOpenAICompatibleProvider(DEEPINFRA_PRESET)
+    expect(provider.mapEndUserIdentifier?.('hashed-id')).toEqual({
+      openai: { safety_identifier: 'hashed-id' },
+    })
+  })
+
+  it('marks the native OpenAI preset as supporting input moderation', () => {
+    const openaiPreset = OPENAI_COMPATIBLE_PRESETS.find((preset) => preset.id === 'openai')
+    expect(openaiPreset).toBeDefined()
+    const provider = createOpenAICompatibleProvider(openaiPreset!)
+    expect(provider.supportsInputModeration).toBe(true)
+  })
+
+  it('leaves OpenAI-compatible backends without moderation support', () => {
+    const provider = createOpenAICompatibleProvider(DEEPINFRA_PRESET)
+    expect(provider.supportsInputModeration).toBe(false)
+  })
+})

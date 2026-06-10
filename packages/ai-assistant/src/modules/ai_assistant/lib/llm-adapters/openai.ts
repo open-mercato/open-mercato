@@ -62,6 +62,14 @@ export interface OpenAICompatiblePreset {
    * The first non-empty value wins and overrides {@link baseURL}.
    */
   baseURLEnvKeys?: readonly string[]
+  /**
+   * When `true`, the provider exposes OpenAI's `/v1/moderations` endpoint and
+   * the runtime may run input pre-moderation through it. Only the native
+   * `openai` preset sets this — OpenAI-compatible backends (Groq, DeepInfra,
+   * Together, …) do not implement the moderations endpoint, so they leave it
+   * unset and rely on their own server-side filtering.
+   */
+  supportsInputModeration?: boolean
 }
 
 function readFirstNonEmpty(
@@ -114,9 +122,16 @@ export function createOpenAICompatibleProvider(
     envKeys: preset.envKeys,
     defaultModel: preset.defaultModel,
     defaultModels: preset.defaultModels,
+    supportsInputModeration: preset.supportsInputModeration ?? false,
 
     isConfigured(env?: EnvLookup): boolean {
       return resolveApiKey(env) !== null
+    },
+
+    mapEndUserIdentifier(identifier: string): Record<string, unknown> {
+      // OpenAI chat-completions accept a per-request `safety_identifier` so
+      // abuse enforcement targets one end user instead of the whole org key.
+      return { openai: { safety_identifier: identifier } }
     },
 
     resolveApiKey,

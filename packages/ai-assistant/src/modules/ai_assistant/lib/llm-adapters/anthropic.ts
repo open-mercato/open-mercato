@@ -90,6 +90,12 @@ export function createAnthropicAdapter(): LlmProvider {
       return envKeys[0]
     },
 
+    mapEndUserIdentifier(identifier: string): Record<string, unknown> {
+      // Anthropic Messages API accepts a top-level `metadata.user_id` so abuse
+      // enforcement can target a single hashed end user instead of the org key.
+      return { anthropic: { metadata: { user_id: identifier } } }
+    },
+
     createModel(options: LlmCreateModelOptions): unknown {
       const anthropic = createAnthropic({
         apiKey: options.apiKey,
