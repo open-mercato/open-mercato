@@ -49,8 +49,8 @@ against `develop`, then close the originals:
 
 ### Phase 1: Apply dependency resolutions
 
-- [ ] 1.1 Pin `dompurify` to `3.4.9` in root `resolutions`; verify `shell-quote` already `1.8.4`
-- [ ] 1.2 Run `yarn install` to regenerate `yarn.lock`; confirm only dompurify changed
+- [x] 1.1 Pin `dompurify` to `3.4.9` in root `resolutions`; verify `shell-quote` already `1.8.4` — badd97ab5
+- [x] 1.2 Run `yarn install` to regenerate `yarn.lock`; confirm only dompurify changed — badd97ab5
 
 ### Phase 2: Validate
 
