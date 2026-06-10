@@ -1639,7 +1639,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
         : {}),
       ...(sdkActiveTools !== undefined ? { activeTools: sdkActiveTools } : {}),
       ...(sdkToolChoice !== undefined ? { toolChoice: sdkToolChoice } : {}),
-      ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions } : {}),
+      ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions as never } : {}),
     }
     builtToolLoopAgent = new ToolLoopAgent(agentSettings)
   }
@@ -1734,7 +1734,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     experimental_repairToolCall: effectiveLoop.repairToolCall as never,
     ...(sdkActiveTools !== undefined ? { activeTools: sdkActiveTools } : {}),
     ...(sdkToolChoice !== undefined ? { toolChoice: sdkToolChoice } : {}),
-    ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions } : {}),
+    ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions as never } : {}),
     abortSignal: abortController.signal,
   })
   if (wallClockTimer !== undefined) {
