@@ -230,6 +230,10 @@ export async function GET(req: Request) {
     if (organizationIds && organizationIds.length) {
       qopts.organizationIds = organizationIds
     }
+    // Dual-declared ids (module-declared custom entity + registered ORM table, e.g.
+    // `example:todo`) auto-classify to their base table since #2939 — this surface
+    // manages doc records, so direct the engine to doc storage explicitly.
+    if (isCustomEntity) qopts.forceCustomEntityStorage = true
     for (const [k, v] of qpEntries) buildFilter(k, v, isCustomEntity)
     const res = await qe.query(entityId as any, qopts)
     const rawItems = res.items || []
