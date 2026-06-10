@@ -29,7 +29,7 @@
 | 3 | 3.5-fix | Declare [OptionalProps] on AiModerationFlag so em.create() typechecks (checkpoint 3) | done | d457c1c74 |
 | 3 | 3.6 | Moderation flags audit DataTable backend page + nav | done | cd45ea21d |
 | 3 | 3.7 | Docs page + ai-assistant AGENTS.md update + yarn generate | done | dfc373e4e |
-| 3 | 3.8 | API integration tests (settings roundtrip, moderation-flags tenant isolation) | todo | — |
+| 3 | 3.8 | API integration tests (settings roundtrip, moderation-flags tenant isolation) | done | pending |
 | 3 | 3.9 | Playwright integration tests (chat enforced/off, settings UI enforced badge) | todo | — |
 
 ## Goal
