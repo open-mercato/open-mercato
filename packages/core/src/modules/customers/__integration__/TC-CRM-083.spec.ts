@@ -17,7 +17,7 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  *
  * Verifies the redesigned list renders end to end:
  * - The 4-card KPI strip (`DealsKpiStrip`) shows the four card titles — Pipeline value, Active deals,
- *   Won this quarter, Win rate — and a delta chip (`Compared to previous period`).
+ *   Won this quarter, Win rate — and a delta chip (comparable or neutral zero-baseline state).
  * - The restyled cells render: a `StatusBadge` (dictionary label "Open"), an OWNER `Avatar` + name,
  *   and a STAGE name, on a seeded row.
  * - No regression: the search box, the row-actions (⋮) menu, and the advanced-filter ("Filters")
@@ -84,9 +84,9 @@ test.describe('TC-CRM-083: Deals list redesign UI', () => {
     await expect(page.getByText('Won this quarter', { exact: true })).toBeVisible();
     await expect(page.getByText('Win rate', { exact: true })).toBeVisible();
 
-    // A delta chip carries the title "Compared to previous period" (BadgeDelta). At least one should
-    // appear once the summary resolves — poll so we wait through the loading state.
-    const deltaChip = page.locator('[title="Compared to previous period"]');
+    // A delta chip carries either the comparable-period title or the neutral zero-baseline title.
+    // Poll so we wait through the loading state.
+    const deltaChip = page.locator('[title="Compared to previous period"], [title="No comparable change"]');
     await expect(deltaChip.first(), 'at least one KPI delta chip should render').toBeVisible({ timeout: 30_000 });
 
     // --- Table cells: focus assertions on the deterministic seeded row ---
