@@ -51,7 +51,10 @@ async function classifyRecordsEntity(em: any, entityId: string): Promise<Records
   if (isDeclaredCustomEntity(entityId)) return 'custom'
   try {
     const { CustomEntity } = await import('../data/entities')
-    const found = await em.findOne(CustomEntity as any, { entityId, isActive: true })
+    // Any registration row — active or soft-deleted — proves the id is a custom
+    // entity. Records persist beyond the definition's soft delete (TC-ENTITIES-006)
+    // and must stay readable/deletable, e.g. for the restore flow and cleanup.
+    const found = await em.findOne(CustomEntity as any, { entityId })
     if (found) return 'custom'
   } catch {}
   return 'unknown'
