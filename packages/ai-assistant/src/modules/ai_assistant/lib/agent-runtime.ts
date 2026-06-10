@@ -1389,6 +1389,47 @@ async function resolveRuntimeModelOverride(
 }
 
 /**
+ * Resolves the per-agent and tenant-wide `input_moderation` override values for
+ * the moderation policy precedence. Best-effort and fail-open (returns nulls on
+ * any error so the gate falls back to the env default). Returns the two values
+ * separately because the precedence treats per-agent and tenant-wide as
+ * distinct steps.
+ */
+async function resolveModerationOverrideValues(
+  container: AwilixContainer | undefined,
+  tenantId: string | null,
+  organizationId: string | null,
+  agentId: string,
+): Promise<{ perAgentOverride: boolean | null; tenantWideOverride: boolean | null }> {
+  const empty = { perAgentOverride: null, tenantWideOverride: null }
+  if (!tenantId || !container) return empty
+  let em: EntityManager | null = null
+  try {
+    em = container.resolve<EntityManager>('em')
+  } catch {
+    em = null
+  }
+  if (!em) return empty
+  try {
+    const repo = new AiAgentRuntimeOverrideRepository(em)
+    const [agentRow, tenantRow] = await Promise.all([
+      repo.getExact({ tenantId, organizationId: organizationId ?? null, agentId }),
+      repo.getDefault({ tenantId, organizationId: organizationId ?? null, agentId: null }),
+    ])
+    return {
+      perAgentOverride: agentRow?.inputModeration ?? null,
+      tenantWideOverride: tenantRow?.inputModeration ?? null,
+    }
+  } catch (error) {
+    console.warn(
+      `[ai_assistant] moderation override lookup failed for agent "${agentId}"; falling back to env default.`,
+      error,
+    )
+    return empty
+  }
+}
+
+/**
  * Normalizes simple `{ role, content }` chat messages into the AI SDK
  * `UIMessage` shape that `convertToModelMessages` requires. When the
  * incoming message already carries a `parts` array it is left untouched;
@@ -1690,9 +1731,23 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   } catch {
     moderationService = null
   }
+  // Read tenant overrides only when the provider can moderate and the agent is
+  // not already enforced (untrustedInput short-circuits to enforced) — avoids a
+  // DB round-trip on the common skip paths.
+  const moderationOverrides =
+    resolvedModel.supportsInputModeration && agent.untrustedInput !== true
+      ? await resolveModerationOverrideValues(
+          input.container,
+          input.authContext.tenantId,
+          input.authContext.organizationId,
+          agent.id,
+        )
+      : { perAgentOverride: null, tenantWideOverride: null }
   await runInputModerationGate({
     untrustedInput: agent.untrustedInput,
     supportsInputModeration: resolvedModel.supportsInputModeration,
+    perAgentOverride: moderationOverrides.perAgentOverride,
+    tenantWideOverride: moderationOverrides.tenantWideOverride,
     userText: extractLatestUserText(normalizedMessages),
     service: moderationService,
     resolveApiKey: () => llmProviderRegistry.get(resolvedModel.providerId)?.resolveApiKey() ?? null,
