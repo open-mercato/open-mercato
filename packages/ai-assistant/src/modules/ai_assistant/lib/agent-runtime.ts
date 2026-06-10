@@ -39,6 +39,7 @@ import {
   resolveModerationPolicy,
   shouldFailClosed,
 } from './moderation-policy'
+import { recordModerationFlag } from './moderation-flag-recorder'
 import type {
   AiAgentDefinition,
   AiAgentLoopConfig,
@@ -1697,6 +1698,19 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     resolveApiKey: () => llmProviderRegistry.get(resolvedModel.providerId)?.resolveApiKey() ?? null,
     baseURL: resolvedModel.baseURL,
     moderationModel: process.env.OM_AI_MODERATION_MODEL,
+    onFlagged: (categories) =>
+      recordModerationFlag(
+        {
+          tenantId: input.authContext.tenantId,
+          organizationId: input.authContext.organizationId,
+          agentId: agent.id,
+          userId: input.authContext.userId,
+          providerId: resolvedModel.providerId,
+          modelId: resolvedModel.modelId,
+          categories,
+        },
+        input.container,
+      ),
   })
 
   const hydratedMessages = attachAttachmentsToMessages(normalizedMessages, resolvedAttachments)
