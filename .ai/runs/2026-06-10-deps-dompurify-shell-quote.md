@@ -58,5 +58,5 @@ against `develop`, then close the originals:
 
 ### Phase 3: Ship
 
-- [ ] 3.1 Open consolidated PR against `develop`; apply `dependencies` + `skip-qa` + `review` labels
-- [ ] 3.2 Close #2955 and #2956 with comments pointing to the consolidated PR
+- [x] 3.1 Open consolidated PR against `develop`; apply `dependencies` + `skip-qa` + `review` labels — PR #2957
+- [x] 3.2 Close #2955 and #2956 with comments pointing to the consolidated PR — both CLOSED
