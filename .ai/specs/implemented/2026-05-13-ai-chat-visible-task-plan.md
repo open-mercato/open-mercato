@@ -5,7 +5,7 @@
 **Primary Scope:** OSS, `@open-mercato/ai-assistant`, `@open-mercato/ui`
 **Companion Scope:** `apps/mercato`, `packages/create-app`, shared backend DataTable UX
 **Extends:**
-- `.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md`
+- `.ai/specs/implemented/2026-04-28-ai-agents-agentic-loop-controls.md`
 - `.ai/specs/2026-05-05-ai-chat-server-side-conversation-storage.md`
 - `apps/docs/docs/framework/ai-assistant/ui-parts.mdx`
 

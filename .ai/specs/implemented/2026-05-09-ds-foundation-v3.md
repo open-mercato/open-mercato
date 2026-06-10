@@ -22,7 +22,7 @@
   - `packages/ui/AGENTS.md` — quick-reference rows.
   - `docs/design-system/components.md` — status updates / new sections.
   - `docs/design-system/component-apis.md` — TS interfaces.
-  - `.ai/specs/2026-04-25-ds-foundation.md` — Phase 3 changelog row.
+  - `.ai/specs/implemented/2026-04-25-ds-foundation.md` — Phase 3 changelog row.
 - 1 internal swap inside `packages/ui/src/backend/FilterOverlay.tsx` (DateRangePicker for raw inputs; public `FilterDef` API unchanged).
 
 **Concerns:**
@@ -1056,7 +1056,7 @@ Unit test convention: `packages/ui/src/primitives/__tests__/{primitive-slug}.tes
 
 | # | Commit | Files |
 |---|---|---|
-| 1 | `docs(ds): spec for DS Foundation v3 (11 primitives, 14 commits)` | `.ai/specs/2026-05-09-ds-foundation-v3.md` (this file) |
+| 1 | `docs(ds): spec for DS Foundation v3 (11 primitives, 14 commits)` | `.ai/specs/implemented/2026-05-09-ds-foundation-v3.md` (this file) |
 | 2 | `feat(ds): add DatePicker primitive` | `packages/ui/src/primitives/date-picker.tsx`, `date-picker-helpers.ts`, `__tests__/date-picker.test.tsx`, `__tests__/date-picker-helpers.test.ts` |
 | 3 | `feat(ds): add DateRangePicker primitive` | `packages/ui/src/primitives/date-range-picker.tsx`, `__tests__/date-range-picker.test.tsx` |
 | 4 | `feat(ds): add EmptyState primitive` | `empty-state.tsx`, `__tests__/empty-state.test.tsx` |
@@ -1069,7 +1069,7 @@ Unit test convention: `packages/ui/src/primitives/__tests__/{primitive-slug}.tes
 | 11 | `feat(ds): add InlineSelect primitive` | `inline-select.tsx`, `__tests__/inline-select.test.tsx` |
 | 12 | `feat(ds): add TimePicker primitive (composition + 3 atoms)` | `packages/ui/src/primitives/time-picker.tsx`, `__tests__/time-picker.test.tsx`, `packages/ui/src/backend/inputs/TimePicker.tsx` (rewritten as shim) |
 | 13 | `refactor(ds): FilterOverlay dateRange uses DateRangePicker` | `packages/ui/src/backend/FilterOverlay.tsx` |
-| 14 | `docs(ds): document v3 primitives` | `.ai/ui-components.md`, `packages/ui/AGENTS.md`, `docs/design-system/components.md`, `docs/design-system/component-apis.md`, `.ai/specs/2026-04-25-ds-foundation.md` (Phase 3 changelog row) |
+| 14 | `docs(ds): document v3 primitives` | `.ai/ui-components.md`, `packages/ui/AGENTS.md`, `docs/design-system/components.md`, `docs/design-system/component-apis.md`, `.ai/specs/implemented/2026-04-25-ds-foundation.md` (Phase 3 changelog row) |
 
 ### Pre-merge gates
 
@@ -1115,7 +1115,7 @@ To be filled in after all 14 commits land and before opening the PR. Sections:
   - [ ] `packages/ui/AGENTS.md` — quick-reference rows.
   - [ ] `docs/design-system/components.md` — status updates / new sections.
   - [ ] `docs/design-system/component-apis.md` — TS interfaces.
-  - [ ] `.ai/specs/2026-04-25-ds-foundation.md` — Phase 3 changelog row.
+  - [ ] `.ai/specs/implemented/2026-04-25-ds-foundation.md` — Phase 3 changelog row.
 - [ ] DS Guardian baseline shows no regression.
 - [ ] `yarn lint`, `yarn test`, `yarn build`, `yarn test:integration:ephemeral` all clean.
 - [ ] PR description linked to this spec.

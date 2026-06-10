@@ -3,7 +3,7 @@
 > **Status:** Implemented 2026-06-06 (branch `fix/2612-enterprise-security-mfa`, stacked on the OSS branch) — all phases landed; see Final Compliance Report + Changelog
 > **Issue:** [open-mercato#2612](https://github.com/open-mercato/open-mercato/issues/2612) (comment 3 — enterprise variants)
 > **Scope:** Enterprise — `security` module (`packages/enterprise/src/modules/security`)
-> **Parent OSS spec:** [`.ai/specs/2026-06-05-tenant-ownership-and-module-acl-authorization.md`](../2026-06-05-tenant-ownership-and-module-acl-authorization.md)
+> **Parent OSS spec:** [`.ai/specs/implemented/2026-06-05-tenant-ownership-and-module-acl-authorization.md`](../2026-06-05-tenant-ownership-and-module-acl-authorization.md)
 > **Severity:** Critical — single-request cross-tenant enumeration reachable with the default-admin `security.*` grant.
 
 ## TLDR
