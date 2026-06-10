@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-06-10T14:06:26Z
 **Branch:** feat/ai-input-moderation-safety-identifiers (pushed to `fork`)
-**PR:** not yet opened (opens after final gate)
+**PR:** https://github.com/open-mercato/open-mercato/pull/2949 (DRAFT, in-progress — opened early on request; flip to ready-for-review after the final gate)
 **Current phase/step:** Phase 3 steps 3.1–3.7 complete. Next: Step 3.8 (needs the ephemeral DB/app integration stack).
 **Last commit:** dfc373e4e — docs(ai-assistant): moderation docs page + AGENTS.md section
 
