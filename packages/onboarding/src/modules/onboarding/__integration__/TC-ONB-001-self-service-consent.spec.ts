@@ -91,8 +91,8 @@ test.describe('TC-ONB-001: self-service onboarding with marketing consent', () =
     await page.goto(`/onboarding/preparing?tenant=${tenantId}`);
 
     await expect(page.getByText('We are preparing your workspace')).toBeVisible();
-    await expect(page.getByRole('alert')).toContainText('Workspace status check failed');
-    await expect(page.getByRole('alert')).toContainText('Invalid request origin');
+    const statusAlert = page.getByText('Workspace status check failed').locator('..');
+    await expect(statusAlert).toContainText('Invalid request origin');
     await expect(page.getByRole('link', { name: 'Open tenant login' }))
       .toHaveAttribute('href', `/login?tenant=${tenantId}`);
   });
