@@ -17,7 +17,7 @@ import {
 } from '../openapi'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { documentUpdateSchema } from '../../commands/documents'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { recalculateOrderTotalsForDisplay } from '../../commands/returns'
@@ -101,7 +101,7 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
   const filters: Record<string, unknown> = {}
   if (query.id) filters.id = { $eq: query.id }
   if (query.search && query.search.trim().length > 0) {
-    const term = `%${escapeLikePattern(query.search.trim())}%`
+    const term = buildIlikeTerm(query.search.trim())
     filters[numberColumn] = { $ilike: term }
   }
   if (query.customerId) {
