@@ -15,6 +15,7 @@ import {
   resolveLazyRestart,
 } from './lib/auto-spawn-workers'
 import { startLazyWorkerSupervisor } from './lib/queue-worker-supervisor'
+import { createPerJobWorkerHandler } from './lib/worker-job-handler'
 import {
   resolveAutoSpawnSchedulerMode,
   resolveLazySchedulerPollMs,
@@ -1518,7 +1519,6 @@ export async function run(argv = process.argv) {
             }
 
             const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-            const container = await createRequestContainer()
             console.log(`[worker] Starting workers for all queues: ${discoveredQueues.join(', ')}`)
 
             // Start all queue workers in background mode
@@ -1534,11 +1534,7 @@ export async function run(argv = process.argv) {
                 connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
                 background: true,
-                handler: async (job, ctx) => {
-                  for (const worker of queueWorkers) {
-                    await worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) })
-                  }
-                },
+                handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
             })
 
@@ -1555,7 +1551,6 @@ export async function run(argv = process.argv) {
             if (queueWorkers.length > 0) {
               // Use discovered workers
               const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-              const container = await createRequestContainer()
               const concurrency = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
 
               console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
@@ -1565,11 +1560,7 @@ export async function run(argv = process.argv) {
                 queueName: queueName!,
                 connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
-                handler: async (job, ctx) => {
-                  for (const worker of queueWorkers) {
-                    await worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) })
-                  }
-                },
+                handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
             } else {
               console.error(`No workers found for queue "${queueName}"`)
