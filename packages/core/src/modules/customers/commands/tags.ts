@@ -387,7 +387,7 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
     const em = (ctx.container.resolve('em') as EntityManager).fork()
   const tag = await em.findOne(CustomerTag, { id: parsed.tagId, tenantId: parsed.tenantId, organizationId: parsed.organizationId })
   if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
-  const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
+  const entity = await requireCustomerEntity(em, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId }, undefined, 'Customer not found')
   ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
   const tagIds = await loadEntityTagIds(em, entity)
     if (tagIds.includes(parsed.tagId)) {
@@ -478,7 +478,7 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(CustomerTag, { id: before.tagId })
     if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
-    const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
+    const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
     ensureSameScope(entity, before.organizationId, before.tenantId)
 
     let assignment = await em.findOne(CustomerTagAssignment, {
@@ -589,7 +589,7 @@ const unassignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: str
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(CustomerTag, { id: before.tagId })
-    const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
+    const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
     ensureSameScope(entity, before.organizationId, before.tenantId)
     if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
     const existing = await em.findOne(CustomerTagAssignment, {
