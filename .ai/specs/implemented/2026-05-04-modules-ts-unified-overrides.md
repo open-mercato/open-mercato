@@ -247,7 +247,7 @@ Every phase is purely additive. Modules without `entry.overrides` are unaffected
 | `packages/create-app/template/AGENTS.md` | Add `modules.ts` examples for all wired domains |
 | `AGENTS.md` (root) | Update Task Router row + add umbrella row |
 | `.ai/skills/om-create-ai-agent/SKILL.md` | Update Path B example |
-| `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` | Add migration changelog entry pointing here |
+| `.ai/specs/implemented/2026-04-30-ai-overrides-and-module-disable.md` | Add migration changelog entry pointing here |
 
 ## Test surface
 

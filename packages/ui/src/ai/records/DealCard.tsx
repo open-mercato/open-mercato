@@ -5,31 +5,7 @@ import { Briefcase, Building2, CalendarDays, CircleDollarSign, User } from 'luci
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { KeyValueList, RecordCardShell, TagRow, statusToTagVariant } from './RecordCardShell'
 import type { DealRecordPayload } from './types'
-
-function formatAmount(amount: string | number | null | undefined, currency?: string | null): string | null {
-  if (amount === null || amount === undefined || amount === '') return null
-  const value = typeof amount === 'number' ? amount : Number(amount)
-  if (!Number.isFinite(value)) {
-    return typeof amount === 'string' ? amount : null
-  }
-  const code = currency && currency.length === 3 ? currency.toUpperCase() : undefined
-  try {
-    if (code) {
-      return new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).format(value)
-    }
-  } catch {
-    // fall through to fallback
-  }
-  const formatted = new Intl.NumberFormat().format(value)
-  return code ? `${formatted} ${code}` : formatted
-}
-
-function formatDate(value: string | null | undefined): string | null {
-  if (!value) return null
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
+import { formatCurrency, formatDate } from '../../utils/format'
 
 export interface DealCardProps extends DealRecordPayload {}
 
@@ -39,7 +15,7 @@ export function DealCard(props: DealCardProps) {
     ? { label: props.status, variant: statusToTagVariant(props.status) }
     : null
   const stage = props.stage && props.stage !== props.status ? props.stage : null
-  const amount = formatAmount(props.amount, props.currency)
+  const amount = formatCurrency(props.amount, props.currency)
   const closeDate = formatDate(props.closeDate)
 
   const items = [

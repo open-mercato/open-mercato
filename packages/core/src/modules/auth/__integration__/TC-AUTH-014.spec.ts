@@ -7,7 +7,7 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  *
  * NOTE: the topbar OrganizationSwitcher was migrated from two native `<select>`
  * elements to a single Popover trigger that opens a list of clickable rows
- * (Vercel/Linear workspace-switcher pattern). See `.ai/specs/2026-05-14-topbar-redesign.md`.
+ * (Vercel/Linear workspace-switcher pattern). See `.ai/specs/implemented/2026-05-14-topbar-redesign.md`.
  */
 test.describe('TC-AUTH-014: Organization Switching', () => {
   test.setTimeout(120_000);

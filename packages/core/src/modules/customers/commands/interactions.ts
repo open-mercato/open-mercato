@@ -374,7 +374,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId ?? null, ctx.auth)
     const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
-      const entity = await requireTimelineParentEntity(trx, parsed.entityId)
+      const entity = await requireTimelineParentEntity(trx, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId })
       ensureTenantScope(ctx, entity.tenantId)
       ensureOrganizationScope(ctx, entity.organizationId)
 
@@ -510,7 +510,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
-      const entity = await requireTimelineParentEntity(trx, after.interaction.entityId)
+      const entity = await requireTimelineParentEntity(trx, after.interaction.entityId, { tenantId: after.interaction.tenantId, organizationId: after.interaction.organizationId })
       let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: after.interaction.id })
       if (!interaction) {
         interaction = buildInteractionGraph(trx, {
@@ -781,7 +781,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
       let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
-      const entity = await requireTimelineParentEntity(trx, before.interaction.entityId)
+      const entity = await requireTimelineParentEntity(trx, before.interaction.entityId, { tenantId: before.interaction.tenantId, organizationId: before.interaction.organizationId })
 
       if (!interaction) {
         interaction = trx.create(CustomerInteraction, {
@@ -1252,7 +1252,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
-        const entity = await requireTimelineParentEntity(trx, before.interaction.entityId)
+        const entity = await requireTimelineParentEntity(trx, before.interaction.entityId, { tenantId: before.interaction.tenantId, organizationId: before.interaction.organizationId })
         let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
         if (!interaction) {
           interaction = trx.create(CustomerInteraction, {
@@ -1372,7 +1372,10 @@ const recomputeNextCommand: CommandHandler<{ entityId: string }, { entityId: str
     const parsed = recomputeNextSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const projection = await recomputeNextInteraction(em, parsed.entityId)
-    const entity = await requireTimelineParentEntity(em, parsed.entityId)
+    const entity = await requireTimelineParentEntity(em, parsed.entityId, {
+      tenantId: ctx.auth?.tenantId ?? '',
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? '',
+    })
     await emitNextInteractionUpdatedEvent(ctx, {
       entityId: parsed.entityId,
       nextInteractionId: projection.nextInteractionId,

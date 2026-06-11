@@ -24,7 +24,7 @@
  * header keep working. Respects the same `OM_OPTIMISTIC_LOCK` env contract
  * (default ON; `off` disables; allow-list scopes by `resourceKind`).
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md (§ command-level checks)
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md (§ command-level checks)
  *       .ai/specs/2026-05-28-optimistic-locking-coverage-completion.md (Phase 4)
  */
 import { CrudHttpError } from './errors'

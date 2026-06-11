@@ -1,9 +1,9 @@
 # SPEC: Parallel Fork / Join for the Workflows Engine
 
-> Status: **Draft — ready for implement** (pre-implement analysis applied 2026-06-02) · Date: 2026-06-01 · Scope: OSS
+> Status: **Implemented** (Phases 1–3 + Phase 4 core landed 2026-06-02; per-branch instance-viewer UI deferred as follow-up) · Date: 2026-06-01 · Scope: OSS
 > Module: `packages/core/src/modules/workflows/`
 > Related: `.ai/specs/analysis/ROADMAP-workflows-module-development.md` (WF-1, P0),
-> `.ai/specs/2026-04-14-code-based-workflow-definitions.md`, `.ai/specs/2026-03-29-workflow-integration-flows.md` (dependent — assumes FORK/JOIN)
+> `.ai/specs/implemented/2026-04-14-code-based-workflow-definitions.md`, `.ai/specs/2026-03-29-workflow-integration-flows.md` (dependent — assumes FORK/JOIN)
 > Issue: [open-mercato/open-mercato#2292](https://github.com/open-mercato/open-mercato/issues/2292) — the `PARALLEL_FORK` / `PARALLEL_JOIN` portion (`WAIT_FOR_TIMER` from that issue is already implemented)
 
 ## TLDR

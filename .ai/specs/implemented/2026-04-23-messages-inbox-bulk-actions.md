@@ -3,7 +3,7 @@
 **Created:** 2026-04-23
 **Module:** `messages`, `ui`
 **Status:** Draft
-**Related:** `.ai/specs/implemented/SPEC-002-2026-01-23-messages-module.md`, `.ai/specs/2026-04-03-advanced-datatable-ux.md`, `BACKWARD_COMPATIBILITY.md`, GitHub issue #1941
+**Related:** `.ai/specs/implemented/SPEC-002-2026-01-23-messages-module.md`, `.ai/specs/implemented/2026-04-03-advanced-datatable-ux.md`, `BACKWARD_COMPATIBILITY.md`, GitHub issue #1941
 
 ## TLDR
 
@@ -27,7 +27,7 @@
 
 ## Overview
 
-The Messages module already has a broad baseline specification in `.ai/specs/implemented/SPEC-002-2026-01-23-messages-module.md`, and the shared table framework already supports checkbox-based bulk actions via `.ai/specs/2026-04-03-advanced-datatable-ux.md`. What did **not** exist before this document was a dedicated spec for applying that bulk-action pattern to the Messages inbox.
+The Messages module already has a broad baseline specification in `.ai/specs/implemented/SPEC-002-2026-01-23-messages-module.md`, and the shared table framework already supports checkbox-based bulk actions via `.ai/specs/implemented/2026-04-03-advanced-datatable-ux.md`. What did **not** exist before this document was a dedicated spec for applying that bulk-action pattern to the Messages inbox.
 
 Today, `/backend/messages` renders through `MessagesInboxPageClient` and already uses the shared `DataTable`. The list page supports search, filters, paging, and folder switching, but it does not expose bulk selection or list-level mutations. Users must open each message individually to mark it read/unread, archive it, or delete it.
 

@@ -844,9 +844,20 @@ export class BasicQueryEngine implements QueryEngine {
     if (hasJoinedAggregates) {
       q = q.groupBy(`${table}.id`)
     }
+    // `count(distinct base.id)` is only required when a join can multiply base rows
+    // (CF/extension aggregates, explicit relation joins, or custom-field sources).
+    // Without such joins base.id is the unique PK, so `count(*)` is equivalent and
+    // lets Postgres skip the redundant DISTINCT sort/hash for an index-only count (#2227).
+    const mayMultiplyBaseRows =
+      hasJoinedAggregates ||
+      (Array.isArray(opts.joins) && opts.joins.length > 0) ||
+      (Array.isArray(opts.customFieldSources) && opts.customFieldSources.length > 0)
+    const countExpr = mayMultiplyBaseRows
+      ? sql<string>`count(distinct ${sql.ref(`${table}.id`)})`
+      : sql<string>`count(*)`
     const countBuilder = hasJoinedAggregates
-      ? q.clearSelect().clearOrderBy().clearGroupBy().select(sql<string>`count(distinct ${sql.ref(`${table}.id`)})`.as('count'))
-      : q.clearSelect().clearOrderBy().select(sql<string>`count(distinct ${sql.ref(`${table}.id`)})`.as('count'))
+      ? q.clearSelect().clearOrderBy().clearGroupBy().select(countExpr.as('count'))
+      : q.clearSelect().clearOrderBy().select(countExpr.as('count'))
     const countRow = await countBuilder.executeTakeFirst() as { count: unknown } | undefined
     const total = Number((countRow as any)?.count ?? 0)
     const dataQuery = requiresPlaintextSort

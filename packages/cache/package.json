@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/cache",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Multi-strategy cache service with tag-based invalidation support",
   "type": "module",
   "main": "./dist/index.js",

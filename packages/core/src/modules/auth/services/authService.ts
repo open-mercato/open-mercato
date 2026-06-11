@@ -70,7 +70,16 @@ export class AuthService {
       { populate: ['role'] },
       { tenantId: resolvedTenantId, organizationId: user.organizationId ?? null },
     )
-    return links.map((l) => l.role.name)
+    // A populated `role` can still be null when the link points at a soft-deleted
+    // role (the Role soft-delete filter suppresses hydration), e.g. an admin link
+    // orphaned by a re-seed during interrupted-provisioning recovery. Dropping such
+    // links keeps role resolution from throwing on the login / session-refresh hot
+    // path, mirroring resolveCanonicalStaffAuthContext in lib/sessionIntegrity.ts.
+    return links
+      .map((l) => l.role)
+      .filter((role): role is Role => !!role)
+      .map((role) => role.name)
+      .filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
   }
 
 

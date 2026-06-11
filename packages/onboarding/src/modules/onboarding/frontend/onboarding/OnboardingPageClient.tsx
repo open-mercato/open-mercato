@@ -3,6 +3,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
@@ -31,6 +32,7 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
   const translate = (key: string, fallback: string, params?: Record<string, string | number>) =>
     translateWithFallback(t, key, fallback, params)
   const locale = useLocale()
+  const searchParams = useSearchParams()
   const [state, setState] = useState<SubmissionState>('idle')
   const [globalError, setGlobalError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
@@ -152,6 +154,34 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
   const onboardingDisabled = !onboardingEnabled
   const submitting = state === 'loading'
   const disabled = onboardingDisabled || submitting || state === 'success'
+  const verifyStatusMessages: Record<string, string> = {
+    redirect_misconfigured: translate(
+      'onboarding.verifyStatus.redirectMisconfigured',
+      'The verification link cannot redirect safely because APP_URL does not match the URL that handled the request. Check APP_URL and APP_ALLOWED_ORIGINS, then open the verification link again.',
+    ),
+    origin_not_allowed: translate(
+      'onboarding.verifyStatus.originNotAllowed',
+      'The verification link was opened from an origin that is not allowed. Check APP_URL and APP_ALLOWED_ORIGINS, then open the verification link again.',
+    ),
+    url_not_configured: translate(
+      'onboarding.verifyStatus.urlNotConfigured',
+      'Onboarding verification is not configured. APP_URL must be set before verification links can be used.',
+    ),
+    already_exists: translate(
+      'onboarding.verifyStatus.alreadyExists',
+      'We already have an account with this email. Try signing in or resetting your password.',
+    ),
+    invalid: translate(
+      'onboarding.verifyStatus.invalid',
+      'The verification link is invalid or expired. Submit the onboarding form again to receive a new link.',
+    ),
+    error: translate(
+      'onboarding.verifyStatus.error',
+      'We could not complete verification. Please try again or contact support.',
+    ),
+  }
+  const verifyStatus = searchParams.get('status') ?? ''
+  const verifyStatusError = verifyStatusMessages[verifyStatus] ?? null
 
   return (
     <div className="relative flex min-h-svh items-center justify-center bg-muted/50 px-4 pb-24">
@@ -204,9 +234,9 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
               </p>
             </div>
           )}
-          {state !== 'success' && globalError && (
+          {state !== 'success' && (globalError || verifyStatusError) && (
             <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert" aria-live="assertive">
-              {globalError}
+              {globalError || verifyStatusError}
             </div>
           )}
           <form className="grid gap-4" onSubmit={onSubmit} noValidate>

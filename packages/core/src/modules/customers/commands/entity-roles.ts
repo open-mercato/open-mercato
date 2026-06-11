@@ -137,7 +137,7 @@ const createEntityRoleCommand: CommandHandler<EntityRoleCreateInput, { roleId: s
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await requireCustomerEntity(em, parsed.entityId, parsed.entityType, 'Customer not found')
+    const entity = await requireCustomerEntity(em, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId }, parsed.entityType, 'Customer not found')
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
 
     const activeExisting = await findOneWithDecryption(
@@ -495,6 +495,7 @@ const deleteEntityRoleCommand: CommandHandler<EntityRoleDeleteInput, { roleId: s
     const entity = await requireCustomerEntity(
       em,
       before.role.entityId,
+      { tenantId: before.role.tenantId, organizationId: before.role.organizationId },
       before.role.entityType,
       'Customer not found',
     )

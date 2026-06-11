@@ -1,5 +1,7 @@
 # om-help: Workflow Navigator Skill
 
+> Status: **Implemented** (shipped in PR #2140) · Date: 2026-05-27 · Scope: OSS
+
 ## TLDR
 
 **Key Points:**
@@ -69,7 +71,7 @@ The skill:
 
 .ai/skills/tiers.json          # add "om-help" to core.skills
 .ai/skills/README.md           # add row to core table + bump tier count
-.ai/specs/2026-05-27-om-help-skill.md   # this file
+.ai/specs/implemented/2026-05-27-om-help-skill.md   # this file
 ```
 
 ---
@@ -112,3 +114,4 @@ The skill:
 ## Changelog
 
 - **2026-05-27** — Initial spec. Author: Bernard van der Esch.
+- **2026-06-10** — Marked Implemented; skill shipped in PR #2140 (`feat(skills): add om-help workflow navigator skill`).

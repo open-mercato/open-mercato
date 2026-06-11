@@ -14,7 +14,7 @@
  *
  * @see packages/shared/src/lib/ai/llm-provider.ts
  * @see ./openai-compatible-presets.ts
- * @see .ai/specs/2026-04-14-llm-provider-ports-and-adapters.md
+ * @see .ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md
  */
 
 import { createOpenAI } from '@ai-sdk/openai'

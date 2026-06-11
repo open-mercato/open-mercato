@@ -3,7 +3,7 @@ import { login } from '@open-mercato/core/helpers/integration/auth'
 
 /**
  * TC-UX-009: RecordNotFoundState renders order-scoped back link when kind=order is supplied
- * Source: .ai/specs/2026-03-23-unified-record-not-found-ui-state.md (Phase 5 — Integration Coverage)
+ * Source: .ai/specs/implemented/2026-03-23-unified-record-not-found-ui-state.md (Phase 5 — Integration Coverage)
  *
  * Sibling of TC-UX-007: verifies that the sales documents detail page renders
  * the shared `RecordNotFoundState` with an orders-scoped recovery action when

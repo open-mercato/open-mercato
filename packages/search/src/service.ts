@@ -300,13 +300,13 @@ export class SearchService {
    * @param entityId - Entity type to purge
    * @param tenantId - Tenant for isolation
    */
-  async purge(entityId: string, tenantId: string): Promise<void> {
+  async purge(entityId: string, tenantId: string, organizationId?: string | null): Promise<void> {
     const strategies = await this.getAvailableStrategies()
 
     const results = await Promise.allSettled(
       strategies.map((strategy) => {
         if (strategy.purge) {
-          return strategy.purge(entityId, tenantId)
+          return strategy.purge(entityId, tenantId, organizationId)
         }
         return Promise.resolve()
       }),

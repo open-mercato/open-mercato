@@ -1,4 +1,104 @@
 
+# 0.6.5 (2026-06-11)
+
+## Highlights
+
+Open Mercato `0.6.5` is a fast-follow release to `0.6.4`, closing out the security-hardening sweep and giving the AI assistant's MCP story a correctness pass. Another round of security fixes tightens tenant/org scoping and input validation across the AI assistant (attachment-resolver scope, Code Mode path-traversal rejection, generated-import-path escaping), audit-log redo, progress jobs, search (`$ilike` wildcard escaping, org-scoped index purge), checkout (gateway success/cancel URLs pinned to the server origin), onboarding verify, MFA compliance reporting, attachment storage-path containment, customers `require*` helpers, and unauthenticated provider-webhook failure paths — rounded out by 500-response stack redaction and tenant-scoped user-email lookups.
+
+The **AI assistant over MCP** gets a batch of fixes: standalone MCP servers now load the generated AI-tool and API-route manifests, agents exposed over MCP (and MCP API keys) inherit the calling user's roles, the duplicate stdio server spawn is gone, and the `list_offers` tool declares its ACL feature. Deployment tooling levels up with **one-command Railway deployment** in the CLI, a manual Dokploy dev compose deployment workflow, and an AWS + Terraform deployment playbook spec.
+
+The CRM **deals list is redesigned** (with a follow-up misroute fix), staff/planner picks up single-active-timer and optimistic-lock-recovery fixes, dev mode keeps shedding bundle weight by lazy-loading the schedule-calendar CSS and markdown preview, and dependency bumps land for undici, dompurify, and shell-quote. Enjoy!
+
+## ✨ Features
+- ✨ CLI: one-command Railway deployment. (#2683) *(@WXYZx)*
+- ✨ CRM: deals list redesign. (#2903) *(@haxiorz)*
+- ✨ Manual Dokploy Dev compose deployment workflow. (#2865) *(@MStaniaszek1998)*
+- ✨ Add the `om-help` workflow navigator skill. (#2140) *(@adeptofvoltron)*
+
+## 🔒 Security
+- 🔒 Webhooks: harden unauthenticated provider webhook failures. (#2680) *(@sravan27)*
+- 🔒 Onboarding: the verify endpoint no longer clears auth cookies on error paths (#2714). (#2785) *(@pat-lewczuk)*
+- 🔒 Security: scope-enforce the MFA enforcement compliance report (#2708). (#2792) *(@pat-lewczuk)*
+- 🔒 Attachments: contain storage path resolution to its root (#2684). (#2833) *(@adeptofvoltron)*
+- 🔒 AI assistant: enforce tenant scope on the AI attachment resolver (#2663). (#2877) *(@pkarw)*
+- 🔒 AI assistant: reject Code Mode path traversal before authorization (#2667). (#2885) *(@pkarw)*
+- 🔒 AI assistant: escape unsafe chars when rewriting generated import paths (CodeQL #139). (#2904) *(@pkarw)*
+- 🔒 Checkout: pin gateway success/cancel URLs to the server origin (#2674). (#2882) *(@pkarw)*
+- 🔒 API: enforce tenant selection against all `tenantId` candidates (#2665). (#2883) *(@pkarw)*
+- 🔒 API: redact the 500 error stack from responses (#2933). (#2950) *(@haxiorz)*
+- 🔒 Auth: tenant-scope the user email lookup (#2934). (#2952) *(@haxiorz)*
+- 🔒 Customers: scope `require*` helpers by tenant/org at query time (#2116). (#2887) *(@pkarw)*
+- 🔒 Audit logs: harden the redo endpoint scope guard (#2931). (#2944) *(@adeptofvoltron)*
+- 🔒 Progress: scope job detail GET/PUT/DELETE by `organizationId` (#2930). (#2945) *(@adeptofvoltron)*
+- 🔒 Search: escape LIKE wildcards in list-search `$ilike` patterns (#2932). (#2946) *(@adeptofvoltron)*
+- 🔒 Search: scope the search-index purge by organization (#2935). (#2953) *(@haxiorz)*
+
+## 🐛 Fixes
+- 🐛 AI assistant: avoid a duplicate MCP stdio server spawn. (#2835) *(@pmadajthey)*
+- 🐛 AI assistant: load generated AI tools + the API route manifest in standalone MCP servers. (#2898) *(@pkarw)*
+- 🔐 AI assistant: agents over MCP + MCP API keys inherit user roles. (#2902) *(@pkarw)*
+- 🔐 Catalog: the `list_offers` AI tool declares `sales.channels.manage`. (#2899) *(@pkarw)*
+- 🐛 UI: make JsonBuilder Raw JSON editable and confirm destructive type changes (#2817). (#2837) *(@pkarw)*
+- 🐛 UI: render the profile dropdown in a body portal so it clears sticky table columns (#2941). (#2943) *(@adeptofvoltron)*
+- 🐛 Customers/staff/checkout: QA follow-up — select prefill, domain clear & stale-delete conflict (#2529). (#2840) *(@pkarw)*
+- 🐛 Customers: link Cmd+K search results to the v2 customer detail pages (#2843). (#2844) *(@pkarw)*
+- 🐛 Customers: degrade owner filters when the optional staff module is absent (#2649). (#2888) *(@pkarw)*
+- 🐛 Customers: align example seed data with dictionary values. (#2878) *(@Zamojski5)*
+- 🐛 CRM: fix the deals-list misroute (#2939). (#2942) *(@haxiorz)*
+- 🐛 Checkout: show a not-found state when editing a deleted template/link (#2849). (#2853) *(@pkarw)*
+- 🐛 Staff: surface and recover from an optimistic-lock 409 on availability-schedule switch (#2848). (#2854) *(@pkarw)*
+- 🐛 Staff: enforce the single-active-timer invariant on timer start (#2855). (#2873) *(@pkarw)*
+- 🐛 Staff: remove the doubled "Tags" heading in the team-member edit view (#2872). (#2875) *(@pkarw)*
+- 🐛 Entities: validate multi-value custom fields per element (#2650). (#2860) *(@adeptofvoltron)*
+- 🐛 Catalog: strip markdown from the product-list description. (#2862) *(@Zamojski5)*
+- 🐳 Docker: forward `APP_ALLOWED_ORIGINS` in the fullapp compose files (#2449). (#2889) *(@pkarw)*
+- 🔧 dev: pin the HMR WebSocket origin allowlist contract (#2446). (#2890) *(@pkarw)*
+
+## 🛠️ Improvements
+- 🛠️ Directory: per-request memoize org-scope resolution and wire `org-scope:user` invalidation (#2259). (#2880) *(@pkarw)*
+- 🛠️ Query: drop the redundant `count(distinct)` on non-joined list COUNTs (#2227). (#2894) *(@pkarw)*
+- 🛠️ Shared: batch encrypted custom-field decryption with `Promise.all` (#2229). (#2896) *(@pkarw)*
+- 🛠️ Shared: add the `buildIlikeTerm()` search-term helper (#2367). (#2892) *(@pkarw)*
+- 🛠️ UI: share `formatCurrency`/`formatDate` for AI record cards (#2365). (#2893) *(@pkarw)*
+- 🛠️ dev: move react-big-calendar CSS from globals to the lazy `ScheduleCalendar` chunk (#2850). (#2856) *(@izqzmyli)*
+- 🛠️ dev: replace eager react-markdown in `AttachmentContentPreview` with lazy `MarkdownContent` (#2850). (#2938) *(@izqzmyli)*
+- 🛠️ deps: bump undici to ^8.4.1 in shared (migrates #2836). (#2838) *(@pkarw)*
+- 🛠️ deps: bump the minor-and-patch Dependabot group (migrates #2834). (#2841) *(@pkarw)*
+- 🛠️ deps: bump the minor-and-patch group across 1 directory with 11 updates. (#2870) *(@pkarw)*
+- 🛠️ deps: bump dompurify 3.3.3 → 3.4.8. (#2866) *(@pkarw)*
+- 🛠️ deps: consolidate dompurify 3.4.9 + shell-quote 1.8.4 onto develop (#2955, #2956). (#2957) *(@pkarw)*
+
+## 🧪 Testing
+- 🧪 Checkout: undo integration coverage (#2583). (#2819) *(@haxiorz)*
+- 🧪 Scheduler: undo integration tests (#2582). (#2820) *(@haxiorz)*
+- 🧪 Webhooks: stabilize the TC-LOCK-OSS-043 stale-row locator after an out-of-band bump. (#2851) *(@izqzmyli)*
+- 🧪 UI: guard the CrudForm delete-conflict spec against a false success toast (#2409). (#2891) *(@pkarw)*
+
+## 📝 Specs & Documentation
+- 📝 Spec: enterprise usage telemetry "phone home" verification. (#2501) *(@pkarw)*
+- 📝 Spec: AWS + Terraform deployment playbook (economy + HA). (#2545) *(@MStaniaszek1998)*
+- 📝 Spec: cache-with-invalidation FRs for the hottest API endpoints. (#2905) *(@pkarw)*
+- 📝 Docs: MCP server setup & extension guide. (#2900) *(@pkarw)*
+- 📝 Docs: Turbopack cache troubleshooting. (#2846) *(@alinadivante)*
+- 📝 Skills: add `om-approve-merge-pr` and `om-followup-issue-from-pr`. (#2827) *(@pkarw)*
+- 📝 Specs: move 61 fully-implemented specs to `implemented/` and fix cross-references. (#2948) *(@adeptofvoltron)*
+
+## 👥 Contributors
+
+- @WXYZx
+- @haxiorz
+- @MStaniaszek1998
+- @adeptofvoltron
+- @sravan27
+- @pat-lewczuk
+- @pkarw
+- @pmadajthey
+- @Zamojski5
+- @izqzmyli
+- @alinadivante
+
+---
+
 # 0.6.4 (2026-06-08)
 
 ## Highlights

@@ -254,7 +254,7 @@ listed above to prove universal coverage.
 ---
 
 ## 13. Documented EXEMPTIONS — do **not** file these as bugs
-(from `.ai/specs/2026-05-25-oss-optimistic-locking.md`, run-folder docs, and follow-ups #2215/#2232)
+(from `.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md`, run-folder docs, and follow-ups #2215/#2232)
 
 - **Bulk operations** — no single version token; intentionally excluded.
 - **Integrations marketplace** — stateless endpoints, no DB `updated_at` (verified no-code).

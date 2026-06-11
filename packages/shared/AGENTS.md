@@ -133,7 +133,7 @@ MUST rules:
 
 ### Module-Level Overrides (`@open-mercato/shared/modules/overrides`)
 
-Downstream apps replace or disable any contract a module presents through a single `entry.overrides` field on a `ModuleEntry`. The umbrella spec is `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`; phases 1-18 are wired.
+Downstream apps replace or disable any contract a module presents through a single `entry.overrides` field on a `ModuleEntry`. The umbrella spec is `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md`; phases 1-18 are wired.
 
 | Use case | Helper |
 |----------|--------|
