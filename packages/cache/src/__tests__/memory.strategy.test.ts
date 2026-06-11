@@ -259,4 +259,55 @@ describe('Memory Cache Strategy', () => {
       expect(stats.expired).toBe(1)
     })
   })
+
+  describe('LRU bounding (maxEntries)', () => {
+    it('evicts the least-recently-used entry once the cap is exceeded', async () => {
+      const bounded = createMemoryStrategy({ maxEntries: 3 })
+      await bounded.set('a', 1)
+      await bounded.set('b', 2)
+      await bounded.set('c', 3)
+      // Inserting a 4th entry evicts the oldest (a)
+      await bounded.set('d', 4)
+
+      expect(await bounded.get('a')).toBeNull()
+      expect(await bounded.get('b')).toBe(2)
+      expect(await bounded.get('c')).toBe(3)
+      expect(await bounded.get('d')).toBe(4)
+      expect((await bounded.stats()).size).toBe(3)
+    })
+
+    it('keeps recently-read entries alive (reads refresh LRU position)', async () => {
+      const bounded = createMemoryStrategy({ maxEntries: 3 })
+      await bounded.set('a', 1)
+      await bounded.set('b', 2)
+      await bounded.set('c', 3)
+      // Touch 'a' so it becomes most-recently-used; 'b' is now the oldest
+      expect(await bounded.get('a')).toBe(1)
+      await bounded.set('d', 4)
+
+      expect(await bounded.get('a')).toBe(1)
+      expect(await bounded.get('b')).toBeNull()
+      expect(await bounded.get('c')).toBe(3)
+      expect(await bounded.get('d')).toBe(4)
+    })
+
+    it('drops evicted keys from the tag index so deleteByTags stays consistent', async () => {
+      const bounded = createMemoryStrategy({ maxEntries: 2 })
+      await bounded.set('a', 1, { tags: ['shared'] })
+      await bounded.set('b', 2, { tags: ['shared'] })
+      await bounded.set('c', 3, { tags: ['shared'] }) // evicts 'a'
+
+      const removed = await bounded.deleteByTags(['shared'])
+      expect(removed).toBe(2)
+      expect((await bounded.stats()).size).toBe(0)
+    })
+
+    it('treats a non-positive cap as unbounded', async () => {
+      const unbounded = createMemoryStrategy({ maxEntries: 0 })
+      for (let index = 0; index < 100; index += 1) {
+        await unbounded.set(`key${index}`, index)
+      }
+      expect((await unbounded.stats()).size).toBe(100)
+    })
+  })
 })
