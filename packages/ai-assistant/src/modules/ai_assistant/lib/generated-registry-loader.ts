@@ -95,6 +95,38 @@ export async function compileAndImportGenerated(tsPath: string): Promise<Record<
   return (await import(pathToFileURL(jsPath).href)) as Record<string, unknown>
 }
 
+const UNSAFE_JS_STRING_CHAR_ESCAPES: Record<number, string> = {
+  0x3c: '\\u003C', // <  — HTML/script-tag breakout
+  0x3e: '\\u003E', // >  — HTML/script-tag breakout
+  0x2028: '\\u2028', // line separator — string content but a statement terminator pre-ES2019
+  0x2029: '\\u2029', // paragraph separator — same
+}
+
+/**
+ * Escape characters that `JSON.stringify` leaves intact but which can still
+ * break out of (or alter the meaning of) the JavaScript string literal that the
+ * stringified value is embedded into — notably `<`/`>` (HTML/script-tag
+ * breakout) and the U+2028 / U+2029 line separators (valid string content but
+ * statement terminators in pre-ES2019 parsers). Apply this on top of
+ * `JSON.stringify` so the emitted import source stays well-formed regardless of
+ * the resolved path. Exported for unit testing.
+ */
+export function escapeUnsafeJsStringChars(value: string): string {
+  return value.replace(
+    /[<>\u2028\u2029]/g,
+    (char) => UNSAFE_JS_STRING_CHAR_ESCAPES[char.charCodeAt(0)],
+  )
+}
+
+/**
+ * Stringify a resolved path into a JavaScript string literal that is safe to
+ * embed in generated source: `JSON.stringify` handles quoting/standard escapes,
+ * and `escapeUnsafeJsStringChars` neutralizes the characters it leaves intact.
+ */
+function toSafeJsStringLiteral(value: string): string {
+  return escapeUnsafeJsStringChars(JSON.stringify(value))
+}
+
 /**
  * Rewrite `@/...` path-alias imports (both `from "@/x"` and dynamic
  * `import("@/x")`) in generated-registry source to absolute `file://` URLs
@@ -110,14 +142,14 @@ export function rewriteGeneratedAliasImports(source: string, appRoot: string): s
       : fs.existsSync(target + '.ts')
         ? target + '.ts'
         : target
-    return pathToFileURL(candidate).href
+    return toSafeJsStringLiteral(pathToFileURL(candidate).href)
   }
   return source
     .replace(/from\s+["']@\/([^"']+)["']/g, (_match, relativePath: string) => {
-      return `from ${JSON.stringify(resolveAlias(relativePath))}`
+      return `from ${resolveAlias(relativePath)}`
     })
     .replace(/import\s*\(\s*["']@\/([^"']+)["']\s*\)/g, (_match, relativePath: string) => {
-      return `import(${JSON.stringify(resolveAlias(relativePath))})`
+      return `import(${resolveAlias(relativePath)})`
     })
 }
 
