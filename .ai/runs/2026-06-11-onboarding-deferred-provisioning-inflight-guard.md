@@ -36,4 +36,4 @@ Add a module-level `Set<string>` of in-flight request ids. `runDeferredProvision
 
 - [x] 1.1 Add in-flight guard to `runDeferredProvisioning` (extract body to private `executeDeferredProvisioning`) — 0f1462d24
 - [x] 1.2 Add unit test proving concurrent calls for one requestId run the work once, and a later call runs again — 0f1462d24
-- [ ] 1.3 Run onboarding unit tests + typecheck; full validation gate
+- [x] 1.3 Run onboarding unit tests + typecheck; full validation gate — onboarding 82/82, build:packages ✓, generate ✓, typecheck 21/21 ✓
