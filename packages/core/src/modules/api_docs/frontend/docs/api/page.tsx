@@ -1,5 +1,6 @@
 import ApiDocsExplorer from './Explorer'
 import { resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
+import { resolveApiDocsDocumentForViewer } from '@open-mercato/core/modules/api_docs/lib/resolve-api-docs-document'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import type { OpenApiDocument } from '@open-mercato/shared/lib/openapi'
 
@@ -49,21 +50,27 @@ function buildTagOrder(doc: any, operations: ExplorerOperation[]): string[] {
   return order
 }
 
+function emptyOpenApiDocument(baseUrl: string): OpenApiDocument {
+  return {
+    openapi: '3.1.0',
+    info: {
+      title: 'Open Mercato API',
+      version: APP_VERSION,
+      description: 'Auto-generated OpenAPI definition for all enabled modules.',
+    },
+    servers: [{ url: baseUrl, description: 'Default environment' }],
+    paths: {},
+  }
+}
+
 export default async function ApiDocsViewerPage() {
   const baseUrl = resolveApiDocsBaseUrl()
-  const response = await fetch(`${baseUrl}/docs/openapi`, { cache: 'no-store' })
-  const doc = response.ok
-    ? await response.json() as OpenApiDocument
-    : {
-        openapi: '3.1.0',
-        info: {
-          title: 'Open Mercato API',
-          version: APP_VERSION,
-          description: 'Auto-generated OpenAPI definition for all enabled modules.',
-        },
-        servers: [{ url: baseUrl, description: 'Default environment' }],
-        paths: {},
-      } satisfies OpenApiDocument
+  let doc: OpenApiDocument
+  try {
+    doc = await resolveApiDocsDocumentForViewer()
+  } catch {
+    doc = emptyOpenApiDocument(baseUrl)
+  }
 
   const operations = collectOperations(doc)
   const tagOrder = buildTagOrder(doc, operations)

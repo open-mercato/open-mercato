@@ -80,9 +80,9 @@ Full examples live in the [Directory service guide](./directory).
 
 ## Documentation & Playground
 
-- `GET /docs/api` opens the OpenAPI Explorer, an interactive playground generated from the live module registry. Access it from the admin UI once signed in, browse every operation, review example payloads, and paste an API token to execute authenticated requests against your chosen base URL.
-- `GET /api/docs/openapi` returns the OpenAPI 3.1 JSON document for client generation, contract testing, or syncing external tooling.
-- `GET /api/docs/markdown` serves the same specification as Markdown, ideal for quick sharing or feeding into LLM prompts.
+- `GET /docs/api` opens the OpenAPI Explorer, an interactive playground generated from the live module registry. By default, sign in with a user that has the `api_docs.view` feature. When `OM_API_DOCS_PUBLICLY_AVAILABLE=true`, the explorer is public and anonymous visitors see a redacted specification (ACL metadata stripped); authenticated users with `api_docs.view` still receive the full document.
+- `GET /api/docs/openapi` returns the OpenAPI 3.1 JSON document for client generation, contract testing, or syncing external tooling. By default this requires authentication and `api_docs.view`. With `OM_API_DOCS_PUBLICLY_AVAILABLE=true`, anonymous callers can download a redacted export; authorized users with `api_docs.view` receive the full document.
+- `GET /api/docs/markdown` serves the same specification as Markdown, ideal for quick sharing or feeding into LLM prompts. The same authentication and `OM_API_DOCS_PUBLICLY_AVAILABLE` rules apply as for the JSON export.
 
 ## Module Guides
 

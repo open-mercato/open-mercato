@@ -1,4 +1,5 @@
 import React from 'react'
+import { getApiDocsPageMetadataAuth } from '@open-mercato/core/modules/api_docs/lib/public-access'
 
 const bookIcon = React.createElement(
   'svg',
@@ -10,7 +11,7 @@ const bookIcon = React.createElement(
 )
 
 export const metadata = {
-  requireAuth: true,
+  ...getApiDocsPageMetadataAuth(),
   pageTitle: 'API documentation',
   pageTitleKey: 'api_docs.nav.title',
   pageGroup: 'Developers',
