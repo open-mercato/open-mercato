@@ -4,6 +4,7 @@ import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { createMemoryStrategy } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
 import * as enabledModulesRegistry from '@open-mercato/shared/security/enabledModulesRegistry'
+import { buildOrgScopeUserCacheTag, buildOrgScopeTenantCacheTag } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 // Minimal mock of MikroORM EntityManager surface used by RbacService
 type MockEm = {
@@ -638,6 +639,33 @@ describe('RbacService', () => {
       await service.loadAcl(user2.id, { tenantId: 'tenant-1', organizationId: null })
 
       expect(em.findOne).toHaveBeenCalledTimes(initialCalls + callsForScopes(1) * 2) // Both users queried again (first load per user)
+    })
+
+    // Issue #2259 — the resolved OrganizationScope (directory) cache derives its
+    // accessible-org set from the same ACL/role grants the RBAC cache holds.
+    // RBAC invalidation must therefore also drop the matching org-scope entries,
+    // so the cross-request scope TTL can be enabled without serving stale scope
+    // after a membership change.
+    it('invalidateUserCache also drops org-scope:user entries', async () => {
+      const key = 'org-scope:user-1:tenant-1:none:none'
+      const scope = { selectedId: null, filterIds: null, allowedIds: null, tenantId: 'tenant-1' }
+      await cache.set(key, scope, { ttl: 60_000, tags: [buildOrgScopeUserCacheTag('user-1')] })
+      expect(await cache.get(key)).not.toBeNull()
+
+      await service.invalidateUserCache('user-1')
+
+      expect(await cache.get(key)).toBeNull()
+    })
+
+    it('invalidateTenantCache also drops org-scope:tenant entries', async () => {
+      const key = 'org-scope:user-9:tenant-1:none:none'
+      const scope = { selectedId: null, filterIds: null, allowedIds: null, tenantId: 'tenant-1' }
+      await cache.set(key, scope, { ttl: 60_000, tags: [buildOrgScopeTenantCacheTag('tenant-1')] })
+      expect(await cache.get(key)).not.toBeNull()
+
+      await service.invalidateTenantCache('tenant-1')
+
+      expect(await cache.get(key)).toBeNull()
     })
 
     it('should not affect other tenants when invalidating specific tenant cache', async () => {
