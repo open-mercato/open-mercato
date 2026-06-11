@@ -1464,6 +1464,28 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 
 ## Changelog
 
+### 2026-06-11 - Rate-limit AI chat dispatch routes (#2975)
+
+**What changed**:
+- Both AI chat dispatch handlers — `POST /api/ai_assistant/ai/chat` (`api/ai/chat/route.ts`) and the legacy `POST /api/chat` (`api/chat/route.ts`) — now consult a per-user/per-tenant rate limit before running the LLM agent loop, per-turn DB reads/writes, and (legacy) the ephemeral `api_keys` insert.
+- Added `lib/rate-limit.ts` exporting `checkAiChatRateLimit({ req, container, userId, tenantId })`. It resolves the already-registered `rateLimiterService` from the request DI container (NOT a static `@open-mercato/core` import — core is not a dependency of this package), builds an additive `RATE_LIMIT_AI_CHAT_*` bucket via `readEndpointRateLimitConfig`, keys on `userId:tenantId`, and returns a typed 429 on breach.
+- **Fail-open**, mirroring auth's `checkAuthRateLimit`: when the limiter service is unavailable (unregistered, null, throws) the request proceeds unthrottled. No response shape, DI key, route, or event-id change.
+
+**New environment variables** (all optional, additive):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `RATE_LIMIT_AI_CHAT_POINTS` | `30` | Max chat turns per window per user/tenant. |
+| `RATE_LIMIT_AI_CHAT_DURATION` | `60` | Window length (seconds). |
+| `RATE_LIMIT_AI_CHAT_BLOCK_DURATION` | unset | Optional block window (seconds) after breach. |
+| `OM_TEST_AI_CHAT_RATE_LIMIT_MODE` | unset | Set to `opt-in` (with `OM_TEST_MODE=1`) so the bucket is only exercised when a request sends `x-om-test-rate-limit: on`, mirroring auth's test opt-in. |
+
+The global `RATE_LIMIT_ENABLED` kill switch (auto-off under `OM_INTEGRATION_TEST`) still disables the bucket wholesale.
+
+**Files**:
+- Added `lib/rate-limit.ts` + `lib/__tests__/rate-limit.test.ts`.
+- `api/ai/chat/route.ts`, `api/chat/route.ts` — call the gate near the top of the POST handler (legacy route hoists its existing request container so the session-key path reuses it).
+
 ### 2026-05-13 - Remove dead `indexApiEndpoints` from MCP boot (#1876)
 
 **What changed**:

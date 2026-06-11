@@ -14,6 +14,7 @@ import {
 } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { checkAiChatRateLimit } from '../../lib/rate-limit'
 
 /**
  * System instructions injected at the start of new chat sessions.
@@ -243,6 +244,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No user message found' }, { status: 400 })
     }
 
+    // Bound per-user LLM spend, DB writes (incl. the ephemeral session-key insert
+    // below), and SSE buffering. Fail-open so a missing limiter never blocks a turn.
+    const container = await createRequestContainer()
+    const rateLimited = await checkAiChatRateLimit({
+      req,
+      container,
+      userId: auth.sub,
+      tenantId: auth.tenantId,
+    })
+    if (rateLimited) return rateLimited
+
     const chatStartTime = Date.now()
     const messagePreview = lastUserMessage.slice(0, 80).replace(/\n/g, ' ')
     console.error(`[AI Usage] Chat request: user=${auth.sub} session=${sessionId ? sessionId.slice(0, 16) + '...' : 'new'} message="${messagePreview}${lastUserMessage.length > 80 ? '...' : ''}"`)
@@ -253,7 +265,6 @@ export async function POST(req: NextRequest) {
     let sessionToken: string | null = null
     if (!sessionId) {
       try {
-        const container = await createRequestContainer()
         const em = container.resolve<EntityManager>('em')
 
         // Get user's role IDs from database
