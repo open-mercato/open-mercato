@@ -98,24 +98,24 @@ When in doubt about whether an action mutates state, treat it as mutating and as
    // Must have this entry:
    { id: '<module_id>', from: '@app' }
    ```
-   Fix: Add the entry and run `yarn generate`.
+   Proposed fix: Add the entry and run `yarn generate`.
 
 2. **Did you run `yarn generate`?**
    Check if `.mercato/generated/` contains your module's entries.
-   Fix: Run `yarn generate`.
+   Proposed fix: Run `yarn generate`.
 
 3. **Is the module folder named correctly?**
    Must be plural, snake_case: `src/modules/<module_id>/`
-   Fix: Rename folder to match module ID.
+   Proposed fix: Rename folder to match module ID.
 
 4. **Does `index.ts` export `metadata`?**
    ```typescript
    export const metadata: ModuleInfo = { name: '<module_id>', ... }
    ```
-   Fix: Add the metadata export.
+   Proposed fix: Add the metadata export.
 
 5. **Is the dev server running with latest changes?**
-   Fix: Restart with `yarn dev`.
+   Proposed fix: Restart with `yarn dev`.
 
 ### Module loads but pages 404
 
@@ -126,17 +126,17 @@ When in doubt about whether an action mutates state, treat it as mutating and as
 1. **Are backend page files in the right location?**
    - List page: `backend/page.tsx` (not `backend/index.tsx`)
    - Detail page: `backend/<entities>/[id].tsx` (bracket notation)
-   Fix: Rename to match auto-discovery convention.
+   Proposed fix: Rename to match auto-discovery convention.
 
 2. **Do pages export `metadata` with `requireAuth`?**
    ```typescript
    export const metadata = { requireAuth: true, features: ['<module_id>.view'] }
    ```
-   Fix: Add metadata export.
+   Proposed fix: Add metadata export.
 
 3. **Does the user have the required ACL features?**
    Check `setup.ts` has `defaultRoleFeatures` for the user's role.
-   Fix: Add features to role defaults, re-run setup.
+   Proposed fix: Add features to role defaults, re-run setup.
 
 ---
 
@@ -152,22 +152,22 @@ When in doubt about whether an action mutates state, treat it as mutating and as
    ```bash
    yarn db:generate     # Probes/creates migration file
    ```
-   Fix: Run `yarn db:generate` to inspect the required migration, then keep only the scoped SQL for your module and update `src/modules/<module_id>/migrations/.snapshot-open-mercato.json`.
+   Proposed fix: Run `yarn db:generate` to inspect the required migration, then keep only the scoped SQL for your module and update `src/modules/<module_id>/migrations/.snapshot-open-mercato.json`.
 
 2. **Is the entity declared in the right file with the right imports?**
    Entity classes belong in `src/modules/<module_id>/data/entities.ts` and decorators must come from `@mikro-orm/decorators/legacy`.
-   Fix: move stale `entities/<Entity>.ts` patterns into `data/entities.ts` and fix the imports before regenerating the migration.
+   Proposed fix: move stale `entities/<Entity>.ts` patterns into `data/entities.ts` and fix the imports before regenerating the migration.
 
 3. **Did you apply the migration?**
    ```bash
    yarn db:migrate      # Applies pending migrations
    ```
-   Fix: Run `yarn db:migrate`.
+   Proposed fix: Run `yarn db:migrate`.
 
 4. **Is the migration file correct?**
    Check `src/modules/<module_id>/migrations/` for the latest migration.
    Verify it has the expected columns and types.
-   Fix: If wrong, delete the migration file, fix the entity, and regenerate.
+   Proposed fix: If wrong, delete the migration file, fix the entity, and regenerate.
 
 ### Migration generation creates unexpected changes
 
@@ -182,11 +182,11 @@ When in doubt about whether an action mutates state, treat it as mutating and as
 
 2. **Did you modify a core module entity without ejecting?**
    Never edit `node_modules/@open-mercato/*`.
-   Fix: Revert changes to node_modules. Use UMES extensions instead, or eject the module.
+   Proposed fix: Revert changes to node_modules. Use UMES extensions instead, or eject the module.
 
 3. **Is a module snapshot stale?**
    Check whether the generated SQL recreates a table or column that already has a committed migration.
-   Fix: update that module's `migrations/.snapshot-open-mercato.json` to include the already-migrated schema, then re-run `yarn db:generate` and expect `no changes`.
+   Proposed fix: update that module's `migrations/.snapshot-open-mercato.json` to include the already-migrated schema, then re-run `yarn db:generate` and expect `no changes`.
 
 ### Entity changes not reflected
 
