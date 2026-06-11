@@ -153,6 +153,9 @@ test.describe('TC-ONB-002: multi-tenant onboarding parallel login', () => {
     browser,
     request,
   }) => {
+    // Two full onboardings + parallel browser logins + DB-polled preparation
+    // far exceed the 20s suite default (house pattern: TC-AI-AGENT-SETTINGS-005).
+    test.setTimeout(120_000);
     const unique = randomUUID().slice(0, 8);
     const tenants: OnboardingTenant[] = [1, 2].map((index) => ({
       email: `qa-onboarding-parallel-${unique}-${index}@example.test`,
