@@ -78,5 +78,5 @@ reaches that code.
 
 ### Phase 1: Fix + tests
 
-- [ ] 1.1 Harden `AuthService.getUserRoles` to filter null roles / non-string names
-- [ ] 1.2 Add unit test reproducing the null-role NPE and asserting it is filtered
+- [x] 1.1 Harden `AuthService.getUserRoles` to filter null roles / non-string names — ce62ade5b
+- [x] 1.2 Add unit test reproducing the null-role NPE and asserting it is filtered — ce62ade5b
