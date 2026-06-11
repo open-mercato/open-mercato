@@ -12,6 +12,7 @@ import { requestOcrProcessing } from '../lib/ocrQueue'
 import { StorageDriverFactory } from '../lib/drivers'
 import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
+import { assertAttachmentScopeInvariant } from '../lib/access'
 import {
   mergeAttachmentMetadata,
   normalizeAttachmentAssignments,
@@ -421,6 +422,7 @@ export async function POST(req: Request) {
   }
   const metadata = mergeAttachmentMetadata(null, { assignments, tags })
   const attachmentId = randomUUID()
+  assertAttachmentScopeInvariant({ tenantId: auth.tenantId, organizationId: auth.orgId })
   const att = em.create(Attachment, {
     id: attachmentId,
     entityId,
