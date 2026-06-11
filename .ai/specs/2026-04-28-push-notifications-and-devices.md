@@ -1,6 +1,6 @@
 # Push Notifications and Devices Modules
 
-**Status:** Draft
+**Status:** Draft — Phase 1 (`devices` module) implemented (targeting `develop`); Phases 2–6 pending
 **Date:** 2026-04-28
 **Author:** Jacek Tomaszewski (`@jtomaszewski`)
 **Related:** `packages/core/src/modules/notifications/` (in-app notifications, #412), `#539` (security/MFA — future device-trust consumer)
@@ -89,19 +89,28 @@ Generic device registry. Owns `(tenant, user, device, platform)` and lifecycle. 
 
 "Active" means `deleted_at IS NULL`. Push delivery additionally requires `push_token IS NOT NULL`.
 
-**APIs** (under `/api/devices`):
-- `POST /api/devices` — register/upsert. Idempotent on `(tenant, user, device_id)`. Accepts optional `pushToken`/`pushProvider` so first-register can include both.
-- `GET /api/devices` — list current user's own devices.
-- `PUT /api/devices/:id` — update `last_seen_at`, `client_app_version`, `push_token`, `push_provider`. Setting `push_token` to `null` is how the client signals revoked OS permission.
-- `DELETE /api/devices/:id` — soft-delete (sets `deleted_at`). Server also soft-deletes when a provider returns "unregistered" for a token.
+**`push_token` is a secret.** It is never returned by list/detail responses (only `push_provider` and `push_token_updated_at` are exposed). Because the registry's writes go through the command bus, the token is also redacted (`'[redacted]'`) from the `snapshotBefore`/`snapshotAfter` the commands persist on each audit-log entry — and therefore from the `changesJson` the command bus derives from those snapshots — so it cannot leak through the `audit_logs.view_self` API (notably for admin register-on-behalf, where the snapshot would otherwise hold another user's token). It is likewise stripped from the mutation-guard payload so it cannot surface in enterprise record-lock conflict details returned to a conflicting client. The real token is retained only in the internal undo payload (which no API exposes), so register/update/deactivate stay fully undoable — undo/restore writes the original token back unchanged. The admin register form renders the token field as a password input.
 
-All routes export `openApi`. Use `makeCrudRoute` with `indexer: { entityType: 'devices:user_device' }`.
+**APIs** — split into self-serve and admin trees, matching the codebase convention (`customer_accounts/api/admin`, `staff/api/.../self`). *(As implemented; the original draft listed all verbs under `/api/devices`.)*
+
+Self-serve (`devices.view` / `devices.manage`) — always scoped to the acting user:
+- `POST /api/devices` — register/upsert the **caller's own** device. Idempotent on `(tenant, user, device_id)`; revives a soft-deleted row. Accepts optional `pushToken`/`pushProvider`.
+- `GET /api/devices` — the caller's own devices only (does **not** honor `?userId`).
+- `PUT /api/devices/:id` — **owner-only** update of `last_seen_at`, `client_app_version`, `push_token`, `push_provider`. Setting `push_token` to `null` signals revoked OS permission.
+- `DELETE /api/devices/:id` — **owner-only** soft-delete.
+
+Admin (`devices.admin`) under `api/admin/devices`:
+- `GET /api/devices/admin/devices` — tenant-wide list; optional `?userId=` / `?platform=`.
+- `POST /api/devices/admin/devices` — register on behalf of any user (`userId` in body).
+- `GET` / `PUT` / `DELETE /api/devices/admin/devices/:id` — read/update/deactivate any device.
+
+All routes export `openApi`. List routes use `makeCrudRoute` with `indexer: { entityType: 'devices:user_device' }` **and** `events: { module: 'devices', entity: 'user_device' }` so the CRUD-cache resource tag matches the command's `resourceKind` and writes bust the list cache. Shared write boilerplate (guard → command bus → undo header) lives in `api/deviceOps.ts`; the shared list schema/fields/item in `api/deviceList.ts`. Server also soft-deletes a device when a provider returns "unregistered" (future `push_notifications` worker).
 
 **ACL features (`acl.ts`):**
 - `devices.view`, `devices.manage` (self-serve).
-- `devices.admin` (cross-user listing for ops tooling, optional).
+- `devices.admin` — gates the entire `api/admin/devices` tree **and** the admin backend pages.
 
-**Setup (`setup.ts`):** `defaultRoleFeatures` grants self-serve to employees and customers; admin/superadmin get the wildcard.
+**Setup (`setup.ts`):** `defaultRoleFeatures` grants `devices.view`/`devices.manage` to `employee`; `admin`/`superadmin` get `devices.*`. *(Customer-role grants from the original draft are deferred — devices are employee/ops-facing in Phase 1.)*
 
 **Events (`events.ts`):**
 - `devices.user_device.registered`
@@ -237,22 +246,31 @@ When categories/governance return as a later spec, they are additive: a new `cat
 ## Architecture (file-level map)
 
 ```
-packages/core/src/modules/devices/
+packages/core/src/modules/devices/          # as implemented (Phase 1)
   index.ts
   acl.ts
   setup.ts
   events.ts
-  data/entities.ts          # UserDevice
+  di.ts
+  data/entities.ts                          # UserDevice
   data/validators.ts
-  api/get/devices.ts
-  api/post/devices.ts
-  api/put/devices/[id].ts
-  api/delete/devices/[id].ts
+  commands/devices.ts                       # register / update / deactivate (undoable)
+  lib/operationMetadata.ts                  # x-om-operation undo header helper
+  api/route.ts                              # self: GET (own) + POST (register self)
+  api/[id]/route.ts                         # self: PUT/DELETE (owner-only)
+  api/admin/devices/route.ts                # admin: GET (all) + POST (register for user)
+  api/admin/devices/[id]/route.ts           # admin: GET/PUT/DELETE (any device)
+  api/auth.ts                               # resolveDeviceActorUserId
+  api/deviceList.ts                         # shared list schema/fields/item
+  api/deviceOps.ts                          # shared guard→command→undo-header helpers
   api/openapi.ts
-  backend/page.tsx          # admin: list devices (gated by devices.admin)
+  backend/devices/page.tsx                  # admin list (gated devices.admin)
+  backend/devices/create/page.tsx           # admin: register on behalf of a user
+  backend/devices/[id]/page.tsx             # admin: edit a device
+  i18n/{en,de,es,pl}.json
   migrations/Migration*.ts
   AGENTS.md
-  __integration__/devices.spec.ts
+  __integration__/TC-DEV-001.spec.ts        # self-serve + TC-DEV-002 admin endpoints
 
 packages/core/src/modules/notifications/        # extending existing module
   data/entities.ts                              # ADD: NotificationType, NotificationPreference
@@ -295,6 +313,7 @@ See entity definitions above. Key design notes:
 
 - `UserDevice` carries push-token fields directly. Splitting tokens into a separate entity is YAGNI for v1 — single token per `(device, app install)` is the universal case for FCM/APNs/Expo, and a future split is a single migration if a real edge case ever shows up.
 - Soft-delete via the standard `deleted_at` column; no separate `is_active` flag.
+- **Optimistic locking**: `UserDevice` is a genuinely editable entity, so metadata edits are version-checked (detail GET exposes `updated_at`; `CrudForm` sends the expected-version header; `executeUpdate` enforces it). Deactivate is exempt because an idempotent soft-delete of a registry row has no lost-update risk.
 - `PushNotificationDelivery` references `user_device_id` and snapshots `provider` + a truncated `token_snapshot` so the delivery audit trail survives both token rotation and device deletion.
 - `NotificationPreference.channel` is a free-form string for forward compatibility with email/SMS.
 - `NotificationPreference` rows are **lazy-seeded**: when no row exists, the channel is treated as enabled (default-on). This avoids backfilling preferences for every existing user when a new type is added.
@@ -369,6 +388,7 @@ Per `.ai/qa/AGENTS.md` — self-contained, fixtures created in setup, cleaned in
 | Module-shape bikeshed: reviewers prefer one merged module over three | Medium | Module boundary | Spec lists explicit reuse cases for `devices` (MFA #539, audit, sessions) and channel-agnostic justification for putting prefs/registry in `notifications`. Reversible if reuse never materializes. | Low. |
 | Provider abstraction adds complexity for apps that only need FCM+APNs | Low | DX | Default `di.ts` registration ships FCM+APNs out of the box. Apps that don't extend never see the provider seam. | Low. |
 | FCM/APNs credentials in env are sensitive; misconfig leaks tokens to logs | High | Security | Provider implementations MUST NOT log tokens or full payloads. Add a redact filter in `push-sender.ts` and a unit test asserting redaction. Document env keys in `AGENTS.md`. | Low after redaction test. |
+| `push_token` leaks through generic platform surfaces that echo write payloads/snapshots back to clients (audit-log `snapshotBefore`/`snapshotAfter` + derived `changesJson` via `audit_logs.view_self`; enterprise record-lock conflict details) | High | Security | Redact the token from the persisted command snapshots and strip it from the mutation-guard payload; keep the real token only in the non-exposed undo payload so commands stay undoable. Never add `push_token` to list/detail field sets. | Low. |
 | Lazy preference seeding = surprise opt-in for existing users when a new type is added | Medium | UX | Default-on contract documented. Apps that want default-off insert explicit `enabled=false` rows during type registration. | Low. |
 | `push_notification_deliveries` table grows unbounded | Medium | Storage | Periodic purge worker (90-day default, configurable per tenant). Declared in this spec; landed as a Phase 6 follow-up if it slips. | Medium until purge ships. |
 | Notification type IDs are FROZEN (per BACKWARD_COMPATIBILITY.md) — typos stick forever | High | BC contract | Document the frozen-id contract in `AGENTS.md`. Migration tooling for renames left to a future spec. | Low. |
@@ -418,7 +438,19 @@ Each phase ends with passing integration tests + green build. One PR per phase.
 
 ## Final Compliance Report
 
-To be filled in after implementation; expected:
+**Phase 1 (`devices` module) — complete.** `yarn generate` clean, `yarn typecheck` green, integration suites `TC-DEV-001` (self-serve) + `TC-DEV-002` (admin) pass under the cache-enabled ephemeral harness. `yarn lint` is blocked by a pre-existing `eslint-plugin-react`/ESLint 10 toolchain crash unrelated to this change. Phase 1 items below are met (`devices`-scoped); provider/redaction/worker items remain for Phases 3–4.
+
+- [x] All routes export `openApi` *(Phase 1)*
+- [x] Module entities follow snake_case table names *(`user_devices`)*
+- [x] No direct ORM relationships across module boundaries *(Phase 1 has none)*
+- [x] All write routes use the Command pattern *(register/update/deactivate via command bus)*
+- [x] Integration suites self-contained and stable *(poll-based; cache-tag fix removes flakiness)*
+- [x] `AGENTS.md` shipped with the `devices` module
+- [x] No hardcoded design-system colors or arbitrary text sizes *(admin pages)*
+- [x] BC contract honored (type IDs frozen, additive-only schema changes thereafter)
+- [x] `push_token` treated as a secret: excluded from list/detail responses, redacted from audit-log command snapshots + derived `changesJson`, and stripped from the mutation-guard payload; real token retained only in the non-exposed undo payload
+
+Phases 2–6 (remaining):
 
 - [ ] All routes export `openApi`
 - [ ] Module entities follow snake_case table names with `<module>_` prefix
@@ -433,4 +465,7 @@ To be filled in after implementation; expected:
 
 ## Changelog
 
+- **2026-06-05** — Phase 1 optimistic-locking pass (review follow-up). Device **edits** are now optimistically locked: the admin detail GET returns `updated_at`, the admin edit `CrudForm` forwards it as `optimisticLockUpdatedAt` (sending the expected-version header), and `executeUpdate` enforces it via `enforceCommandOptimisticLock` (covers both the self `PUT /api/devices/:id` and admin `PUT /api/devices/admin/devices/:id`, since both funnel through it). Enforcement no-ops when the header is absent, so existing mobile self-update clients are unaffected. `UserDevice` was added to the curated `optimistic-lock-editable-entities` guard. Device **deactivate** is deliberately **exempt** (idempotent soft-delete of a registry row, not a concurrent field edit) — marked inline on the admin list page's raw `DELETE` and intentionally not enforced in `executeDeactivate`.
+- **2026-06-03** — Phase 1 security/UX hardening. (1) `push_token` secret handling extended beyond the original "not in list/detail" rule: it is now redacted from the audit-log command `snapshotBefore`/`snapshotAfter` (and therefore the derived `changesJson`) and stripped from the mutation-guard payload, closing leaks via `audit_logs.view_self` and enterprise record-lock conflict details; the real token is kept only in the non-exposed undo payload so commands stay undoable. (2) Admin register form renders the `push_token` field as a password input. (3) Confirmed and documented that device identity stays `(tenant, user, device_id)` — `device_id` is a per-app-install id (iOS IDFV; a generated UUID for web), so the iOS app and a browser on the same physical device register as distinct rows; `platform` is descriptive metadata, **not** part of the unique key (adding it would weaken the one-row-per-install guarantee).
+- **2026-06-02** — Phase 1 (`devices` module) implemented. Deltas from the original draft, now reflected above: (1) APIs split into self-serve (`/api/devices`, scoped to the acting user) vs admin (`/api/devices/admin/devices`, `devices.admin`) trees instead of a single path with optional cross-user listing; (2) added admin backend pages — list + **create (register-for-user)** + **edit** — beyond the draft's list-only page; (3) `makeCrudRoute` list routes pass `events: { module:'devices', entity:'user_device' }` so the CRUD-cache tag matches the command `resourceKind` (writes now bust the list cache — fixes stale lists under `ENABLE_CRUD_API_CACHE`); (4) shared `api/deviceOps.ts` + `api/deviceList.ts` helpers; (5) customer-role `defaultRoleFeatures` deferred (employee/admin only in Phase 1); (6) integration coverage `TC-DEV-001` + `TC-DEV-002`. Phases 2–6 (notifications extensions, push_notifications, providers, purge worker) remain pending.
 - **2026-04-28** — Initial draft. Three-part change: new `devices` module (generic device registry), new `push_notifications` module (push tokens + strategy + provider seam + worker), and additive extensions to existing `notifications` module (DB-backed type registry + channel-agnostic preferences). Categories, priority, non-opt-out, and daily/weekly frequency caps deferred to a later spec. Email/SMS channels designed-for but not built. Verified no existing upstream issue/PR via `gh search` on 2026-04-28. Design informed by a downstream production implementation; app-specific coupling is stripped for core.
