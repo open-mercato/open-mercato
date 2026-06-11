@@ -5,7 +5,8 @@ const sendWorkspaceReadyEmail = jest.fn()
 const assertAllowedAppOrigin = jest.fn()
 const markCompleted = jest.fn()
 const claimPreparation = jest.fn()
-const runDeferredProvisioning = jest.fn()
+const releasePreparationLease = jest.fn()
+const enqueueOnboardingPreparation = jest.fn()
 
 jest.mock('next/server', () => {
   const actual = jest.requireActual('next/server')
@@ -41,6 +42,7 @@ jest.mock('@open-mercato/onboarding/modules/onboarding/lib/service', () => ({
     findLatestByTenantId,
     markCompleted,
     claimPreparation,
+    releasePreparationLease,
   })),
 }))
 
@@ -57,7 +59,10 @@ jest.mock('@open-mercato/onboarding/modules/onboarding/lib/deferred-provisioning
       userId: request.userId,
     }
   },
-  runDeferredProvisioning: (...args: unknown[]) => runDeferredProvisioning(...args),
+}))
+
+jest.mock('@open-mercato/onboarding/modules/onboarding/lib/preparation-queue', () => ({
+  enqueueOnboardingPreparation: (...args: unknown[]) => enqueueOnboardingPreparation(...args),
 }))
 
 import { GET } from '../modules/onboarding/api/get/onboarding/status'
@@ -92,7 +97,8 @@ describe('onboarding status endpoint authorization', () => {
     assertAllowedAppOrigin.mockReset()
     markCompleted.mockReset()
     claimPreparation.mockReset()
-    runDeferredProvisioning.mockReset()
+    releasePreparationLease.mockReset()
+    enqueueOnboardingPreparation.mockReset()
     markCompleted.mockImplementation(async (request: OnboardingRequest, data: {
       tenantId: string
       organizationId: string
@@ -109,6 +115,11 @@ describe('onboarding status endpoint authorization', () => {
       request.processingStartedAt = startedAt
       return true
     })
+    releasePreparationLease.mockImplementation(async (request: OnboardingRequest) => {
+      request.processingStartedAt = null
+      return true
+    })
+    enqueueOnboardingPreparation.mockResolvedValue('job-1')
     findLatestByTenantId.mockResolvedValue(makeRequest())
   })
 
@@ -200,7 +211,7 @@ describe('onboarding status endpoint authorization', () => {
     expect(body.ready).toBe(false)
     expect(markCompleted).not.toHaveBeenCalled()
     expect(claimPreparation).not.toHaveBeenCalled()
-    expect(runDeferredProvisioning).not.toHaveBeenCalled()
+    expect(enqueueOnboardingPreparation).not.toHaveBeenCalled()
   })
 
   it('recovers an interrupted stale processing request that already has provisioned ids', async () => {
@@ -231,7 +242,7 @@ describe('onboarding status endpoint authorization', () => {
     })
   })
 
-  it('claims deferred preparation before scheduling it from a status poll', async () => {
+  it('claims deferred preparation before enqueueing it from a status poll', async () => {
     const request = makeRequest({
       tenantId: TENANT_ID,
       organizationId: '44444444-4444-4444-8444-444444444444',
@@ -247,8 +258,8 @@ describe('onboarding status endpoint authorization', () => {
 
     expect(res.status).toBe(200)
     expect(claimPreparation).toHaveBeenCalledTimes(1)
-    expect(runDeferredProvisioning).toHaveBeenCalledTimes(1)
-    expect(runDeferredProvisioning).toHaveBeenCalledWith({
+    expect(enqueueOnboardingPreparation).toHaveBeenCalledTimes(1)
+    expect(enqueueOnboardingPreparation).toHaveBeenCalledWith({
       requestId: request.id,
       tenantId: TENANT_ID,
       organizationId: '44444444-4444-4444-8444-444444444444',
@@ -273,6 +284,26 @@ describe('onboarding status endpoint authorization', () => {
 
     expect(res.status).toBe(200)
     expect(claimPreparation).toHaveBeenCalledTimes(1)
-    expect(runDeferredProvisioning).not.toHaveBeenCalled()
+    expect(enqueueOnboardingPreparation).not.toHaveBeenCalled()
+  })
+
+  it('releases the preparation claim when queue enqueue fails', async () => {
+    enqueueOnboardingPreparation.mockRejectedValue(new Error('queue unavailable'))
+    const request = makeRequest({
+      tenantId: TENANT_ID,
+      organizationId: '44444444-4444-4444-8444-444444444444',
+      userId: '55555555-5555-4555-8555-555555555555',
+      preparationCompletedAt: null,
+      processingStartedAt: null,
+    })
+    findLatestByTenantId.mockResolvedValue(request)
+
+    await expect(
+      GET(buildRequest({ tenantId: TENANT_ID, cookie: `om_login_tenant=${TENANT_ID}` })),
+    ).rejects.toThrow('queue unavailable')
+
+    expect(claimPreparation).toHaveBeenCalledTimes(1)
+    expect(releasePreparationLease).toHaveBeenCalledTimes(1)
+    expect(releasePreparationLease.mock.calls[0][0]).toBe(request)
   })
 })

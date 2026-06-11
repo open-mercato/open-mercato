@@ -308,5 +308,29 @@ describe('OnboardingService', () => {
       expect(renewed).toBe(true)
       expect(dbRow.processingStartedAt).toBe(renewedAt)
     })
+
+    it('releases a preparation lease after enqueue failure', async () => {
+      const startedAt = new Date()
+      const dbRow: DbRow = {
+        id: 'req-1',
+        status: 'completed',
+        processingStartedAt: startedAt,
+        preparationCompletedAt: null,
+      }
+      const request = makeRequest({
+        id: 'req-1',
+        status: 'completed',
+        processingStartedAt: startedAt,
+        preparationCompletedAt: null,
+      })
+      const em = createRowBackedEm(dbRow)
+      const service = new OnboardingService(em)
+
+      const released = await service.releasePreparationLease(request, startedAt)
+
+      expect(released).toBe(true)
+      expect(dbRow.processingStartedAt).toBeNull()
+      expect(request.processingStartedAt).toBeNull()
+    })
   })
 })

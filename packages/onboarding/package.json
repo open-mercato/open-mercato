@@ -69,9 +69,11 @@
     }
   },
   "peerDependencies": {
+    "@open-mercato/queue": "workspace:*",
     "@open-mercato/shared": "workspace:*"
   },
   "devDependencies": {
+    "@open-mercato/queue": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
     "jest": "^30.4.2",

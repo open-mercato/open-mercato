@@ -172,6 +172,22 @@ export class OnboardingService {
     return renewedRows > 0
   }
 
+  async releasePreparationLease(request: OnboardingRequest, startedAt: Date): Promise<boolean> {
+    const releasedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      {
+        id: request.id,
+        status: 'completed',
+        preparationCompletedAt: null,
+        processingStartedAt: startedAt,
+      },
+      { processingStartedAt: null, updatedAt: new Date() },
+    )
+    if (releasedRows === 0) return false
+    request.processingStartedAt = null
+    return true
+  }
+
   async markReadyEmailSent(request: OnboardingRequest, sentAt: Date) {
     request.readyEmailSentAt = sentAt
     await this.em.flush()

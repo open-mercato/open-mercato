@@ -14,8 +14,8 @@ import {
 import { resolveVerifyRedirectBaseUrl } from '@open-mercato/onboarding/modules/onboarding/lib/verify-base-url'
 import {
   resolveProvisioningIds,
-  runDeferredProvisioning,
 } from '@open-mercato/onboarding/modules/onboarding/lib/deferred-provisioning'
+import { enqueueOnboardingPreparation } from '@open-mercato/onboarding/modules/onboarding/lib/preparation-queue'
 import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-app'
 import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { computeConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
@@ -114,13 +114,23 @@ async function scheduleDeferredProvisioning(
   const staleBefore = new Date(now.getTime() - PREPARATION_LEASE_MS)
   const claimed = await service.claimPreparation(request, now, staleBefore)
   if (!claimed) return
-  after(async () => {
-    await runDeferredProvisioning({
+  try {
+    await enqueueOnboardingPreparation({
       requestId: request.id,
       tenantId: ids.tenantId,
       organizationId: ids.organizationId,
     })
-  })
+  } catch (error) {
+    await service.releasePreparationLease(request, now).catch((releaseError) => {
+      console.error('[onboarding.verify] failed to release preparation claim after enqueue failure', {
+        requestId: request.id,
+        tenantId: ids.tenantId,
+        organizationId: ids.organizationId,
+        error: releaseError,
+      })
+    })
+    throw error
+  }
 }
 
 export async function GET(req: Request) {

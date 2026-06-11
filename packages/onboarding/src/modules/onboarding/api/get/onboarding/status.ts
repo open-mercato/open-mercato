@@ -5,10 +5,11 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { assertAllowedAppOrigin, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboarding/lib/ready-email'
+import type { OnboardingRequest } from '@open-mercato/onboarding/modules/onboarding/data/entities'
 import {
   resolveProvisioningIds,
-  runDeferredProvisioning,
 } from '@open-mercato/onboarding/modules/onboarding/lib/deferred-provisioning'
+import { enqueueOnboardingPreparation } from '@open-mercato/onboarding/modules/onboarding/lib/preparation-queue'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -50,20 +51,33 @@ function isProcessingFresh(request: { status: string; processingStartedAt?: Date
 }
 
 async function scheduleDeferredProvisioning(args: {
+  service: OnboardingService
+  request: OnboardingRequest
   requestId: string
   tenantId: string
   organizationId: string
+  claimedAt: Date
   claim: () => Promise<boolean>
 }) {
   const claimed = await args.claim()
   if (!claimed) return
-  after(async () => {
-    await runDeferredProvisioning({
+  try {
+    await enqueueOnboardingPreparation({
       requestId: args.requestId,
       tenantId: args.tenantId,
       organizationId: args.organizationId,
     })
-  })
+  } catch (error) {
+    await args.service.releasePreparationLease(args.request, args.claimedAt).catch((releaseError) => {
+      console.error('[onboarding.status] failed to release preparation claim after enqueue failure', {
+        requestId: args.requestId,
+        tenantId: args.tenantId,
+        organizationId: args.organizationId,
+        error: releaseError,
+      })
+    })
+    throw error
+  }
 }
 
 export async function GET(req: Request) {
@@ -106,9 +120,12 @@ export async function GET(req: Request) {
     const now = new Date()
     const staleBefore = new Date(now.getTime() - PREPARATION_LEASE_MS)
     await scheduleDeferredProvisioning({
+      service,
+      request,
       requestId: request.id,
       tenantId: provisioningIds.tenantId,
       organizationId: provisioningIds.organizationId,
+      claimedAt: now,
       claim: () => service.claimPreparation(request, now, staleBefore),
     })
   }
