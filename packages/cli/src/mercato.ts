@@ -32,6 +32,7 @@ import {
 import { parseModuleInstallArgs } from './lib/module-install-args'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
+import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
@@ -2154,6 +2155,9 @@ export async function run(argv = process.argv) {
           const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
           const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
           const runtimeEnv = buildServerProcessEnvironment(process.env)
+          // Throws on single-instance strategies under a multi-instance topology,
+          // aborting before the start lock is acquired or any process is spawned.
+          assertSingleInstanceStrategies(runtimeEnv)
           const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
           const serverStartLock = acquireServerStartLock(appDir, {
             port: runtimeEnv.PORT ?? process.env.PORT ?? null,
