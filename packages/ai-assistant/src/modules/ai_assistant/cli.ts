@@ -52,6 +52,9 @@ const mcpServe: ModuleCli = {
     const organizationId = String(args.org ?? args.organizationId ?? '') || null
     const userId = String(args.user ?? args.userId ?? '') || null
     const debug = args.debug === true || args.debug === 'true'
+    const allowUnauthenticatedSuperadmin =
+      args['allow-unauthenticated-superadmin'] === true ||
+      args['allow-unauthenticated-superadmin'] === 'true'
 
     // Either API key or tenant is required
     if (!apiKey && !tenantId) {
@@ -63,14 +66,18 @@ const mcpServe: ModuleCli = {
       console.error('')
       console.error('Options (with --tenant):')
       console.error('  --org <id>           Organization ID (optional)')
-      console.error('  --user <id>          User ID for ACL (optional, uses superadmin if not set)')
+      console.error('  --user <id>          User ID for ACL (required unless --allow-unauthenticated-superadmin is set)')
       console.error('')
       console.error('Common options:')
       console.error('  --debug              Enable debug logging')
+      console.error('  --allow-unauthenticated-superadmin')
+      console.error('                       DEV/TEST ONLY: run as superadmin with no per-user ACL when')
+      console.error('                       no --user (and no --api-key) is supplied. Never use in production.')
       console.error('')
       console.error('Examples:')
       console.error('  mercato ai_assistant mcp:serve --api-key omk_xxxx.yyyy...')
-      console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000')
+      console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000 --user <user-id>')
+      console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000 --allow-unauthenticated-superadmin')
       return
     }
 
@@ -102,6 +109,7 @@ const mcpServe: ModuleCli = {
           organizationId,
           userId,
         },
+        allowUnauthenticatedSuperadmin,
       })
     }
   },
