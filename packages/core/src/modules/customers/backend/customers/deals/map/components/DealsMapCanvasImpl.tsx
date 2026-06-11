@@ -221,12 +221,14 @@ export default function DealsMapCanvasImpl({
       iconCreateFunction: (markerCluster) => buildClusterIcon(markerCluster.getChildCount()),
     })
     map.addLayer(cluster)
-    // Debounce the center report: `moveend` fires on every pan/zoom-end and each one re-renders
-    // the view + re-runs the panel's proximity (haversine) sort, so coalesce rapid drags.
+    // `moveend` fires on every pan/zoom-end and each one re-renders the view + re-runs the panel's
+    // proximity (haversine) sort, so debounce the state update. Read the center synchronously here
+    // while the map pane is guaranteed positioned — deferring getCenter() into the timeout can hit
+    // Leaflet's `_leaflet_pos` on a pane that has since been reset (fitBounds) or torn down.
     map.on('moveend', () => {
+      const center = map.getCenter()
       if (centerChangeTimerRef.current) clearTimeout(centerChangeTimerRef.current)
       centerChangeTimerRef.current = setTimeout(() => {
-        const center = map.getCenter()
         onCenterChangeRef.current({ latitude: center.lat, longitude: center.lng })
       }, 250)
     })

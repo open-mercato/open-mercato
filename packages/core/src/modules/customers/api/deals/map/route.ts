@@ -167,6 +167,16 @@ function readArrayParam(searchParams: URLSearchParams, key: string): string[] | 
   return trimmed.length ? trimmed : null
 }
 
+function collectRefIds(rows: unknown[], key: string): string[] {
+  const ids = new Set<string>()
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const { id } = readEntityRef((row as Record<string, unknown>)[key])
+    if (id) ids.add(id)
+  }
+  return Array.from(ids)
+}
+
 // The deal-list filter builder may already restrict `id` (search, association, stuck, or advanced
 // filters). `applyEntityIdRestriction` overwrites an existing `$in`, so intersect the located-deal
 // set with whatever allow-list is already present before re-applying it.
@@ -231,11 +241,12 @@ export async function GET(req: Request) {
 
   const decryptionScope = { tenantId: effectiveTenantId, organizationId: orgFilterIds[0] }
 
-  // Located-only: a deal can only appear on the map if a linked company/person owns a
-  // coordinate-bearing address. Resolve that universe first so pagination, `total`, and the
-  // 500-deal client cap all operate on deals that actually have a pin — deals without
-  // coordinates are excluded entirely instead of being paged through and dropped client-side.
-  const coordinateAddresses = await findWithDecryption(
+  // Located-only, resolved in two stages so the per-request cost stays page-bounded:
+  // 1) LIGHT id-only queries (FK columns only, no decryption) determine which deals have a
+  //    coordinate-bearing linked company/person, so pagination + `total` operate on located deals.
+  // 2) The HEAVY decrypted/populated fetch (labels + address coordinates) runs only for the deals
+  //    that actually land on the requested page — never the whole located universe.
+  const coordinateEntityRows = await findWithDecryption(
     em,
     CustomerAddress,
     {
@@ -244,58 +255,36 @@ export async function GET(req: Request) {
       tenantId: effectiveTenantId,
       organizationId: { $in: orgFilterIds },
     },
-    {},
+    { fields: ['entity'] },
     decryptionScope,
   )
-
-  const addressRows: DealMapAddress[] = []
-  const locatedEntityIds = new Set<string>()
-  for (const address of coordinateAddresses) {
-    const { id: entityId } = readEntityRef(address.entity)
-    if (!entityId) continue
-    locatedEntityIds.add(entityId)
-    addressRows.push({
-      id: address.id,
-      entityId,
-      isPrimary: address.isPrimary === true,
-      latitude: address.latitude ?? null,
-      longitude: address.longitude ?? null,
-      city: address.city ?? null,
-      region: address.region ?? null,
-      country: address.country ?? null,
-      createdAt: address.createdAt ?? null,
-    })
-  }
-  if (locatedEntityIds.size === 0) {
+  const locatedEntityIds = collectRefIds(coordinateEntityRows, 'entity')
+  if (locatedEntityIds.length === 0) {
     return emptyMapResponse(query.page, query.pageSize)
   }
 
-  const locatedEntityIdList = Array.from(locatedEntityIds)
-  const [companyLinks, personLinks] = await Promise.all([
+  const [locatedCompanyLinkRows, locatedPersonLinkRows] = await Promise.all([
     findWithDecryption(
       em,
       CustomerDealCompanyLink,
-      { company: { $in: locatedEntityIdList } },
-      { populate: ['company'] },
+      { company: { $in: locatedEntityIds } },
+      { fields: ['deal'] },
       decryptionScope,
     ),
     findWithDecryption(
       em,
       CustomerDealPersonLink,
-      { person: { $in: locatedEntityIdList } },
-      { populate: ['person'] },
+      { person: { $in: locatedEntityIds } },
+      { fields: ['deal'] },
       decryptionScope,
     ),
   ])
-
-  const companyRows = companyLinks
-    .map((link) => readLinkRow(link, link.company))
-    .filter((row): row is LinkRow => row !== null)
-  const personRows = personLinks
-    .map((link) => readLinkRow(link, link.person))
-    .filter((row): row is LinkRow => row !== null)
-
-  const locatedDealIds = Array.from(new Set([...companyRows, ...personRows].map((row) => row.dealId)))
+  const locatedDealIds = Array.from(
+    new Set([
+      ...collectRefIds(locatedCompanyLinkRows, 'deal'),
+      ...collectRefIds(locatedPersonLinkRows, 'deal'),
+    ]),
+  )
   if (locatedDealIds.length === 0) {
     return emptyMapResponse(query.page, query.pageSize)
   }
@@ -355,12 +344,72 @@ export async function GET(req: Request) {
   const dealIds = rows
     .map((row) => (typeof row.id === 'string' && row.id.trim().length ? row.id : null))
     .filter((value): value is string => value !== null)
-  const pageDealIds = new Set(dealIds)
 
-  const pageCompanyRows = companyRows.filter((row) => pageDealIds.has(row.dealId))
-  const pagePersonRows = personRows.filter((row) => pageDealIds.has(row.dealId))
-  const companiesByDeal = groupAssociations(pageCompanyRows)
-  const peopleByDeal = groupAssociations(pagePersonRows)
+  // Heavy fetch, page-bounded: pull decrypted links (for labels) and coordinate-bearing addresses
+  // only for the deals on this page.
+  const [companyLinks, personLinks] = dealIds.length
+    ? await Promise.all([
+        findWithDecryption(
+          em,
+          CustomerDealCompanyLink,
+          { deal: { $in: dealIds } },
+          { populate: ['company'] },
+          decryptionScope,
+        ),
+        findWithDecryption(
+          em,
+          CustomerDealPersonLink,
+          { deal: { $in: dealIds } },
+          { populate: ['person'] },
+          decryptionScope,
+        ),
+      ])
+    : [[], []]
+
+  const companyRows = companyLinks
+    .map((link) => readLinkRow(link, link.company))
+    .filter((row): row is LinkRow => row !== null)
+  const personRows = personLinks
+    .map((link) => readLinkRow(link, link.person))
+    .filter((row): row is LinkRow => row !== null)
+  const companiesByDeal = groupAssociations(companyRows)
+  const peopleByDeal = groupAssociations(personRows)
+
+  const linkedEntityIds = Array.from(
+    new Set([...companyRows, ...personRows].map((row) => row.entityId)),
+  )
+  const addresses = linkedEntityIds.length
+    ? await findWithDecryption(
+        em,
+        CustomerAddress,
+        {
+          entity: { $in: linkedEntityIds },
+          latitude: { $ne: null },
+          longitude: { $ne: null },
+          tenantId: effectiveTenantId,
+          organizationId: { $in: orgFilterIds },
+        },
+        {},
+        decryptionScope,
+      )
+    : []
+
+  const addressRows: DealMapAddress[] = []
+  for (const address of addresses) {
+    const { id: entityId } = readEntityRef(address.entity)
+    if (!entityId) continue
+    addressRows.push({
+      id: address.id,
+      entityId,
+      isPrimary: address.isPrimary === true,
+      latitude: address.latitude ?? null,
+      longitude: address.longitude ?? null,
+      city: address.city ?? null,
+      region: address.region ?? null,
+      country: address.country ?? null,
+      createdAt: address.createdAt ?? null,
+    })
+  }
 
   const toLink = (row: LinkRow): DealMapLink => ({
     dealId: row.dealId,

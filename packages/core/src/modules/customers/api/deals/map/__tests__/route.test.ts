@@ -220,19 +220,44 @@ describe('customers deals map route', () => {
       }),
     )
 
-    const addressCall = findWithDecryptionMock.mock.calls.find((call) => call[1] === CustomerAddress)
-    expect(addressCall?.[2]).toEqual({
+    // Stage 1 — LIGHT, id-only queries (no decryption) resolve the located-deal universe.
+    const lightAddressCall = findWithDecryptionMock.mock.calls.find(
+      (call) => call[1] === CustomerAddress && call[3]?.fields,
+    )
+    expect(lightAddressCall?.[2]).toEqual({
       latitude: { $ne: null },
       longitude: { $ne: null },
       tenantId,
       organizationId: { $in: [scopedOrgId] },
     })
-    expect(addressCall?.[4]).toEqual({ tenantId, organizationId: scopedOrgId })
+    expect(lightAddressCall?.[3]).toEqual({ fields: ['entity'] })
+    expect(lightAddressCall?.[4]).toEqual({ tenantId, organizationId: scopedOrgId })
 
-    const companyCall = findWithDecryptionMock.mock.calls.find((call) => call[1] === CustomerDealCompanyLink)
-    expect(companyCall?.[2]).toEqual({ company: { $in: [companyEntityId, personEntityId] } })
-    expect(companyCall?.[3]).toEqual({ populate: ['company'] })
-    expect(companyCall?.[4]).toEqual({ tenantId, organizationId: scopedOrgId })
+    const lightCompanyCall = findWithDecryptionMock.mock.calls.find(
+      (call) => call[1] === CustomerDealCompanyLink && call[3]?.fields,
+    )
+    expect(lightCompanyCall?.[2]).toEqual({ company: { $in: [companyEntityId, personEntityId] } })
+    expect(lightCompanyCall?.[3]).toEqual({ fields: ['deal'] })
+
+    // Stage 2 — HEAVY, page-bounded fetch: decrypted/populated links + addresses for THIS page only.
+    const heavyCompanyCall = findWithDecryptionMock.mock.calls.find(
+      (call) => call[1] === CustomerDealCompanyLink && call[3]?.populate,
+    )
+    expect(heavyCompanyCall?.[2]).toEqual({ deal: { $in: [locatedDealId] } })
+    expect(heavyCompanyCall?.[3]).toEqual({ populate: ['company'] })
+    expect(heavyCompanyCall?.[4]).toEqual({ tenantId, organizationId: scopedOrgId })
+
+    const heavyAddressCall = findWithDecryptionMock.mock.calls.find(
+      (call) => call[1] === CustomerAddress && !call[3]?.fields,
+    )
+    expect(heavyAddressCall?.[2]).toEqual({
+      entity: { $in: [companyEntityId, personEntityId] },
+      latitude: { $ne: null },
+      longitude: { $ne: null },
+      tenantId,
+      organizationId: { $in: [scopedOrgId] },
+    })
+    expect(heavyAddressCall?.[4]).toEqual({ tenantId, organizationId: scopedOrgId })
   })
 
   it('defaults the sort to id when no sortField is supplied', async () => {
