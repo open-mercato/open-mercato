@@ -276,7 +276,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(organizationCreateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const tenantId = await enforceTenantSelection(ctx, parsed.tenantId ?? null)
+    const tenantId = await enforceTenantSelection(ctx, parsed.tenantId)
     if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
 
     const parentId = parsed.parentId ?? null
