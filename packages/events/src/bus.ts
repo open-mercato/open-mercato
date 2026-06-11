@@ -1,6 +1,7 @@
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
 export { registerCrossProcessEventListener } from './bridge'
@@ -16,6 +17,18 @@ import type {
 
 /** Queue name for persistent events */
 const EVENTS_QUEUE_NAME = 'events'
+
+/**
+ * When enabled, a persistent emit delivers each subscriber on exactly one path:
+ * persistent-marked subscribers are skipped inline (the events worker dispatches
+ * them via pattern match, so wildcard persistent subscribers are reached), while
+ * ephemeral subscribers keep running inline. Default off preserves the legacy
+ * dual-dispatch behavior. Both this flag and the worker MUST agree, so the worker
+ * reads the same env var.
+ */
+function isSingleDeliveryEnabled(): boolean {
+  return parseBooleanWithDefault(process.env.OM_EVENTS_SINGLE_DELIVERY, false)
+}
 
 type GlobalEventTap = (event: string, payload: EventPayload, options?: EmitOptions) => void | Promise<void>
 const GLOBAL_EVENT_TAPS_KEY = '__openMercatoEventBusGlobalTaps__'
@@ -83,6 +96,9 @@ type EventJobData = {
 export function createEventBus(opts: CreateBusOptions): EventBus {
   // In-memory listeners for immediate event delivery
   const listeners = new Map<string, Set<SubscriberHandler>>()
+  // Handlers registered as persistent (worker-dispatched). Used by the
+  // single-delivery path to skip them inline on a persistent emit.
+  const persistentHandlers = new Set<SubscriberHandler>()
 
   // Determine queue strategy from options or environment
   const queueStrategy = opts.queueStrategy ??
@@ -109,13 +125,21 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
    * Delivers an event to all registered in-memory handlers.
    * Supports wildcard pattern matching for event patterns.
    */
-  async function deliver(event: string, payload: EventPayload, options?: EmitOptions): Promise<void> {
+  async function deliver(
+    event: string,
+    payload: EventPayload,
+    options?: EmitOptions,
+    skipPersistent = false,
+  ): Promise<void> {
     // Check all registered patterns (including wildcards)
     for (const [pattern, handlers] of listeners) {
       if (!matchEventPattern(event, pattern)) continue
       if (!handlers || handlers.size === 0) continue
 
       for (const handler of handlers) {
+        // Single-delivery: persistent subscribers are dispatched by the worker,
+        // so skip them inline to avoid double execution.
+        if (skipPersistent && persistentHandlers.has(handler)) continue
         try {
           // Pass eventName in context for wildcard handlers
           await Promise.resolve(handler(payload, {
@@ -134,11 +158,14 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
   /**
    * Registers a handler for an event.
    */
-  function on(event: string, handler: SubscriberHandler): void {
+  function on(event: string, handler: SubscriberHandler, options?: { persistent?: boolean }): void {
     if (!listeners.has(event)) {
       listeners.set(event, new Set())
     }
     listeners.get(event)!.add(handler)
+    if (options?.persistent) {
+      persistentHandlers.add(handler)
+    }
   }
 
   /**
@@ -146,7 +173,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
    */
   function registerModuleSubscribers(subs: SubscriberDescriptor[]): void {
     for (const sub of subs) {
-      on(sub.event, sub.handler)
+      on(sub.event, sub.handler, { persistent: sub.persistent })
     }
   }
 
@@ -169,8 +196,11 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       }
     }
 
-    // Always deliver to in-memory handlers first
-    await deliver(event, payload, options)
+    // Deliver to in-memory handlers first. Under single-delivery, persistent
+    // subscribers are skipped inline on a persistent emit because the events
+    // worker will dispatch them from the queue.
+    const skipPersistentInline = Boolean(options?.persistent) && isSingleDeliveryEnabled()
+    await deliver(event, payload, options, skipPersistentInline)
 
     if (isBroadcastEvent(event) && hasTenantScope(payload)) {
       try {

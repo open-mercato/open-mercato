@@ -76,6 +76,16 @@ export default async function handler(payload, ctx) { /* ... */ }
 - When `QUEUE_STRATEGY=local`, persistent events process from `.mercato/queue/` (or `QUEUE_BASE_DIR`)
 - Ephemeral subscribers always run in-process regardless of queue strategy
 
+### Persistent delivery: legacy vs single-delivery (`OM_EVENTS_SINGLE_DELIVERY`)
+
+By default (`OM_EVENTS_SINGLE_DELIVERY` unset/false) a persistent emit is delivered on **both** paths: inline to every matching in-memory subscriber **and** through the events worker (exact-match). This double-dispatches exact-match subscribers and never reaches wildcard (`event: '*'`) persistent subscribers in the worker.
+
+Set `OM_EVENTS_SINGLE_DELIVERY=true` to make persistent delivery single-path:
+- the bus skips inline delivery of **persistent-marked** subscribers on a persistent emit (ephemeral subscribers still run inline);
+- the events worker dispatches **persistent** subscribers via `matchEventPattern`, so wildcard persistent subscribers are finally reached.
+
+Both halves are gated by the same flag and MUST move together. When enabling it, ensure the events worker runs (default `AUTO_SPAWN_WORKERS=true`) and validate under both `QUEUE_STRATEGY=local` and `=async` so no persistent subscriber is dropped. This is the "Ask First: changing persistent delivery semantics" gate — the flag defaults off to preserve today's behavior.
+
 ## Queue Integration
 
 | Queue strategy | Ephemeral events | Persistent events |

@@ -1,5 +1,7 @@
 import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
 import { getCliModules } from '@open-mercato/shared/modules/registry'
+import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
 export const EVENTS_QUEUE_NAME = 'events'
 
@@ -29,7 +31,41 @@ type HandlerContext = {
 type SubscriberEntry = {
   id: string
   event: string
+  persistent?: boolean
   handler: (payload: unknown, ctx: unknown) => Promise<void> | void
+}
+
+/**
+ * Mirror of the event bus single-delivery flag. When enabled, the worker owns
+ * dispatch of every persistent subscriber and matches by pattern so wildcard
+ * (`event: '*'`) persistent subscribers are finally reached. Default off keeps
+ * the legacy exact-match dispatch of all subscribers.
+ */
+function isSingleDeliveryEnabled(): boolean {
+  return parseBooleanWithDefault(process.env.OM_EVENTS_SINGLE_DELIVERY, false)
+}
+
+/**
+ * Resolves the subscribers to run for a queued event.
+ * - Legacy (flag off): exact-match lookup of every subscriber for the event.
+ * - Single-delivery (flag on): persistent subscribers whose pattern matches the
+ *   event, including wildcards, so they run exactly once here instead of inline.
+ */
+function resolveSubscribers(
+  listeners: Map<string, SubscriberEntry[]>,
+  event: string,
+): SubscriberEntry[] {
+  if (!isSingleDeliveryEnabled()) {
+    return listeners.get(event) ?? []
+  }
+  const matched: SubscriberEntry[] = []
+  for (const [pattern, subs] of listeners) {
+    if (!matchEventPattern(event, pattern)) continue
+    for (const sub of subs) {
+      if (sub.persistent) matched.push(sub)
+    }
+  }
+  return matched
 }
 
 // Cached listener map - built once on first use
@@ -75,7 +111,7 @@ export default async function handle(
 ): Promise<void> {
   const { event, payload, options } = job.payload
   const listeners = getListenerMap()
-  const subscribers = listeners.get(event)
+  const subscribers = resolveSubscribers(listeners, event)
 
   if (!subscribers || subscribers.length === 0) return
 
