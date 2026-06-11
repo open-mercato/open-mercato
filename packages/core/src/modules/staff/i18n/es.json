@@ -950,6 +950,7 @@
   "staff.timesheets.errors.projectsKpis": "Failed to load project KPIs.",
   "staff.timesheets.errors.segmentCreate": "No se pudo crear el segmento del registro de tiempo.",
   "staff.timesheets.errors.staffMemberNotFound": "Miembro del personal no encontrado o no accesible.",
+  "staff.timesheets.errors.timerAlreadyRunning": "Ya hay otro temporizador en marcha. Detenlo antes de iniciar uno nuevo.",
   "staff.timesheets.errors.timerAlreadyStarted": "El temporizador ya está iniciado para este registro.",
   "staff.timesheets.errors.timerStart": "No se pudo iniciar el temporizador.",
   "staff.timesheets.errors.timerStop": "No se pudo detener el temporizador.",

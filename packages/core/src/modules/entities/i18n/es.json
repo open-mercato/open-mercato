@@ -82,6 +82,7 @@
   "entities.userEntities.records.errors.deleteFailed": "No se pudo eliminar el registro",
   "entities.userEntities.records.errors.entityIdRequired": "Se requiere el identificador de la entidad",
   "entities.userEntities.records.errors.recordIdRequired": "Se requiere el identificador del registro",
+  "entities.userEntities.records.errors.systemEntity": "Esta entidad está gestionada por el sistema. Los registros solo están disponibles para entidades personalizadas.",
   "entities.userEntities.records.form.createTitle": "Crear registro",
   "entities.userEntities.records.form.editTitle": "Editar registro",
   "entities.userEntities.records.form.submitCreate": "Crear",

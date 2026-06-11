@@ -17,7 +17,7 @@ import { isUniqueViolation } from './pg-errors'
  * `(tenantId, token)` so that even if the HMAC key leaked, tenant
  * isolation still holds at the DB layer.
  *
- * See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`.
+ * See `.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`.
  */
 
 const TOKEN_PREFIX = 'om_'

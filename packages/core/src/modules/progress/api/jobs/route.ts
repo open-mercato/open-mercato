@@ -165,7 +165,7 @@ export async function POST(req: Request) {
     const stack = error instanceof Error ? error.stack : undefined
     console.error('[progress.jobs.create] unhandled error', { message, stack })
     return NextResponse.json(
-      { error: 'Failed to create progress job.', message, stack },
+      { error: 'Failed to create progress job.' },
       { status: 500 },
     )
   }

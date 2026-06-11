@@ -4,6 +4,7 @@ import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
 import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { buildOrgScopeUserCacheTag, buildOrgScopeTenantCacheTag } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { matchFeature as sharedMatchFeature, hasAllFeatures as sharedHasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { filterGrantsByEnabledModules, getOwningModuleId, getEnabledModuleIds } from '@open-mercato/shared/security/enabledModulesRegistry'
 
@@ -130,7 +131,12 @@ export class RbacService {
    */
   async invalidateUserCache(userId: string): Promise<void> {
     this.globalSuperAdminCache.delete(userId)
-    await this.deleteCacheByTags([this.getUserTag(userId)])
+    // Also drop the directory OrganizationScope cache for this user. That scope's
+    // accessible-org set is derived from this user's ACL/role grants, so any
+    // permission change that invalidates the RBAC cache must invalidate the
+    // resolved scope too. This is the missing `org-scope:user:*` caller required
+    // before the cross-request scope TTL can be safely enabled (issue #2259).
+    await this.deleteCacheByTags([this.getUserTag(userId), buildOrgScopeUserCacheTag(userId)])
   }
 
   /**
@@ -142,7 +148,10 @@ export class RbacService {
    */
   async invalidateTenantCache(tenantId: string): Promise<void> {
     this.globalSuperAdminCache.clear()
-    await this.deleteCacheByTags([this.getTenantTag(tenantId)], [tenantId])
+    // Role ACL changes invalidate every user in the tenant; the resolved
+    // OrganizationScope for those users derives from the same grants, so drop
+    // the tenant-tagged scope entries alongside the RBAC ones (issue #2259).
+    await this.deleteCacheByTags([this.getTenantTag(tenantId), buildOrgScopeTenantCacheTag(tenantId)], [tenantId])
   }
 
   /**

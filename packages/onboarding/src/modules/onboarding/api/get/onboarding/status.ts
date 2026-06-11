@@ -1,10 +1,14 @@
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
+import { assertAllowedAppOrigin, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboarding/lib/ready-email'
+import {
+  resolveProvisioningIds,
+  runDeferredProvisioning,
+} from '@open-mercato/onboarding/modules/onboarding/lib/deferred-provisioning'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -51,9 +55,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: 'Not authorized for this tenant.' }, { status: 403 })
   }
 
-  let baseUrl: string
   try {
-    baseUrl = getSecurityEmailBaseUrl(req)
+    assertAllowedAppOrigin(req)
   } catch (error) {
     const mapped = mapSecurityEmailUrlError(error, {
       scope: 'onboarding.status',
@@ -62,6 +65,7 @@ export async function GET(req: Request) {
     if (mapped) return NextResponse.json({ ok: false, error: mapped.body.error }, { status: mapped.status })
     throw error
   }
+
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const service = new OnboardingService(em)
@@ -70,24 +74,39 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: 'Onboarding request not found.' }, { status: 404 })
   }
 
-  let emailSent = Boolean(request.readyEmailSentAt)
+  const provisioningIds = resolveProvisioningIds(request)
+  if (provisioningIds && request.status === 'processing') {
+    await service.markCompleted(request, provisioningIds)
+  }
+  if (provisioningIds && request.status === 'completed' && !request.preparationCompletedAt) {
+    after(async () => {
+      await runDeferredProvisioning({
+        requestId: request.id,
+        tenantId: provisioningIds.tenantId,
+        organizationId: provisioningIds.organizationId,
+      })
+    })
+  }
+
+  const emailSent = Boolean(request.readyEmailSentAt)
   const ready = request.status === 'completed' && Boolean(request.preparationCompletedAt)
-  const loginUrl = ready && request.tenantId ? `${baseUrl}/login?tenant=${encodeURIComponent(request.tenantId)}` : null
+  const loginUrl = ready && request.tenantId ? `/login?tenant=${encodeURIComponent(request.tenantId)}` : null
 
   if (ready && request.tenantId && !request.readyEmailSentAt) {
-    try {
-      emailSent = await sendWorkspaceReadyEmail({
+    const readyTenantId = request.tenantId
+    after(async () => {
+      await sendWorkspaceReadyEmail({
         requestId: request.id,
-        tenantId: request.tenantId,
+        tenantId: readyTenantId,
+      }).catch((error) => {
+        console.error('[onboarding.status] ready email retry failed', {
+          requestId: request.id,
+          tenantId: readyTenantId,
+          organizationId: request.organizationId,
+          error,
+        })
       })
-    } catch (error) {
-      console.error('[onboarding.status] ready email retry failed', {
-        requestId: request.id,
-        tenantId: request.tenantId,
-        organizationId: request.organizationId,
-        error,
-      })
-    }
+    })
   }
 
   return NextResponse.json({

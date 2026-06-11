@@ -457,7 +457,8 @@ describe('SearchService', () => {
 
       await service.purge('test:entity', 'tenant-123')
 
-      expect(strategyWithPurge.purge).toHaveBeenCalledWith('test:entity', 'tenant-123')
+      // organizationId is forwarded as undefined for a tenant-wide purge (issue #2935)
+      expect(strategyWithPurge.purge).toHaveBeenCalledWith('test:entity', 'tenant-123', undefined)
     })
   })
 

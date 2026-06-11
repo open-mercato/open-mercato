@@ -1,7 +1,7 @@
 /**
  * Visible AI chat agent task plan — server-side SSE injector.
  *
- * Spec: `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`.
+ * Spec: `.ai/specs/implemented/2026-05-13-ai-chat-visible-task-plan.md`.
  *
  * Wraps a streaming `Response` produced by `streamText().toUIMessageStreamResponse()`
  * (or the equivalent `ToolLoopAgent.stream(...).toUIMessageStreamResponse()`)

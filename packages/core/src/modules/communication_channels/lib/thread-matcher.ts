@@ -19,7 +19,7 @@ import { extractTokenFromBody, extractTokenFromHeaders } from './thread-token'
  * `UPDATE` that bumps a matched token's `last_seen_at` (a future-GC hint),
  * which does not touch the caller's pending entities.
  *
- * See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`
+ * See `.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`
  * § 4 Threading Algorithm.
  */
 

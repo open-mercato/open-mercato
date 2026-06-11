@@ -179,6 +179,22 @@ function generateShared(config: AgenticConfig): void {
 
   copyFile(
     srcDir,
+    'ai/skills/om-help/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'SKILL.md'),
+  )
+  copyFile(
+    srcDir,
+    'ai/skills/om-help/references/skills-catalog.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'references', 'skills-catalog.md'),
+  )
+  copyFile(
+    srcDir,
+    'ai/skills/om-help/references/workflow-sequences.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'references', 'workflow-sequences.md'),
+  )
+
+  copyFile(
+    srcDir,
     'ai/skills/om-auto-upgrade-0.4.10-to-0.5.0/SKILL.md',
     join(targetDir, '.ai', 'skills', 'om-auto-upgrade-0.4.10-to-0.5.0', 'SKILL.md'),
   )

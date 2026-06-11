@@ -7,6 +7,7 @@ import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { upsertCustomEntitySchema } from '@open-mercato/core/modules/entities/data/validators'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/system-entities'
+import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -106,6 +107,16 @@ export async function POST(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+
+  // A registration for a module-declared, table-backed system entity would flip
+  // query-engine classification to doc storage for the whole entity type (#2939's
+  // failure mode via another door) — refuse to create one.
+  if (isOrmBackedSystemEntityId(em, input.entityId)) {
+    return NextResponse.json(
+      { error: 'System entities cannot be registered as custom entities', code: SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, entityId: input.entityId },
+      { status: 400 },
+    )
+  }
 
   const where: any = { entityId: input.entityId, organizationId: auth.orgId ?? null, tenantId: auth.tenantId ?? null }
   let ent = await em.findOne(CustomEntity, where)

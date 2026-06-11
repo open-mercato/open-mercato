@@ -2,7 +2,7 @@
 
 This directory contains Traefik configuration that fronts the Mercato app for
 **Phase 3** of the portal custom-domain spec
-(`.ai/specs/2026-04-08-portal-custom-domain-routing.md`). Traefik terminates
+(`.ai/specs/implemented/2026-04-08-portal-custom-domain-routing.md`). Traefik terminates
 TLS for both the platform domain and any verified customer-controlled
 hostname, gates each request through the app's domain-check endpoint, and
 issues Let's Encrypt certificates on demand via TLS-ALPN-01.

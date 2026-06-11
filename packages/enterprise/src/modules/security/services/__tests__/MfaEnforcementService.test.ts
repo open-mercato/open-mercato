@@ -391,6 +391,18 @@ describe('MfaEnforcementService', () => {
     expect(policies[0].deletedAt).toBeNull()
   })
 
+  test('getComplianceReport allows a non-superadmin to query its own tenant', async () => {
+    const { service, users } = createContext()
+    users.push({ id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null })
+
+    const report = await service.getComplianceReport(EnforcementScope.TENANT, 'tenant-1', {
+      tenantId: 'tenant-1',
+      isSuperAdmin: false,
+    })
+
+    expect(report.total).toBe(1)
+  })
+
   test('checkUserCompliance enforces allowed methods filter', async () => {
     const { service, policies, methods } = createContext()
     mockedFindOneWithDecryption.mockResolvedValue({

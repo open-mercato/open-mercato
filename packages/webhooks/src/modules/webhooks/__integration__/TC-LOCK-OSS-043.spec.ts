@@ -220,9 +220,12 @@ test.describe('TC-LOCK-OSS-043: webhooks + inbox settings + data-sync schedule o
   // wait for the filtered list GET to settle, open the kebab, click Delete, confirm, then
   // assert the unified conflict bar (never the success toast).
   test('WHK-01 stale webhook DELETE in the list surfaces the conflict bar', async ({ page }) => {
+    // Heavy browser flow (login + list load + portalled RowActions menu) routinely
+    // exceeds Playwright's 20s default on a loaded ephemeral shard; opt into the
+    // sanctioned per-test budget (see TC-LOCK-OSS-029). Global bump is disallowed.
+    test.setTimeout(60_000)
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
-    const webhookName = `QA Lock 043 ${stamp}`
     let webhookId: string | null = null
     try {
       const webhook = await createWebhook(page.request, token, stamp)
@@ -243,24 +246,37 @@ test.describe('TC-LOCK-OSS-043: webhooks + inbox settings + data-sync schedule o
         )
         .catch(() => undefined)
 
-      const row = page.getByRole('row', { name: new RegExp(`${webhookName}\\b`) }).first()
+      // The out-of-band PUT below renames the fixture to "QA Lock 043 bumped <stamp>";
+      // tolerate both names so a mid-test list re-render cannot orphan the row locator.
+      const row = page
+        .getByRole('row', { name: new RegExp(`QA Lock 043 (?:bumped )?${stamp}\\b`) })
+        .first()
       await expect(row, 'created webhook should appear in the list').toBeVisible({ timeout: 20_000 })
 
       // Advance updated_at out-of-band → the in-page row token is now stale.
+      // NOTE: bump description (not name) so the row locator stays valid even if
+      // the list re-fetches after the PUT.
       const bump = await apiRequest(page.request, 'PUT', `${WEBHOOKS_API}/${webhookId}`, {
         token,
-        data: { name: `QA Lock 043 bumped ${stamp}` },
+        data: { description: `bumped-${stamp}` },
       })
       expect(bump.status(), 'out-of-band webhook PUT should succeed').toBeLessThan(300)
 
       // Open the row's RowActions kebab (opens on click) and trigger Delete. The
       // menu renders in a portal on document.body, so query it at the page level.
+      // The list re-renders as data settles, so the menu can detach between "open"
+      // and "click" — retry (re)open-menu + click-Delete atomically (same fix as
+      // TC-LOCK-OSS-029); the confirm dialog gates the DELETE, so a repeated
+      // click is safe.
       const kebab = row.getByRole('button', { name: /open actions/i })
-      await expect(kebab, 'row should expose an Open actions trigger').toBeVisible()
-      await kebab.click()
       const deleteItem = page.getByRole('menuitem', { name: /^delete$/i })
-      await expect(deleteItem, 'delete menu item should be visible').toBeVisible({ timeout: 10_000 })
-      await deleteItem.click()
+      await expect(async () => {
+        if (!(await deleteItem.isVisible().catch(() => false))) {
+          await kebab.click({ timeout: 2_000 }).catch(() => {})
+          await expect(deleteItem).toBeVisible({ timeout: 1_500 })
+        }
+        await deleteItem.click({ timeout: 2_000 })
+      }).toPass({ timeout: 30_000 })
 
       // Confirm the destructive alertdialog (the row still holds the stale
       // updated_at captured at render time, so the DELETE 409s).

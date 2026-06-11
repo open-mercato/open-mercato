@@ -58,6 +58,9 @@ import { dismissRecordConflict, getRecordConflictForTest } from '../conflicts'
 
 const dict = {
   'ui.forms.actions.save': 'Save',
+  'ui.forms.actions.delete': 'Delete',
+  'ui.forms.flash.deleteSuccess': 'Record deleted.',
+  'ui.forms.flash.deleteError': 'Failed to delete record.',
   'ui.forms.flash.recordModified': 'This record was modified by someone else. Refresh and try again.',
 }
 
@@ -170,6 +173,55 @@ describe('CrudForm — optimisticLockUpdatedAt prop wiring', () => {
       'This record was modified by someone else. Refresh and try again.',
       'error',
     )
+  })
+
+  it('delete: a 409 conflict surfaces the conflict bar and never shows a success toast (regression #2409)', async () => {
+    // Regression guard for #2409: when an optimistic-lock conflict (409) is
+    // thrown from onDelete, CrudForm must route it to the unified conflict bar
+    // and MUST NOT flash a "Record deleted." success toast. A previous version
+    // of the planner Availability Schedule page swallowed the delete error, so
+    // CrudForm treated the failed delete as a success and showed a false toast.
+    dismissRecordConflict()
+    const conflict = Object.assign(new Error('record_modified'), {
+      status: 409,
+      error: 'record_modified',
+      code: OPTIMISTIC_LOCK_CONFLICT_CODE,
+      currentUpdatedAt: '2026-05-25T08:42:19.000Z',
+      expectedUpdatedAt: '2026-05-25T08:42:18.000Z',
+    })
+    const onSubmit = jest.fn(async () => undefined)
+    const onDelete = jest.fn(async () => {
+      throw conflict
+    })
+    const { container } = renderWithProviders(
+      <CrudForm<{ displayName: string; id?: string }>
+        fields={fields}
+        initialValues={{ id: 'rec-1', displayName: 'old' }}
+        onSubmit={onSubmit}
+        onDelete={onDelete}
+        optimisticLockUpdatedAt="2026-05-25T08:42:18.000Z"
+      />,
+      { dict },
+    )
+
+    const deleteButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Delete',
+    ) as HTMLButtonElement
+    expect(deleteButton).toBeTruthy()
+
+    await act(async () => {
+      fireEvent.click(deleteButton)
+    })
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1))
+    await waitFor(() => {
+      const entry = getRecordConflictForTest()
+      expect(entry).not.toBeNull()
+      expect(entry?.message).toBe('This record was modified by someone else. Refresh and try again.')
+    })
+    // The false success toast is the actual bug — it must never fire on a 409.
+    expect(flashMock).not.toHaveBeenCalledWith('Record deleted.', 'success')
+    expect(flashMock).not.toHaveBeenCalledWith(expect.anything(), 'success')
   })
 })
 

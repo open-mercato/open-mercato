@@ -113,4 +113,22 @@ describe('heavy libraries are lazy-loaded', () => {
     const source = read('apps/mercato/src/app/globals.css')
     expect(source).not.toMatch(/@xyflow\/react\/dist\/style\.css/)
   })
+
+  it('globals.css no longer eagerly imports react-big-calendar styles', () => {
+    const source = read('apps/mercato/src/app/globals.css')
+    expect(source).not.toMatch(/react-big-calendar\/lib\/css/)
+  })
+
+  it('ScheduleCalendar owns the react-big-calendar CSS import', () => {
+    const source = read('packages/ui/src/backend/schedule/ScheduleCalendar.tsx')
+    expect(source).toMatch(/import\s+['"]react-big-calendar\/lib\/css\/react-big-calendar\.css['"]/)
+  })
+
+  it('AttachmentContentPreview does not statically import react-markdown or remark-gfm', () => {
+    const source = read(
+      'packages/core/src/modules/attachments/components/AttachmentContentPreview.tsx',
+    )
+    expect(source).not.toMatch(/from\s+['"]react-markdown['"]/)
+    expect(source).not.toMatch(/from\s+['"]remark-gfm['"]/)
+  })
 })
