@@ -37,3 +37,13 @@ Add a module-level `Set<string>` of in-flight request ids. `runDeferredProvision
 - [x] 1.1 Add in-flight guard to `runDeferredProvisioning` (extract body to private `executeDeferredProvisioning`) — 0f1462d24
 - [x] 1.2 Add unit test proving concurrent calls for one requestId run the work once, and a later call runs again — 0f1462d24
 - [x] 1.3 Run onboarding unit tests + typecheck; full validation gate — onboarding 82/82, build:packages ✓, generate ✓, typecheck 21/21 ✓
+
+### Phase 2: Upgrade to cross-process claim + flag-after-rebuild (maintainer request)
+
+The Phase 1 in-process `Set` guard stops the outage but is per-process and leaves a latent gap: `preparationCompletedAt` is written before the reindex, so a crash mid-rebuild strands a workspace with no search indexes and `status.ts` never re-triggers. Upgrade per maintainer request.
+
+- [x] 2.1 Add `onboarding_requests.preparation_claimed_at` column (entity + migration + snapshot); `db:generate` reports onboarding no-drift — 4c833059a
+- [x] 2.2 Add `OnboardingService.claimPreparation` (atomic CAS, mirrors `startProcessing`) + `releasePreparation` (timestamp-scoped CAS release) — 4c833059a
+- [x] 2.3 Replace in-process Set with DB claim in `runDeferredProvisioning`; stale-reclaim after `PREPARATION_CLAIM_STALE_MS` — 4c833059a
+- [x] 2.4 Move `markWorkspaceReady` after `rebuildTenantQueryIndexes`; send ready-email last — 4c833059a
+- [x] 2.5 Rewrite unit tests (claim acquired/not-acquired, already-complete short-circuit, flag-after-rebuild ordering, release-on-throw); full gate — onboarding 83/83, build:packages ✓, generate ✓, db:generate no-drift ✓, typecheck 21/21 ✓
