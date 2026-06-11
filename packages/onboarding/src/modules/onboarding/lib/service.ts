@@ -43,6 +43,7 @@ export class OnboardingService {
       existing.organizationId = null
       existing.userId = null
       existing.lastEmailSentAt = now
+      existing.preparationStartedAt = null
       existing.preparationCompletedAt = null
       existing.readyEmailSentAt = null
       await this.em.flush()
@@ -142,6 +143,22 @@ export class OnboardingService {
   async markReadyEmailSent(request: OnboardingRequest, sentAt: Date) {
     request.readyEmailSentAt = sentAt
     await this.em.flush()
+  }
+
+  async claimPreparation(requestId: string, claimedAt: Date, staleBefore: Date): Promise<boolean> {
+    const claimedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      {
+        id: requestId,
+        preparationCompletedAt: null,
+        $or: [
+          { preparationStartedAt: null },
+          { preparationStartedAt: { $lt: staleBefore } },
+        ],
+      },
+      { preparationStartedAt: claimedAt, updatedAt: new Date() },
+    )
+    return claimedRows > 0
   }
 
   async markPreparationCompleted(request: OnboardingRequest, completedAt: Date) {

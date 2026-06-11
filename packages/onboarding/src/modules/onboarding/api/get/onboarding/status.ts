@@ -9,6 +9,7 @@ import {
   resolveProvisioningIds,
   runDeferredProvisioning,
 } from '@open-mercato/onboarding/modules/onboarding/lib/deferred-provisioning'
+import { isPreparationClaimActive } from '@open-mercato/onboarding/modules/onboarding/lib/preparation-claim'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -78,7 +79,16 @@ export async function GET(req: Request) {
   if (provisioningIds && request.status === 'processing') {
     await service.markCompleted(request, provisioningIds)
   }
-  if (provisioningIds && request.status === 'completed' && !request.preparationCompletedAt) {
+  // Schedule deferred provisioning only while no runner holds a fresh claim —
+  // otherwise every ~1s poll piles another full seed + reindex chain onto the
+  // connection pool. The atomic claim inside runDeferredProvisioning remains
+  // the authoritative gate; this check just keeps polls cheap.
+  if (
+    provisioningIds &&
+    request.status === 'completed' &&
+    !request.preparationCompletedAt &&
+    !isPreparationClaimActive(request.preparationStartedAt)
+  ) {
     after(async () => {
       await runDeferredProvisioning({
         requestId: request.id,
