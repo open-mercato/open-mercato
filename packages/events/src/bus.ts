@@ -1,5 +1,6 @@
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
@@ -50,6 +51,46 @@ type EventJobData = {
   options?: EmitOptions
 }
 
+// Process-wide cache of the async (BullMQ) persistent-events producer queue.
+// Each authenticated request builds a fresh DI container and event bus, so a
+// per-bus producer queue opened a new ioredis connection per write request that
+// was never closed — leaking one Redis connection per request until maxclients
+// exhaustion. Memoizing the producer on `globalThis` (keyed by Redis URL, so a
+// reconfigured URL still gets its own queue) keeps it at one connection per
+// process, mirroring the `GLOBAL_EVENT_TAPS_KEY` and `getCachedRateLimiterService`
+// patterns. The local (file-based) strategy holds no pooled connection and its
+// base dir is cwd-relative, so it stays per-bus.
+const EVENTS_PRODUCER_QUEUE_KEY = '__openMercatoEventsProducerQueues__'
+const EVENTS_PRODUCER_SHUTDOWN_KEY = '__openMercatoEventsProducerShutdown__'
+
+function isSharedProducerEnabled(): boolean {
+  return parseBooleanWithDefault(process.env.OM_EVENTS_SHARED_PRODUCER, true)
+}
+
+function getProducerQueueRegistry(): Map<string, Queue<EventJobData>> {
+  const existing = (globalThis as Record<string, unknown>)[EVENTS_PRODUCER_QUEUE_KEY]
+  if (existing instanceof Map) {
+    return existing as Map<string, Queue<EventJobData>>
+  }
+  const created = new Map<string, Queue<EventJobData>>()
+  ;(globalThis as Record<string, unknown>)[EVENTS_PRODUCER_QUEUE_KEY] = created
+  return created
+}
+
+function registerProducerShutdownHook(): void {
+  if ((globalThis as Record<string, unknown>)[EVENTS_PRODUCER_SHUTDOWN_KEY]) return
+  const shutdown = () => {
+    const registry = getProducerQueueRegistry()
+    for (const sharedQueue of registry.values()) {
+      Promise.resolve(sharedQueue.close()).catch(() => {})
+    }
+    registry.clear()
+  }
+  process.once('SIGTERM', shutdown)
+  process.once('SIGINT', shutdown)
+  ;(globalThis as Record<string, unknown>)[EVENTS_PRODUCER_SHUTDOWN_KEY] = true
+}
+
 /**
  * Creates an event bus instance.
  *
@@ -93,16 +134,36 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
 
   /**
    * Gets or creates the queue instance for persistent events.
+   *
+   * The async (BullMQ) producer is memoized process-wide so the per-request
+   * event bus reuses one Redis connection instead of leaking one per write
+   * request. The local strategy stays per-bus (no pooled connection, cwd-relative
+   * base dir). Set `OM_EVENTS_SHARED_PRODUCER=0` to fall back to per-bus producers.
    */
   function getQueue(): Queue<EventJobData> {
-    if (!queue) {
-      queue = queueStrategy === 'async'
-        ? createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'async', {
-            connection: { url: getRedisUrlOrThrow('QUEUE') },
-          })
-        : createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'local')
+    if (queueStrategy !== 'async' || !isSharedProducerEnabled()) {
+      if (!queue) {
+        queue = queueStrategy === 'async'
+          ? createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'async', {
+              connection: { url: getRedisUrlOrThrow('QUEUE') },
+            })
+          : createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'local')
+      }
+      return queue
     }
-    return queue
+
+    const redisUrl = getRedisUrlOrThrow('QUEUE')
+    const registry = getProducerQueueRegistry()
+    const cacheKey = `async:${redisUrl}`
+    let shared = registry.get(cacheKey)
+    if (!shared) {
+      shared = createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'async', {
+        connection: { url: redisUrl },
+      })
+      registry.set(cacheKey, shared)
+      registerProducerShutdownHook()
+    }
+    return shared
   }
 
   /**
