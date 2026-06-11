@@ -78,6 +78,25 @@ async function readMarketingConsent(userId: string): Promise<UserConsentRow> {
 }
 
 test.describe('TC-ONB-001: self-service onboarding with marketing consent', () => {
+  test('shows a retryable error when workspace status polling fails', async ({ page }) => {
+    const tenantId = '33333333-3333-4333-8333-333333333333';
+    await page.route('**/api/onboarding/onboarding/status?**', async (route) => {
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false, error: 'Invalid request origin' }),
+      });
+    });
+
+    await page.goto(`/onboarding/preparing?tenant=${tenantId}`);
+
+    await expect(page.getByText('We are preparing your workspace')).toBeVisible();
+    await expect(page.getByRole('alert')).toContainText('Workspace status check failed');
+    await expect(page.getByRole('alert')).toContainText('Invalid request origin');
+    await expect(page.getByRole('link', { name: 'Open tenant login' }))
+      .toHaveAttribute('href', `/login?tenant=${tenantId}`);
+  });
+
   test('creates the workspace, verifies from the email link, and logs in to the new tenant', async ({ page }) => {
     const unique = randomUUID().slice(0, 8);
     const email = `qa-onboarding-${unique}@example.test`;
@@ -106,6 +125,7 @@ test.describe('TC-ONB-001: self-service onboarding with marketing consent', () =
     await page.setContent(`<a href="${verifyUrl}">Verify workspace</a>`);
     await page.getByRole('link', { name: 'Verify workspace' }).click();
     await expect(page).toHaveURL(/\/onboarding\/preparing\?tenant=[0-9a-f-]+/);
+    await expect(page.getByText('We are preparing your workspace')).toBeVisible();
 
     const completed = await readCompletedRequest(requestId);
     expect(completed.status).toBe('completed');

@@ -20,6 +20,7 @@ export default function PreparingPageClient() {
   const tenantId = (searchParams.get('tenant') || '').trim()
   const [tenantName, setTenantName] = useState<string | null>(null)
   const [redirecting, setRedirecting] = useState(false)
+  const [statusError, setStatusError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!tenantId) {
@@ -47,15 +48,36 @@ export default function PreparingPageClient() {
     if (!tenantId) return
     let active = true
     let timeoutId: ReturnType<typeof setTimeout> | null = null
+    const genericStatusError = translate(
+      'onboarding.preparing.statusErrorBody',
+      'We could not check the workspace status. The workspace may still be preparing; this page will keep retrying.',
+    )
+    function schedulePoll() {
+      if (!active) return
+      timeoutId = setTimeout(() => {
+        void poll()
+      }, 3000)
+    }
 
-    const poll = async () => {
+    async function poll() {
       try {
         const { result } = await apiCall<{
           ok?: boolean
           ready?: boolean
           loginUrl?: string | null
+          error?: string
         }>(`/api/onboarding/onboarding/status?tenantId=${encodeURIComponent(tenantId)}`)
-        if (!active || !result?.ok) return
+        if (!active) return
+        if (!result?.ok) {
+          setStatusError(
+            typeof result?.error === 'string' && result.error.trim()
+              ? result.error
+              : genericStatusError,
+          )
+          schedulePoll()
+          return
+        }
+        setStatusError(null)
         if (result.ready && result.loginUrl) {
           setRedirecting(true)
           router.replace(result.loginUrl)
@@ -63,11 +85,9 @@ export default function PreparingPageClient() {
         }
       } catch {
         if (!active) return
+        setStatusError(genericStatusError)
       }
-      if (!active) return
-      timeoutId = setTimeout(() => {
-        void poll()
-      }, 3000)
+      schedulePoll()
     }
 
     void poll()
@@ -116,7 +136,26 @@ export default function PreparingPageClient() {
                   'You do not need to keep this page open. We will email you when everything is ready.',
                 )}
           </div>
+          {statusError ? (
+            <div
+              className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-left text-sm text-red-700"
+              role="alert"
+              aria-live="assertive"
+            >
+              <strong className="block text-sm font-medium">
+                {translate('onboarding.preparing.statusErrorTitle', 'Workspace status check failed')}
+              </strong>
+              <p className="mt-1">{statusError}</p>
+            </div>
+          ) : null}
           <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
+            {tenantId ? (
+              <Button asChild variant="outline">
+                <Link href={`/login?tenant=${encodeURIComponent(tenantId)}`}>
+                  {translate('onboarding.preparing.loginCta', 'Open tenant login')}
+                </Link>
+              </Button>
+            ) : null}
             <Button asChild>
               <Link href="/">
                 {translate('onboarding.preparing.homeCta', 'Go to home page')}

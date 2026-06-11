@@ -2,6 +2,7 @@ import { OnboardingRequest } from '../modules/onboarding/data/entities'
 
 const findLatestByTenantId = jest.fn()
 const sendWorkspaceReadyEmail = jest.fn()
+const assertAllowedAppOrigin = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
@@ -13,8 +14,13 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/url', () => ({
-  getSecurityEmailBaseUrl: () => 'https://app.example.com',
-  mapSecurityEmailUrlError: () => null,
+  assertAllowedAppOrigin: (...args: unknown[]) => assertAllowedAppOrigin(...args),
+  mapSecurityEmailUrlError: (error: unknown) => {
+    if (error instanceof Error && error.message === 'origin rejected') {
+      return { status: 400, body: { error: 'Invalid request origin' } }
+    }
+    return null
+  },
 }))
 
 jest.mock('@open-mercato/onboarding/modules/onboarding/lib/service', () => ({
@@ -56,6 +62,7 @@ describe('onboarding status endpoint authorization', () => {
   beforeEach(() => {
     findLatestByTenantId.mockReset()
     sendWorkspaceReadyEmail.mockReset()
+    assertAllowedAppOrigin.mockReset()
     findLatestByTenantId.mockResolvedValue(makeRequest())
   })
 
@@ -97,8 +104,23 @@ describe('onboarding status endpoint authorization', () => {
     expect(body.ok).toBe(true)
     expect(body.tenantId).toBe(TENANT_ID)
     expect(body.ready).toBe(true)
-    expect(body.loginUrl).toBe(`https://app.example.com/login?tenant=${TENANT_ID}`)
+    expect(body.loginUrl).toBe(`/login?tenant=${TENANT_ID}`)
     expect(findLatestByTenantId).toHaveBeenCalledWith(TENANT_ID)
+    expect(assertAllowedAppOrigin).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a matched cookie when the request origin is not allowed', async () => {
+    assertAllowedAppOrigin.mockImplementation(() => {
+      throw new Error('origin rejected')
+    })
+
+    const res = await GET(
+      buildRequest({ tenantId: TENANT_ID, cookie: `om_login_tenant=${TENANT_ID}` }),
+    )
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ ok: false, error: 'Invalid request origin' })
+    expect(findLatestByTenantId).not.toHaveBeenCalled()
   })
 
   it('returns 404 for an authorized caller when no onboarding record exists', async () => {

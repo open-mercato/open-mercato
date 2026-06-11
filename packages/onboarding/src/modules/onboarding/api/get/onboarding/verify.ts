@@ -1,13 +1,8 @@
-import { after } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SearchIndexer } from '@open-mercato/search'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import {
-  AppOriginConfigurationError,
-  AppOriginRejectedError,
-  getSecurityEmailBaseUrl,
-} from '@open-mercato/shared/lib/url'
 import { onboardingVerifySchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboarding/lib/ready-email'
@@ -16,6 +11,7 @@ import {
   redirectToPreparing,
   redirectWithStatus,
 } from '@open-mercato/onboarding/modules/onboarding/lib/verify-redirects'
+import { resolveVerifyRedirectBaseUrl } from '@open-mercato/onboarding/modules/onboarding/lib/verify-base-url'
 import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-app'
 import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { computeConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
@@ -34,21 +30,6 @@ export const metadata = {
   GET: {
     requireAuth: false,
   },
-}
-
-function resolveTrustedBaseUrl(req: Request): string {
-  try {
-    return getSecurityEmailBaseUrl(req)
-  } catch (error) {
-    if (error instanceof AppOriginRejectedError || error instanceof AppOriginConfigurationError) {
-      console.error('[onboarding.verify] rejected request origin for redirect base', {
-        requestUrl: req.url,
-        reason: error.message,
-      })
-      return new URL(req.url).origin
-    }
-    throw error
-  }
 }
 
 const VECTOR_REINDEX_ENQUEUE_TIMEOUT_MS = 5_000
@@ -268,7 +249,17 @@ async function runDeferredProvisioning(args: {
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
-  const baseUrl = resolveTrustedBaseUrl(req)
+  const baseUrlResult = resolveVerifyRedirectBaseUrl(req)
+  if (!baseUrlResult.ok) {
+    if (baseUrlResult.redirectOrigin) {
+      return redirectWithStatus(baseUrlResult.redirectOrigin, baseUrlResult.status)
+    }
+    return NextResponse.json(
+      { ok: false, error: baseUrlResult.message },
+      { status: baseUrlResult.httpStatus },
+    )
+  }
+  const baseUrl = baseUrlResult.baseUrl
   const token = url.searchParams.get('token') ?? ''
   const parsed = onboardingVerifySchema.safeParse({ token })
   if (!parsed.success) {
