@@ -22,6 +22,9 @@ env:
   # the same as unset. Kept explicit here to match the snapshot env and
   # to make the intent obvious in CI logs.
   OM_OPTIMISTIC_LOCK: 'all'
+  # Keep build-time and runtime onboarding config aligned so the browser
+  # integration suite can exercise the self-service verification flow.
+  SELF_SERVICE_ONBOARDING_ENABLED: 'true'
 
 on:
   push:
