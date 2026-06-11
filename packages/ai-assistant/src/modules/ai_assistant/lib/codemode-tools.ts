@@ -883,6 +883,15 @@ export async function authorizeCodeModeApiRequest(
   path: string
 ): Promise<CodeModeApiAuthorization> {
   const normalizedMethod = method.toUpperCase()
+
+  if (isUnsafeApiRequestPath(path)) {
+    return {
+      allowed: false,
+      statusCode: 403,
+      error: `Code Mode rejected unsafe API path: ${normalizedMethod} ${path}`,
+    }
+  }
+
   const normalizedPath = normalizeApiRequestPath(path)
   const endpoint = await findCodeModeApiEndpoint(normalizedMethod, normalizedPath)
 
@@ -977,6 +986,46 @@ function normalizeApiRequestPath(path: string): string {
   }
 
   return normalizedPath
+}
+
+const SINGLE_DOT_SEGMENTS = new Set(['.', '%2e'])
+const DOUBLE_DOT_SEGMENTS = new Set(['..', '.%2e', '%2e.', '%2e%2e'])
+
+/**
+ * Rejects request paths that the WHATWG URL parser would rewrite before the
+ * actual fetch (`..`/`.` path segments — including their percent-encoded forms
+ * — backslashes, and percent-encoded separators). Code Mode authorizes the
+ * literal path it was given, but `new URL()` collapses dot segments and
+ * normalizes backslashes for http(s) URLs, so without this guard the wire
+ * request can resolve to a different endpoint than the one that was authorized.
+ */
+export function isUnsafeApiRequestPath(path: string): boolean {
+  const [rawPath] = String(path ?? '').split('?')
+
+  // The WHATWG URL parser strips ASCII tab/newline/carriage-return from the URL
+  // before parsing, so a smuggled `.<TAB>.` segment collapses to `..` on the
+  // wire even though the literal segment never equals a dot segment here. Raw
+  // control characters never appear in legitimate REST paths, so reject them.
+  if (/[\u0000-\u001f]/.test(rawPath)) {
+    return true
+  }
+
+  // http(s) URLs treat backslashes as path separators, so they can smuggle
+  // separators past the segment-based authorizer.
+  if (rawPath.includes('\\')) {
+    return true
+  }
+
+  // Percent-encoded separators never appear in legitimate REST paths and let
+  // the literal-'/' segment split desync from the parsed request URL.
+  if (/%2f/i.test(rawPath) || /%5c/i.test(rawPath)) {
+    return true
+  }
+
+  return rawPath.split('/').some((segment) => {
+    const lowered = segment.toLowerCase()
+    return SINGLE_DOT_SEGMENTS.has(lowered) || DOUBLE_DOT_SEGMENTS.has(lowered)
+  })
 }
 
 function isPathParameterSegment(segment: string): boolean {
