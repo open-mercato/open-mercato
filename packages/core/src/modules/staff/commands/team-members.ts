@@ -292,7 +292,7 @@ const createTeamMemberCommand: CommandHandler<StaffTeamMemberCreateInput, { memb
   },
 }
 
-const updateTeamMemberCommand: CommandHandler<StaffTeamMemberUpdateInput, { memberId: string }> = {
+const updateTeamMemberCommand: CommandHandler<StaffTeamMemberUpdateInput, { memberId: string; updatedAt: string | null }> = {
   id: 'staff.team-members.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(staffTeamMemberUpdateSchema, rawInput)
@@ -368,7 +368,10 @@ const updateTeamMemberCommand: CommandHandler<StaffTeamMemberUpdateInput, { memb
       indexer: teamMemberCrudIndexer,
     })
 
-    return { memberId: member.id }
+    // Return the freshly-bumped updatedAt so non-CrudForm callers (e.g. the
+    // availability schedule switcher) can refresh their optimistic-lock token
+    // and not falsely 409 on the next sequential edit (#2848).
+    return { memberId: member.id, updatedAt: member.updatedAt ? member.updatedAt.toISOString() : null }
   },
   buildLog: async ({ snapshots, ctx }) => {
     const before = snapshots.before as TeamMemberSnapshot | undefined
