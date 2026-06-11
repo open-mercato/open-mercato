@@ -53,7 +53,17 @@ function editGuard() {
   }
   // Git root IS eval-app, so every tracked change is within eval-app by construction.
   const score = pkgUntouched ? 1 : 0
-  return { criterion: { id: 'C-REUSE-1', weight: 3, score, rationale: pkgNote }, filesChanged }
+  return {
+    criterion: {
+      id: 'C-REUSE-1',
+      weight: 3,
+      title: 'Extend the platform, do not fork it (@open-mercato packages untouched)',
+      file: 'node_modules/@open-mercato/**',
+      score,
+      rationale: pkgUntouched ? 'all checks passed' : 'files inside node_modules/@open-mercato were modified — the agent patched the platform instead of extending it',
+    },
+    filesChanged,
+  }
 }
 
 // ---------- 2. PASS_TO_PASS ----------
@@ -70,13 +80,22 @@ function passToPass() {
   const gen = shTry('yarn generate')
   results['yarn generate produces no diff'] = gen.ok ? 'pass' : 'fail'
   if (!gen.ok) log('generate failed:\n', gen.out.slice(-3000))
-  // pre-existing scaffold tests (best-effort: only if a test script exists)
+  // pre-existing scaffold tests (best-effort). The scaffold's test script
+  // references jest.config.cjs but the template ships no such file, so on a
+  // virgin app `yarn test` fails for reasons the agent cannot influence —
+  // only run the check when the jest setup is actually present (vacuous pass
+  // otherwise, same as "no tests to regress").
   let testStatus = 'pass'
   const pkg = JSON.parse(readFileSync(join(APP_DIR, 'package.json'), 'utf8'))
-  if (pkg.scripts && pkg.scripts.test) {
+  const jestConfigs = ['jest.config.cjs', 'jest.config.js', 'jest.config.mjs', 'jest.config.ts']
+  const hasRunnableTests = Boolean(pkg.scripts && pkg.scripts.test) &&
+    (jestConfigs.some((f) => existsSync(join(APP_DIR, f))) || Boolean(pkg.jest))
+  if (hasRunnableTests) {
     const t = shTry('yarn test --passWithNoTests')
     testStatus = t.ok ? 'pass' : 'fail'
     if (!t.ok) log('scaffold tests failed:\n', t.out.slice(-3000))
+  } else {
+    log('scaffold test setup not runnable on baseline (no jest config); recording vacuous pass')
   }
   results['pre-existing scaffold tests remain green'] = testStatus
   return results
@@ -86,8 +105,14 @@ function passToPass() {
 async function failToPass() {
   // Ensure schema + a known admin account exist (verifier owns provisioning).
   shTry('yarn db:migrate')
-  const seed = shTry('yarn mercato auth setup --orgName Acme --orgSlug acme --email admin@acme.com --password secret --json')
-  if (!seed.ok) log('auth setup note:', seed.out.slice(-800))
+  // Seed with the SUPERADMIN as primary so setup derives admin@acme.com (role
+  // admin, password "secret") — the account the integration helper logs in
+  // with. Seeding admin@acme.com as primary instead makes it a superadmin,
+  // whose writes then 400 with "Organization context is required".
+  // --skip-password-policy is required: "secret" fails the default policy.
+  // The CLI wrapper exits 0 even when setup fails, so also grep the output.
+  const seed = shTry('yarn mercato auth setup --orgName Acme --orgSlug acme --email superadmin@acme.com --password secret --skip-password-policy --json')
+  if (!seed.ok || /does not meet the requirements|error/i.test(seed.out)) log('auth setup note:', seed.out.slice(-800))
 
   // Stage the hidden suite + a self-contained playwright config under .eval/.
   const evalDir = join(APP_DIR, '.eval')
@@ -123,7 +148,11 @@ export default defineConfig({
     const run = shTry(`BASE_URL='${BASE_URL}' npx playwright test --config .eval/playwright.config.ts`,
       { env: { ...process.env, BASE_URL } })
     pwOk = run.ok
+    if (!run.ok) log('playwright run output (tail):\n', run.out.slice(-3000))
+    // Playwright resolves a relative reporter outputFile against the config dir
+    // in some versions and against cwd in others — accept either location.
     parsePlaywright(join(APP_DIR, 'pw-results.json'), f2p)
+    if (Object.keys(f2p).length === 0) parsePlaywright(join(evalDir, 'pw-results.json'), f2p)
   }
   try { process.kill(-server.pid) } catch {}
   rmSync(evalDir, { recursive: true, force: true })
@@ -203,6 +232,11 @@ async function main() {
   for (const c of rubric) rewards[`criterion__${c.id}`] = c.score
   writeFileSync(join(LOG_DIR, 'reward.json'), JSON.stringify(rewards, null, 2))
 
+  const report = buildFailureReport({ passed, rubric, rubricScore, f2p, p2p })
+  writeFileSync(join(LOG_DIR, 'report.md'), report)
+  writeFileSync(join(ART_DIR, 'report.md'), report)
+  log('\n' + report)
+
   const record = {
     instance_id: INSTANCE_ID,
     agent: process.env.HARBOR_AGENT || process.env.OM_AGENT || 'unknown',
@@ -215,14 +249,50 @@ async function main() {
     fail_to_pass: f2p,
     pass_to_pass: p2p,
     files_changed: guard.filesChanged,
-    rubric: rubric.map((c) => ({ id: c.id, score: c.score, weight: c.weight, rationale: c.rationale })),
+    rubric: rubric.map((c) => ({ id: c.id, title: c.title, file: c.file, score: c.score, weight: c.weight, rationale: c.rationale })),
     rubric_score: round(rubricScore),
     notes: '',
+    report,
   }
   writeFileSync(join(ART_DIR, `${record.agent}-${record.run_id}.json`), JSON.stringify(record, null, 2))
 
   log('rewards:', JSON.stringify(rewards))
   log('verdict:', passed ? 'PASS' : 'FAIL')
+}
+
+// Human-readable verdict report: states the verdict, then for every failing
+// dimension says WHAT failed, WHERE to look, and WHY — so a failing run can be
+// diagnosed without re-reading the verifier source.
+function buildFailureReport({ passed, rubric, rubricScore, f2p, p2p }) {
+  const lines = []
+  lines.push(`# Verdict: ${passed ? 'PASS' : 'FAIL'}`)
+  lines.push('')
+  lines.push('`passed` requires: every hidden functional test green (FAIL_TO_PASS), every baseline check green (PASS_TO_PASS), and convention rubric ≥ 0.85.')
+  lines.push('')
+
+  const failedF2P = Object.entries(f2p).filter(([, v]) => v !== 'pass')
+  lines.push(`## Functional tests (FAIL_TO_PASS) — ${Object.keys(f2p).length - failedF2P.length}/${Object.keys(f2p).length} passed`)
+  if (failedF2P.length === 0) lines.push('- all green')
+  for (const [name] of failedF2P) lines.push(`- ❌ ${name}\n  → the running app does not behave as required at /api/bookmarks (see the Playwright output above for the exact request/response)`)
+  lines.push('')
+
+  const failedP2P = Object.entries(p2p).filter(([, v]) => v !== 'pass')
+  lines.push(`## Baseline checks (PASS_TO_PASS) — ${Object.keys(p2p).length - failedP2P.length}/${Object.keys(p2p).length} passed`)
+  if (failedP2P.length === 0) lines.push('- all green')
+  for (const [name] of failedP2P) lines.push(`- ❌ ${name}\n  → the agent's change broke something that worked on the untouched scaffold (see the command output above)`)
+  lines.push('')
+
+  lines.push(`## Convention rubric — score ${round(rubricScore)} (threshold 0.85)`)
+  lines.push('')
+  lines.push('| Criterion | Weight | Rule | Result | Why / where |')
+  lines.push('|---|---|---|---|---|')
+  for (const c of rubric) {
+    const result = c.score === 1 ? '✅ pass' : '❌ fail'
+    const why = c.score === 1 ? '—' : `${c.rationale} (inspect: ${c.file ?? 'n/a'})`
+    lines.push(`| ${c.id} | ${c.weight} | ${c.title ?? ''} | ${result} | ${why} |`)
+  }
+  lines.push('')
+  return lines.join('\n')
 }
 
 const rate = (obj) => { const v = Object.values(obj); return v.length ? v.filter((x) => x === 'pass').length / v.length : 0 }

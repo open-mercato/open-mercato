@@ -36,7 +36,7 @@ os = "linux"
 mcp_servers = []
 
 [environment.env]
-OM_VERSION = "latest"
+OM_VERSION = "0.6.4"
 OM_EVAL_APP_DIR = "/app/eval-app"
 
 [solution.env]

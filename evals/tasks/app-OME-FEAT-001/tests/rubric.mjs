@@ -1,7 +1,9 @@
 // Convention rubric for app-OME-FEAT-001. Programmatic AST/fs checks are
-// authoritative; C-SCOPE-1 may consult the optional LLM judge. Each check returns
-// { id, weight, score: 0|1, rationale }. Pure file inspection — no app runtime.
-import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
+// authoritative; C-SCOPE-1 may consult the optional LLM judge. Each criterion
+// returns { id, weight, title, file, score: 0|1, rationale } where `rationale`
+// names, in plain English, exactly which expectation failed (or 'all checks
+// passed'), so a failing run can be diagnosed from the report alone.
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const read = (p) => { try { return readFileSync(p, 'utf8') } catch { return '' } }
@@ -10,6 +12,19 @@ const lsdir = (p) => { try { return readdirSync(p) } catch { return [] } }
 
 // Strip line/block comments so heuristics don't match commented-out code.
 const decomment = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+
+// checks: [{ ok: boolean, why: 'expectation, phrased for a human' }]
+function criterion(id, weight, title, file, checks) {
+  const failed = checks.filter((c) => !c.ok)
+  return {
+    id,
+    weight,
+    title,
+    file,
+    score: failed.length === 0 ? 1 : 0,
+    rationale: failed.length === 0 ? 'all checks passed' : failed.map((c) => c.why).join(' | '),
+  }
+}
 
 export function runProgrammaticRubric(appDir) {
   const mod = join(appDir, 'src', 'modules', 'bookmarks')
@@ -28,84 +43,103 @@ export function runProgrammaticRubric(appDir) {
 
   const out = []
 
-  // C-REUSE-2 — CRUD via makeCrudRoute from the canonical factory; no raw SQL / bespoke handlers.
-  {
-    const importsFactory = /makeCrudRoute/.test(route) &&
-      /from\s+['"]@open-mercato\/shared\/lib\/crud\/factory['"]/.test(route)
-    const rawSql = /getConnection\s*\(|execute\s*\(\s*['"`]\s*(select|insert|update|delete)/i.test(route)
-    const bespoke = /export\s+(async\s+)?function\s+(GET|POST|PUT|DELETE)\b/.test(route)
-    out.push(crit('C-REUSE-2', 3, importsFactory && !rawSql && !bespoke,
-      importsFactory ? (rawSql ? 'raw SQL in route' : bespoke ? 'bespoke handler exports' : 'makeCrudRoute from canonical factory')
-                     : 'makeCrudRoute not imported from @open-mercato/shared/lib/crud/factory'))
-  }
+  // C-REUSE-2 — CRUD via the platform's route factory; no raw SQL / bespoke handlers.
+  out.push(criterion('C-REUSE-2', 3, 'CRUD built on the platform route factory', 'src/modules/bookmarks/api/route.ts', [
+    {
+      ok: /makeCrudRoute/.test(route) && /from\s+['"]@open-mercato\/shared\/lib\/crud\/factory['"]/.test(route),
+      why: "route does not import makeCrudRoute from '@open-mercato/shared/lib/crud/factory'",
+    },
+    {
+      ok: !/getConnection\s*\(|execute\s*\(\s*['"`]\s*(select|insert|update|delete)/i.test(route),
+      why: 'route contains raw SQL (getConnection/execute with SQL) instead of going through the factory',
+    },
+    {
+      ok: !/export\s+(async\s+)?function\s+(GET|POST|PUT|DELETE)\b/.test(route),
+      why: 'route hand-writes exported GET/POST/PUT/DELETE handlers instead of re-exporting the factory result',
+    },
+  ]))
 
   // C-PLACE-1 — standard module layout + registered in src/modules.ts.
-  {
-    const layout = exists(join(mod, 'data')) && exists(join(mod, 'api')) && exists(aclPath) &&
-      exists(join(mod, 'index.ts')) && exists(migrationsDir)
-    const registered = /id:\s*['"]bookmarks['"]/.test(modulesTs) && /from:\s*['"]@app['"]/.test(modulesTs)
-    out.push(crit('C-PLACE-1', 2, layout && registered,
-      !layout ? 'missing standard module subdirs/files' : !registered ? "not registered in src/modules.ts as { id:'bookmarks', from:'@app' }" : 'standard layout + registered'))
-  }
+  out.push(criterion('C-PLACE-1', 2, 'Standard module layout, registered in src/modules.ts', 'src/modules/bookmarks/', [
+    { ok: exists(join(mod, 'data')), why: 'missing src/modules/bookmarks/data/ directory' },
+    { ok: exists(join(mod, 'api')), why: 'missing src/modules/bookmarks/api/ directory' },
+    { ok: exists(aclPath), why: 'missing src/modules/bookmarks/acl.ts' },
+    { ok: exists(join(mod, 'index.ts')), why: 'missing src/modules/bookmarks/index.ts' },
+    { ok: exists(migrationsDir), why: 'missing src/modules/bookmarks/migrations/ directory' },
+    {
+      ok: /id:\s*['"]bookmarks['"]/.test(modulesTs) && /from:\s*['"]@app['"]/.test(modulesTs),
+      why: "module not registered in src/modules.ts as { id: 'bookmarks', from: '@app' }",
+    },
+  ]))
 
-  // C-NAME-1 — plural snake_case module/table; features module.action.
-  {
-    const table = /tableName:\s*['"]bookmarks['"]/.test(entities)
-    const featView = /['"]bookmarks\.view['"]/.test(acl)
-    const featManage = /['"]bookmarks\.manage['"]/.test(acl)
-    out.push(crit('C-NAME-1', 2, table && featView && featManage,
-      `table 'bookmarks':${table}, bookmarks.view:${featView}, bookmarks.manage:${featManage}`))
-  }
+  // C-NAME-1 — plural snake_case table; features named module.action.
+  out.push(criterion('C-NAME-1', 2, 'Naming conventions (table + ACL feature ids)', 'src/modules/bookmarks/{data/entities.ts,acl.ts}', [
+    { ok: /tableName:\s*['"]bookmarks['"]/.test(entities), why: "entity is not mapped to tableName: 'bookmarks' (plural snake_case)" },
+    { ok: /['"]bookmarks\.view['"]/.test(acl), why: "acl.ts does not declare a 'bookmarks.view' feature" },
+    { ok: /['"]bookmarks\.manage['"]/.test(acl), why: "acl.ts does not declare a 'bookmarks.manage' feature" },
+  ]))
 
-  // C-ENTITY-1 — UUID PK, snake_case cols, org+tenant indexed, soft delete, note nullable.
-  {
-    const uuidPk = /@PrimaryKey\([^)]*type:\s*['"]uuid['"]/.test(entities)
-    const org = /name:\s*['"]organization_id['"]/.test(entities)
-    const tenant = /name:\s*['"]tenant_id['"]/.test(entities)
-    const indexed = /@Index\(/.test(entities) && /organizationId/.test(entities) && /tenantId/.test(entities)
-    const softDelete = /name:\s*['"]deleted_at['"]/.test(entities)
-    const createdUpdated = /name:\s*['"]created_at['"]/.test(entities) && /name:\s*['"]updated_at['"]/.test(entities)
-    // note nullable: the `note` property must declare nullable: true
-    const noteNullable = /note[\s\S]{0,120}?nullable:\s*true/.test(entities) || /name:\s*['"]note['"][\s\S]{0,80}?nullable:\s*true/.test(entities)
-    const ok = uuidPk && org && tenant && indexed && softDelete && createdUpdated && noteNullable
-    out.push(crit('C-ENTITY-1', 2, ok,
-      `uuidPk:${uuidPk} org:${org} tenant:${tenant} indexed:${indexed} softDelete:${softDelete} ts:${createdUpdated} noteNullable:${noteNullable}`))
-  }
+  // C-ENTITY-1 — UUID PK, org+tenant scoping, indexed, soft delete, timestamps, note nullable.
+  out.push(criterion('C-ENTITY-1', 2, 'Entity conventions (multi-tenant, soft delete, nullable note)', 'src/modules/bookmarks/data/entities.ts', [
+    { ok: /@PrimaryKey\([^)]*type:\s*['"]uuid['"]/.test(entities), why: 'primary key is not a uuid (@PrimaryKey({ type: \'uuid\' }))' },
+    { ok: /name:\s*['"]organization_id['"]/.test(entities) || /\borganizationId\s*[!?]?\s*:/.test(entities), why: 'no organization_id / organizationId column (tenant scoping)' },
+    { ok: /name:\s*['"]tenant_id['"]/.test(entities) || /\btenantId\s*[!?]?\s*:/.test(entities), why: 'no tenant_id / tenantId column (tenant scoping)' },
+    { ok: /@Index\(/.test(entities) && /organizationId/.test(entities) && /tenantId/.test(entities), why: 'no @Index covering organizationId + tenantId' },
+    { ok: /name:\s*['"]deleted_at['"]/.test(entities) || /\bdeletedAt\s*[!?]?\s*:/.test(entities), why: 'no deleted_at / deletedAt column (soft delete)' },
+    { ok: (/name:\s*['"]created_at['"]/.test(entities) || /\bcreatedAt\s*[!?:]/.test(entities)) && (/name:\s*['"]updated_at['"]/.test(entities) || /\bupdatedAt\s*[!?:]/.test(entities)), why: 'missing created_at / updated_at timestamp columns' },
+    {
+      // Accept both orders — `name: 'note', …, nullable: true` and the
+      // decorator-above-property form `@Property({ …, nullable: true })\n note?: …`.
+      ok: /note[\s\S]{0,120}?nullable:\s*true/.test(entities) || /nullable:\s*true[\s\S]{0,80}?\bnote\s*[?!]?\s*:/.test(entities),
+      why: 'the note property is not declared nullable (nullable: true) — note must be optional at the DB level',
+    },
+  ]))
 
   // C-VALID-1 — zod; url validated; note optional; z.infer types; no new `any`.
-  {
-    const hasZod = /from\s+['"]zod['"]/.test(validators)
-    const urlValidated = /url[\s\S]{0,60}?z\.string\(\)\.url\(\)/.test(validators) || /z\.string\(\)\.url\(\)/.test(validators)
-    const noteOptional = /note[\s\S]{0,80}?\.optional\(\)/.test(validators)
-    const zInfer = /z\.infer<\s*typeof/.test(validators)
-    const noAny = !/:\s*any\b/.test(validators) && !/<any>/.test(validators)
-    const ok = hasZod && urlValidated && noteOptional && zInfer && noAny
-    out.push(crit('C-VALID-1', 2, ok,
-      `zod:${hasZod} urlValidated:${urlValidated} noteOptional:${noteOptional} zInfer:${zInfer} noAny:${noAny}`))
-  }
+  out.push(criterion('C-VALID-1', 2, 'Input validation with zod', 'src/modules/bookmarks/data/validators.ts', [
+    { ok: /from\s+['"]zod['"]/.test(validators), why: 'validators.ts does not import zod' },
+    {
+      // Accept any zod chain containing .url(…) on the url field — with or
+      // without a custom error message (e.g. z.string().trim().url('Must be a
+      // valid URL').max(…)) — and zod v4's top-level z.url(…).
+      ok: /url\s*:[\s\S]{0,120}?\.url\(/.test(validators) || /url\s*:\s*z\.url\(/.test(validators),
+      why: 'the url field is not validated as a URL (no .url(…) / z.url(…) in its zod chain)',
+    },
+    { ok: /note[\s\S]{0,80}?\.optional\(/.test(validators), why: 'the note field is not .optional() in the create schema' },
+    { ok: /z\.infer<\s*typeof/.test(validators), why: 'TypeScript types are not derived with z.infer<typeof …>' },
+    { ok: !/:\s*any\b/.test(validators) && !/<any>/.test(validators), why: 'validators.ts introduces `any` types' },
+  ]))
 
-  // C-MIG-1 — real CLI migration Migration<14-digit>*.ts with up()+down().
+  // C-MIG-1 — real CLI migration whose up() creates bookmarks. down() is deliberately
+  // NOT required: MikroORM's initial-module migration (the canonical `yarn db:generate`
+  // output for a brand-new module) emits only up().
   {
     const files = lsdir(migrationsDir).filter((f) => /^Migration\d{14}.*\.ts$/.test(f))
-    let upDown = false
+    let upOk = false
     for (const f of files) {
       const src = decomment(read(join(migrationsDir, f)))
-      if (/\b(async\s+)?up\s*\(/.test(src) && /\b(async\s+)?down\s*\(/.test(src) && /bookmarks/.test(src)) { upDown = true; break }
+      if (/\b(async\s+)?up\s*\(/.test(src) && /bookmarks/.test(src)) { upOk = true; break }
     }
-    out.push(crit('C-MIG-1', 2, files.length > 0 && upDown,
-      files.length === 0 ? 'no Migration<14-digit-ts>*.ts present' : upDown ? 'CLI migration with up()+down()' : 'migration missing up()/down() or unrelated'))
+    out.push(criterion('C-MIG-1', 2, 'Real CLI-generated database migration', 'src/modules/bookmarks/migrations/', [
+      { ok: files.length > 0, why: 'no Migration<14-digit-timestamp>*.ts file — run `yarn db:generate` to create a real migration' },
+      { ok: files.length === 0 || upOk, why: 'no migration has an up() that creates the bookmarks table' },
+    ]))
   }
 
   // C-AUTH-1 — per-method requireAuth + requireFeatures; no top-level requireAuth export.
   {
-    const topLevel = /export\s+const\s+requireAuth\b/.test(route)
     const methods = ['GET', 'POST', 'PUT', 'DELETE']
-    const perMethod = methods.every((m) => {
-      const re = new RegExp(m + "\\s*:\\s*\\{[^}]*requireAuth[^}]*requireFeatures", 's')
-      return re.test(route)
-    })
-    out.push(crit('C-AUTH-1', 2, perMethod && !topLevel,
-      topLevel ? 'top-level export const requireAuth present' : perMethod ? 'per-method requireAuth + requireFeatures' : 'per-method auth metadata incomplete'))
+    const missing = methods.filter((m) => !new RegExp(m + "\\s*:\\s*\\{[^}]*requireAuth[^}]*requireFeatures", 's').test(route))
+    out.push(criterion('C-AUTH-1', 2, 'Per-method auth + feature gating in route metadata', 'src/modules/bookmarks/api/route.ts', [
+      {
+        ok: missing.length === 0,
+        why: `route metadata lacks requireAuth + requireFeatures for: ${missing.join(', ') || '-'}`,
+      },
+      {
+        ok: !/export\s+const\s+requireAuth\b/.test(route),
+        why: 'route exports a top-level `requireAuth` const instead of per-method metadata',
+      },
+    ]))
   }
 
   return out
@@ -122,13 +156,16 @@ export function detectScopeArtifacts(appDir) {
   return spurious
 }
 
+const SCOPE_TITLE = 'Minimal scope (no invented events/subscribers/widgets)'
+const SCOPE_FILE = 'src/modules/bookmarks/'
+
 export async function judgeScopeCriterion(appDir, { apiKey, model }) {
   const spurious = detectScopeArtifacts(appDir)
   if (spurious.length === 0) {
-    return crit('C-SCOPE-1', 1, true, 'no events/subscribers/widgets for a plain CRUD module')
+    return scopeResult(1, 'all checks passed')
   }
   if (!apiKey) {
-    return crit('C-SCOPE-1', 1, false, `spurious surfaces without a consumer: ${spurious.join(', ')} (no judge key; flagged)`)
+    return scopeResult(0, `module ships surfaces a plain CRUD module does not need: ${spurious.join(', ')} (no judge key available to assess justification)`)
   }
   const prompt = `A coding agent built a plain CRUD module "bookmarks" in Open Mercato. ` +
     `Rule C-SCOPE-1: the module should be minimal and idiomatic — NO invented events/subscribers/widgets for a plain CRUD module unless they have a real consumer. ` +
@@ -144,15 +181,16 @@ export async function judgeScopeCriterion(appDir, { apiKey, model }) {
     const data = await res.json()
     const text = (data?.content?.[0]?.text || '').trim()
     const parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1))
-    return crit('C-SCOPE-1', 1, parsed.score === 1, `judge: ${parsed.rationale}`)
+    return scopeResult(parsed.score === 1 ? 1 : 0, `judge: ${parsed.rationale}`)
   } catch (e) {
-    return crit('C-SCOPE-1', 1, false, `spurious surfaces: ${spurious.join(', ')}; judge error: ${String(e).slice(0, 120)}`)
+    return scopeResult(0, `module ships extra surfaces (${spurious.join(', ')}) and the judge call failed: ${String(e).slice(0, 120)}`)
   }
 }
 
-function crit(id, weight, pass, rationale) {
-  return { id, weight, score: pass ? 1 : 0, rationale }
+function scopeResult(score, rationale) {
+  return { id: 'C-SCOPE-1', weight: 1, title: SCOPE_TITLE, file: SCOPE_FILE, score, rationale }
 }
+
 function firstExisting(paths) {
   for (const p of paths) if (existsSync(p)) return p
   return paths[0]

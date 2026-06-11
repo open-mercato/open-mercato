@@ -60,7 +60,7 @@ Outputs `/logs/verifier/reward.json` (multi-dimensional) and a full
 | C-NAME-1 | 2 | ast | plural snake_case module/table; `bookmarks.view`/`bookmarks.manage` |
 | C-ENTITY-1 | 2 | ast | UUID PK, snake_case cols, org/tenant indexed, soft delete, `note` nullable |
 | C-VALID-1 | 2 | ast | zod; `url` validated; `note` optional; `z.infer`; no `any` |
-| C-MIG-1 | 2 | fs+ast | real CLI migration with `up()`+`down()` |
+| C-MIG-1 | 2 | fs+ast | real CLI migration whose `up()` creates `bookmarks` (`down()` not required — MikroORM initial migrations emit only `up()`) |
 | C-AUTH-1 | 2 | ast | per-method `requireAuth`+`requireFeatures`; no top-level `requireAuth` |
 | C-SCOPE-1 | 1 | judge | minimal/idiomatic; no spurious events/widgets |
 

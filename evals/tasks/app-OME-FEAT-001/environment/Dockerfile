@@ -14,7 +14,7 @@ RUN apt-get update \
 RUN corepack enable
 
 # OM release under test. CI overrides per release: --build-arg OM_VERSION=X.Y.Z
-ARG OM_VERSION=latest
+ARG OM_VERSION=0.6.4
 ENV OM_VERSION=${OM_VERSION} \
     OM_EVAL_APP_DIR=/app/eval-app \
     YARN_ENABLE_IMMUTABLE_INSTALLS=0 \
@@ -25,6 +25,13 @@ ENV OM_VERSION=${OM_VERSION} \
     MEILISEARCH_HOST=http://meilisearch:7700
 
 WORKDIR /app
+
+# Cache-bust: the scaffold RUN below has an unchanging command string, so Docker
+# would happily reuse a stale layer pinned to whatever "latest" meant when the
+# layer was first built. ADD re-downloads the registry manifest for OM_VERSION on
+# every build and invalidates subsequent layers exactly when the dist-tag moves
+# (a pinned X.Y.Z manifest is immutable, so pinned builds still cache fully).
+ADD https://registry.npmjs.org/create-mercato-app/${OM_VERSION} /opt/evals/om-version.json
 
 # Scaffold non-interactively (empty preset → builder-ready baseline).
 RUN npx --yes create-mercato-app@${OM_VERSION} eval-app \
