@@ -341,8 +341,10 @@ export async function GET(req: Request) {
     }
 
     const slugByOrgId = new Map<string, string | null>()
+    const updatedAtByOrgId = new Map<string, string | null>()
     for (const org of allOrgs) {
       slugByOrgId.set(String(org.id), org.slug ?? null)
+      updatedAtByOrgId.set(String(org.id), org.updatedAt instanceof Date ? org.updatedAt.toISOString() : null)
     }
 
     const tenantIds = Array.from(byTenant.keys())
@@ -426,6 +428,7 @@ export async function GET(req: Request) {
         id: node.id,
         name: node.name,
         slug: slugByOrgId.get(recordId) ?? null,
+        updatedAt: updatedAtByOrgId.get(recordId) ?? null,
         tenantId: tid,
         tenantName: tenantNameMap[tid] ?? tid,
         parentId: node.parentId,
