@@ -1,6 +1,8 @@
+import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
+
 export type BestEffortProvisioningResult = { ok: true } | { ok: false; error: unknown }
 
-type BestEffortLogger = Pick<Console, 'error'>
+type BestEffortLogger = Pick<Console, 'error' | 'info'>
 
 /**
  * Runs a non-essential provisioning step without letting its failure abort
@@ -19,6 +21,14 @@ export async function runBestEffortProvisioningStep(
     await run()
     return { ok: true }
   } catch (error) {
+    if (isUniqueViolation(error)) {
+      // Expected when a concurrent verify / re-verify re-applies a step against
+      // rows that already exist (seed hooks are not fully idempotent). The
+      // workspace is already provisioned, so the collision is harmless — log at
+      // info to keep genuine non-fatal failures visible.
+      logger.info('[onboarding.verify] non-fatal provisioning step skipped (already applied)', { step })
+      return { ok: false, error }
+    }
     logger.error('[onboarding.verify] non-fatal provisioning step failed', { step, error })
     return { ok: false, error }
   }

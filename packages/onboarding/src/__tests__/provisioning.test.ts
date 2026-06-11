@@ -1,7 +1,14 @@
 import { runBestEffortProvisioningStep } from '@open-mercato/onboarding/modules/onboarding/lib/provisioning'
 
 function makeLogger() {
-  return { error: jest.fn() }
+  return { error: jest.fn(), info: jest.fn() }
+}
+
+function uniqueViolation(message: string): Error {
+  return Object.assign(new Error(message), {
+    code: '23505',
+    constraint: 'catalog_products_handle_scope_unique',
+  })
 }
 
 describe('runBestEffortProvisioningStep', () => {
@@ -30,6 +37,28 @@ describe('runBestEffortProvisioningStep', () => {
     expect(logger.error).toHaveBeenCalledWith(
       '[onboarding.verify] non-fatal provisioning step failed',
       { step: 'seedDefaults:catalog', error: failure },
+    )
+  })
+
+  it('logs an expected unique-constraint collision at info, not error', async () => {
+    // A concurrent verify / re-verify re-applies a seed against rows that
+    // already exist. seed hooks are not fully idempotent, so the duplicate-key
+    // collision is expected and harmless — it must not surface as an error and
+    // bury genuine failures (maintainer feedback on PR #2954).
+    const logger = makeLogger()
+    const failure = uniqueViolation('duplicate key value violates unique constraint')
+
+    const result = await runBestEffortProvisioningStep(
+      'seedExamples:catalog',
+      () => Promise.reject(failure),
+      logger,
+    )
+
+    expect(result).toEqual({ ok: false, error: failure })
+    expect(logger.error).not.toHaveBeenCalled()
+    expect(logger.info).toHaveBeenCalledWith(
+      '[onboarding.verify] non-fatal provisioning step skipped (already applied)',
+      { step: 'seedExamples:catalog' },
     )
   })
 

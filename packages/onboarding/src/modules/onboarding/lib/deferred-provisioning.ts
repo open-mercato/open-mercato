@@ -10,6 +10,7 @@ import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboar
 import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
 import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
+import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 
 const VECTOR_REINDEX_ENQUEUE_TIMEOUT_MS = 5_000
 const SEED_EXAMPLES_TIMEOUT_MS = 15_000
@@ -52,13 +53,27 @@ async function runModuleSetupHook(args: {
       durationMs: Math.max(0, Date.now() - startedAt),
     })
   } catch (error) {
-    console.error('[onboarding.verify] module hook failed', {
-      moduleId: args.moduleId,
-      phase: args.phase,
-      durationMs: Math.max(0, Date.now() - startedAt),
-      timeoutMs: args.timeoutMs,
-      error,
-    })
+    if (isUniqueViolation(error)) {
+      // Deferred provisioning is re-triggered on every preparing-page status
+      // poll until preparationCompletedAt is set. seedExamples is not fully
+      // idempotent (e.g. catalog product handles are unique-scoped), so a
+      // re-run that lands before completion collides on an already-seeded row.
+      // The workspace is already provisioned and the collision is expected and
+      // harmless — log at info so genuine failures still stand out.
+      console.info('[onboarding.verify] module hook skipped (already seeded)', {
+        moduleId: args.moduleId,
+        phase: args.phase,
+        durationMs: Math.max(0, Date.now() - startedAt),
+      })
+    } else {
+      console.error('[onboarding.verify] module hook failed', {
+        moduleId: args.moduleId,
+        phase: args.phase,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        timeoutMs: args.timeoutMs,
+        error,
+      })
+    }
     throw error
   }
 }
@@ -189,12 +204,20 @@ export async function runDeferredProvisioning(args: {
         }),
       })
     } catch (error) {
-      console.error('[onboarding.verify] deferred seedExamples failed', {
-        moduleId: mod.id,
-        tenantId: args.tenantId,
-        organizationId: args.organizationId,
-        error,
-      })
+      if (isUniqueViolation(error)) {
+        console.info('[onboarding.verify] deferred seedExamples skipped (already applied)', {
+          moduleId: mod.id,
+          tenantId: args.tenantId,
+          organizationId: args.organizationId,
+        })
+      } else {
+        console.error('[onboarding.verify] deferred seedExamples failed', {
+          moduleId: mod.id,
+          tenantId: args.tenantId,
+          organizationId: args.organizationId,
+          error,
+        })
+      }
     }
   }
 

@@ -22,6 +22,7 @@ import { computeConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib
 import { resolveConsentClientIp } from '@open-mercato/onboarding/modules/onboarding/lib/consentClientIp'
 import { runBestEffortProvisioningStep } from '@open-mercato/onboarding/modules/onboarding/lib/provisioning'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
+import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -62,13 +63,25 @@ async function runModuleSetupHook(args: {
       durationMs: Math.max(0, Date.now() - startedAt),
     })
   } catch (error) {
-    console.error('[onboarding.verify] module hook failed', {
-      moduleId: args.moduleId,
-      phase: args.phase,
-      durationMs: Math.max(0, Date.now() - startedAt),
-      timeoutMs: args.timeoutMs,
-      error,
-    })
+    if (isUniqueViolation(error)) {
+      // A concurrent verify (or a re-verify after the request was already
+      // provisioned) re-runs seedDefaults against rows that exist. seed hooks
+      // are not fully idempotent, so the collision is expected and harmless —
+      // the workspace already exists. Log at info so real failures stand out.
+      console.info('[onboarding.verify] module hook skipped (already seeded)', {
+        moduleId: args.moduleId,
+        phase: args.phase,
+        durationMs: Math.max(0, Date.now() - startedAt),
+      })
+    } else {
+      console.error('[onboarding.verify] module hook failed', {
+        moduleId: args.moduleId,
+        phase: args.phase,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        timeoutMs: args.timeoutMs,
+        error,
+      })
+    }
     throw error
   }
 }
