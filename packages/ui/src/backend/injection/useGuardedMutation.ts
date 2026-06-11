@@ -43,7 +43,7 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
       error,
     })
     // Default UX for OSS optimistic-lock conflicts (spec
-    // .ai/specs/2026-05-25-oss-optimistic-locking.md §3.6): when the
+    // .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md §3.6): when the
     // server returns 409 with `code: 'optimistic_lock_conflict'`,
     // surface the conflict on the unified, persistent, error-styled
     // RecordConflictBanner (rendered in AppShell) instead of a transient

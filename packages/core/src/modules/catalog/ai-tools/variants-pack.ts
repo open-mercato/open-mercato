@@ -3,7 +3,7 @@
  *
  * Enumerate variants for a single product with option values + media refs.
  *
- * Phase 3b of `.ai/specs/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
+ * Phase 3b of `.ai/specs/implemented/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
  * `catalog.list_variants` is now an API-backed wrapper over
  * `GET /api/catalog/variants`. Tool name, schema, requiredFeatures, and
  * output shape are unchanged.

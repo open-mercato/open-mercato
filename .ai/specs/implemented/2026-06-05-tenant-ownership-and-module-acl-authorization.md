@@ -3,7 +3,7 @@
 > **Status:** Implemented 2026-06-06 (branch `fix/2612-tenant-ownership-module-acl`) — all 5 phases landed; see Final Compliance Report + Changelog
 > **Issue:** [open-mercato#2612](https://github.com/open-mercato/open-mercato/issues/2612)
 > **Scope:** OSS — `entities`, `directory`, `auth` modules (`packages/core`) + shared guard helpers (`packages/shared`, `packages/core/modules/auth/lib`)
-> **Linked enterprise spec:** [`.ai/specs/enterprise/2026-06-05-security-mfa-cross-tenant-authorization.md`](enterprise/2026-06-05-security-mfa-cross-tenant-authorization.md)
+> **Linked enterprise spec:** [`.ai/specs/enterprise/implemented/2026-06-05-security-mfa-cross-tenant-authorization.md`](enterprise/2026-06-05-security-mfa-cross-tenant-authorization.md)
 > **Related:** [`2026-05-29-org-scope-fail-open-authorization-hardening.md`](2026-05-29-org-scope-fail-open-authorization-hardening.md), [`2026-05-19-superadmin-users-list-context-scope.md`](2026-05-19-superadmin-users-list-context-scope.md), [`2026-05-09-auth-user-display-name-exposure.md`](2026-05-09-auth-user-display-name-exposure.md)
 
 ## TLDR
@@ -176,7 +176,7 @@ Triage table:
 Representative fix: none required in core — the spec-named representative (`directory/api/organizations/route.ts`) was already fail-closed. Per the Phase-5 directive, the existing-correct behavior is **pinned** with a regression test (`directory/api/organizations/__tests__/tenant-scope-guard.test.ts`): foreign `tenantId` → denied (`400`, no `em.find`); own `tenantId` → listed; superadmin foreign `tenantId` → listed.
 
 Out-of-scope follow-ups (documented, no GitHub issues filed):
-- **Enterprise security paths** — the cross-tenant MFA / authorization variants live in `.ai/specs/enterprise/2026-06-05-security-mfa-cross-tenant-authorization.md` (linked enterprise spec). Not fixed here; OSS spec stays OSS-only.
+- **Enterprise security paths** — the cross-tenant MFA / authorization variants live in `.ai/specs/enterprise/implemented/2026-06-05-security-mfa-cross-tenant-authorization.md` (linked enterprise spec). Not fixed here; OSS spec stays OSS-only.
 - **`tenants/lookup.ts` public id→name mapping** — accepted residual (Phase 4); optional follow-up is folding the tenant name into SSR page data so no public id→name endpoint is needed. Rationale: callers already hold the `tenantId`; once Phases 2/3 made `tenantId` non-load-bearing this is information-minimization, not an access boundary.
 - **Magic-link / password-reset UI legacy `tenantId` path** — per Phase 4 notes, `resolveTenantContext` keeps the legacy body `tenantId` as a fail-closed cross-check during rollout; the portal client migration to `organizationId` is additive. Rationale: backward-compatible rollout, not a new vulnerability.
 - **`staff`/`resources`/`planner` command global loads** — these modules load by id under global context then apply `ensureTenantScope`/`ensureOrganizationScope`; safe for the cross-tenant boundary this spec targets, but their broader object-level coverage belongs with the enterprise security review rather than this OSS pass.

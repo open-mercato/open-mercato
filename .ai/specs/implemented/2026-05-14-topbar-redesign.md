@@ -243,7 +243,7 @@ When the drawer opens on a `/backend/settings/*` or `/backend/profile/*` route (
 |---|---|
 | `packages/ui/src/primitives/sheet.tsx` | New Sheet primitive (Radix Dialog wrapper, side variants, `--topbar-height` aware, slide animations) |
 | `packages/search/src/modules/search/frontend/components/TopbarSearchInline.tsx` | Inline search trigger + popover (replaces `GlobalSearchDialog` as topbar wiring) |
-| `.ai/specs/2026-05-14-topbar-redesign.md` | This spec |
+| `.ai/specs/implemented/2026-05-14-topbar-redesign.md` | This spec |
 
 ### Files modified
 

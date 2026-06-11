@@ -219,7 +219,7 @@ Full reference: `apps/docs/docs/framework/ai-assistant/ui-parts.mdx`.
 
 ### How to Override or Extend Another Module's Agent or Tool
 
-Modules can replace/disable any AI agent or AI tool that another module registered, or patch an existing agent by appending, deleting, or replacing allowed tools, system-prompt text, and starter suggestions. Use full overrides when you need to swap the whole behavior; use `aiAgentExtensions` when a downstream module only wants to adjust a shipped agent, such as adding "show catalog stats" while removing an irrelevant starter prompt. See spec `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` and `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
+Modules can replace/disable any AI agent or AI tool that another module registered, or patch an existing agent by appending, deleting, or replacing allowed tools, system-prompt text, and starter suggestions. Use full overrides when you need to swap the whole behavior; use `aiAgentExtensions` when a downstream module only wants to adjust a shipped agent, such as adding "show catalog stats" while removing an irrelevant starter prompt. See spec `.ai/specs/implemented/2026-04-30-ai-overrides-and-module-disable.md` and `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
 
 There are three paths.
 
@@ -277,7 +277,7 @@ export const aiToolOverrides: AiToolOverridesMap = {
 }
 ```
 
-**Path B — `modules.ts` inline (app-level static, unified `entry.overrides`).** Declare overrides under the umbrella `overrides.ai` key on a `ModuleEntry` inside `apps/<app>/src/modules.ts`. Other contracts a module presents (routes, events, workers, widgets, notifications, interceptors, setup, ACL, DI, encryption, …) reuse the same `entry.overrides` shape per spec `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`; phases 1-18 are wired. The app's `bootstrap.ts` calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` once at boot — both `apps/mercato` and the `create-mercato-app` template ship that wiring.
+**Path B — `modules.ts` inline (app-level static, unified `entry.overrides`).** Declare overrides under the umbrella `overrides.ai` key on a `ModuleEntry` inside `apps/<app>/src/modules.ts`. Other contracts a module presents (routes, events, workers, widgets, notifications, interceptors, setup, ACL, DI, encryption, …) reuse the same `entry.overrides` shape per spec `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md`; phases 1-18 are wired. The app's `bootstrap.ts` calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` once at boot — both `apps/mercato` and the `create-mercato-app` template ship that wiring.
 
 ```ts
 // apps/<app>/src/modules.ts

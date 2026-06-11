@@ -1,6 +1,6 @@
 # Pre-Implementation Analysis: Timesheets — Projects Portfolio View
 
-Analyses spec [`.ai/specs/2026-04-24-timesheets-projects-portfolio-view.md`](../2026-04-24-timesheets-projects-portfolio-view.md).
+Analyses spec [`.ai/specs/implemented/2026-04-24-timesheets-projects-portfolio-view.md`](../implemented/2026-04-24-timesheets-projects-portfolio-view.md).
 
 ## Executive Summary
 
