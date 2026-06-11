@@ -181,9 +181,14 @@ async function rebuildTenantQueryIndexes(args: {
 }
 
 // A crashed pass leaves its claim set; reclaim it after this window so a later
-// poll can finish the workspace. Must exceed a healthy pass's wall-clock
-// (seedExamples + full tenant reindex) so a slow-but-live run is never stolen.
-const PREPARATION_CLAIM_STALE_MS = 5 * 60 * 1000
+// poll can finish the workspace. It MUST exceed a healthy pass's worst-case
+// wall-clock so a slow-but-live run is never stolen (which would let two passes
+// run at once — the storm this guard prevents). That worst case is loose:
+// sequential per-module seedExamples (15s timeout each) plus an uncapped
+// purge+reindex of every system entity for the tenant. 15 minutes sits well
+// above any realistic run while still recovering a genuinely crashed pass
+// promptly enough for onboarding.
+const PREPARATION_CLAIM_STALE_MS = 15 * 60 * 1000
 
 export async function runDeferredProvisioning(args: {
   requestId: string
