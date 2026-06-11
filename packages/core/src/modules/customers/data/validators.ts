@@ -247,8 +247,8 @@ export const addressCreateSchema = scopedSchema.extend({
   region: z.string().max(150).optional(),
   postalCode: z.string().max(30).optional(),
   country: z.string().max(150).optional(),
-  latitude: z.coerce.number().optional(),
-  longitude: z.coerce.number().optional(),
+  latitude: z.coerce.number().nullable().optional(),
+  longitude: z.coerce.number().nullable().optional(),
   isPrimary: z.boolean().optional(),
 })
 
