@@ -116,6 +116,12 @@ export interface GmailApiClient {
 const GMAIL_MAX_RETRIES = 3
 const GMAIL_BACKOFF_BASE_MS = 500
 const GMAIL_BACKOFF_CAP_MS = 8_000
+const GMAIL_DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+
+function resolveGmailRequestTimeoutMs(): number {
+  const fromEnv = Number.parseInt(process.env.OM_CHANNEL_GMAIL_REQUEST_TIMEOUT_MS ?? '', 10)
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : GMAIL_DEFAULT_REQUEST_TIMEOUT_MS
+}
 
 class FetchGmailApiClient implements GmailApiClient {
   async listHistory(auth: GmailApiAuth, input: GmailHistoryListInput): Promise<GmailHistoryListResponse> {
@@ -190,7 +196,32 @@ class FetchGmailApiClient implements GmailApiClient {
     let attempt = 0
     let lastError: GmailApiError | null = null
     while (attempt <= GMAIL_MAX_RETRIES) {
-      const res = await fetch(url.toString(), { method, headers, body: payload })
+      let res: Response
+      try {
+        res = await fetch(url.toString(), {
+          method,
+          headers,
+          body: payload,
+          // Bound each attempt so a stalled connection fails fast instead of
+          // hanging on undici's multi-minute default and pinning the worker slot.
+          signal: AbortSignal.timeout(resolveGmailRequestTimeoutMs()),
+        })
+      } catch (err) {
+        // A timed-out/aborted connection is transient — let the bounded retry
+        // loop retry it rather than propagating a raw AbortError.
+        const aborted = err instanceof Error && err.name === 'AbortError'
+        if (!aborted) throw err
+        const timeoutError = new GmailApiError(
+          `Gmail API ${method} ${url.pathname} timed out`,
+          599,
+          'request timed out',
+        )
+        if (attempt === GMAIL_MAX_RETRIES) throw timeoutError
+        lastError = timeoutError
+        await sleep(computeBackoff(attempt))
+        attempt += 1
+        continue
+      }
       const text = await res.text()
       if (res.ok) {
         if (!text) return undefined as unknown as T

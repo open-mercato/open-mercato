@@ -220,3 +220,89 @@ describe('akeneo client security', () => {
     }))
   })
 })
+
+describe('akeneo client resilience (issue #2976)', () => {
+  const originalFetch = global.fetch
+  const originalSetTimeout = global.setTimeout
+  const originalMaxRetries = process.env.OM_INTEGRATION_AKENEO_MAX_RATE_LIMIT_RETRIES
+  const originalRetryCap = process.env.OM_INTEGRATION_AKENEO_RETRY_AFTER_CAP_MS
+  let capturedDelays: number[]
+
+  function tokenResponse(): Response {
+    return jsonResponse({ access_token: 'token-123', expires_in: 3600 })
+  }
+
+  beforeEach(() => {
+    global.fetch = jest.fn() as typeof fetch
+    capturedDelays = []
+    // Fire backoff/retry-after sleeps synchronously so the retry loop runs
+    // without real timers while we assert the requested wait durations.
+    global.setTimeout = ((callback: () => void, ms?: number) => {
+      capturedDelays.push(typeof ms === 'number' ? ms : 0)
+      callback()
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as unknown as typeof global.setTimeout
+  })
+
+  afterEach(() => {
+    global.fetch = originalFetch
+    global.setTimeout = originalSetTimeout
+    if (originalMaxRetries === undefined) delete process.env.OM_INTEGRATION_AKENEO_MAX_RATE_LIMIT_RETRIES
+    else process.env.OM_INTEGRATION_AKENEO_MAX_RATE_LIMIT_RETRIES = originalMaxRetries
+    if (originalRetryCap === undefined) delete process.env.OM_INTEGRATION_AKENEO_RETRY_AFTER_CAP_MS
+    else process.env.OM_INTEGRATION_AKENEO_RETRY_AFTER_CAP_MS = originalRetryCap
+    jest.restoreAllMocks()
+  })
+
+  it('caps 429 retries and surfaces the existing error shape instead of looping forever', async () => {
+    process.env.OM_INTEGRATION_AKENEO_MAX_RATE_LIMIT_RETRIES = '2'
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).endsWith('/api/oauth/v1/token')) return tokenResponse()
+      return new Response('rate limited', { status: 429, headers: { 'retry-after': '1' } })
+    })
+
+    const client = createAkeneoClient(validCredentials)
+    await expect(client.listChannels()).rejects.toThrow('Akeneo request failed (429)')
+
+    // 1 token + (maxRetries + 1) request attempts = 1 + 3 = 4 fetches; 2 sleeps.
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(capturedDelays).toHaveLength(2)
+  })
+
+  it('clamps a hostile retry-after header to the configured ceiling', async () => {
+    process.env.OM_INTEGRATION_AKENEO_RETRY_AFTER_CAP_MS = '60000'
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    let listCalls = 0
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).endsWith('/api/oauth/v1/token')) return tokenResponse()
+      listCalls += 1
+      if (listCalls === 1) {
+        // retry-after: ~31 years — must be clamped, not slept verbatim.
+        return new Response('', { status: 429, headers: { 'retry-after': '999999999' } })
+      }
+      return jsonResponse({ _embedded: { items: [{ code: 'web' }] }, _links: {}, items_count: 1 })
+    })
+
+    const client = createAkeneoClient(validCredentials)
+    const channels = await client.listChannels()
+
+    expect(channels).toHaveLength(1)
+    expect(capturedDelays).toEqual([60000])
+  })
+
+  it('attaches an AbortSignal timeout to authenticated requests', async () => {
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    fetchMock
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(jsonResponse({ _embedded: { items: [] }, _links: {}, items_count: 0 }))
+
+    const client = createAkeneoClient(validCredentials)
+    await client.listChannels()
+
+    const tokenInit = fetchMock.mock.calls[0][1] as RequestInit
+    const requestInit = fetchMock.mock.calls[1][1] as RequestInit
+    expect(tokenInit.signal).toBeInstanceOf(AbortSignal)
+    expect(requestInit.signal).toBeInstanceOf(AbortSignal)
+  })
+})
