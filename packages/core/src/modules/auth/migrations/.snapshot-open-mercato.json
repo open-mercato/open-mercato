@@ -670,16 +670,6 @@
       "indexes": [
         {
           "columnNames": [
-            "email"
-          ],
-          "composite": false,
-          "keyName": "users_email_unique",
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
-        {
-          "columnNames": [
             "email_hash"
           ],
           "composite": false,

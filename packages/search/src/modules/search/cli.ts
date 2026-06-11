@@ -577,7 +577,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
       if (purgeFirst && tenantId) {
         try {
           console.log('  -> purging existing vector index rows...')
-          await searchIndexer.purgeEntity({ entityId: entityType as EntityId, tenantId })
+          await searchIndexer.purgeEntity({ entityId: entityType as EntityId, tenantId, organizationId })
           await resetVectorCoverageAfterPurge(baseEm, entityType, tenantId ?? null, organizationId ?? null)
           if (baseEventBus) {
             const scopes = new Set<string>()

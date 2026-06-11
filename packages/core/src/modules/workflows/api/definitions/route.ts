@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
@@ -93,8 +94,8 @@ export async function GET(request: NextRequest) {
 
     if (search) {
       where.$or = [
-        { workflowId: { $ilike: `%${search}%` } },
-        { workflowName: { $ilike: `%${search}%` } },
+        { workflowId: { $ilike: `%${escapeLikePattern(search)}%` } },
+        { workflowName: { $ilike: `%${escapeLikePattern(search)}%` } },
       ]
     }
 

@@ -1,7 +1,5 @@
 import * as React from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import type { PluggableList } from 'unified'
+import { MarkdownContent } from '@open-mercato/ui/backend/markdown'
 import { Button } from '@open-mercato/ui/primitives/button'
 
 type Props = {
@@ -26,7 +24,6 @@ export function AttachmentContentPreview({
   const [expanded, setExpanded] = React.useState(false)
   const [tab, setTab] = React.useState<'source' | 'preview'>('source')
   const text = (content ?? '').trim()
-  const markdownPlugins = React.useMemo<PluggableList>(() => [remarkGfm], [])
 
   // ARIA IDs for accessibility
   const sourceTabId = 'attachment-content-preview-tab-source'
@@ -96,9 +93,12 @@ export function AttachmentContentPreview({
           id={previewPanelId}
           aria-labelledby={previewTabId}
           data-testid="markdown-preview"
-          className="text-sm text-muted-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
         >
-          <ReactMarkdown remarkPlugins={markdownPlugins}>{text}</ReactMarkdown>
+          <MarkdownContent
+            body={text}
+            format="markdown"
+            className="text-sm text-muted-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+          />
         </div>
       )}
 

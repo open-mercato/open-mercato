@@ -43,14 +43,14 @@ describe('rewriteGeneratedAliasImports', () => {
 
   it('rewrites a dynamic `import("@/...")` call to an absolute file URL', () => {
     const appRoot = makeTempDir()
-    const out = rewriteGeneratedAliasImports(
-      `const tools = () => import("@/.mercato/generated/ai-tools.generated")`,
-      appRoot,
-    )
+    const aliasSpecifier = '"@/.mercato/generated/ai-tools.generated"'
+    const source = `const tools = () => import(${aliasSpecifier})`
+    const out = rewriteGeneratedAliasImports(source, appRoot)
     const expectedUrl = pathToFileURL(
       path.join(appRoot, '.mercato/generated/ai-tools.generated'),
     ).href
-    expect(out).toBe(`const tools = () => import(${safeJsLiteral(expectedUrl)})`)
+    const expected = source.replace(aliasSpecifier, safeJsLiteral(expectedUrl))
+    expect(out).toBe(expected)
     expect(out).not.toContain('@/')
   })
 

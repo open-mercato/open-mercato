@@ -107,7 +107,7 @@ export async function POST(req: Request) {
     const stack = error instanceof Error ? error.stack : undefined
     console.error('[data_sync.run] unhandled error', { message, stack })
     return NextResponse.json(
-      { error: 'Failed to start data sync run.', message, stack },
+      { error: 'Failed to start data sync run.' },
       { status: 500 },
     )
   }
