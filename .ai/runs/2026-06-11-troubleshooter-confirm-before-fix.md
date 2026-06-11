@@ -35,6 +35,6 @@ None.
 
 ### Phase 1: Add confirmation gate to SKILL.md
 
-- [ ] 1.1 Add "Step 4: Propose Before Fixing" to the Diagnostic Flow with read-only vs. mutating classification
-- [ ] 1.2 Add a confirmation-gate rule to the `## Rules` section
-- [ ] 1.3 Reword `Fix:` lines to `Proposed fix:` for consistency
+- [x] 1.1 Add "Step 4: Propose Before Fixing" to the Diagnostic Flow with read-only vs. mutating classification — 3ff5f9998
+- [x] 1.2 Add a confirmation-gate rule to the `## Rules` section — 364daeefd
+- [x] 1.3 Reword `Fix:` lines to `Proposed fix:` for consistency — 31fb21ea4
