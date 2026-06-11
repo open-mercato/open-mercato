@@ -139,6 +139,39 @@ export class OnboardingService {
     await this.em.flush()
   }
 
+  async claimPreparation(request: OnboardingRequest, startedAt: Date, staleBefore: Date): Promise<boolean> {
+    const claimedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      {
+        id: request.id,
+        status: 'completed',
+        preparationCompletedAt: null,
+        $or: [
+          { processingStartedAt: null },
+          { processingStartedAt: { $lt: staleBefore } as any },
+        ],
+      } as any,
+      { processingStartedAt: startedAt, updatedAt: new Date() },
+    )
+    if (claimedRows === 0) return false
+    request.processingStartedAt = startedAt
+    return true
+  }
+
+  async renewPreparationLease(requestId: string, renewedAt: Date): Promise<boolean> {
+    const renewedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      {
+        id: requestId,
+        status: 'completed',
+        preparationCompletedAt: null,
+        processingStartedAt: { $ne: null } as any,
+      } as any,
+      { processingStartedAt: renewedAt, updatedAt: new Date() },
+    )
+    return renewedRows > 0
+  }
+
   async markReadyEmailSent(request: OnboardingRequest, sentAt: Date) {
     request.readyEmailSentAt = sentAt
     await this.em.flush()
@@ -146,6 +179,7 @@ export class OnboardingService {
 
   async markPreparationCompleted(request: OnboardingRequest, completedAt: Date) {
     request.preparationCompletedAt = completedAt
+    request.processingStartedAt = null
     await this.em.flush()
   }
 }

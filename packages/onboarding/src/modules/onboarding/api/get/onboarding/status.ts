@@ -19,6 +19,8 @@ export const metadata = {
 }
 
 const ONBOARDING_LOGIN_TENANT_COOKIE = 'om_login_tenant'
+const PROCESSING_LEASE_MS = 15 * 60 * 1000
+const PREPARATION_LEASE_MS = 15 * 60 * 1000
 
 const onboardingStatusQuerySchema = z.object({
   tenantId: z.string().uuid(),
@@ -40,6 +42,28 @@ function readCookie(req: Request, name: string): string | null {
     }
   }
   return null
+}
+
+function isProcessingFresh(request: { status: string; processingStartedAt?: Date | null }, now = Date.now()) {
+  const processingStartedAt = request.processingStartedAt?.getTime() ?? 0
+  return request.status === 'processing' && processingStartedAt > now - PROCESSING_LEASE_MS
+}
+
+async function scheduleDeferredProvisioning(args: {
+  requestId: string
+  tenantId: string
+  organizationId: string
+  claim: () => Promise<boolean>
+}) {
+  const claimed = await args.claim()
+  if (!claimed) return
+  after(async () => {
+    await runDeferredProvisioning({
+      requestId: args.requestId,
+      tenantId: args.tenantId,
+      organizationId: args.organizationId,
+    })
+  })
 }
 
 export async function GET(req: Request) {
@@ -75,16 +99,17 @@ export async function GET(req: Request) {
   }
 
   const provisioningIds = resolveProvisioningIds(request)
-  if (provisioningIds && request.status === 'processing') {
+  if (provisioningIds && request.status === 'processing' && !isProcessingFresh(request)) {
     await service.markCompleted(request, provisioningIds)
   }
   if (provisioningIds && request.status === 'completed' && !request.preparationCompletedAt) {
-    after(async () => {
-      await runDeferredProvisioning({
-        requestId: request.id,
-        tenantId: provisioningIds.tenantId,
-        organizationId: provisioningIds.organizationId,
-      })
+    const now = new Date()
+    const staleBefore = new Date(now.getTime() - PREPARATION_LEASE_MS)
+    await scheduleDeferredProvisioning({
+      requestId: request.id,
+      tenantId: provisioningIds.tenantId,
+      organizationId: provisioningIds.organizationId,
+      claim: () => service.claimPreparation(request, now, staleBefore),
     })
   }
 

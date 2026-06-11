@@ -75,7 +75,12 @@ function createMockEm(overrides: Record<string, unknown> = {}): MockEm {
   } as unknown as MockEm
 }
 
-type DbRow = { id: string; status: string; processingStartedAt: Date | null }
+type DbRow = {
+  id: string
+  status: string
+  processingStartedAt: Date | null
+  preparationCompletedAt?: Date | null
+}
 
 // EntityManager mock backed by a single persisted row. `nativeUpdate` honours the
 // status guard in its WHERE clause (so it returns 0 when the row has already moved
@@ -89,12 +94,43 @@ function createRowBackedEm(dbRow: DbRow, trackedEntity?: OnboardingRequest): Ent
   })
   const nativeUpdate = jest.fn(
     async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
-      const matches = Object.entries(where).every(
-        ([key, value]) => (dbRow as unknown as Record<string, unknown>)[key] === value,
-      )
+      const matches = Object.entries(where).every(([key, value]) => {
+        if (key === '$or' && Array.isArray(value)) {
+          return value.some((candidate) =>
+            Object.entries(candidate as Record<string, unknown>).every(([candidateKey, candidateValue]) => {
+              const rowValue = (dbRow as unknown as Record<string, unknown>)[candidateKey]
+              if (
+                candidateValue
+                && typeof candidateValue === 'object'
+                && '$lt' in (candidateValue as Record<string, unknown>)
+              ) {
+                const threshold = (candidateValue as { $lt: Date }).$lt
+                return rowValue instanceof Date && rowValue.getTime() < threshold.getTime()
+              }
+              if (
+                candidateValue
+                && typeof candidateValue === 'object'
+                && '$ne' in (candidateValue as Record<string, unknown>)
+              ) {
+                return rowValue !== (candidateValue as { $ne: unknown }).$ne
+              }
+              return rowValue === candidateValue
+            }),
+          )
+        }
+        if (
+          value
+          && typeof value === 'object'
+          && '$ne' in (value as Record<string, unknown>)
+        ) {
+          return (dbRow as unknown as Record<string, unknown>)[key] !== (value as { $ne: unknown }).$ne
+        }
+        return (dbRow as unknown as Record<string, unknown>)[key] === value
+      })
       if (!matches) return 0
       if ('status' in data) dbRow.status = data.status as string
       if ('processingStartedAt' in data) dbRow.processingStartedAt = (data.processingStartedAt as Date | null) ?? null
+      if ('preparationCompletedAt' in data) dbRow.preparationCompletedAt = (data.preparationCompletedAt as Date | null) ?? null
       return 1
     },
   )
@@ -206,6 +242,71 @@ describe('OnboardingService', () => {
       expect(reverted).toBe(true)
       expect(dbRow.status).toBe('pending')
       expect(dbRow.processingStartedAt).toBeNull()
+    })
+  })
+
+  describe('claimPreparation', () => {
+    it('lets only one status poll claim deferred preparation for a completed request', async () => {
+      const dbRow: DbRow = {
+        id: 'req-1',
+        status: 'completed',
+        processingStartedAt: null,
+        preparationCompletedAt: null,
+      }
+      const em = createRowBackedEm(dbRow)
+      const service = new OnboardingService(em)
+      const requestA = makeRequest({ id: 'req-1', status: 'completed', preparationCompletedAt: null })
+      const requestB = makeRequest({ id: 'req-1', status: 'completed', preparationCompletedAt: null })
+      const startedAt = new Date()
+      const staleBefore = new Date(startedAt.getTime() - 15 * 60 * 1000)
+
+      const claimedA = await service.claimPreparation(requestA, startedAt, staleBefore)
+      const claimedB = await service.claimPreparation(requestB, new Date(startedAt.getTime() + 1000), staleBefore)
+
+      expect(claimedA).toBe(true)
+      expect(claimedB).toBe(false)
+      expect(dbRow.processingStartedAt).toBe(startedAt)
+    })
+
+    it('reclaims stale deferred preparation work', async () => {
+      const oldStartedAt = new Date(Date.now() - 20 * 60 * 1000)
+      const newStartedAt = new Date()
+      const dbRow: DbRow = {
+        id: 'req-1',
+        status: 'completed',
+        processingStartedAt: oldStartedAt,
+        preparationCompletedAt: null,
+      }
+      const em = createRowBackedEm(dbRow)
+      const service = new OnboardingService(em)
+      const request = makeRequest({ id: 'req-1', status: 'completed', preparationCompletedAt: null })
+
+      const claimed = await service.claimPreparation(
+        request,
+        newStartedAt,
+        new Date(newStartedAt.getTime() - 15 * 60 * 1000),
+      )
+
+      expect(claimed).toBe(true)
+      expect(dbRow.processingStartedAt).toBe(newStartedAt)
+    })
+
+    it('renews an active preparation lease', async () => {
+      const oldStartedAt = new Date(Date.now() - 5 * 60 * 1000)
+      const renewedAt = new Date()
+      const dbRow: DbRow = {
+        id: 'req-1',
+        status: 'completed',
+        processingStartedAt: oldStartedAt,
+        preparationCompletedAt: null,
+      }
+      const em = createRowBackedEm(dbRow)
+      const service = new OnboardingService(em)
+
+      const renewed = await service.renewPreparationLease('req-1', renewedAt)
+
+      expect(renewed).toBe(true)
+      expect(dbRow.processingStartedAt).toBe(renewedAt)
     })
   })
 })

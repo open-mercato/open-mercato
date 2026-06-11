@@ -78,12 +78,15 @@ async function runModuleSetupHook(args: {
   }
 }
 
+async function renewPreparationLease(service: OnboardingService, requestId: string) {
+  await service.renewPreparationLease(requestId, new Date())
+}
+
 async function markWorkspaceReady(args: {
   requestId: string
+  service: OnboardingService
 }) {
-  const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
-  const service = new OnboardingService(em)
+  const service = args.service
   const request = await service.findById(args.requestId)
   if (!request || request.preparationCompletedAt) return
   await service.markPreparationCompleted(request, new Date())
@@ -187,10 +190,12 @@ export async function runDeferredProvisioning(args: {
 }) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const service = new OnboardingService(em)
   const modules = getModules()
 
   for (const mod of modules) {
     if (!mod.setup?.seedExamples) continue
+    await renewPreparationLease(service, args.requestId)
     try {
       await runModuleSetupHook({
         moduleId: mod.id,
@@ -223,6 +228,7 @@ export async function runDeferredProvisioning(args: {
 
   await markWorkspaceReady({
     requestId: args.requestId,
+    service,
   })
 
   await sendWorkspaceReadyEmail({

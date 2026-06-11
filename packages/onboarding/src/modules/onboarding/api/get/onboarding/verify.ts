@@ -33,6 +33,8 @@ export const metadata = {
 }
 
 const SEED_DEFAULTS_TIMEOUT_MS = 15_000
+const PROCESSING_LEASE_MS = 15 * 60 * 1000
+const PREPARATION_LEASE_MS = 15 * 60 * 1000
 
 function createTimeoutPromise(label: string, timeoutMs: number): Promise<never> {
   return new Promise((_, reject) => {
@@ -93,14 +95,32 @@ async function completeProvisionedRequest(args: {
   const ids = resolveProvisioningIds(args.request)
   if (!ids) return null
   await args.service.markCompleted(args.request, ids)
+  await scheduleDeferredProvisioning(args.service, args.request, ids)
+  return ids
+}
+
+function isProcessingFresh(request: OnboardingRequest, now = Date.now()) {
+  const processingStartedAt = request.processingStartedAt?.getTime() ?? 0
+  return request.status === 'processing' && processingStartedAt > now - PROCESSING_LEASE_MS
+}
+
+async function scheduleDeferredProvisioning(
+  service: OnboardingService,
+  request: OnboardingRequest,
+  ids: { tenantId: string; organizationId: string },
+) {
+  if (request.preparationCompletedAt) return
+  const now = new Date()
+  const staleBefore = new Date(now.getTime() - PREPARATION_LEASE_MS)
+  const claimed = await service.claimPreparation(request, now, staleBefore)
+  if (!claimed) return
   after(async () => {
     await runDeferredProvisioning({
-      requestId: args.request.id,
+      requestId: request.id,
       tenantId: ids.tenantId,
       organizationId: ids.organizationId,
     })
   })
-  return ids
 }
 
 export async function GET(req: Request) {
@@ -153,15 +173,10 @@ export async function GET(req: Request) {
     }
     return redirectToLogin(baseUrl, request.tenantId)
   }
-  const lockWindowMs = 15 * 60 * 1000
-  const processingStartedAt = request.processingStartedAt?.getTime() ?? 0
-  const processingFresh = request.status === 'processing' && processingStartedAt > Date.now() - lockWindowMs
-  if (processingFresh) {
-    const recovered = await completeProvisionedRequest({ service, request })
-    if (recovered) return redirectToPreparing(baseUrl, recovered.tenantId)
+  if (isProcessingFresh(request)) {
     return redirectToPreparing(baseUrl, request.tenantId ?? null)
   }
-  if (request.status === 'processing' && !processingFresh) {
+  if (request.status === 'processing') {
     const recovered = await completeProvisionedRequest({ service, request })
     if (recovered) return redirectToPreparing(baseUrl, recovered.tenantId)
     await service.resetProcessing(request)
@@ -183,8 +198,10 @@ export async function GET(req: Request) {
         : redirectToPreparing(baseUrl, current.tenantId)
     }
     if (current?.status === 'processing') {
-      const recovered = await completeProvisionedRequest({ service: currentService, request: current })
-      if (recovered) return redirectToPreparing(baseUrl, recovered.tenantId)
+      if (!isProcessingFresh(current)) {
+        const recovered = await completeProvisionedRequest({ service: currentService, request: current })
+        if (recovered) return redirectToPreparing(baseUrl, recovered.tenantId)
+      }
     }
     return redirectToPreparing(baseUrl, current?.tenantId ?? request.tenantId ?? null)
   }
@@ -300,12 +317,9 @@ export async function GET(req: Request) {
     })
     // TODO: Move deferred provisioning into a durable job keyed by request id so process restarts can resume
     // seedExamples/index rebuild/email dispatch instead of leaving completed requests stuck on preparing.
-    after(async () => {
-      await runDeferredProvisioning({
-        requestId: request.id,
-        tenantId: resolvedTenantId,
-        organizationId: resolvedOrganizationId,
-      })
+    await scheduleDeferredProvisioning(service, request, {
+      tenantId: resolvedTenantId,
+      organizationId: resolvedOrganizationId,
     })
     return redirectToPreparing(baseUrl, resolvedTenantId)
   } catch (error) {
