@@ -3,6 +3,18 @@ import { OnboardingRequest } from '../modules/onboarding/data/entities'
 const findLatestByTenantId = jest.fn()
 const sendWorkspaceReadyEmail = jest.fn()
 const assertAllowedAppOrigin = jest.fn()
+const markCompleted = jest.fn()
+const runDeferredProvisioning = jest.fn()
+
+jest.mock('next/server', () => {
+  const actual = jest.requireActual('next/server')
+  return {
+    ...actual,
+    after: (callback: () => unknown) => {
+      void callback()
+    },
+  }
+})
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
@@ -26,11 +38,24 @@ jest.mock('@open-mercato/shared/lib/url', () => ({
 jest.mock('@open-mercato/onboarding/modules/onboarding/lib/service', () => ({
   OnboardingService: jest.fn().mockImplementation(() => ({
     findLatestByTenantId,
+    markCompleted,
   })),
 }))
 
 jest.mock('@open-mercato/onboarding/modules/onboarding/lib/ready-email', () => ({
   sendWorkspaceReadyEmail,
+}))
+
+jest.mock('@open-mercato/onboarding/modules/onboarding/lib/deferred-provisioning', () => ({
+  resolveProvisioningIds: (request: OnboardingRequest) => {
+    if (!request.tenantId || !request.organizationId || !request.userId) return null
+    return {
+      tenantId: request.tenantId,
+      organizationId: request.organizationId,
+      userId: request.userId,
+    }
+  },
+  runDeferredProvisioning: (...args: unknown[]) => runDeferredProvisioning(...args),
 }))
 
 import { GET } from '../modules/onboarding/api/get/onboarding/status'
@@ -63,6 +88,20 @@ describe('onboarding status endpoint authorization', () => {
     findLatestByTenantId.mockReset()
     sendWorkspaceReadyEmail.mockReset()
     assertAllowedAppOrigin.mockReset()
+    markCompleted.mockReset()
+    runDeferredProvisioning.mockReset()
+    markCompleted.mockImplementation(async (request: OnboardingRequest, data: {
+      tenantId: string
+      organizationId: string
+      userId: string
+    }) => {
+      request.status = 'completed'
+      request.tenantId = data.tenantId
+      request.organizationId = data.organizationId
+      request.userId = data.userId
+      request.completedAt = new Date()
+      request.processingStartedAt = null
+    })
     findLatestByTenantId.mockResolvedValue(makeRequest())
   })
 
@@ -129,5 +168,33 @@ describe('onboarding status endpoint authorization', () => {
       buildRequest({ tenantId: TENANT_ID, cookie: `om_login_tenant=${TENANT_ID}` }),
     )
     expect(res.status).toBe(404)
+  })
+
+  it('recovers an interrupted processing request that already has provisioned ids', async () => {
+    const request = makeRequest({
+      status: 'processing',
+      tenantId: TENANT_ID,
+      organizationId: '44444444-4444-4444-8444-444444444444',
+      userId: '55555555-5555-4555-8555-555555555555',
+      completedAt: null,
+      preparationCompletedAt: null,
+      processingStartedAt: new Date(),
+    })
+    findLatestByTenantId.mockResolvedValue(request)
+
+    const res = await GET(
+      buildRequest({ tenantId: TENANT_ID, cookie: `om_login_tenant=${TENANT_ID}` }),
+    )
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.ok).toBe(true)
+    expect(body.status).toBe('completed')
+    expect(body.ready).toBe(false)
+    expect(markCompleted).toHaveBeenCalledWith(request, {
+      tenantId: TENANT_ID,
+      organizationId: '44444444-4444-4444-8444-444444444444',
+      userId: '55555555-5555-4555-8555-555555555555',
+    })
   })
 })

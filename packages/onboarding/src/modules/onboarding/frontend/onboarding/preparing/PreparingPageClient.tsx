@@ -149,13 +149,6 @@ export default function PreparingPageClient() {
             </div>
           ) : null}
           <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
-            {tenantId ? (
-              <Button asChild variant="outline">
-                <Link href={`/login?tenant=${encodeURIComponent(tenantId)}`}>
-                  {translate('onboarding.preparing.loginCta', 'Open tenant login')}
-                </Link>
-              </Button>
-            ) : null}
             <Button asChild>
               <Link href="/">
                 {translate('onboarding.preparing.homeCta', 'Go to home page')}

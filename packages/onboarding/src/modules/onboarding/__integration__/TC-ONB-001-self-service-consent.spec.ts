@@ -78,6 +78,30 @@ async function readMarketingConsent(userId: string): Promise<UserConsentRow> {
 }
 
 test.describe('TC-ONB-001: self-service onboarding with marketing consent', () => {
+  test('does not offer tenant login while workspace preparation is still running', async ({ page }) => {
+    const tenantId = '33333333-3333-4333-8333-333333333333';
+    await page.route('**/api/onboarding/onboarding/status?**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          status: 'processing',
+          ready: false,
+          emailSent: false,
+          tenantId,
+          loginUrl: null,
+        }),
+      });
+    });
+
+    await page.goto(`/onboarding/preparing?tenant=${tenantId}`);
+
+    await expect(page.getByText('We are preparing your workspace')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open tenant login' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Go to home page' })).toBeVisible();
+  });
+
   test('shows a retryable error when workspace status polling fails', async ({ page }) => {
     const tenantId = '33333333-3333-4333-8333-333333333333';
     await page.route('**/api/onboarding/onboarding/status?**', async (route) => {
@@ -93,8 +117,7 @@ test.describe('TC-ONB-001: self-service onboarding with marketing consent', () =
     await expect(page.getByText('We are preparing your workspace')).toBeVisible();
     const statusAlert = page.getByText('Workspace status check failed').locator('..');
     await expect(statusAlert).toContainText('Invalid request origin');
-    await expect(page.getByRole('link', { name: 'Open tenant login' }))
-      .toHaveAttribute('href', `/login?tenant=${tenantId}`);
+    await expect(page.getByRole('link', { name: 'Open tenant login' })).toHaveCount(0);
   });
 
   test('creates the workspace, verifies from the email link, and logs in to the new tenant', async ({ page }) => {

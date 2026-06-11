@@ -5,6 +5,10 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { assertAllowedAppOrigin, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboarding/lib/ready-email'
+import {
+  resolveProvisioningIds,
+  runDeferredProvisioning,
+} from '@open-mercato/onboarding/modules/onboarding/lib/deferred-provisioning'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -68,6 +72,20 @@ export async function GET(req: Request) {
   const request = await service.findLatestByTenantId(parsed.data.tenantId)
   if (!request) {
     return NextResponse.json({ ok: false, error: 'Onboarding request not found.' }, { status: 404 })
+  }
+
+  const provisioningIds = resolveProvisioningIds(request)
+  if (provisioningIds && request.status === 'processing') {
+    await service.markCompleted(request, provisioningIds)
+  }
+  if (provisioningIds && request.status === 'completed' && !request.preparationCompletedAt) {
+    after(async () => {
+      await runDeferredProvisioning({
+        requestId: request.id,
+        tenantId: provisioningIds.tenantId,
+        organizationId: provisioningIds.organizationId,
+      })
+    })
   }
 
   const emailSent = Boolean(request.readyEmailSentAt)
