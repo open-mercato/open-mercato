@@ -86,6 +86,8 @@ import {
   updateDimensionValue,
   updateWeightValue,
   isConfigurableProductType,
+  buildComplianceProductPayload,
+  complianceFormValuesFromApiRecord,
 } from "@open-mercato/core/modules/catalog/components/products/productForm";
 import {
   CATALOG_PRODUCT_TYPES,
@@ -102,6 +104,7 @@ import {
   type ProductCategorizePickerOption,
 } from "@open-mercato/core/modules/catalog/components/products/ProductCategorizeSection";
 import { ProductUomSection } from "@open-mercato/core/modules/catalog/components/products/ProductUomSection";
+import { ProductComplianceSection } from "@open-mercato/core/modules/catalog/components/products/ProductComplianceSection";
 import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
 import {
   UNIT_PRICE_REFERENCE_UNITS,
@@ -739,6 +742,7 @@ export default function EditCatalogProductPage({
           categoryIds,
           channelIds,
           tags: tagValues,
+          ...complianceFormValuesFromApiRecord(record),
           updatedAt:
             typeof record.updatedAt === "string"
               ? record.updatedAt
@@ -882,6 +886,18 @@ export default function EditCatalogProductPage({
         bare: true,
         component: ({ values, setValue, errors }) => (
           <ProductUomSection
+            values={values as ProductFormValues}
+            setValue={setValue}
+            errors={errors}
+          />
+        ),
+      },
+      {
+        id: "compliance",
+        column: 1,
+        bare: true,
+        component: ({ values, setValue, errors }) => (
+          <ProductComplianceSection
             values={values as ProductFormValues}
             setValue={setValue}
             errors={errors}
@@ -1050,6 +1066,32 @@ export default function EditCatalogProductPage({
         channelIds: parsed.data.channelIds ?? [],
         tags: parsed.data.tags ?? [],
         optionSchemaId: parsed.data.optionSchemaId ?? null,
+        countryOfOriginCode: parsed.data.countryOfOriginCode ?? "",
+        pkwiuCode: parsed.data.pkwiuCode ?? "",
+        cnCode: parsed.data.cnCode ?? "",
+        hsCode: parsed.data.hsCode ?? "",
+        taxClassificationCode: parsed.data.taxClassificationCode ?? "",
+        gtuCodes: parsed.data.gtuCodes ?? [],
+        ageMin: parsed.data.ageMin?.toString() ?? "",
+        isExciseGood: parsed.data.isExciseGood ?? false,
+        exciseCategory: parsed.data.exciseCategory ?? null,
+        requiresPrescription: parsed.data.requiresPrescription ?? false,
+        hazmatClass: parsed.data.hazmatClass ?? "",
+        unNumber: parsed.data.unNumber ?? "",
+        hazmatPackingGroup: parsed.data.hazmatPackingGroup ?? null,
+        containsLithiumBattery: parsed.data.containsLithiumBattery ?? false,
+        launchAt: parsed.data.launchAt ?? "",
+        endOfLifeAt: parsed.data.endOfLifeAt ?? "",
+        availableFrom: parsed.data.availableFrom ?? "",
+        availableUntil: parsed.data.availableUntil ?? "",
+        minOrderQty: parsed.data.minOrderQty?.toString() ?? "",
+        maxOrderQty: parsed.data.maxOrderQty?.toString() ?? "",
+        orderQtyIncrement: parsed.data.orderQtyIncrement?.toString() ?? "",
+        requiresShipping: parsed.data.requiresShipping ?? true,
+        isQuoteOnly: parsed.data.isQuoteOnly ?? false,
+        seoTitle: parsed.data.seoTitle ?? "",
+        seoDescription: parsed.data.seoDescription ?? "",
+        canonicalUrl: parsed.data.canonicalUrl ?? "",
       };
       const title = values.title?.trim();
       if (!title) {
@@ -1216,6 +1258,7 @@ export default function EditCatalogProductPage({
         unitPriceBaseQuantity: unitPriceEnabled
           ? unitPriceBaseQuantity
           : undefined,
+        ...buildComplianceProductPayload(values),
         customFieldsetCode: values.customFieldsetCode?.trim().length
           ? values.customFieldsetCode
           : undefined,

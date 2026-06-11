@@ -77,6 +77,7 @@ import {
   updateDimensionValue,
   updateWeightValue,
   isConfigurableProductType,
+  buildComplianceProductPayload,
 } from "@open-mercato/core/modules/catalog/components/products/productForm";
 import { CATALOG_PRODUCT_TYPES } from "@open-mercato/core/modules/catalog/data/types";
 import {
@@ -84,6 +85,7 @@ import {
   slugifyAttachmentFileName,
 } from "@open-mercato/core/modules/attachments/lib/imageUrls";
 import { ProductUomSection } from "@open-mercato/core/modules/catalog/components/products/ProductUomSection";
+import { ProductComplianceSection } from "@open-mercato/core/modules/catalog/components/products/ProductComplianceSection";
 import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
 import {
   UNIT_PRICE_REFERENCE_UNITS,
@@ -149,6 +151,33 @@ const STEP_FIELD_MATCHERS: Record<
     matchField("unitPriceReferenceUnit"),
     matchField("unitPriceBaseQuantity"),
     matchPrefix("unitConversions"),
+  ],
+  compliance: [
+    matchField("countryOfOriginCode"),
+    matchField("pkwiuCode"),
+    matchField("cnCode"),
+    matchField("hsCode"),
+    matchField("taxClassificationCode"),
+    matchField("gtuCodes"),
+    matchField("ageMin"),
+    matchField("isExciseGood"),
+    matchField("exciseCategory"),
+    matchField("requiresPrescription"),
+    matchPrefix("hazmat"),
+    matchField("unNumber"),
+    matchField("containsLithiumBattery"),
+    matchField("launchAt"),
+    matchField("endOfLifeAt"),
+    matchField("availableFrom"),
+    matchField("availableUntil"),
+    matchField("minOrderQty"),
+    matchField("maxOrderQty"),
+    matchField("orderQtyIncrement"),
+    matchField("requiresShipping"),
+    matchField("isQuoteOnly"),
+    matchField("seoTitle"),
+    matchField("seoDescription"),
+    matchField("canonicalUrl"),
   ],
   variants: [
     matchField("hasVariants"),
@@ -540,6 +569,7 @@ export default function CreateCatalogProductPage() {
               unitPriceBaseQuantity: unitPriceEnabled
                 ? unitPriceBaseQuantity
                 : undefined,
+              ...buildComplianceProductPayload(formValues),
             };
             if (optionSchemaDefinition) {
               productPayload.optionSchema = optionSchemaDefinition;
@@ -1308,6 +1338,8 @@ function ProductBuilder({
               t("catalog.products.create.steps.organize", "Organize")}
             {step === "uom" &&
               t("catalog.products.uom.title", "Units of measure")}
+            {step === "compliance" &&
+              t("catalog.products.compliance.title", "Compliance & commerce")}
             {step === "variants" &&
               t("catalog.products.create.steps.variants", "Variants")}
             {(stepErrors[step]?.length ?? 0) > 0 ? (
@@ -1417,6 +1449,15 @@ function ProductBuilder({
 
       {currentStepKey === "uom" ? (
         <ProductUomSection
+          values={values as ProductFormValues}
+          setValue={setValue}
+          errors={errors}
+          embedded
+        />
+      ) : null}
+
+      {currentStepKey === "compliance" ? (
+        <ProductComplianceSection
           values={values as ProductFormValues}
           setValue={setValue}
           errors={errors}
