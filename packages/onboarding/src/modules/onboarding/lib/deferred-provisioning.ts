@@ -180,7 +180,31 @@ async function rebuildTenantQueryIndexes(args: {
   }
 }
 
+const inFlightDeferredProvisioning = new Set<string>()
+
 export async function runDeferredProvisioning(args: {
+  requestId: string
+  tenantId: string
+  organizationId: string
+}) {
+  // The preparing page re-triggers this on every status poll until
+  // preparationCompletedAt is set. Each pass is long (per-module seedExamples
+  // plus a full tenant reindex) and acquires DB connections, so overlapping
+  // passes for the same request saturate the pool — and under saturation
+  // markWorkspaceReady itself times out, so the flag is never set and the polls
+  // keep re-spawning the storm. Run at most one pass per request at a time;
+  // redundant triggers return immediately. The guard clears in finally so a
+  // failed pass can still be retried by a later poll — but only one at a time.
+  if (inFlightDeferredProvisioning.has(args.requestId)) return
+  inFlightDeferredProvisioning.add(args.requestId)
+  try {
+    await executeDeferredProvisioning(args)
+  } finally {
+    inFlightDeferredProvisioning.delete(args.requestId)
+  }
+}
+
+async function executeDeferredProvisioning(args: {
   requestId: string
   tenantId: string
   organizationId: string
