@@ -39,7 +39,7 @@ When the developer reports a problem, follow this order:
 
 ### Step 2: Check Generated Files
 
-Run these commands first — they fix 60%+ of issues:
+These commands fix 60%+ of issues, so they are usually the first fix to propose (they are mutating — propose, then run after confirmation per [Step 4](#step-4-propose-before-fixing)):
 
 ```bash
 yarn generate          # Regenerate module discovery files
@@ -465,9 +465,10 @@ yarn dev               # 5. Restart dev server
 
 ## Rules
 
-- **ALWAYS** run `yarn generate` as first diagnostic step
+- **ALWAYS** present the diagnosed root cause and the proposed fix (commands/code), then **wait for explicit user confirmation before applying any mutating change** (see [Step 4](#step-4-propose-before-fixing)). Only read-only diagnostics may run without asking.
 - **ALWAYS** check server logs / browser console for actual error messages
 - **NEVER** edit files in `.mercato/generated/` or `node_modules/`
 - **NEVER** assume the issue — verify with actual error output
+- Treat `yarn generate` as the most likely first fix, but propose it before running — it regenerates files and is a mutating action
 - Fix the root cause, not the symptom — temporary workarounds become permanent bugs
-- When suggesting a fix, include the exact command or code change needed
+- When proposing a fix, include the exact command or code change needed
