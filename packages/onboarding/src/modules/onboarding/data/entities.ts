@@ -63,6 +63,9 @@ export class OnboardingRequest {
   @Property({ name: 'preparation_completed_at', type: Date, nullable: true })
   preparationCompletedAt?: Date | null
 
+  @Property({ name: 'preparation_claimed_at', type: Date, nullable: true })
+  preparationClaimedAt?: Date | null
+
   @Property({ name: 'ready_email_sent_at', type: Date, nullable: true })
   readyEmailSentAt?: Date | null
 

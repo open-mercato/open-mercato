@@ -186,6 +186,16 @@
           "length": 6,
           "mappedType": "datetime"
         },
+        "preparation_claimed_at": {
+          "name": "preparation_claimed_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
         "ready_email_sent_at": {
           "name": "ready_email_sent_at",
           "type": "timestamptz",

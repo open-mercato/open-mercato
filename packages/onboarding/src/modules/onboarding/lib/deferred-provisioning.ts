@@ -180,7 +180,10 @@ async function rebuildTenantQueryIndexes(args: {
   }
 }
 
-const inFlightDeferredProvisioning = new Set<string>()
+// A crashed pass leaves its claim set; reclaim it after this window so a later
+// poll can finish the workspace. Must exceed a healthy pass's wall-clock
+// (seedExamples + full tenant reindex) so a slow-but-live run is never stolen.
+const PREPARATION_CLAIM_STALE_MS = 5 * 60 * 1000
 
 export async function runDeferredProvisioning(args: {
   requestId: string
@@ -189,28 +192,45 @@ export async function runDeferredProvisioning(args: {
 }) {
   // The preparing page re-triggers this on every status poll until
   // preparationCompletedAt is set. Each pass is long (per-module seedExamples
-  // plus a full tenant reindex) and acquires DB connections, so overlapping
-  // passes for the same request saturate the pool — and under saturation
-  // markWorkspaceReady itself times out, so the flag is never set and the polls
-  // keep re-spawning the storm. Run at most one pass per request at a time;
-  // redundant triggers return immediately. The guard clears in finally so a
-  // failed pass can still be retried by a later poll — but only one at a time.
-  if (inFlightDeferredProvisioning.has(args.requestId)) return
-  inFlightDeferredProvisioning.add(args.requestId)
+  // plus a full tenant reindex) and holds DB connections, so overlapping passes
+  // for the same request saturate the pool — and under saturation the
+  // completion write itself times out, so the flag is never set and the polls
+  // keep re-spawning the storm. Single-flight the pass with an atomic DB claim
+  // (cross-process, unlike an in-memory guard): only the poll that wins the
+  // claim runs; the rest return immediately. The claim is released in finally,
+  // and a crashed pass is reclaimed after PREPARATION_CLAIM_STALE_MS, so an
+  // interrupted run always stays recoverable.
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  const service = new OnboardingService(em)
+  const request = await service.findById(args.requestId)
+  if (!request || request.preparationCompletedAt) return
+
+  const claimedAt = new Date()
+  const staleBefore = new Date(claimedAt.getTime() - PREPARATION_CLAIM_STALE_MS)
+  const claimed = await service.claimPreparation(request, claimedAt, staleBefore)
+  if (!claimed) return
+
   try {
-    await executeDeferredProvisioning(args)
+    await executeDeferredProvisioning({ container, em, ...args })
   } finally {
-    inFlightDeferredProvisioning.delete(args.requestId)
+    await service.releasePreparation(request, claimedAt).catch((error) => {
+      console.error('[onboarding.verify] failed to release preparation claim', {
+        requestId: args.requestId,
+        error,
+      })
+    })
   }
 }
 
 async function executeDeferredProvisioning(args: {
+  container: Awaited<ReturnType<typeof createRequestContainer>>
+  em: EntityManager
   requestId: string
   tenantId: string
   organizationId: string
 }) {
-  const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
+  const { container, em } = args
   const modules = getModules()
 
   for (const mod of modules) {
@@ -245,27 +265,20 @@ async function executeDeferredProvisioning(args: {
     }
   }
 
-  await markWorkspaceReady({
-    requestId: args.requestId,
-  })
-
-  await sendWorkspaceReadyEmail({
-    requestId: args.requestId,
-    tenantId: args.tenantId,
-  }).catch((error) => {
-    console.error('[onboarding.verify] ready email failed', {
-      requestId: args.requestId,
-      tenantId: args.tenantId,
-      organizationId: args.organizationId,
-      error,
-    })
-    throw error
-  })
-
+  // Build the query indexes BEFORE marking preparation complete. The completion
+  // flag is the recovery boundary: status polls stop re-triggering this pass
+  // once it is set, so it must not be written until the durable index rebuild
+  // has finished. A pass that crashes mid-rebuild therefore leaves the flag
+  // unset and stays reclaimable, instead of stranding a workspace whose search
+  // indexes were never built.
   await rebuildTenantQueryIndexes({
     em,
     tenantId: args.tenantId,
     organizationId: args.organizationId,
+  })
+
+  await markWorkspaceReady({
+    requestId: args.requestId,
   })
 
   await enqueueVectorReindex({
@@ -278,5 +291,21 @@ async function executeDeferredProvisioning(args: {
       organizationId: args.organizationId,
       reason: error instanceof Error ? error.message : String(error),
     })
+  })
+
+  // Sent last: the workspace is already complete and recoverable, so a failed
+  // ready-email must not roll the pass back. status.ts retries the email
+  // separately while readyEmailSentAt is unset.
+  await sendWorkspaceReadyEmail({
+    requestId: args.requestId,
+    tenantId: args.tenantId,
+  }).catch((error) => {
+    console.error('[onboarding.verify] ready email failed', {
+      requestId: args.requestId,
+      tenantId: args.tenantId,
+      organizationId: args.organizationId,
+      error,
+    })
+    throw error
   })
 }

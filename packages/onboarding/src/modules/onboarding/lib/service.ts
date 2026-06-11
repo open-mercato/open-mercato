@@ -139,6 +139,32 @@ export class OnboardingService {
     await this.em.flush()
   }
 
+  async claimPreparation(request: OnboardingRequest, claimedAt: Date, staleBefore: Date): Promise<boolean> {
+    const claimedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      {
+        id: request.id,
+        preparationCompletedAt: null,
+        $or: [{ preparationClaimedAt: null }, { preparationClaimedAt: { $lt: staleBefore } }],
+      },
+      { preparationClaimedAt: claimedAt, updatedAt: new Date() },
+    )
+    if (claimedRows === 0) return false
+    request.preparationClaimedAt = claimedAt
+    return true
+  }
+
+  async releasePreparation(request: OnboardingRequest, claimedAt: Date): Promise<void> {
+    await this.em.nativeUpdate(
+      OnboardingRequest,
+      { id: request.id, preparationClaimedAt: claimedAt },
+      { preparationClaimedAt: null, updatedAt: new Date() },
+    )
+    if (request.preparationClaimedAt && request.preparationClaimedAt.getTime() === claimedAt.getTime()) {
+      request.preparationClaimedAt = null
+    }
+  }
+
   async markReadyEmailSent(request: OnboardingRequest, sentAt: Date) {
     request.readyEmailSentAt = sentAt
     await this.em.flush()
