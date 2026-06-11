@@ -61,6 +61,28 @@ ls .mercato/generated/
 yarn typecheck
 ```
 
+### Step 4: Propose Before Fixing
+
+Once you have diagnosed the root cause, **do not apply the fix immediately**. First present:
+
+1. The **root cause** — what is actually broken and why.
+2. The **proposed fix** — the exact commands and/or code changes you intend to apply.
+
+Then **wait for explicit user confirmation** before applying any **mutating** change. This keeps the developer in control and avoids surprise edits, migrations, or restarts.
+
+**Read-only diagnostics may run without asking** — they only gather information and change nothing:
+
+| Allowed without confirmation (read-only) | Requires confirmation (mutating) |
+|------------------------------------------|----------------------------------|
+| `yarn typecheck` | `yarn generate` |
+| `grep` / file reads / `ls` | `yarn db:generate` |
+| log / browser-console inspection | `yarn db:migrate` |
+| `docker compose ps` | editing files |
+| `curl` against a running endpoint (GET) | restarting the dev server (`yarn dev`) |
+| | `docker compose up` |
+
+When in doubt about whether an action mutates state, treat it as mutating and ask first. Once the user confirms, apply the fix and verify it.
+
 ---
 
 ## 2. Module Issues
