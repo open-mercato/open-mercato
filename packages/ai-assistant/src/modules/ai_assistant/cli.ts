@@ -47,7 +47,10 @@ const mcpServe: ModuleCli = {
   command: 'mcp:serve',
   async run(rest) {
     const args = parseArgs(rest)
-    const apiKey = String(args['api-key'] ?? args.apiKey ?? '') || null
+    // Prefer the OPEN_MERCATO_API_KEY env var so the secret never has to be
+    // placed on the command line (argv is world-readable via ps / /proc).
+    // The --api-key flag stays supported for backward compatibility.
+    const apiKey = String(args['api-key'] ?? args.apiKey ?? '') || process.env.OPEN_MERCATO_API_KEY || null
     const tenantId = String(args.tenant ?? args.tenantId ?? '') || null
     const organizationId = String(args.org ?? args.organizationId ?? '') || null
     const userId = String(args.user ?? args.userId ?? '') || null
@@ -58,8 +61,9 @@ const mcpServe: ModuleCli = {
       console.error('Usage: mercato ai_assistant mcp:serve [options]')
       console.error('')
       console.error('Authentication (choose one):')
-      console.error('  --api-key <secret>   API key secret for authentication (recommended)')
-      console.error('  --tenant <id>        Tenant ID (for manual context)')
+      console.error('  OPEN_MERCATO_API_KEY env   API key secret (recommended — keeps the secret off argv)')
+      console.error('  --api-key <secret>         API key secret for authentication (visible in process listings)')
+      console.error('  --tenant <id>              Tenant ID (for manual context)')
       console.error('')
       console.error('Options (with --tenant):')
       console.error('  --org <id>           Organization ID (optional)')
@@ -69,6 +73,7 @@ const mcpServe: ModuleCli = {
       console.error('  --debug              Enable debug logging')
       console.error('')
       console.error('Examples:')
+      console.error('  OPEN_MERCATO_API_KEY=omk_xxxx.yyyy... mercato ai_assistant mcp:serve')
       console.error('  mercato ai_assistant mcp:serve --api-key omk_xxxx.yyyy...')
       console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000')
       return
