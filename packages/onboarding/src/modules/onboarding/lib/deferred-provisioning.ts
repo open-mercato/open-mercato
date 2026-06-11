@@ -81,13 +81,14 @@ async function runModuleSetupHook(args: {
 
 async function markWorkspaceReady(args: {
   requestId: string
+  service: OnboardingService
 }) {
-  const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
-  const service = new OnboardingService(em)
-  const request = await service.findById(args.requestId)
-  if (!request || request.preparationCompletedAt) return
-  await service.markPreparationCompleted(request, new Date())
+  const request = await args.service.findById(args.requestId)
+  // The status guard protects a request that was re-submitted (and reset to
+  // pending) while this chain was still running — completing it would let the
+  // new flow skip its own deferred provisioning.
+  if (!request || request.preparationCompletedAt || request.status !== 'completed') return
+  await args.service.markPreparationCompleted(request, new Date())
 }
 
 async function enqueueVectorReindex(args: {
@@ -214,6 +215,10 @@ export async function runDeferredProvisioning(args: {
 
   for (const mod of modules) {
     if (!mod.setup?.seedExamples) continue
+    // Heartbeat: keep the lease fresh while legitimately working so a slow run
+    // (many modules × 15s seed timeout + rebuild) can never look stale and get
+    // double-claimed by a later poll.
+    await service.renewPreparation(args.requestId, new Date()).catch(() => {})
     try {
       await runModuleSetupHook({
         moduleId: mod.id,
@@ -249,6 +254,7 @@ export async function runDeferredProvisioning(args: {
   // so a runner that dies mid-rebuild must leave the flag unset — the stale
   // claim then makes the whole chain reclaimable and the rebuild self-heals.
   // rebuildTenantQueryIndexes never throws (it logs per-entity failures).
+  await service.renewPreparation(args.requestId, new Date()).catch(() => {})
   await rebuildTenantQueryIndexes({
     em,
     tenantId: args.tenantId,
@@ -257,6 +263,7 @@ export async function runDeferredProvisioning(args: {
 
   await markWorkspaceReady({
     requestId: args.requestId,
+    service,
   })
 
   // Non-fatal (#2954 contract): an email failure must not abort the chain.

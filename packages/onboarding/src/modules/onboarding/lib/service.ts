@@ -150,6 +150,7 @@ export class OnboardingService {
       OnboardingRequest,
       {
         id: requestId,
+        status: 'completed',
         preparationCompletedAt: null,
         $or: [
           { preparationStartedAt: null },
@@ -161,8 +162,23 @@ export class OnboardingService {
     return claimedRows > 0
   }
 
+  async renewPreparation(requestId: string, renewedAt: Date): Promise<boolean> {
+    const renewedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      {
+        id: requestId,
+        status: 'completed',
+        preparationCompletedAt: null,
+        preparationStartedAt: { $ne: null },
+      },
+      { preparationStartedAt: renewedAt, updatedAt: new Date() },
+    )
+    return renewedRows > 0
+  }
+
   async markPreparationCompleted(request: OnboardingRequest, completedAt: Date) {
     request.preparationCompletedAt = completedAt
+    request.preparationStartedAt = null
     await this.em.flush()
   }
 }

@@ -7,16 +7,19 @@ const refreshCoverageSnapshot = jest.fn(async () => {})
 const sendWorkspaceReadyEmail = jest.fn(async () => true)
 
 type ClaimState = {
+  status: string
   preparationStartedAt: Date | null
   preparationCompletedAt: Date | null
 }
 
 const claimState: ClaimState = {
+  status: 'completed',
   preparationStartedAt: null,
   preparationCompletedAt: null,
 }
 
 const claimPreparation = jest.fn(async (_requestId: string, claimedAt: Date, staleBefore: Date) => {
+  if (claimState.status !== 'completed') return false
   if (claimState.preparationCompletedAt) return false
   if (claimState.preparationStartedAt && claimState.preparationStartedAt.getTime() >= staleBefore.getTime()) {
     return false
@@ -25,13 +28,23 @@ const claimPreparation = jest.fn(async (_requestId: string, claimedAt: Date, sta
   return true
 })
 
+const renewPreparation = jest.fn(async (_requestId: string, renewedAt: Date) => {
+  if (claimState.status !== 'completed') return false
+  if (claimState.preparationCompletedAt) return false
+  if (!claimState.preparationStartedAt) return false
+  claimState.preparationStartedAt = renewedAt
+  return true
+})
+
 const findById = jest.fn(async (id: string) => ({
   id,
+  status: claimState.status,
   preparationCompletedAt: claimState.preparationCompletedAt,
 }))
 
 const markPreparationCompleted = jest.fn(async (_request: unknown, completedAt: Date) => {
   claimState.preparationCompletedAt = completedAt
+  claimState.preparationStartedAt = null
 })
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -74,6 +87,7 @@ jest.mock('@open-mercato/onboarding/modules/onboarding/lib/ready-email', () => (
 jest.mock('@open-mercato/onboarding/modules/onboarding/lib/service', () => ({
   OnboardingService: jest.fn().mockImplementation(() => ({
     claimPreparation,
+    renewPreparation,
     findById,
     markPreparationCompleted,
   })),
@@ -91,6 +105,7 @@ describe('runDeferredProvisioning single-flight claim', () => {
   beforeEach(() => {
     jest.useFakeTimers({ doNotFake: ['setImmediate'] })
     jest.clearAllMocks()
+    claimState.status = 'completed'
     claimState.preparationStartedAt = null
     claimState.preparationCompletedAt = null
     sendWorkspaceReadyEmail.mockResolvedValue(true)
@@ -139,6 +154,30 @@ describe('runDeferredProvisioning single-flight claim', () => {
 
     expect(seedExamples).toHaveBeenCalledTimes(1)
     expect(markPreparationCompleted).toHaveBeenCalledTimes(1)
+  })
+
+  it('renews the lease while working so a slow run never looks stale', async () => {
+    await runDeferredProvisioning(RUN_ARGS)
+
+    expect(renewPreparation).toHaveBeenCalled()
+    expect(renewPreparation.mock.invocationCallOrder[0]).toBeLessThan(
+      markPreparationCompleted.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('does not complete a request that was re-submitted (reset to pending) mid-chain', async () => {
+    // A user can re-onboard the same email while an old chain is still running:
+    // createOrUpdateRequest resets the request to pending. The stale chain must
+    // not mark THAT request prepared — the new flow owns deferred provisioning.
+    findById.mockImplementationOnce(async (id: string) => ({
+      id,
+      status: 'pending',
+      preparationCompletedAt: null,
+    }))
+
+    await runDeferredProvisioning(RUN_ARGS)
+
+    expect(markPreparationCompleted).not.toHaveBeenCalled()
   })
 
   it('marks preparation completed only after the query-index rebuild (death mid-rebuild stays recoverable)', async () => {
