@@ -1,19 +1,13 @@
-import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { SalesCreditMemo } from '../../data/entities'
+import { E } from '#generated/entities.ids.generated'
+import { creditMemoCreateSchema, creditMemoUpdateSchema } from '../../data/validators'
+import { createSalesCrudOpenApi, createPagedListResponseSchema, defaultDeleteRequestSchema } from '../openapi'
+import { parseScopedCommandInput, resolveCrudRecordId, withScopedPayload } from '../utils'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { SalesCreditMemo } from '../../data/entities'
-import { creditMemoCreateSchema, creditMemoUpdateSchema } from '../../data/validators'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { withScopedPayload } from '../utils'
-import {
-  createPagedListResponseSchema,
-  createSalesCrudOpenApi,
-  defaultDeleteRequestSchema,
-} from '../openapi'
-import { E } from '#generated/entities.ids.generated'
-
-const rawBodySchema = z.object({}).passthrough()
+import { z } from 'zod'
 
 const listSchema = z
   .object({
@@ -28,15 +22,14 @@ const listSchema = z
   })
   .passthrough()
 
-const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
-  POST: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
+const rawBodySchema = z.object({}).passthrough()
+
+type CreditMemoCommandResult = {
+  id?: string | null
+  creditMemoId?: string | null
 }
 
 const crud = makeCrudRoute({
-  metadata: routeMetadata,
   orm: {
     entity: SalesCreditMemo,
     idField: 'id',
@@ -44,8 +37,12 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
-  indexer: {
-    entityType: E.sales.sales_credit_memo,
+  indexer: { entityType: E.sales.sales_credit_memo },
+  metadata: {
+    GET: { requireAuth: true, requireFeatures: ['sales.credit_memos.view'] },
+    POST: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
+    PUT: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
+    DELETE: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
   },
   list: {
     schema: listSchema,
@@ -77,7 +74,7 @@ const crud = makeCrudRoute({
       grandTotalGrossAmount: 'grand_total_gross_amount',
       createdAt: 'created_at',
     },
-    buildFilters: async (query: z.infer<typeof listSchema>) => {
+    buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
       if (query.orderId) filters.order_id = { $eq: query.orderId }
@@ -97,30 +94,49 @@ const crud = makeCrudRoute({
     create: {
       commandId: 'sales.credit_memos.create',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => {
+      mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { base } = splitCustomFieldPayload(scoped)
-        return creditMemoCreateSchema.parse(base)
+        const { base, custom } = splitCustomFieldPayload(raw ?? {})
+        const parsed = parseScopedCommandInput(
+          creditMemoCreateSchema,
+          Object.keys(custom).length ? { ...base, customFields: custom } : base,
+          ctx,
+          translate,
+        )
+        return parsed
       },
+      response: ({ result }: { result: CreditMemoCommandResult | null | undefined }) => ({
+        creditMemoId: result?.creditMemoId ?? result?.id ?? null,
+      }),
+      status: 201,
     },
     update: {
       commandId: 'sales.credit_memos.update',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => {
+      mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { base } = splitCustomFieldPayload(scoped)
-        return creditMemoUpdateSchema.parse(base)
+        const { base, custom } = splitCustomFieldPayload(raw ?? {})
+        const parsed = parseScopedCommandInput(
+          creditMemoUpdateSchema,
+          Object.keys(custom).length ? { ...base, customFields: custom } : base,
+          ctx,
+          translate,
+        )
+        return parsed
       },
+      response: ({ result }: { result: CreditMemoCommandResult | null | undefined }) => ({
+        creditMemoId: result?.creditMemoId ?? result?.id ?? null,
+      }),
     },
     delete: {
       commandId: 'sales.credit_memos.delete',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => {
+      mapInput: async ({ parsed, ctx }: { parsed: unknown; ctx: CrudCtx }) => {
         const { translate } = await resolveTranslations()
-        return withScopedPayload(raw ?? {}, ctx, translate)
+        const id = resolveCrudRecordId(parsed, ctx, translate)
+        return withScopedPayload({ id }, ctx, translate)
       },
+      response: () => ({ ok: true }),
     },
   },
 })
@@ -149,5 +165,5 @@ export const openApi = createSalesCrudOpenApi({
   listResponseSchema: createPagedListResponseSchema(creditMemoItemSchema),
   create: { schema: creditMemoCreateSchema, description: 'Create a new credit memo' },
   update: { schema: creditMemoUpdateSchema, responseSchema: z.object({ creditMemoId: z.string().uuid() }), description: 'Update a credit memo' },
-  del: { schema: defaultDeleteRequestSchema, responseSchema: z.object({ creditMemoId: z.string().uuid() }), description: 'Delete a credit memo' },
+  del: { schema: defaultDeleteRequestSchema, responseSchema: z.object({ ok: z.boolean() }), description: 'Delete a credit memo' },
 })
