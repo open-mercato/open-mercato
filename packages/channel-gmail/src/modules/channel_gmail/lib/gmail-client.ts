@@ -208,8 +208,13 @@ class FetchGmailApiClient implements GmailApiClient {
         })
       } catch (err) {
         // A timed-out/aborted connection is transient — let the bounded retry
-        // loop retry it rather than propagating a raw AbortError.
-        const aborted = err instanceof Error && err.name === 'AbortError'
+        // loop retry it rather than propagating a raw error. `AbortSignal.timeout`
+        // rejects fetch with a `TimeoutError` DOMException; an externally-aborted
+        // request surfaces as `AbortError`. Match on the `name` field (not
+        // `instanceof Error`, since DOMException does not subclass Error across
+        // realms) — treat both as transient.
+        const errName = (err as { name?: unknown } | null)?.name
+        const aborted = errName === 'TimeoutError' || errName === 'AbortError'
         if (!aborted) throw err
         const timeoutError = new GmailApiError(
           `Gmail API ${method} ${url.pathname} timed out`,

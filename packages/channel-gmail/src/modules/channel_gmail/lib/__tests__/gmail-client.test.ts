@@ -221,15 +221,15 @@ describe('FetchGmailApiClient.requestJson retry/backoff', () => {
     expect(capturedSignal).toBeInstanceOf(AbortSignal)
   })
 
-  it('treats a timed-out (AbortError) fetch as transient and retries it (issue #2976)', async () => {
+  it('treats a timed-out (TimeoutError) fetch as transient and retries it (issue #2976)', async () => {
     Math.random = () => 0
     let calls = 0
     globalThis.fetch = (() => {
       calls += 1
       if (calls === 1) {
-        const abortError = new Error('The operation was aborted')
-        abortError.name = 'AbortError'
-        return Promise.reject(abortError)
+        // `AbortSignal.timeout()` rejects fetch with a `TimeoutError` DOMException,
+        // not an `AbortError` — exercise the real production failure shape.
+        return Promise.reject(new DOMException('The operation timed out', 'TimeoutError'))
       }
       return Promise.resolve(
         fakeResponse({ status: 200, statusText: 'OK', body: JSON.stringify({ emailAddress: 'a@gmail.com', historyId: '5' }) }),
@@ -240,18 +240,34 @@ describe('FetchGmailApiClient.requestJson retry/backoff', () => {
 
     expect(calls).toBe(2)
     expect(profile.historyId).toBe('5')
-    // computeBackoff(0) = 500ms (jitter stripped) — the abort took the retry path.
+    // computeBackoff(0) = 500ms (jitter stripped) — the timeout took the retry path.
     expect(capturedDelays).toEqual([500])
   })
 
-  it('throws a GmailApiError after AbortErrors exhaust the retry budget (issue #2976)', async () => {
+  it('also retries an externally-aborted (AbortError) fetch (issue #2976)', async () => {
     Math.random = () => 0
     let calls = 0
     globalThis.fetch = (() => {
       calls += 1
-      const abortError = new Error('The operation was aborted')
-      abortError.name = 'AbortError'
-      return Promise.reject(abortError)
+      if (calls === 1) return Promise.reject(new DOMException('The operation was aborted', 'AbortError'))
+      return Promise.resolve(
+        fakeResponse({ status: 200, statusText: 'OK', body: JSON.stringify({ emailAddress: 'a@gmail.com', historyId: '7' }) }),
+      )
+    }) as unknown as typeof globalThis.fetch
+
+    const profile = await getGmailApiClient().getProfile({ accessToken: 'token' })
+
+    expect(calls).toBe(2)
+    expect(profile.historyId).toBe('7')
+    expect(capturedDelays).toEqual([500])
+  })
+
+  it('throws a GmailApiError after timeouts exhaust the retry budget (issue #2976)', async () => {
+    Math.random = () => 0
+    let calls = 0
+    globalThis.fetch = (() => {
+      calls += 1
+      return Promise.reject(new DOMException('The operation timed out', 'TimeoutError'))
     }) as unknown as typeof globalThis.fetch
 
     const thrown = await getGmailApiClient()
