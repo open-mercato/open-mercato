@@ -41,8 +41,8 @@ Land the `@grpc/grpc-js` 1.14.4 security patch on `develop` and close the `main`
 
 ### Phase 1: Recreate bump on develop
 
-- [ ] 1.1 Apply identical `@grpc/grpc-js` 1.14.4 resolution/checksum to `yarn.lock`
-- [ ] 1.2 Validate lockfile with `yarn install --immutable`
+- [x] 1.1 Apply identical `@grpc/grpc-js` 1.14.4 resolution/checksum to `yarn.lock` — ea07bf269
+- [x] 1.2 Validate lockfile with `yarn install --immutable` — passed (fetch + checksum verified)
 
 ### Phase 2: Ship + close original
 
