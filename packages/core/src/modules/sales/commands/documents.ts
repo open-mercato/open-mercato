@@ -1887,7 +1887,7 @@ async function loadInvoiceSnapshot(
       organizationId: invoice.organizationId,
       tenantId: invoice.tenantId,
       invoiceNumber: invoice.invoiceNumber,
-      orderId: invoice.orderId ?? null,
+      orderId: invoice.order?.id ?? null,
       statusEntryId: invoice.statusEntryId ?? null,
       status: invoice.status ?? null,
       issueDate: invoice.issueDate ?? null,
@@ -1907,7 +1907,7 @@ async function loadInvoiceSnapshot(
     },
     lines: lines.map((line) => ({
       id: line.id,
-      orderLineId: line.orderLineId ?? null,
+      orderLineId: line.orderLine?.id ?? null,
       lineNumber: line.lineNumber,
       kind: line.kind ?? "product",
       name: line.name ?? null,
@@ -1958,8 +1958,8 @@ async function loadCreditMemoSnapshot(
       organizationId: creditMemo.organizationId,
       tenantId: creditMemo.tenantId,
       creditMemoNumber: creditMemo.creditMemoNumber,
-      orderId: creditMemo.orderId ?? null,
-      invoiceId: creditMemo.invoiceId ?? null,
+      orderId: creditMemo.order?.id ?? null,
+      invoiceId: creditMemo.invoice?.id ?? null,
       statusEntryId: creditMemo.statusEntryId ?? null,
       status: creditMemo.status ?? null,
       reason: creditMemo.reason ?? null,
@@ -1976,7 +1976,7 @@ async function loadCreditMemoSnapshot(
     },
     lines: lines.map((line) => ({
       id: line.id,
-      orderLineId: line.orderLineId ?? null,
+      orderLineId: line.orderLine?.id ?? null,
       lineNumber: line.lineNumber,
       name: line.name ?? null,
       sku: line.sku ?? null,
@@ -8368,6 +8368,7 @@ const createInvoiceCommand: CommandHandler<
     );
 
     // Validate orderId belongs to same org/tenant
+    let orderRef: SalesOrder | null = null;
     if (parsed.orderId) {
       const orderExists = await em.findOne(SalesOrder, {
         id: parsed.orderId,
@@ -8378,6 +8379,20 @@ const createInvoiceCommand: CommandHandler<
       if (!orderExists) {
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }
+      orderRef = orderExists;
+      const existingInvoice = await em.findOne(SalesInvoice, {
+        order: parsed.orderId,
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        deletedAt: null,
+      });
+      if (existingInvoice) {
+        throw new CrudHttpError(409, {
+          error: "An invoice already exists for this order.",
+          code: "sales.invoices.duplicate_for_order",
+          existingInvoiceId: existingInvoice.id,
+        });
+      }
     }
 
     const invoiceId = randomUUID();
@@ -8386,7 +8401,7 @@ const createInvoiceCommand: CommandHandler<
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       invoiceNumber: ensuredInvoiceNumber,
-      orderId: parsed.orderId ?? null,
+      order: orderRef,
       statusEntryId: parsed.statusEntryId ?? null,
       status,
       issueDate: parsed.issueDate ?? new Date(),
@@ -8643,7 +8658,7 @@ const updateInvoiceCommand: CommandHandler<
     ensureOrganizationScope(ctx, invoice.organizationId);
     ensureTenantScope(ctx, invoice.tenantId);
     invoice.invoiceNumber = before.invoice.invoiceNumber;
-    invoice.orderId = before.invoice.orderId;
+    invoice.order = before.invoice.orderId ? em.getReference(SalesOrder, before.invoice.orderId) : null;
     invoice.statusEntryId = before.invoice.statusEntryId;
     invoice.status = before.invoice.status;
     invoice.issueDate = before.invoice.issueDate ? new Date(before.invoice.issueDate as string) : null;
@@ -8749,7 +8764,7 @@ const deleteInvoiceCommand: CommandHandler<
       organizationId: before.invoice.organizationId,
       tenantId: before.invoice.tenantId,
       invoiceNumber: before.invoice.invoiceNumber,
-      orderId: before.invoice.orderId,
+      order: before.invoice.orderId ? em.getReference(SalesOrder, before.invoice.orderId) : null,
       statusEntryId: before.invoice.statusEntryId,
       status: before.invoice.status,
       issueDate: before.invoice.issueDate ? new Date(before.invoice.issueDate as string) : new Date(),
@@ -8774,7 +8789,7 @@ const deleteInvoiceCommand: CommandHandler<
       em.persist(em.create(SalesInvoiceLine, {
         id: line.id,
         invoice: restored,
-        orderLineId: line.orderLineId,
+        orderLine: line.orderLineId ? em.getReference(SalesOrderLine, line.orderLineId) : null,
         organizationId: before.invoice.organizationId,
         tenantId: before.invoice.tenantId,
         lineNumber: line.lineNumber,
@@ -8854,6 +8869,7 @@ const createCreditMemoCommand: CommandHandler<
     );
 
     // Validate orderId belongs to same org/tenant
+    let orderRef: SalesOrder | null = null;
     if (parsed.orderId) {
       const orderExists = await em.findOne(SalesOrder, {
         id: parsed.orderId,
@@ -8864,9 +8880,11 @@ const createCreditMemoCommand: CommandHandler<
       if (!orderExists) {
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }
+      orderRef = orderExists;
     }
 
     // Validate invoiceId belongs to same org/tenant
+    let invoiceRef: SalesInvoice | null = null;
     if (parsed.invoiceId) {
       const invoiceExists = await em.findOne(SalesInvoice, {
         id: parsed.invoiceId,
@@ -8877,6 +8895,7 @@ const createCreditMemoCommand: CommandHandler<
       if (!invoiceExists) {
         throw new CrudHttpError(400, { error: "Referenced invoice not found in current scope." });
       }
+      invoiceRef = invoiceExists;
     }
 
     const creditMemoId = randomUUID();
@@ -8885,8 +8904,8 @@ const createCreditMemoCommand: CommandHandler<
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       creditMemoNumber: ensuredCreditMemoNumber,
-      orderId: parsed.orderId ?? null,
-      invoiceId: parsed.invoiceId ?? null,
+      order: orderRef,
+      invoice: invoiceRef,
       statusEntryId: parsed.statusEntryId ?? null,
       status,
       reason: parsed.reason ?? null,
@@ -9134,8 +9153,8 @@ const updateCreditMemoCommand: CommandHandler<
     ensureOrganizationScope(ctx, creditMemo.organizationId);
     ensureTenantScope(ctx, creditMemo.tenantId);
     creditMemo.creditMemoNumber = before.creditMemo.creditMemoNumber;
-    creditMemo.orderId = before.creditMemo.orderId;
-    creditMemo.invoiceId = before.creditMemo.invoiceId;
+    creditMemo.order = before.creditMemo.orderId ? em.getReference(SalesOrder, before.creditMemo.orderId) : null;
+    creditMemo.invoice = before.creditMemo.invoiceId ? em.getReference(SalesInvoice, before.creditMemo.invoiceId) : null;
     creditMemo.statusEntryId = before.creditMemo.statusEntryId;
     creditMemo.status = before.creditMemo.status;
     creditMemo.reason = before.creditMemo.reason;
@@ -9238,8 +9257,8 @@ const deleteCreditMemoCommand: CommandHandler<
       organizationId: before.creditMemo.organizationId,
       tenantId: before.creditMemo.tenantId,
       creditMemoNumber: before.creditMemo.creditMemoNumber,
-      orderId: before.creditMemo.orderId,
-      invoiceId: before.creditMemo.invoiceId,
+      order: before.creditMemo.orderId ? em.getReference(SalesOrder, before.creditMemo.orderId) : null,
+      invoice: before.creditMemo.invoiceId ? em.getReference(SalesInvoice, before.creditMemo.invoiceId) : null,
       statusEntryId: before.creditMemo.statusEntryId,
       status: before.creditMemo.status,
       reason: before.creditMemo.reason,
@@ -9261,7 +9280,7 @@ const deleteCreditMemoCommand: CommandHandler<
       em.persist(em.create(SalesCreditMemoLine, {
         id: line.id,
         creditMemo: restored,
-        orderLineId: line.orderLineId,
+        orderLine: line.orderLineId ? em.getReference(SalesOrderLine, line.orderLineId) : null,
         organizationId: before.creditMemo.organizationId,
         tenantId: before.creditMemo.tenantId,
         lineNumber: line.lineNumber,
