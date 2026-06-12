@@ -158,18 +158,19 @@ describe('buildInteractionPayload — recurrence', () => {
   })
 
   it('appends UNTIL for the On date end mode and round-trips the date', () => {
+    const until = '2020-08-31'
     const state = makeState({
       repeatFreq: 'weekly',
       repeatDays: [false, true, false, false, false, false, false],
       repeatEndType: 'date',
-      repeatUntilDate: '2026-08-31',
+      repeatUntilDate: until,
     })
     const payload = buildInteractionPayload(state, { mode: 'create' })
-    expect(payload.recurrenceRule).toBe('FREQ=WEEKLY;BYDAY=TU;UNTIL=20260831T235959Z')
-    expect(payload.recurrenceEnd).toBe(new Date('2026-08-31').toISOString())
+    expect(payload.recurrenceRule).toBe('FREQ=WEEKLY;BYDAY=TU;UNTIL=20200831T235959Z')
+    expect(payload.recurrenceEnd).toBe(new Date(until).toISOString())
     const parsed = parseItemToFormState(itemFromPayload(payload))
     expect(parsed.repeatEndType).toBe('date')
-    expect(parsed.repeatUntilDate).toBe('2026-08-31')
+    expect(parsed.repeatUntilDate).toBe(until)
   })
 
   it('supports the daily frequency within the platform parser subset', () => {
@@ -273,7 +274,7 @@ describe('computeDurationMinutes', () => {
   })
 
   it('spans midnight across end dates', () => {
-    const state = makeState({ startTime: '23:00', endDate: '2026-06-13', endTime: '00:30' })
+    const state = makeState({ date: '2020-06-12', startTime: '23:00', endDate: '2020-06-13', endTime: '00:30' })
     expect(computeDurationMinutes(state)).toBe(90)
   })
 })

@@ -96,7 +96,9 @@ describe('expandOccurrences', () => {
 
   it('keeps the final occurrence when recurrenceEnd is stored as UTC midnight of the until date', () => {
     const item = makeRecurringItem('FREQ=WEEKLY;BYDAY=MO;UNTIL=20260608T235959Z', {
-      recurrenceEnd: '2026-06-08T00:00:00.000Z',
+      // UTC midnight of the until date (the shape ScheduleActivityDialog persists);
+      // built via Date.UTC so the fixed scenario carries no rotting date literal.
+      recurrenceEnd: new Date(Date.UTC(2026, 5, 8)).toISOString(),
     })
     const occurrences = expandOccurrences(item, twoWeekWindow)
     expect(occurrences.map((occurrence) => occurrence.start.getDate())).toEqual([1, 8])
