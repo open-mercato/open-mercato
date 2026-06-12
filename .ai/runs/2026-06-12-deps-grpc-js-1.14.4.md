@@ -46,5 +46,5 @@ Land the `@grpc/grpc-js` 1.14.4 security patch on `develop` and close the `main`
 
 ### Phase 2: Ship + close original
 
-- [ ] 2.1 Open PR against `develop`, normalize labels (`dependencies`, `skip-qa`, `review`)
-- [ ] 2.2 Close original #3022 with a pointer to the develop PR
+- [x] 2.1 Open PR against `develop`, normalize labels (`dependencies`, `skip-qa`, `review`) — PR #3041
+- [x] 2.2 Close original #3022 with a pointer to the develop PR — closed
