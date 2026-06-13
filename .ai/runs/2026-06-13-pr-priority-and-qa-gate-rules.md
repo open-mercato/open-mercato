@@ -66,6 +66,10 @@ dedicated QA reviewers have no capacity.
 - [x] 2.4 om-auto-continue-pr (+loop): preserve priority + honor qa-approved gate — 96383b1e9
 - [x] 2.5 om-auto-qa-scenarios + om-auto-sec-report-pr: QA-approval + priority notes — 96383b1e9
 
+### Phase 3: CI fixes (post-open)
+
+- [x] 3.1 Post-review fix: resolve `audit` job CVEs — pin `@grpc/grpc-js` 1.14.4 (GHSA-5375-pq7m-f5r2, GHSA-99f4-grh7-6pcq) and `esbuild` 0.28.1 (GHSA-gv7w-rqvm-qjhr) via root `resolutions`
+
 ## Changelog
 
 - 2026-06-13 — Shipped as PR #3055 against `develop`. `label-gate`, `validate-skills-tiers`, and `lint` checks green. New `qa-self-verified` GitHub label created. Gate still needs to be wired into branch protection as a required check by a maintainer to enforce.
