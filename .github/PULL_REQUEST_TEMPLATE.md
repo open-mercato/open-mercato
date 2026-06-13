@@ -36,6 +36,8 @@ List the tests or commands you ran to validate the change.
 - [ ] I added or adjusted tests that cover the change.
 - [ ] I added or updated integration tests in `.ai/qa/tests/` (or documented why integration coverage is not required).
 - [ ] I created or updated the spec in `.ai/specs/` with a changelog entry (if applicable).
+- [ ] Priority set: this PR carries exactly one `priority-*` label.
+- [ ] QA routing set: `skip-qa` for low-risk non-customer-facing changes, otherwise `needs-qa`. A `needs-qa` PR cannot merge until QA adds `qa-approved` (or an engineer self-QAs: run locally, click through, attach a screenshot/written confirmation, then add `qa-approved` + `qa-self-verified`). See `.github/QA-DEPLOYMENT.md`.
 
 ### Design System Compliance
 - [ ] No hardcoded status colors (`text-red-*`, `bg-green-*`, `text-emerald-*`, `bg-amber-*`, `bg-blue-*`) — use semantic tokens

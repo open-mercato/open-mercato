@@ -4,6 +4,14 @@ This guide explains how to deploy a branch to a QA environment and what to expec
 
 ---
 
+## QA-approval merge gate
+
+A PR labeled `needs-qa` **cannot be merged until it also carries `qa-approved`**, even when every other check is green. The `merge-gate` CI check (`.github/workflows/merge-gate.yml`) enforces this; it also fails on `qa-failed`, `do-not-merge`, `blocked`, and a contradictory `needs-qa` + `skip-qa` pair. Once QA passes, add `qa-approved` (alongside the `qa` → `merge-queue` transition).
+
+**Self-QA exception:** manual QA is normally done by the dedicated QA reviewers. When they have no capacity, any engineer may self-QA — but only by checking the PR out, running it locally, clicking through the affected flow, and attaching proof to the PR (a screenshot showing it working, or a written confirmation of what was exercised). Then add **both** `qa-approved` (so the gate passes) and `qa-self-verified` (so the audit trail shows a non-QA engineer signed off via this exception). `skip-qa` remains the opt-out for genuinely low-risk, non-customer-facing changes — never combine it with `needs-qa`. See `AGENTS.md` → PR Workflow for the authoritative rules.
+
+---
+
 ## Overview
 
 There are two ways to get a QA environment:
