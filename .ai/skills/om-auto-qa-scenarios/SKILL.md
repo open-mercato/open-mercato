@@ -110,7 +110,14 @@ so the report stays usable. Typical areas:
 - Catalog, Attachments, Shared Backend UI, Visual Regressions
 - Low-Priority Manual QA And Broad Smoke Only
 
-Assign a priority to each area:
+Assign a priority to each area. These P0/P1/P2 tags map onto the PR
+`priority-*` labels (root `AGENTS.md` → PR Workflow): P0 ≈ `priority-high`/
+`priority-extreme`, P1 ≈ `priority-medium`, P2 ≈ `priority-low`. When a PR in
+the window already carries a `priority-*` label, prefer it over re-deriving the
+tag. The same P0/P1/P2 route format is what a QA reviewer (or an engineer using
+the self-QA exception) follows pre-merge before applying `qa-approved` to a
+`needs-qa` PR — so keep the routes concrete enough to act as a QA sign-off
+checklist, not just a retrospective.
 
 - **P0** — auth/sessions/tenant scope, money flows, event/webhook
   reliability, anything that can leak data across tenants or double-charge.

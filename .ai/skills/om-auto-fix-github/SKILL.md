@@ -334,7 +334,9 @@ After creating the PR, normalize its labels immediately:
 - add `skip-qa` only for clearly low-risk changes such as docs-only, dependency-only, CI-only, test-only, or trivial typo/single-file maintenance fixes
 - do not add `needs-qa` automatically unless the fix clearly introduces customer-facing behavior that must be manually exercised
 - never add both `needs-qa` and `skip-qa`
+- carry the issue's priority forward: if the issue already has a `priority-*` label, copy it to the PR; otherwise infer one from the issue and the fix using the root `AGENTS.md` priority-inference rule (outage/data-loss/security incident → `priority-extreme`; security or release-blocking regression → `priority-high`; ordinary bug → `priority-medium`; cosmetic/cleanup → `priority-low`). The PR should never be left without a priority.
 - after each added label, post a short PR comment explaining why it was applied
+- a `needs-qa` PR stays unmergeable until QA signs off with `qa-approved` (enforced by the `merge-gate` check); do not add `qa-approved` from this skill
 
 If another auto-skill will immediately continue on the new PR, that follow-up skill must run the normal PR claim protocol (`assignee` + `in-progress` + claim comment) before mutating it.
 
@@ -342,6 +344,7 @@ Suggested label comments:
 
 - `review`: `Label set to \`review\` because the fix PR is ready for code review.`
 - `skip-qa`: `Label set to \`skip-qa\` because this change is low-risk and does not need manual QA.`
+- `priority-*`: `Priority set to \`priority-{level}\` because {inherited from issue / one-line rationale}.`
 
 #### Author handoff on the fixed issue
 
@@ -411,6 +414,8 @@ If you stopped because a fix already exists, report the existing PR or commit in
 - Link the issue in the PR and explain what changed and why
 - New PRs opened by this skill must start in the `review` pipeline state
 - Add `skip-qa` only for clearly low-risk non-customer-facing fixes; otherwise leave QA routing to the author/reviewer
+- Always give the PR exactly one priority label — inherit the issue's `priority-*` when present, otherwise infer one per root `AGENTS.md`
+- Never add `qa-approved` from this skill; a `needs-qa` fix PR stays blocked by the `merge-gate` check until QA signs off
 - When this skill adds PR labels, it must also add a short PR comment explaining why
 - After opening the fix PR, always hand the issue back to the original author with an explicit reassignment/comment handoff when possible
 - Always clean up any temporary worktree created by the current run

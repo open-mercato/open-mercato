@@ -333,7 +333,9 @@ Apply labels immediately:
 - add `review`,
 - add `needs-qa` for customer-facing browser fixes unless the change is test-only or clearly low-risk,
 - do not add `skip-qa` unless the PR is non-customer-facing,
-- never add both `needs-qa` and `skip-qa`.
+- never add both `needs-qa` and `skip-qa`,
+- give the PR exactly one priority label — inherit the issue's `priority-*` when present, otherwise infer one per the root `AGENTS.md` rule (this skill verifies real customer-facing browser bugs, so default at least `priority-medium`; raise to `priority-high` for auth/session/tenant/money/event-reliability or release-blocking flows),
+- do not add `qa-approved`; this skill's browser repro is not a substitute for manual QA sign-off, so a `needs-qa` PR stays blocked by the `merge-gate` check until QA (or the self-QA exception) applies `qa-approved`.
 
 Post a short PR comment for every pipeline/meta label changed.
 
@@ -403,5 +405,6 @@ Other checks: {summary}
 - Link the issue in the PR and include browser reproduction evidence.
 - New PRs from this skill must start with the `review` pipeline label.
 - Customer-facing browser fixes should usually carry `needs-qa`; use `skip-qa` only for clearly non-customer-facing changes.
+- Always give the PR exactly one priority label (inherit the issue's, else infer per root `AGENTS.md`); never add `qa-approved` — a `needs-qa` PR stays blocked by the `merge-gate` check until manual QA signs off.
 - When this skill changes PR labels, it must also post a short comment explaining why.
 - Branches opened by this skill must use `fix/` for corrective work or `feat/` for enhancement work; never `codex/`.

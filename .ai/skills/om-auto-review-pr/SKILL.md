@@ -343,7 +343,7 @@ Define and reuse a shared helper such as `setPipelineLabel(prNumber, newLabel)` 
 
 - adds `newLabel`
 - removes every other pipeline label from the list above
-- preserves category labels (`bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`) and meta labels (`needs-qa`, `skip-qa`, `in-progress`)
+- preserves category labels (`bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`), meta labels (`needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`), and priority labels (`priority-low`, `priority-medium`, `priority-high`, `priority-extreme`)
 - uses the GraphQL API for atomicity
 
 After every pipeline-label change, post a short PR comment explaining why that label was chosen. Keep it to one short sentence.
@@ -353,17 +353,26 @@ Label rules:
 - If the PR has no pipeline label when review starts, set `review` before continuing so the state machine is explicit.
 - If the verdict is changes requested, set `changes-requested`.
 - If the verdict is approved and the PR has `needs-qa` but not `skip-qa`, set `qa`.
-- If the verdict is approved and the PR does not require QA, set `merge-queue`.
+- If the verdict is approved and the PR does not require QA (no `needs-qa`, or `skip-qa` is present), set `merge-queue`.
+- **Never route a `needs-qa` PR to `merge-queue`** — code-review approval is not QA approval. A `needs-qa` PR can only reach `merge-queue` after manual QA passes and `qa-approved` is applied (by a QA reviewer, or by an engineer via the self-QA exception). The reviewer never applies `qa-approved` itself based solely on reading the diff.
+- If you find a `needs-qa` PR already sitting in `merge-queue` without `qa-approved`, treat it as a policy violation: move it back to `qa`, post a one-line comment explaining the QA-approval gate, and do not approve-to-merge.
 - Never leave `review`, `changes-requested`, `qa`, `qa-failed`, and `merge-queue` on the same PR together.
+
+Priority label (always ensure exactly one):
+
+- If the PR carries no priority label, infer one from the diff and the linked issue and apply it via the GraphQL flow, then post a one-line comment naming the chosen priority and why. Use the inference rule from root `AGENTS.md` → PR Workflow: outage/data-loss/security incident → `priority-extreme`; security hardening / release-blocking regression / auth-session-tenant-money-event-reliability fix → `priority-high`; ordinary bug or feature → `priority-medium`; cosmetic/docs/deps/cleanup → `priority-low`.
+- If the PR already has a priority label, keep it unless the review reveals the scope is clearly mis-rated (e.g. a "cleanup" PR that actually touches auth) — then adjust it and explain why in the comment.
+- Priority is mutually exclusive: when changing it, remove the other three priority labels.
 
 Suggested label comments:
 
 - `review`: `Label set to \`review\` because this PR is ready for code review.`
 - `changes-requested`: `Label set to \`changes-requested\` because review found actionable issues.`
 - `qa`: `Label set to \`qa\` because code review passed and manual QA is still required.`
-- `merge-queue`: `Label set to \`merge-queue\` because the required review gates passed.`
+- `merge-queue`: `Label set to \`merge-queue\` because the required review gates passed and QA is not required (or `qa-approved` is already present).`
 - `blocked`: `Label set to \`blocked\` because progress depends on an external blocker.`
 - `do-not-merge`: `Label set to \`do-not-merge\` because this PR should not merge yet.`
+- `priority-*`: `Priority set to \`priority-{level}\` because {one-line rationale}.`
 
 #### Author handoff on `changes-requested`
 
@@ -621,8 +630,12 @@ If a critical blocker remains that requires human judgment, the summary must des
 - Always add a short PR comment explaining why the chosen pipeline label was applied
 - Always hand `changes-requested` PRs back to the original author with an explicit reassignment/comment handoff when possible
 - Approved PRs with `needs-qa` and without `skip-qa` must land in `qa`, not `merge-queue`
+- Never route a `needs-qa` PR to `merge-queue` without `qa-approved`; code-review approval is not QA approval, and the `merge-gate` CI check blocks merging a `needs-qa` PR that lacks `qa-approved`
+- Never apply `qa-approved` from this skill based only on reading the diff — `qa-approved` is earned by manual QA (QA reviewer) or the self-QA exception (run locally, click through, attach a screenshot/written confirmation, then add `qa-approved` + `qa-self-verified`)
 - On every `needs-qa → qa` transition, also post a manual-QA instructions comment (step 8a) with concrete click paths, verification points, and edge cases derived from the diff, using the `om-auto-qa-scenarios` P0/P1/P2 route format; this is additive and does not replace the pipeline-label or completion comments
 - Approved PRs without a QA requirement must land in `merge-queue`
+- Always ensure the PR carries exactly one priority label: infer and apply one when missing (per root `AGENTS.md` priority-inference rule), keep the existing one otherwise, and remove the other three when changing it
+- Preserve `qa-approved`, `qa-self-verified`, and the priority label through every pipeline-label transition
 - When a review starts on an unlabeled PR, apply `review` before continuing
 - Always use the GraphQL API for label operations
 - Never force-push unless the user explicitly approved it
