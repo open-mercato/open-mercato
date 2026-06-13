@@ -70,6 +70,16 @@ dedicated QA reviewers have no capacity.
 
 - [x] 3.1 Post-review fix: resolve `audit` job CVEs — pin `@grpc/grpc-js` 1.14.4 (GHSA-5375-pq7m-f5r2, GHSA-99f4-grh7-6pcq) and `esbuild` 0.28.1 (GHSA-gv7w-rqvm-qjhr) via root `resolutions`
 
+### Phase 4: Risk labels (follow-up — same shape as priority)
+
+> Added per maintainer request: extend the label system with `risk-low` / `risk-medium` / `risk-high` exactly the way priority labels were added. Risk = blast radius of the change (orthogonal to priority = urgency). Risk labels already existed in the repo with no description; this phase makes them first-class.
+
+- [x] 4.1 Add risk-label rules + risk-inference rule to root `AGENTS.md` PR Workflow (orthogonal-to-priority framing)
+- [x] 4.2 Document risk labels in the canonical taxonomy spec `.ai/specs/implemented/2026-04-13-pr-label-workflow.md` (section, create-cmd, table, Phase 6, descriptions); add GitHub label descriptions
+- [x] 4.3 Mirror priority handling for risk across `om-auto-*` skills: create-pr (+loop) apply; fix-github / verify-and-fix-github carry from issue; review-pr infer/preserve/mutually-exclusive; continue-pr (+loop) preserve; qa-scenarios depth-by-risk; sec-report-pr → `risk-low`; prepare-issue `--risk` flag
+- [x] 4.4 Add a `risk-*` checklist item to the PR template
+
 ## Changelog
 
 - 2026-06-13 — Shipped as PR #3055 against `develop`. `label-gate`, `validate-skills-tiers`, and `lint` checks green. New `qa-self-verified` GitHub label created. Gate still needs to be wired into branch protection as a required check by a maintainer to enforce.
+- 2026-06-13 — Phase 4 (follow-up): added `risk-low` / `risk-medium` / `risk-high` labels as first-class signals (blast radius, orthogonal to priority). Mirrored priority handling across all `om-auto-*` skills + `om-prepare-issue` `--risk`, documented in root `AGENTS.md` and the canonical label spec, added a PR-template checklist item, and attached descriptions to the pre-existing GitHub risk labels.
