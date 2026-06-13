@@ -101,14 +101,14 @@ New query parameter:
 
 ## Integration Coverage
 
-| ID | Scenario |
-|----|----------|
-| WMS-LI-INT-01 | Duplicate adjust with same reference signature returns same movementId, balance unchanged |
-| WMS-LI-INT-02 | Reserve from hold/expired lot rejected; available lot reserved |
-| WMS-LI-INT-03 | Reserve → allocate → release round-trip restores availability |
-| WMS-LI-INT-04 | Concurrent reserve on hot SKU (extends TC-WMS-021 pattern) |
-| WMS-LI-INT-05 | Multi-line order partial auto-reserve emits shortfall |
-| WMS-LI-INT-06 | Movements filtered by locationId server-side |
+| ID | Scenario | Test |
+|----|----------|------|
+| WMS-LI-INT-01 | Duplicate adjust with same reference signature returns same movementId, balance unchanged | `TC-WMS-027` — idempotency retry |
+| WMS-LI-INT-02 | Reserve from hold/expired lot rejected; available lot reserved | `TC-WMS-027` — lot eligibility |
+| WMS-LI-INT-03 | Reserve → allocate → release round-trip restores availability | `TC-WMS-027` — round-trip |
+| WMS-LI-INT-04 | Concurrent reserve on hot SKU (extends TC-WMS-021 pattern) | `TC-WMS-027` — concurrent reserve |
+| WMS-LI-INT-05 | Multi-line order partial auto-reserve emits shortfall | `TC-WMS-027` — shortfall notification |
+| WMS-LI-INT-06 | Movements filtered by locationId server-side | `TC-WMS-027` — locationId filter |
 
 ## Migration & Backward Compatibility
 
