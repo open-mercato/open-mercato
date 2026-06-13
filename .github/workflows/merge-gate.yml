@@ -23,6 +23,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  issues: read
 
 concurrency:
   group: merge-gate-${{ github.event.pull_request.number }}
