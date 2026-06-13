@@ -44,11 +44,11 @@ internally consistent exactly as CI on the original PRs already validated.
 
 ### Phase 1: Apply bumps
 
-- [ ] 1.1 Apply #3053 (joi) lockfile diff
-- [ ] 1.2 Apply #3052 (webpack-dev-server) lockfile diff
-- [ ] 1.3 Apply #3051 (esbuild) package.json + lockfile diff
+- [x] 1.1 Apply #3053 (joi) lockfile diff — d089c226b
+- [x] 1.2 Apply #3052 (webpack-dev-server) lockfile diff — 08f5269cc
+- [x] 1.3 Apply #3051 (esbuild) package.json + lockfile diff — f0300599d
 
 ### Phase 2: Validate & ship
 
-- [ ] 2.1 Run `yarn install` to confirm lockfile consistency
+- [x] 2.1 Run `yarn install --immutable` to confirm lockfile consistency — passed (no tracked-file mutation)
 - [ ] 2.2 Open PR against `develop`, label, close originals
