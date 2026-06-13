@@ -380,6 +380,16 @@ Reservation and allocation commands consume stock buckets according to the varia
 
 Respect `track_lot` / `track_serial` / `track_expiration` flags on the variant profile. If `track_expiration = true`, FEFO is mandatory regardless of `default_strategy`. `received_at` is the canonical stock-rotation timestamp for a bucket and is inherited from the original receipt-side movement even when later operational movements occur.
 
+**Lot eligibility (ledger integrity):** Only lots with `status = available` and (`expires_at` null or `expires_at > now`) are eligible for reservation across all strategies. See [2026-06-13-wms-ledger-integrity.md](2026-06-13-wms-ledger-integrity.md).
+
+### Ledger Integrity (follow-up spec)
+
+See [2026-06-13-wms-ledger-integrity.md](2026-06-13-wms-ledger-integrity.md) for:
+- Idempotency keys on movements and reservations
+- Ledger↔balance reconciliation (`mercato wms verify-balances`)
+- Auto-reserve per-variant isolation and `wms.inventory.reservation_shortfall`
+- `GET /api/wms/inventory/movements?locationId=`
+
 ### Validation Rules
 
 All validators live in `data/validators.ts`:

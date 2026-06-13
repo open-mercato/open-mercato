@@ -250,6 +250,7 @@ export async function fetchReservations(
     catalogVariantId?: string
     sourceType?: string
     sourceId?: string
+    status?: string
   },
 ): Promise<NonNullable<InventoryReservationListResponse['items']>> {
   const params = new URLSearchParams({ page: '1', pageSize: '50' })
@@ -259,6 +260,7 @@ export async function fetchReservations(
   }
   if (query.sourceType) params.set('sourceType', query.sourceType)
   if (query.sourceId) params.set('sourceId', query.sourceId)
+  if (query.status) params.set('status', query.status)
 
   const response = await apiRequest(
     request,
@@ -279,6 +281,7 @@ export async function fetchMovements(
   token: string,
   query: {
     warehouseId?: string
+    locationId?: string
     catalogVariantId?: string
     lotId?: string
     referenceId?: string
@@ -287,6 +290,7 @@ export async function fetchMovements(
 ): Promise<NonNullable<InventoryMovementListResponse['items']>> {
   const params = new URLSearchParams({ page: '1', pageSize: '50' })
   if (query.warehouseId) params.set('warehouseId', query.warehouseId)
+  if (query.locationId) params.set('locationId', query.locationId)
   if (query.catalogVariantId) {
     params.set('catalogVariantId', query.catalogVariantId)
   }

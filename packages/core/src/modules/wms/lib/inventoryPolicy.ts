@@ -1,4 +1,16 @@
-import type { InventoryStrategy } from '../data/entities'
+import type { InventoryLotStatus, InventoryStrategy } from '../data/entities'
+
+type LotEligibilityInput = {
+  status?: InventoryLotStatus | null
+  expiresAt?: Date | null
+} | null | undefined
+
+export function isLotEligible(lot: LotEligibilityInput, now: Date = new Date()): boolean {
+  if (!lot) return true
+  if (lot.status !== 'available') return false
+  if (lot.expiresAt && lot.expiresAt.getTime() <= now.getTime()) return false
+  return true
+}
 
 type NumericLike = string | number | null | undefined
 

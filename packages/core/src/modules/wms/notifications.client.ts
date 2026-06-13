@@ -2,6 +2,7 @@
 
 import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
 import { WmsLowStockRenderer } from './widgets/notifications/WmsLowStockRenderer'
+import { WmsReservationShortfallRenderer } from './widgets/notifications/WmsReservationShortfallRenderer'
 
 export const wmsNotificationTypes: NotificationTypeDefinition[] = [
   {
@@ -22,6 +23,26 @@ export const wmsNotificationTypes: NotificationTypeDefinition[] = [
     ],
     linkHref: '/backend/wms/inventory',
     Renderer: WmsLowStockRenderer,
+    expiresAfterHours: 72,
+  },
+  {
+    type: 'wms.inventory.reservation_shortfall',
+    module: 'wms',
+    titleKey: 'wms.notifications.reservationShortfall.title',
+    bodyKey: 'wms.notifications.reservationShortfall.body',
+    icon: 'alert-triangle',
+    severity: 'warning',
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'wms.notifications.reservationShortfall.renderer.viewReservations',
+        variant: 'outline',
+        href: '/backend/wms/reservations',
+        icon: 'external-link',
+      },
+    ],
+    linkHref: '/backend/wms/reservations',
+    Renderer: WmsReservationShortfallRenderer,
     expiresAfterHours: 72,
   },
 ]

@@ -1,10 +1,12 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { FeatureTogglesService } from '@open-mercato/core/modules/feature_toggles/lib/feature-flag-check'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
 import { InventoryBalance, InventoryReservation } from '../data/entities'
+import { emitWmsEvent } from '../events'
 import { loadExplicitWarehouseIdForOrder } from './salesOrderWarehouseAssignment'
 import {
   resolvePrimaryWarehouseId,
@@ -26,6 +28,17 @@ type SalesOrderLifecyclePayload = {
 type Scope = {
   tenantId: string
   organizationId: string
+}
+
+type ReservationShortfallLine = {
+  catalogVariantId: string
+  requiredQuantity: number
+  reservedQuantity: number
+  shortfallQuantity: number
+}
+
+function isInsufficientStockError(error: unknown): boolean {
+  return error instanceof CrudHttpError && error.status === 409 && error.body?.error === 'insufficient_stock'
 }
 
 type SalesOrderRow = {
@@ -252,6 +265,7 @@ export async function reserveInventoryForConfirmedOrder(
     loadExplicitWarehouseIdForOrder(em, orderId, scope),
   ])
   const preferredWarehouseId = assignedWarehouseId ?? primaryWarehouseId
+  const shortfalls: ReservationShortfallLine[] = []
 
   for (const [variantId, requiredQuantity] of requiredByVariant.entries()) {
     let remainingQuantity = requiredQuantity - (reservedByVariant.get(variantId) ?? 0)
@@ -268,33 +282,59 @@ export async function reserveInventoryForConfirmedOrder(
       variantBuckets,
       preferredWarehouseId,
     )
-    for (const bucket of warehouseAvailability) {
-      if (remainingQuantity <= 0) break
-      const reserveQuantity = Math.min(remainingQuantity, bucket.available)
-      if (reserveQuantity <= 0) continue
+    let reservedForVariant = 0
+    try {
+      for (const bucket of warehouseAvailability) {
+        if (remainingQuantity <= 0) break
+        const reserveQuantity = Math.min(remainingQuantity, bucket.available)
+        if (reserveQuantity <= 0) continue
 
-      await commandBus.execute('wms.inventory.reserve', {
-        input: {
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          warehouseId: bucket.warehouseId,
-          catalogVariantId: variantId,
-          quantity: reserveQuantity,
-          sourceType: 'order',
-          sourceId: orderId,
-          metadata: {
-            automation: 'sales.order.confirmed',
-            orderId,
-            orderNumber,
+        await commandBus.execute('wms.inventory.reserve', {
+          input: {
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            warehouseId: bucket.warehouseId,
             catalogVariantId: variantId,
+            quantity: reserveQuantity,
+            sourceType: 'order',
+            sourceId: orderId,
+            metadata: {
+              automation: 'sales.order.confirmed',
+              orderId,
+              orderNumber,
+              catalogVariantId: variantId,
+            },
           },
-        },
-        ctx: commandCtx,
-      })
+          ctx: commandCtx,
+        })
 
-      remainingQuantity -= reserveQuantity
-      bucket.available -= reserveQuantity
+        remainingQuantity -= reserveQuantity
+        reservedForVariant += reserveQuantity
+        bucket.available -= reserveQuantity
+      }
+    } catch (error) {
+      if (!isInsufficientStockError(error)) throw error
     }
+
+    if (remainingQuantity > 0.000001) {
+      shortfalls.push({
+        catalogVariantId: variantId,
+        requiredQuantity,
+        reservedQuantity: reservedForVariant + (reservedByVariant.get(variantId) ?? 0),
+        shortfallQuantity: remainingQuantity,
+      })
+    }
+  }
+
+  if (shortfalls.length > 0) {
+    await emitWmsEvent('wms.inventory.reservation_shortfall', {
+      id: orderId,
+      orderId,
+      orderNumber,
+      shortfalls,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
   }
 }
 

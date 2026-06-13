@@ -20,6 +20,25 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     linkHref: '/backend/wms/inventory',
     expiresAfterHours: 72,
   },
+  {
+    type: 'wms.inventory.reservation_shortfall',
+    module: 'wms',
+    titleKey: 'wms.notifications.reservationShortfall.title',
+    bodyKey: 'wms.notifications.reservationShortfall.body',
+    icon: 'alert-triangle',
+    severity: 'warning',
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'wms.notifications.reservationShortfall.renderer.viewReservations',
+        variant: 'outline',
+        href: '/backend/wms/reservations',
+        icon: 'external-link',
+      },
+    ],
+    linkHref: '/backend/wms/reservations',
+    expiresAfterHours: 72,
+  },
 ]
 
 export default notificationTypes

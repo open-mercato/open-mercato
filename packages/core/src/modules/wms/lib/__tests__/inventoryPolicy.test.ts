@@ -2,6 +2,7 @@
 
 import {
   evaluateLowStock,
+  isLotEligible,
   resolveReservationStrategyFromProfile,
   sortBucketsForStrategy,
   type InventoryStrategyBucket,
@@ -90,6 +91,16 @@ describe('wms inventory policy helpers', () => {
     ).toBe('fifo')
 
     expect(resolveReservationStrategyFromProfile(null, undefined)).toBe('fifo')
+  })
+
+  it('evaluates lot eligibility for reservation buckets', () => {
+    const now = new Date('2026-06-13T12:00:00.000Z')
+    expect(isLotEligible(null, now)).toBe(true)
+    expect(isLotEligible({ status: 'available', expiresAt: new Date('2026-07-01T00:00:00.000Z') }, now)).toBe(true)
+    expect(isLotEligible({ status: 'hold', expiresAt: null }, now)).toBe(false)
+    expect(isLotEligible({ status: 'quarantine', expiresAt: null }, now)).toBe(false)
+    expect(isLotEligible({ status: 'expired', expiresAt: null }, now)).toBe(false)
+    expect(isLotEligible({ status: 'available', expiresAt: new Date('2026-06-01T00:00:00.000Z') }, now)).toBe(false)
   })
 
   it('evaluates low-stock threshold state across reorder and safety bands', () => {

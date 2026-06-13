@@ -26,6 +26,8 @@ const events = [
   { id: 'wms.inventory.moved', label: 'Inventory Moved', entity: 'inventory', category: 'custom' },
   { id: 'wms.inventory.reconciled', label: 'Inventory Reconciled', entity: 'inventory', category: 'custom' },
   { id: 'wms.inventory.low_stock', label: 'Inventory Low Stock', entity: 'inventory', category: 'lifecycle' },
+  { id: 'wms.inventory.balance_drift', label: 'Inventory Balance Drift', entity: 'inventory', category: 'lifecycle' },
+  { id: 'wms.inventory.reservation_shortfall', label: 'Inventory Reservation Shortfall', entity: 'inventory', category: 'lifecycle' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

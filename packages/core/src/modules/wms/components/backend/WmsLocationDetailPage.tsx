@@ -354,10 +354,6 @@ function formatRelativeDays(valueMs: number, t: ReturnType<typeof useT>): string
   return t('wms.backend.location.kpis.lastCounted.daysAgo', '{days}d ago', { days })
 }
 
-function movementInvolvesLocation(row: InventoryMovementRow, locationId: string): boolean {
-  return row.location_from_id === locationId || row.location_to_id === locationId
-}
-
 type LocationKpiCardProps = {
   title: string
   caption: string
@@ -523,6 +519,7 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
     queryFn: async () => {
       const params = new URLSearchParams({
         warehouseId,
+        locationId: scopedLocationId!,
         page: '1',
         pageSize: '50',
         sortField: 'performedAt',
@@ -534,7 +531,7 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
       if (!call.ok) {
         await raiseCrudError(call.response, t('wms.backend.location.errors.movements', 'Failed to load recent activity.'))
       }
-      return (call.result?.items ?? []).filter((row) => movementInvolvesLocation(row, scopedLocationId!))
+      return call.result?.items ?? []
     },
   })
 

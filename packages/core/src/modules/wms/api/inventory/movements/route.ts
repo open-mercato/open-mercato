@@ -65,13 +65,29 @@ const crud = makeCrudRoute({
       if (query.referenceType) filters.reference_type = { $eq: query.referenceType }
       if (query.referenceId) filters.reference_id = { $eq: query.referenceId }
       if (query.type) filters.type = { $eq: query.type }
+      const andFilters: Record<string, unknown>[] = []
+      if (query.locationId) {
+        andFilters.push({
+          $or: [
+            { location_from_id: { $eq: query.locationId } },
+            { location_to_id: { $eq: query.locationId } },
+          ],
+        })
+      }
       const term = query.search?.trim()
       if (term) {
         const like = `%${escapeLikePattern(term)}%`
-        filters.$or = [
-          { serial_number: { $ilike: like } },
-          { reason: { $ilike: like } },
-        ]
+        andFilters.push({
+          $or: [
+            { serial_number: { $ilike: like } },
+            { reason: { $ilike: like } },
+          ],
+        })
+      }
+      if (andFilters.length === 1) {
+        Object.assign(filters, andFilters[0])
+      } else if (andFilters.length > 1) {
+        filters.$and = andFilters
       }
       return filters
     },
