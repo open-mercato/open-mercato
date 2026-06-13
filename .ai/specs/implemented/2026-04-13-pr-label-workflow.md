@@ -84,7 +84,24 @@ Rules:
 - `priority-extreme` MUST be paired with an explanatory comment naming the incident/outage and the on-call owner.
 - Auto-skills MUST NOT set or change priority labels on their own; human triage owns priority. The only exception is `priority-extreme` on confirmed CI-breaking or security-impacting regressions, which an auto-skill MAY apply with an explanatory comment.
 
-**Total: 21 labels** (down from 50+; 17 from the original spec plus 4 priority labels added 2026-05-04).
+### Risk Labels (mutually exclusive within group — at most one)
+
+These communicate the **blast radius of a change** — how likely it is to introduce a regression and how wide the impact would be — on issues and PRs. They are additive relative to category/meta/priority labels, but only one risk label may be applied at a time. The default — when no risk label is present — is treated as `risk-medium`. Risk is orthogonal to priority: priority is *how urgent the work is*, risk is *how dangerous the change is to ship*.
+
+| Label | Color | When to apply |
+|-------|-------|---------------|
+| `risk-low` | `#136320` green | Docs-only, dependency bumps, test-only, comment/typo, or isolated cosmetic cleanup — unlikely to cause a regression |
+| `risk-medium` | `#e2afa3` salmon | Default — an ordinary single-module feature or bug fix that ships with tests |
+| `risk-high` | `#a02435` deep red | Auth/session/tenant-scope/money, migrations, encryption, event reliability, shared contract surfaces, or broad cross-module edits |
+
+Rules:
+
+- Non-draft PRs SHOULD carry a risk label. If absent, treat as `risk-medium`.
+- Triage/skills MUST replace any existing risk label rather than stacking — use `gh pr edit <n> --remove-label risk-low --add-label risk-high` (or the GraphQL helper used elsewhere).
+- Unlike priority, `om-auto-*` skills DO set or infer the risk label per the root `AGENTS.md` risk-inference rule (and carry it forward from a linked issue when present).
+- A `risk-high` rating reinforces the case for `needs-qa` and deeper review even when the change would otherwise look routine.
+
+**Total: 24 labels** (17 from the original spec, plus 4 priority labels added 2026-05-04 and 3 risk labels added 2026-06-13).
 
 ---
 
@@ -570,6 +587,11 @@ gh label create "priority-medium" --color "FBCA04" --description "Medium priorit
 gh label create "priority-high" --color "FF8A65" --description "High priority — block the next release until resolved" --force
 gh label create "priority-extreme" --color "B60205" --description "Extreme priority — drop everything and address immediately" --force
 
+# --- Risk labels (added 2026-06-13) ---
+gh label create "risk-low" --color "136320" --description "Low blast radius — isolated, unlikely to cause a regression" --force
+gh label create "risk-medium" --color "e2afa3" --description "Moderate blast radius — ordinary single-module change" --force
+gh label create "risk-high" --color "a02435" --description "High blast radius — auth/money/migrations/contracts or broad cross-module change" --force
+
 # --- Update existing labels ---
 gh label edit "do not merge" --name "do-not-merge" --description "Held from merging" 2>/dev/null
 gh label edit "merge-queue" --description "All gates passed — ready to merge" --force
@@ -620,6 +642,9 @@ echo "Done. Labels cleaned up."
 | 19 | `priority-medium` | Priority | 🟡 yellow |
 | 20 | `priority-high` | Priority | 🟠 orange |
 | 21 | `priority-extreme` | Priority | 🔴 deep red |
+| 22 | `risk-low` | Risk | 🟢 green |
+| 23 | `risk-medium` | Risk | 🟠 salmon |
+| 24 | `risk-high` | Risk | 🔴 deep red |
 
 ## 2026-06-05 Follow-Up: CI Phase Labels
 
@@ -636,6 +661,7 @@ This label is deliberately outside the 21-label PR workflow state machine above.
 | Phase 3 — AGENTS.md Updates | Done | 2026-04-14 | Root `AGENTS.md` documents the PR workflow, QA routing, and `gh` helper commands |
 | Phase 4 — Automation | Not Started | — | Optional GitHub Actions enforcement remains deferred |
 | Phase 5 — Priority Labels | Done | 2026-05-04 | Added `priority-low/medium/high/extreme` to communicate urgency on issues and PRs; documented in this spec and root `AGENTS.md` |
+| Phase 6 — Risk Labels | Done | 2026-06-13 | Added `risk-low/medium/high` to communicate change blast radius (orthogonal to priority); `om-auto-*` skills infer/carry/preserve it; documented in this spec and root `AGENTS.md` |
 
 ### Detailed Progress
 
@@ -647,6 +673,7 @@ This label is deliberately outside the 21-label PR workflow state machine above.
 - [x] Add `om-review-prs` skill
 - [x] Add PR workflow guidance to root `AGENTS.md`
 - [x] Add `priority-low/medium/high/extreme` labels and triage rules (2026-05-04)
+- [x] Add `risk-low/medium/high` labels, inference rules, and `om-auto-*` skill handling (2026-06-13)
 - [ ] Add optional GitHub Actions enforcement
 
 ---

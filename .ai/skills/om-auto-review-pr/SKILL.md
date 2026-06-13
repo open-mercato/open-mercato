@@ -343,7 +343,7 @@ Define and reuse a shared helper such as `setPipelineLabel(prNumber, newLabel)` 
 
 - adds `newLabel`
 - removes every other pipeline label from the list above
-- preserves category labels (`bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`), meta labels (`needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`), and priority labels (`priority-low`, `priority-medium`, `priority-high`, `priority-extreme`)
+- preserves category labels (`bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`), meta labels (`needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`), priority labels (`priority-low`, `priority-medium`, `priority-high`, `priority-extreme`), and risk labels (`risk-low`, `risk-medium`, `risk-high`)
 - uses the GraphQL API for atomicity
 
 After every pipeline-label change, post a short PR comment explaining why that label was chosen. Keep it to one short sentence.
@@ -364,6 +364,12 @@ Priority label (always ensure exactly one):
 - If the PR already has a priority label, keep it unless the review reveals the scope is clearly mis-rated (e.g. a "cleanup" PR that actually touches auth) — then adjust it and explain why in the comment.
 - Priority is mutually exclusive: when changing it, remove the other three priority labels.
 
+Risk label (always ensure exactly one):
+
+- If the PR carries no risk label, infer one from the diff and the linked issue and apply it via the GraphQL flow, then post a one-line comment naming the chosen risk and why. Use the inference rule from root `AGENTS.md` → PR Workflow: auth/session/tenant-scope/money / migrations / encryption / event reliability / shared contract surfaces / broad cross-module edits → `risk-high`; ordinary single-module change with tests → `risk-medium`; docs/deps/test-only/typo/isolated cleanup → `risk-low`.
+- If the PR already has a risk label, keep it unless the review reveals the scope is clearly mis-rated (e.g. a "docs" PR that actually changes a migration) — then adjust it and explain why in the comment. A `risk-high` rating reinforces the case for `needs-qa` and deeper review even when the PR would otherwise look routine.
+- Risk is mutually exclusive: when changing it, remove the other two risk labels.
+
 Suggested label comments:
 
 - `review`: `Label set to \`review\` because this PR is ready for code review.`
@@ -373,6 +379,7 @@ Suggested label comments:
 - `blocked`: `Label set to \`blocked\` because progress depends on an external blocker.`
 - `do-not-merge`: `Label set to \`do-not-merge\` because this PR should not merge yet.`
 - `priority-*`: `Priority set to \`priority-{level}\` because {one-line rationale}.`
+- `risk-*`: `Risk set to \`risk-{level}\` because {one-line rationale}.`
 
 #### Author handoff on `changes-requested`
 
@@ -635,7 +642,8 @@ If a critical blocker remains that requires human judgment, the summary must des
 - On every `needs-qa → qa` transition, also post a manual-QA instructions comment (step 8a) with concrete click paths, verification points, and edge cases derived from the diff, using the `om-auto-qa-scenarios` P0/P1/P2 route format; this is additive and does not replace the pipeline-label or completion comments
 - Approved PRs without a QA requirement must land in `merge-queue`
 - Always ensure the PR carries exactly one priority label: infer and apply one when missing (per root `AGENTS.md` priority-inference rule), keep the existing one otherwise, and remove the other three when changing it
-- Preserve `qa-approved`, `qa-self-verified`, and the priority label through every pipeline-label transition
+- Always ensure the PR carries exactly one risk label: infer and apply one when missing (per root `AGENTS.md` risk-inference rule), keep the existing one otherwise, and remove the other two when changing it
+- Preserve `qa-approved`, `qa-self-verified`, the priority label, and the risk label through every pipeline-label transition
 - When a review starts on an unlabeled PR, apply `review` before continuing
 - Always use the GraphQL API for label operations
 - Never force-push unless the user explicitly approved it

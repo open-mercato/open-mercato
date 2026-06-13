@@ -333,12 +333,16 @@ the same HTML rules documented in `om-auto-sec-report`:
 After the artifacts exist, follow `.ai/skills/om-auto-create-pr/SKILL.md`
 verbatim to open a docs-only PR against `develop`. PR title:
 `docs(analysis): add auto-sec-report-pr for {target caption}`. Labels:
-`review`, `documentation`, `security`, `skip-qa`, plus one priority label.
+`review`, `documentation`, `security`, `skip-qa`, plus one priority label and
+one risk label.
 The report itself is docs-only (`skip-qa`), so default it to `priority-medium`;
 but when the report documents an exploitable or live security weakness, set
 `priority-high` (or `priority-extreme` for an active incident) so the follow-up
 remediation is triaged with appropriate urgency, and call out that priority in
-the PR summary. Never merge from within this skill.
+the PR summary. The PR adds only a Markdown report — no code ships — so the
+change itself is `risk-low` regardless of how severe the *documented* finding is
+(severity drives priority, not the risk of merging this docs PR). Never merge
+from within this skill.
 
 #### 6b. Sub-unit mode (`--out-fragment` set)
 
@@ -444,5 +448,7 @@ If the run cannot finish in a single invocation:
 - Always apply one priority label: `priority-medium` by default, raised to
   `priority-high`/`priority-extreme` when the report documents an exploitable
   or live security weakness.
+- Always apply `risk-low`: this PR ships only a Markdown report, so merging it
+  carries no regression risk regardless of the documented finding's severity.
 - Sub-unit mode (`--out-fragment`) never opens a PR, never applies
   labels, and never runs autofix. The driver owns PR delivery.
