@@ -634,15 +634,15 @@ export function DealsMapView({ search }: DealsMapViewProps): React.ReactElement 
               {translateWithFallback(
                 t,
                 'customers.deals.map.truncated',
-                'Showing first {count} deals',
-                { count: deals.length },
+                'Showing first {count} of {total} located deals — refine filters to narrow the map.',
+                { count: deals.length, total: dealsQuery.data?.total ?? deals.length },
               )}
             </p>
           ) : null}
           <div className="flex min-h-[480px] flex-col gap-4 lg:h-[calc(100vh-360px)] lg:flex-row">
             <DealsLocationPanel
               deals={deals}
-              total={dealsQuery.data?.total ?? deals.length}
+              locatedCount={dealsQuery.data?.total ?? deals.length}
               stageMetaById={stageMetaById}
               mapCenter={mapCenter}
               selectedDealId={selectedDealId}

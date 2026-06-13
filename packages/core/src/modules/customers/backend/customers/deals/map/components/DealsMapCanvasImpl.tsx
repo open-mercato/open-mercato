@@ -27,6 +27,24 @@ const TILE_URL =
 const TILE_ATTRIBUTION =
   process.env.NEXT_PUBLIC_OM_DEALS_MAP_TILE_ATTRIBUTION ??
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+// True whenever the EFFECTIVE tile URL targets OSM's public CDN — whether from the bundled default
+// (env unset) OR an env value pointed back at the same public host. OSM's tile usage policy
+// prohibits production/commercial traffic against it.
+const USING_PUBLIC_OSM_TILES = TILE_URL.includes('tile.openstreetmap.org')
+
+let publicOsmTileWarningEmitted = false
+// Warn once (per session) so deployments point NEXT_PUBLIC_OM_DEALS_MAP_TILE_URL at a self-hosted or
+// commercial tile service instead of silently shipping against the shared public CDN.
+function warnOnPublicOsmTilesOnce(): void {
+  if (publicOsmTileWarningEmitted || !USING_PUBLIC_OSM_TILES) return
+  publicOsmTileWarningEmitted = true
+  // eslint-disable-next-line no-console
+  console.warn(
+    '[open-mercato] Deals map is using the public OpenStreetMap tile server. ' +
+      "OSM's tile usage policy prohibits production/commercial traffic — point " +
+      'NEXT_PUBLIC_OM_DEALS_MAP_TILE_URL at a self-hosted or commercial tile service before deploying.',
+  )
+}
 
 const WORLD_CENTER: L.LatLngTuple = [20, 0]
 const WORLD_ZOOM = 2
@@ -212,8 +230,10 @@ export default function DealsMapCanvasImpl({
   React.useEffect(() => {
     const node = containerRef.current
     if (!node || mapRef.current) return undefined
+    warnOnPublicOsmTilesOnce()
     const map = L.map(node, { zoomControl: false, worldCopyJump: true })
-    L.control.zoom({ position: 'topright' }).addTo(map)
+    // Zoom sits top-LEFT so it never overlaps the selection preview card (top-right overlay).
+    L.control.zoom({ position: 'topleft' }).addTo(map)
     L.tileLayer(TILE_URL, { attribution: TILE_ATTRIBUTION, maxZoom: 19 }).addTo(map)
     map.setView(WORLD_CENTER, WORLD_ZOOM)
     const cluster = leafletRuntime.markerClusterGroup({
@@ -329,24 +349,42 @@ export default function DealsMapCanvasImpl({
     }
   }, [selectedDealId, deals])
 
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
+  // Escape clears the selected-deal preview. Bound at the document level (not the canvas region's
+  // onKeyDown) so it fires regardless of whether focus is on the map, a panel card, or the preview
+  // card. Registered only while a deal is selected, so it never swallows Escape elsewhere.
+  React.useEffect(() => {
+    if (!selectedDealId) return undefined
+    const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      if (!previousSelectedIdRef.current) return
-      event.stopPropagation()
       onSelectRef.current(null)
-    },
-    [],
-  )
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [selectedDealId])
 
   return (
     <div
       role="region"
       aria-label={translateWithFallback(t, 'customers.deals.map.canvas.label', 'Deals map')}
-      onKeyDown={handleKeyDown}
       className={`relative ${className ?? ''}`.trim()}
     >
       <div ref={containerRef} data-map-canvas className="absolute inset-0 z-0" />
+      {deals.length === 0 ? (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-6">
+          <div className="max-w-sm rounded-xl border border-border bg-card/95 p-4 text-center shadow-sm">
+            <p className="text-sm font-medium leading-normal text-foreground">
+              {translateWithFallback(t, 'customers.deals.map.panel.empty.title', 'No deals on the map yet')}
+            </p>
+            <p className="mt-1 text-xs leading-normal text-muted-foreground">
+              {translateWithFallback(
+                t,
+                'customers.deals.map.panel.empty.description',
+                'Add latitude and longitude to company or person addresses to plot their deals here.',
+              )}
+            </p>
+          </div>
+        </div>
+      ) : null}
       {legendStages.length > 0 ? (
         <div className="absolute bottom-3 left-3 z-10 flex flex-col gap-1.5 rounded-lg border border-border bg-card/95 p-3">
           <span className="text-overline font-bold uppercase leading-normal text-muted-foreground">

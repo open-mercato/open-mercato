@@ -330,4 +330,55 @@ describe('customers deals map route', () => {
     expect(response.status).toBe(401)
     expect(queryMock).not.toHaveBeenCalled()
   })
+
+  it('queries every organization in a multi-org scope and passes orgFilterIds[0] as the decryption fallback', async () => {
+    // "All organizations" scope: the resolved scope carries more than one org. This asserts the
+    // ROUTE's multi-org contract — deal + address fetches span the whole org set (`$in`) and the
+    // decryption fallback scope is orgFilterIds[0]. The route relies on `findWithDecryption`
+    // decrypting each row with the row's OWN org (fallback only when a row lacks scope columns);
+    // that per-row property is proven separately in
+    // `packages/shared/src/lib/encryption/__tests__/subscriber.test.ts` (findWithDecryption is mocked
+    // here, so this suite cannot — and does not claim to — exercise real decryption).
+    const secondOrgId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    resolveScopeMock.mockResolvedValueOnce({ tenantId, filterIds: [scopedOrgId, secondOrgId] })
+    mockLinksAndAddresses()
+
+    const response = await GET(new Request('http://localhost/api/customers/deals/map?pageSize=100'))
+    expect(response.status).toBe(200)
+
+    // The deal page query targets the first org but carries the full org set for query-engine scoping.
+    expect(queryMock).toHaveBeenCalledWith(
+      'customers:customer_deal',
+      expect.objectContaining({
+        organizationId: scopedOrgId,
+        organizationIds: [scopedOrgId, secondOrgId],
+      }),
+    )
+
+    // Both the light (id-only) and heavy (decrypted) address fetches filter across BOTH orgs ($in),
+    // and pass orgFilterIds[0] as the decryption fallback scope.
+    const lightAddressCall = findWithDecryptionMock.mock.calls.find(
+      (call) => call[1] === CustomerAddress && call[3]?.fields,
+    )
+    expect(lightAddressCall?.[2]).toEqual({
+      latitude: { $ne: null },
+      longitude: { $ne: null },
+      tenantId,
+      organizationId: { $in: [scopedOrgId, secondOrgId] },
+    })
+    expect(lightAddressCall?.[4]).toEqual({ tenantId, organizationId: scopedOrgId })
+
+    const heavyAddressCall = findWithDecryptionMock.mock.calls.find(
+      (call) => call[1] === CustomerAddress && !call[3]?.fields,
+    )
+    expect(heavyAddressCall?.[2]).toEqual(
+      expect.objectContaining({ organizationId: { $in: [scopedOrgId, secondOrgId] } }),
+    )
+    expect(heavyAddressCall?.[4]).toEqual({ tenantId, organizationId: scopedOrgId })
+
+    // The route projects the resolved location (as returned by findWithDecryption) into the response.
+    const body = await response.json()
+    const located = body.items.find((item: { id: string }) => item.id === locatedDealId)
+    expect(located?.location?.city).toBe('Warszawa')
+  })
 })

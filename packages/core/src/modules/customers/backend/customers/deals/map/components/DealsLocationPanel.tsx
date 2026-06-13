@@ -53,7 +53,9 @@ function haversineKm(
 
 type DealsLocationPanelProps = {
   deals: MapDeal[]
-  total: number
+  // Total deals matching the active filters that resolve to a location (the located-only endpoint's
+  // `total`). May exceed `deals.length` when the client cap truncates the rendered set.
+  locatedCount: number
   stageMetaById: Map<string, StageMeta>
   mapCenter: MapCenter | null
   selectedDealId: string | null
@@ -62,7 +64,7 @@ type DealsLocationPanelProps = {
 
 export function DealsLocationPanel({
   deals,
-  total,
+  locatedCount,
   stageMetaById,
   mapCenter,
   selectedDealId,
@@ -71,21 +73,15 @@ export function DealsLocationPanel({
   const t = useT()
   const [panelSort, setPanelSort] = React.useState<PanelSort>('proximity')
 
-  const locatedCount = React.useMemo(
-    () => deals.reduce((count, deal) => (deal.location ? count + 1 : count), 0),
-    [deals],
-  )
-
+  // The map endpoint is located-only, so every deal here carries a location. The guard keeps the
+  // proximity comparator total-order-safe against the nullable `MapDeal.location` type.
   const visibleDeals = React.useMemo(() => {
     if (panelSort !== 'proximity' || !mapCenter) return deals
-    const located = deals.filter((deal) => deal.location !== null)
-    const locationless = deals.filter((deal) => deal.location === null)
-    located.sort((a, b) => {
-      const aDistance = haversineKm(mapCenter, a.location!)
-      const bDistance = haversineKm(mapCenter, b.location!)
-      return aDistance - bDistance
+    return deals.slice().sort((a, b) => {
+      if (!a.location) return 1
+      if (!b.location) return -1
+      return haversineKm(mapCenter, a.location) - haversineKm(mapCenter, b.location)
     })
-    return [...located, ...locationless]
   }, [deals, panelSort, mapCenter])
 
   const noAddressLabel = translateWithFallback(
@@ -95,16 +91,15 @@ export function DealsLocationPanel({
   )
 
   return (
-    <div className="flex w-full shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-card lg:w-80">
+    <div className="flex max-h-[60vh] w-full shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-card lg:max-h-none lg:w-80">
       <div className="flex flex-col gap-1 border-b border-border px-4 py-3">
         <div className="flex items-baseline justify-between gap-2">
           <h2 className="text-sm font-semibold leading-normal text-foreground">
             {translateWithFallback(t, 'customers.deals.map.panel.title', 'Deals with location')}
           </h2>
           <span className="text-xs leading-normal text-muted-foreground">
-            {translateWithFallback(t, 'customers.deals.map.panel.count', '{located} of {total}', {
-              located: locatedCount,
-              total,
+            {translateWithFallback(t, 'customers.deals.map.panel.count', '{count} located', {
+              count: locatedCount,
             })}
           </span>
         </div>
@@ -162,43 +157,42 @@ export function DealsLocationPanel({
               deal.location.country ||
               null
             : null
+          const valueLabel =
+            typeof deal.valueAmount === 'number' ? formatCurrency(deal.valueAmount, deal.valueCurrency) : null
+          // Compose the full card content for screen readers — the bare title alone dropped the
+          // company, value, stage and location that sighted users read off the card.
+          const cardAriaLabel =
+            [deal.companyLabel, deal.title, valueLabel, stageMeta?.label, locationLine ?? noAddressLabel]
+              .filter((part): part is string => typeof part === 'string' && part.length > 0)
+              .join(', ') || deal.title
           return (
             <Button
               key={deal.id}
               type="button"
               variant="ghost"
               data-map-panel-card={deal.id}
-              aria-label={deal.title}
+              aria-label={cardAriaLabel}
               aria-pressed={isSelected}
               onClick={() => onSelect(deal.id)}
               className={`h-auto w-full flex-col items-stretch justify-start gap-1 whitespace-normal rounded-lg border border-border p-3 text-left shadow-none ${
                 isSelected ? 'bg-muted' : 'bg-card'
-              } ${deal.location ? '' : 'opacity-60'}`}
+              }`}
             >
               <div className="flex items-baseline justify-between gap-2">
                 <span className="truncate text-sm font-medium leading-normal text-foreground">
                   {deal.companyLabel ?? '—'}
                 </span>
-                {typeof deal.valueAmount === 'number' ? (
+                {valueLabel ? (
                   <span className="shrink-0 text-sm font-semibold leading-normal text-foreground">
-                    {formatCurrency(deal.valueAmount, deal.valueCurrency)}
+                    {valueLabel}
                   </span>
                 ) : null}
               </div>
               <span className="truncate text-sm leading-normal text-muted-foreground">{deal.title}</span>
               <div className="flex items-center justify-between gap-2">
                 <span className="flex min-w-0 items-center gap-1.5 text-xs leading-normal text-muted-foreground">
-                  {deal.location ? (
-                    <>
-                      <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
-                      <span className="truncate">{locationLine ?? noAddressLabel}</span>
-                    </>
-                  ) : (
-                    <>
-                      <MapPinOff className="size-3.5 shrink-0" aria-hidden="true" />
-                      <span className="truncate">{noAddressLabel}</span>
-                    </>
-                  )}
+                  <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{locationLine ?? noAddressLabel}</span>
                 </span>
                 {stageMeta ? (
                   <span

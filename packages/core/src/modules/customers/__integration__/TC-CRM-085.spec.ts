@@ -23,7 +23,7 @@ import {
  *   inside `[data-map-canvas]` — pure DOM, independent of tile-network loading.
  * - Preview card: `[data-map-preview-card="<dealId>"]` with an "Open deal" link
  *   (`/backend/customers/deals/<id>`), opened by selection (marker click).
- * - Panel count label renders `"{located} of {total}"`.
+ * - Panel count label renders the located-only count `"{count} located"` (single number, no denominator).
  * - The map endpoint is located-only: deals without a coordinate-bearing address are
  *   excluded server-side (not shown in the panel), so there is no client-side toggle.
  *
@@ -142,13 +142,39 @@ test.describe('TC-CRM-085: deals map view tab (UI)', () => {
       await expect(card, 'card shows the stage badge').toContainText(stageLabel);
       await expect(card, 'card shows the formatted deal value').toContainText(/540/);
 
-      const countLabel = page.getByText(/^\d+ of \d+$/).first();
-      await expect(countLabel, 'located/total count is rendered in the panel header').toBeVisible();
-      const located = Number((await countLabel.innerText()).split(' of ')[0]);
+      const countLabel = page.getByText(/^\d+ located$/).first();
+      await expect(countLabel, 'located count is rendered in the panel header').toBeVisible();
+      const located = Number((await countLabel.innerText()).replace(/\D+/g, ''));
       expect(located, 'at least the fixture deal counts as located').toBeGreaterThanOrEqual(1);
 
       const marker = page.locator(`[data-map-canvas] .om-deal-map-marker span[data-deal-id="${dealId}"]`);
       await expect(marker, 'a DOM marker renders for the located deal (tile-network independent)').toBeVisible();
+
+      // Zoom control is repositioned to the top-LEFT so it never overlaps the top-right preview card.
+      await expect(
+        page.locator('[data-map-canvas] .leaflet-top.leaflet-left .leaflet-control-zoom'),
+        'zoom control renders in the top-left corner',
+      ).toBeVisible();
+      await expect(
+        page.locator('[data-map-canvas] .leaflet-top.leaflet-right .leaflet-control-zoom'),
+        'zoom control is NOT in the (preview-card) top-right corner',
+      ).toHaveCount(0);
+
+      // Mobile: the located panel is height-capped (max-h-[60vh]) so its card list scrolls within a
+      // bounded region instead of stacking the full set above the map; the cap is lifted at lg.
+      const readPanelMaxHeight = () =>
+        page.evaluate(() => {
+          const node = Array.from(document.querySelectorAll('div')).find(
+            (el) => typeof el.className === 'string' && el.className.includes('max-h-[60vh]'),
+          );
+          return node ? getComputedStyle(node).maxHeight : 'MISSING';
+        });
+      await page.setViewportSize({ width: 375, height: 812 });
+      const mobileMaxHeight = await readPanelMaxHeight();
+      expect(mobileMaxHeight, 'panel height-cap element is present').not.toBe('MISSING');
+      expect(mobileMaxHeight, 'panel is height-capped on mobile (scrollable region)').not.toBe('none');
+      await page.setViewportSize({ width: 1280, height: 900 });
+      expect(await readPanelMaxHeight(), 'panel height-cap is lifted at lg (lg:max-h-none)').toBe('none');
     } finally {
       await deleteEntityIfExists(request, token, DEALS_PATH, dealId);
       await deleteEntityByBody(request, token, PIPELINE_STAGES_PATH, stageId);
@@ -203,6 +229,12 @@ test.describe('TC-CRM-085: deals map view tab (UI)', () => {
         'href',
         `/backend/customers/deals/${dealId}`,
       );
+
+      // Escape clears the selection from anywhere via the document-level listener — focus the panel
+      // card first to prove it fires even when focus is NOT on the canvas region.
+      await page.locator(`[data-map-panel-card="${dealId}"]`).focus();
+      await page.keyboard.press('Escape');
+      await expect(previewCard, 'Escape closes the preview card regardless of focus').toHaveCount(0);
     } finally {
       await deleteEntityIfExists(request, token, DEALS_PATH, dealId);
       await deleteEntityIfExists(request, token, ADDRESSES_PATH, addressId);

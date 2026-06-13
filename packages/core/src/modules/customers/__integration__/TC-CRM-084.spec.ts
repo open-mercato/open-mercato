@@ -553,4 +553,43 @@ test.describe('TC-CRM-084: deals map endpoint (GET /api/customers/deals/map)', (
       await deleteOrganizationIfExists(request, superToken, org2Id);
     }
   });
+
+  test('rejects out-of-range coordinates when creating an address (server-side bounds)', async ({ request }) => {
+    const stamp = Date.now();
+    let token: string | null = null;
+    let companyId: string | null = null;
+    let addressId: string | null = null;
+
+    try {
+      token = await getAuthToken(request, 'admin');
+      companyId = await createCompanyFixture(request, token, `TC-CRM-084 Bounds Co ${stamp}`);
+
+      // Latitude beyond ±90 must be rejected server-side now (range validation no longer lives only
+      // in the UI), so non-UI callers can't persist a garbage coordinate that plots at a junk position.
+      const outOfRange = await apiRequest(request, 'POST', ADDRESSES_PATH, {
+        token,
+        data: {
+          entityId: companyId,
+          addressLine1: `13 Junk Coord St ${stamp}`,
+          latitude: 9999,
+          longitude: 21.0,
+          isPrimary: true,
+        },
+      });
+      expect(outOfRange.status(), 'out-of-range latitude is rejected with a 400').toBe(400);
+
+      // A valid coordinate within range still persists (the bound is a floor/ceiling, not a block).
+      addressId = await createAddressFixture(request, token, {
+        entityId: companyId,
+        addressLine1: `14 Valid Coord St ${stamp}`,
+        latitude: 52.1875,
+        longitude: 21.0,
+        isPrimary: true,
+      });
+      expect(addressId.length > 0, 'an in-range coordinate is still accepted').toBe(true);
+    } finally {
+      await deleteEntityIfExists(request, token, ADDRESSES_PATH, addressId);
+      await deleteEntityIfExists(request, token, COMPANIES_PATH, companyId);
+    }
+  });
 });

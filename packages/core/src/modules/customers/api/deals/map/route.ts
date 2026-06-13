@@ -89,7 +89,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Paginated deals that have a resolvable map location',
       description:
-        'Returns a page of deals that have a coordinate-bearing linked company/person address, each enriched with one resolved location (company primary first, then earliest created; person addresses as fallback). Deals with no coordinate-bearing address are excluded entirely, so every item carries a non-null location.',
+        'Returns a page of deals that have a coordinate-bearing linked company/person address, each enriched with one resolved location (company primary first, then earliest created; person addresses as fallback). Deals with no coordinate-bearing address are excluded entirely, so every item carries a non-null location in normal operation; the schema keeps location nullable only for the rare case where the address is deleted between the located-deal resolution and the page fetch.',
       query: querySchema,
       responses: [
         { status: 200, description: 'Paged located deals', schema: createPagedListResponseSchema(dealMapItemSchema) },
@@ -239,6 +239,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // `findWithDecryption` decrypts each row with the row's OWN tenant/organization (the encryption
+  // subscriber's resolveScope(target) wins); this scope is only a fallback for rows that carry no
+  // scope columns. CustomerAddress always carries organization_id, so under a multi-org ("All
+  // organizations") scope every org's rows still decrypt correctly even though we pass orgFilterIds[0].
   const decryptionScope = { tenantId: effectiveTenantId, organizationId: orgFilterIds[0] }
 
   // Located-only, resolved in two stages so the per-request cost stays page-bounded:

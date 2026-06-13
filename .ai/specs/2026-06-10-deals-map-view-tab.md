@@ -6,7 +6,7 @@
 - Deals are located through their linked company/person addresses — `customer_addresses.latitude/longitude` columns already exist; a new read-only endpoint resolves them in batch. The address editor gains optional latitude/longitude inputs so users can populate coordinates manually (no geocoding service in v1).
 
 **Scope:**
-- `GET /api/customers/deals/map` — paginated, filter-compatible with the deals list, returns deals enriched with a resolved `location` (or `null`).
+- `GET /api/customers/deals/map` — **located-only**, paginated, filter-compatible with the deals list. It returns only deals that resolve to a coordinate-bearing linked company/person address, so every item carries a non-null `location`; pagination and `total` operate on the located set (resolved in a light id-only pass + a page-bounded heavy decrypted fetch).
 - `/backend/customers/deals/map` page: shared `ViewTabsRow` (+ `map` entry), kanban-style filter bar, left "deals with location" panel, right Leaflet map (stage-tone pins, marker clustering, selected-deal preview card, legend, zoom controls).
 - Latitude/longitude inputs in `AddressEditor` (people/companies address dialogs).
 - New production dependencies in `@open-mercato/core`: `leaflet` (BSD-2-Clause) + `leaflet.markercluster` (MIT), lazy-loaded only on the map route.
@@ -45,7 +45,7 @@ CRM users working geographically (field sales, regional account management, logi
 | Server resolves location; client never joins addresses | Avoids N+1 API calls, keeps encryption handling (`findWithDecryption`) server-side, single tested precedence rule |
 | Location source = linked company/person addresses (no deal-level address) | No schema change; matches mockup (cards show company + city); deal-level address fields rejected as new contract surface with no requirement |
 | Stage tone → DS status tokens for pins/legend/badges | Stage dictionary entries store canonical tones post 2026-05-19 migration; map mirrors `Lane.tsx` tone-class maps (`bg-status-*-icon` etc.), no hex |
-| Client-side "only with address" toggle + proximity sort | Operates on the already-fetched capped set; avoids cross-entity SQL join for a panel nicety |
+| **Located-only endpoint** (resolved in a light id-only pass + page-bounded heavy fetch), no client "only with address" toggle | A map view only ever plots located deals, so paging over the located set spends the 500-deal client cap on pin-able deals instead of diluting it with unlocated rows; the heavy decrypted/populated fetch stays page-bounded. The panel lists exactly what the map shows; the panel count is a single located count and the empty state guides tenants with no coordinates yet. Client-side panel proximity sort remains (operates on the already-fetched located set) |
 | Marker selection opens an in-map React preview card (absolute overlay), not a native Leaflet popup | Keeps the card a normal DS-styled React component (no portal/HTML-string hacks), matches the mockup's floating card |
 
 ### Alternatives Considered
@@ -54,7 +54,7 @@ CRM users working geographically (field sales, regional account management, logi
 | `react-leaflet` | Hippocratic License 2.1 — not OSI-approved/permissive; user constraint is "free use in commercial projects" |
 | MapLibre GL JS | Heavier (~220 KB gz), needs style/tile-source story; mockup is a raster map with circular pins — no payoff |
 | Automatic geocoding on address save | External provider + queue/rate limits + failure modes; OSM Nominatim policy disallows heavy use. Deferred to a follow-up spec |
-| `locatedOnly` server param with pre-pagination address join | Cross-entity subquery complexity for v1; the client cap (500) makes post-fetch filtering equivalent in practice |
+| Returning ALL deals (located + unlocated) with a client-side "only with address" toggle | Originally the chosen design; **reversed during implementation** to the located-only endpoint above. A map view never plots unlocated deals, so returning them wastes the 500-deal client cap and the panel's space, and forces a misleading "{located} of {total}" count where the toggle would otherwise hide most rows. Located-only keeps the cap, panel, and count all about pin-able deals |
 | Showing "N days in stage" in the preview card (mockup detail) | No stage-transition timestamp exists on the deal; needs stage-history tracking — out of scope |
 
 ## User Stories / Use Cases
@@ -69,8 +69,8 @@ CRM users working geographically (field sales, regional account management, logi
   ├─ ViewTabsRow (active="map")                     [shared, extended]
   ├─ FilterBarRow + existing filter popovers        [reused from pipeline/components]
   ├─ DealsMapView (state: filters, deals, selection)
-  │    ├─ pages through GET /api/customers/deals/map (readApiResultOrThrow, ≤5 pages × 100)
-  │    ├─ DealsLocationPanel (left: cards, count, panel sort, only-with-address toggle)
+  │    ├─ pages through GET /api/customers/deals/map (readApiResultOrThrow, ≤5 pages × 100; located-only)
+  │    ├─ DealsLocationPanel (left: located cards, single located count, panel proximity sort)
   │    └─ DealsMapCanvas (next/dynamic ssr:false → DealsMapCanvasImpl)
   │         ├─ Leaflet map + tile layer (env-configurable URL/attribution)
   │         ├─ leaflet.markercluster group; divIcon pins (stage tone classes)
@@ -121,9 +121,10 @@ For each deal: candidate addresses = addresses of linked **company** entities, t
     "location": {
       "latitude": 52.19, "longitude": 21.0, "city": "Warszawa", "region": "Mazowieckie",
       "country": "PL", "source": "company", "entityId": "uuid", "addressId": "uuid"
-    } // or null
+    } // always present — the endpoint is located-only, so deals without a coordinate-bearing
+      // linked address are excluded entirely (never returned with location: null)
   }],
-  "total": 47, "page": 1, "pageSize": 100, "totalPages": 1
+  "total": 38, "page": 1, "pageSize": 100, "totalPages": 1   // total = count of LOCATED deals matching the filters
 }
 ```
 - Errors: `400` invalid query (zod), `401` unauthenticated, `403` missing `customers.deals.view`. Org/tenant scoping identical to the deals list (all sub-queries scoped; association and address fetches filter by the auth org set + tenant).
@@ -133,7 +134,7 @@ For each deal: candidate addresses = addresses of linked **company** entities, t
 All four locales (`en`, `pl`, `de`, `es`) in `packages/core/src/modules/customers/i18n/*.json`:
 - `customers.deals.kanban.view.map` — tab label ("Map").
 - `customers.nav.deals.map` — page title/breadcrumb ("Deals Map").
-- `customers.deals.map.*` — `panel.title`, `panel.hint` (click-a-pin hint), `panel.count` ("{located} of {total}"), `panel.sort.proximity`, `panel.sort.listOrder`, `panel.onlyWithAddress`, `panel.noAddress`, `panel.empty.title`, `panel.empty.description` (mentions adding coordinates on company/person addresses), `legend.title`, `preview.openDeal`, `preview.probabilityShort`, `preview.closeShort`, `loadError`, `truncated` ("Showing first {count} deals"), `canvas.loading`, `attribution.label` (aria), `marker.aria` etc.
+- `customers.deals.map.*` — `panel.title`, `panel.hint` (click-a-pin hint), `panel.count` ("{count} located" — single located count, no denominator), `panel.sort.proximity`, `panel.sort.listOrder`, `panel.noAddress` (fallback when a located deal has no city/region/country), `panel.empty.title`, `panel.empty.description` (mentions adding coordinates on company/person addresses; reused as the on-canvas empty overlay), `legend.title`, `preview.openDeal`, `preview.probabilityShort`, `preview.closeShort`, `loadError`, `truncated` ("Showing first {count} of {total} located deals — refine filters…"), `canvas.loading`, `canvas.label` (aria), etc. (The `panel.onlyWithAddress` and `panel.noDeals.*` keys from the original toggle design were removed when the located-only decision landed.)
 - `customers.addresses.fields.latitude` / `.longitude` (+ validation message key for range errors) for the address editor — follow the editor's existing label key prefix.
 No hard-coded user-facing strings; `useT()` in all components.
 
@@ -141,10 +142,10 @@ No hard-coded user-facing strings; `useT()` in all components.
 Figma: `SPEC-048-CRM-Detail-Pages-UX-Mockup`, node `1004-4277` ("Mapa" tab). Implement with DS tokens — the mockup's literal colors map to semantic tones.
 - **Tabs**: `ViewTabsRow` gains `map` (`/backend/customers/deals/map`), same active-span/inactive-link pattern. (Mockup's "Aktywności"/"Kalendarz" tabs are **out of scope** — context only.)
 - **Filter bar**: `FilterBarRow` with the same chips as kanban (Status, Pipeline, Owner, People, Companies, Close date) + `SortByPopover` on the right; search input consistent with the kanban page header.
-- **Left panel** (~340 px, `rounded-xl border bg-card`): header (title + located/total count + hint), panel sort select (proximity | list order), "only with address" switch, scrollable deal cards: company label (medium), deal title (muted), value (`formatCurrency`, semibold, right), city/region with pin icon (lucide `MapPin`, muted), stage badge using `COUNT_BADGE_TONE_CLASS`-style tone classes. Card click selects + `flyTo`. Cards without location: muted + `panel.noAddress` hint (hidden by the switch). Selected card: `bg-muted` highlight.
-- **Map canvas**: fills remaining width (`rounded-xl border` container, min-height ~ `calc(100vh - …)` consistent with kanban lane heights); zoom controls top-right (Leaflet default repositioned), stage legend bottom-left (`bg-card/95 rounded-lg border p-3`, tone dots via `ACCENT_TONE_CLASS`-style map), attribution bottom-right (Leaflet default, configured text).
+- **Left panel** (~340 px at `lg`, `rounded-xl border bg-card`): header (title + single located count + hint), panel sort select (proximity | list order), scrollable located deal cards: company label (medium), deal title (muted), value (`formatCurrency`, semibold, right), city/region with pin icon (lucide `MapPin`, muted; `panel.noAddress` fallback when a located deal has no city/region/country), stage badge using `COUNT_BADGE_TONE_CLASS`-style tone classes. Each card carries a composed `aria-label` (company, title, value, stage, location) for screen readers. Card click selects + `flyTo`. Selected card: `bg-muted` highlight. **Mobile:** the panel is capped (`max-h-[60vh] lg:max-h-none`) so its card list scrolls within a bounded region instead of stacking the full set above the map (the row only has a real height at `lg`, where `overflow-y-auto` can resolve). No "only with address" switch — the endpoint is located-only.
+- **Map canvas**: fills remaining width (`rounded-xl border` container, min-height ~ `calc(100vh - …)` consistent with kanban lane heights); zoom controls **top-left** (Leaflet default repositioned so they never overlap the top-right selection preview card), stage legend bottom-left (`bg-card/95 rounded-lg border p-3`, tone dots via `ACCENT_TONE_CLASS`-style map), attribution bottom-right (Leaflet default, configured text). When there are no located deals, a centered on-canvas overlay (reusing `panel.empty.*`) explains the empty map in addition to the panel empty state.
 - **Pins**: `L.divIcon` circular markers (~14 px, white ring, tone background class per deal stage; neutral tone when stage unknown). Selected pin scales up. Clusters: `iconCreateFunction` divIcon with count, brand tone (`bg-brand-violet text-white`-equivalent token classes). Initial view: `fitBounds` of located pins (padding 32); 1 pin → zoom 12; none → world view + empty state overlay on the panel.
-- **Preview card** (on selection): absolute overlay top-right inside the map container (`bg-popover rounded-xl border shadow-lg p-4 w-80`): company label + address line, deal title, value · probability (`preview.probabilityShort`) · close date, stage badge + owner chip (owner names via `fetchAssignableStaffMembers('', { pageSize: 100 })` from `components/detail/assignableStaff.ts`, building a `Map<userId, displayName>` exactly like `pipeline/page.tsx`; omit chip if unresolvable), value formatting via the shared `formatCurrency` from `components/detail/utils.ts`, primary button `preview.openDeal` → `Link` to `/backend/customers/deals/{id}`, close (×) button with `aria-label`. `Escape` clears selection.
+- **Preview card** (on selection): absolute overlay top-right inside the map container (`bg-popover rounded-xl border shadow-lg p-4 w-80`): company label + address line, deal title, value · probability (`preview.probabilityShort`) · close date, stage badge + owner chip (owner names via `fetchAssignableStaffMembers('', { pageSize: 100 })` from `components/detail/assignableStaff.ts`, building a `Map<userId, displayName>` exactly like `pipeline/page.tsx`; omit chip if unresolvable), value formatting via the shared `formatCurrency` from `components/detail/utils.ts`, primary button `preview.openDeal` → `Link` to `/backend/customers/deals/{id}`, close (×) button with `aria-label`. `Escape` clears selection via a **document-level** key listener (registered only while a deal is selected) so it fires regardless of whether focus is on the map, a panel card, or the preview card.
 - **Aux-data degradation**: pipeline-stage metadata comes from the param-free `GET /api/customers/pipeline-stages` (fields `{ id, pipelineId, label, order, color }`; `color` is a tone id, fallback = positional tone rotation per pipeline) which is gated by `customers.pipelines.view`, and staff names by `customers.roles.view` — both aux fetches MUST send the `x-om-forbidden-redirect: 0` header and degrade gracefully (neutral pin tone / no owner chip) when 403, mirroring the kanban page and `.ai/lessons.md` guidance. The `owner_asc` sort option has no API mapping — like kanban, fetch by `updatedAt desc` and client-sort.
 - **States**: loading → `LoadingMessage`/`Spinner` (canvas placeholder while the dynamic chunk loads); error → `ErrorMessage` with retry; truncation notice (>500 deals) as a muted banner above the panel list.
 - Icon-only buttons get `aria-label`s; lucide-react icons only; no inline `<svg>`; no arbitrary text sizes; no `dark:` overrides on tokens.
@@ -154,10 +155,11 @@ Figma: `SPEC-048-CRM-Detail-Pages-UX-Mockup`, node `1004-4277` ("Mapa" tab). Imp
 - `NEXT_PUBLIC_OM_DEALS_MAP_TILE_URL` — tile template, default `https://tile.openstreetmap.org/{z}/{x}/{y}.png`.
 - `NEXT_PUBLIC_OM_DEALS_MAP_TILE_ATTRIBUTION` — attribution HTML, default `&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors`.
 - Deployments with real traffic should point these at a self-hosted/commercial tile service (OSM public tiles fair-use policy); documented in the env example if one exists.
+- Whenever the **effective** tile URL targets OSM's public CDN (the unset default OR an env value pointed back at the same `tile.openstreetmap.org` host), the lazy map impl logs a one-time `console.warn` on mount noting the production/commercial usage restriction, so the public-CDN risk is visible at runtime rather than silently shipped.
 
 ## Migration & Compatibility
 - **No DB migrations.** No entity changes.
-- **Additive contract surfaces only**: new API route (`/api/customers/deals/map`), new backend page route, new i18n keys, `KanbanView` union widened (`'kanban' | 'list' | 'map'` — verified additive: both consumers pass literals, no exhaustive switches), new **optional** `AddressEditorDraft` fields behind an opt-in `showCoordinateFields` prop (the sales module also constructs this draft type — optionality keeps it compiling and visually unchanged). Server-side validators are NOT narrowed (no lat/lng `.min/.max` added to `addressCreateSchema` — that would reject previously-accepted payloads); range validation is client-side only. No deprecations.
+- **Additive contract surfaces only**: new API route (`/api/customers/deals/map`), new backend page route, new i18n keys, `KanbanView` union widened (`'kanban' | 'list' | 'map'` — verified additive: both consumers pass literals, no exhaustive switches), new **optional** `AddressEditorDraft` fields behind an opt-in `showCoordinateFields` prop (the sales module also constructs this draft type — optionality keeps it compiling and visually unchanged). Server-side coordinate **range bounds** (`±90` / `±180`, reusing `COORDINATE_RANGES`) are now enforced on `addressCreateSchema` lat/lng (and propagate to `addressUpdateSchema` via its `.partial()` merge), so non-UI callers can no longer persist a garbage coordinate (e.g. `latitude: 9999`) that would plot at a junk position. This is a deliberate narrowing whose only rejected inputs are out-of-range values that are not valid coordinates — no legitimate caller sends them — so it is treated as a hardening fix, not a breaking change; `null`/omitted coordinates (clear-on-edit and the common case) still pass. No deprecations.
 - **New dependencies**: `leaflet@^1.9.4` (BSD-2-Clause), `leaflet.markercluster@^1.5.3` (MIT) → `packages/core` `dependencies`; `@types/leaflet`, `@types/leaflet.markercluster` → `devDependencies`. Both licenses are permissive and commercial-use friendly (user requirement).
 - **PR #2903 coexistence** (`feat: deals list redesign`): #2903 touches `deals/page.tsx`, `deals/pipeline/page.tsx`, adds `api/deals/summary` + KPI components; it does **not** modify `ViewTabsRow.tsx`, `api/deals/route.ts`, or any file this spec adds, and this spec does **not** modify the two page files #2903 rewrites. Shared-file overlap is limited to the four `i18n/*.json` locale files and (for integration fixtures) `helpers/integration/crmFixtures.ts` — both sides only add disjoint keys/helpers, so any conflict is a trivial additive union. Merge order is irrelevant. The map page intentionally does not adopt the KPI strip (not in the map mockup).
 - `yarn generate` required after adding the page/route (auto-discovery registries).
@@ -206,17 +208,21 @@ Self-contained Playwright specs (API fixtures via `packages/core/src/helpers/int
 
 **TC-CRM-084 — `GET /api/customers/deals/map` (API)**
 1. `401` without token; `403` for a user whose role lacks `customers.deals.view`.
-2. Company + primary address with coordinates + linked deal → item `location.source === 'company'`, correct lat/lng/city; deal with no linked addresses → `location: null`; `total` covers both.
+2. Company + primary address with coordinates + linked deal → item `location.source === 'company'`, correct lat/lng/city; a deal with no coordinate-bearing linked address is **excluded** server-side (located-only); `total` counts only the located deal.
 3. Person-only deal with person address coordinates → `location.source === 'person'`.
 4. Two company addresses with coordinates (primary + non-primary) → primary wins.
-5. Filter passthrough: `status` filter excludes non-matching located deal; invalid query (`pageSize=101`) → `400`.
+5. Filter passthrough: `status` filter excludes non-matching located deal; multi-select `status=open&status=win` matches both; invalid query (`pageSize=101`, unknown `sortField`) → `400`.
 6. Org isolation: deal in another organization (second home org pattern) is absent; counts unaffected.
+7. Out-of-range coordinates: `POST /api/customers/addresses` with `latitude: 9999` → `400` (server-side bounds); an in-range coordinate still persists.
+8. Multi-org path, split across two deterministic unit surfaces (a genuine multi-org `filterIds` is not reliably reproducible through the org-scope selector in integration tests):
+   - **Route contract** (`api/deals/map/__tests__/route.test.ts`): a resolved scope spanning two orgs queries `organizationId: { $in: [orgA, orgB] }` for deals and both address fetches, and passes `orgFilterIds[0]` as the decryption fallback scope.
+   - **Per-row decryption safety** (`packages/shared/src/lib/encryption/__tests__/subscriber.test.ts`): `decryptEntitiesWithFallbackScope` decrypts each row with the row's OWN organization, using the passed fallback org only for a row that carries no org — which is exactly what makes the route's single `orgFilterIds[0]` fallback correct across a multi-org page.
 
 **TC-CRM-085 — Map page (UI)**
 1. Login → `/backend/customers/deals` → Map tab visible → click → URL `/backend/customers/deals/map`, tab active (`role=tab` selected).
 2. With a fixture located deal: left panel shows the deal card (company label + value + stage badge) and the located/total count; a map marker element renders (deterministic test selector, tile-network-independent).
 3. Click marker → preview card shows deal title + "Open deal" link with `/backend/customers/deals/{id}` href.
-4. "Only with address" toggle hides a fixture deal that has no coordinates from the panel list.
+4. A fixture deal whose linked company has no coordinate-bearing address is **excluded** from the located-only panel (a located fixture deal renders; the coordless one has zero panel cards) — there is no client-side toggle.
 5. Address-coordinate UI path: company detail → addresses → add/edit address with latitude/longitude through the editor dialog → values persist (verified via the addresses API readback), proving the manual-coordinates loop that feeds the map.
 
 ## Risks & Impact Review
@@ -242,7 +248,7 @@ Public OSM tiles rate-limit heavy use → env-configurable tile URL; documented.
 - **Scenario**: No addresses have coordinates yet; users open the tab and see nothing.
 - **Severity**: Medium
 - **Affected area**: Map page UX only.
-- **Mitigation**: Panel empty state explains how to add coordinates (address editor now exposes them); count header shows "0 of N" making the gap explicit; API/import path already accepts coordinates for bulk backfill.
+- **Mitigation**: When no deals resolve to a location, BOTH the panel empty state AND a centered on-canvas overlay explain how to add coordinates (the address editor now exposes them); the panel header shows the located count ("0 located") to make the populated set explicit; API/import path already accepts coordinates for bulk backfill. (The located-only endpoint no longer surfaces an all-deals denominator — the empty state is the onboarding signal.)
 - **Residual risk**: Tenants must populate data manually until a geocoding follow-up ships — accepted (explicit v1 decision).
 
 #### Encrypted address fields read without decryption
@@ -256,8 +262,8 @@ Public OSM tiles rate-limit heavy use → env-configurable tile URL; documented.
 - **Scenario**: Empty lat/lng inputs submitted as `''`; `z.coerce.number()` coerces to `0` → deals pinned at "null island" (0,0).
 - **Severity**: Medium
 - **Affected area**: Address data quality, map accuracy.
-- **Mitigation**: Numeric normalizer omits empty values from payloads; client range validation; unit test for the normalizer.
-- **Residual risk**: API consumers can still send literal `0,0` — valid coordinates in principle; accepted.
+- **Mitigation**: Numeric normalizer omits empty values from payloads; client range validation; **server-side `±90`/`±180` bounds on `addressCreateSchema`/`addressUpdateSchema`** so out-of-range values from any caller are rejected with a 400; unit test for the normalizer + schema-bounds unit test + an integration test asserting the addresses API rejects `latitude: 9999`.
+- **Residual risk**: API consumers can still send literal `0,0` — valid coordinates in principle; accepted. (`z.coerce.number()` also coerces `''→0`, but the UI omits empty inputs; documented and accepted.)
 
 #### Bundle/perf regression on backend routes
 - **Scenario**: Leaflet CSS/JS leaks into shared chunks, slowing all backend pages.
@@ -325,3 +331,13 @@ None.
 - Post-merge QA fixes (manual testing at scale, 1000 seeded deals):
   - **Multi-select filters dropped all but the last value.** `GET /api/customers/deals/map` parsed the query with `Object.fromEntries(searchParams)`, which collapses repeated params — so `?status=open&status=win` filtered by `win` only (and the same for owner/people/companies/currency). Replaced with explicit `searchParams.get`/`getAll` parsing mirroring `api/deals/aggregate`'s `readArrayParam` (handles repeated **and** comma-joined values). Added unit regression (`route.test.ts`) + integration regression (`TC-CRM-084`: open+win matches both, excludes loose).
   - **Leaflet `_leaflet_pos` crash on zoom.** Data-driven `fitBounds`/`setView` ran animated; with the list paging in over several updates, overlapping zoom transitions raced Leaflet's pane bookkeeping and threw on `_onZoomTransitionEnd`. Made data-driven view changes non-animated (`animate: false`) and `map.stop()` before new selection animations and before teardown. Verified: 0 console errors through cluster-zoom stress + 1000-deal load.
+
+### 2026-06-13 — PR #3028 review response
+- **Decision recorded: the endpoint is located-only.** The original "return all deals + client toggle" design was reversed during implementation; this spec now documents located-only as the chosen design (Design Decisions + Alternatives + Architecture + API Contracts all updated). The dead toggle code, the unused `panel.onlyWithAddress` / `panel.noDeals.*` i18n keys, and the misleading "{located} of {total}" count were removed — the panel now shows a single located count (`{count} located`).
+- **Blocker — mobile panel scroll:** `DealsLocationPanel` is capped with `max-h-[60vh] lg:max-h-none` so its card list scrolls within a bounded region on small screens instead of stacking the full set (up to the 500 cap) above the map.
+- **Blocker — server-side coordinate bounds:** `addressCreateSchema` lat/lng now enforce `±90`/`±180` (via `COORDINATE_RANGES`), propagating to `addressUpdateSchema` through its `.partial()` merge. Covered by a schema-bounds unit test + a TC-CRM-084 integration assertion (`latitude: 9999` → 400). `null`/omitted still pass (clear-on-edit).
+- **OSM public tiles:** the lazy map impl emits a one-time `console.warn` whenever the effective tile URL targets OSM's public CDN (unset default OR an env value pointed back at the `tile.openstreetmap.org` host), surfacing the production/commercial usage restriction at runtime.
+- **Multi-org decryption confirmed safe** (per-row `resolveScope` governs decryption; `orgFilterIds[0]` is only a fallback) and now covered on two surfaces: a route unit test asserting the `$in` multi-org fetch + `orgFilterIds[0]` fallback scope, and a shared `decryptEntitiesWithFallbackScope` unit test proving each row decrypts with its OWN org (fallback only for a scope-less row).
+- **Polish:** zoom control moved top-left (no longer overlaps the top-right preview card); centered on-canvas empty overlay when no deals are located; `Escape` now clears selection via a document-level listener (works from any focus); panel cards carry a composed `aria-label`.
+- **page.meta icon:** left as a raw `React.createElement('svg', …)` — this matches the existing convention for `deals/page.meta.ts` and `deals/pipeline/page.meta.ts` (neither imports from `lucide-react`).
+- **Known limitations (non-blocking, documented):** `owner_asc` panel sort is client-side over the rendered ≤500 cap (so on >500 located deals it orders only the first 500 by `updatedAt`); the light-pass located-id allowlist is not page-bounded (fine at the tested ~1000, noted ceiling); `@open-mercato/ui` `AddressEditor` gained the opt-in `showCoordinateFields` prop (default-off, a noted scope deviation from "don't touch the ui AddressEditor"); owner names depend on `customers.roles.view` and degrade to empty gracefully when missing.
