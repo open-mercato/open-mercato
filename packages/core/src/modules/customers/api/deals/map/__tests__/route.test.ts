@@ -46,12 +46,23 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
   resolveOrganizationScopeForRequest: (...args: unknown[]) => resolveScopeMock(...args),
 }))
 
+// Mock ONLY the token-search resolver in api/utils (preserving applyEntityIdRestriction etc.), so
+// both the deal-field search (via buildDealListFilters) and the map route's company/person-name
+// search can be driven deterministically without a real search index.
+jest.mock('../../../utils', () => {
+  const actual = jest.requireActual('../../../utils')
+  return { ...actual, findMatchingEntityIdsBySearchTokensAcrossSources: jest.fn() }
+})
+
 import { GET } from '../route'
+import { findMatchingEntityIdsBySearchTokensAcrossSources } from '../../../utils'
 import {
   CustomerAddress,
   CustomerDealCompanyLink,
   CustomerDealPersonLink,
 } from '../../../../data/entities'
+
+const findMatchingMock = findMatchingEntityIdsBySearchTokensAcrossSources as jest.Mock
 
 function mockLinksAndAddresses() {
   findWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => {
@@ -130,6 +141,7 @@ describe('customers deals map route', () => {
       pageSize: 100,
     })
     findWithDecryptionMock.mockResolvedValue([])
+    findMatchingMock.mockResolvedValue(null)
   })
 
   it('returns camelCase located deals with a company-sourced location resolved from decrypted addresses', async () => {
@@ -380,5 +392,36 @@ describe('customers deals map route', () => {
     const body = await response.json()
     const located = body.items.find((item: { id: string }) => item.id === locatedDealId)
     expect(located?.location?.city).toBe('Warszawa')
+  })
+
+  it('surfaces a located deal whose linked company/person NAME matches the search, even when no deal field matches', async () => {
+    mockLinksAndAddresses()
+    // Deal-field token search (entityType customers:customer_deal, via buildDealListFilters) finds
+    // nothing; the company/person ENTITY name search (entityType customers:customer_entity, the map
+    // card headline) matches the located company. The map must still return its located deal.
+    findMatchingMock.mockImplementation(async ({ sources }: { sources?: Array<{ entityType?: unknown }> }) => {
+      const entityType = String(sources?.[0]?.entityType ?? '')
+      if (entityType === 'customers:customer_entity') return [companyEntityId]
+      return []
+    })
+
+    const response = await GET(new Request('http://localhost/api/customers/deals/map?search=Volt'))
+    expect(response.status).toBe(200)
+
+    // The deal query is restricted to the name-matched located deal — not collapsed to the
+    // deal-field "no match" sentinel.
+    const dealQueryCall = queryMock.mock.calls.find((call) => call[0] === 'customers:customer_deal')
+    expect(dealQueryCall?.[1]?.filters?.id).toEqual({ $in: [locatedDealId] })
+
+    const body = await response.json()
+    const located = body.items.find((item: { id: string }) => item.id === locatedDealId)
+    expect(located).toBeTruthy()
+    expect(located?.companies).toEqual([{ id: companyEntityId, label: 'Volt Energia SA' }])
+  })
+
+  it('does not run the company/person-name search when there is no search term', async () => {
+    mockLinksAndAddresses()
+    await GET(new Request('http://localhost/api/customers/deals/map?status=open'))
+    expect(findMatchingMock).not.toHaveBeenCalled()
   })
 })

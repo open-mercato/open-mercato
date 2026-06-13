@@ -14,7 +14,7 @@ import {
   CustomerDealPersonLink,
 } from '../../../data/entities'
 import { buildDealListFilters, dealListQuerySchema } from '../route'
-import { applyEntityIdRestriction } from '../../utils'
+import { applyEntityIdRestriction, findMatchingEntityIdsBySearchTokensAcrossSources } from '../../utils'
 import { createPagedListResponseSchema } from '../../openapi'
 import {
   resolveDealLocations,
@@ -304,10 +304,63 @@ export async function GET(req: Request) {
 
   const filters = await buildDealListFilters(query, ctx)
   const existingAllowlist = readFilterIdAllowlist(filters)
-  const allowlistLookup = existingAllowlist ? new Set(existingAllowlist) : null
+
+  // The map card headline is the linked company/person name, which the deal-field token search
+  // (title/description/status/…) used by `buildDealListFilters` does NOT cover — so searching a
+  // company/person name a user can plainly see on a card would otherwise return nothing. When a
+  // search term is present, also resolve located deals whose linked company/person ENTITY name
+  // matches, and union them with the deal-field matches. The sentinel "no match" id from the
+  // deal-field search drops out naturally at the located intersection below, so no special-casing.
+  let searchAllowlist = existingAllowlist
+  if (query.search && locatedEntityIds.length > 0) {
+    const nameMatchedEntityIds = await findMatchingEntityIdsBySearchTokensAcrossSources({
+      ctx,
+      query: query.search,
+      sources: [
+        {
+          entityType: E.customers.customer_entity,
+          fields: ['display_name', 'primary_email', 'primary_phone', 'description'],
+        },
+      ],
+    })
+    const locatedEntitySet = new Set(locatedEntityIds)
+    const locatedMatchedEntityIds = (nameMatchedEntityIds ?? []).filter((id) => locatedEntitySet.has(id))
+    if (locatedMatchedEntityIds.length > 0) {
+      const [companyNameLinkRows, personNameLinkRows] = await Promise.all([
+        findWithDecryption(
+          em,
+          CustomerDealCompanyLink,
+          { company: { $in: locatedMatchedEntityIds } },
+          { fields: ['deal'] },
+          decryptionScope,
+        ),
+        findWithDecryption(
+          em,
+          CustomerDealPersonLink,
+          { person: { $in: locatedMatchedEntityIds } },
+          { fields: ['deal'] },
+          decryptionScope,
+        ),
+      ])
+      const nameMatchedDealIds = [
+        ...collectRefIds(companyNameLinkRows, 'deal'),
+        ...collectRefIds(personNameLinkRows, 'deal'),
+      ]
+      if (nameMatchedDealIds.length > 0) {
+        searchAllowlist = Array.from(new Set([...(existingAllowlist ?? []), ...nameMatchedDealIds]))
+      }
+    }
+  }
+
+  const allowlistLookup = searchAllowlist ? new Set(searchAllowlist) : null
   const restrictedDealIds = allowlistLookup
     ? locatedDealIds.filter((id) => allowlistLookup.has(id))
     : locatedDealIds
+  // `restrictedDealIds` is the final located ∩ (deal-field ∪ company/person-name) set — it already
+  // captures every id constraint `buildDealListFilters` expressed (read back via
+  // `readFilterIdAllowlist`). Clear the stale `filters.id` first so `applyEntityIdRestriction` does
+  // not re-intersect against the deal-field "no match" sentinel and drop the name-matched deals.
+  delete (filters as Record<string, unknown>).id
   applyEntityIdRestriction(filters, restrictedDealIds)
 
   const sortColumn = query.sortField ? sortFieldMap[query.sortField] : 'id'
