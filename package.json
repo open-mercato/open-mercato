@@ -202,6 +202,7 @@
     "fast-xml-builder": "1.2.0",
     "shell-quote": "1.8.4",
     "dompurify": "3.4.9",
-    "@grpc/grpc-js": "1.14.4"
+    "@grpc/grpc-js": "1.14.4",
+    "esbuild": "0.28.1"
   }
 }
