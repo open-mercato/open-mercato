@@ -51,4 +51,5 @@ internally consistent exactly as CI on the original PRs already validated.
 ### Phase 2: Validate & ship
 
 - [x] 2.1 Run `yarn install --immutable` to confirm lockfile consistency — passed (no tracked-file mutation)
-- [ ] 2.2 Open PR against `develop`, label, close originals
+- [x] 2.2 Open PR against `develop`, label, close originals — #3054
+- [x] Post-review fix: clear CI audit gate — pin esbuild 0.28.1 (transitive ~0.28.0 survived) + @grpc/grpc-js 1.14.4 via resolutions — 30a55a2a4
