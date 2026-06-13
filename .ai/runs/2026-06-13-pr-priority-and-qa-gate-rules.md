@@ -54,14 +54,18 @@ dedicated QA reviewers have no capacity.
 
 ### Phase 1: Rules + CI gate
 
-- [ ] 1.1 Extend AGENTS.md PR Workflow (qa-approved gate, self-QA exception, priority usage)
-- [ ] 1.2 Add `.github/workflows/merge-gate.yml` label gate
-- [ ] 1.3 Note the gate + self-QA path in `.github/QA-DEPLOYMENT.md`
+- [x] 1.1 Extend AGENTS.md PR Workflow (qa-approved gate, self-QA exception, priority usage) — 045cd4b72
+- [x] 1.2 Add `.github/workflows/merge-gate.yml` label gate — 045cd4b72, hardened in d2910719f (issues:read)
+- [x] 1.3 Note the gate + self-QA path in `.github/QA-DEPLOYMENT.md` (+ PR template) — 045cd4b72
 
 ### Phase 2: Auto-skill updates
 
-- [ ] 2.1 om-auto-review-pr: guess priority + enforce qa-approved gate
-- [ ] 2.2 om-auto-create-pr (+loop): infer/apply priority on PR open
-- [ ] 2.3 om-auto-fix-github + om-auto-verify-and-fix-github: carry issue priority
-- [ ] 2.4 om-auto-continue-pr (+loop): preserve priority + honor qa-approved gate
-- [ ] 2.5 om-auto-qa-scenarios + om-auto-sec-report-pr: QA-approval + priority notes
+- [x] 2.1 om-auto-review-pr: guess priority + enforce qa-approved gate — 96383b1e9
+- [x] 2.2 om-auto-create-pr (+loop): infer/apply priority on PR open — 96383b1e9
+- [x] 2.3 om-auto-fix-github + om-auto-verify-and-fix-github: carry issue priority — 96383b1e9
+- [x] 2.4 om-auto-continue-pr (+loop): preserve priority + honor qa-approved gate — 96383b1e9
+- [x] 2.5 om-auto-qa-scenarios + om-auto-sec-report-pr: QA-approval + priority notes — 96383b1e9
+
+## Changelog
+
+- 2026-06-13 — Shipped as PR #3055 against `develop`. `label-gate`, `validate-skills-tiers`, and `lint` checks green. New `qa-self-verified` GitHub label created. Gate still needs to be wired into branch protection as a required check by a maintainer to enforce.
