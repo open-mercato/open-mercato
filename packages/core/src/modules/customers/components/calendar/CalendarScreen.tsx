@@ -27,6 +27,8 @@ import { MonthGrid } from './MonthGrid'
 import { ShortcutsDialog } from './ShortcutsDialog'
 import { TimeGrid } from './TimeGrid'
 import { UpcomingCards } from './UpcomingCards'
+import { CalendarSettingsModal } from './CalendarSettingsModal'
+import { useCalendarPreferences } from './useCalendarPreferences'
 import { MAX_WINDOW_ITEMS, useCalendarItems } from './useCalendarItems'
 import type {
   CalendarFiltersValue,
@@ -123,9 +125,12 @@ export function CalendarScreen() {
   const [filters, setFilters] = React.useState<CalendarFiltersValue>(EMPTY_FILTERS)
   const [editor, setEditor] = React.useState<EditorState>({ open: false, mode: 'create', item: null })
   const [editorMounted, setEditorMounted] = React.useState(false)
+  const [createRange, setCreateRange] = React.useState<{ start: Date; end: Date } | null>(null)
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false)
+  const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [highlightItemId, setHighlightItemId] = React.useState<string | null>(null)
   const [hasLoadedOnce, setHasLoadedOnce] = React.useState(false)
+  const { preferences, setPreferences, hydrated: preferencesHydrated, userId: currentUserId } = useCalendarPreferences()
 
   const range = React.useMemo(
     () => getVisibleRange(view, anchor, agendaHorizonDays),
@@ -173,9 +178,10 @@ export function CalendarScreen() {
         if (filters.types.length > 0 && !filters.types.includes(item.interactionType)) return false
         if (filters.status && item.status !== filters.status) return false
         if (filters.ownerUserId && item.ownerUserId !== filters.ownerUserId) return false
+        if (!preferences.showCrmActivities && item.category !== 'meeting' && item.category !== 'event') return false
         return true
       }),
-    [searchedItems, filters],
+    [searchedItems, filters, preferences.showCrmActivities],
   )
 
   const tabCounts = React.useMemo(() => countByCategory(baseItems), [baseItems])
@@ -186,7 +192,10 @@ export function CalendarScreen() {
     return baseItems
   }, [baseItems, tab])
 
-  const conflictMap = React.useMemo(() => findConflicts(baseItems), [baseItems])
+  const conflictMap = React.useMemo(
+    () => findConflicts(baseItems, { scope: preferences.conflictScope, currentUserId }),
+    [baseItems, preferences.conflictScope, currentUserId],
+  )
   const conflictIds = React.useMemo(() => new Set(conflictMap.keys()), [conflictMap])
 
   const upcomingCards = React.useMemo<UpcomingCard[]>(() => {
@@ -197,7 +206,7 @@ export function CalendarScreen() {
       .sort((first, second) => first.start.getTime() - second.start.getTime())
       .slice(0, UPCOMING_CARDS_COUNT)
       .map((item) => {
-        const conflictCount = conflictMap.get(item.id)?.length ?? 0
+        const conflictCount = preferences.conflictWarnings ? (conflictMap.get(item.id)?.length ?? 0) : 0
         const kind: UpcomingCard['kind'] =
           item.status === 'canceled'
             ? 'cancelled'
@@ -208,7 +217,7 @@ export function CalendarScreen() {
                 : 'future'
         return { item, kind, conflictCount }
       })
-  }, [baseItems, conflictMap])
+  }, [baseItems, conflictMap, preferences.conflictWarnings])
 
   const typeOptions = React.useMemo(() => {
     const values = new Set<string>(Object.keys(typeLabels))
@@ -243,6 +252,7 @@ export function CalendarScreen() {
 
   const openCreateEditor = React.useCallback(() => {
     if (!canManage) return
+    setCreateRange(null)
     setEditorMounted(true)
     setEditor({ open: true, mode: 'create', item: null })
   }, [canManage])
@@ -250,11 +260,34 @@ export function CalendarScreen() {
   const openEditEditor = React.useCallback(
     (item: CalendarItem) => {
       if (!canManage) return
+      setCreateRange(null)
       setEditorMounted(true)
       setEditor({ open: true, mode: 'edit', item: asEditableItem(item) })
     },
     [canManage],
   )
+
+  const handleCreateRange = React.useCallback(
+    (start: Date, end: Date) => {
+      if (!canManage) return
+      setCreateRange({ start, end })
+      setEditorMounted(true)
+      setEditor({ open: true, mode: 'create', item: null })
+    },
+    [canManage],
+  )
+
+  const seedActivityTypes = React.useMemo(() => {
+    const seen = new Set<string>()
+    const labels: string[] = []
+    for (const value of Object.keys(typeLabels)) {
+      const label = typeLabels[value] ?? value
+      if (seen.has(label)) continue
+      seen.add(label)
+      labels.push(label)
+    }
+    return labels
+  }, [typeLabels])
 
   const handleToday = React.useCallback(() => {
     setAnchor(new Date())
@@ -426,7 +459,7 @@ export function CalendarScreen() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [editorOpen, focusSearch, openCreateEditor])
 
-  const showInitialLoading = isLoading && !hasLoadedOnce
+  const showInitialLoading = (isLoading && !hasLoadedOnce) || !preferencesHydrated
 
   let viewArea: React.ReactNode
   if (error) {
@@ -463,9 +496,15 @@ export function CalendarScreen() {
         anchor={anchor}
         items={viewItems}
         conflictIds={conflictIds}
+        showWeekends={preferences.showWeekends}
+        showConflicts={preferences.conflictWarnings}
+        aiSummaries={preferences.aiSummaries}
         highlightItemId={highlightItemId}
         onItemClick={openEditEditor}
+        onJoin={handleJoin}
         onNavigate={handleTimeGridNavigate}
+        onCreate={canManage ? openCreateEditor : undefined}
+        onCreateRange={canManage ? handleCreateRange : undefined}
       />
     )
   }
@@ -487,6 +526,7 @@ export function CalendarScreen() {
         onAnchorChange={handleAnchorChange}
         onSearchChange={setSearchText}
         onFiltersChange={setFilters}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
       <UpcomingCards
         cards={upcomingCards}
@@ -518,14 +558,29 @@ export function CalendarScreen() {
         <CalendarFooter timezoneLabel={timezoneLabel} onOpenShortcuts={() => setShortcutsOpen(true)} />
       </div>
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+      <CalendarSettingsModal
+        open={settingsOpen}
+        preferences={preferences}
+        seedActivityTypes={seedActivityTypes}
+        onOpenChange={setSettingsOpen}
+        onSave={(next) => {
+          setPreferences(next)
+          flash(t('customers.calendar.settings.saved', 'Calendar settings saved'), 'success')
+        }}
+      />
       {editorMounted ? (
         <CalendarEventEditor
           open={editor.open}
           mode={editor.mode}
           item={editor.item}
           defaultDate={anchor}
+          defaultRange={createRange}
           typeLabels={typeLabels}
           typeColors={typeColors}
+          surfacedTypes={preferences.activityTypes}
+          eventCategories={preferences.eventCategories}
+          conflictScope={preferences.conflictScope}
+          currentUserId={currentUserId}
           onOpenChange={(open) => setEditor((current) => ({ ...current, open }))}
           onSaved={refetch}
         />

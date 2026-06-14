@@ -8,6 +8,7 @@ import {
   gridBlockName,
   INTERACTIONS_PATH,
   localTimeAt,
+  seedShowWeekendsPreference,
   waitForCalendarLoaded,
 } from './helpers/calendarFixtures';
 
@@ -72,6 +73,9 @@ test.describe('TC-CAL-004: Calendar tabs & filtering', () => {
         status: 'planned',
         scheduledAt: localTimeAt(0, 15, 0),
       });
+
+      // Force "Show weekends" on so today's fixtures are visible even on a weekend.
+      await seedShowWeekendsPreference(page, scope.userId);
 
       await login(page, 'admin');
       await page.goto('/backend/calendar');

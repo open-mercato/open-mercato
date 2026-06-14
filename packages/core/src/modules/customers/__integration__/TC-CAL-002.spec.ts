@@ -8,6 +8,7 @@ import {
   gridBlockName,
   INTERACTIONS_PATH,
   localTimeAt,
+  seedShowWeekendsPreference,
   waitForCalendarLoaded,
 } from './helpers/calendarFixtures';
 
@@ -23,9 +24,10 @@ import {
  * block (accessible name `${title}, ${timeRange}`). The sidebar lists
  * Calendar inside the Customers group (page.meta.ts pageGroup).
  *
- * Fixture: one planned meeting today at 10:00 local — today is always inside
- * its own Monday-start week, so the block is visible on the default week view
- * for any run date/time.
+ * Fixture: one planned meeting today at 10:00 local. The test seeds the calendar
+ * preference `showWeekends: true` (via localStorage, before navigation) so today's
+ * column is visible even when the run date is a weekend — the Mon–Fri default is
+ * covered by TC-CAL-007 instead.
  */
 test.describe('TC-CAL-002: Calendar page load & week grid hydration', () => {
   test('page shell, week grid block and sidebar entry render after hydration', async ({ page, request }) => {
@@ -52,6 +54,9 @@ test.describe('TC-CAL-002: Calendar page load & week grid hydration', () => {
         durationMinutes: 60,
         participants: [{ userId: scope.userId, name: 'QA Admin', email: 'admin@acme.com' }],
       });
+
+      // Force "Show weekends" on so today's column is visible even on a weekend.
+      await seedShowWeekendsPreference(page, scope.userId);
 
       await login(page, 'admin');
       await page.goto('/backend/calendar');

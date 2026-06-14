@@ -84,9 +84,15 @@ export interface TimeGridProps {
   anchor: Date
   items: CalendarItem[]
   conflictIds: Set<string>
+  showWeekends: boolean
+  showConflicts: boolean
+  aiSummaries: boolean
   highlightItemId?: string | null
   onItemClick(item: CalendarItem): void
+  onJoin(item: CalendarItem): void
   onNavigate(deltaDays: number): void
+  onCreate?: () => void
+  onCreateRange?(start: Date, end: Date): void
 }
 
 export interface MonthGridProps {
@@ -140,6 +146,7 @@ export interface CalendarToolbarProps {
   onAnchorChange(date: Date): void
   onSearchChange(value: string): void
   onFiltersChange(value: CalendarFiltersValue): void
+  onOpenSettings(): void
 }
 
 export interface CalendarTabsProps {

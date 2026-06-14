@@ -12,6 +12,7 @@ import {
   localTimeAt,
   mondayWeekRange,
   pressKeyUntil,
+  seedShowWeekendsPreference,
   waitForCalendarLoaded,
 } from './helpers/calendarFixtures';
 
@@ -56,6 +57,9 @@ test.describe('TC-CAL-003: Calendar view switching & navigation', () => {
         durationMinutes: 60,
         participants: [{ userId: scope.userId, name: 'QA Admin', email: 'admin@acme.com' }],
       });
+
+      // Force "Show weekends" on so today's column is visible even on a weekend.
+      await seedShowWeekendsPreference(page, scope.userId);
 
       await login(page, 'admin');
       await page.goto('/backend/calendar');

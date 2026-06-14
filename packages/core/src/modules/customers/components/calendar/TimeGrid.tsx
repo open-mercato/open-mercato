@@ -12,7 +12,15 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { packOverlaps } from '../../lib/calendar/layout'
 import { getVisibleRange } from '../../lib/calendar/range'
-import { EventBlock, resolveEventTone } from './EventBlock'
+import {
+  applyWeekendVisibility,
+  buildDragRange,
+  DRAG_SNAP_MINUTES,
+  isWeekendDay,
+  offsetYToMinutes,
+} from '../../lib/calendar/grid'
+import { EventBlock, formatTimeRange, resolveEventTone } from './EventBlock'
+import { EventPeekPopover } from './EventPeekPopover'
 import type { CalendarItem, TimeGridProps } from './types'
 
 const HOUR_HEIGHT_PX = 120
@@ -40,10 +48,7 @@ type DayColumnData = {
   blocks: PositionedBlock[]
 }
 
-function isNonWorkingDay(date: Date): boolean {
-  const weekday = date.getDay()
-  return weekday === 0 || weekday === 6
-}
+type DragState = { dayMs: number; startMin: number; endMin: number; moved: boolean }
 
 function buildDayColumn(dayStart: Date, items: CalendarItem[]): DayColumnData {
   const dayEnd = addDays(dayStart, 1)
@@ -91,55 +96,104 @@ function buildDayColumn(dayStart: Date, items: CalendarItem[]): DayColumnData {
   return { dayStart, allDayItems, blocks }
 }
 
+type ConflictBadgeProps = { count: number }
+
+function ConflictBadge({ count }: ConflictBadgeProps) {
+  const t = useT()
+  const label =
+    count === 1
+      ? t('customers.calendar.grid.conflictCount', '1 conflict')
+      : t('customers.calendar.grid.conflictsCount', '{count} conflicts', { count })
+  return (
+    <span className="pointer-events-none absolute left-2 top-1 z-40 inline-flex items-center gap-1 rounded-full bg-status-error-bg px-2 py-0.5 text-overline font-medium uppercase tracking-wide text-status-error-text">
+      <span aria-hidden className="size-1.5 rounded-full bg-status-error-icon" />
+      {label}
+    </span>
+  )
+}
+
 type AllDayChipProps = {
   item: CalendarItem
   conflicted: boolean
   highlighted: boolean
+  selected: boolean
   nowMs: number
-  onClick(item: CalendarItem): void
-}
+} & Omit<React.ComponentProps<typeof Button>, 'style' | 'children'>
 
-function AllDayChip({ item, conflicted, highlighted, nowMs, onClick }: AllDayChipProps) {
+const AllDayChip = React.forwardRef<HTMLButtonElement, AllDayChipProps>(function AllDayChip(
+  { item, conflicted, highlighted, selected, nowMs, className, ...buttonProps },
+  ref,
+) {
   const t = useT()
   const tone = resolveEventTone(item, nowMs)
   const title = item.title || t('customers.calendar.grid.untitled', 'Untitled')
   return (
     <Button
+      ref={ref}
       type="button"
       variant="ghost"
-      onClick={() => onClick(item)}
       aria-label={`${title}, ${t('customers.calendar.grid.allDay', 'All day')}`}
       className={cn(
         'h-auto w-full min-w-0 justify-start rounded-sm px-2 py-0.5 text-start hover:bg-muted/70',
         tone.surfaceClassName,
         conflicted && 'ring-1 ring-status-warning-icon',
+        selected && 'shadow-md ring-2 ring-foreground',
         highlighted && 'motion-safe:animate-pulse',
         'focus-visible:ring-2 focus-visible:ring-ring',
+        className,
       )}
       style={tone.style}
+      {...buttonProps}
     >
       <span className={cn('truncate text-xs font-medium', tone.titleClassName)}>{title}</span>
     </Button>
   )
-}
+})
 
-export function TimeGrid({ days, anchor, items, conflictIds, highlightItemId, onItemClick, onNavigate }: TimeGridProps) {
+AllDayChip.displayName = 'AllDayChip'
+
+export function TimeGrid({
+  days,
+  anchor,
+  items,
+  conflictIds,
+  showWeekends,
+  showConflicts,
+  aiSummaries,
+  highlightItemId,
+  onItemClick,
+  onJoin,
+  onNavigate,
+  onCreate,
+  onCreateRange,
+}: TimeGridProps) {
   const t = useT()
   const locale = useLocale()
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const nowMs = Date.now()
   const today = startOfDay(new Date())
   const anchorMs = anchor.getTime()
+  const [selectedId, setSelectedId] = React.useState<string | null>(null)
+  const [drag, setDrag] = React.useState<DragState | null>(null)
 
   const dayStarts = React.useMemo(() => {
     const rangeStart = getVisibleRange(days === 7 ? 'week' : 'day', new Date(anchorMs), 0).from
-    return Array.from({ length: days }, (_, index) => addDays(rangeStart, index))
-  }, [days, anchorMs])
+    const all = Array.from({ length: days }, (_, index) => addDays(rangeStart, index))
+    return days === 7 ? applyWeekendVisibility(all, showWeekends) : all
+  }, [days, anchorMs, showWeekends])
 
   const dayColumns = React.useMemo(
     () => dayStarts.map((dayStart) => buildDayColumn(dayStart, items)),
     [dayStarts, items],
   )
+
+  const resolveJoinUrl = React.useCallback((location: string | null): string | null => {
+    const trimmed = location?.trim() ?? ''
+    if (!trimmed) return null
+    if (/^https?:\/\//i.test(trimmed)) return trimmed
+    if (/^www\./i.test(trimmed)) return `https://${trimmed}`
+    return null
+  }, [])
 
   const hasAllDayLane = dayColumns.some((column) => column.allDayItems.length > 0)
 
@@ -188,6 +242,47 @@ export function TimeGrid({ days, anchor, items, conflictIds, highlightItemId, on
     const dayNumber = formatters.dayNumber.format(dayStart)
     if (days === 1) return `${formatters.weekdayLong.format(dayStart).toUpperCase()} · ${dayNumber}`
     return `${dayNumber} ${formatters.weekdayShort.format(dayStart).toUpperCase()}`
+  }
+
+  const canCreateRange = Boolean(onCreateRange)
+
+  const beginDrag = (event: React.PointerEvent<HTMLDivElement>, dayStart: Date) => {
+    if (!canCreateRange || event.button !== 0) return
+    const layer = event.currentTarget
+    const rect = layer.getBoundingClientRect()
+    const minute = offsetYToMinutes(event.clientY - rect.top, HOUR_HEIGHT_PX)
+    try {
+      layer.setPointerCapture(event.pointerId)
+    } catch {
+      // Pointer capture is best-effort; ignore environments that reject it.
+    }
+    setSelectedId(null)
+    setDrag({ dayMs: dayStart.getTime(), startMin: minute, endMin: minute, moved: false })
+  }
+
+  const moveDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    // Read the layer rect synchronously: `event.currentTarget` is only valid during
+    // event dispatch, but the setDrag updater below runs later during re-render.
+    const rect = event.currentTarget.getBoundingClientRect()
+    const minute = offsetYToMinutes(event.clientY - rect.top, HOUR_HEIGHT_PX)
+    setDrag((previous) => {
+      if (!previous) return previous
+      return {
+        ...previous,
+        endMin: minute,
+        moved: previous.moved || Math.abs(minute - previous.startMin) >= DRAG_SNAP_MINUTES,
+      }
+    })
+  }
+
+  const endDrag = (dayStart: Date) => {
+    setDrag((previous) => {
+      if (previous && previous.moved && onCreateRange) {
+        const range = buildDragRange(dayStart, previous.startMin, previous.endMin)
+        onCreateRange(range.start, range.end)
+      }
+      return null
+    })
   }
 
   return (
@@ -249,14 +344,24 @@ export function TimeGrid({ days, anchor, items, conflictIds, highlightItemId, on
                   )}
                 >
                   {allDayItems.map((item) => (
-                    <AllDayChip
+                    <EventPeekPopover
                       key={item.id}
                       item={item}
-                      conflicted={conflictIds.has(item.id)}
-                      highlighted={highlightItemId === item.id}
-                      nowMs={nowMs}
-                      onClick={onItemClick}
-                    />
+                      open={selectedId === item.id}
+                      joinUrl={resolveJoinUrl(item.location)}
+                      aiSummaries={aiSummaries}
+                      onOpenChange={(open) => setSelectedId(open ? item.id : null)}
+                      onJoin={onJoin}
+                      onEdit={onItemClick}
+                    >
+                      <AllDayChip
+                        item={item}
+                        conflicted={showConflicts && conflictIds.has(item.id)}
+                        highlighted={highlightItemId === item.id}
+                        selected={selectedId === item.id}
+                        nowMs={nowMs}
+                      />
+                    </EventPeekPopover>
                   ))}
                 </div>
               ))}
@@ -280,7 +385,18 @@ export function TimeGrid({ days, anchor, items, conflictIds, highlightItemId, on
             </div>
           </div>
           {dayColumns.map(({ dayStart, blocks }) => {
-            const nonWorking = isNonWorkingDay(dayStart)
+            const nonWorking = isWeekendDay(dayStart)
+            const conflictCount = showConflicts
+              ? blocks.filter((block) => conflictIds.has(block.item.id)).length
+              : 0
+            const dragActive = drag && drag.moved && drag.dayMs === dayStart.getTime()
+            const dragRange = dragActive ? buildDragRange(dayStart, drag.startMin, drag.endMin) : null
+            const dragStartMinutes = dragRange
+              ? (dragRange.start.getTime() - startOfDay(dragRange.start).getTime()) / 60000
+              : 0
+            const dragDurationMinutes = dragRange
+              ? (dragRange.end.getTime() - dragRange.start.getTime()) / 60000
+              : 0
             return (
               <div
                 key={dayStart.getTime()}
@@ -305,20 +421,62 @@ export function TimeGrid({ days, anchor, items, conflictIds, highlightItemId, on
                     style={{ backgroundImage: NON_WORKING_HATCH_BACKGROUND }}
                   />
                 ) : null}
-                <div className="absolute inset-y-0" style={{ insetInlineStart: 8, insetInlineEnd: 8 }}>
+                {canCreateRange ? (
+                  <div
+                    className="absolute inset-0 cursor-cell"
+                    onPointerDown={(event) => beginDrag(event, dayStart)}
+                    onPointerMove={moveDrag}
+                    onPointerUp={() => endDrag(dayStart)}
+                    onPointerCancel={() => setDrag(null)}
+                    aria-hidden
+                  />
+                ) : null}
+                {dragRange ? (
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute z-30 flex flex-col gap-0.5 overflow-hidden rounded-md border-2 border-dashed border-foreground bg-accent-indigo/10 px-2 pt-1.5"
+                    style={{
+                      top: (dragStartMinutes / 60) * HOUR_HEIGHT_PX,
+                      height: Math.max(MIN_BLOCK_HEIGHT_PX, (dragDurationMinutes / 60) * HOUR_HEIGHT_PX),
+                      insetInlineStart: 8,
+                      insetInlineEnd: 8,
+                    }}
+                  >
+                    <span className="text-overline font-semibold text-foreground">
+                      {t('customers.calendar.actions.newEvent', 'New event')}
+                    </span>
+                    <span className="text-overline text-muted-foreground">
+                      {formatTimeRange(locale, dragRange.start, dragRange.end)}
+                    </span>
+                  </div>
+                ) : null}
+                {conflictCount > 0 ? <ConflictBadge count={conflictCount} /> : null}
+                {/* Click-through container so empty space reaches the drag-to-create layer
+                    below; each block re-enables pointer events for its own click/peek. */}
+                <div className="pointer-events-none absolute inset-y-0" style={{ insetInlineStart: 8, insetInlineEnd: 8 }}>
                   {blocks.map((block) => (
-                    <EventBlock
+                    <EventPeekPopover
                       key={`${block.item.id}-${block.top}`}
                       item={block.item}
-                      top={block.top}
-                      height={block.height}
-                      insetInlineStart={block.insetInlineStart}
-                      width={block.width}
-                      conflicted={conflictIds.has(block.item.id)}
-                      highlighted={highlightItemId === block.item.id}
-                      nowMs={nowMs}
-                      onClick={onItemClick}
-                    />
+                      open={selectedId === block.item.id}
+                      joinUrl={resolveJoinUrl(block.item.location)}
+                      aiSummaries={aiSummaries}
+                      onOpenChange={(open) => setSelectedId(open ? block.item.id : null)}
+                      onJoin={onJoin}
+                      onEdit={onItemClick}
+                    >
+                      <EventBlock
+                        item={block.item}
+                        top={block.top}
+                        height={block.height}
+                        insetInlineStart={block.insetInlineStart}
+                        width={block.width}
+                        conflicted={showConflicts && conflictIds.has(block.item.id)}
+                        highlighted={highlightItemId === block.item.id}
+                        selected={selectedId === block.item.id}
+                        nowMs={nowMs}
+                      />
+                    </EventPeekPopover>
                   ))}
                 </div>
               </div>
@@ -335,6 +493,14 @@ export function TimeGrid({ days, anchor, items, conflictIds, highlightItemId, on
               days === 7
                 ? t('customers.calendar.empty.week', 'Nothing scheduled this week')
                 : t('customers.calendar.empty.day', 'Nothing scheduled this day')
+            }
+            description={t('customers.calendar.empty.description', 'Plan a meeting, event or task to fill your week.')}
+            actions={
+              onCreate ? (
+                <Button type="button" size="sm" onClick={onCreate}>
+                  {t('customers.calendar.actions.newEvent', 'New event')}
+                </Button>
+              ) : undefined
             }
           />
         </div>

@@ -15,6 +15,44 @@ import {
 const PAGE_LIMIT = 100
 export const MAX_WINDOW_ITEMS = 500
 
+/**
+ * Cursor-follows `/api/customers/interactions` across the given window (already
+ * padded by the caller) up to `MAX_WINDOW_ITEMS`. Shared by the grid data hook
+ * and the editor's conflict probe so both see the exact same candidate set.
+ */
+export async function fetchInteractionWindow(
+  window: CalendarRange,
+  signal?: AbortSignal,
+): Promise<{ payloads: CalendarInteractionPayload[]; truncated: boolean }> {
+  const collected: CalendarInteractionPayload[] = []
+  let cursor: string | undefined
+  let truncated = false
+  do {
+    const params = new URLSearchParams({
+      from: window.from.toISOString(),
+      to: window.to.toISOString(),
+      limit: String(PAGE_LIMIT),
+    })
+    if (cursor) params.set('cursor', cursor)
+    const call = await apiCall<{ items?: unknown[]; nextCursor?: string }>(
+      `/api/customers/interactions?${params.toString()}`,
+      { signal },
+    )
+    if (!call.ok) throw new Error(`[internal] calendar interactions fetch failed (${call.status})`)
+    const pageItems = Array.isArray(call.result?.items) ? call.result.items : []
+    for (const rawItem of pageItems) {
+      const parsed = calendarInteractionPayloadSchema.safeParse(rawItem)
+      if (parsed.success) collected.push(parsed.data)
+    }
+    cursor = typeof call.result?.nextCursor === 'string' ? call.result.nextCursor : undefined
+    if (cursor && collected.length >= MAX_WINDOW_ITEMS) {
+      truncated = true
+      cursor = undefined
+    }
+  } while (cursor)
+  return { payloads: collected.slice(0, MAX_WINDOW_ITEMS), truncated }
+}
+
 type ActivityTypeDictionaryEntry = {
   value?: unknown
   label?: unknown
@@ -82,34 +120,12 @@ export function useCalendarItems(range: CalendarRange): UseCalendarItemsResult {
       setError(null)
       try {
         const fetchWindow = getFetchWindow({ from: new Date(fromTime), to: new Date(toTime) })
-        const collected: CalendarInteractionPayload[] = []
-        let cursor: string | undefined
-        let windowTruncated = false
-        do {
-          const params = new URLSearchParams({
-            from: fetchWindow.from.toISOString(),
-            to: fetchWindow.to.toISOString(),
-            limit: String(PAGE_LIMIT),
-          })
-          if (cursor) params.set('cursor', cursor)
-          const call = await apiCall<{ items?: unknown[]; nextCursor?: string }>(
-            `/api/customers/interactions?${params.toString()}`,
-            { signal: controller.signal },
-          )
-          if (!call.ok) throw new Error(`[internal] calendar interactions fetch failed (${call.status})`)
-          const pageItems = Array.isArray(call.result?.items) ? call.result.items : []
-          for (const rawItem of pageItems) {
-            const parsed = calendarInteractionPayloadSchema.safeParse(rawItem)
-            if (parsed.success) collected.push(parsed.data)
-          }
-          cursor = typeof call.result?.nextCursor === 'string' ? call.result.nextCursor : undefined
-          if (cursor && collected.length >= MAX_WINDOW_ITEMS) {
-            windowTruncated = true
-            cursor = undefined
-          }
-        } while (cursor)
+        const { payloads: collected, truncated: windowTruncated } = await fetchInteractionWindow(
+          fetchWindow,
+          controller.signal,
+        )
         if (cancelled) return
-        setPayloads(collected.slice(0, MAX_WINDOW_ITEMS))
+        setPayloads(collected)
         setTruncated(windowTruncated)
       } catch (err) {
         if (cancelled || controller.signal.aborted) return

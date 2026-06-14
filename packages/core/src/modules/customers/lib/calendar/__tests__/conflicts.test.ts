@@ -105,3 +105,74 @@ describe('findConflicts', () => {
     expect(conflicts.get('participant-pair')).toBeUndefined()
   })
 })
+
+describe('findConflicts scope', () => {
+  const me = 'user-me'
+
+  it('"mine" flags an overlap where the current user owns both events', () => {
+    const conflicts = findConflicts(
+      [
+        makeCalendarItem({ id: 'a', start: at(10), end: at(11), ownerUserId: me }),
+        makeCalendarItem({ id: 'b', start: at(10, 30), end: at(11, 30), ownerUserId: me }),
+      ],
+      { scope: 'mine', currentUserId: me },
+    )
+    expect(conflicts.get('a')).toEqual(['b'])
+    expect(conflicts.get('b')).toEqual(['a'])
+  })
+
+  it('"mine" flags an overlap where the current user participates in both events', () => {
+    const conflicts = findConflicts(
+      [
+        makeCalendarItem({ id: 'a', start: at(10), end: at(11), ownerUserId: 'owner-x', participants: [{ userId: me }, { userId: 'p1' }] }),
+        makeCalendarItem({ id: 'b', start: at(10, 30), end: at(11, 30), ownerUserId: 'owner-y', participants: [{ userId: me }] }),
+      ],
+      { scope: 'mine', currentUserId: me },
+    )
+    expect(conflicts.get('a')).toEqual(['b'])
+  })
+
+  it('"mine" hides a clash between colleagues the current user is not part of', () => {
+    const conflicts = findConflicts(
+      [
+        makeCalendarItem({ id: 'a', start: at(10), end: at(11), ownerUserId: 'owner-x' }),
+        makeCalendarItem({ id: 'b', start: at(10, 30), end: at(11, 30), ownerUserId: 'owner-x' }),
+      ],
+      { scope: 'mine', currentUserId: me },
+    )
+    expect(conflicts.size).toBe(0)
+  })
+
+  it('"mine" hides an overlap where the current user is in only one of the two events', () => {
+    const conflicts = findConflicts(
+      [
+        makeCalendarItem({ id: 'a', start: at(10), end: at(11), ownerUserId: 'owner-x', participants: [{ userId: me }, { userId: 'shared' }] }),
+        makeCalendarItem({ id: 'b', start: at(10, 30), end: at(11, 30), ownerUserId: 'owner-y', participants: [{ userId: 'shared' }] }),
+      ],
+      { scope: 'mine', currentUserId: me },
+    )
+    expect(conflicts.size).toBe(0)
+  })
+
+  it('"all" flags an actor-sharing overlap even when the current user is in neither', () => {
+    const conflicts = findConflicts(
+      [
+        makeCalendarItem({ id: 'a', start: at(10), end: at(11), ownerUserId: 'owner-x' }),
+        makeCalendarItem({ id: 'b', start: at(10, 30), end: at(11, 30), ownerUserId: 'owner-x' }),
+      ],
+      { scope: 'all', currentUserId: me },
+    )
+    expect(conflicts.get('a')).toEqual(['b'])
+  })
+
+  it('"mine" with no current user degrades to org-wide detection', () => {
+    const conflicts = findConflicts(
+      [
+        makeCalendarItem({ id: 'a', start: at(10), end: at(11), ownerUserId: 'owner-x' }),
+        makeCalendarItem({ id: 'b', start: at(10, 30), end: at(11, 30), ownerUserId: 'owner-x' }),
+      ],
+      { scope: 'mine', currentUserId: null },
+    )
+    expect(conflicts.get('a')).toEqual(['b'])
+  })
+})

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures';
 import { login } from '@open-mercato/core/helpers/integration/auth';
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures';
 import {
@@ -9,6 +10,7 @@ import {
   localTimeAt,
   mondayWeekRange,
   pressKeyUntil,
+  seedShowWeekendsPreference,
   waitForCalendarLoaded,
 } from './helpers/calendarFixtures';
 
@@ -46,11 +48,16 @@ test.describe('TC-CAL-005: Create event via calendar editor', () => {
 
     try {
       adminToken = await getAuthToken(request, 'admin');
+      const scope = getTokenScope(adminToken);
       personId = await createPersonFixture(request, adminToken, {
         firstName: 'CalEditor',
         lastName: `Person${stamp}`,
         displayName: personName,
       });
+
+      // The editor defaults new events to today's anchor — force "Show weekends" on
+      // so the created event is visible on the grid even on a weekend.
+      await seedShowWeekendsPreference(page, scope.userId);
 
       await login(page, 'admin');
       await page.goto('/backend/calendar');

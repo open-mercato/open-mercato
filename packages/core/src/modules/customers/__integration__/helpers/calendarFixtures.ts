@@ -171,3 +171,32 @@ export async function waitForCalendarLoaded(page: Page): Promise<void> {
   await expect(page.getByRole('radiogroup', { name: 'Calendar view' })).toBeVisible();
   await expect(page.getByText('Loading calendar…')).toBeHidden();
 }
+
+/**
+ * Seeds the per-user calendar preference `showWeekends: true` in localStorage
+ * before navigation, so weekend-day fixtures and "today" assertions stay visible
+ * regardless of the run-day (the Mon–Fri default is covered by TC-CAL-007). Call
+ * before `login`/`page.goto`. `userId` comes from `getTokenScope(token).userId`.
+ */
+export async function seedShowWeekendsPreference(page: Page, userId: string): Promise<void> {
+  await page.addInitScript(
+    ([key, value]) => {
+      try {
+        window.localStorage.setItem(key, value);
+      } catch {
+        /* ignore */
+      }
+    },
+    [
+      `om.customers.calendar.preferences.v1:${userId}`,
+      JSON.stringify({
+        showWeekends: true,
+        conflictWarnings: true,
+        showCrmActivities: true,
+        aiSummaries: true,
+        eventCategories: [],
+        activityTypes: [],
+      }),
+    ],
+  );
+}

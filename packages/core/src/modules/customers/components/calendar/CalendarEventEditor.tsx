@@ -17,6 +17,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import {
+  buildEditorCategoryOptions,
   buildInteractionPayload,
   computeDurationMinutes,
   createDefaultFormState,
@@ -24,10 +25,12 @@ import {
   EDITOR_KINDS,
   KIND_CONFIG,
   parseItemToFormState,
+  resolveSavedOwnerUserId,
   type EditorFormState,
   type EditorKind,
   type EditorPriority,
 } from '../../lib/calendar/editorPayload'
+import type { ConflictScope } from '../../lib/calendar/preferences'
 import type { CalendarItem } from './types'
 import { Field } from './editor/inputs'
 import { SegmentGroup } from './editor/SegmentGroup'
@@ -44,8 +47,13 @@ export interface CalendarEventEditorProps {
   mode: 'create' | 'edit'
   item?: CalendarItem | null
   defaultDate?: Date
+  defaultRange?: { start: Date; end: Date } | null
   typeLabels: Record<string, string>
   typeColors: Record<string, string | null>
+  surfacedTypes?: string[]
+  eventCategories?: string[]
+  conflictScope?: ConflictScope
+  currentUserId?: string | null
   onOpenChange(open: boolean): void
   onSaved(): void
 }
@@ -58,10 +66,10 @@ const PEOPLE_FIELD_TEXT = {
   to: { labelKey: 'customers.calendar.editor.to', label: 'To', placeholderKey: 'customers.calendar.editor.addRecipientPlaceholder', placeholder: 'Add recipient…' },
 } as const
 
-export function CalendarEventEditor({ open, mode, item, defaultDate, typeLabels, typeColors, onOpenChange, onSaved }: CalendarEventEditorProps) {
+export function CalendarEventEditor({ open, mode, item, defaultDate, defaultRange, typeLabels, typeColors, surfacedTypes, eventCategories, conflictScope, currentUserId, onOpenChange, onSaved }: CalendarEventEditorProps) {
   const t = useT()
   const locale = useLocale()
-  const [form, setForm] = React.useState<EditorFormState>(() => createDefaultFormState(defaultDate ?? null))
+  const [form, setForm] = React.useState<EditorFormState>(() => createDefaultFormState(defaultDate ?? null, undefined, defaultRange ?? null))
   const [fieldErrors, setFieldErrors] = React.useState<FieldErrors>({})
   const [saving, setSaving] = React.useState(false)
   const openKeyRef = React.useRef<string | null>(null)
@@ -80,12 +88,26 @@ export function CalendarEventEditor({ open, mode, item, defaultDate, typeLabels,
     const key = `${mode}:${item?.id ?? 'new'}`
     if (openKeyRef.current === key) return
     openKeyRef.current = key
-    setForm(mode === 'edit' && item ? parseItemToFormState(item) : createDefaultFormState(defaultDate ?? null))
+    setForm(
+      mode === 'edit' && item
+        ? parseItemToFormState(item)
+        : createDefaultFormState(defaultDate ?? null, undefined, defaultRange ?? null),
+    )
     setFieldErrors({})
-  }, [open, mode, item, defaultDate])
+  }, [open, mode, item, defaultDate, defaultRange])
 
   useEditorLabelResolution(open, form, update)
-  const conflict = useConflictProbe(open, form, config, isEdit && item?.id ? item.id : null)
+  // Probe against the owner the interaction will actually be SAVED with so the
+  // editor warning matches the grid's post-save conflict rings: tasks own via
+  // their assignee, other kinds stay ownerless on create / keep the existing
+  // owner on edit (conflicts then come from shared participants).
+  const draftOwnerUserId = resolveSavedOwnerUserId(config, form, isEdit, item?.ownerUserId ?? null)
+  // Self-exclude by the underlying interaction id (raw.id): findEditorConflictItems
+  // drops candidates by raw.id, and every expanded occurrence of a recurring series
+  // shares it — so the edited record never conflicts with itself. (asEditableItem
+  // already normalizes a clicked occurrence's id to raw.id, so these match today;
+  // raw.id keeps it correct even if a future edit path skips that normalization.)
+  const conflict = useConflictProbe(open, form, config, isEdit && item ? item.raw.id : null, draftOwnerUserId, conflictScope ?? 'all', currentUserId ?? null)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -151,14 +173,17 @@ export function CalendarEventEditor({ open, mode, item, defaultDate, typeLabels,
 
   const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave, disabled: saving })
 
-  const categoryOptions = React.useMemo(() => {
-    const options = Object.entries(typeLabels).map(([value, label]) => ({ value, label }))
-    const effective = form.category ?? form.kind
-    if (!options.some((option) => option.value === effective)) {
-      options.unshift({ value: effective, label: typeLabels[effective] ?? t(`customers.calendar.editor.types.${form.kind}`, form.kind) })
-    }
-    return options
-  }, [typeLabels, form.category, form.kind, t])
+  const categoryOptions = React.useMemo(
+    () =>
+      buildEditorCategoryOptions({
+        typeLabels,
+        surfacedTypes: surfacedTypes ?? [],
+        eventCategories: eventCategories ?? [],
+        selectedValue: form.category ?? form.kind,
+        selectedFallbackLabel: t(`customers.calendar.editor.types.${form.kind}`, form.kind),
+      }),
+    [typeLabels, surfacedTypes, eventCategories, form.category, form.kind, t],
+  )
 
   const titleLabel = form.kind === 'email'
     ? t('customers.calendar.editor.titleLabel.email', 'Subject')

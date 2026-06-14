@@ -119,21 +119,26 @@ export type EventBlockProps = {
   width: string
   conflicted: boolean
   highlighted: boolean
+  selected?: boolean
   nowMs: number
-  onClick(item: CalendarItem): void
-}
+} & Omit<React.ComponentProps<typeof Button>, 'style' | 'children'>
 
-export function EventBlock({
-  item,
-  top,
-  height,
-  insetInlineStart,
-  width,
-  conflicted,
-  highlighted,
-  nowMs,
-  onClick,
-}: EventBlockProps) {
+export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(function EventBlock(
+  {
+    item,
+    top,
+    height,
+    insetInlineStart,
+    width,
+    conflicted,
+    highlighted,
+    selected,
+    nowMs,
+    className,
+    ...buttonProps
+  },
+  ref,
+) {
   const t = useT()
   const locale = useLocale()
   const tone = resolveEventTone(item, nowMs)
@@ -148,20 +153,23 @@ export function EventBlock({
 
   return (
     <Button
+      ref={ref}
       type="button"
       variant="ghost"
-      onClick={() => onClick(item)}
       aria-label={`${title}, ${timeRange}`}
       className={cn(
-        'absolute h-auto flex-col items-start justify-start gap-1 whitespace-normal overflow-hidden rounded-md px-1.5 text-start outline-none hover:bg-muted/70 sm:px-3',
+        'pointer-events-auto absolute h-auto flex-col items-start justify-start gap-1 whitespace-normal overflow-hidden rounded-md px-1.5 text-start outline-none hover:bg-muted/70 sm:px-3',
         height >= SHOW_TIME_MIN_HEIGHT_PX ? 'py-1 sm:py-2' : 'py-0.5 sm:py-1',
         tone.surfaceClassName,
         conflicted && 'ring-1 ring-status-warning-icon',
+        selected && 'shadow-md ring-2 ring-foreground',
         highlighted && 'motion-safe:animate-pulse',
-        conflicted || highlighted ? 'z-20' : 'z-10',
+        conflicted || highlighted || selected ? 'z-30' : 'z-10',
         'focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-ring',
+        className,
       )}
       style={{ top, height, insetInlineStart, width, ...tone.style }}
+      {...buttonProps}
     >
       <span className={cn('w-full text-xs font-medium leading-4', wrapTitle ? 'line-clamp-2' : 'truncate', tone.titleClassName)}>
         {title}
@@ -192,4 +200,6 @@ export function EventBlock({
       ) : null}
     </Button>
   )
-}
+})
+
+EventBlock.displayName = 'EventBlock'

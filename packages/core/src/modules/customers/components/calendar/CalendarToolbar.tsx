@@ -2,11 +2,12 @@
 
 import * as React from 'react'
 import { format } from 'date-fns/format'
-import { CalendarRange, ListFilter } from 'lucide-react'
+import { CalendarRange, ListFilter, Settings } from 'lucide-react'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Calendar } from '@open-mercato/ui/primitives/calendar'
 import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Kbd } from '@open-mercato/ui/primitives/kbd'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
@@ -50,6 +51,7 @@ export function CalendarToolbar(props: CalendarToolbarProps) {
     onAnchorChange,
     onSearchChange,
     onFiltersChange,
+    onOpenSettings,
   } = props
   const t = useT()
   const [rangeOpen, setRangeOpen] = React.useState(false)
@@ -279,6 +281,14 @@ export function CalendarToolbar(props: CalendarToolbarProps) {
             </div>
           </PopoverContent>
         </Popover>
+        <IconButton
+          type="button"
+          variant="outline"
+          aria-label={t('customers.calendar.toolbar.settings', 'Calendar settings')}
+          onClick={onOpenSettings}
+        >
+          <Settings aria-hidden />
+        </IconButton>
       </div>
     </div>
   )

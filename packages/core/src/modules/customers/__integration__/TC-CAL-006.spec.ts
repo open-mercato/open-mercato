@@ -11,6 +11,7 @@ import {
   localTimeAt,
   mondayWeekRange,
   pressKeyUntil,
+  seedShowWeekendsPreference,
   waitForCalendarLoaded,
 } from './helpers/calendarFixtures';
 
@@ -73,6 +74,9 @@ test.describe('TC-CAL-006: Calendar conflict surfacing', () => {
         durationMinutes: 90,
         ownerUserId: scope.userId,
       });
+
+      // Force "Show weekends" on so tomorrow's fixtures are visible even on a weekend.
+      await seedShowWeekendsPreference(page, scope.userId);
 
       await login(page, 'admin');
       await page.goto('/backend/calendar');
