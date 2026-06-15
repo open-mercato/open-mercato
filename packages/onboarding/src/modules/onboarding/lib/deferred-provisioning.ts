@@ -11,6 +11,7 @@ import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reinde
 import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
+import { PREPARATION_CLAIM_STALE_MS } from '@open-mercato/onboarding/modules/onboarding/lib/preparation-claim'
 
 const VECTOR_REINDEX_ENQUEUE_TIMEOUT_MS = 5_000
 const SEED_EXAMPLES_TIMEOUT_MS = 15_000
@@ -80,13 +81,14 @@ async function runModuleSetupHook(args: {
 
 async function markWorkspaceReady(args: {
   requestId: string
+  service: OnboardingService
 }) {
-  const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
-  const service = new OnboardingService(em)
-  const request = await service.findById(args.requestId)
-  if (!request || request.preparationCompletedAt) return
-  await service.markPreparationCompleted(request, new Date())
+  const request = await args.service.findById(args.requestId)
+  // The status guard protects a request that was re-submitted (and reset to
+  // pending) while this chain was still running — completing it would let the
+  // new flow skip its own deferred provisioning.
+  if (!request || request.preparationCompletedAt || request.status !== 'completed') return
+  await args.service.markPreparationCompleted(request, new Date())
 }
 
 async function enqueueVectorReindex(args: {
@@ -187,10 +189,36 @@ export async function runDeferredProvisioning(args: {
 }) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const service = new OnboardingService(em)
+
+  // Single-flight guard: the preparing page polls the status endpoint every
+  // second and each poll (plus the verify handler) schedules this chain. The
+  // atomic claim collapses those triggers into one run per request — without
+  // it, dozens of concurrent seed + full-reindex chains exhaust the PG
+  // connection pool (2026-06-11 demo outage). A stale claim (crashed runner)
+  // becomes reclaimable after PREPARATION_CLAIM_STALE_MS.
+  const claimedAt = new Date()
+  const claimed = await service.claimPreparation(
+    args.requestId,
+    claimedAt,
+    new Date(claimedAt.getTime() - PREPARATION_CLAIM_STALE_MS),
+  )
+  if (!claimed) {
+    console.info('[onboarding.verify] deferred provisioning skipped (already claimed or completed)', {
+      requestId: args.requestId,
+      tenantId: args.tenantId,
+    })
+    return
+  }
+
   const modules = getModules()
 
   for (const mod of modules) {
     if (!mod.setup?.seedExamples) continue
+    // Heartbeat: keep the lease fresh while legitimately working so a slow run
+    // (many modules × 15s seed timeout + rebuild) can never look stale and get
+    // double-claimed by a later poll.
+    await service.renewPreparation(args.requestId, new Date()).catch(() => {})
     try {
       await runModuleSetupHook({
         moduleId: mod.id,
@@ -221,10 +249,26 @@ export async function runDeferredProvisioning(args: {
     }
   }
 
-  await markWorkspaceReady({
-    requestId: args.requestId,
+  // The rebuild runs BEFORE the completion flag: preparationCompletedAt is the
+  // terminal gate for both the status-route scheduling and claimPreparation,
+  // so a runner that dies mid-rebuild must leave the flag unset — the stale
+  // claim then makes the whole chain reclaimable and the rebuild self-heals.
+  // rebuildTenantQueryIndexes never throws (it logs per-entity failures).
+  await service.renewPreparation(args.requestId, new Date()).catch(() => {})
+  await rebuildTenantQueryIndexes({
+    em,
+    tenantId: args.tenantId,
+    organizationId: args.organizationId,
   })
 
+  await markWorkspaceReady({
+    requestId: args.requestId,
+    service,
+  })
+
+  // Non-fatal (#2954 contract): an email failure must not abort the chain.
+  // The status endpoint retries the ready email on later polls while
+  // readyEmailSentAt is unset.
   await sendWorkspaceReadyEmail({
     requestId: args.requestId,
     tenantId: args.tenantId,
@@ -235,13 +279,6 @@ export async function runDeferredProvisioning(args: {
       organizationId: args.organizationId,
       error,
     })
-    throw error
-  })
-
-  await rebuildTenantQueryIndexes({
-    em,
-    tenantId: args.tenantId,
-    organizationId: args.organizationId,
   })
 
   await enqueueVectorReindex({

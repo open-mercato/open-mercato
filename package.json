@@ -155,7 +155,7 @@
     "@types/semver": "^7.7.1",
     "cross-env": "^10.1.0",
     "cross-spawn": "^7.0.6",
-    "esbuild": "^0.28.0",
+    "esbuild": "^0.28.1",
     "eslint": "^10.4.1",
     "glob": "^13.0.6",
     "husky": "^9.1.7",
@@ -201,6 +201,8 @@
     "webpack": "5.104.1",
     "fast-xml-builder": "1.2.0",
     "shell-quote": "1.8.4",
-    "dompurify": "3.4.9"
+    "dompurify": "3.4.9",
+    "esbuild": "0.28.1",
+    "@grpc/grpc-js": "1.14.4"
   }
 }
