@@ -47,9 +47,18 @@ PR #3069 (`dependabot/npm_and_yarn/minor-and-patch-cbbd645498`, base `main`) bum
 
 ### Phase 1: Apply version bumps
 
-- [ ] 1.1 Apply package.json version edits from PR #3069
-- [ ] 1.2 Regenerate yarn.lock via yarn install
+- [x] 1.1 Apply package.json version edits from PR #3069 (+ #3071 nodemailer 8->9) — c7fb1b942
+- [x] 1.2 Regenerate yarn.lock via yarn install — c7fb1b942
 
 ### Phase 2: Validate
 
-- [ ] 2.1 Run validation gate (generate, build:packages, typecheck, test, build:app)
+- [x] 2.1 Run validation gate (generate, build:packages, typecheck, test, build:app) — all green
+
+### Post-implementation fixes (unblocking the gate)
+
+- [x] testcontainers 12.0.2 pulls ESM archiver@8 → lazy-import GenericContainer in cli integration helper so jest can load it — 6a42c9cb8
+- [x] Pre-existing develop regression: duplicate `parseBooleanWithDefault` import in events/bus.ts (from #3017) broke typecheck for events + downstream → removed — 8de48c32e
+
+### Notes
+
+- undici stays pinned at 7.24.0 via root `resolutions` (same on main and develop); #3071's transitive undici 7->8 bump is intentionally NOT applied — bumping it would override a deliberate pin added by "fix: dependabot insights".
