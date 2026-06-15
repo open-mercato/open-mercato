@@ -8,6 +8,7 @@ Ship the enterprise spec that plans unified `record_locks` coverage across CRM v
 ## Scope
 - Add the spec file `.ai/specs/enterprise/2026-06-09-record-locks-unified-coverage.md`.
 - Add a "Pending Specifications" index entry in `.ai/specs/enterprise/README.md`.
+- Continue post-review spec hardening by filling identified gaps before implementation starts.
 
 ## Non-goals
 - No code changes to `record_locks`, `customers`, CRM v2 screens, or any module.
@@ -26,6 +27,9 @@ Ship the enterprise spec that plans unified `record_locks` coverage across CRM v
 - 1.1 Add spec file under `.ai/specs/enterprise/`.
 - 1.2 Add Pending Specifications index entry in `.ai/specs/enterprise/README.md`.
 
+### Phase 2: Post-review spec gap hardening
+- 2.1 Audit missing failure modes and update the spec with implementable seams, coverage guards, and BC notes.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
@@ -34,3 +38,7 @@ Ship the enterprise spec that plans unified `record_locks` coverage across CRM v
 
 - [x] 1.1 Add spec file under `.ai/specs/enterprise/` — 558523b7a
 - [x] 1.2 Add Pending Specifications index entry in README — 558523b7a
+
+### Phase 2: Post-review spec gap hardening
+
+- [x] 2.1 Audit missing failure modes and update the spec with implementable seams, coverage guards, and BC notes — f0e93dc0e
