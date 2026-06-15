@@ -234,17 +234,26 @@ export class EmbeddingService {
     const providerOptions = this.getProviderOptions()
     const timeoutMs = resolveEmbeddingTimeoutMs()
 
+    const abortController = new AbortController()
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null
     try {
       const result = await Promise.race([
         embed({
           model,
           value: merged,
+          abortSignal: abortController.signal,
           ...(providerOptions && { providerOptions }),
         }),
         new Promise<never>((_, reject) => {
           timeoutHandle = setTimeout(
-            () => reject(timeoutError(this.config.providerId, timeoutMs)),
+            () => {
+              // Abort the in-flight request so a dead/unreachable provider releases
+              // its socket — and, in a worker, the per-job DB connection held while
+              // this awaits — promptly, instead of lingering until the platform's
+              // default network timeout and pinning pool capacity under a storm.
+              abortController.abort()
+              reject(timeoutError(this.config.providerId, timeoutMs))
+            },
             timeoutMs,
           )
         }),
