@@ -45,3 +45,12 @@ Write a detailed, architecturally-compliant spec for an opt-in program that lets
 ### Phase 2: Self-review
 
 - [x] 2.1 Re-read spec against om-spec-writing checklist + BC contract; tighten gaps
+
+### Post-review fixes (self-review pass)
+
+- [x] Fix Codex `notify` event name `turn-ended` → `agent-turn-complete`; payload is a single JSON arg with `thread-id` (no `transcript_path`/`session_id`)
+- [x] Declare typed event `coding_sessions.upload.ingested` so the event-naming compliance claim is backed
+- [x] Reword optimistic-lock compliance: entity carries `updated_at` for the guard, but rows are worker-written + read-only admin → no 409 surface
+- [x] Reconcile endpoint resolution (env → consent.endpoint → default) and add `endpoint` to the consent record schema
+- [x] State explicit off-by-default guarantee (no `consent.json` written on "No"/non-interactive)
+- [x] Add an Overview section; soften `contentLevel` wording in TLDR

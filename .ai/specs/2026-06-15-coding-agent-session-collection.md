@@ -13,8 +13,8 @@
 - **Privacy is the load-bearing requirement.** Raw sessions contain source code, prompts, file paths, usernames, and frequently secrets. A mandatory multi-stage **redaction pipeline runs on the developer's machine before any byte leaves it**; the server then **re-scans (defense in depth)** and quarantines anything that still looks sensitive. Nothing is collected unless consent is on disk.
 
 **Scope:**
-- Developer side: consent prompt in `create-mercato-app`, a consent/installId record in the scaffolded project, a `shipper` script, Claude Code `Stop`/`SessionEnd` hooks and a Codex `notify` shim, plus a manual `enable`/`disable`/`status` command.
-- Sanitizer: secret/credential redaction, PII redaction, path/home normalization, dangerous-file dropping, event-type allowlisting, content-level control (metadata-only → redacted-content), size caps, and a per-upload redaction report.
+- Developer side: consent prompt in `create-mercato-app`, a consent/installId record in the scaffolded project, a `shipper` script, Claude Code `Stop`/`SessionEnd` hooks and a Codex `notify` shim (`agent-turn-complete`), plus a manual `enable`/`disable`/`status` command.
+- Sanitizer: secret/credential redaction, PII redaction, path/home normalization, dangerous-file dropping, event-type allowlisting, content-level control (default `redacted-content`; optional metadata-only), size caps, and a per-upload redaction report.
 - Collection side: `POST /api/coding_sessions/ingest` (token-auth, returns `202`, never blocks), a queue worker that persists to disk, a `coding_session_uploads` metadata table, retention/quarantine, and a backoffice list page.
 - Relationship to `@open-mercato/telemetry` (emit spans/metrics through the facade) and to `@open-mercato/telemetry-client` (shared enablement-precedence + fail-safe patterns, separate channel).
 
@@ -38,6 +38,10 @@
 
 The developer side has **no dependency on a running Open Mercato app** — it is plain files in the generated project. The collection side is an ordinary Open Mercato module that the team enables on a dedicated collection instance (its own tenant/org), exactly as `telemetry-central` is itself an Open Mercato instance running the `telemetry` module.
 
+## Overview
+
+This spec introduces a privacy-first, opt-in pipeline with two cooperating sides. On the **developer's machine**, `create-mercato-app` (with explicit consent) installs agent hooks and a small shipper that, after a session ends, sanitizes the agent transcript locally and uploads it. On a dedicated **collection instance**, an OSS `coding_sessions` module accepts uploads asynchronously, re-scans them, and stores them filesystem-first with a thin DB metadata index. The goal is qualitative insight into *how* developers build with Open Mercato — complementing the quantitative aggregate counts of the [phone-home spec](enterprise/2026-06-04-usage-telemetry-phone-home.md) and the operational signals of the [telemetry/OTEL facade](2026-04-29-telemetry-and-otel.md). The whole design is anchored on three guarantees: nothing is collected without an on-disk consent record, sensitive data is redacted on the developer's machine before transmission, and the collector never affects the agent's responsiveness.
+
 ## Problem Statement
 
 - The team has no visibility into *how* developers actually use Open Mercato with coding agents: which AGENTS.md guides get read, which Task Router rows are hit, where agents loop or fail, which modules are scaffolded, how skills perform in the wild. The [phone-home spec](enterprise/2026-06-04-usage-telemetry-phone-home.md) answers *how many* installs and *how big*; it cannot answer *how people build*.
@@ -49,7 +53,7 @@ The developer side has **no dependency on a running Open Mercato app** — it is
 A two-sided, opt-in pipeline:
 
 1. **Consent at scaffold time.** `create-mercato-app` asks a clear yes/no question (default **No**) during the existing agentic-setup wizard. On "yes" it writes a consent record (with a fresh anonymous `installId`) and installs agent hooks + a shipper into the new project. On "no" (or non-interactive), nothing is installed; a one-line note explains how to opt in later.
-2. **Session capture via agent hooks.** Claude Code fires a `Stop`/`SessionEnd` hook; Codex fires its `notify` program at `turn-ended`/session end. The hook is a thin shim that hands the session's transcript path to the shipper **detached** (does not block the agent).
+2. **Session capture via agent hooks.** Claude Code fires a `Stop`/`SessionEnd` hook; Codex invokes its `notify` program with the `agent-turn-complete` event. The hook is a thin shim that hands the session's transcript path to the shipper **detached** (does not block the agent).
 3. **Local sanitization (mandatory).** The shipper reads the transcript, runs the multi-stage redaction pipeline, drops dangerous content, normalizes paths, and produces a sanitized blob plus a redaction report. If consent is absent/revoked, it exits 0 immediately.
 4. **Fail-open upload.** The sanitized blob is POSTed to the configured endpoint under a hard time budget. Any error/timeout is swallowed and logged locally at debug; the blob is optionally spooled for one retry on the next session. The agent is never affected.
 5. **Async ingestion.** The `coding_sessions` module accepts the upload, returns `202` immediately, enqueues a job, **re-scans for secrets (defense in depth)**, writes the (gzipped) blob to the filesystem, and inserts a metadata row. Quarantine on residual secrets.
@@ -149,14 +153,14 @@ CLI flags (mirroring `--skip-agentic-setup`):
 - Non-interactive default (no TTY, or `--skip-agentic-setup`): **disabled**, with a note to run `yarn mercato dev-sessions enable` later.
 
 On **yes**, the new generator `generateDevSessions(config)`:
-1. Writes the consent record `.mercato/dev-sessions/consent.json` (`enabled: true`, fresh `installId` UUID v4, `consentVersion`, `contentLevel: "redacted-content"`, `acceptedAt`).
+1. Writes the consent record `.mercato/dev-sessions/consent.json` (`enabled: true`, fresh `installId` UUID v4, `consentVersion`, `contentLevel: "redacted-content"`, `endpoint`, `acceptedAt`).
 2. Copies the shipper + sanitizer + README into `scripts/dev-sessions/` (from `agentic/dev-sessions/`, copied to `dist/agentic/` by `build.mjs`, resolved like the other generators).
 3. Patches/creates `.claude/settings.json` to add a `Stop` (and `SessionEnd`) hook invoking the shim.
 4. Writes `.codex/dev-sessions-notify.mjs` and prints the one-line `notify = [...]` snippet for the developer to add to `~/.codex/config.toml` (Codex `notify` is a global, single-program setting, so it cannot be safely auto-edited per-project — see Risks).
-5. Adds `OM_DEVSESSIONS_ENDPOINT` (and commented `OM_DEVSESSIONS_DISABLED`) to `.env.example`.
+5. Writes the upload `endpoint` into the consent record (authoritative) and adds a commented `OM_DEVSESSIONS_ENDPOINT` override (and commented `OM_DEVSESSIONS_DISABLED`) to `.env.example`. The shipper resolves the endpoint as: `OM_DEVSESSIONS_ENDPOINT` env (if set) → `consent.endpoint` → built-in default.
 6. Adds `.mercato/dev-sessions/spool/` to `.gitignore` and ensures `consent.json` placement is intentional (see Risks — the consent record carries the `installId`, not secrets).
 
-On **no**: nothing installed; print how to enable later.
+On **no** (or non-interactive / `--no-dev-sessions`): **no consent record is written, no hooks or shipper are installed** — this is the load-bearing off-by-default guarantee (precedence rule 2: an absent `consent.json` is a hard "disabled"). The CLI prints how to enable later.
 
 A new `mercato dev-sessions <enable|disable|status|send>` CLI subcommand (in the scaffolded app's `mercato` CLI) lets developers manage consent and trigger a manual send after the fact.
 
@@ -166,7 +170,7 @@ A single dependency-light ESM script `scripts/dev-sessions/ship.mjs`, plus share
 
 **Obtaining the session:**
 - **Claude Code:** the `Stop`/`SessionEnd` hook receives JSON on **stdin** including `session_id`, `transcript_path`, and `cwd`. The shim reads stdin, extracts `transcript_path` (the per-project `~/.claude/projects/<slug>/<uuid>.jsonl`), and passes it to the shipper. (If a future Claude Code version omits `transcript_path`, fall back to resolving the newest `*.jsonl` under the path-slug dir for `cwd`.)
-- **Codex:** the `notify` program is invoked with a JSON argument describing the event (`turn-ended` / session end) including the session id; the shim resolves the rollout file under `~/.codex/sessions/YYYY/MM/DD/rollout-*-<id>.jsonl`.
+- **Codex:** the `notify` program is invoked with a **single JSON argument** carrying `type: "agent-turn-complete"`, `thread-id`, `input-messages`, and `last-assistant-message` (there is no `transcript_path` and no separate `session_id` — only `thread-id`). The shim resolves the rollout file by matching `thread-id` against `~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread-id>.jsonl`, falling back to the newest rollout file when no match is found. Because Codex `notify` is a single global program in `~/.codex/config.toml`, the shim is designed to be chained after any pre-existing `notify` (see Risks #4).
 
 **Execution model:**
 - The shim returns to the agent immediately and runs the shipper **detached** (`spawn(..., { detached: true, stdio: 'ignore' }).unref()`), so the agent loop is never blocked.
@@ -195,7 +199,7 @@ A standard Open Mercato module (follows the `customers` reference; see `packages
 
 - **API route:** `POST /api/coding_sessions/ingest` (`makeCrudRoute` is not a fit — this is a custom command-style handler). Validates the `CodingSessionUpload` zod schema, checks the ingest token, derives `observed_ip` from the request socket, returns **`202 Accepted`** with `{ ok: true }`, and enqueues a `coding-session-ingest` job. Exports `openApi`. Rate-limited per token. Body size capped.
 - **Auth:** a shared **ingest token** (`OM_CODING_SESSIONS_INGEST_TOKEN`) presented as `Authorization: Bearer …`. Tokens are coarse (per distribution channel), not per user — they only authorize *writing*, never reading. Unknown/missing token → `401`, no enqueue.
-- **Queue worker:** `workers/coding-session-ingest.ts` (`metadata.queue = 'coding-session-ingest'`, idempotent by `uploadId`). Steps: (a) server-side secret **re-scan** of the payload (reuse `@open-mercato/dev-session-kit` rules); (b) if residual secrets found → write to a `quarantine/` dir, flag `status: 'quarantined'`, do **not** expose to the dashboard; (c) else gzip the sanitized blob and write to the filesystem; (d) insert the `coding_session_uploads` metadata row; (e) emit a telemetry span + counter via `@open-mercato/telemetry`.
+- **Queue worker:** `workers/coding-session-ingest.ts` (`metadata.queue = 'coding-session-ingest'`, idempotent by `uploadId`). Steps: (a) server-side secret **re-scan** of the payload (reuse `@open-mercato/dev-session-kit` rules); (b) if residual secrets found → write to a `quarantine/` dir, flag `status: 'quarantined'`, do **not** expose to the dashboard; (c) else gzip the sanitized blob and write to the filesystem; (d) insert the `coding_session_uploads` metadata row; (e) emit a telemetry span + counter via `@open-mercato/telemetry` and a typed module event `coding_sessions.upload.ingested` (singular entity, past-tense action, dot-separated — per the event-ID convention) carrying `{ uploadId, tool, status }` for downstream subscribers (e.g. the commercial dashboard's indexer).
 - **Filesystem store:** root `OM_CODING_SESSIONS_STORAGE_DIR` (default `var/coding-sessions`), layout `…/<yyyy>/<mm>/<dd>/<installId>/<uploadId>.json.gz`. Append-only; never overwritten. Quarantined blobs under `…/quarantine/`.
 - **Retention:** `OM_CODING_SESSIONS_RETENTION_DAYS` (default 180); a scheduled worker prunes blobs + rows past retention. Quarantined blobs pruned aggressively (default 7 days) after alerting.
 - **Admin UI:** a backoffice list page (DataTable) over `coding_session_uploads` showing install, tool, size, event count, redaction findings, status, received-at — **metadata only**; blob bodies are not rendered in the OSS module (the commercial dashboard handles exploration). Feature-gated via `acl.ts` (`coding_sessions.view`).
@@ -279,7 +283,7 @@ A zod schema for `CodingSessionUpload` lives in `@open-mercato/dev-session-kit` 
 | `organization_id` | uuid | collection instance org |
 | `tenant_id` | uuid | collection instance tenant |
 | `created_at` | timestamptz | |
-| `updated_at` | timestamptz | optimistic-lock column (default ON) |
+| `updated_at` | timestamptz | present for the editable-entities guard; rows are worker-written + read-only in the OSS admin, so there is no user edit form / 409 surface |
 | `deleted_at` | timestamptz null | soft delete |
 
 No raw session text is stored in Postgres — only metadata + the redaction report. The sanitized transcript lives only as a gzipped file under the storage root.
@@ -381,9 +385,9 @@ Per repo rules, every new API/UI path needs coverage; tests are self-contained (
 
 - **Architecture:** No cross-module ORM relationships; module follows the `customers` reference; developer side has no OM runtime coupling. ✅
 - **Data & Security:** zod validators with `z.infer`; tenant/org scoping on the collection instance; secrets never logged; TLS-only; defense-in-depth redaction. ✅
-- **UI & HTTP:** admin list uses DataTable + `apiCall`; optimistic locking (`updated_at` + `updatedAt` in responses) on the editable entity; no hard-coded strings/status colors; `[internal]`-prefixed internal errors. ✅
+- **UI & HTTP:** admin list uses DataTable + `apiCall`; no hard-coded strings/status colors; `[internal]`-prefixed internal errors. The `coding_session_uploads` entity carries `updated_at` (satisfies `optimistic-lock-editable-entities.test.ts`), but rows are worker-written and the OSS admin is read-only — there is no user edit/delete form, so no 409 conflict surface is required. ✅
 - **Backward compatibility:** Net-new package, module, route, env vars, and `create-app` step — additive only. No frozen/stable contract surface changed. New env vars and consent file are additive. ✅
-- **Conventions:** module id `coding_sessions` (plural snake_case); route at `/api/coding_sessions/ingest`; event/worker naming per conventions; queue `coding-session-ingest`. ✅
+- **Conventions:** module id `coding_sessions` (plural snake_case); route at `/api/coding_sessions/ingest`; event id `coding_sessions.upload.ingested` (`module.entity.action`, singular entity, past-tense); queue `coding-session-ingest`. ✅
 - **Telemetry alignment:** reuses phone-home enablement-precedence + fail-open patterns; instruments via `@open-mercato/telemetry`; separate channel from the aggregate beacon. ✅
 
 ## Changelog
