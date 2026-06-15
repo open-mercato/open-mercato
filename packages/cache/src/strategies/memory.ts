@@ -2,17 +2,53 @@ import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, Cache
 import { matchCacheKeyPattern } from '../patterns'
 
 /**
+ * Default upper bound on the number of entries a memory cache retains.
+ * Bounds memory for long-lived (process-wide) instances; LRU eviction drops
+ * the least-recently-used entries once the cap is exceeded. Override via the
+ * `maxEntries` option (or `CACHE_MEMORY_MAX_ENTRIES`); a non-positive value
+ * disables the cap (unbounded — only safe for short-lived instances).
+ */
+export const DEFAULT_MEMORY_MAX_ENTRIES = 50_000
+
+function normalizeMaxEntries(raw?: number): number {
+  if (raw === undefined) return DEFAULT_MEMORY_MAX_ENTRIES
+  if (!Number.isFinite(raw) || raw <= 0) return Number.POSITIVE_INFINITY
+  return Math.floor(raw)
+}
+
+/**
  * In-memory cache strategy with tag support
  * Fast but data is lost when process restarts
  */
-export function createMemoryStrategy(options?: { defaultTtl?: number }): CacheStrategy {
+export function createMemoryStrategy(options?: { defaultTtl?: number; maxEntries?: number }): CacheStrategy {
   const store = new Map<string, CacheEntry>()
   const tagIndex = new Map<string, Set<string>>() // tag -> Set of keys
   const defaultTtl = options?.defaultTtl
+  const maxEntries = normalizeMaxEntries(options?.maxEntries)
 
   function isExpired(entry: CacheEntry): boolean {
     if (entry.expiresAt === null) return false
     return Date.now() > entry.expiresAt
+  }
+
+  // LRU bookkeeping: re-insert on read so the most-recently-used entry moves
+  // to the tail (Map preserves insertion order), mirroring the rbacDefaultCache
+  // precedent; evictIfNeeded then drops from the head (least-recently-used).
+  function touchKey(key: string, entry: CacheEntry): void {
+    if (maxEntries === Number.POSITIVE_INFINITY) return
+    store.delete(key)
+    store.set(key, entry)
+  }
+
+  function evictIfNeeded(): void {
+    if (maxEntries === Number.POSITIVE_INFINITY) return
+    while (store.size > maxEntries) {
+      const oldest = store.keys().next().value
+      if (typeof oldest !== 'string') break
+      const entry = store.get(oldest)
+      store.delete(oldest)
+      if (entry) removeFromTagIndex(oldest, entry.tags)
+    }
   }
 
   function cleanupExpiredEntry(key: string, entry: CacheEntry): void {
@@ -62,6 +98,7 @@ export function createMemoryStrategy(options?: { defaultTtl?: number }): CacheSt
       return null
     }
 
+    touchKey(key, entry)
     return entry.value
   }
 
@@ -86,6 +123,7 @@ export function createMemoryStrategy(options?: { defaultTtl?: number }): CacheSt
 
     store.set(key, entry)
     addToTagIndex(key, tags)
+    evictIfNeeded()
   }
 
   const has = async (key: string): Promise<boolean> => {
