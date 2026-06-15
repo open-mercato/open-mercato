@@ -6,6 +6,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -262,11 +263,12 @@ export default function QueryIndexesTable() {
           body: JSON.stringify(body),
         }, { errorMessage })
       } catch (err) {
-        console.error('query_index.table.trigger', err)
-        if (typeof window !== 'undefined') {
-          const message = err instanceof Error ? err.message : errorMessage
-          window.alert(message)
-        }
+        // Expected operational failures (e.g. a 503 when a search backend is not
+        // configured) — surface a flash toast, not an alert or an error-level
+        // stack dump that reads like an unhandled exception.
+        const message = err instanceof Error && err.message ? err.message : errorMessage
+        console.warn('[query_index] index action failed', message)
+        flash(message, 'error')
       }
       qc.invalidateQueries({ queryKey: ['query-index-status'] })
     },
@@ -297,11 +299,9 @@ export default function QueryIndexesTable() {
           }),
         }, { errorMessage })
       } catch (err) {
-        console.error('query_index.table.vectorAction', err)
-        if (typeof window !== 'undefined') {
-          const message = err instanceof Error ? err.message : errorMessage
-          window.alert(message)
-        }
+        const message = err instanceof Error && err.message ? err.message : errorMessage
+        console.warn('[query_index] vector action failed', message)
+        flash(message, 'error')
       }
       qc.invalidateQueries({ queryKey: ['query-index-status'] })
     },
@@ -332,11 +332,9 @@ export default function QueryIndexesTable() {
           }),
         }, { errorMessage })
       } catch (err) {
-        console.error('query_index.table.fulltextAction', err)
-        if (typeof window !== 'undefined') {
-          const message = err instanceof Error ? err.message : errorMessage
-          window.alert(message)
-        }
+        const message = err instanceof Error && err.message ? err.message : errorMessage
+        console.warn('[query_index] fulltext action failed', message)
+        flash(message, 'error')
       }
       qc.invalidateQueries({ queryKey: ['query-index-status'] })
     },

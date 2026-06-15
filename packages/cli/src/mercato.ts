@@ -15,6 +15,7 @@ import {
   resolveLazyRestart,
 } from './lib/auto-spawn-workers'
 import { startLazyWorkerSupervisor } from './lib/queue-worker-supervisor'
+import { applyEventsSingleDeliveryGuard } from './lib/events-single-delivery'
 import { createPerJobWorkerHandler } from './lib/worker-job-handler'
 import {
   planWorkerConcurrency,
@@ -2061,6 +2062,12 @@ export async function run(argv = process.argv) {
               envReloader.reload()
               const runtimeEnv = buildServerProcessEnvironment(process.env)
               const autoSpawnWorkersMode = resolveAutoSpawnWorkersMode(process.env)
+              // Guard the default-on events single-delivery: if this process runs
+              // no events worker, fall back to safe inline dual-dispatch so
+              // persistent side effects are never silently dropped. Mutates both
+              // process.env (in-process bus) and runtimeEnv (spawned workers) so
+              // they agree.
+              applyEventsSingleDeliveryGuard({ processEnv: process.env, runtimeEnv, autoSpawnWorkersMode })
               const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
               const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
               const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
@@ -2214,6 +2221,10 @@ export async function run(argv = process.argv) {
           const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
           const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
           const runtimeEnv = buildServerProcessEnvironment(process.env)
+          // Guard the default-on events single-delivery (see the dev `server`
+          // command): fall back to safe inline dual-dispatch when this process
+          // runs no events worker, keeping process.env and runtimeEnv in sync.
+          applyEventsSingleDeliveryGuard({ processEnv: process.env, runtimeEnv, autoSpawnWorkersMode })
           // Throws on single-instance strategies under a multi-instance topology,
           // aborting before the start lock is acquired or any process is spawned.
           assertSingleInstanceStrategies(runtimeEnv)
