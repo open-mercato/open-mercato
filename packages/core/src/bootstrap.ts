@@ -3,6 +3,7 @@ import { asValue } from 'awilix'
 import { createEventBus } from '@open-mercato/events/index'
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { createCacheService } from '@open-mercato/cache'
+import type { CacheStrategy } from '@open-mercato/cache'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
@@ -20,6 +21,59 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 // Use globalThis to survive tsx/webpack module duplication (same pattern as container.ts DI registrars)
 const RL_GLOBAL_KEY = '__openMercatoRateLimiterService__'
 const RL_SHUTDOWN_KEY = '__openMercatoRateLimiterShutdown__'
+
+const CACHE_GLOBAL_KEY = '__openMercatoCacheService__'
+const CACHE_SHUTDOWN_KEY = '__openMercatoCacheShutdown__'
+
+// Escape hatch: set OM_CACHE_SINGLETON=off to fall back to the legacy
+// per-request cache instance (e.g. to isolate a regression). Default ON.
+function isCacheSingletonEnabled(): boolean {
+  const raw = process.env.OM_CACHE_SINGLETON
+  if (raw === undefined) return true
+  const normalized = raw.trim().toLowerCase()
+  if (!normalized.length) return true
+  return !(normalized === '0' || normalized === 'off' || normalized === 'false' || normalized === 'no')
+}
+
+/**
+ * Process-wide cache service singleton, mirroring getCachedRateLimiterService.
+ *
+ * bootstrap() previously built a fresh cache per request container, so under
+ * the default memory strategy every cross-request cache was a no-op (each
+ * instance is process-local) and under sqlite each request leaked a native
+ * handle. Reusing one instance is safe by construction: tenant scope resolves
+ * per-call via AsyncLocalStorage (packages/cache/src/tenantContext.ts), so the
+ * service holds no request-bound state.
+ *
+ * Returns null when disabled via the escape hatch or when creation fails, so
+ * the caller falls back to a per-request instance.
+ */
+export function getCachedCacheService(): CacheStrategy | null {
+  if (!isCacheSingletonEnabled()) return null
+  let service = (globalThis as any)[CACHE_GLOBAL_KEY] as CacheStrategy | null ?? null
+  if (!service) {
+    try {
+      try {
+        service = createCacheService()
+      } catch (err) {
+        console.warn('Cache service initialization failed; falling back to memory strategy:', (err as Error)?.message || err)
+        service = createCacheService({ strategy: 'memory' })
+      }
+      ;(globalThis as any)[CACHE_GLOBAL_KEY] = service
+
+      // Register shutdown hook once to close persistent handles (sqlite/redis) on process exit
+      if (!(globalThis as any)[CACHE_SHUTDOWN_KEY]) {
+        const shutdown = () => { service?.close?.().catch(() => {}) }
+        process.once('SIGTERM', shutdown)
+        process.once('SIGINT', shutdown)
+        ;(globalThis as any)[CACHE_SHUTDOWN_KEY] = true
+      }
+    } catch (err) {
+      console.warn('[cache] Failed to create cache service:', (err as Error)?.message || err)
+    }
+  }
+  return service
+}
 
 export function getCachedRateLimiterService(): RateLimiterService | null {
   let service = (globalThis as any)[RL_GLOBAL_KEY] as RateLimiterService | null ?? null
@@ -50,13 +104,17 @@ export function getCachedRateLimiterService(): RateLimiterService | null {
 }
 
 export async function bootstrap(container: AwilixContainer) {
-  // Create and register the cache service
-  let cache: any
-  try {
-    cache = createCacheService()
-  } catch (err: any) {
-    console.warn('Cache service initialization failed; falling back to memory strategy:', err?.message || err)
-    cache = createCacheService({ strategy: 'memory' })
+  // Register the cache service. Prefer the process-wide singleton so caches
+  // survive across request containers; fall back to a per-request instance
+  // when the singleton is disabled or fails to build.
+  let cache: any = getCachedCacheService()
+  if (!cache) {
+    try {
+      cache = createCacheService()
+    } catch (err: any) {
+      console.warn('Cache service initialization failed; falling back to memory strategy:', err?.message || err)
+      cache = createCacheService({ strategy: 'memory' })
+    }
   }
   container.register({ cache: asValue(cache) })
 

@@ -367,10 +367,14 @@ const EMPTY_FILTER_VALUES: FilterValues = Object.freeze({}) as FilterValues
 //   sticky right-0  → shadow falls to the LEFT  (use `before:` + `-left-2` + `to-l`)
 //   sticky left-0   → shadow falls to the RIGHT (use `after:`  + `-right-2` + `to-r`)
 // `foreground/8` matches the `--shadow-md` token opacity (8%) and is theme-aware.
+// Column pinning (and these shadows) is md-and-up only: below `md` the pinned
+// first column + actions column can be wider than the whole viewport, which
+// leaves the scrollable middle columns no visible window at all — narrow
+// screens fall back to plain horizontal scroll so every column stays reachable.
 const STICKY_RIGHT_SHADOW_CLASS =
-  'before:absolute before:inset-y-0 before:-left-2 before:w-2 before:bg-gradient-to-l before:from-foreground/8 before:to-transparent before:pointer-events-none'
+  'md:before:absolute md:before:inset-y-0 md:before:-left-2 md:before:w-2 md:before:bg-gradient-to-l md:before:from-foreground/8 md:before:to-transparent md:before:pointer-events-none'
 const STICKY_LEFT_SHADOW_CLASS =
-  'after:absolute after:inset-y-0 after:-right-2 after:w-2 after:bg-gradient-to-r after:from-foreground/8 after:to-transparent after:pointer-events-none'
+  'md:after:absolute md:after:inset-y-0 md:after:-right-2 md:after:w-2 md:after:bg-gradient-to-r md:after:from-foreground/8 md:after:to-transparent md:after:pointer-events-none'
 
 type BulkActionExecuteResult = {
   ok: boolean
@@ -2708,7 +2712,7 @@ export function DataTable<T>({
                   const columnMeta = (header.column.columnDef as any)?.meta
                   const priority = resolvePriority(header.column)
                   const isFirstDataColumn = headerIndex === 0
-                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` sticky left-0 z-10 bg-background ${STICKY_LEFT_SHADOW_CLASS}` : ''
+                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : ''
                   const headerCellContent = header.isPlaceholder ? null : (
                     <Button
                       variant="ghost"
@@ -2741,7 +2745,7 @@ export function DataTable<T>({
                   <TableHead
                     className={cn(
                       actionsColumnAlign === 'center' ? 'w-0 text-center' : 'w-0 text-right',
-                      stickyActionsColumn && `sticky right-0 z-20 bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
+                      stickyActionsColumn && `md:sticky md:right-0 md:z-20 md:bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
                     )}
                   >
                     {t('ui.dataTable.actionsColumn', 'Actions')}
@@ -2863,7 +2867,7 @@ export function DataTable<T>({
                       ) : content
 
                       return (
-                        <TableCell key={cell.id} className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` sticky left-0 z-10 bg-background ${STICKY_LEFT_SHADOW_CLASS}` : '')}>
+                        <TableCell key={cell.id} className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : '')}>
                           {wrappedContent}
                         </TableCell>
                       )
@@ -2872,7 +2876,7 @@ export function DataTable<T>({
                       <TableCell
                         className={cn(
                           actionsColumnAlign === 'center' ? 'text-center whitespace-nowrap' : 'text-right whitespace-nowrap',
-                          stickyActionsColumn && `sticky right-0 z-10 bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
+                          stickyActionsColumn && `md:sticky md:right-0 md:z-10 md:bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
                         )}
                         data-actions-cell
                       >
