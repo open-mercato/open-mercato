@@ -13,11 +13,28 @@ The command records Railway resource IDs locally, so running it again updates th
 This command was implemented for [issue #2414](https://github.com/open-mercato/open-mercato/issues/2414). Use a CLI release that includes `mercato deploy railway`; older releases do not provide it.
 :::
 
+## Before you start
+
+Prepare these pieces before the first deploy:
+
+- A standalone Open Mercato app created with `create-mercato-app`.
+- A real local `.env` file. In a fresh standalone app, run `yarn setup` first; it copies `.env.example` to `.env` when needed and initializes the app.
+- A Railway account or workspace on a plan that can run the app service, optional worker, PostgreSQL, and Redis. For production and team deployments, prefer a paid plan with at least 16 GB RAM available per service; check [Railway pricing](https://railway.com/pricing) for current limits before deploying.
+- A Railway **Account token** from Account Settings. Do not use a token assigned to a project.
+- A source strategy:
+  - **GitHub-backed**: your app is pushed to a GitHub remote and Railway can build from that repository. The Railway CLI is not required for this mode.
+  - **Local-source**: your app is not on GitHub, or you want to upload the current directory directly. This mode requires the Railway CLI because Open Mercato shells out to `railway up`.
+
 ## Quickstart
 
 ### 1. Create an Account token
 
-Create a Railway **Account token** at [railway.com/account/tokens](https://railway.com/account/tokens), then expose it to the command:
+Create a Railway **Account token** at [railway.com/account/tokens](https://railway.com/account/tokens):
+
+1. Open **Account Settings** -> **Tokens**.
+2. Create a new token.
+3. Select **No workspace** and do not assign the token to a project. A token created inside a project is a Project token and will not work for this deploy command.
+4. Copy the token once, then expose it to the command:
 
 ```bash
 export RAILWAY_API_TOKEN="your-account-token"
@@ -25,15 +42,54 @@ export RAILWAY_API_TOKEN="your-account-token"
 
 Prefer the environment variable or the interactive token prompt over `--token`. Command-line arguments may be retained in shell history or exposed through process inspection.
 
-`RAILWAY_TOKEN` is a different, project-scoped Railway credential and is not used as the primary token for this command.
+`RAILWAY_TOKEN` is a different, project-scoped Railway credential. It is not used as the primary token for this command.
 
-### 2. Prepare an environment file
+### 2. Pick a source mode
+
+Use the default `auto` mode unless you need to force a path:
+
+- With GitHub: push the current branch to GitHub and run `yarn mercato deploy railway`. `auto` uses the GitHub remote when it is clean, pushed, and supported by Railway.
+- Without GitHub: install the Railway CLI, then run `yarn mercato deploy railway --source local`. `auto` also falls back to this path when no usable GitHub remote exists.
+
+### 3. Install the Railway CLI when using local-source mode
+
+Skip this step for GitHub-backed deploys.
+
+For local-source deploys, install the Railway CLI from the [Railway CLI docs](https://docs.railway.com/cli). Current supported options include the shell installer, Homebrew, npm, Scoop, pre-built binaries, and source builds. Common options:
+
+```bash
+bash <(curl -fsSL railway.com/install.sh) -y
+# or
+brew install railway
+# or
+npm install -g @railway/cli
+```
+
+Then confirm it is available:
+
+```bash
+railway --version
+```
+
+You do not need `railway login` when `RAILWAY_API_TOKEN` is set correctly. If you do run `railway login`, unset invalid Railway token variables first; the Railway CLI uses those variables for non-interactive authentication and skips browser login.
+
+### 4. Prepare an environment file
 
 The command loads `.env.production` when it exists, otherwise `.env`. You can select another file with `--env-file`.
 
+For a fresh standalone app:
+
+```bash
+npx create-mercato-app my-shop
+cd my-shop
+yarn setup
+```
+
+Review the generated `.env` before deployment. Replace placeholders and add provider keys you need for production. Missing AI provider keys do not block deployment, but payment, mail, storage, or integration credentials must be present when your enabled modules require them.
+
 Keep environment files out of version control. The CLI uploads their values as Railway variables; it does not include the file in a local-source upload.
 
-### 3. Preview the deployment
+### 5. Preview the deployment
 
 Run a dry run before creating billable resources:
 
@@ -43,7 +99,7 @@ yarn mercato deploy railway --dry-run
 
 The plan shows the selected source mode, Railway operations, and environment-variable changes. Secret values are redacted.
 
-### 4. Deploy
+### 6. Deploy
 
 ```bash
 yarn mercato deploy railway
@@ -71,7 +127,41 @@ Select the source strategy with `--source auto|git|local`.
 | `git` | Requires a clean working tree and a branch synchronized with a GitHub remote. Railway builds from the connected repository. This is the recommended CI path. |
 | `local` | Requires the Railway CLI on `PATH` and uploads the current source with `railway up`. Use this when the repository has no supported remote. |
 
+### GitHub-backed deploys
+
+Use this mode when your app lives in a GitHub repository that Railway can access. Open Mercato configures Railway resources through the Railway API, then points the app service at the repository and branch.
+
+Requirements:
+
+- The working tree is clean.
+- The current branch has an upstream GitHub remote.
+- Local commits are pushed.
+- Railway has access to the repository.
+
+The Railway CLI is not required for GitHub-backed deploys.
+
+```bash
+git status
+git push -u origin HEAD
+yarn mercato deploy railway --source git
+```
+
 The command does not create a GitHub repository. If `--source git` cannot resolve or access the GitHub remote, fix the remote or Railway repository access and run the command again.
+
+### Local-source deploys
+
+Use this mode when you only have a local app directory, when you ran `git init` without creating a GitHub repository, or when you want Railway to receive the current local source archive.
+
+Requirements:
+
+- The Railway CLI is installed and available as `railway`.
+- `RAILWAY_API_TOKEN` contains a valid Account token.
+- `.railwayignore` protects files that should never be uploaded.
+
+```bash
+railway --version
+yarn mercato deploy railway --source local
+```
 
 Local uploads run a safety preflight that requires `.railwayignore` entries for environment files, private keys, `.git`, `node_modules`, local databases, and local Railway state. Runtime configuration is uploaded as Railway variables, not as source files.
 
@@ -95,6 +185,14 @@ The optional token cache contains:
 On macOS and Linux, the file must have mode `0600`. The CLI refuses a more widely readable token file. On Windows, the equivalent location is `%APPDATA%\open-mercato\railway.json`; protect the file with appropriate NTFS permissions and rotate the token after use on a shared machine.
 
 The token is never written to repository state or printed in verbose output.
+
+### Token types
+
+Use an **Account token** for this command. In Railway Account Settings -> Tokens, create the token with **No workspace** selected and do not assign it to a project. This gives the deploy command access to create projects, environments, services, databases, variables, and domains.
+
+Do not use a Project token. Project tokens are generated from project settings, are scoped to one environment, use `RAILWAY_TOKEN`, and are only suitable for deployment operations inside an already-existing project. They do not authorize the account/workspace API operations that `mercato deploy railway` performs.
+
+Workspace tokens can be useful for shared automation that must stay inside one workspace, but the recommended path for local first-time deployment is an Account token with no workspace or project assigned.
 
 ## Flag reference
 
@@ -212,7 +310,9 @@ Cleanup deletes the entire recorded Railway project, including its services and 
 
 The command can create an app service, worker service, PostgreSQL service, Redis service, domain, and optional volume. These resources can consume Railway trial credits or incur charges on a paid plan.
 
-Review current [Railway pricing](https://railway.com/pricing) and project usage before deployment. Use `--dry-run` to review the planned resources and `--no-worker` when a dedicated worker is not needed. Run `--cleanup` for test projects you no longer use.
+Review current [Railway pricing](https://railway.com/pricing) and project usage before deployment. Railway limits change over time; as of June 2026, Railway's public pricing page lists Hobby and Pro limits above 16 GB RAM per service, while the free/trial limits are much lower. For production deployments, team use, larger builds, or heavier imports, prefer Pro or another paid plan with at least 16 GB RAM available per service.
+
+Use `--dry-run` to review the planned resources and `--no-worker` when a dedicated worker is not needed. Run `--cleanup` for test projects you no longer use.
 
 ## Security checklist
 
@@ -229,7 +329,25 @@ Review current [Railway pricing](https://railway.com/pricing) and project usage 
 
 ### Token rejected
 
-Confirm that you created an **Account token**, not only a project token, and that `RAILWAY_API_TOKEN` does not contain whitespace or shell quoting. If a cached token is used, ensure its file permissions are `0600`. Rotate the token in Railway if it may have been exposed.
+Confirm that you created an **Account token** from Account Settings -> Tokens with **No workspace** selected and no project assigned. Do not use a Project token from project settings. Also verify that `RAILWAY_API_TOKEN` does not contain whitespace or shell quoting. If a cached token is used, ensure its file permissions are `0600`. Rotate the token in Railway if it may have been exposed.
+
+### `railway login` reports an invalid token
+
+If `RAILWAY_API_TOKEN` or `RAILWAY_TOKEN` is exported, the Railway CLI uses that value for non-interactive auth and skips browser login. An invalid value can make `railway login` fail before the browser flow starts.
+
+Unset token variables before interactive login:
+
+```bash
+unset RAILWAY_API_TOKEN
+unset RAILWAY_TOKEN
+railway login
+```
+
+For Open Mercato deployment, set only the Account token afterward:
+
+```bash
+export RAILWAY_API_TOKEN="your-account-token"
+```
 
 ### `auto` selected an unexpected source
 
