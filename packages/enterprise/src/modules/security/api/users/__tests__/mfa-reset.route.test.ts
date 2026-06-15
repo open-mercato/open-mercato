@@ -1,11 +1,18 @@
 import { NextResponse } from 'next/server'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { POST } from '../[id]/mfa/reset/route'
 import { requireSudo, SudoRequiredError } from '../../../lib/sudo-middleware'
-import { resolveSecurityUsersContext } from '../_shared'
+import { assertActorCanAccessSecurityUserTarget, resolveSecurityUsersContext } from '../_shared'
 
 jest.mock('../_shared', () => ({
   resolveSecurityUsersContext: jest.fn(),
+  assertActorCanAccessSecurityUserTarget: jest.fn().mockResolvedValue(undefined),
   mapSecurityUsersError: jest.fn((error: unknown) => {
+    if (error instanceof Error && 'status' in error && 'body' in error) {
+      const status = (error as Error & { status: number }).status
+      const body = (error as Error & { body?: unknown }).body
+      return NextResponse.json(body, { status })
+    }
     if (error instanceof Error && 'statusCode' in error) {
       const statusCode = (error as Error & { statusCode: number }).statusCode
       const body = 'body' in error ? (error as Error & { body?: unknown }).body : { error: error.message }
@@ -25,12 +32,14 @@ jest.mock('../../../lib/sudo-middleware', () => ({
 
 const mockedRequireSudo = requireSudo as jest.MockedFunction<typeof requireSudo>
 const mockedResolveSecurityUsersContext = resolveSecurityUsersContext as jest.MockedFunction<typeof resolveSecurityUsersContext>
+const mockedAssertActorCanAccessSecurityUserTarget = assertActorCanAccessSecurityUserTarget as jest.MockedFunction<typeof assertActorCanAccessSecurityUserTarget>
 
 describe('security user mfa reset route', () => {
   const userId = '11111111-1111-4111-8111-111111111111'
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockedAssertActorCanAccessSecurityUserTarget.mockResolvedValue(undefined)
   })
 
   test('requires sudo before executing the reset command', async () => {
@@ -82,5 +91,36 @@ describe('security user mfa reset route', () => {
     })
 
     expect(response.status).toBe(403)
+  })
+
+  test('returns 404 for a cross-tenant target even with valid sudo', async () => {
+    const execute = jest.fn(async () => ({ result: { ok: true } }))
+    mockedResolveSecurityUsersContext.mockResolvedValue({
+      auth: { sub: 'admin-1', tenantId: 'tenant-1', orgId: 'org-1' },
+      container: {
+        resolve: (name: string) => {
+          if (name === 'commandBus') return { execute }
+          throw new Error(`Unexpected dependency: ${name}`)
+        },
+      },
+      commandContext: {} as never,
+      mfaAdminService: {} as never,
+    } as never)
+    mockedAssertActorCanAccessSecurityUserTarget.mockRejectedValueOnce(
+      new CrudHttpError(404, { error: 'User not found' }),
+    )
+
+    const req = new Request(`https://example.test/api/security/users/${userId}/mfa/reset`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-sudo-token': 'sudo-token' },
+      body: JSON.stringify({ reason: 'security incident' }),
+    })
+
+    const response = await POST(req, {
+      params: Promise.resolve({ id: userId }),
+    })
+
+    expect(response.status).toBe(404)
+    expect(execute).not.toHaveBeenCalled()
   })
 })

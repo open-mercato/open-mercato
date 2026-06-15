@@ -173,6 +173,12 @@ export async function GET(req: Request): Promise<Response> {
       }
       portalConnections.add(connection)
 
+      // Flush an initial comment so the runtime sends the response headers and
+      // first body byte immediately, firing the browser EventSource `open`
+      // event without waiting for the first heartbeat (30s) or matching event.
+      // Comment lines (`:` prefix) are ignored by EventSource message parsing.
+      controller.enqueue(encoder.encode(': connected\n\n'))
+
       heartbeatTimer = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(':heartbeat\n\n'))

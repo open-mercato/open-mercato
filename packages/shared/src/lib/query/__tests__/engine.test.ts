@@ -517,6 +517,86 @@ describe('BasicQueryEngine (Kysely)', () => {
     expect(hasInFilter).toBe(true)
   })
 
+  test('exposes resolved customFieldDefinitions when includeCustomFields is true (issue #2133)', async () => {
+    const fakeDb = createFakeKysely()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    const res = await engine.query('auth:user', {
+      includeCustomFields: true,
+      fields: ['id'],
+      organizationId: '1',
+      tenantId: 't1',
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(res.customFieldDefinitions).toBeDefined()
+    expect(res.customFieldDefinitions!.entityIds).toEqual(['auth:user'])
+    expect(res.customFieldDefinitions!.tenantId).toBe('t1')
+    expect(res.customFieldDefinitions!.organizationIds).toEqual(['1'])
+    expect(Array.from(res.customFieldDefinitions!.index.keys()).sort()).toEqual(['industry', 'vip'])
+  })
+
+  test('exposed customFieldDefinitions index drops soft-deleted and foreign-org defs', async () => {
+    const fakeDb = createFakeKysely({
+      custom_field_defs: [
+        { key: 'kept', entity_id: 'auth:user', is_active: true, config_json: '{}', kind: 'text', organization_id: null, tenant_id: 't1', updated_at: null, deleted_at: null },
+        { key: 'foreign', entity_id: 'auth:user', is_active: true, config_json: '{}', kind: 'text', organization_id: 'other-org', tenant_id: 't1', updated_at: null, deleted_at: null },
+        { key: 'gone', entity_id: 'auth:user', is_active: true, config_json: '{}', kind: 'text', organization_id: null, tenant_id: 't1', updated_at: null, deleted_at: '2026-01-01T00:00:00.000Z' },
+      ],
+      custom_field_values: [],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    const res = await engine.query('auth:user', {
+      includeCustomFields: true,
+      fields: ['id'],
+      organizationId: 'allowed-org',
+      tenantId: 't1',
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(Array.from(res.customFieldDefinitions!.index.keys())).toEqual(['kept'])
+  })
+
+  test('customFieldDefinitions entityIds include base entity plus custom field sources', async () => {
+    const fakeDb = createFakeKysely({
+      custom_field_defs: [
+        { key: 'birthday', entity_id: 'customers:customer_person_profile', is_active: true, config_json: '{}', kind: 'text', organization_id: null, tenant_id: 't1', updated_at: null, deleted_at: null },
+      ],
+      custom_field_values: [],
+      customer_entities: [],
+      customer_people: [],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    const res = await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      includeCustomFields: true,
+      fields: ['id'],
+      customFieldSources: [
+        {
+          entityId: 'customers:customer_person_profile',
+          table: 'customer_people',
+          alias: 'person_profile',
+          recordIdColumn: 'id',
+          join: { fromField: 'id', toField: 'entity_id' },
+        },
+      ],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(res.customFieldDefinitions!.entityIds.sort()).toEqual([
+      'customers:customer_entity',
+      'customers:customer_person_profile',
+    ])
+  })
+
+  test('does not expose customFieldDefinitions when includeCustomFields is a key list', async () => {
+    const fakeDb = createFakeKysely()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    const res = await engine.query('auth:user', {
+      includeCustomFields: ['vip'],
+      fields: ['id', 'cf:vip'],
+      tenantId: 't1',
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(res.customFieldDefinitions).toBeUndefined()
+  })
+
   test('sorts encrypted base fields after decryption before pagination', async () => {
     const fakeDb = createFakeKysely({
       customer_entities: [

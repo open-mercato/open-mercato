@@ -22,7 +22,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -41,6 +42,7 @@ type Partition = {
   configJson: Record<string, unknown> | null
   envKey: string
   createdAt: string | null
+  updatedAt?: string | null
 }
 
 type DialogState =
@@ -230,11 +232,15 @@ export function AttachmentPartitionSettings({ s3Enabled }: AttachmentPartitionSe
         dialog.mode === 'edit'
           ? JSON.stringify({ id: dialog.entry.id, ...payload })
           : JSON.stringify(payload)
-      const call = await apiCall('/api/attachments/partitions', {
-        method,
-        headers: { 'content-type': 'application/json' },
-        body,
-      })
+      const lockHeader =
+        dialog.mode === 'edit' ? buildOptimisticLockHeader(dialog.entry.updatedAt) : {}
+      const call = await withScopedApiRequestHeaders(lockHeader, () =>
+        apiCall('/api/attachments/partitions', {
+          method,
+          headers: { 'content-type': 'application/json' },
+          body,
+        }),
+      )
       if (!call.ok) {
         await raiseCrudError(
           call.response,
@@ -271,9 +277,13 @@ export function AttachmentPartitionSettings({ s3Enabled }: AttachmentPartitionSe
       })
       if (!confirmed) return
       try {
-        const call = await apiCall(`/api/attachments/partitions?id=${encodeURIComponent(entry.id)}`, {
-          method: 'DELETE',
-        })
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(entry.updatedAt),
+          () =>
+            apiCall(`/api/attachments/partitions?id=${encodeURIComponent(entry.id)}`, {
+              method: 'DELETE',
+            }),
+        )
         if (!call.ok) {
           await raiseCrudError(
             call.response,

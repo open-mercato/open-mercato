@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
-import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata = {
@@ -50,14 +50,14 @@ export default async function handle(
     const email = (entity as any).primaryEmail as string | null
     if (!email) return
 
-    const emailHash = hashForLookup(email.toLowerCase().trim())
+    const emailHashes = lookupHashCandidates(email.toLowerCase().trim())
 
     const { CustomerPersonProfile } = await import('@open-mercato/core/modules/customers/data/entities')
     const personProfile = await em.findOne(CustomerPersonProfile as any, { entity: (entity as any).id } as any) as any
     const companyEntityId = personProfile?.companyEntityId as string | undefined
 
     const customerUser = await em.findOne(CustomerUser, {
-      emailHash,
+      emailHash: { $in: emailHashes },
       tenantId,
       deletedAt: null,
       personEntityId: null,

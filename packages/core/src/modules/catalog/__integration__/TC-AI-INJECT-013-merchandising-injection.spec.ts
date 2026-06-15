@@ -49,7 +49,8 @@ test.describe('TC-AI-INJECT-013: catalog merchandising via injection', () => {
     // split-button caret + agent-picker popover only render when the
     // widget exposes more than one assistant.
     const sheet = page.locator('[data-ai-merchandising-sheet]');
-    const composer = page.locator('#ai-chat-composer');
+    const chatRegion = sheet.locator(`[data-ai-chat-agent="${MERCHANDISING_AGENT_ID}"]`);
+    const composer = chatRegion.locator('#ai-chat-composer');
     // The trigger is server-rendered and can be visible+enabled before React
     // binds its onClick handler, so under heavy CI load a single click is a
     // no-op and the sheet never opens. Re-click (only while the sheet is
@@ -57,10 +58,8 @@ test.describe('TC-AI-INJECT-013: catalog merchandising via injection', () => {
     await expect(async () => {
       if (!(await sheet.isVisible())) await trigger.click();
       await expect(sheet).toBeVisible({ timeout: 3_000 });
+      await expect(chatRegion).toBeVisible({ timeout: 3_000 });
       await expect(composer).toBeVisible({ timeout: 3_000 });
     }).toPass({ timeout: 60_000, intervals: [500, 1_000, 2_000] });
-
-    const chatRegion = page.locator(`[data-ai-chat-agent="${MERCHANDISING_AGENT_ID}"]`);
-    await expect(chatRegion).toBeVisible();
   });
 });

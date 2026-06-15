@@ -142,6 +142,9 @@ function buildEm(flushError?: unknown) {
       : jest.fn().mockResolvedValue(undefined),
     nativeDelete: jest.fn().mockResolvedValue(0),
     getReference: jest.fn().mockReturnValue(null),
+    begin: jest.fn().mockResolvedValue(undefined),
+    commit: jest.fn().mockResolvedValue(undefined),
+    rollback: jest.fn().mockResolvedValue(undefined),
   }
   ;(em as Record<string, unknown>).fork = jest.fn().mockReturnValue(em)
   return em

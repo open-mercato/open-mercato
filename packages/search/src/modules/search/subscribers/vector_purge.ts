@@ -73,6 +73,7 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
     await searchIndexer.purgeEntity({
       entityId: entityType as EntityId,
       tenantId,
+      organizationId,
     })
     if (em) {
       try {

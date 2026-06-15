@@ -46,112 +46,126 @@ export function generateShared(config: AgenticConfig): void {
 
   // .ai/skills/
   writeTemplate(
-    'ai/skills/spec-writing/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'spec-writing', 'SKILL.md'),
+    'ai/skills/om-spec-writing/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'SKILL.md'),
     config,
   )
   copyFile(
-    'ai/skills/spec-writing/references/spec-template.md',
-    join(targetDir, '.ai', 'skills', 'spec-writing', 'references', 'spec-template.md'),
+    'ai/skills/om-spec-writing/references/spec-template.md',
+    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'spec-template.md'),
   )
   copyFile(
-    'ai/skills/spec-writing/references/spec-checklist.md',
-    join(targetDir, '.ai', 'skills', 'spec-writing', 'references', 'spec-checklist.md'),
-  )
-
-  copyFile(
-    'ai/skills/backend-ui-design/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'backend-ui-design', 'SKILL.md'),
-  )
-  copyFile(
-    'ai/skills/backend-ui-design/references/ui-components.md',
-    join(targetDir, '.ai', 'skills', 'backend-ui-design', 'references', 'ui-components.md'),
+    'ai/skills/om-spec-writing/references/spec-checklist.md',
+    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'spec-checklist.md'),
   )
 
   copyFile(
-    'ai/skills/code-review/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'code-review', 'SKILL.md'),
+    'ai/skills/om-backend-ui-design/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-backend-ui-design', 'SKILL.md'),
   )
   copyFile(
-    'ai/skills/code-review/references/review-checklist.md',
-    join(targetDir, '.ai', 'skills', 'code-review', 'references', 'review-checklist.md'),
+    'ai/skills/om-backend-ui-design/references/ui-components.md',
+    join(targetDir, '.ai', 'skills', 'om-backend-ui-design', 'references', 'ui-components.md'),
   )
 
   copyFile(
-    'ai/skills/integration-builder/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'integration-builder', 'SKILL.md'),
+    'ai/skills/om-code-review/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-code-review', 'SKILL.md'),
   )
   copyFile(
-    'ai/skills/integration-builder/references/adapter-contracts.md',
-    join(targetDir, '.ai', 'skills', 'integration-builder', 'references', 'adapter-contracts.md'),
+    'ai/skills/om-code-review/references/review-checklist.md',
+    join(targetDir, '.ai', 'skills', 'om-code-review', 'references', 'review-checklist.md'),
+  )
+
+  copyFile(
+    'ai/skills/om-integration-builder/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-integration-builder', 'SKILL.md'),
+  )
+  copyFile(
+    'ai/skills/om-integration-builder/references/adapter-contracts.md',
+    join(targetDir, '.ai', 'skills', 'om-integration-builder', 'references', 'adapter-contracts.md'),
   )
 
   // system-extension skill
   copyFile(
-    'ai/skills/system-extension/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'system-extension', 'SKILL.md'),
+    'ai/skills/om-system-extension/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-system-extension', 'SKILL.md'),
   )
   copyFile(
-    'ai/skills/system-extension/references/extension-contracts.md',
-    join(targetDir, '.ai', 'skills', 'system-extension', 'references', 'extension-contracts.md'),
+    'ai/skills/om-system-extension/references/extension-contracts.md',
+    join(targetDir, '.ai', 'skills', 'om-system-extension', 'references', 'extension-contracts.md'),
   )
 
   // module-scaffold skill
   copyFile(
-    'ai/skills/module-scaffold/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'module-scaffold', 'SKILL.md'),
+    'ai/skills/om-module-scaffold/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-module-scaffold', 'SKILL.md'),
   )
   copyFile(
-    'ai/skills/module-scaffold/references/naming-conventions.md',
-    join(targetDir, '.ai', 'skills', 'module-scaffold', 'references', 'naming-conventions.md'),
+    'ai/skills/om-module-scaffold/references/naming-conventions.md',
+    join(targetDir, '.ai', 'skills', 'om-module-scaffold', 'references', 'naming-conventions.md'),
   )
   copyFile(
-    'ai/skills/module-scaffold/references/navigation-patterns.md',
-    join(targetDir, '.ai', 'skills', 'module-scaffold', 'references', 'navigation-patterns.md'),
+    'ai/skills/om-module-scaffold/references/navigation-patterns.md',
+    join(targetDir, '.ai', 'skills', 'om-module-scaffold', 'references', 'navigation-patterns.md'),
   )
 
   // troubleshooter skill
   copyFile(
-    'ai/skills/troubleshooter/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'troubleshooter', 'SKILL.md'),
+    'ai/skills/om-troubleshooter/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-troubleshooter', 'SKILL.md'),
   )
   copyFile(
-    'ai/skills/troubleshooter/references/diagnostic-commands.md',
-    join(targetDir, '.ai', 'skills', 'troubleshooter', 'references', 'diagnostic-commands.md'),
+    'ai/skills/om-troubleshooter/references/diagnostic-commands.md',
+    join(targetDir, '.ai', 'skills', 'om-troubleshooter', 'references', 'diagnostic-commands.md'),
   )
 
   // eject-and-customize skill
   copyFile(
-    'ai/skills/eject-and-customize/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'eject-and-customize', 'SKILL.md'),
+    'ai/skills/om-eject-and-customize/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-eject-and-customize', 'SKILL.md'),
   )
 
   // data-model-design skill
   copyFile(
-    'ai/skills/data-model-design/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'data-model-design', 'SKILL.md'),
+    'ai/skills/om-data-model-design/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-data-model-design', 'SKILL.md'),
   )
   copyFile(
-    'ai/skills/data-model-design/references/mikro-orm-cheatsheet.md',
-    join(targetDir, '.ai', 'skills', 'data-model-design', 'references', 'mikro-orm-cheatsheet.md'),
+    'ai/skills/om-data-model-design/references/mikro-orm-cheatsheet.md',
+    join(targetDir, '.ai', 'skills', 'om-data-model-design', 'references', 'mikro-orm-cheatsheet.md'),
   )
 
   // implement-spec skill
   copyFile(
-    'ai/skills/implement-spec/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'implement-spec', 'SKILL.md'),
+    'ai/skills/om-implement-spec/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-implement-spec', 'SKILL.md'),
   )
 
   // integration-tests skill
   copyFile(
-    'ai/skills/integration-tests/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'integration-tests', 'SKILL.md'),
+    'ai/skills/om-integration-tests/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-integration-tests', 'SKILL.md'),
+  )
+
+  // help / workflow navigator skill
+  copyFile(
+    'ai/skills/om-help/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'SKILL.md'),
+  )
+  copyFile(
+    'ai/skills/om-help/references/skills-catalog.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'references', 'skills-catalog.md'),
+  )
+  copyFile(
+    'ai/skills/om-help/references/workflow-sequences.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'references', 'workflow-sequences.md'),
   )
 
   // 0.4.10 -> 0.5.0 upgrade companion skill
   copyFile(
-    'ai/skills/auto-upgrade-0.4.10-to-0.5.0/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'auto-upgrade-0.4.10-to-0.5.0', 'SKILL.md'),
+    'ai/skills/om-auto-upgrade-0.4.10-to-0.5.0/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-auto-upgrade-0.4.10-to-0.5.0', 'SKILL.md'),
   )
 
   // Agent automation / auto-* skills. Some skills also ship with a
@@ -159,12 +173,13 @@ export function generateShared(config: AgenticConfig): void {
   // standalone apps (default-branch discovery, opt-in pipeline labels,
   // probe-before-run validation gate, src/modules/... file layout).
   for (const autoSkill of [
-    'auto-create-pr',
-    'auto-continue-pr',
-    'auto-create-pr-loop',
-    'auto-continue-pr-loop',
-    'auto-review-pr',
-    'auto-fix-github',
+    'om-auto-create-pr',
+    'om-auto-continue-pr',
+    'om-auto-create-pr-loop',
+    'om-auto-continue-pr-loop',
+    'om-auto-review-pr',
+    'om-auto-fix-github',
+    'om-prepare-issue',
   ]) {
     if (!existsSync(join(AGENTIC_DIR, 'ai', 'skills', autoSkill, 'SKILL.md'))) {
       continue
@@ -184,8 +199,8 @@ export function generateShared(config: AgenticConfig): void {
   // Classic-mode slimdown skill — offered after the user adds a new module
   // so unused built-in modules can be disabled from src/modules.ts.
   copyFile(
-    'ai/skills/trim-unused-modules/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'trim-unused-modules', 'SKILL.md'),
+    'ai/skills/om-trim-unused-modules/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-trim-unused-modules', 'SKILL.md'),
   )
 
   // .ai/qa/tests/ — Playwright config for integration tests

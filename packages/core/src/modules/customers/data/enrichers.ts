@@ -40,6 +40,13 @@ function diffDays(from: Date, to: Date): number {
   return Math.floor((to.getTime() - from.getTime()) / DAY_MS)
 }
 
+/** Coerce an unknown value to a non-empty string array, or null when absent/empty. */
+function stringArrayOrNull(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  const strings = value.filter((entry): entry is string => typeof entry === 'string')
+  return strings.length > 0 ? strings : null
+}
+
 async function fetchOpenInteractionCounts(
   db: CustomerKysely,
   dealIds: Set<string>,
@@ -207,4 +214,248 @@ const dealPipelineEnricher: ResponseEnricher<DealRecord> = {
   },
 }
 
-export const enrichers: ResponseEnricher[] = [dealPipelineEnricher]
+type PersonRecord = Record<string, unknown> & { id: string }
+
+/**
+ * Adds `_privateEmailCount` to each Person — the number of that person's PRIVATE
+ * email interactions authored by OTHER users (private emails the current viewer
+ * cannot see). Backs the documented "count of teammates' private emails" badge
+ * (see `apps/docs/docs/user-guide/customers-email.mdx`): a viewer learns an
+ * exchange exists without seeing its content. The count-badge UI is a pending
+ * follow-up; the field is populated here so the consumer can be wired without a
+ * second pass. Owner/tenant scoped and fail-safe to 0 — never leaks content.
+ */
+export const privateEmailCountEnricher: ResponseEnricher<
+  PersonRecord,
+  { _privateEmailCount?: number }
+> = {
+  id: 'customers.private-email-count',
+  targetEntity: 'customers.person',
+  features: ['customers.people.view'],
+  priority: 30,
+  timeout: 1500,
+  fallback: { _privateEmailCount: 0 },
+  critical: false,
+
+  async enrichOne(record, context) {
+    const enriched = await this.enrichMany!([record], context)
+    return enriched[0]
+  },
+
+  async enrichMany(records, context: EnricherContext) {
+    if (records.length === 0) return records
+
+    const db = resolveKyselyClient(context.em)
+    if (!db) {
+      return records.map((record) => ({ ...record, _privateEmailCount: 0 }))
+    }
+
+    const userId = context.userId
+    // Fail-safe to 0 when there is no real authoring user to exclude. An API-key
+    // principal (`auth.sub = "api_key:<id>"`) is not a person, so the
+    // `author_user_id != userId` exclusion below would match nothing and count
+    // every private email — short-circuit it here.
+    if (!userId || userId.startsWith('api_key:')) {
+      return records.map((record) => ({ ...record, _privateEmailCount: 0 }))
+    }
+
+    const personIds = records
+      .map((r) => r.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0)
+
+    if (personIds.length === 0) {
+      return records.map((record) => ({ ...record, _privateEmailCount: 0 }))
+    }
+
+    const rows = await (db as CustomerKysely)
+      .selectFrom('customer_interactions')
+      .select(['entity_id'])
+      .select((eb) => eb.fn.countAll().as('count'))
+      .where('tenant_id', '=', context.tenantId)
+      .where('organization_id', '=', context.organizationId)
+      .where('interaction_type', '=', 'email')
+      .where('visibility', '=', 'private')
+      .where('deleted_at', 'is', null)
+      .where('entity_id', 'in', personIds)
+      .where('author_user_id', '!=', userId)
+      .groupBy('entity_id')
+      .execute()
+
+    const countMap = new Map<string, number>()
+    for (const row of rows) {
+      const personId = typeof row.entity_id === 'string' ? row.entity_id : null
+      if (!personId) continue
+      const count = typeof row.count === 'number' ? row.count : Number(row.count)
+      if (Number.isFinite(count)) countMap.set(personId, count)
+    }
+
+    return records.map((record) => ({
+      ...record,
+      _privateEmailCount: countMap.get(record.id) ?? 0,
+    }))
+  },
+}
+
+type InteractionRecord = Record<string, unknown> & {
+  id: string
+  interactionType?: string | null
+  externalMessageId?: string | null
+}
+
+type EmailIntegrationFields = {
+  externalMessageId?: string | null
+  rfcMessageId?: string | null
+  fromAddress?: string | null
+  toAddresses?: string[] | null
+  ccAddresses?: string[] | null
+  subject?: string | null
+  inReplyTo?: string | null
+  references?: string[] | null
+  /** Current visibility of the interaction row, for the private/shared toggle. */
+  currentVisibility?: 'private' | 'shared' | null
+  /** True when the interaction's author is the requesting user — gates the toggle. */
+  isAuthor?: boolean
+}
+
+/**
+ * Enriches email-type customer interactions with MessageChannelLink metadata
+ * so the ActivityCard widget can render Reply/Forward/visibility-toggle actions.
+ *
+ * For each interaction row where `interactionType === 'email'` and
+ * `externalMessageId` is set (the MessageChannelLink UUID), the enricher fetches
+ * the corresponding `MessageChannelLink` row and populates
+ * `_integrations.email.*` from its `channel_metadata` column.
+ *
+ * Non-email rows and rows without an externalMessageId pass through unchanged.
+ * Fail-safe: if the Kysely client is unavailable or the lookup fails, the records
+ * are returned unmodified so the activity timeline still renders (without email
+ * card actions).
+ */
+export const interactionEmailCardEnricher: ResponseEnricher<
+  InteractionRecord,
+  { _integrations?: { email?: EmailIntegrationFields } }
+> = {
+  id: 'customers.interaction-email-card',
+  // Must match the entity ID passed to applyResponseEnrichers in the interactions
+  // GET route (api/interactions/route.ts line 539): 'customers.interaction'.
+  targetEntity: 'customers.interaction',
+  features: ['customers.interactions.view'],
+  priority: 25,
+  timeout: 1500,
+  fallback: {},
+  critical: false,
+
+  async enrichOne(record, ctx) {
+    const results = await this.enrichMany!([record], ctx)
+    return results[0]
+  },
+
+  async enrichMany(records, ctx) {
+    if (records.length === 0) return records
+
+    // Fast path: skip the DB round-trip when no email rows with a link are present.
+    const emailRecords = records.filter(
+      (r) =>
+        r.interactionType === 'email' &&
+        typeof r.externalMessageId === 'string' &&
+        r.externalMessageId.length > 0,
+    )
+    if (emailRecords.length === 0) return records
+
+    const linkIds = Array.from(
+      new Set(emailRecords.map((r) => r.externalMessageId as string)),
+    )
+
+    // message_channel_links is owned by communication_channels; its read-only
+    // shape is declared in CustomerKyselyDb so this stays type-safe without
+    // cross-module coupling. Mirrors privateEmailCountEnricher.
+    const kysely = resolveKyselyClient(ctx.em)
+    if (!kysely) {
+      // Fail-safe: Kysely unavailable (test stubs, unusual driver wrappers).
+      return records
+    }
+
+    let linkRows: Array<{ id: string; channel_metadata: unknown }>
+    try {
+      linkRows = await kysely
+        .selectFrom('message_channel_links')
+        .select(['id', 'channel_metadata'])
+        .where('tenant_id', '=', ctx.tenantId)
+        // Defense-in-depth org scope. `id IN linkIds` already binds the lookup
+        // to this org's interactions, and `message_channel_links.organization_id`
+        // is nullable, so we tolerate NULL to avoid dropping legitimate links.
+        .where((eb) =>
+          eb.or([
+            eb('organization_id', '=', ctx.organizationId),
+            eb('organization_id', 'is', null),
+          ]),
+        )
+        .where('id', 'in', linkIds)
+        .execute()
+    } catch {
+      // Fail-safe: unexpected DB error (missing table in test env, schema drift).
+      return records
+    }
+
+    const byLinkId = new Map<string, EmailIntegrationFields>()
+    for (const row of linkRows) {
+      const meta = (row.channel_metadata ?? {}) as Record<string, unknown>
+      const fields: EmailIntegrationFields = {
+        externalMessageId: row.id,
+        rfcMessageId: typeof meta.messageId === 'string' ? meta.messageId : null,
+        fromAddress: typeof meta.from === 'string' ? meta.from : null,
+        toAddresses: stringArrayOrNull(meta.to),
+        ccAddresses: stringArrayOrNull(meta.cc),
+        // bcc is intentionally NOT surfaced: BCC recipients are blind by design,
+        // so exposing them to every teammate who can view a shared email would
+        // leak the blind-copy list. Keep it out of the enriched response.
+        subject: typeof meta.subject === 'string' ? meta.subject : null,
+        inReplyTo: typeof meta.inReplyTo === 'string' ? meta.inReplyTo : null,
+        references: stringArrayOrNull(meta.references),
+      }
+      byLinkId.set(row.id, fields)
+    }
+
+    const currentUserId = ctx.userId
+
+    return records.map((r) => {
+      if (
+        r.interactionType !== 'email' ||
+        typeof r.externalMessageId !== 'string' ||
+        r.externalMessageId.length === 0
+      ) {
+        return r
+      }
+      const fields = byLinkId.get(r.externalMessageId)
+      if (!fields) return r
+      const visibility =
+        r.visibility === 'private' || r.visibility === 'shared' ? r.visibility : null
+      const authorUserId = typeof r.authorUserId === 'string' ? r.authorUserId : null
+      const isAuthor = Boolean(currentUserId && authorUserId && authorUserId === currentUserId)
+      // Fail-closed (defense-in-depth): never surface another user's PRIVATE
+      // email metadata (subject/from/to/references), even if a consumer forgot
+      // to apply the visibility filter upstream. v1 is strict owner-only (no
+      // admin bypass — `customers.email.view_private` is inert until v2), so a
+      // private row is enriched only for its author. The normal read paths
+      // already drop these rows; this keeps the globally-registered enricher
+      // safe-by-construction for any future consumer that opts into it.
+      if (visibility === 'private' && !isAuthor) {
+        return r
+      }
+      const existingIntegrations = (r._integrations ?? {}) as Record<string, unknown>
+      return {
+        ...r,
+        _integrations: {
+          ...existingIntegrations,
+          email: {
+            ...fields,
+            currentVisibility: visibility,
+            isAuthor,
+          },
+        },
+      }
+    })
+  },
+}
+
+export const enrichers: ResponseEnricher[] = [dealPipelineEnricher, privateEmailCountEnricher, interactionEmailCardEnricher]

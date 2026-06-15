@@ -109,11 +109,10 @@ const crud = makeCrudRoute({
         let tenantId = raw.tenantId
         
         if (scopeType === 'system') {
-          // System scope requires superadmin privileges
-          const isSuperAdmin = Array.isArray(ctx.auth?.roles) && ctx.auth.roles.some(
-            (role: unknown) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'
-          )
-          if (!isSuperAdmin) {
+          // System scope requires super-admin. Use the immutable `isSuperAdmin`
+          // flag (derived from RoleAcl/UserAcl) — never compare role names, which
+          // are tenant-mutable and spoofable.
+          if (ctx.auth?.isSuperAdmin !== true) {
             throw new CrudHttpError(403, { error: 'System-scoped schedules require superadmin privileges' })
           }
           // System scope: no org/tenant

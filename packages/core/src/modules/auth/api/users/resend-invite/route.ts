@@ -15,6 +15,9 @@ import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@op
 import { INVITE_TOKEN_TTL_MS } from '@open-mercato/core/modules/auth/lib/inviteToken'
 import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
+import { assertActorCanAccessUserTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 const resendInviteRateLimitConfig = readEndpointRateLimitConfig('RESEND_INVITE', {
@@ -78,6 +81,23 @@ export async function POST(req: Request) {
     }
   } catch (err) {
     console.error('[auth.users.resend-invite] Failed to resolve rbac:', err)
+  }
+
+  if (auth.sub) {
+    try {
+      await assertActorCanAccessUserTarget({
+        em,
+        rbacService: container.resolve('rbacService') as RbacService,
+        actorUserId: auth.sub,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        targetUserId: parsed.data.id,
+        actorIsSuperAdmin: isSuperAdmin,
+      })
+    } catch (err) {
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+      throw err
+    }
   }
 
   const where: Record<string, unknown> = { id: parsed.data.id, deletedAt: null }

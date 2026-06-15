@@ -78,6 +78,24 @@ export const features = [
     module: 'customers',
     dependsOn: ['customers.roles.view'],
   },
+  // Email integration (2026-05-27)
+  {
+    id: 'customers.email.compose',
+    title: 'Compose / send emails from CRM',
+    module: 'customers',
+    dependsOn: ['customers.people.view'],
+  },
+  // Reserved for a future v2 admin-oversight capability. In v1 the email
+  // privacy model is strict owner-only with NO admin bypass, so this feature is
+  // declared but INERT — granting it does not unlock other users' private emails
+  // (the visibility filter and the visibility-change gate ignore it). See
+  // .ai/specs/implemented/2026-05-27-crm-email-integration.md (v1 strict owner-only).
+  {
+    id: 'customers.email.view_private',
+    title: 'View other users\' private emails (reserved — inert in v1)',
+    module: 'customers',
+    dependsOn: ['customers.interactions.view'],
+  },
 ]
 
 export default features

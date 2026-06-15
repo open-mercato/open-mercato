@@ -311,7 +311,7 @@ Use the global launcher to find every assistant you can access, or embed `<AiCha
 - [Getting started](https://docs.openmercato.com/framework/ai-assistant/overview)
 - [How to configure it](https://docs.openmercato.com/framework/ai-assistant/settings)
 - [User guide](https://docs.openmercato.com/user-guide/ai-assistant)
-- [Legacy MCP assistant docs](.ai/specs/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md)
+- [Legacy MCP assistant docs](.ai/specs/implemented/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md)
 
 ## Data Encryption
 

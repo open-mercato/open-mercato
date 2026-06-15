@@ -69,8 +69,14 @@ export async function resolveCanonicalStaffAuthContext(
   // round-trips into one. The `em` here is a fresh request-scoped EntityManager
   // (resolved per request, never inside an explicit transaction), so concurrent
   // reads on it are safe.
+  //
+  // The session lookup is bound to the token subject (`user: subjectId`) so the
+  // referenced session must actually belong to the JWT's subject. Without this
+  // binding, a forged-but-otherwise-valid token could pair `sub` for one user with
+  // a still-live `sid` belonging to another, evading per-user session revocation
+  // (logout / deleteAllUserSessions / password reset).
   const sessionPromise = sessionId !== null
-    ? findOneWithDecryption(em, Session, { id: sessionId, deletedAt: null })
+    ? findOneWithDecryption(em, Session, { id: sessionId, user: subjectId, deletedAt: null })
     : Promise.resolve(null)
   const userPromise = findOneWithDecryption(
     em,
@@ -83,6 +89,7 @@ export async function resolveCanonicalStaffAuthContext(
 
   if (sessionId !== null) {
     if (!session) return null
+    if (resolveSessionUserId(session) !== subjectId) return null
     if (session.expiresAt.getTime() < Date.now()) return null
   }
 
@@ -141,6 +148,16 @@ export async function resolveCanonicalStaffAuthContext(
     roles,
     isSuperAdmin,
   }
+}
+
+function resolveSessionUserId(session: Session): string | null {
+  const owner = (session as { user?: unknown }).user
+  if (typeof owner === 'string') return owner
+  if (owner && typeof owner === 'object') {
+    const ownerId = (owner as { id?: unknown }).id
+    if (typeof ownerId === 'string') return ownerId
+  }
+  return null
 }
 
 async function userAclGrantsSuperAdmin(

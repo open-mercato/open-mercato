@@ -40,6 +40,7 @@ import {
   getErrorConstraint,
   getErrorMessage,
 } from "./shared";
+import { makeCreateRedo } from "@open-mercato/shared/lib/commands/redo";
 import { toUnitLookupKey } from "../lib/unitCodes";
 import { resolveCanonicalUnitCode } from "../lib/unitResolution";
 
@@ -164,6 +165,24 @@ async function loadConversionSnapshot(
       : null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
+  };
+}
+
+function conversionSeedFromSnapshot(
+  snapshot: ProductUnitConversionSnapshot,
+): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    product: snapshot.productId,
+    unitCode: snapshot.unitCode,
+    toBaseFactor: snapshot.toBaseFactor,
+    sortOrder: snapshot.sortOrder,
+    isActive: snapshot.isActive,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    createdAt: new Date(snapshot.createdAt),
+    updatedAt: new Date(snapshot.updatedAt),
   };
 }
 
@@ -341,6 +360,19 @@ const createProductUnitConversionCommand: CommandHandler<
       conversion: record,
     });
   },
+  redo: makeCreateRedo<
+    CatalogProductUnitConversion,
+    ProductUnitConversionSnapshot,
+    ProductUnitConversionCreateInput,
+    { conversionId: string }
+  >({
+    entityClass: CatalogProductUnitConversion,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: conversionSeedFromSnapshot,
+    buildResult: (entity) => ({ conversionId: entity.id }),
+    events: conversionCrudEvents,
+    indexer: conversionCrudIndexer,
+  }),
 };
 
 const updateProductUnitConversionCommand: CommandHandler<

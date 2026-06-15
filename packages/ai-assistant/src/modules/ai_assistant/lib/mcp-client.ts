@@ -1,4 +1,3 @@
-import { spawn, type ChildProcess } from 'node:child_process'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
@@ -45,19 +44,16 @@ export type McpClientOptions = StdioClientOptions | HttpClientOptions
 export class McpClient implements McpClientInterface {
   private client: Client
   private transport: StdioClientTransport | StreamableHTTPClientTransport
-  private childProcess?: ChildProcess
   private apiKeySecret: string
 
   private constructor(
     client: Client,
     transport: StdioClientTransport | StreamableHTTPClientTransport,
-    apiKeySecret: string,
-    childProcess?: ChildProcess
+    apiKeySecret: string
   ) {
     this.client = client
     this.transport = transport
     this.apiKeySecret = apiKeySecret
-    this.childProcess = childProcess
   }
 
   /**
@@ -85,25 +81,18 @@ export class McpClient implements McpClientInterface {
     ]
     const cwd = options.cwd ?? process.cwd()
 
-    const childProcess = spawn(command, args, {
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
-    })
-
-    // Forward stderr for debugging
-    childProcess.stderr?.on('data', (data) => {
-      const message = data.toString().trim()
-      if (message) {
-        console.error(`[MCP Client] ${message}`)
-      }
-    })
-
     const transport = new StdioClientTransport({
       command,
       args,
       cwd,
       env: process.env as Record<string, string>,
+      stderr: 'pipe',
+    })
+    transport.stderr?.on('data', (data) => {
+      const message = data.toString().trim()
+      if (message) {
+        console.error(`[MCP Client] ${message}`)
+      }
     })
 
     const client = new Client(
@@ -113,7 +102,7 @@ export class McpClient implements McpClientInterface {
 
     await client.connect(transport)
 
-    return new McpClient(client, transport, options.apiKeySecret, childProcess)
+    return new McpClient(client, transport, options.apiKeySecret)
   }
 
   /**
@@ -213,9 +202,5 @@ export class McpClient implements McpClientInterface {
       // Ignore close errors
     }
 
-    if (this.childProcess) {
-      this.childProcess.kill()
-      this.childProcess = undefined
-    }
   }
 }

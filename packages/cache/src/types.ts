@@ -80,6 +80,11 @@ export type CacheStrategy = {
   }>
 
   /**
+   * Verify the configured backend is reachable without activating a fallback.
+   */
+  healthcheck?(): Promise<void>
+
+  /**
    * Clean up expired entries (optional, some strategies may auto-cleanup)
    * @returns Number of entries removed
    */

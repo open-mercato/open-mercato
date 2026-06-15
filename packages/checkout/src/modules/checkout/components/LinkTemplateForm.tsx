@@ -23,10 +23,14 @@ import { slugify } from '@open-mercato/shared/lib/slugify'
 import { CrudForm, type CrudField, type CrudFormGroup, type CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
 import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs'
-import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { ColorPicker } from '@open-mercato/ui/primitives/color-picker'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -37,6 +41,7 @@ import { getLocalizedDefaultCheckoutCustomerFields } from '../lib/defaults'
 import type { CustomerFieldDefinitionInput, PriceListItemInput } from '../data/validators'
 import { getGatewayProviderConfigurationMessageKey } from '../lib/gatewayProviderAvailability'
 import { readCustomerFieldsSectionError } from '../lib/customerFieldErrors'
+import { isRecordNotFoundError } from '../lib/recordNotFound'
 import { CheckoutCurrencySelect } from './CheckoutCurrencySelect'
 import { CustomerFieldsEditor } from './CustomerFieldsEditor'
 import { GatewaySettingsFields } from './GatewaySettingsFields'
@@ -85,7 +90,7 @@ const DEFAULT_COLORS = {
 } as const
 
 const SETTINGS_TABS_LIST_CLASS = 'h-auto w-full justify-start overflow-x-auto rounded-none border-b border-border bg-transparent p-0'
-const SETTINGS_TABS_TRIGGER_CLASS = 'mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0'
+const SETTINGS_TABS_TRIGGER_CLASS = 'mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -259,6 +264,7 @@ function normalizeFormValues(value: FormValues | null | undefined, t?: Translate
     primaryColor: readString(source.primaryColor).trim() || defaults.primaryColor,
     secondaryColor: readString(source.secondaryColor).trim() || defaults.secondaryColor,
     backgroundColor: readString(source.backgroundColor).trim() || defaults.backgroundColor,
+    gatewayProviderKey: readString(source.gatewayProviderKey).trim(),
     gatewaySettings: isRecord(source.gatewaySettings) ? source.gatewaySettings : {},
     customFieldsetCode: readString(source.customFieldsetCode).trim() || null,
     collectCustomerDetails: readBoolean(source.collectCustomerDetails, true),
@@ -352,11 +358,10 @@ function ColorField({
   return (
     <SectionLabel label={label} error={error}>
       <div className="flex items-center gap-3">
-        <input
-          type="color"
+        <ColorPicker
           value={pickerValue}
-          className="h-10 w-12 shrink-0 cursor-pointer rounded-md border bg-transparent p-1"
-          onChange={(event) => onChange(event.target.value.toUpperCase())}
+          onChange={(next) => onChange(next.toUpperCase())}
+          aria-label={label}
         />
         <Input
           value={value}
@@ -1329,6 +1334,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
   const [initialValues, setInitialValues] = React.useState<FormValues | null>(
     recordId ? null : normalizeFormValues(createDefaultValues(t), t),
   )
+  const [notFound, setNotFound] = React.useState(false)
 
   const replaceInitialValues = React.useCallback((nextValues: FormValues) => {
     setInitialValues(nextValues)
@@ -1422,13 +1428,19 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
   React.useEffect(() => {
     if (!recordId) return
     let active = true
+    setNotFound(false)
     void readApiResultOrThrow<FormValues>(`/api/checkout/${mode === 'link' ? 'links' : 'templates'}/${encodeURIComponent(recordId)}`)
       .then((result) => {
         if (!active) return
         replaceInitialValues(normalizeFormValues(result, t))
       })
-      .catch(() => {
-        if (active) replaceInitialValues(normalizeFormValues({}, t))
+      .catch((error) => {
+        if (!active) return
+        if (isRecordNotFoundError(error)) {
+          setNotFound(true)
+          return
+        }
+        replaceInitialValues(normalizeFormValues({}, t))
       })
     return () => {
       active = false
@@ -1551,8 +1563,8 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
     </Alert>
   ) : undefined
   const lockedOverlay = isLocked ? (
-    <div className="mx-auto mt-6 max-w-md rounded-xl border border-amber-200 bg-background/95 px-5 py-4 text-center shadow-sm">
-      <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+    <div className="mx-auto mt-6 max-w-md rounded-xl border border-status-warning-border bg-background/95 px-5 py-4 text-center shadow-sm">
+      <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-status-warning-bg text-status-warning-icon">
         <Shield className="h-5 w-5" />
       </div>
       <p className="text-sm font-semibold text-foreground">
@@ -1563,6 +1575,26 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
       </p>
     </div>
   ) : undefined
+
+  const listHref = mode === 'link' ? '/backend/checkout/pay-links' : '/backend/checkout/templates'
+
+  if (notFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t(mode === 'link'
+              ? 'checkout.linkTemplateForm.notFound.link.title'
+              : 'checkout.linkTemplateForm.notFound.template.title')}
+            description={t(mode === 'link'
+              ? 'checkout.linkTemplateForm.notFound.link.description'
+              : 'checkout.linkTemplateForm.notFound.template.description')}
+            backHref={listHref}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>
@@ -1638,11 +1670,24 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                 customFields: collectCustomFieldValues(values),
               }
               const endpoint = `/api/checkout/${mode === 'link' ? 'links' : 'templates'}${recordId ? `/${encodeURIComponent(recordId)}` : ''}`
-              const response = await readApiResultOrThrow<{ id?: string; slug?: string; ok?: boolean }>(endpoint, {
-                method: recordId ? 'PUT' : 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-              })
+              let response: { id?: string; slug?: string; ok?: boolean }
+              try {
+                response = await withScopedApiRequestHeaders(
+                  recordId ? buildOptimisticLockHeader(readString(initialValues?.updatedAt) || null) : {},
+                  () => readApiResultOrThrow<{ id?: string; slug?: string; ok?: boolean }>(endpoint, {
+                    method: recordId ? 'PUT' : 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                  }),
+                )
+              } catch (error) {
+                if (surfaceRecordConflict(error, t)) return
+                if (recordId && isRecordNotFoundError(error)) {
+                  setNotFound(true)
+                  return
+                }
+                throw error
+              }
               const targetId = recordId ?? (typeof response?.id === 'string' ? response.id : null)
               const logoAttachmentId = readString(values.logoAttachmentId)
               if (
@@ -1687,7 +1732,19 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                 : `/backend/checkout/templates?flash=${encodeURIComponent(t('checkout.common.flash.saved'))}&type=success`
             }}
             onDelete={recordId ? async () => {
-              await apiCallOrThrow(`/api/checkout/${mode === 'link' ? 'links' : 'templates'}/${encodeURIComponent(recordId)}`, { method: 'DELETE' })
+              try {
+                await withScopedApiRequestHeaders(
+                  buildOptimisticLockHeader(readString(initialValues?.updatedAt) || null),
+                  () => apiCallOrThrow(`/api/checkout/${mode === 'link' ? 'links' : 'templates'}/${encodeURIComponent(recordId)}`, { method: 'DELETE' }),
+                )
+              } catch (error) {
+                if (surfaceRecordConflict(error, t)) return
+                if (isRecordNotFoundError(error)) {
+                  setNotFound(true)
+                  return
+                }
+                throw error
+              }
               window.location.href = mode === 'link'
                 ? `/backend/checkout/pay-links?flash=${encodeURIComponent(t('checkout.common.flash.deleted'))}&type=success`
                 : `/backend/checkout/templates?flash=${encodeURIComponent(t('checkout.common.flash.deleted'))}&type=success`

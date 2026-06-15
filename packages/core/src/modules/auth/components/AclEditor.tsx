@@ -68,6 +68,7 @@ type AclPayload = {
   isSuperAdmin?: boolean
   features?: unknown
   organizations?: unknown
+  updatedAt?: string | null
 }
 type OrganizationListResponse = { items?: Array<{ id?: string; name?: string }> }
 
@@ -99,6 +100,7 @@ export function AclEditor({
   canEditOrganizations,
   value,
   onChange,
+  onVersionChange,
   userRoles,
   currentUserIsSuperAdmin,
   tenantId,
@@ -109,6 +111,12 @@ export function AclEditor({
   canEditOrganizations: boolean
   value?: AclData
   onChange?: (data: AclData) => void
+  /**
+   * Reports the loaded ACL row's `updatedAt` (or null when none exists) so the
+   * parent can send the optimistic-lock header on save and reject stale ACL
+   * overwrites (#2055).
+   */
+  onVersionChange?: (updatedAt: string | null) => void
   userRoles?: string[]
   currentUserIsSuperAdmin?: boolean
   tenantId?: string | null
@@ -168,8 +176,9 @@ export function AclEditor({
       setIsSuperAdmin(!!aclJson.isSuperAdmin)
       setGranted(actorSanitizeFeatures(aclJson.features))
       setOrganizations(aclJson.organizations == null ? null : Array.isArray(aclJson.organizations) ? aclJson.organizations : [])
+      onVersionChange?.(typeof aclJson.updatedAt === 'string' ? aclJson.updatedAt : null)
     } catch {}
-  }, [kind, targetId, actorSanitizeFeatures])
+  }, [kind, targetId, actorSanitizeFeatures, onVersionChange])
 
   React.useEffect(() => {
     const cancelled = { current: false }

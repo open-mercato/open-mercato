@@ -261,9 +261,6 @@ export async function refreshCoverageSnapshot(
   if (tenantId !== null && hasTenant) baseQuery = baseQuery.where('b.tenant_id' as any, '=', tenantId)
   if (!withDeleted && hasDeleted) baseQuery = baseQuery.where('b.deleted_at' as any, 'is', null as any)
 
-  const baseRow = await baseQuery.executeTakeFirst() as { count: unknown } | undefined
-  const baseCount = toCount(baseRow?.count)
-
   let indexQuery = db
     .selectFrom('entity_indexes as ei' as any)
     .select(sql`count(*)`.as('count'))
@@ -272,13 +269,10 @@ export async function refreshCoverageSnapshot(
   if (tenantId !== null) indexQuery = indexQuery.where('ei.tenant_id' as any, '=', tenantId)
   if (!withDeleted) indexQuery = indexQuery.where('ei.deleted_at' as any, 'is', null as any)
 
-  const indexRow = await indexQuery.executeTakeFirst() as { count: unknown } | undefined
-  const indexCount = toCount(indexRow?.count)
+  const vectorCountPromise = (async (): Promise<number | undefined> => {
+    const hasVectorTable = await tableHasColumn(db, 'vector_search', 'entity_id')
+    if (!hasVectorTable || typeof tenantId !== 'string' || tenantId.length === 0) return undefined
 
-  // Count vector entries directly from database
-  let vectorCount: number | undefined
-  const hasVectorTable = await tableHasColumn(db, 'vector_search', 'entity_id')
-  if (hasVectorTable && typeof tenantId === 'string' && tenantId.length > 0) {
     try {
       let vectorQuery = db
         .selectFrom('vector_search' as any)
@@ -289,7 +283,7 @@ export async function refreshCoverageSnapshot(
         vectorQuery = vectorQuery.where('organization_id' as any, '=', organizationId)
       }
       const vectorRow = await vectorQuery.executeTakeFirst() as { count: unknown } | undefined
-      vectorCount = toCount(vectorRow?.count)
+      return toCount(vectorRow?.count)
     } catch (err) {
       console.warn('[query_index] Failed to resolve vector count for coverage snapshot', {
         entityType,
@@ -297,9 +291,18 @@ export async function refreshCoverageSnapshot(
         organizationId,
         error: err instanceof Error ? err.message : err,
       })
-      vectorCount = undefined
+      return undefined
     }
-  }
+  })()
+
+  const [baseRow, indexRow, vectorCount] = await Promise.all([
+    baseQuery.executeTakeFirst() as Promise<{ count: unknown } | undefined>,
+    indexQuery.executeTakeFirst() as Promise<{ count: unknown } | undefined>,
+    vectorCountPromise,
+  ])
+
+  const baseCount = toCount(baseRow?.count)
+  const indexCount = toCount(indexRow?.count)
 
   await writeCoverageCounts(em, { entityType, tenantId, organizationId, withDeleted }, {
     baseCount,

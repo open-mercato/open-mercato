@@ -5,7 +5,7 @@
  * Wraps `createGoogleGenerativeAI({ apiKey })` from `@ai-sdk/google`.
  *
  * @see packages/shared/src/lib/ai/llm-provider.ts
- * @see .ai/specs/2026-04-14-llm-provider-ports-and-adapters.md
+ * @see .ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md
  */
 
 import { createGoogleGenerativeAI } from '@ai-sdk/google'

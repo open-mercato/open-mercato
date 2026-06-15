@@ -19,7 +19,7 @@ import {
   ConnectionMode,
   MarkerType,
 } from '@xyflow/react'
-import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode} from './nodes'
+import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, ParallelForkNode, ParallelJoinNode} from './nodes'
 import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
 import { STATUS_COLORS } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
@@ -133,6 +133,8 @@ export default function WorkflowGraphImpl({
       subWorkflow: SubWorkflowNode,
       waitForSignal: WaitForSignalNode,
       waitForTimer: WaitForTimerNode,
+      parallelFork: ParallelForkNode,
+      parallelJoin: ParallelJoinNode,
     }),
     []
   )
@@ -219,8 +221,7 @@ export default function WorkflowGraphImpl({
 
         {editable && !isCompactViewport && (
           <Panel position="top-left" style={{ margin: 10 }}>
-            <Alert variant="info" className="max-w-sm">
-              <Edit3 className="size-4" />
+            <Alert variant="info" icon={<Edit3 aria-hidden="true" />} className="max-w-sm">
               <AlertDescription className="font-medium">
                 {t('workflows.graph.editModeInfo')}
               </AlertDescription>

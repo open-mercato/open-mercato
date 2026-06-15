@@ -71,7 +71,23 @@ export async function createPersonFixture(
 export async function createDealFixture(
   request: APIRequestContext,
   token: string,
-  input: { title: string; companyIds?: string[]; personIds?: string[]; pipelineId?: string; pipelineStageId?: string; valueAmount?: number; valueCurrency?: string },
+  input: {
+    title: string;
+    companyIds?: string[];
+    personIds?: string[];
+    pipelineId?: string;
+    pipelineStageId?: string;
+    valueAmount?: number;
+    valueCurrency?: string;
+    // Optional deal lifecycle fields — all valid on `dealCreateSchema`. Forwarded so KPI/summary
+    // tests can seed won/lost/overdue/owned deals across quarters (see TC-CRM-082). `status` is a
+    // free-form dictionary value (e.g. 'open', 'in_progress', 'win', 'loose'); `expectedCloseAt`
+    // accepts an ISO string (the schema coerces it to a Date); `closureOutcome` is 'won' | 'lost'.
+    status?: string;
+    expectedCloseAt?: string;
+    ownerUserId?: string;
+    closureOutcome?: 'won' | 'lost';
+  },
 ): Promise<string> {
   const data: Record<string, unknown> = { title: input.title };
   if (input.companyIds?.length) data.companyIds = input.companyIds;
@@ -80,6 +96,10 @@ export async function createDealFixture(
   if (input.pipelineStageId) data.pipelineStageId = input.pipelineStageId;
   if (input.valueAmount !== undefined) data.valueAmount = input.valueAmount;
   if (input.valueCurrency) data.valueCurrency = input.valueCurrency;
+  if (input.status) data.status = input.status;
+  if (input.expectedCloseAt) data.expectedCloseAt = input.expectedCloseAt;
+  if (input.ownerUserId) data.ownerUserId = input.ownerUserId;
+  if (input.closureOutcome) data.closureOutcome = input.closureOutcome;
   return createEntity(request, token, '/api/customers/deals', data, ['dealId', 'id', 'entityId']);
 }
 

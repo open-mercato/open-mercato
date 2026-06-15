@@ -609,3 +609,16 @@ Self-hosted runners would eliminate cold-start overhead (~1m per job) and enable
 | `release.yml` | Manual dispatch | ~5 min + human approval | Never (post-merge) |
 | `qa-deploy.yml` | Manual dispatch | ~15 min | Never (optional) |
 | `qa-stop-on-merge.yml` | PR closed | ~1 min | Never |
+
+---
+
+## 2026-06-05 Follow-Up: Phased Integration CI
+
+The next planned extension is [Phased Integration CI](../2026-06-05-phased-integration-ci.md). It keeps the affected-integration and sharded-full-suite mechanics from this spec, but adds a fail-closed phase selector:
+
+- normal PRs keep the current automatic affected baseline,
+- maintainers can request expensive regression suites with the additive `extended-integration` label,
+- every PR targeting `main` automatically runs full monorepo and standalone release coverage,
+- standalone PR coverage is split into a cheap sentinel lane plus full snapshot/release validation.
+
+This follow-up is a design/spec PR only; it does not change the implemented workflow behavior yet.

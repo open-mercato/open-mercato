@@ -13,6 +13,7 @@ import {
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
 import type { PlannerAvailabilityKind, PlannerAvailabilitySubjectType } from '../data/entities'
 import { extractUndoPayload } from './shared'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 
 const AVAILABILITY_RULE_RESOURCE_KIND = 'planner.availability.rule'
 
@@ -154,6 +155,14 @@ const createAvailabilityRuleCommand: CommandHandler<PlannerAvailabilityRuleCreat
       record.deletedAt = new Date()
       await em.flush()
     }
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<AvailabilityRuleSnapshot>(logEntry)
+    if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for availability rule create' })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await restoreAvailabilityRuleFromSnapshot(em, { ...after, deletedAt: null })
+    await em.flush()
+    return { ruleId: after.id }
   },
 }
 

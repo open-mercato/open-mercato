@@ -11,6 +11,8 @@ import {
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -595,7 +597,7 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const statusValue = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null)
+    const statusValue = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId })
     const record = em.create(SalesChannel, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -703,6 +705,34 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
       indexer: channelCrudIndexer,
     })
   },
+  redo: makeCreateRedo<SalesChannel, ChannelSnapshot, ChannelCreateInput, { channelId: string }>({
+    entityClass: SalesChannel,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: channelSeedFromSnapshot,
+    findRow: ({ em, id, snapshot }) =>
+      findOneWithDecryption(
+        em,
+        SalesChannel,
+        { id },
+        undefined,
+        { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+      ),
+    buildResult: (entity) => ({ channelId: entity.id }),
+    events: channelCrudEvents,
+    indexer: channelCrudIndexer,
+    afterRestore: async ({ ctx, snapshot }) => {
+      if (snapshot.custom && Object.keys(snapshot.custom).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.sales.sales_channel,
+          recordId: snapshot.id,
+          organizationId: snapshot.organizationId,
+          tenantId: snapshot.tenantId,
+          values: snapshot.custom,
+        })
+      }
+    },
+  }),
 }
 
 const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: string }> = {
@@ -730,7 +760,7 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
     if (parsed.description !== undefined) record.description = parsed.description ?? null
     if (parsed.statusEntryId !== undefined) {
       record.statusEntryId = parsed.statusEntryId ?? null
-      record.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null)
+      record.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: scope.tenantId })
     }
     if (parsed.websiteUrl !== undefined) record.websiteUrl = parsed.websiteUrl ?? null
     if (parsed.contactEmail !== undefined) record.contactEmail = parsed.contactEmail ?? null
@@ -1028,6 +1058,24 @@ const createDeliveryWindowCommand: CommandHandler<
       })
     }
   },
+  redo: makeCreateRedo<SalesDeliveryWindow, DeliveryWindowSnapshot, DeliveryWindowCreateInput, { deliveryWindowId: string }>({
+    entityClass: SalesDeliveryWindow,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: deliveryWindowSeedFromSnapshot,
+    buildResult: (entity) => ({ deliveryWindowId: entity.id }),
+    afterRestore: async ({ ctx, snapshot }) => {
+      if (snapshot.custom && Object.keys(snapshot.custom).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.sales.sales_delivery_window,
+          recordId: snapshot.id,
+          organizationId: snapshot.organizationId,
+          tenantId: snapshot.tenantId,
+          values: snapshot.custom,
+        })
+      }
+    },
+  }),
 }
 
 const updateDeliveryWindowCommand: CommandHandler<
@@ -1290,6 +1338,24 @@ const createShippingMethodCommand: CommandHandler<
       })
     }
   },
+  redo: makeCreateRedo<SalesShippingMethod, ShippingMethodSnapshot, ShippingMethodCreateInput, { shippingMethodId: string }>({
+    entityClass: SalesShippingMethod,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: shippingMethodSeedFromSnapshot,
+    buildResult: (entity) => ({ shippingMethodId: entity.id }),
+    afterRestore: async ({ ctx, snapshot }) => {
+      if (snapshot.custom && Object.keys(snapshot.custom).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.sales.sales_shipping_method,
+          recordId: snapshot.id,
+          organizationId: snapshot.organizationId,
+          tenantId: snapshot.tenantId,
+          values: snapshot.custom,
+        })
+      }
+    },
+  }),
 }
 
 const updateShippingMethodCommand: CommandHandler<
@@ -1567,6 +1633,24 @@ const createPaymentMethodCommand: CommandHandler<
       })
     }
   },
+  redo: makeCreateRedo<SalesPaymentMethod, PaymentMethodSnapshot, PaymentMethodCreateInput, { paymentMethodId: string }>({
+    entityClass: SalesPaymentMethod,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: paymentMethodSeedFromSnapshot,
+    buildResult: (entity) => ({ paymentMethodId: entity.id }),
+    afterRestore: async ({ ctx, snapshot }) => {
+      if (snapshot.custom && Object.keys(snapshot.custom).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.sales.sales_payment_method,
+          recordId: snapshot.id,
+          organizationId: snapshot.organizationId,
+          tenantId: snapshot.tenantId,
+          values: snapshot.custom,
+        })
+      }
+    },
+  }),
 }
 
 const updatePaymentMethodCommand: CommandHandler<
@@ -1847,6 +1931,28 @@ const createTaxRateCommand: CommandHandler<TaxRateCreateInput, { taxRateId: stri
       })
     }
   },
+  redo: makeCreateRedo<SalesTaxRate, TaxRateSnapshot, TaxRateCreateInput, { taxRateId: string }>({
+    entityClass: SalesTaxRate,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: taxRateSeedFromSnapshot,
+    buildResult: (entity) => ({ taxRateId: entity.id }),
+    afterRestore: async ({ em, ctx, entity, snapshot }) => {
+      if (entity.isDefault) {
+        await deactivateOtherDefaultTaxRates(em, entity)
+        await em.flush()
+      }
+      if (snapshot.custom && Object.keys(snapshot.custom).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.sales.sales_tax_rate,
+          recordId: snapshot.id,
+          organizationId: snapshot.organizationId,
+          tenantId: snapshot.tenantId,
+          values: snapshot.custom,
+        })
+      }
+    },
+  }),
 }
 
 const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: string }> = {

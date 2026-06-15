@@ -54,7 +54,7 @@ yarn test:integration:report
 Preferred local workflow for short iterations:
 1. Start `yarn test:integration:ephemeral:start`
 2. Reuse the running environment from `.ai/qa/ephemeral-env.json`
-3. Use `/integration-tests` against that URL
+3. Use `/om-integration-tests` against that URL
 
 Discovery troubleshooting:
 - If Playwright reports `No tests found`, run `npx playwright test --config .ai/qa/tests/playwright.config.ts --list` first.
@@ -117,6 +117,51 @@ Queue-backed tests:
 
 ---
 
+## CrudForm Field-Persistence Sweep (#2466)
+
+Automated follow-up to the manual CrudForm data-persistence QA (umbrella #2466). Every
+CrudForm / detail-edit surface gets a spec proving it **saves and reloads every field type**
+— scalars, dictionary references, multiselect/array values, and **custom fields** — on both
+create and update. Specs land per-module under `__integration__/TC-<MOD>-CRUDFORM-*.spec.ts`.
+
+### Shared harness
+
+`@open-mercato/core/helpers/integration/crudFormPersistence`:
+
+- `skipIfCrudFormExtensionTestsDisabled()` — call in `test.beforeAll`; skips the spec when the
+  sweep is disabled (see flag below).
+- `runCrudFormRoundTrip(config)` — runs create → read-back → assert all fields → update →
+  read-back → assert → delete for a makeCrud collection route. Pass `expectAfterCreate` /
+  `expectAfterUpdate` as `{ scalars?, customFields? }`. Supply `readById` for detail-GET routes.
+- `assertScalarFieldsPersisted(record, expected)` / `assertCustomFieldsPersisted(record, expected)`
+  — for hand-written specs that don't fit the round-trip runner.
+- `getCustomFieldValue(record, name)` — resolves a custom field from any response shape
+  (`customValues` bare keys, top-level `cf_<name>` / `cf:<name>`, or a `customFields[]` array).
+
+Reference spec: `packages/core/src/modules/currencies/__integration__/TC-CUR-CRUDFORM-001.spec.ts`.
+
+### Disable flag
+
+`OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISABLED` (default **false** → the sweep runs). Set
+truthy (`1`/`true`/`yes`/`on`) to skip every CrudForm-persistence spec wholesale without
+deleting them — parsed via `parseBooleanWithDefault` from `@open-mercato/shared/lib/boolean`.
+
+### Re-run the whole sweep
+
+```bash
+# All CrudForm-persistence specs across all modules (against a running app on :3000):
+npx playwright test --config .ai/qa/tests/playwright.config.ts CRUDFORM
+# One module only:
+OM_INTEGRATION_MODULES=currencies npx playwright test --config .ai/qa/tests/playwright.config.ts CRUDFORM
+# Disable the sweep (e.g. on a constrained CI lane):
+OM_INTEGRATION_CRUDFORM_EXTENSION_TESTS_DISABLED=1 yarn test:integration
+```
+
+The pure harness logic (env-gate + custom-field resolution) is unit-tested under jest at
+`packages/core/src/helpers/integration/__tests__/crudFormFields.test.ts` (runs in `yarn test`).
+
+---
+
 ## Scenarios Are Optional
 
 Markdown test scenarios (`.ai/qa/scenarios/TC-*.md`) are **optional reference material**. Tests can be generated through any of these paths:
@@ -126,7 +171,7 @@ Markdown test scenarios (`.ai/qa/scenarios/TC-*.md`) are **optional reference ma
 | **From spec** | `.ai/specs/*.md` or `.ai/specs/enterprise/*.md` | `.spec.ts` directly (no scenario needed) |
 | **From scenario** | `.ai/qa/scenarios/TC-*.md` | `.spec.ts` mapped from scenario steps |
 | **From description** | Verbal/written feature description | `.spec.ts` directly |
-| **From skill** | `/integration-tests` | `.spec.ts` + optional scenario markdown |
+| **From skill** | `/om-integration-tests` | `.spec.ts` + optional scenario markdown |
 
 ---
 
@@ -181,12 +226,12 @@ Environment state:
 
 ## How to Create New Tests
 
-### Option A: Use `/integration-tests` Skill (Recommended)
+### Option A: Use `/om-integration-tests` Skill (Recommended)
 
 The skill reads the related spec, explores the running app via Playwright MCP, and produces executable tests automatically. It optionally generates a markdown scenario for documentation.
 
 ```
-/integration-tests
+/om-integration-tests
 ```
 
 ### Option B: Manual Workflow

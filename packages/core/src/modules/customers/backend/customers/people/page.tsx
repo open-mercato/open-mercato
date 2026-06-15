@@ -44,6 +44,7 @@ import { useAutoDiscoveredFields } from '@open-mercato/ui/backend/utils/useAutoD
 import { useAdvancedFilterTree } from '@open-mercato/ui/backend/hooks/useAdvancedFilter'
 import { AdvancedFilterPanel } from '@open-mercato/ui/backend/filters/AdvancedFilterPanel'
 import { ActiveFilterChips } from '@open-mercato/ui/backend/filters/ActiveFilterChips'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterPreset } from '@open-mercato/ui/backend/filters/QuickFilters'
 import { useQueryClient } from '@tanstack/react-query'
 import { ensureCustomerDictionary } from '../../../components/detail/hooks/useCustomerDictionary'
@@ -461,6 +462,7 @@ export default function CustomersPeoplePage() {
     try {
       await runSingleMutation({
         operation: async () => {
+          // optimistic-lock-exempt: delete-only mutation — no field-level lost-update
           await apiCallOrThrow(
             `/api/customers/people?id=${encodeURIComponent(person.id)}`,
             {
@@ -500,6 +502,7 @@ export default function CustomersPeoplePage() {
         runBulkDelete(
           selectedRows,
           async (row) => {
+            // optimistic-lock-exempt: bulk delete-only mutation — no field-level lost-update
             await apiCallOrThrow(`/api/customers/people?id=${encodeURIComponent(row.id)}`, {
               method: 'DELETE',
               headers: { 'content-type': 'application/json' },
@@ -963,7 +966,7 @@ export default function CustomersPeoplePage() {
           }}
           activeFilterChips={(
             <ActiveFilterChips
-              tree={filterPanel.tree}
+              tree={filterPanel.appliedTree}
               fields={advancedFilterFields}
               popoverOpen={filtersOpen}
               onRemoveNode={(id) => filterPanel.dispatch({ type: 'removeNode', nodeId: id })}
@@ -977,6 +980,13 @@ export default function CustomersPeoplePage() {
             onClearAll: handleAdvancedFilterClear,
             onRemoveLast: () => filterPanel.dispatch({ type: 'removeLast' }),
           }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('customers.people.entityPlural', 'people')}
+              createHref="/backend/customers/people/create"
+              createLabel={t('customers.people.list.actions.new')}
+            />
+          )}
           virtualized
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage, cacheStatus, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange }}
           isLoading={isLoading}

@@ -31,6 +31,7 @@ import {
   extractUndoPayload,
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
@@ -443,7 +444,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         items: input.items,
         lockOrderLines: true,
       })
-      const statusValue = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null)
+      const statusValue = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: input.tenantId })
       const trackingNumbers = parseTrackingNumbers(input.trackingNumbers) ?? null
       const metadata =
         mergeAddressSnapshot(
@@ -501,7 +502,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         })
       }
       if (input.documentStatusEntryId !== undefined) {
-        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null)
+        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null, { tenantId: input.tenantId })
         if (input.documentStatusEntryId && !orderStatus) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
         }
@@ -510,7 +511,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         order.updatedAt = new Date()
       }
       if (input.lineStatusEntryId !== undefined) {
-        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null)
+        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null, { tenantId: input.tenantId })
         if (input.lineStatusEntryId && !lineStatus) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
         }
@@ -591,6 +592,46 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
       }
     })
   },
+  redo: async ({ ctx, logEntry }) => {
+    const after = resolveRedoSnapshot<ShipmentSnapshot>(logEntry)
+    const shipmentId = after?.id ?? logEntry.resourceId ?? null
+    if (!after || !shipmentId) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for sales.shipments.create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await em.transactional(async (tx) => {
+      await restoreShipmentSnapshot(tx, after)
+      const order = await tx.findOne(SalesOrder, { id: after.orderId })
+      await tx.flush()
+      if (order) {
+        await recomputeFulfilledQuantities(tx, order)
+        await tx.flush()
+      }
+    })
+
+    const shipment = await findOneWithDecryption(
+      em,
+      SalesShipment,
+      { id: after.id },
+      {},
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: shipment,
+      identifiers: {
+        id: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_shipment },
+      events: shipmentCrudEvents,
+    })
+
+    return { shipmentId: after.id }
+  },
 }
 
 const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: string }> = {
@@ -657,11 +698,17 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         : null
       const normalizedItems = validatedItems?.items ?? null
       const lineMap = validatedItems?.lineMap ?? new Map<string, SalesOrderLine>()
+      // Resolve the status label BEFORE mutating shipment scalars so this
+      // dictionary read does not interleave with (and drop) the pending
+      // shipment changeset under MikroORM v7 (SPEC-018 / #2453 class).
+      const resolvedShipmentStatus = input.statusEntryId !== undefined
+        ? await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: shipmentEntity.tenantId })
+        : undefined
       if (input.shipmentNumber !== undefined) shipmentEntity.shipmentNumber = input.shipmentNumber ?? null
       if (input.shippingMethodId !== undefined) shipmentEntity.shippingMethodId = input.shippingMethodId ?? null
       if (input.statusEntryId !== undefined) {
         shipmentEntity.statusEntryId = input.statusEntryId ?? null
-        shipmentEntity.status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null)
+        shipmentEntity.status = resolvedShipmentStatus ?? null
       }
       if (input.carrierName !== undefined) shipmentEntity.carrierName = input.carrierName ?? null
       if (input.trackingNumbers !== undefined) shipmentEntity.trackingNumbers = parseTrackingNumbers(input.trackingNumbers)
@@ -684,6 +731,13 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         )
       }
       shipmentEntity.updatedAt = new Date()
+
+      // Persist the shipment scalar mutations before the item reads below run on
+      // the same EntityManager. Under MikroORM v7 an interleaved query (the
+      // findWithDecryption on SalesShipmentItem here and in the snapshot step)
+      // resets the identity-map changeset, so shippingMethodId/status/carrier/etc.
+      // would silently not persist even though the write returns 200 (#2453).
+      await tx.flush()
 
       const shouldLoadItems = Boolean(normalizedItems || input.lineStatusEntryId !== undefined)
       const existingItems = shouldLoadItems ? await findWithDecryption(tx, SalesShipmentItem, { shipment: shipmentEntity }, {}, { tenantId: shipmentEntity.tenantId, organizationId: shipmentEntity.organizationId }) : []
@@ -716,7 +770,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         })
       }
       if (input.documentStatusEntryId !== undefined) {
-        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null)
+        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null, { tenantId: shipmentEntity.tenantId })
         if (input.documentStatusEntryId && !orderStatus) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
         }
@@ -725,7 +779,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         order.updatedAt = new Date()
       }
       if (input.lineStatusEntryId !== undefined) {
-        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null)
+        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null, { tenantId: shipmentEntity.tenantId })
         if (input.lineStatusEntryId && !lineStatus) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
         }
@@ -758,6 +812,9 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         }
       }
 
+      // Flush any order/line status mutations applied above before the snapshot
+      // read below queries the same EntityManager (same interleaved-read hazard).
+      await tx.flush()
       const itemsForSnapshot =
         normalizedItems || shouldLoadItems
           ? (normalizedItems ? newItems : existingItems)

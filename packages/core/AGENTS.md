@@ -506,7 +506,7 @@ When adding features to `acl.ts`, also add them to `setup.ts` `defaultRoleFeatur
 
 ## Entity Update Safety — `withAtomicFlush`
 
-MikroORM's identity-map and subscriber infrastructure can silently discard pending scalar changes when a query (`em.find`, `em.findOne`, etc.) runs on the same `EntityManager` before an explicit `em.flush()`. Additionally, multiple `em.flush()` calls without transaction wrapping risk partial commits. See [SPEC-018](../../.ai/specs/SPEC-018-2026-02-05-safe-entity-flush.md) for the full analysis.
+MikroORM's identity-map and subscriber infrastructure can silently discard pending scalar changes when a query (`em.find`, `em.findOne`, etc.) runs on the same `EntityManager` before an explicit `em.flush()`. Additionally, multiple `em.flush()` calls without transaction wrapping risk partial commits. See [SPEC-018](../../.ai/specs/implemented/SPEC-018-2026-02-05-safe-entity-flush.md) for the full analysis.
 
 ### Rules
 
@@ -518,7 +518,12 @@ MikroORM's identity-map and subscriber infrastructure can silently discard pendi
 - Enable `{ transaction: true }` when atomicity matters (all-or-nothing semantics).
 - Keep `emitCrudSideEffects` / `emitCrudUndoSideEffects` calls **OUTSIDE** `withAtomicFlush`
   — side effects should only fire after the DB changes are committed.
+- Cache invalidation follows the same rule as side effects: invalidate **after** the DB write commits, never inside the `withAtomicFlush` block. For the opt-in always-consistent read-projection tail (`OM_CACHE_SAFETY_ALWAYS_CONSISTENT`, default OFF) see `.ai/specs/2026-06-05-cache-safety-always-consistent.md`.
 - This applies to **both** `execute` methods (update commands) and `undo` handlers.
+
+### Commit-boundary guarantee (defense in depth)
+
+`withAtomicFlush` flushes after **each** phase, then runs a final **pending-changes guard** before the transaction commits: it re-checks the `UnitOfWork` and, if any change set still lingers (a phase mutated a managed entity after its own flush boundary), flushes it defensively inside the same transaction and logs a dev warning naming `options.label`. The transaction therefore can never commit unflushed scalar work — even if a per-phase flush was missed. Pass `{ label: '<module>.<command>' }` so the warning is actionable. The guard is a safety net, **not** a license to interleave mutate→read in one phase: structure phases correctly; let the guard catch only genuine slips.
 
 ### Wrong
 
@@ -547,6 +552,37 @@ await withAtomicFlush(em, [
 await emitCrudSideEffects({ ... })
 ```
 
+### Preferred: `runCrudCommandWrite` for entity + custom fields + side effects
+
+For commands that write an entity, optionally write custom fields, and emit CRUD/index side effects in one logical operation, prefer `runCrudCommandWrite` over composing `withAtomicFlush` + `setCustomFieldsIfAny` + `emitCrudSideEffects` by hand. The helper owns the EM fork, the atomic flush boundary, the custom-field write, and the side-effect queue in the only correct order, and fails closed if any earlier step throws.
+
+```typescript
+import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
+
+await runCrudCommandWrite({
+  ctx,
+  entityId: 'my_module:my_entity',
+  action: 'updated',
+  scope: { tenantId: record.tenantId, organizationId: record.organizationId },
+  customFields: custom,
+  events: myCrudEvents,
+  indexer: myCrudIndexer,
+  sideEffect: () => ({
+    entity: record,
+    identifiers: { id: record.id, tenantId: record.tenantId, organizationId: record.organizationId },
+  }),
+  phases: [
+    () => {
+      record.name = parsed.name
+      record.status = parsed.status
+    },
+    () => syncEntityTags(em, record, parsed.tags),
+  ],
+})
+```
+
+Reference migration: `customers.deals.update` in `packages/core/src/modules/customers/commands/deals.ts`. Keep `withAtomicFlush` for cases the helper doesn't fit (multiple separate transactions per command, etc.).
+
 ## Profiling
 
 - Enable with `OM_PROFILE` env (comma-separated filters: `*`, `all`, `customers.*`, etc.)
@@ -567,6 +603,7 @@ await emitCrudSideEffects({ ... })
 - Tables: plural snake_case; prefer `<module>_` prefixes for module-owned tables (e.g., `catalog_products`, `sales_orders`)
 - UUID PKs, explicit FKs, junction tables for M2M
 - Include `deleted_at timestamptz null` for soft delete
+- **User-editable entities MUST include an `updated_at` column** so OSS optimistic locking (default ON) can function — without it `CrudForm`'s auto-derive silently no-ops and concurrent edits are lost. Use `@Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })`, and make the entity's list/detail CRUD responses return `updatedAt`. The `optimistic-lock-editable-entities.test.ts` guard fails if a curated editable entity drops the column. Append-only logs, junction/assignment tables, session/token rows, background-job rows, and sub-resource lines guarded by a parent aggregate are exempt.
 
 ## Generated Files
 
@@ -606,6 +643,7 @@ const myEnricher: ResponseEnricher = {
   timeout: 2000,                         // ms, default 2000
   fallback: { _mymodule: { count: 0 } },// returned on failure
   critical: false,                       // true = error propagates to client
+  cacheableOnListHit: false,             // see "List cache behavior" below (default false)
   async enrichOne(record, context) {
     // Add fields to a single record
     return { ...record, _mymodule: { count: 42 } }
@@ -629,11 +667,20 @@ const crud = makeCrudRoute({
 })
 ```
 
+### List cache behavior (`cacheableOnListHit`)
+
+When the opt-in CRUD list cache (`ENABLE_CRUD_API_CACHE`) is enabled, the factory stores the **enriched** list payload and partitions cache entries by the active-enricher signature (the ACL/tenant-filtered enricher ids for the caller). On a cache hit it must decide whether to re-run enrichers or serve the stored enriched fields directly:
+
+- The cache-hit path **skips re-running enrichers only when every active enricher opted in with `cacheableOnListHit: true`** (record-pure cohort). Otherwise it re-runs all active enrichers on a hit and the cache stores the base (pre-enrichment) payload.
+- Set `cacheableOnListHit: true` **only** when the enricher's output for a record is a pure function of that record's own cached state and is invalidated together with it (e.g. fields derived from the same module's own per-record data). The shipped `example.customer-todo-count` enricher keeps the default `false`: it reads other modules' tables (todos and per-customer priority) the list cache does not invalidate on, so it must re-run on every hit.
+- Leave it `false` (the fail-closed default) for any enricher whose output depends on data the list cache does not invalidate on: cross-module / cross-entity reads (e.g. a product image fetched for a sales line), wall-clock-relative values (e.g. "days in stage"), or aggregates over other tables. These MUST re-run on every request so the response reflects current data.
+
 ### Response Enricher Rules
 
 - MUST implement `enrichMany()` for batch endpoints (prevents N+1 queries)
 - MUST namespace enriched fields with `_moduleName` prefix (e.g. `_example.todoCount`)
 - MUST use `features` array for ACL gating — enricher runs only if user has all listed features
+- MUST keep `cacheableOnListHit` at `false` (default) unless the enriched output is record-pure and invalidated with the host record — opting in on a cross-module/time-relative enricher serves stale data from the shared list cache
 - Export fields are stripped: `_meta` and `_`-prefixed fields are removed from CSV/Excel exports
 - Enrichers run after `CrudHooks.afterList`, before HTTP response serialization
 - `critical: true` propagates errors to the HTTP response; `false` (default) uses fallback silently

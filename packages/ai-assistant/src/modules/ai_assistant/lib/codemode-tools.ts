@@ -550,22 +550,10 @@ function buildEntitySchemas(graph: EntityGraph) {
   })
 }
 
-/**
- * Detect mutation HTTP methods in code via static analysis.
- * Returns which methods were found (POST, PUT, PATCH, DELETE).
- */
-function detectMutationInCode(code: string): { hasMutation: boolean; methods: string[] } {
-  const methods: string[] = []
-  const pattern = /method:\s*['"](\w+)['"]/gi
-  let match
-  while ((match = pattern.exec(code)) !== null) {
-    const method = match[1].toUpperCase()
-    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-      methods.push(method)
-    }
-  }
-  return { hasMutation: methods.length > 0, methods }
-}
+/** Maximum api.request() calls allowed per execute() run, regardless of method. */
+export const CODE_MODE_MAX_API_CALLS = 50
+/** Maximum mutation (non-GET/HEAD/OPTIONS) api.request() calls allowed per execute() run. */
+export const CODE_MODE_MAX_MUTATION_CALLS = 20
 
 /**
  * Load and register the two Code Mode tools.
@@ -701,18 +689,23 @@ RULES: For FIND/LIST → GET only (1 call). For UPDATE → PUT to collection pat
           }
         }
 
-        // Detect mutations via static analysis — cap API calls for safety
-        const mutationInfo = detectMutationInCode(input.code)
-        const maxApiCalls = mutationInfo.hasMutation ? 20 : 50
-        if (mutationInfo.hasMutation) {
-          console.error(`[AI Usage] execute: MUTATION DETECTED (${mutationInfo.methods.join(',')}) — capping API calls to ${maxApiCalls}`)
-        }
+        // Cap API calls for safety. The mutation cap is enforced against the
+        // actually-observed HTTP method, not a static scan of the source — so a
+        // dynamically-built method (e.g. 'PO' + 'ST') can never escape it.
+        const maxApiCalls = CODE_MODE_MAX_API_CALLS
         let apiCallCount = 0
+        let mutationCallCount = 0
 
-        const apiRequestFn = createApiRequestFn(ctx, () => {
+        const apiRequestFn = createApiRequestFn(ctx, (normalizedMethod) => {
           apiCallCount++
           if (apiCallCount > maxApiCalls) {
             throw new Error(`API call limit exceeded (max ${maxApiCalls})`)
+          }
+          if (isUnsafeHttpMethod(normalizedMethod)) {
+            mutationCallCount++
+            if (mutationCallCount > CODE_MODE_MAX_MUTATION_CALLS) {
+              throw new Error(`Mutation API call limit exceeded (max ${CODE_MODE_MAX_MUTATION_CALLS})`)
+            }
           }
         })
 
@@ -761,9 +754,9 @@ RULES: For FIND/LIST → GET only (1 call). For UPDATE → PUT to collection pat
 /**
  * Create the api.request() function for the execute sandbox.
  */
-function createApiRequestFn(
+export function createApiRequestFn(
   ctx: McpToolContext,
-  onCall: () => void
+  onCall: (normalizedMethod: string) => void
 ): (params: {
   method: string
   path: string
@@ -777,11 +770,10 @@ function createApiRequestFn(
     'http://localhost:3000'
 
   return async (params) => {
-    onCall()
-
     const { method, path, query, body } = params
     const callStart = Date.now()
-    const normalizedMethod = method.toUpperCase()
+    const normalizedMethod = String(method ?? '').toUpperCase()
+    onCall(normalizedMethod)
     const apiPath = normalizeApiRequestPath(path)
     const authorization = await authorizeCodeModeApiRequest(ctx, normalizedMethod, apiPath)
 
@@ -891,6 +883,15 @@ export async function authorizeCodeModeApiRequest(
   path: string
 ): Promise<CodeModeApiAuthorization> {
   const normalizedMethod = method.toUpperCase()
+
+  if (isUnsafeApiRequestPath(path)) {
+    return {
+      allowed: false,
+      statusCode: 403,
+      error: `Code Mode rejected unsafe API path: ${normalizedMethod} ${path}`,
+    }
+  }
+
   const normalizedPath = normalizeApiRequestPath(path)
   const endpoint = await findCodeModeApiEndpoint(normalizedMethod, normalizedPath)
 
@@ -987,6 +988,46 @@ function normalizeApiRequestPath(path: string): string {
   return normalizedPath
 }
 
+const SINGLE_DOT_SEGMENTS = new Set(['.', '%2e'])
+const DOUBLE_DOT_SEGMENTS = new Set(['..', '.%2e', '%2e.', '%2e%2e'])
+
+/**
+ * Rejects request paths that the WHATWG URL parser would rewrite before the
+ * actual fetch (`..`/`.` path segments — including their percent-encoded forms
+ * — backslashes, and percent-encoded separators). Code Mode authorizes the
+ * literal path it was given, but `new URL()` collapses dot segments and
+ * normalizes backslashes for http(s) URLs, so without this guard the wire
+ * request can resolve to a different endpoint than the one that was authorized.
+ */
+export function isUnsafeApiRequestPath(path: string): boolean {
+  const [rawPath] = String(path ?? '').split('?')
+
+  // The WHATWG URL parser strips ASCII tab/newline/carriage-return from the URL
+  // before parsing, so a smuggled `.<TAB>.` segment collapses to `..` on the
+  // wire even though the literal segment never equals a dot segment here. Raw
+  // control characters never appear in legitimate REST paths, so reject them.
+  if (/[\u0000-\u001f]/.test(rawPath)) {
+    return true
+  }
+
+  // http(s) URLs treat backslashes as path separators, so they can smuggle
+  // separators past the segment-based authorizer.
+  if (rawPath.includes('\\')) {
+    return true
+  }
+
+  // Percent-encoded separators never appear in legitimate REST paths and let
+  // the literal-'/' segment split desync from the parsed request URL.
+  if (/%2f/i.test(rawPath) || /%5c/i.test(rawPath)) {
+    return true
+  }
+
+  return rawPath.split('/').some((segment) => {
+    const lowered = segment.toLowerCase()
+    return SINGLE_DOT_SEGMENTS.has(lowered) || DOUBLE_DOT_SEGMENTS.has(lowered)
+  })
+}
+
 function isPathParameterSegment(segment: string): boolean {
   return (
     (segment.startsWith('{') && segment.endsWith('}')) ||
@@ -995,7 +1036,7 @@ function isPathParameterSegment(segment: string): boolean {
   )
 }
 
-function isUnsafeHttpMethod(method: string): boolean {
+export function isUnsafeHttpMethod(method: string): boolean {
   return !['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())
 }
 

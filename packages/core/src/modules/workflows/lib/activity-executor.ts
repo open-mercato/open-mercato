@@ -80,6 +80,9 @@ export interface ActivityContext {
   workflowContext: Record<string, any>
   stepContext?: Record<string, any>
   stepInstanceId?: string
+  // Set when the activity runs inside a parallel branch; carried on the queue
+  // payload so async resume targets the branch rather than the instance.
+  branchInstanceId?: string | null
   transitionId?: string
   userId?: string
 }
@@ -142,7 +145,7 @@ export async function enqueueActivity(
   activity: ActivityDefinition,
   context: ActivityContext
 ): Promise<string> {
-  const { workflowInstance, workflowContext, stepContext, transitionId, stepInstanceId } =
+  const { workflowInstance, workflowContext, stepContext, transitionId, stepInstanceId, branchInstanceId } =
     context
 
   // Interpolate config variables NOW (before queuing)
@@ -152,6 +155,7 @@ export async function enqueueActivity(
   const job: WorkflowActivityJob = {
     workflowInstanceId: workflowInstance.id,
     stepInstanceId,
+    branchInstanceId: branchInstanceId ?? undefined,
     transitionId,
     activityId: activity.activityId,
     activityName: activity.activityName || activity.activityType,
@@ -201,13 +205,14 @@ export async function enqueueActivity(
 export async function enqueueTimerJob(params: {
   workflowInstanceId: string
   stepInstanceId: string
+  branchInstanceId?: string | null
   tenantId: string
   organizationId: string
   userId?: string
   fireAt: string
   delayMs: number
 }): Promise<string> {
-  const { workflowInstanceId, stepInstanceId, tenantId, organizationId, userId, fireAt, delayMs } =
+  const { workflowInstanceId, stepInstanceId, branchInstanceId, tenantId, organizationId, userId, fireAt, delayMs } =
     params
 
   const queue = getActivityQueue()
@@ -216,6 +221,7 @@ export async function enqueueTimerJob(params: {
       kind: 'timer',
       workflowInstanceId,
       stepInstanceId,
+      branchInstanceId: branchInstanceId ?? undefined,
       tenantId,
       organizationId,
       userId,

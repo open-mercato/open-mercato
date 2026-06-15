@@ -6,6 +6,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   SquareCheckBig,
+  Mail,
   Briefcase,
   Building2,
   Check,
@@ -17,6 +18,7 @@ import type { SectionAction } from '@open-mercato/ui/backend/detail'
 
 export type PersonTabId =
   | 'activities'
+  | 'emails'
   | 'deals'
   | 'companies'
   | 'tasks'
@@ -44,7 +46,7 @@ type PersonDetailTabsProps = {
   children: React.ReactNode
 }
 
-const SUPPORTED_TAB_IDS = new Set<PersonTabId>(['activities', 'deals', 'companies', 'tasks', 'changelog', 'files'])
+const SUPPORTED_TAB_IDS = new Set<PersonTabId>(['activities', 'emails', 'deals', 'companies', 'tasks', 'changelog', 'files'])
 
 export function resolveLegacyTab(tab: string | null | undefined): PersonTabId {
   if (!tab) return 'activities'
@@ -89,6 +91,11 @@ export function PersonDetailTabs({
         label: t('customers.people.detail.tabs.activities', 'Activities'),
         icon: <SquareCheckBig className="size-4" />,
         badge: <CountBadge count={activitiesCount} />,
+      },
+      {
+        id: 'emails',
+        label: t('customers.people.detail.tabs.emails', 'Emails'),
+        icon: <Mail className="size-4" />,
       },
       {
         id: 'deals',

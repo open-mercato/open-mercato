@@ -33,6 +33,12 @@ import {
   applyCustomFieldsNormalization,
   loadCustomFieldDefinitionIndex,
 } from './custom-fields'
+import {
+  canReuseCustomFieldDefinitions,
+  resolveCfDefIndexOrgCandidates,
+  type CustomFieldDefinitionIndex,
+  type ResolvedCustomFieldDefinitions,
+} from './custom-field-definition-index'
 import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
 import { CrudHttpError, isCrudHttpError } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
@@ -56,13 +62,15 @@ import {
 import { deriveCrudSegmentTag } from './cache-stats'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
 import { getTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
-import { applyResponseEnrichers, applyResponseEnricherToRecord } from './enricher-runner'
+import { applyResponseEnrichers, applyResponseEnricherToRecord, resolveListCacheEnricherPlan, type ListCacheEnricherPlan } from './enricher-runner'
 import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
 import { mergeIdFilter, parseIdsParam } from './ids'
 import { mergeAdvancedFilters } from './advanced-filter-integration'
 import { parseExtensionHeaders } from '../umes/extension-headers'
+import { createGenericOptimisticLockReader } from './optimistic-lock'
+import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
@@ -875,13 +883,18 @@ function serializeSearchParams(params: URLSearchParams): string {
   return JSON.stringify(normalized)
 }
 
-function buildCrudCacheKey(resource: string, request: Request, ctx: CrudCtx): string {
+function buildCrudCacheKey(
+  resource: string,
+  request: Request,
+  ctx: CrudCtx,
+  enricherSignature = '',
+): string {
   const url = new URL(request.url)
   const scopeIds = collectScopeOrganizationIds(ctx)
   const scopeSegment = scopeIds.length
     ? scopeIds.map((id) => normalizeTagSegment(id)).sort((a, b) => a.localeCompare(b)).join(',')
     : 'none'
-  return [
+  const segments = [
     'crud',
     normalizeTagSegment(resource),
     'GET',
@@ -890,7 +903,18 @@ function buildCrudCacheKey(resource: string, request: Request, ctx: CrudCtx): st
     `selectedOrg:${normalizeTagSegment(ctx.selectedOrganizationId ?? null)}`,
     `scope:${scopeSegment}`,
     `query:${serializeSearchParams(url.searchParams)}`,
-  ].join('|')
+  ]
+  // The cached list payload already embeds enricher output (enrichment runs before
+  // the cache store), so the cache key MUST partition by the set of enrichers a
+  // request's entitlements actually select. Two callers in the same tenant/org
+  // scope but with different active enrichers (e.g. one holding the enricher's
+  // gating feature and one not) get distinct entries, which lets the cache-hit
+  // path skip re-running enrichers without leaking ACL-gated fields across
+  // feature cohorts. Routes without enrichers pass '' and keep their key shape.
+  if (enricherSignature) {
+    segments.push(`enrichers:${normalizeTagSegment(enricherSignature)}`)
+  }
+  return segments.join('|')
 }
 
 function extractRecordIds(items: any[], idField: string): string[] {
@@ -919,6 +943,27 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   const resourceKind = resourceInfo.primary
   const resourceAliases = resourceInfo.aliases
   const resourceTargets = expandResourceAliases(resourceKind, resourceAliases)
+
+  // OSS opt-in optimistic locking — auto-register a generic reader for every
+  // CRUD entity using the factory's own ORM config (Step 13.3 of the spec at
+  // .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md). Hand-wired readers
+  // registered earlier via module DI (customers/sales) always win because we
+  // use the `IfAbsent` variant. Skipped silently when the route has no
+  // resolvable resourceKind or no ORM entity class (e.g. virtual routes).
+  if (ormCfg.entity && resourceKind && resourceKind !== 'resource') {
+    const genericReader = createGenericOptimisticLockReader({
+      entity: ormCfg.entity,
+      idField: ormCfg.idField ?? 'id',
+      tenantField: ormCfg.tenantField,
+      orgField: ormCfg.orgField,
+      softDeleteField: ormCfg.softDeleteField,
+    })
+    const keysToRegister: Record<string, typeof genericReader> = { [resourceKind]: genericReader }
+    for (const alias of resourceAliases) {
+      if (alias && alias !== resourceKind) keysToRegister[alias] = genericReader
+    }
+    registerOptimisticLockReaderIfAbsent(keysToRegister)
+  }
   const defaultIdentifierResolver: CrudIdentifierResolver = (entity, _action) => {
     const id = normalizeIdentifierValue((entity as any)[ormCfg.idField!])
     const orgId = ormCfg.orgField ? normalizeIdentifierValue((entity as any)[ormCfg.orgField]) : null
@@ -958,7 +1003,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     return null
   }
 
-  const decorateItemsWithCustomFields = async (items: any[], ctx: CrudCtx): Promise<any[]> => {
+  const decorateItemsWithCustomFields = async (
+    items: any[],
+    ctx: CrudCtx,
+    precomputedDefinitions?: ResolvedCustomFieldDefinitions,
+  ): Promise<any[]> => {
     if (!listCustomFieldDecorator || !Array.isArray(items) || items.length === 0) return items
     const entityIds = Array.isArray(listCustomFieldDecorator.entityIds)
       ? listCustomFieldDecorator.entityIds
@@ -978,19 +1027,33 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         Array.isArray(ctx.organizationIds) && ctx.organizationIds.length
           ? ctx.organizationIds
           : [ctx.selectedOrganizationId ?? null]
-      let cfDefCache: CacheStrategy | null = null
-      try {
-        cfDefCache = ctx.container.resolve('cache') as CacheStrategy
-      } catch {}
-      const definitionIndex = await loadCustomFieldDefinitionIndex({
-        em,
-        entityIds,
-        tenantId: ctx.auth?.tenantId ?? null,
-        organizationIds,
-        cache: cfDefCache ?? null,
-        requestScope: ctx,
+      const tenantId = ctx.auth?.tenantId ?? null
+      // Reuse the index the query engine already resolved for this same scope
+      // (#2133) instead of issuing a second `custom_field_defs` round-trip.
+      const reusable = canReuseCustomFieldDefinitions(precomputedDefinitions, {
+        entityIds: entityIds.map(String),
+        tenantId,
+        organizationIds: resolveCfDefIndexOrgCandidates(ctx.organizationIds, ctx.selectedOrganizationId ?? null),
       })
-      cfProfiler.mark('definitions_loaded', { definitionCount: definitionIndex.size })
+      let definitionIndex: CustomFieldDefinitionIndex
+      if (reusable && precomputedDefinitions) {
+        definitionIndex = precomputedDefinitions.index
+        cfProfiler.mark('definitions_reused', { definitionCount: definitionIndex.size })
+      } else {
+        let cfDefCache: CacheStrategy | null = null
+        try {
+          cfDefCache = ctx.container.resolve('cache') as CacheStrategy
+        } catch {}
+        definitionIndex = await loadCustomFieldDefinitionIndex({
+          em,
+          entityIds,
+          tenantId,
+          organizationIds,
+          cache: cfDefCache ?? null,
+          requestScope: ctx,
+        })
+        cfProfiler.mark('definitions_loaded', { definitionCount: definitionIndex.size })
+      }
       const decoratedItems = items.map((raw) => {
         if (!raw || typeof raw !== 'object') return raw
         const item = raw as Record<string, unknown>
@@ -1082,6 +1145,21 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
   async function resolveUserFeatures(ctx: CrudCtx): Promise<string[] | undefined> {
     return resolveUserFeaturesOnce(ctx)
+  }
+
+  const NO_ENRICHER_CACHE_PLAN: ListCacheEnricherPlan = { signature: '', skipEnrichersOnCacheHit: false }
+
+  /**
+   * Resolve whether this request's CRUD list cache may embed enricher output and
+   * the cache-key signature to partition by. Returns the no-op plan when no
+   * enrichers are configured or active — keeping the cache key identical to the
+   * pre-enricher shape and forcing enrichers (if any) to run on every request.
+   */
+  async function resolveListCachePlan(ctx: CrudCtx): Promise<ListCacheEnricherPlan> {
+    if (!opts.enrichers?.entityId) return NO_ENRICHER_CACHE_PLAN
+    const enricherCtx = await buildEnricherContext(ctx)
+    if (!enricherCtx) return NO_ENRICHER_CACHE_PLAN
+    return resolveListCacheEnricherPlan(opts.enrichers.entityId, enricherCtx)
   }
 
   const interceptorContextCache = new WeakMap<object, ReturnType<typeof buildInterceptorContextInner>>()
@@ -1336,7 +1414,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         ? process.hrtime.bigint()
         : null
       const cache = cacheEnabled ? resolveCrudCache(ctx.container) : null
-      const cacheKey = cacheEnabled ? buildCrudCacheKey(resourceKind, request, ctx) : null
+      const enricherCachePlan = cacheEnabled ? await resolveListCachePlan(ctx) : NO_ENRICHER_CACHE_PLAN
+      const cacheKey = cacheEnabled ? buildCrudCacheKey(resourceKind, request, ctx, enricherCachePlan.signature) : null
       let cacheStatus: 'hit' | 'miss' = 'miss'
       let cachedValue: CrudCacheStoredValue | null = null
 
@@ -1391,6 +1470,25 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             error: err instanceof Error ? err.message : String(err),
           })
         }
+      }
+
+      // Enrich the (miss-path) payload and store it in the CRUD cache, honoring
+      // the request's enricher cache plan:
+      // - skipEnrichersOnCacheHit: every active enricher is record-pure and safe
+      //   to embed, so enrich first and cache the enriched payload (a later hit
+      //   serves it without re-running enrichers — the #2222 optimization).
+      // - otherwise: cache the PRE-enrichment payload, then enrich only the
+      //   response. A later hit re-runs enrichers against fresh data, and no live
+      //   enrichment is ever embedded in the shared cache entry (avoids stale
+      //   cross-module output and cross-cohort ACL leaks).
+      const enrichAndStorePayload = async (payload: any) => {
+        if (enricherCachePlan.skipEnrichersOnCacheHit) {
+          await enrichListPayload(payload, ctx, profiler)
+          await maybeStoreCrudCache(payload)
+          return
+        }
+        await maybeStoreCrudCache(payload)
+        await enrichListPayload(payload, ctx, profiler)
       }
 
       const logCacheOutcome = (event: 'hit' | 'miss', itemCount: number) => {
@@ -1477,7 +1575,20 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           return json(cacheAfterInterceptors.body, { status: cacheAfterInterceptors.statusCode, headers: cacheAfterInterceptors.headers })
         }
         Object.assign(payload, cacheAfterInterceptors.body)
-        await enrichListPayload(payload, ctx, profiler)
+        if (enricherCachePlan.skipEnrichersOnCacheHit) {
+          // Every active enricher is record-pure: the cached payload already
+          // embeds their output and the cache key is partitioned by the active
+          // enricher signature, so the cached enrichment matches this caller's
+          // entitlements exactly. Skipping it removes the per-hit enricher cost
+          // (the ~15ms regression reported in #2222) while staying ACL-gated.
+          profiler.mark('enrichers_skipped_cache_hit', { enricherSignature: enricherCachePlan.signature || null })
+        } else {
+          // Live-mode enrichers (or none): the cached payload is the
+          // pre-enrichment base, so re-run enrichers against current data. This
+          // keeps cross-module / time-dependent enrichment (catalog images,
+          // pipeline state) fresh on cache hits.
+          await enrichListPayload(payload, ctx, profiler)
+        }
         logCacheOutcome('hit', items.length)
         const response = respondWithPayload(payload)
         finishProfile({ result: 'cache_hit', cacheStatus })
@@ -1575,7 +1686,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const rawItems = res.items || []
         let transformedItems = rawItems.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
         profiler.mark('transform_complete', { itemCount: transformedItems.length })
-        transformedItems = await decorateItemsWithCustomFields(transformedItems, ctx)
+        transformedItems = await decorateItemsWithCustomFields(transformedItems, ctx, res.customFieldDefinitions)
         profiler.mark('custom_fields_complete', { itemCount: transformedItems.length })
 
         if (opts.list?.entityId && request) {
@@ -1633,7 +1744,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               const nextItemsRaw = nextRes.items || []
               if (!nextItemsRaw.length) break
               let nextTransformed = nextItemsRaw.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
-              nextTransformed = await decorateItemsWithCustomFields(nextTransformed, ctx)
+              nextTransformed = await decorateItemsWithCustomFields(nextTransformed, ctx, nextRes.customFieldDefinitions)
               const nextExportItems = exportFullRequested
                 ? nextItemsRaw.map(normalizeFullRecordForExport)
                 : nextTransformed
@@ -1707,8 +1818,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
         }
         Object.assign(payload, afterInterceptors.body)
-        await enrichListPayload(payload, ctx, profiler)
-        await maybeStoreCrudCache(payload)
+        await enrichAndStorePayload(payload)
         profiler.mark('cache_store_attempt', { cacheEnabled })
         logCacheOutcome(cacheStatus, payload.items.length)
         const response = respondWithPayload(payload)
@@ -1893,8 +2003,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         return json(fallbackAfterInterceptors.body, { status: fallbackAfterInterceptors.statusCode, headers: fallbackAfterInterceptors.headers })
       }
       Object.assign(payload, fallbackAfterInterceptors.body)
-      await enrichListPayload(payload, ctx, profiler)
-      await maybeStoreCrudCache(payload)
+      await enrichAndStorePayload(payload)
       profiler.mark('cache_store_attempt', { cacheEnabled })
       logCacheOutcome(cacheStatus, payload.items.length)
       const response = respondWithPayload(payload)
@@ -2097,25 +2206,31 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         if (!ctx.auth.tenantId) return json({ error: 'Tenant context is required' }, { status: 400 })
         entityData[ormCfg.tenantField] = ctx.auth.tenantId
       }
-      const entity = await de.createOrmEntity({ entity: ormCfg.entity, data: entityData })
+      const em = (ctx.container.resolve('em') as EntityManager)
+      const writeTenantId = ctx.auth.tenantId!
+      const entity = await em.transactional(async () => {
+        const created = await de.createOrmEntity({ entity: ormCfg.entity, data: entityData })
 
-      // Custom fields
-      if (createConfig.customFields && (createConfig.customFields as any).enabled) {
-        const cfc = createConfig.customFields as Exclude<CustomFieldsConfig, false>
-        const values = cfc.map
-          ? cfc.map(body)
-          : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
-        if (values && Object.keys(values).length > 0) {
-          const de = (ctx.container.resolve('dataEngine') as DataEngine)
-          await de.setCustomFields({
-            entityId: cfc.entityId as any,
-            recordId: String((entity as any)[ormCfg.idField!]),
-            organizationId: targetOrgId,
-            tenantId: ctx.auth.tenantId!,
-            values,
-          })
+        // Custom fields
+        if (createConfig.customFields && (createConfig.customFields as any).enabled) {
+          const cfc = createConfig.customFields as Exclude<CustomFieldsConfig, false>
+          const values = cfc.map
+            ? cfc.map(body)
+            : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
+          if (values && Object.keys(values).length > 0) {
+            const de = (ctx.container.resolve('dataEngine') as DataEngine)
+            await de.setCustomFields({
+              entityId: cfc.entityId as any,
+              recordId: String((created as any)[ormCfg.idField!]),
+              organizationId: targetOrgId,
+              tenantId: writeTenantId,
+              values,
+            })
+          }
         }
-      }
+
+        return created
+      })
 
       await opts.hooks?.afterCreate?.(entity, { ...ctx, input: input as any })
 
@@ -2417,30 +2532,37 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           softDeleteField: ormCfg.softDeleteField,
         }
       )
-      const entity = await de.updateOrmEntity({
-        entity: ormCfg.entity,
-        where,
-        apply: (e: any) => updateConfig.applyToEntity(e, input as any, ctx),
+      const em = (ctx.container.resolve('em') as EntityManager)
+      const writeTenantId = ctx.auth.tenantId!
+      const entity = await em.transactional(async () => {
+        const updated = await de.updateOrmEntity({
+          entity: ormCfg.entity,
+          where,
+          apply: (e: any) => updateConfig.applyToEntity(e, input as any, ctx),
+        })
+        if (!updated) return null
+
+        // Custom fields
+        if (updateConfig.customFields && (updateConfig.customFields as any).enabled) {
+          const cfc = updateConfig.customFields as Exclude<CustomFieldsConfig, false>
+          const values = cfc.map
+            ? cfc.map(body)
+            : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
+          if (values && Object.keys(values).length > 0) {
+            const de = (ctx.container.resolve('dataEngine') as DataEngine)
+            await de.setCustomFields({
+              entityId: cfc.entityId as any,
+              recordId: String((updated as any)[ormCfg.idField!]),
+              organizationId: targetOrgId,
+              tenantId: writeTenantId,
+              values,
+            })
+          }
+        }
+
+        return updated
       })
       if (!entity) return json({ error: 'Not found' }, { status: 404 })
-
-      // Custom fields
-      if (updateConfig.customFields && (updateConfig.customFields as any).enabled) {
-        const cfc = updateConfig.customFields as Exclude<CustomFieldsConfig, false>
-        const values = cfc.map
-          ? cfc.map(body)
-          : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
-        if (values && Object.keys(values).length > 0) {
-          const de = (ctx.container.resolve('dataEngine') as DataEngine)
-          await de.setCustomFields({
-            entityId: cfc.entityId as any,
-            recordId: String((entity as any)[ormCfg.idField!]),
-            organizationId: targetOrgId,
-            tenantId: ctx.auth.tenantId!,
-            values,
-          })
-        }
-      }
 
       await opts.hooks?.afterUpdate?.(entity, { ...ctx, input: input as any })
 

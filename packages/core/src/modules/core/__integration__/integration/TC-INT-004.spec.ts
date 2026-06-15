@@ -47,10 +47,17 @@ test.describe('TC-INT-004: User to Role to Permission to Access Verification', (
       limitedContext = ctx;
       const limitedPage = await ctx.newPage();
       await limitedPage.goto('/login');
-      await limitedPage.getByLabel('Email').fill(email);
-      await limitedPage.getByLabel('Password', { exact: true }).fill(password);
-      await limitedPage.getByLabel('Password', { exact: true }).press('Enter');
-      await limitedPage.waitForURL(/\/backend|\/login\?requireFeature=/, { timeout: 30_000 });
+      await limitedPage.waitForSelector('form[data-auth-ready="1"]', { state: 'visible', timeout: 30_000 });
+      const emailInput = limitedPage.getByLabel('Email');
+      const passwordInput = limitedPage.getByLabel('Password', { exact: true });
+      await emailInput.fill(email);
+      await expect(emailInput).toHaveValue(email);
+      await passwordInput.fill(password);
+      await expect(passwordInput).toHaveValue(password);
+      await Promise.all([
+        limitedPage.waitForURL(/\/backend|\/login\?requireFeature=/, { timeout: 30_000 }),
+        passwordInput.press('Enter'),
+      ]);
 
       if (/\/login\?requireFeature=/.test(limitedPage.url())) {
         await expect(limitedPage.getByText(/don't have access to this feature|permission/i).first()).toBeVisible();

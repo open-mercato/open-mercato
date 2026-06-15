@@ -120,6 +120,37 @@ export async function completeUserTask(
     )
   }
 
+  // Branch-scoped completion: when the task belongs to a parallel branch,
+  // merge form data into the branch namespace and resume just that branch.
+  if (task.branchInstanceId) {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instance.id,
+      stepInstanceId: task.stepInstanceId,
+      branchInstanceId: task.branchInstanceId,
+      eventType: 'USER_TASK_COMPLETED',
+      eventData: { taskId: task.id, taskName: task.taskName, completedBy: userId, formData },
+      userId,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+
+    const { resumeBranch } = await import('./parallel-handler')
+    const resumed = await resumeBranch(em, {
+      instanceId: instance.id,
+      branchInstanceId: task.branchInstanceId,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+      contextMerge: formData,
+      exitStepInstanceId: task.stepInstanceId,
+      exitOutput: { userTaskId: task.id, formData },
+    })
+
+    if (resumed) {
+      await executeWorkflow(em, container, instance.id, { userId })
+    }
+    return
+  }
+
   // Merge form data into workflow context
   instance.context = {
     ...instance.context,
@@ -307,6 +338,7 @@ async function logWorkflowEvent(
   event: {
     workflowInstanceId: string
     stepInstanceId: string | null
+    branchInstanceId?: string | null
     eventType: string
     eventData: any
     userId?: string

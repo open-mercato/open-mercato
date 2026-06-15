@@ -105,7 +105,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   } = useDealActivities({ dealId: id, runMutationWithContext })
 
   React.useEffect(() => {
-    void Promise.all([loadData(), loadPlannedActivities()])
+    void Promise.all([loadData({ cache: true }), loadPlannedActivities({ cache: true })])
   }, [loadData, loadPlannedActivities])
 
   const activityEntities = React.useMemo(
@@ -228,6 +228,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     const rawActivity = activity as unknown as Record<string, unknown>
     openScheduleEdit({
       id: activity.id,
+      updatedAt: typeof rawActivity.updatedAt === 'string' ? rawActivity.updatedAt as string : typeof rawActivity.updated_at === 'string' ? rawActivity.updated_at as string : null,
       interactionType: activity.interactionType,
       title: activity.title ?? null,
       body: activity.body ?? null,
@@ -293,6 +294,20 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     })
   }, [closeLostPopup, data, openScheduleEdit, selectedActivityEntity, t])
 
+  const currentPipelineName = data
+    ? data.pipelineName ?? wonStats?.pipelineName ?? lostStats?.pipelineName ?? null
+    : wonStats?.pipelineName ?? lostStats?.pipelineName ?? null
+  const formPipelineOptions = React.useMemo(
+    () => data?.deal.pipelineId
+      ? [{
+          id: data.deal.pipelineId,
+          name: currentPipelineName ?? t('customers.deals.detail.pipeline.defaultName', 'Current pipeline'),
+          isDefault: false,
+        }]
+      : [],
+    [currentPipelineName, data?.deal.pipelineId, t],
+  )
+
   if (isLoading) {
     return (
       <Page>
@@ -337,7 +352,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   }
 
   const amountLabel = formatCurrency(data.deal.valueAmount, data.deal.valueCurrency)
-  const currentPipelineName = data.pipelineName ?? wonStats?.pipelineName ?? lostStats?.pipelineName ?? null
   const dealName = data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')
 
   const zone1Content = (
@@ -352,6 +366,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         showVersionHistory={false}
         showCancelAction={false}
         onDirtyChange={setIsDirty}
+        initialPipelineOptions={formPipelineOptions}
+        initialPipelineStageOptions={data.pipelineStages}
         collapsibleGroups={{ pageType: 'deal-detail-v3', chevronPosition: 'right' }}
         sortableGroups={{ pageType: 'deal-detail-v3' }}
         initialValues={{

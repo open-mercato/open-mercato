@@ -208,6 +208,7 @@
   "example.salesTodos.tabLabel": "Todos (example)",
   "example.todos.create.title": "Create Todo",
   "example.todos.edit.title": "Edit Todo",
+  "example.todos.form.actions.backToList": "Back to todos",
   "example.todos.form.create.submit": "Create Todo",
   "example.todos.form.create.title": "Create Todo",
   "example.todos.form.edit.submit": "Save",

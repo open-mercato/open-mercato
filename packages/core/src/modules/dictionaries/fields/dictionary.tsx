@@ -50,7 +50,7 @@ function DictionaryDefaultSelector({
         {t('dictionaries.customFields.defaultValue', 'Default value')}
       </label>
       <Select
-        value={defaultValue || undefined}
+        value={defaultValue ?? ''}
         onValueChange={(next) => onChange(next ?? '')}
       >
         <SelectTrigger size="sm">
@@ -137,7 +137,7 @@ function DictionaryFieldDefEditor({ def, onChange }: { def: { configJson?: Dicti
           {t('dictionaries.customFields.dictionaryLabel', 'Dictionary source')}
         </label>
         <Select
-          value={selectedId || undefined}
+          value={selectedId ?? ''}
           onValueChange={(next) => onChange({ dictionaryId: next || undefined })}
         >
           <SelectTrigger size="sm">

@@ -48,8 +48,10 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       await page.goto('/backend/definitions')
       await expect(page.getByRole('heading', { name: /workflow definitions/i })).toBeVisible()
 
-      // Open the Create form via the list page button
-      await page.getByRole('link', { name: /^create workflow$/i }).click()
+      // Open the Create form via the list page toolbar button.
+      // The empty-list state (#772 ListEmptyState) also renders a "Create Workflow"
+      // link with the same accessible name, so target the first (toolbar) match.
+      await page.getByRole('link', { name: /^create workflow$/i }).first().click()
       await expect(page).toHaveURL(/\/backend\/definitions\/create/)
 
       // Basic fields

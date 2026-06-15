@@ -113,6 +113,7 @@ export type TodoLinkSummary = {
   description?: string | null
   dueAt?: string | null
   todoOrganizationId?: string | null
+  updatedAt?: string | null
   customValues?: Record<string, unknown> | null
   externalHref?: string | null
 }

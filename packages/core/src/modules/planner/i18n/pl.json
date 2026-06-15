@@ -100,6 +100,7 @@
   "planner.availability.errors.updateDateSpecific": "Nie udało się zapisać dostępności dla dat.",
   "planner.availability.errors.updateWeekly": "Nie udało się zapisać tygodniowej dostępności.",
   "planner.availabilityRuleSets.actions.add": "Nowy harmonogram",
+  "planner.availabilityRuleSets.actions.backToList": "Powrót do harmonogramów",
   "planner.availabilityRuleSets.actions.delete": "Usuń",
   "planner.availabilityRuleSets.actions.deleteConfirm": "Usunąć harmonogram \"{{name}}\"?",
   "planner.availabilityRuleSets.actions.edit": "Edytuj",

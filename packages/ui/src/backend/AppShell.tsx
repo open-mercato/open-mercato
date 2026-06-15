@@ -24,6 +24,8 @@ import { QueryProvider } from '../theme/QueryProvider'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
 import { LastOperationBanner } from './operations/LastOperationBanner'
+import { RecordConflictBanner } from './conflicts/RecordConflictBanner'
+import { dismissRecordConflict } from './conflicts/store'
 import { ProgressTopBar } from './progress/ProgressTopBar'
 import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
@@ -447,6 +449,13 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   // section sidebar by default. Set to 'main' to force-show the main nav even
   // when the route is in a section context. Reset on close.
   const [mobileDrawerView, setMobileDrawerView] = React.useState<'auto' | 'main'>('auto')
+  // Clear the persistent record-conflict bar when the route changes. The
+  // conflict is scoped to the record the user was editing, so navigating to an
+  // unrelated page should dismiss it instead of carrying a stale "Record
+  // changed" bar across modules.
+  React.useEffect(() => {
+    dismissRecordConflict()
+  }, [pathname])
   React.useEffect(() => {
     if (!mobileOpen) setMobileDrawerView('auto')
   }, [mobileOpen])
@@ -1349,6 +1358,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           <PartialIndexBanner />
           {canManageUpgradeActions ? <UpgradeActionBanner /> : null}
           <LastOperationBanner />
+          <RecordConflictBanner />
           <InjectionSpot spotId={BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID} context={injectionContext} />
           <InjectionSpot
             spotId={LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID}

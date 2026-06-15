@@ -425,6 +425,10 @@ async function decorateProductsAfterList(
         defaultMediaId: offer.defaultMediaId ?? null,
         defaultMediaUrl: offer.defaultMediaUrl ?? null,
         metadata: offer.metadata ?? null,
+        updatedAt:
+          offer.updatedAt instanceof Date
+            ? offer.updatedAt.toISOString()
+            : (typeof offer.updatedAt === "string" ? offer.updatedAt : null),
       });
       offersByProduct.set(productId, entry);
     }
@@ -628,9 +632,13 @@ async function decorateProductsAfterList(
       "catalogPricingService",
     );
 
+    const pricingEntries: Array<{ rows: PriceRow[]; context: PricingContext } | null> = [];
     for (const item of items) {
       const id = typeof item.id === "string" ? item.id : null;
-      if (!id) continue;
+      if (!id) {
+        pricingEntries.push(null);
+        continue;
+      }
       const offerEntries = offersByProduct.get(id) ?? [];
       item.offers = offerEntries;
       const channelIds = Array.from(
@@ -668,10 +676,25 @@ async function decorateProductsAfterList(
         pricingContext.channelId || channelIds.length !== 1
           ? pricingContext
           : { ...pricingContext, channelId: channelIds[0] };
-      const best = await pricingService.resolvePrice(priceCandidates, {
-        ...channelScopedContext,
-        quantity: normalizedQuantityForPricing,
+      pricingEntries.push({
+        rows: priceCandidates,
+        context: { ...channelScopedContext, quantity: normalizedQuantityForPricing },
       });
+    }
+
+    const resolveInputs: Array<{ rows: PriceRow[]; context: PricingContext }> = [];
+    const resolveIndices: number[] = [];
+    for (let i = 0; i < pricingEntries.length; i++) {
+      if (pricingEntries[i] !== null) {
+        resolveInputs.push(pricingEntries[i]!);
+        resolveIndices.push(i);
+      }
+    }
+    const priceResults = await pricingService.resolvePriceMany(resolveInputs);
+
+    for (let i = 0; i < resolveIndices.length; i++) {
+      const item = items[resolveIndices[i]];
+      const best = priceResults[i];
       if (best) {
         item.pricing = {
           kind: resolvePriceKindCode(best),

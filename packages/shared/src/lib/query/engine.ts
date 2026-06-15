@@ -14,6 +14,12 @@ import {
 import { resolveSearchConfig } from '../search/config'
 import { tokenizeText } from '../search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
+import {
+  buildCustomFieldDefinitionIndexFromRows,
+  resolveCfDefIndexOrgCandidates,
+  type CustomFieldDefinitionRow,
+  type ResolvedCustomFieldDefinitions,
+} from '../crud/custom-field-definition-index'
 import { resolveEncryptedSortFields, sortRowsInMemory } from './encrypted-sort'
 
 type AnyDb = Kysely<any>
@@ -35,6 +41,15 @@ type ResolvedCustomFieldSource = {
 }
 
 type ResultRow = Record<string, unknown>
+
+/**
+ * Canonical `module:entity` entity-id shape (both segments snake_case,
+ * starting with a lowercase letter). Used to validate caller-supplied entity
+ * ids at security-sensitive boundaries before they reach table resolution.
+ */
+export const ENTITY_ID_PATTERN = /^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$/
+
+export const isValidEntityIdShape = (value: string): boolean => ENTITY_ID_PATTERN.test(value)
 
 const pluralizeBaseName = (name: string): string => {
   if (!name) return name
@@ -59,44 +74,64 @@ const candidateClassNames = (rawName: string): string[] => {
   return Array.from(candidates)
 }
 
+/**
+ * Resolve an entity id to a table name strictly via registered MikroORM metadata.
+ *
+ * Unlike {@link resolveEntityTableName}, this never falls back to a pluralized
+ * guess: it returns `null` when no registered entity matches. Use it for
+ * security-sensitive call sites (e.g. the reindexer) that must refuse to read
+ * arbitrary, attacker-chosen tables that happen to exist in the schema.
+ */
+export function resolveRegisteredEntityTableName(
+  em: EntityManager | undefined,
+  entity: EntityId,
+): string | null {
+  const parts = String(entity || '').split(':')
+  const rawName = (parts[1] && parts[1].trim().length > 0) ? parts[1] : (parts[0] || '').trim()
+  const metadata = (em as any)?.getMetadata?.()
+
+  if (!metadata || !rawName) return null
+
+  const candidates = candidateClassNames(rawName)
+  for (const candidate of candidates) {
+    try {
+      const meta = metadata.find?.(candidate)
+      if (meta?.tableName) {
+        return String(meta.tableName)
+      }
+    } catch {}
+  }
+
+  // Secondary lookup: search ORM metadata by candidate table names
+  const modulePrefix = parts[0] ?? ''
+  const candidateTables = [
+    `${modulePrefix}_${rawName}`,
+    pluralizeBaseName(rawName),
+    `${modulePrefix}_${pluralizeBaseName(rawName)}`,
+  ]
+  try {
+    const allMeta: any[] = metadata.getAll?.() ?? []
+    for (const meta of allMeta) {
+      if (meta?.tableName && candidateTables.includes(String(meta.tableName))) {
+        return String(meta.tableName)
+      }
+    }
+  } catch {}
+
+  return null
+}
+
 export function resolveEntityTableName(em: EntityManager | undefined, entity: EntityId): string {
   if (entityTableCache.has(entity)) {
     return entityTableCache.get(entity)!
   }
   const parts = String(entity || '').split(':')
   const rawName = (parts[1] && parts[1].trim().length > 0) ? parts[1] : (parts[0] || '').trim()
-  const metadata = (em as any)?.getMetadata?.()
 
-  if (metadata && rawName) {
-    const candidates = candidateClassNames(rawName)
-    for (const candidate of candidates) {
-      try {
-        const meta = metadata.find?.(candidate)
-        if (meta?.tableName) {
-          const tableName = String(meta.tableName)
-          entityTableCache.set(entity, tableName)
-          return tableName
-        }
-      } catch {}
-    }
-
-    // Secondary lookup: search ORM metadata by candidate table names
-    const modulePrefix = parts[0] ?? ''
-    const candidateTables = [
-      `${modulePrefix}_${rawName}`,
-      pluralizeBaseName(rawName),
-      `${modulePrefix}_${pluralizeBaseName(rawName)}`,
-    ]
-    try {
-      const allMeta: any[] = metadata.getAll?.() ?? []
-      for (const meta of allMeta) {
-        if (meta?.tableName && candidateTables.includes(String(meta.tableName))) {
-          const tableName = String(meta.tableName)
-          entityTableCache.set(entity, tableName)
-          return tableName
-        }
-      }
-    } catch {}
+  const registered = resolveRegisteredEntityTableName(em, entity)
+  if (registered) {
+    entityTableCache.set(entity, registered)
+    return registered
   }
 
   const fallback = pluralizeBaseName(rawName || '')
@@ -530,6 +565,9 @@ export class BasicQueryEngine implements QueryEngine {
       : []
     const cfKeys = new Set<string>()
     const keySource = new Map<string, ResolvedCustomFieldSource>()
+    // Custom-field definition index threaded onto the result so the CRUD factory
+    // can decorate list rows without reloading definitions from the DB (#2133).
+    let resolvedCustomFieldDefinitions: ResolvedCustomFieldDefinitions | undefined
     // Explicit in fields/filters
     for (const f of (opts.fields || [])) {
       if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
@@ -544,21 +582,59 @@ export class BasicQueryEngine implements QueryEngine {
         entityIdList.forEach((id, idx) => entityOrder.set(id, idx))
         const rows = await db
           .selectFrom('custom_field_defs' as any)
-          .select(['key' as any, 'entity_id' as any, 'config_json' as any, 'kind' as any])
+          .select([
+            'key' as any,
+            'entity_id' as any,
+            'config_json' as any,
+            'kind' as any,
+            'organization_id' as any,
+            'tenant_id' as any,
+            'updated_at' as any,
+            'deleted_at' as any,
+          ])
           .where('entity_id' as any, 'in', entityIdList)
           .where('is_active' as any, '=', true)
           .where((eb: any) => eb.or([
             eb('tenant_id' as any, '=', tenantId),
             eb('tenant_id' as any, 'is', null),
           ]))
-          .execute() as Array<{ key: string; entity_id: string; config_json: unknown; kind: string }>
-        type CustomFieldDefinitionRow = {
+          .execute() as Array<{
+            key: string
+            entity_id: string
+            config_json: unknown
+            kind: string
+            organization_id: string | null
+            tenant_id: string | null
+            updated_at: Date | string | number | null
+            deleted_at: Date | string | number | null
+          }>
+        // Build the decoration index from the same rows, scoped exactly like the
+        // factory's loadCustomFieldDefinitionIndex (tenant + is_active already
+        // applied in SQL; org + soft-delete applied in the shared builder).
+        const orgCandidates = resolveCfDefIndexOrgCandidates(opts.organizationIds, opts.organizationId ?? null)
+        const definitionRows: CustomFieldDefinitionRow[] = rows.map((row) => ({
+          key: String(row.key),
+          entityId: String(row.entity_id),
+          kind: row.kind == null ? null : String(row.kind),
+          configJson: row.config_json,
+          organizationId: row.organization_id == null ? null : String(row.organization_id),
+          tenantId: row.tenant_id == null ? null : String(row.tenant_id),
+          deletedAt: row.deleted_at ?? null,
+          updatedAt: row.updated_at ?? null,
+        }))
+        resolvedCustomFieldDefinitions = {
+          index: buildCustomFieldDefinitionIndexFromRows(definitionRows, { organizationIds: orgCandidates }),
+          entityIds: entityIdList,
+          tenantId: tenantId ?? null,
+          organizationIds: orgCandidates,
+        }
+        type ScoredCustomFieldRow = {
           key: string
           entityId: string
           kind: string
           config: Record<string, unknown>
         }
-        const sorted: CustomFieldDefinitionRow[] = rows.map((row) => {
+        const sorted: ScoredCustomFieldRow[] = rows.map((row) => {
           const raw = row.config_json
           let cfg: Record<string, any> = {}
           if (raw && typeof raw === 'string') {
@@ -768,9 +844,20 @@ export class BasicQueryEngine implements QueryEngine {
     if (hasJoinedAggregates) {
       q = q.groupBy(`${table}.id`)
     }
+    // `count(distinct base.id)` is only required when a join can multiply base rows
+    // (CF/extension aggregates, explicit relation joins, or custom-field sources).
+    // Without such joins base.id is the unique PK, so `count(*)` is equivalent and
+    // lets Postgres skip the redundant DISTINCT sort/hash for an index-only count (#2227).
+    const mayMultiplyBaseRows =
+      hasJoinedAggregates ||
+      (Array.isArray(opts.joins) && opts.joins.length > 0) ||
+      (Array.isArray(opts.customFieldSources) && opts.customFieldSources.length > 0)
+    const countExpr = mayMultiplyBaseRows
+      ? sql<string>`count(distinct ${sql.ref(`${table}.id`)})`
+      : sql<string>`count(*)`
     const countBuilder = hasJoinedAggregates
-      ? q.clearSelect().clearOrderBy().clearGroupBy().select(sql<string>`count(distinct ${sql.ref(`${table}.id`)})`.as('count'))
-      : q.clearSelect().clearOrderBy().select(sql<string>`count(distinct ${sql.ref(`${table}.id`)})`.as('count'))
+      ? q.clearSelect().clearOrderBy().clearGroupBy().select(countExpr.as('count'))
+      : q.clearSelect().clearOrderBy().select(countExpr.as('count'))
     const countRow = await countBuilder.executeTakeFirst() as { count: unknown } | undefined
     const total = Number((countRow as any)?.count ?? 0)
     const dataQuery = requiresPlaintextSort
@@ -846,6 +933,12 @@ export class BasicQueryEngine implements QueryEngine {
         extensionCtx,
         diCtx,
       ) as QueryResult<T>
+    }
+
+    // Attach after the extension pipeline so the field always survives even if a
+    // subscriber replaces the whole result object.
+    if (resolvedCustomFieldDefinitions) {
+      queryResult.customFieldDefinitions = resolvedCustomFieldDefinitions
     }
 
     return queryResult

@@ -100,6 +100,7 @@
   "planner.availability.errors.updateDateSpecific": "No se pudo guardar la disponibilidad por fecha.",
   "planner.availability.errors.updateWeekly": "No se pudo guardar la disponibilidad semanal.",
   "planner.availabilityRuleSets.actions.add": "Nuevo horario",
+  "planner.availabilityRuleSets.actions.backToList": "Volver a horarios",
   "planner.availabilityRuleSets.actions.delete": "Eliminar",
   "planner.availabilityRuleSets.actions.deleteConfirm": "¿Eliminar el horario \"{{name}}\"?",
   "planner.availabilityRuleSets.actions.edit": "Editar",

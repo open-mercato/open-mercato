@@ -11,7 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -30,7 +32,7 @@ export default function InboxSettingsPage() {
     value: key,
     label: t(`inbox_ops.settings.language_${key}` as never, key),
   }))
-  const [settings, setSettings] = React.useState<{ inboxAddress?: string; isActive?: boolean; workingLanguage?: string } | null>(null)
+  const [settings, setSettings] = React.useState<{ inboxAddress?: string; isActive?: boolean; workingLanguage?: string; updatedAt?: string | null } | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [copied, setCopied] = React.useState(false)
@@ -42,7 +44,7 @@ export default function InboxSettingsPage() {
       setIsLoading(true)
       setError(null)
       try {
-        const result = await apiCall<{ settings: { inboxAddress?: string; isActive?: boolean; workingLanguage?: string } | null }>('/api/inbox_ops/settings')
+        const result = await apiCall<{ settings: { inboxAddress?: string; isActive?: boolean; workingLanguage?: string; updatedAt?: string | null } | null }>('/api/inbox_ops/settings')
         if (!cancelled) {
           if (result?.ok && result.result?.settings) {
             setSettings(result.result.settings)
@@ -71,20 +73,23 @@ export default function InboxSettingsPage() {
   const handleLanguageChange = React.useCallback(async (workingLanguage: string) => {
     setIsSavingLanguage(true)
     const result = await runMutation({
-      operation: () => apiCall<{ ok: boolean; settings: { workingLanguage: string } }>('/api/inbox_ops/settings', {
-        method: 'PATCH',
-        body: JSON.stringify({ workingLanguage }),
-      }),
+      operation: () => withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(settings?.updatedAt ?? null),
+        () => apiCall<{ ok: boolean; settings: { workingLanguage: string; updatedAt?: string | null } }>('/api/inbox_ops/settings', {
+          method: 'PATCH',
+          body: JSON.stringify({ workingLanguage }),
+        }),
+      ),
       context: {},
     })
     if (result?.ok && result.result?.ok) {
-      setSettings((prev) => prev ? { ...prev, workingLanguage: result.result!.settings.workingLanguage } : prev)
+      setSettings((prev) => prev ? { ...prev, workingLanguage: result.result!.settings.workingLanguage, updatedAt: result.result!.settings.updatedAt ?? prev.updatedAt } : prev)
       flash(t('inbox_ops.settings.language_saved', 'Working language updated'), 'success')
-    } else {
+    } else if (!surfaceRecordConflict({ status: result?.status, body: result?.result }, t)) {
       flash(t('inbox_ops.settings.language_save_failed', 'Failed to update working language'), 'error')
     }
     setIsSavingLanguage(false)
-  }, [t, runMutation])
+  }, [t, runMutation, settings?.updatedAt])
 
   return (
     <Page>

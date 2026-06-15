@@ -45,8 +45,13 @@ export class SyncExternalIdMapping {
 
 @Entity({ tableName: 'integration_credentials' })
 @Index({ properties: ['integrationId', 'organizationId', 'tenantId'] })
+@Index({
+  name: 'integration_credentials_user_lookup_idx',
+  expression:
+    `create unique index "integration_credentials_user_lookup_idx" on "integration_credentials" ("integration_id", "organization_id", "tenant_id", "user_id") where "user_id" is not null and "deleted_at" is null`,
+})
 export class IntegrationCredentials {
-  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt' | 'userId'
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -61,6 +66,21 @@ export class IntegrationCredentials {
 
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
+
+  /**
+   * Per-user secret scoping (additive — added by the email integration spec).
+   *
+   * NULL = tenant-wide secret (existing behaviour, e.g. shared WhatsApp Business token).
+   * Set  = per-user secret (e.g. Jane's personal Gmail OAuth refresh token).
+   *
+   * Cross-module link to `auth:user` is declared in
+   * `packages/core/src/modules/communication_channels/data/extensions.ts` via
+   * `EntityExtension` — no raw FOREIGN KEY constraint (root `AGENTS.md` rule:
+   * "No direct ORM relationships between modules"). App-layer query callers
+   * MUST scope by `user_id` on every per-user credential read.
+   */
+  @Property({ name: 'user_id', type: 'uuid', nullable: true })
+  userId?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

@@ -82,6 +82,7 @@
   "entities.userEntities.records.errors.deleteFailed": "Nie udało się usunąć rekordu",
   "entities.userEntities.records.errors.entityIdRequired": "Wymagany jest identyfikator encji",
   "entities.userEntities.records.errors.recordIdRequired": "Wymagany jest identyfikator rekordu",
+  "entities.userEntities.records.errors.systemEntity": "Ta encja jest zarządzana systemowo. Rekordy są dostępne wyłącznie dla encji niestandardowych.",
   "entities.userEntities.records.form.createTitle": "Utwórz rekord",
   "entities.userEntities.records.form.editTitle": "Edytuj rekord",
   "entities.userEntities.records.form.submitCreate": "Utwórz",

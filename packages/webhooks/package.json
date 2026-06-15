@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/webhooks",
-  "version": "0.6.3",
+  "version": "0.6.5",
   "description": "Webhooks module for Open Mercato — Standard Webhooks compliant outbound/inbound delivery",
   "type": "module",
   "main": "./dist/index.js",
@@ -72,7 +72,7 @@
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "svix": "^1.92.2"
+    "svix": "^1.95.2"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
@@ -83,13 +83,13 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/react": "^19.2.15",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "esbuild": "^0.28.0",
     "glob": "^13.0.6",
     "jest": "^30.4.2",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
     "ts-jest": "^29.4.11"
   },
   "publishConfig": {

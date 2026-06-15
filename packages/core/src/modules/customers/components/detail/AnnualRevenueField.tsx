@@ -249,6 +249,7 @@ export function AnnualRevenueField({
               allowInlineCreate={false}
               allowAppearance={false}
               selectClassName="w-full"
+              sortOptions="none"
               disabled={currencyDictionaryLoading}
               showLabelInput={false}
             />

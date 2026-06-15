@@ -1,4 +1,5 @@
-import { createKmsService, HashicorpVaultKmsService } from '../kms'
+import crypto from 'node:crypto'
+import { buildDerivedKeyFallbackBannerLines, createKmsService, HashicorpVaultKmsService } from '../kms'
 
 const originalEnv = { ...process.env }
 
@@ -9,11 +10,17 @@ describe('kms timeout handling', () => {
   })
 
   it('marks Vault unhealthy after a timed out write', async () => {
-    const fetchMock = jest.fn((_url: string, init?: RequestInit) =>
-      new Promise((_resolve, reject) => {
+    // createTenantDek now reads-before-write (#2746): the read probe answers fast
+    // with no existing key so the flow reaches the write, which then times out.
+    const fetchMock = jest.fn((_url: string, init?: RequestInit) => {
+      const method = (init?.method || 'GET').toUpperCase()
+      if (method === 'GET') {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ data: { data: {} } }) })
+      }
+      return new Promise((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
-      }),
-    )
+      })
+    })
     ;(globalThis as { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch
 
     const service = new HashicorpVaultKmsService({
@@ -24,7 +31,7 @@ describe('kms timeout handling', () => {
 
     await expect(service.createTenantDek('tenant-1')).resolves.toBeNull()
     expect(service.isHealthy()).toBe(false)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2) // read probe + the timed-out write
   })
 
   it('falls back to derived keys after the primary Vault call times out', async () => {
@@ -65,6 +72,37 @@ describe('kms timeout handling', () => {
 
     expect(service.isHealthy()).toBe(false)
     expect(dek).toBeNull()
+  })
+
+  it('never prints the explicit fallback secret verbatim in the banner, regardless of NODE_ENV', () => {
+    const secret = 'super-secret-tenant-encryption-key'
+    for (const nodeEnv of ['development', 'staging', 'preview', 'PRODUCTION', 'production', undefined]) {
+      if (nodeEnv === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = nodeEnv
+
+      const lines = buildDerivedKeyFallbackBannerLines({
+        secret,
+        source: 'explicit',
+        envName: 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY',
+      })
+      const rendered = lines.join('\n')
+
+      expect(rendered).not.toContain(secret)
+      expect(rendered).toContain('Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY')
+      const expectedFingerprint = crypto.createHash('sha256').update(secret, 'utf8').digest('hex').slice(0, 16)
+      expect(rendered).toContain(`Secret fingerprint (sha256, truncated): ${expectedFingerprint}`)
+    }
+  })
+
+  it('does not echo the dev default secret verbatim in the banner either', () => {
+    const lines = buildDerivedKeyFallbackBannerLines({
+      secret: 'om-dev-tenant-encryption',
+      source: 'dev-default',
+      envName: 'DEV_DEFAULT',
+    })
+    const rendered = lines.join('\n')
+    expect(rendered).not.toContain('om-dev-tenant-encryption')
+    expect(rendered).toContain('Source: dev default secret (do NOT use in production)')
   })
 
   it('requires an explicit opt-in before using the dev default derived key', async () => {

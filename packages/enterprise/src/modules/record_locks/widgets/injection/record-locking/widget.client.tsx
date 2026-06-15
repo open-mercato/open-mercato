@@ -1226,7 +1226,7 @@ export default function RecordLockingWidget({
       }
       setIsConflictDialogOpen(false)
     }}>
-      <DialogContent>
+      <DialogContent data-testid="record-lock-conflict-dialog">
         <DialogHeader>
           <DialogTitle>
             {isRecordDeleted

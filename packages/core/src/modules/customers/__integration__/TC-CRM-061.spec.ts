@@ -212,8 +212,16 @@ test.describe('TC-CRM-061: Deals filter UX (V2 figma redesign)', () => {
       }
       await firstOption.click();
 
-      // Close the popover (Escape) to surface the chip strip
+      // Try to close the popover first. The chip assertion below is the contract
+      // for this case; popover close behavior has separate coverage and can be
+      // affected by the value Select's focus trap during full-suite runs.
+      const panel = page.locator('[data-testid="advanced-filter-panel"]').first();
       await page.keyboard.press('Escape');
+      const closedWithEscape = await panel.isHidden({ timeout: 2_000 }).catch(() => false);
+      if (!closedWithEscape) {
+        await page.getByRole('heading', { name: /^Deals$/i }).first().click().catch(() => {});
+        await panel.waitFor({ state: 'hidden', timeout: 2_000 }).catch(() => {});
+      }
 
       const chipStrip = page.locator('[data-testid="active-filter-chips"]').first();
       await expect(chipStrip).toBeVisible({ timeout: 5_000 });

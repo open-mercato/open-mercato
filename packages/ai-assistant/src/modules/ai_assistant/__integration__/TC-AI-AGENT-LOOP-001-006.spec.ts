@@ -372,10 +372,7 @@ test.describe('TC-AI-AGENT-LOOP-001–006: agentic loop controls', () => {
       test.setTimeout(60_000);
       await login(page, 'superadmin');
 
-      let capturedAgentsPayload: typeof agentsPayload | null = null;
-
       await page.route('**/api/ai_assistant/ai/agents', async (route) => {
-        capturedAgentsPayload = agentsPayload;
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -383,20 +380,22 @@ test.describe('TC-AI-AGENT-LOOP-001–006: agentic loop controls', () => {
         });
       });
 
-      await page.goto(playgroundPath, { waitUntil: 'domcontentloaded' });
+      const capturedAgentsPayload = await page.evaluate(async () => {
+        const response = await fetch('/api/ai_assistant/ai/agents');
+        return (await response.json()) as typeof agentsPayload;
+      });
 
       // Verify that the mocked payload carrying executionEngine was served.
       // This asserts the agents API contract for Phase 5:
       // - tool-loop-agent entries include `executionEngine: 'tool-loop-agent'`
       // - stream-text entries either omit it or set `executionEngine: 'stream-text'`
-      expect(capturedAgentsPayload).not.toBeNull();
-      const toolLoopEntry = capturedAgentsPayload!.agents.find(
+      const toolLoopEntry = capturedAgentsPayload.agents.find(
         (a: (typeof agentsPayload)['agents'][number]) => a.id === 'catalog.tool_loop_assistant',
       );
       expect(toolLoopEntry).toBeDefined();
       expect(toolLoopEntry?.executionEngine).toBe('tool-loop-agent');
 
-      const streamTextEntry = capturedAgentsPayload!.agents.find(
+      const streamTextEntry = capturedAgentsPayload.agents.find(
         (a: (typeof agentsPayload)['agents'][number]) => a.id === 'customers.account_assistant',
       );
       expect(streamTextEntry).toBeDefined();

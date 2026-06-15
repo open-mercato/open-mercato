@@ -6,7 +6,7 @@
  * by shared's default appliers; custom/future domains still warn if no
  * applier is registered.
  *
- * Spec: `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`.
+ * Spec: `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md`.
  */
 import {
   applyModuleOverridesFromEnabledModules,

@@ -1,4 +1,4 @@
-import { HybridQueryEngine } from '../../query_index/lib/engine'
+import { HybridQueryEngine, coerceSortDirection } from '../../query_index/lib/engine'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 
 type KyselyMockConfig = {
@@ -6,6 +6,7 @@ type KyselyMockConfig = {
   hasIndexAny: boolean
   baseCount: number
   indexCount: number
+  coverageRefreshedAt?: Date | string | null
   customFieldKeys?: Record<string, string[]>
   rows?: Record<string, Array<Record<string, unknown>>>
   /** If provided, returned for information_schema.columns lookups. */
@@ -24,6 +25,11 @@ type ChainLog = {
   offset: number | null
 }
 
+type MutationLog = {
+  kind: 'insert' | 'update' | 'delete'
+  table: string
+}
+
 const DEFAULT_CF_KEYS: Record<string, string[]> = {
   'example:todo': ['priority'],
   'customers:customer_entity': ['sector'],
@@ -38,6 +44,7 @@ const DEFAULT_CF_KEYS: Record<string, string[]> = {
  */
 function createFakeKysely(config: KyselyMockConfig) {
   const chains: ChainLog[] = []
+  const mutations: MutationLog[] = []
   const customFieldKeys = config.customFieldKeys ?? DEFAULT_CF_KEYS
 
   const makeChain = (rawTable: string): any => {
@@ -83,7 +90,9 @@ function createFakeKysely(config: KyselyMockConfig) {
     return chain
   }
 
-  const makeMutatingChain = (kind: 'insert' | 'update' | 'delete'): any => {
+  const makeMutatingChain = (kind: 'insert' | 'update' | 'delete', rawTable: string): any => {
+    const table = rawTable.split(/\s+as\s+/i)[0].trim()
+    mutations.push({ kind, table })
     const chain: any = {
       values: () => chain,
       set: () => chain,
@@ -100,10 +109,11 @@ function createFakeKysely(config: KyselyMockConfig) {
 
   const db: any = {
     _chains: chains,
+    _mutations: mutations,
     selectFrom: (table: any) => makeChain(String(table)),
-    insertInto: () => makeMutatingChain('insert'),
-    updateTable: () => makeMutatingChain('update'),
-    deleteFrom: () => makeMutatingChain('delete'),
+    insertInto: (table: any) => makeMutatingChain('insert', String(table)),
+    updateTable: (table: any) => makeMutatingChain('update', String(table)),
+    deleteFrom: (table: any) => makeMutatingChain('delete', String(table)),
     transaction: () => ({ execute: async (fn: any) => fn(db) }),
   }
   return db
@@ -141,25 +151,32 @@ function resolveFirstRow(
   }
   if (table === 'entity_index_coverage') {
     if (!config.hasIndexAny) return undefined
+    const refreshedAt = Object.prototype.hasOwnProperty.call(config, 'coverageRefreshedAt')
+      ? config.coverageRefreshedAt
+      : new Date()
     return {
       base_count: String(config.baseCount),
       indexed_count: String(config.indexCount),
       vector_indexed_count: null,
-      refreshed_at: new Date(),
+      refreshed_at: refreshedAt,
       organization_id: null,
     }
   }
+  if (table === 'custom_entities_storage' && log.limit === 1) {
+    // Existence probe used by isCustomEntity/hasCustomEntityStorageRows.
+    return (config.rows?.custom_entities_storage ?? []).length ? { one: 1 } : undefined
+  }
+  // Count subquery / data reads: look for `count` alias in selects.
+  const hasCount = log.selects.some((s: any) => {
+    try { return String(s?.name ?? s) === 'count' || typeof s?.as === 'function' } catch { return false }
+  })
+  if (hasCount) return { count: String(table === 'entity_indexes' ? config.indexCount : config.baseCount) }
   if (table === 'entity_indexes') {
     return config.hasIndexAny ? { entity_id: 'x' } : undefined
   }
   if (table === 'custom_entities') {
     return undefined
   }
-  // Count subquery / data reads: look for `count` alias in selects.
-  const hasCount = log.selects.some((s: any) => {
-    try { return String(s?.name ?? s) === 'count' || typeof s?.as === 'function' } catch { return false }
-  })
-  if (hasCount) return { count: String(config.baseCount) }
   return undefined
 }
 
@@ -205,13 +222,27 @@ function buildEm(db: any): any {
   return { getKysely: () => db }
 }
 
+function buildEmWithOrmMetadata(db: any, classTables: Record<string, string>): any {
+  return {
+    getKysely: () => db,
+    getMetadata: () => ({
+      find: (className: string) => (classTables[className] ? { tableName: classTables[className] } : undefined),
+      getAll: () => Object.values(classTables).map((tableName) => ({ tableName })),
+    }),
+  }
+}
+
 describe('HybridQueryEngine', () => {
   const originalAutoReindex = process.env.QUERY_INDEX_AUTO_REINDEX
   const originalForcePartial = process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES
+  const originalCoverageTtl = process.env.QUERY_INDEX_COVERAGE_CACHE_MS
+  const originalCoverageOptimization = process.env.OPTIMIZE_INDEX_COVERAGE_STATS
 
   beforeEach(() => {
     delete process.env.QUERY_INDEX_AUTO_REINDEX
     delete process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES
+    delete process.env.QUERY_INDEX_COVERAGE_CACHE_MS
+    delete process.env.OPTIMIZE_INDEX_COVERAGE_STATS
   })
 
   afterEach(() => {
@@ -219,7 +250,80 @@ describe('HybridQueryEngine', () => {
     else process.env.QUERY_INDEX_AUTO_REINDEX = originalAutoReindex
     if (originalForcePartial === undefined) delete process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES
     else process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = originalForcePartial
+    if (originalCoverageTtl === undefined) delete process.env.QUERY_INDEX_COVERAGE_CACHE_MS
+    else process.env.QUERY_INDEX_COVERAGE_CACHE_MS = originalCoverageTtl
+    if (originalCoverageOptimization === undefined) delete process.env.OPTIMIZE_INDEX_COVERAGE_STATS
+    else process.env.OPTIMIZE_INDEX_COVERAGE_STATS = originalCoverageOptimization
     jest.clearAllMocks()
+  })
+
+  test('serves fresh coverage snapshots without recomputing coverage counts', async () => {
+    process.env.QUERY_INDEX_COVERAGE_CACHE_MS = '300000'
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 10,
+      indexCount: 4,
+      coverageRefreshedAt: new Date(),
+    })
+    const engine = new HybridQueryEngine(buildEm(db), { query: jest.fn() } as any)
+
+    const snapshot = await (engine as any).getStoredCoverageSnapshot('example:todo', 't1', 'org1', false)
+
+    expect(snapshot).toEqual({ baseCount: 10, indexedCount: 4 })
+    expect((db._chains as ChainLog[]).some((chain) => chain.table === 'todos')).toBe(false)
+    expect((db._chains as ChainLog[]).some((chain) => chain.table === 'entity_indexes' && chain.selects.length > 0)).toBe(false)
+    expect(db._mutations).toEqual([])
+  })
+
+  test('synchronously refreshes stale coverage snapshots when optimization flag is disabled', async () => {
+    process.env.QUERY_INDEX_COVERAGE_CACHE_MS = '1000'
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 10,
+      indexCount: 4,
+      coverageRefreshedAt: new Date(Date.now() - 10_000),
+    })
+    const engine = new HybridQueryEngine(buildEm(db), { query: jest.fn() } as any)
+
+    const snapshot = await (engine as any).getStoredCoverageSnapshot('example:todo', 't1', 'org1', false)
+
+    expect(snapshot).toEqual({ baseCount: 10, indexedCount: 4 })
+    expect((db._chains as ChainLog[]).some((chain) => chain.table === 'todos')).toBe(true)
+    expect((db._chains as ChainLog[]).some((chain) => chain.table === 'entity_indexes')).toBe(true)
+    expect(db._mutations).toEqual(expect.arrayContaining([
+      { kind: 'insert', table: 'entity_index_coverage' },
+    ]))
+  })
+
+  test('serves stale coverage snapshots and schedules refresh when optimization flag is enabled', async () => {
+    process.env.QUERY_INDEX_COVERAGE_CACHE_MS = '1000'
+    process.env.OPTIMIZE_INDEX_COVERAGE_STATS = 'true'
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 10,
+      indexCount: 4,
+      coverageRefreshedAt: new Date(Date.now() - 10_000),
+    })
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(buildEm(db), { query: jest.fn() } as any, () => ({ emitEvent }))
+
+    const snapshot = await (engine as any).getStoredCoverageSnapshot('example:todo', 't1', 'org1', false)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(snapshot).toEqual({ baseCount: 10, indexedCount: 4 })
+    expect((db._chains as ChainLog[]).some((chain) => chain.table === 'todos')).toBe(false)
+    expect(db._mutations).toEqual([])
+    expect(emitEvent).toHaveBeenCalledWith('query_index.coverage.refresh', {
+      entityType: 'example:todo',
+      tenantId: 't1',
+      organizationId: 'org1',
+      withDeleted: false,
+      delayMs: 0,
+    })
   })
 
   test('falls back when wantsCf but no index rows exist', async () => {
@@ -559,5 +663,143 @@ describe('HybridQueryEngine', () => {
     const reindexCalls = emitEvent.mock.calls.filter(([name]) => name === 'query_index.reindex')
     expect(reindexCalls).toHaveLength(0)
     warnSpy.mockRestore()
+  })
+})
+
+describe('sort direction coercion (#2704)', () => {
+  const INJECTED_DIR = "asc, CASE WHEN (SELECT secret FROM vault) LIKE '%a%' THEN pg_sleep(2) ELSE 0 END"
+
+  const serializeOrderBys = (db: any): string => {
+    const orderByArgs = (db._chains as ChainLog[]).flatMap((chain) => chain.orderBys).flat()
+    expect(orderByArgs.length).toBeGreaterThan(0)
+    return JSON.stringify(orderByArgs.map((arg: any) =>
+      typeof arg?.toOperationNode === 'function' ? arg.toOperationNode() : arg,
+    ))
+  }
+
+  test('coerceSortDirection only ever returns asc or desc', () => {
+    expect(coerceSortDirection(SortDir.Asc)).toBe(SortDir.Asc)
+    expect(coerceSortDirection(SortDir.Desc)).toBe(SortDir.Desc)
+    expect(coerceSortDirection('DESC')).toBe(SortDir.Desc)
+    expect(coerceSortDirection(undefined)).toBe(SortDir.Asc)
+    expect(coerceSortDirection(null)).toBe(SortDir.Asc)
+    expect(coerceSortDirection(INJECTED_DIR)).toBe(SortDir.Asc)
+  })
+
+  test('hybrid cf sort never inlines an attacker-controlled direction', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 5, indexCount: 5 })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    await engine.query('example:todo', {
+      fields: ['id', 'cf:priority'],
+      includeCustomFields: true,
+      organizationId: 'org1',
+      tenantId: 't1',
+      sort: [{ field: 'cf:priority', dir: INJECTED_DIR as SortDir }],
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    const serialized = serializeOrderBys(db)
+    expect(serialized).not.toContain('pg_sleep')
+    expect(serialized).not.toContain('vault')
+  })
+
+  test('custom entity doc sort never inlines an attacker-controlled direction', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: false,
+      baseCount: 0,
+      indexCount: 0,
+      rows: { custom_entities_storage: [] },
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+    jest.spyOn(engine as any, 'isCustomEntity').mockResolvedValue(true)
+
+    await engine.query('example:custom_thing', {
+      fields: ['id', 'title'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      sort: [{ field: 'title', dir: INJECTED_DIR as SortDir }],
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    const serialized = serializeOrderBys(db)
+    expect(serialized).not.toContain('pg_sleep')
+    expect(serialized).not.toContain('vault')
+  })
+})
+
+describe('HybridQueryEngine custom-entity classification (#2939)', () => {
+  test('stray doc-storage rows must not reroute a table-backed ORM entity away from its base table', async () => {
+    const db = createFakeKysely({
+      baseTable: 'customer_deals',
+      hasIndexAny: false,
+      baseCount: 282,
+      indexCount: 0,
+      customFieldKeys: {},
+      rows: { custom_entities_storage: [{ entity_id: 'stray-doc-record' }] },
+    })
+    const em = buildEmWithOrmMetadata(db, { CustomerDeal: 'customer_deals' })
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent: jest.fn() }))
+
+    await expect((engine as any).isCustomEntity('customers:customer_deal')).resolves.toBe(false)
+
+    await engine.query('customers:customer_deal', {
+      fields: ['id', 'title', 'pipeline_stage_id'],
+      includeCustomFields: true,
+      organizationIds: ['org1'],
+      tenantId: 't1',
+    })
+
+    const chains = db._chains as ChainLog[]
+    expect(chains.some((chain) => chain.table === 'customer_deals')).toBe(true)
+  })
+
+  test('module-declared custom entities without an ORM table keep doc-storage routing (read/write symmetry)', async () => {
+    const db = createFakeKysely({
+      baseTable: 'unused',
+      hasIndexAny: false,
+      baseCount: 0,
+      indexCount: 0,
+      customFieldKeys: {},
+      rows: { custom_entities_storage: [{ entity_id: 'calendar-record' }] },
+    })
+    const em = buildEmWithOrmMetadata(db, {})
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent: jest.fn() }))
+
+    await expect((engine as any).isCustomEntity('example:calendar_entity')).resolves.toBe(true)
+  })
+
+  test('forceCustomEntityStorage routes a dual-declared id to doc storage (entities records surface)', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: false,
+      baseCount: 0,
+      indexCount: 0,
+      customFieldKeys: {},
+      rows: { custom_entities_storage: [{ entity_id: 'todo-doc-record' }] },
+    })
+    const em = buildEmWithOrmMetadata(db, { Todo: 'todos' })
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent: jest.fn() }))
+
+    await engine.query('example:todo', {
+      fields: ['id', 'title'],
+      organizationIds: ['org1'],
+      tenantId: 't1',
+      forceCustomEntityStorage: true,
+    })
+
+    const chains = db._chains as ChainLog[]
+    expect(chains.some((chain) => chain.table === 'custom_entities_storage' && chain.selects.length > 0)).toBe(true)
+    expect(chains.some((chain) => chain.table === 'todos')).toBe(false)
   })
 })

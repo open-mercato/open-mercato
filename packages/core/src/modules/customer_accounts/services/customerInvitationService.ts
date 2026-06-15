@@ -29,13 +29,46 @@ export class CustomerInvitationService {
   ): Promise<{ invitation: CustomerUserInvitation; rawToken: string }> {
     const token = generateSecureToken()
     const emailHash = hashForLookup(email)
+    const normalizedEmail = email.toLowerCase().trim()
     const expiresAt = new Date(Date.now() + INVITATION_TTL_MS)
-
     const tokenHashed = hashToken(token)
+
+    // Dedupe: reuse an existing pending (not accepted, not cancelled, unexpired)
+    // invitation for the same recipient instead of inserting a new row. This caps
+    // row/token growth and keeps a single live token per concurrently-pending
+    // (tenant, organization, email) tuple.
+    const existing = await findOneWithDecryption(
+      this.em,
+      CustomerUserInvitation,
+      {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        emailHash,
+        acceptedAt: null,
+        cancelledAt: null,
+        expiresAt: { $gt: new Date() },
+      } as any,
+      undefined,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    )
+
+    if (existing) {
+      existing.email = normalizedEmail
+      existing.token = tokenHashed
+      existing.customerEntityId = options.customerEntityId || null
+      existing.roleIdsJson = options.roleIds
+      existing.invitedByUserId = options.invitedByUserId || null
+      existing.invitedByCustomerUserId = options.invitedByCustomerUserId || null
+      existing.displayName = options.displayName || null
+      existing.expiresAt = expiresAt
+      await this.em.flush()
+      return { invitation: existing, rawToken: token }
+    }
+
     const invitation = this.em.create(CustomerUserInvitation, {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      email: email.toLowerCase().trim(),
+      email: normalizedEmail,
       emailHash,
       token: tokenHashed,
       customerEntityId: options.customerEntityId || null,

@@ -27,6 +27,17 @@ test.describe('TC-PROG-002: Progress SSE events', () => {
     await page.waitForLoadState('domcontentloaded')
     await installOmEventCollector(page)
 
+    // The SSE bridge connects asynchronously after the shell mounts. The server
+    // only delivers events to connections already registered at emit time (no
+    // replay), so emitting the job update before the EventSource handshake
+    // completes silently drops the event. Wait for the bridge's connected flag
+    // before triggering the emit instead of widening the poll timeout.
+    await page.waitForFunction(
+      () => (window as unknown as { __omEventBridgeReady?: boolean }).__omEventBridgeReady === true,
+      undefined,
+      { timeout: 30_000 },
+    )
+
     const token = await getAuthToken(request, 'admin')
 
     const createRes = await apiRequest(request, 'POST', '/api/progress/jobs', {

@@ -14,10 +14,13 @@ if (typeof window !== 'undefined') {
 
 const mockApiCall = jest.fn()
 const mockReadApiResultOrThrow = jest.fn()
+const mockWithScopedApiRequestHeaders = jest.fn((_headers: Record<string, string>, run: () => Promise<unknown>) => run())
 const mockRaiseCrudError = jest.fn()
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => mockApiCall(...args),
   readApiResultOrThrow: (...args: unknown[]) => mockReadApiResultOrThrow(...args),
+  withScopedApiRequestHeaders: (...args: [Record<string, string>, () => Promise<unknown>]) =>
+    mockWithScopedApiRequestHeaders(...args),
 }))
 jest.mock('@open-mercato/ui/backend/utils/serverErrors', () => ({
   raiseCrudError: (...args: unknown[]) => mockRaiseCrudError(...args),

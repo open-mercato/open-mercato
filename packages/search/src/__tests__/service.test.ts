@@ -232,6 +232,50 @@ describe('SearchService', () => {
       expect(results[0].source).toBe('fallback')
     })
 
+    it('should drop cross-organization results for scoped multi-org searches', async () => {
+      const strategy = createMockStrategy({
+        id: 'test',
+        search: jest.fn().mockResolvedValue([
+          createMockResult({ recordId: 'rec-a', organizationId: 'org-A' }),
+          createMockResult({ recordId: 'rec-b', organizationId: 'org-B' }),
+          createMockResult({ recordId: 'rec-c', organizationId: 'org-C' }),
+          createMockResult({ recordId: 'rec-unknown', organizationId: undefined }),
+        ]),
+      })
+      const service = new SearchService({
+        strategies: [strategy],
+        defaultStrategies: ['test'],
+      })
+
+      const results = await service.search('test', {
+        tenantId: 'tenant-123',
+        organizationIds: ['org-A', 'org-B'],
+      })
+
+      expect(results.map((result) => result.recordId)).toEqual(['rec-a', 'rec-b'])
+    })
+
+    it('should fail closed for an empty organization allowlist', async () => {
+      const strategy = createMockStrategy({
+        id: 'test',
+        search: jest.fn().mockResolvedValue([
+          createMockResult({ recordId: 'rec-a', organizationId: 'org-A' }),
+        ]),
+      })
+      const service = new SearchService({
+        strategies: [strategy],
+        defaultStrategies: ['test'],
+      })
+
+      const results = await service.search('test', {
+        tenantId: 'tenant-123',
+        organizationIds: [],
+      })
+
+      expect(results).toEqual([])
+      expect(strategy.search).not.toHaveBeenCalled()
+    })
+
     it('should enrich results when navigation metadata is missing even if presenter title exists', async () => {
       const strategy = createMockStrategy({
         id: 'test',
@@ -413,7 +457,8 @@ describe('SearchService', () => {
 
       await service.purge('test:entity', 'tenant-123')
 
-      expect(strategyWithPurge.purge).toHaveBeenCalledWith('test:entity', 'tenant-123')
+      // organizationId is forwarded as undefined for a tenant-wide purge (issue #2935)
+      expect(strategyWithPurge.purge).toHaveBeenCalledWith('test:entity', 'tenant-123', undefined)
     })
   })
 

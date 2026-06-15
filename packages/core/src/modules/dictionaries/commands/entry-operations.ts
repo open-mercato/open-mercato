@@ -325,6 +325,14 @@ const setDefaultDictionaryEntryCommand: CommandHandler<
     )
     const clearedIds: string[] = []
 
+    // The partial unique index `dictionary_entries_one_default_per_dict`
+    // (dictionary_id, organization_id, tenant_id) WHERE is_default = true forbids
+    // two default entries in the same dictionary. PostgreSQL checks partial unique
+    // indexes per-statement (no deferral) and MikroORM does not guarantee that the
+    // is_default=false UPDATEs run before the is_default=true UPDATE within a single
+    // flush, so clearing and setting in one flush races to a 23505. Clear the prior
+    // default(s) in their own flush first, then set the new default in a second
+    // flush, so Postgres never observes two default rows at once.
     await withAtomicFlush(em, [
       () => {
         for (const entry of existingDefaults) {
@@ -333,6 +341,10 @@ const setDefaultDictionaryEntryCommand: CommandHandler<
           entry.updatedAt = new Date()
           clearedIds.push(entry.id)
         }
+      },
+    ], { transaction: true })
+    await withAtomicFlush(em, [
+      () => {
         targetEntry.isDefault = true
         targetEntry.updatedAt = new Date()
       },
@@ -421,12 +433,19 @@ const setDefaultDictionaryEntryCommand: CommandHandler<
         )
       : []
 
+    // Same partial-unique-index ordering constraint as `execute`: clear the
+    // current default in its own flush before restoring the previous default(s),
+    // so Postgres never sees two is_default=true rows in the dictionary at once.
     await withAtomicFlush(em, [
       () => {
         if (newDefault) {
           newDefault.isDefault = false
           newDefault.updatedAt = new Date()
         }
+      },
+    ], { transaction: true })
+    await withAtomicFlush(em, [
+      () => {
         for (const entry of previousDefaults) {
           entry.isDefault = true
           entry.updatedAt = new Date()

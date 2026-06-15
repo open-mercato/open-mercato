@@ -1,9 +1,27 @@
 /** @jest-environment node */
 import { POST, PUT, DELETE } from '@open-mercato/core/modules/entities/api/records'
+import { UNKNOWN_CUSTOM_FIELD_ERROR } from '@open-mercato/shared/modules/entities/validation'
 
 const mockEm = {
   find: jest.fn(async () => [] as Array<Record<string, unknown>>),
   findOne: jest.fn(async () => null),
+}
+
+function mockActiveCustomFieldDefs(keys: string[]) {
+  return keys.map((key) => ({
+    key,
+    kind: 'text',
+    isActive: true,
+    deletedAt: null,
+    organizationId: 'org',
+    tenantId: 't1',
+    updatedAt: new Date('2026-03-31T00:00:00.000Z'),
+    configJson: {},
+  }))
+}
+
+function mockCustomFieldDefsLookup(keys: string[]) {
+  mockEm.find.mockResolvedValueOnce(mockActiveCustomFieldDefs(keys))
 }
 
 const mockDataEngine = {
@@ -14,6 +32,7 @@ const mockDataEngine = {
 
 const mockRbac = {
   resolveVisibleOrganizations: jest.fn(async () => ['org']),
+  loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: [], organizations: null })),
 }
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -40,7 +59,7 @@ describe('Records API CRUD operations', () => {
 
   describe('POST /api/entities/records', () => {
     it('creates a record and returns entityId + recordId', async () => {
-      mockEm.find.mockResolvedValueOnce([])
+      mockCustomFieldDefsLookup(['location', 'title'])
       const req = new Request('http://x/api/entities/records', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -65,7 +84,7 @@ describe('Records API CRUD operations', () => {
     })
 
     it('strips cf_ prefix from value keys', async () => {
-      mockEm.find.mockResolvedValueOnce([])
+      mockCustomFieldDefsLookup(['location', 'title'])
       const req = new Request('http://x/api/entities/records', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -83,6 +102,23 @@ describe('Records API CRUD operations', () => {
       )
     })
 
+    it('rejects undeclared custom field keys with 400', async () => {
+      mockCustomFieldDefsLookup(['title'])
+      const req = new Request('http://x/api/entities/records', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          entityId: 'user:qa_entity',
+          values: { title: 'Allowed', undeclared: 'injected' },
+        }),
+      })
+      const res = await POST(req)
+      expect(res.status).toBe(400)
+      const json = await res.json()
+      expect(json.fields.cf_undeclared).toBe(UNKNOWN_CUSTOM_FIELD_ERROR)
+      expect(mockDataEngine.createCustomEntityRecord).not.toHaveBeenCalled()
+    })
+
     it('rejects missing entityId with 400', async () => {
       const req = new Request('http://x/api/entities/records', {
         method: 'POST',
@@ -94,7 +130,7 @@ describe('Records API CRUD operations', () => {
     })
 
     it('ignores non-UUID recordId and lets data engine generate one', async () => {
-      mockEm.find.mockResolvedValueOnce([])
+      mockCustomFieldDefsLookup(['title'])
       const req = new Request('http://x/api/entities/records', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -113,7 +149,7 @@ describe('Records API CRUD operations', () => {
 
   describe('PUT /api/entities/records', () => {
     it('updates an existing record by UUID', async () => {
-      mockEm.find.mockResolvedValueOnce([])
+      mockCustomFieldDefsLookup(['title'])
       const recordId = '123e4567-e89b-12d3-a456-426614174000'
       const req = new Request('http://x/api/entities/records', {
         method: 'PUT',
@@ -139,7 +175,7 @@ describe('Records API CRUD operations', () => {
     })
 
     it('falls back to create when recordId is sentinel value', async () => {
-      mockEm.find.mockResolvedValueOnce([])
+      mockCustomFieldDefsLookup(['title'])
       const req = new Request('http://x/api/entities/records', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },

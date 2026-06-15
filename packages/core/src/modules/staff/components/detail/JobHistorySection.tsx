@@ -9,6 +9,7 @@ import { LoadingMessage, ErrorMessage, TabEmptyState } from '@open-mercato/ui/ba
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
@@ -19,6 +20,7 @@ type JobHistoryRecord = {
   description: string | null
   startDate: string | null
   endDate: string | null
+  updatedAt: string | undefined
 }
 
 type JobHistoryResponse = {
@@ -54,6 +56,7 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
     errorLoad: t('staff.teamMembers.detail.jobHistory.errorLoad', 'Failed to load job history.'),
     errorSave: t('staff.teamMembers.detail.jobHistory.errorSave', 'Failed to save job history.'),
     errorDelete: t('staff.teamMembers.detail.jobHistory.errorDelete', 'Failed to delete job history.'),
+    conflict: t('staff.teamMembers.detail.jobHistory.conflict', 'This record was modified by someone else. Refresh and try again.'),
     loading: t('staff.teamMembers.detail.jobHistory.loading', 'Loading job history...'),
     saved: t('staff.teamMembers.detail.jobHistory.saved', 'Job history saved.'),
     updated: t('staff.teamMembers.detail.jobHistory.updated', 'Job history updated.'),
@@ -137,7 +140,11 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
     if (!memberId) return
     const payload = buildJobHistoryPayload(values)
     if (dialogMode === 'edit' && activeRecord) {
-      await updateCrud('staff/job-histories', { id: activeRecord.id, ...payload }, { errorMessage: labels.errorSave })
+      // Let any error (including the optimistic-lock 409) propagate so the
+      // enclosing CrudForm surfaces the unified "Record changed" conflict bar
+      // via surfaceRecordConflict. Catching it here and routing it to a flash
+      // toast would hide the conflict bar (see TC-LOCK-OSS-036).
+      await updateCrud('staff/job-histories', { id: activeRecord.id, updatedAt: activeRecord.updatedAt, ...payload }, { errorMessage: labels.errorSave })
       flash(labels.updated, 'success')
     } else {
       await createCrud('staff/job-histories', { entityId: memberId, ...payload }, { errorMessage: labels.errorSave })
@@ -145,7 +152,7 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
     }
     closeDialog()
     setReloadToken((prev) => prev + 1)
-  }, [activeRecord, closeDialog, dialogMode, labels.errorSave, labels.saved, labels.updated, memberId])
+  }, [activeRecord, closeDialog, dialogMode, labels.conflict, labels.errorSave, labels.saved, labels.updated, memberId])
 
   const handleDelete = React.useCallback(async (record: JobHistoryRecord) => {
     const confirmed = await confirmDialog({
@@ -153,10 +160,19 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
       variant: 'destructive',
     })
     if (!confirmed) return
-    await deleteCrud('staff/job-histories', { id: record.id, errorMessage: labels.errorDelete })
-    flash(labels.deleted, 'success')
-    setReloadToken((prev) => prev + 1)
-  }, [labels.deleteConfirm, labels.deleted, labels.errorDelete, confirmDialog])
+    try {
+      await deleteCrud('staff/job-histories', {
+        id: record.id,
+        body: { id: record.id, updatedAt: record.updatedAt },
+        errorMessage: labels.errorDelete,
+      })
+      flash(labels.deleted, 'success')
+      setReloadToken((prev) => prev + 1)
+    } catch (error) {
+      if (surfaceRecordConflict(error, t)) return
+      flash(labels.errorDelete, 'error')
+    }
+  }, [labels.deleteConfirm, labels.deleted, labels.errorDelete, confirmDialog, t])
 
   const dialogTitle = dialogMode === 'edit' ? labels.edit : labels.add
 
@@ -240,6 +256,7 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
           <CrudForm<JobHistoryFormValues>
             fields={fields}
             initialValues={initialValues}
+            optimisticLockUpdatedAt={activeRecord?.updatedAt ?? null}
             onSubmit={handleSubmit}
             submitLabel={dialogMode === 'edit' ? labels.update : labels.save}
             extraActions={(
@@ -290,6 +307,11 @@ function normalizeJobHistoryItems(items?: Record<string, unknown>[]): JobHistory
           : typeof record.endDate === 'string'
             ? record.endDate
             : null,
+        updatedAt: typeof record.updated_at === 'string'
+          ? record.updated_at
+          : typeof record.updatedAt === 'string'
+            ? record.updatedAt
+            : undefined,
       }
     })
     .filter((value): value is JobHistoryRecord => value !== null)

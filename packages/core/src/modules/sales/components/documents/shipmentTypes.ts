@@ -9,6 +9,7 @@ export type ShipmentItem = {
 
 export type ShipmentRow = {
   id: string
+  updatedAt: string | null
   shipmentNumber: string | null
   shippingMethodId: string | null
   shippingMethodCode: string | null

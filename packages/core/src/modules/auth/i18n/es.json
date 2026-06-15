@@ -43,7 +43,6 @@
   "auth.login.errors.invalidCredentials": "Correo electrónico o contraseña no válidos",
   "auth.login.errors.permissionDenied": "No tienes permiso para acceder a esta área. Ponte en contacto con tu administrador.",
   "auth.login.errors.tenantInvalid": "No se encontró el inquilino. Borra la selección e inténtalo de nuevo.",
-  "auth.login.errors.tenantRequired": "Usa el enlace de inicio de sesión proporcionado con la activación de tu inquilino para continuar.",
   "auth.login.featureDenied": "No tienes acceso a esta funcionalidad ({feature}). Ponte en contacto con tu administrador.",
   "auth.login.forgotPassword": "¿Olvidaste tu contraseña?",
   "auth.login.loading": "Cargando...",

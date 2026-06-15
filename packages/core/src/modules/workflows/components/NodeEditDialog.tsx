@@ -14,12 +14,13 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import {Alert, AlertDescription} from '@open-mercato/ui/primitives/alert'
-import {ChevronDown, Info, Plus, Trash2} from 'lucide-react'
+import {ChevronDown, Plus, Trash2} from 'lucide-react'
 import {sanitizeId} from '../lib/graph-utils'
 import {WorkflowDefinition, WorkflowSelector} from './WorkflowSelector'
 import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 import {StartPreConditionsEditor, type StartPreCondition} from './fields/StartPreConditionsEditor'
 import {useT} from '@open-mercato/shared/lib/i18n/context'
+import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
 import {isFutureIsoDateString, isValidDurationString} from '../data/validators'
 
@@ -485,14 +486,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     onDelete(node.id)
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      handleSave()
-    }
-    if (e.key === 'Escape') {
-      onClose()
-    }
-  }
+  const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave, onCancel: onClose })
 
   if (!isOpen || !node) return null
 
@@ -505,6 +499,8 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     waitForSignal: t('workflows.nodeTypes.waitForSignal'),
     waitForTimer: t('workflows.nodeTypes.waitForTimer'),
     subWorkflow: t('workflows.nodeTypes.subWorkflow'),
+    parallelFork: t('workflows.nodeTypes.parallelFork'),
+    parallelJoin: t('workflows.nodeTypes.parallelJoin'),
   }[node.type || 'automated']
 
   // START nodes are partially editable (pre-conditions only), END nodes are not editable
@@ -518,7 +514,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <div className="flex items-center gap-2 mb-2">
             <DialogTitle>{t('workflows.nodeEditor.title')}</DialogTitle>
@@ -543,7 +539,6 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
         <div className="space-y-4">
           {!isEditable ? (
             <Alert variant="info">
-              <Info className="size-4" />
               <AlertDescription>
                 {t('workflows.nodeEditor.endStepsNotEditable')}
               </AlertDescription>
@@ -552,7 +547,6 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
             <div className="space-y-4">
               {/* Info Alert for START nodes */}
               <Alert variant="info">
-                <Info className="size-4" />
                 <AlertDescription>
                   {t('workflows.nodeEditor.startStepsInfo')}
                 </AlertDescription>
@@ -697,7 +691,6 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     {/* JSON Schema Format Notice */}
                     {isJsonSchemaFormat && (
                       <Alert variant="info" className="mb-3">
-                        <Info className="size-4" />
                         <AlertDescription>
                           {t('workflows.nodeEditor.jsonSchemaFormat')}
                         </AlertDescription>

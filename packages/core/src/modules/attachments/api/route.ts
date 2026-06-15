@@ -12,6 +12,7 @@ import { requestOcrProcessing } from '../lib/ocrQueue'
 import { StorageDriverFactory } from '../lib/drivers'
 import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
+import { assertAttachmentScopeInvariant } from '../lib/access'
 import {
   mergeAttachmentMetadata,
   normalizeAttachmentAssignments,
@@ -421,6 +422,7 @@ export async function POST(req: Request) {
   }
   const metadata = mergeAttachmentMetadata(null, { assignments, tags })
   const attachmentId = randomUUID()
+  assertAttachmentScopeInvariant({ tenantId: auth.tenantId, organizationId: auth.orgId })
   const att = em.create(Attachment, {
     id: attachmentId,
     entityId,
@@ -437,7 +439,26 @@ export async function POST(req: Request) {
     content: extractedContent,
     storageMetadata: metadata,
   })
-  await em.persist(att).flush()
+  // Persist the attachment row and its custom-field values atomically so a
+  // custom-field failure cannot leave behind a committed orphan attachment.
+  try {
+    await em.transactional(async (tx) => {
+      await tx.persist(att).flush()
+      if (dataEngine) {
+        await setCustomFieldsIfAny({
+          dataEngine,
+          entityId: E.attachments.attachment,
+          recordId: attachmentId,
+          tenantId,
+          organizationId: orgId,
+          values: customFieldValues,
+        })
+      }
+    })
+  } catch (error) {
+    console.error('[attachments] failed to persist attachment with custom attributes', error)
+    return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
+  }
 
   if (useLlmOcr) {
     requestOcrProcessing(em, att, uploadDriver, storedPath).catch((error) => {
@@ -448,19 +469,6 @@ export async function POST(req: Request) {
   }
 
   if (dataEngine) {
-    try {
-      await setCustomFieldsIfAny({
-        dataEngine,
-        entityId: E.attachments.attachment,
-        recordId: attachmentId,
-        tenantId,
-        organizationId: orgId,
-        values: customFieldValues,
-      })
-    } catch (error) {
-      console.error('[attachments] failed to persist custom attributes', error)
-      return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
-    }
     await emitCrudSideEffects({
       dataEngine,
       action: 'created',

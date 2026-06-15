@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { Perspective, RolePerspective } from '../data/entities'
 import type {
   PerspectiveSettings,
@@ -216,7 +217,12 @@ export async function loadPerspectivesState(
 export async function saveUserPerspective(
   em: EntityManager,
   cache: CacheStrategy | null | undefined,
-  options: { scope: PerspectiveScope; tableId: string; input: PerspectiveSaveInput },
+  options: {
+    scope: PerspectiveScope
+    tableId: string
+    input: PerspectiveSaveInput
+    request?: Request | Headers | null
+  },
 ): Promise<ResolvedPerspective> {
   const { scope, tableId, input } = options
   const tenantId = scope.tenantId ?? null
@@ -235,6 +241,12 @@ export async function saveUserPerspective(
     if (!entity) {
       throw Object.assign(new Error('Perspective not found'), { code: 'NOT_FOUND' })
     }
+    enforceCommandOptimisticLock({
+      resourceKind: 'perspectives.perspective',
+      resourceId: entity.id,
+      current: entity.updatedAt ?? null,
+      request: options.request ?? null,
+    })
   } else {
     entity = await em.findOne(Perspective, {
       userId: scope.userId,

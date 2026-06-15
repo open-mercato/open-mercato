@@ -4,8 +4,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerSettings, type CustomerAddressFormat } from '../data/entities'
 import {
+  customerDictionarySortModesUpsertSchema,
   customerSettingsUpsertSchema,
   customerStuckThresholdUpsertSchema,
+  type CustomerDictionarySortModesUpsertInput,
   type CustomerSettingsUpsertInput,
   type CustomerStuckThresholdUpsertInput,
 } from '../data/validators'
@@ -112,3 +114,42 @@ const saveStuckThresholdCommand: CommandHandler<
 }
 
 registerCommand(saveStuckThresholdCommand)
+
+const saveDictionarySortModesCommand: CommandHandler<
+  CustomerDictionarySortModesUpsertInput,
+  { settingsId: string; dictionarySortModes: CustomerDictionarySortModesUpsertInput['dictionarySortModes'] }
+> = {
+  id: 'customers.settings.save_dictionary_sort_modes',
+  async execute(rawInput, ctx) {
+    const input = customerDictionarySortModesUpsertSchema.parse(rawInput)
+    ensureTenantScope(ctx, input.tenantId)
+    ensureOrganizationScope(ctx, input.organizationId)
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let settings = await loadCustomerSettings(em, {
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    })
+
+    if (!settings) {
+      settings = em.create(CustomerSettings, {
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+        dictionarySortModes: input.dictionarySortModes,
+      })
+      em.persist(settings)
+    } else {
+      settings.dictionarySortModes = input.dictionarySortModes
+      settings.updatedAt = new Date()
+    }
+
+    await em.flush()
+
+    return {
+      settingsId: settings.id,
+      dictionarySortModes: settings.dictionarySortModes ?? {},
+    }
+  },
+}
+
+registerCommand(saveDictionarySortModesCommand)

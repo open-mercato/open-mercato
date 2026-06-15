@@ -184,6 +184,9 @@ function makeEmForQuote(quote: ReturnType<typeof makeQuote>) {
     nativeDelete: jest.fn(async () => 0),
     remove: jest.fn(),
     flush: jest.fn(async () => {}),
+    begin: jest.fn(async () => {}),
+    commit: jest.fn(async () => {}),
+    rollback: jest.fn(async () => {}),
     fork: function () { return this },
   }
   return { em, findMock }
@@ -202,6 +205,9 @@ function makeEmForOrder(order: ReturnType<typeof makeOrder>) {
     nativeDelete: jest.fn(async () => 0),
     remove: jest.fn(),
     flush: jest.fn(async () => {}),
+    begin: jest.fn(async () => {}),
+    commit: jest.fn(async () => {}),
+    rollback: jest.fn(async () => {}),
     fork: function () { return this },
   }
   return { em, findMock }

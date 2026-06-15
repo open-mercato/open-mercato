@@ -1,5 +1,10 @@
 import { describe, it, expect } from '@jest/globals'
-import { interactionCreateSchema, interactionUpdateSchema } from '../data/validators'
+import {
+  interactionCreateSchema,
+  interactionUpdateSchema,
+  personUpdateSchema,
+  companyUpdateSchema,
+} from '../data/validators'
 
 const ORG_ID = '11111111-1111-4111-8111-111111111111'
 const TENANT_ID = '22222222-2222-4222-8222-222222222222'
@@ -178,6 +183,136 @@ describe('interactionUpdateSchema scheduledAt derivation', () => {
     expect(result.success).toBe(true)
     if (result.success) {
       expect(result.data.scheduledAt).toBeNull()
+    }
+  })
+})
+
+describe('person/company clearable URL & email update fields (#2526)', () => {
+  const personBase = { id: ENTITY_ID, organizationId: ORG_ID, tenantId: TENANT_ID }
+  const companyBase = { id: ENTITY_ID, organizationId: ORG_ID, tenantId: TENANT_ID }
+
+  it('coerces empty-string URL/email person fields to null so the column can be cleared', () => {
+    const result = personUpdateSchema.safeParse({
+      ...personBase,
+      linkedInUrl: '',
+      twitterUrl: '',
+      primaryEmail: '',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.linkedInUrl).toBeNull()
+      expect(result.data.twitterUrl).toBeNull()
+      expect(result.data.primaryEmail).toBeNull()
+    }
+  })
+
+  it('accepts explicit null for person URL/email fields', () => {
+    const result = personUpdateSchema.safeParse({
+      ...personBase,
+      linkedInUrl: null,
+      twitterUrl: null,
+      primaryEmail: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.linkedInUrl).toBeNull()
+      expect(result.data.twitterUrl).toBeNull()
+      expect(result.data.primaryEmail).toBeNull()
+    }
+  })
+
+  it('treats whitespace-only URL/email person fields as a clear', () => {
+    const result = personUpdateSchema.safeParse({
+      ...personBase,
+      linkedInUrl: '   ',
+      primaryEmail: '   ',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.linkedInUrl).toBeNull()
+      expect(result.data.primaryEmail).toBeNull()
+    }
+  })
+
+  it('still validates non-empty person URL/email values', () => {
+    expect(
+      personUpdateSchema.safeParse({ ...personBase, linkedInUrl: 'not-a-url' }).success,
+    ).toBe(false)
+    expect(
+      personUpdateSchema.safeParse({ ...personBase, primaryEmail: 'not-an-email' }).success,
+    ).toBe(false)
+
+    const ok = personUpdateSchema.safeParse({
+      ...personBase,
+      linkedInUrl: 'https://linkedin.com/in/ada',
+      primaryEmail: 'ada@example.com',
+    })
+    expect(ok.success).toBe(true)
+    if (ok.success) {
+      expect(ok.data.linkedInUrl).toBe('https://linkedin.com/in/ada')
+      expect(ok.data.primaryEmail).toBe('ada@example.com')
+    }
+  })
+
+  it('omitting a person URL/email field leaves it undefined (no-op update)', () => {
+    const result = personUpdateSchema.safeParse({ ...personBase })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect('linkedInUrl' in result.data).toBe(false)
+      expect('primaryEmail' in result.data).toBe(false)
+    }
+  })
+
+  it('coerces empty-string and null company website/email fields to null', () => {
+    const empties = companyUpdateSchema.safeParse({
+      ...companyBase,
+      websiteUrl: '',
+      primaryEmail: '',
+    })
+    expect(empties.success).toBe(true)
+    if (empties.success) {
+      expect(empties.data.websiteUrl).toBeNull()
+      expect(empties.data.primaryEmail).toBeNull()
+    }
+
+    const nulls = companyUpdateSchema.safeParse({
+      ...companyBase,
+      websiteUrl: null,
+      primaryEmail: null,
+    })
+    expect(nulls.success).toBe(true)
+    if (nulls.success) {
+      expect(nulls.data.websiteUrl).toBeNull()
+      expect(nulls.data.primaryEmail).toBeNull()
+    }
+  })
+
+  it('still validates non-empty company website/email values', () => {
+    expect(
+      companyUpdateSchema.safeParse({ ...companyBase, websiteUrl: 'not-a-url' }).success,
+    ).toBe(false)
+    expect(
+      companyUpdateSchema.safeParse({ ...companyBase, primaryEmail: 'not-an-email' }).success,
+    ).toBe(false)
+  })
+
+  it('coerces empty-string and null company domain to null (#2529)', () => {
+    const empties = companyUpdateSchema.safeParse({ ...companyBase, domain: '' })
+    expect(empties.success).toBe(true)
+    if (empties.success) {
+      expect(empties.data.domain).toBeNull()
+    }
+
+    const nulls = companyUpdateSchema.safeParse({ ...companyBase, domain: null })
+    expect(nulls.success).toBe(true)
+    if (nulls.success) {
+      expect(nulls.data.domain).toBeNull()
+    }
+
+    const set = companyUpdateSchema.safeParse({ ...companyBase, domain: 'acme.com' })
+    expect(set.success).toBe(true)
+    if (set.success) {
+      expect(set.data.domain).toBe('acme.com')
     }
   })
 })

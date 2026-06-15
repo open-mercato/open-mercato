@@ -6,6 +6,8 @@ import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { resolveRedoSnapshot, restoreCreatedRow } from '@open-mercato/shared/lib/commands/redo'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -140,6 +142,31 @@ async function loadVariantSnapshot(
     updatedAt: record.updatedAt.toISOString(),
     custom: Object.keys(custom).length ? custom : null,
     prices: prices && prices.length ? prices : null,
+  }
+}
+
+function variantSeedFromSnapshot(snapshot: VariantSnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    product: snapshot.productId,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    name: snapshot.name ?? null,
+    sku: snapshot.sku ?? null,
+    barcode: snapshot.barcode ?? null,
+    statusEntryId: snapshot.statusEntryId ?? null,
+    isDefault: snapshot.isDefault,
+    isActive: snapshot.isActive,
+    weightValue: snapshot.weightValue ?? null,
+    weightUnit: snapshot.weightUnit ?? null,
+    taxRateId: snapshot.taxRateId ?? null,
+    taxRate: snapshot.taxRate ?? null,
+    dimensions: snapshot.dimensions ? cloneJson(snapshot.dimensions) : null,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    optionValues: snapshot.optionValues ? cloneJson(snapshot.optionValues) : null,
+    customFieldsetCode: snapshot.customFieldsetCode ?? null,
+    createdAt: new Date(snapshot.createdAt),
+    updatedAt: new Date(snapshot.updatedAt),
   }
 }
 
@@ -588,21 +615,25 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       updatedAt: now,
     })
     em.persist(record)
+    let previousDefaultVariantId: string | null = null
     try {
-      await em.flush()
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          async () => {
+            if (record.isDefault) {
+              previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
+              await em.flush()
+            }
+          },
+          () => aggregateVariantMediaToProduct(em, record),
+        ],
+        { transaction: true }
+      )
     } catch (error) {
       await rethrowVariantUniqueConstraint(error)
     }
-    let previousDefaultVariantId: string | null = null
-    if (record.isDefault) {
-      previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
-      try {
-        await em.flush()
-      } catch (error) {
-        await rethrowVariantUniqueConstraint(error)
-      }
-    }
-    await aggregateVariantMediaToProduct(em, record)
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.catalog.catalog_product_variant,
@@ -688,6 +719,66 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       })
     }
   },
+  redo: async ({ ctx, logEntry }) => {
+    const after = resolveRedoSnapshot<VariantSnapshot>(logEntry)
+    if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for variant create' })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const record = await restoreCreatedRow(
+      em,
+      CatalogProductVariant,
+      after.id,
+      () => variantSeedFromSnapshot(after),
+    )
+    applyVariantSnapshot(record, after)
+    let previousDefaultVariantId: string | null = null
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          async () => {
+            if (record.isDefault) {
+              previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
+              await em.flush()
+            }
+          },
+          () => aggregateVariantMediaToProduct(em, record),
+        ],
+        { transaction: true }
+      )
+    } catch (error) {
+      await rethrowVariantUniqueConstraint(error)
+    }
+    if (after.custom && Object.keys(after.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_variant,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: after.custom,
+      })
+    }
+    await emitCatalogQueryIndexEvent(ctx, {
+      entityType: E.catalog.catalog_product_variant,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      action: 'created',
+    })
+    await emitCrudSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: variantCrudEvents,
+    })
+    return { variantId: record.id, previousDefaultVariantId }
+  },
 }
 
 const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: string; previousDefaultVariantId?: string | null }> = {
@@ -721,47 +812,55 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
       ? await resolveVariantTaxRate(em, product, parsed.taxRateId ?? null, parsed.taxRate)
       : null
 
-    if (parsed.name !== undefined) record.name = parsed.name ?? null
-    if (parsed.sku !== undefined) record.sku = parsed.sku ?? null
-    if (parsed.barcode !== undefined) record.barcode = parsed.barcode ?? null
-    if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
-    if (parsed.isDefault !== undefined) record.isDefault = parsed.isDefault
-    if (parsed.isActive !== undefined) record.isActive = parsed.isActive
-    if (Object.prototype.hasOwnProperty.call(parsed, 'weightValue')) {
-      record.weightValue = toNumericString(parsed.weightValue)
-    }
-    if (parsed.weightUnit !== undefined) record.weightUnit = parsed.weightUnit ?? null
-    if (parsed.dimensions !== undefined) {
-      record.dimensions = parsed.dimensions ? cloneJson(parsed.dimensions) : null
-    }
-    let metadataSplit: MetadataSplitResult | null = null
-    if (parsed.metadata !== undefined) {
-      metadataSplit = splitOptionValuesFromMetadata(parsed.metadata)
-      record.metadata = metadataSplit.metadata
-    }
-    if (parsed.optionValues !== undefined) {
-      record.optionValues = parsed.optionValues ? cloneJson(parsed.optionValues) : null
-    } else if (metadataSplit?.hadOptionValues) {
-      record.optionValues = metadataSplit.optionValues ? cloneJson(metadataSplit.optionValues) : null
-    }
-    if (taxRateProvided) {
-      record.taxRateId = resolvedTaxRate?.taxRateId ?? null
-      record.taxRate = resolvedTaxRate?.taxRate ?? null
-    }
-    if (parsed.customFieldsetCode !== undefined) {
-      record.customFieldsetCode = parsed.customFieldsetCode ?? null
-    }
-
     let previousDefaultVariantId: string | null = null
-    if (parsed.isDefault === true) {
-      previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
-    }
     try {
-      await em.flush()
+      await withAtomicFlush(
+        em,
+        [
+          () => {
+            if (parsed.name !== undefined) record.name = parsed.name ?? null
+            if (parsed.sku !== undefined) record.sku = parsed.sku ?? null
+            if (parsed.barcode !== undefined) record.barcode = parsed.barcode ?? null
+            if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
+            if (parsed.isDefault !== undefined) record.isDefault = parsed.isDefault
+            if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+            if (Object.prototype.hasOwnProperty.call(parsed, 'weightValue')) {
+              record.weightValue = toNumericString(parsed.weightValue)
+            }
+            if (parsed.weightUnit !== undefined) record.weightUnit = parsed.weightUnit ?? null
+            if (parsed.dimensions !== undefined) {
+              record.dimensions = parsed.dimensions ? cloneJson(parsed.dimensions) : null
+            }
+            let metadataSplit: MetadataSplitResult | null = null
+            if (parsed.metadata !== undefined) {
+              metadataSplit = splitOptionValuesFromMetadata(parsed.metadata)
+              record.metadata = metadataSplit.metadata
+            }
+            if (parsed.optionValues !== undefined) {
+              record.optionValues = parsed.optionValues ? cloneJson(parsed.optionValues) : null
+            } else if (metadataSplit?.hadOptionValues) {
+              record.optionValues = metadataSplit.optionValues ? cloneJson(metadataSplit.optionValues) : null
+            }
+            if (taxRateProvided) {
+              record.taxRateId = resolvedTaxRate?.taxRateId ?? null
+              record.taxRate = resolvedTaxRate?.taxRate ?? null
+            }
+            if (parsed.customFieldsetCode !== undefined) {
+              record.customFieldsetCode = parsed.customFieldsetCode ?? null
+            }
+          },
+          async () => {
+            if (parsed.isDefault === true) {
+              previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
+            }
+          },
+          () => aggregateVariantMediaToProduct(em, record),
+        ],
+        { transaction: true }
+      )
     } catch (error) {
       await rethrowVariantUniqueConstraint(error)
     }
-    await aggregateVariantMediaToProduct(em, record)
     if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),

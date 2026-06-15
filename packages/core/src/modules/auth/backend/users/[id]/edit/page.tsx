@@ -3,7 +3,8 @@ import * as React from 'react'
 import { E } from '#generated/entities.ids.generated'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
@@ -27,6 +28,7 @@ type EditUserFormValues = {
   tenantId: string | null
   organizationId: string | null
   roles: string[]
+  updatedAt?: string | null
 } & Record<string, unknown>
 
 type LoadedUser = {
@@ -40,6 +42,7 @@ type LoadedUser = {
   roles: string[]
   roleIds: string[]
   hasPassword: boolean
+  updatedAt: string | null
 }
 
 type UserApiItem = {
@@ -53,11 +56,17 @@ type UserApiItem = {
   roles?: unknown
   roleIds?: unknown
   hasPassword?: boolean
+  updatedAt?: string | null
+  updated_at?: string | null
 }
 
 type UserListResponse = {
   items?: UserApiItem[]
   isSuperAdmin?: boolean
+}
+
+type RoleLookupResponse = {
+  items?: Array<{ id?: string | null; name?: string | null }>
 }
 
 type FeatureCheckResponse = {
@@ -123,9 +132,11 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [canEditOrgs, setCanEditOrgs] = React.useState(false)
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
+  const [aclUpdatedAt, setAclUpdatedAt] = React.useState<string | null>(null)
   const [customFieldValues, setCustomFieldValues] = React.useState<Record<string, unknown>>({})
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
   const [actorResolved, setActorResolved] = React.useState(false)
+  const [initialRoleOptions, setInitialRoleOptions] = React.useState<CrudFieldOption[]>([])
   const widgetEditorRef = React.useRef<WidgetVisibilityEditorHandle | null>(null)
   const [resendingInvite, setResendingInvite] = React.useState(false)
 
@@ -162,6 +173,48 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
       ? t('auth.password.requirements.help', 'Password requirements: {requirements}', { requirements: passwordRequirements })
       : undefined
   ), [passwordRequirements, t])
+
+  React.useEffect(() => {
+    if (!initialUser) {
+      setInitialRoleOptions([])
+      return
+    }
+    const roleIds = initialUser.roleIds
+      .map((roleId) => (typeof roleId === 'string' ? roleId.trim() : ''))
+      .filter((roleId) => roleId.length > 0)
+    const seedOptions = roleIds.map((roleId, index) => {
+      const label = typeof initialUser.roles[index] === 'string' && initialUser.roles[index].trim().length
+        ? initialUser.roles[index]
+        : roleId
+      return { value: roleId, label }
+    })
+    setInitialRoleOptions(seedOptions)
+    if (!roleIds.length) return
+    let cancelled = false
+    Promise.all(roleIds.map(async (roleId) => {
+      const response = await apiCall<RoleLookupResponse>(
+        `/api/auth/roles?id=${encodeURIComponent(roleId)}&page=1&pageSize=1`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      if (!response.ok || !Array.isArray(response.result?.items)) return null
+      const item = response.result.items.find((entry) => entry?.id === roleId) ?? response.result.items[0]
+      const name = typeof item?.name === 'string' && item.name.trim().length ? item.name.trim() : null
+      return name ? { value: roleId, label: name } : null
+    }))
+      .then((fetched) => {
+        if (cancelled) return
+        const byId = new Map(seedOptions.map((option) => [option.value, option]))
+        fetched.forEach((option) => {
+          if (option) byId.set(option.value, option)
+        })
+        setInitialRoleOptions(roleIds.map((roleId) => byId.get(roleId) ?? { value: roleId, label: roleId }))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [initialUser])
 
   React.useEffect(() => {
     if (!id) {
@@ -209,6 +262,11 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               roles: roleNames,
               roleIds: roleIds.length > 0 ? roleIds : roleNames,
               hasPassword: item.hasPassword !== false,
+              updatedAt: typeof item.updatedAt === 'string'
+                ? item.updatedAt
+                : typeof item.updated_at === 'string'
+                  ? item.updated_at
+                  : null,
             })
             setSelectedTenantId(item.tenantId ? String(item.tenantId) : null)
             const custom = extractCustomFieldEntries(item as Record<string, unknown>)
@@ -328,9 +386,15 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         )
       },
     })
-    items.push({ id: 'roles', label: t('auth.users.form.field.roles', 'Roles'), type: 'tags', loadOptions: loadRoleOptions })
+    items.push({
+      id: 'roles',
+      label: t('auth.users.form.field.roles', 'Roles'),
+      type: 'tags',
+      options: initialRoleOptions,
+      loadOptions: loadRoleOptions,
+    })
     return items
-  }, [actorIsSuperAdmin, loadRoleOptions, passwordDescription, preloadedTenants, selectedOrgId, selectedTenantId, t, userHasPassword])
+  }, [actorIsSuperAdmin, initialRoleOptions, loadRoleOptions, passwordDescription, preloadedTenants, selectedOrgId, selectedTenantId, t, userHasPassword])
 
   const detailFieldIds = React.useMemo(() => {
     const base: string[] = ['email', 'name', 'password', 'organizationId', 'roles']
@@ -353,6 +417,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             canEditOrganizations={canEditOrgs}
             value={aclData}
             onChange={setAclData}
+            onVersionChange={setAclUpdatedAt}
             userRoles={initialUser?.roles || []}
             currentUserIsSuperAdmin={actorIsSuperAdmin}
             tenantId={selectedTenantId ?? null}
@@ -393,6 +458,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         tenantId: initialUser.tenantId,
         organizationId: initialUser.organizationId,
         roles: initialUser.roleIds,
+        updatedAt: initialUser.updatedAt,
         ...customFieldValues,
       }
     }
@@ -471,17 +537,37 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               roles: Array.isArray(values.roles) ? values.roles : [],
               ...(Object.keys(customFields).length ? { customFields } : {}),
             }
-            await updateCrud('auth/users', payload)
-            await updateCrud('auth/users/acl', { userId: id, ...aclData }, {
+            const userOptimisticLockHeader = buildOptimisticLockHeader(initialUser?.updatedAt)
+            if (Object.keys(userOptimisticLockHeader).length > 0) {
+              await withScopedApiRequestHeaders(userOptimisticLockHeader, () => updateCrud('auth/users', payload))
+            } else {
+              await updateCrud('auth/users', payload)
+            }
+            // Optimistic lock the ACL save against the loaded UserAcl version so a
+            // concurrent permission edit cannot silently overwrite (#2055). CrudForm
+            // surfaces the 409 as the unified conflict bar.
+            const aclLockHeader = buildOptimisticLockHeader(aclUpdatedAt)
+            const saveUserAcl = () => updateCrud('auth/users/acl', { userId: id, ...aclData }, {
               errorMessage: t('auth.users.form.errors.aclUpdate', 'Failed to update user access control'),
             })
+            if (Object.keys(aclLockHeader).length > 0) {
+              await withScopedApiRequestHeaders(aclLockHeader, saveUserAcl)
+            } else {
+              await saveUserAcl()
+            }
             await widgetEditorRef.current?.save()
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
           onDelete={async () => {
-            await deleteCrud('auth/users', String(id), {
+            const userOptimisticLockHeader = buildOptimisticLockHeader(initialUser?.updatedAt)
+            const deleteUser = () => deleteCrud('auth/users', String(id), {
               errorMessage: t('auth.users.form.errors.delete', 'Failed to delete user'),
             })
+            if (Object.keys(userOptimisticLockHeader).length > 0) {
+              await withScopedApiRequestHeaders(userOptimisticLockHeader, deleteUser)
+            } else {
+              await deleteUser()
+            }
           }}
           deleteRedirect={`/backend/users?flash=${encodeURIComponent(t('auth.users.flash.deleted', 'User deleted'))}&type=success`}
         />

@@ -39,7 +39,7 @@ Before editing this module — and especially before writing or reviewing a new 
 | Topic | Public doc | This file |
 |-------|------------|-----------|
 | System map, request flow, persistence | [`apps/docs/docs/framework/ai-assistant/architecture.mdx`](../../apps/docs/docs/framework/ai-assistant/architecture.mdx) | "Architecture Constraints" below |
-| End-to-end "add a new agent" walkthrough | [`apps/docs/docs/framework/ai-assistant/developer-guide.mdx`](../../apps/docs/docs/framework/ai-assistant/developer-guide.mdx) + [`.ai/skills/create-ai-agent/SKILL.md`](../../.ai/skills/create-ai-agent/SKILL.md) | "How to Add a New AI Agent" below |
+| End-to-end "add a new agent" walkthrough | [`apps/docs/docs/framework/ai-assistant/developer-guide.mdx`](../../apps/docs/docs/framework/ai-assistant/developer-guide.mdx) + [`.ai/skills/om-create-ai-agent/SKILL.md`](../../.ai/skills/om-create-ai-agent/SKILL.md) | "How to Add a New AI Agent" below |
 | Agent contract reference | [`apps/docs/docs/framework/ai-assistant/agents.mdx`](../../apps/docs/docs/framework/ai-assistant/agents.mdx) | "How to Add an AI Tool Pack" below |
 | Record cards + custom inline UI parts | [`apps/docs/docs/framework/ai-assistant/ui-parts.mdx`](../../apps/docs/docs/framework/ai-assistant/ui-parts.mdx) | "Adding UI Parts" below |
 | File upload contract | [`apps/docs/docs/framework/ai-assistant/attachments.mdx`](../../apps/docs/docs/framework/ai-assistant/attachments.mdx) | — |
@@ -128,7 +128,7 @@ APIs are automatically available via the Code Mode `search` tool (reads the Open
 
 ### How to Add a New AI Agent
 
-> **Use the [`create-ai-agent` skill](../../.ai/skills/create-ai-agent/SKILL.md)** for the full step-by-step procedure (file layout, tool pack registration, mutation approval wiring, ACL/setup, generator + cache refresh, `<AiChat>` embedding, standalone vs monorepo differences, and a verification checklist). The summary below stays here for quick reference.
+> **Use the [`om-create-ai-agent` skill](../../.ai/skills/om-create-ai-agent/SKILL.md)** for the full step-by-step procedure (file layout, tool pack registration, mutation approval wiring, ACL/setup, generator + cache refresh, `<AiChat>` embedding, standalone vs monorepo differences, and a verification checklist). The summary below stays here for quick reference.
 
 Typed AI agents live in each module's root `ai-agents.ts`. The generator auto-discovers the file and aggregates it into `apps/mercato/.mercato/generated/ai-agents.generated.ts`. Reference implementations: `packages/core/src/modules/customers/ai-agents.ts` and `packages/core/src/modules/catalog/ai-agents.ts`.
 
@@ -219,7 +219,7 @@ Full reference: `apps/docs/docs/framework/ai-assistant/ui-parts.mdx`.
 
 ### How to Override or Extend Another Module's Agent or Tool
 
-Modules can replace/disable any AI agent or AI tool that another module registered, or patch an existing agent by appending, deleting, or replacing allowed tools, system-prompt text, and starter suggestions. Use full overrides when you need to swap the whole behavior; use `aiAgentExtensions` when a downstream module only wants to adjust a shipped agent, such as adding "show catalog stats" while removing an irrelevant starter prompt. See spec `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` and `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
+Modules can replace/disable any AI agent or AI tool that another module registered, or patch an existing agent by appending, deleting, or replacing allowed tools, system-prompt text, and starter suggestions. Use full overrides when you need to swap the whole behavior; use `aiAgentExtensions` when a downstream module only wants to adjust a shipped agent, such as adding "show catalog stats" while removing an irrelevant starter prompt. See spec `.ai/specs/implemented/2026-04-30-ai-overrides-and-module-disable.md` and `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
 
 There are three paths.
 
@@ -277,7 +277,7 @@ export const aiToolOverrides: AiToolOverridesMap = {
 }
 ```
 
-**Path B — `modules.ts` inline (app-level static, unified `entry.overrides`).** Declare overrides under the umbrella `overrides.ai` key on a `ModuleEntry` inside `apps/<app>/src/modules.ts`. Other contracts a module presents (routes, events, workers, widgets, notifications, interceptors, setup, ACL, DI, encryption, …) reuse the same `entry.overrides` shape per spec `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`; phases 1-18 are wired. The app's `bootstrap.ts` calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` once at boot — both `apps/mercato` and the `create-mercato-app` template ship that wiring.
+**Path B — `modules.ts` inline (app-level static, unified `entry.overrides`).** Declare overrides under the umbrella `overrides.ai` key on a `ModuleEntry` inside `apps/<app>/src/modules.ts`. Other contracts a module presents (routes, events, workers, widgets, notifications, interceptors, setup, ACL, DI, encryption, …) reuse the same `entry.overrides` shape per spec `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md`; phases 1-18 are wired. The app's `bootstrap.ts` calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` once at boot — both `apps/mercato` and the `create-mercato-app` template ship that wiring.
 
 ```ts
 // apps/<app>/src/modules.ts
