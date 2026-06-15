@@ -19,7 +19,7 @@ import {
   withScopedPayload,
 } from '../utils'
 import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
@@ -173,7 +173,7 @@ const crud = makeCrudRoute({
         if (matchingIds !== null && matchingIds.length > 0) {
           applyEntityIdRestriction(filters, matchingIds)
         } else {
-          const searchPattern = `%${escapeLikePattern(query.search)}%`
+          const searchPattern = buildIlikeTerm(query.search)
           filters.$or = [
             { display_name: { $ilike: searchPattern } },
             { primary_email: { $ilike: searchPattern } },
@@ -189,9 +189,9 @@ const crud = makeCrudRoute({
       if (email) {
         filters.primary_email = { $eq: email }
       } else if (emailStartsWith) {
-        filters.primary_email = { $ilike: `${escapeLikePattern(emailStartsWith)}%` }
+        filters.primary_email = { $ilike: buildIlikeTerm(emailStartsWith, 'startsWith') }
       } else if (emailContains) {
-        filters.primary_email = { $ilike: `%${escapeLikePattern(emailContains)}%` }
+        filters.primary_email = { $ilike: buildIlikeTerm(emailContains) }
       }
       if (query.status) {
         filters.status = { $eq: query.status }

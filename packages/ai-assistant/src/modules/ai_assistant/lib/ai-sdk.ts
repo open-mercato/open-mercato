@@ -11,5 +11,5 @@ export { createGoogleGenerativeAI } from '@ai-sdk/google'
 // using `generateObject` / `streamText` already has the registry populated.
 //
 // @see ./llm-bootstrap.ts
-// @see .ai/specs/2026-04-14-llm-provider-ports-and-adapters.md
+// @see .ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md
 import './llm-bootstrap'

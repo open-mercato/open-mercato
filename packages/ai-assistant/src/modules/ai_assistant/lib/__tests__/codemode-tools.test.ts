@@ -7,6 +7,7 @@ import {
   CODE_MODE_MAX_MUTATION_CALLS,
   CODE_MODE_REQUIRED_FEATURES,
   createApiRequestFn,
+  isUnsafeApiRequestPath,
   isUnsafeHttpMethod,
   matchApiEndpointPath,
 } from '../codemode-tools'
@@ -284,6 +285,112 @@ describe('authorizeCodeModeApiRequest', () => {
         deprecated: false,
       },
     })
+  })
+})
+
+describe('path traversal hardening (issue #2667)', () => {
+  describe('isUnsafeApiRequestPath', () => {
+    it.each([
+      '/api/foo/../admin',
+      '/api/foo/..',
+      '/api/foo/./admin',
+      '/api/.',
+      '/api/foo/%2e%2e/admin',
+      '/api/foo/%2E%2E/admin',
+      '/api/foo/%2e./admin',
+      '/api/foo/.%2e/admin',
+      '/api/foo/%2e/admin',
+      '/api/foo\\admin',
+      '/api/foo%2fadmin',
+      '/api/foo%2Fadmin',
+      '/api/foo%5cadmin',
+      'foo/../admin',
+      '/api/foo/../admin?expand=1',
+      // Raw ASCII tab/newline/CR are stripped by the WHATWG URL parser before
+      // the fetch, so `.<ctrl>.` collapses to `..` on the wire.
+      '/api/foo/.\t./admin',
+      '/api/foo/.\n./admin',
+      '/api/foo/.\r./admin',
+      '/api/foo/\t../admin',
+    ])('flags %s as unsafe', (path) => {
+      expect(isUnsafeApiRequestPath(path)).toBe(true)
+    })
+
+    it.each([
+      '/api/customers/companies',
+      '/api/customers/companies/company-1',
+      'customers/companies/company-1?expand=1',
+      '/api/catalog/products/1.2.3',
+      '/api/customers/companies/00000000-0000-0000-0000-000000000000',
+    ])('treats %s as safe', (path) => {
+      expect(isUnsafeApiRequestPath(path)).toBe(false)
+    })
+  })
+
+  it('denies a traversal path even when a parameterized endpoint would match', async () => {
+    mockedGetApiEndpoints.mockReset()
+    // A documented read the user is authorized for. The un-normalized segment
+    // matcher would have accepted '/api/foo/..' against '/api/foo/{id}', then
+    // the wire fetch would collapse it to '/api/admin'. The guard blocks it.
+    mockedGetApiEndpoints.mockResolvedValue([
+      {
+        id: 'get_foo',
+        operationId: 'get_foo',
+        method: 'GET',
+        path: '/api/foo/{id}',
+        summary: '',
+        description: '',
+        tags: [],
+        requiredFeatures: [],
+        parameters: [],
+        requestBodySchema: null,
+        deprecated: false,
+      },
+    ])
+
+    const result = await authorizeCodeModeApiRequest(createContext(), 'GET', '/api/foo/..')
+
+    expect(result).toEqual({
+      allowed: false,
+      statusCode: 403,
+      error: 'Code Mode rejected unsafe API path: GET /api/foo/..',
+    })
+  })
+
+  it('never issues the wire request for a traversal path', async () => {
+    mockedGetApiEndpoints.mockReset()
+    mockedFetchWithTimeout.mockReset()
+    mockedFetchWithTimeout.mockResolvedValue(okResponse())
+    mockedGetApiEndpoints.mockResolvedValue([
+      {
+        id: 'create_company',
+        operationId: 'create_company',
+        method: 'POST',
+        path: '/api/customers/companies',
+        summary: '',
+        description: '',
+        tags: [],
+        requiredFeatures: ['customers.companies.create'],
+        parameters: [],
+        requestBodySchema: null,
+        deprecated: false,
+      },
+    ])
+
+    const apiRequest = createApiRequestFn(
+      createContext({ userFeatures: ['ai_assistant.view', 'customers.companies.create'] }),
+      () => {}
+    )
+
+    const result = (await apiRequest({
+      method: 'POST',
+      path: '/api/customers/companies/../admin',
+      body: {},
+    })) as { success: boolean; statusCode: number }
+
+    expect(result.success).toBe(false)
+    expect(result.statusCode).toBe(403)
+    expect(mockedFetchWithTimeout).not.toHaveBeenCalled()
   })
 })
 

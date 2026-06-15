@@ -125,6 +125,16 @@ export type QueryOptions = {
   // Used by the search indexing pipeline to prevent feedback loops where indexing triggers
   // re-indexing indefinitely.
   skipAutoReindex?: boolean
+  /**
+   * Force routing this query to custom-entity doc storage (`custom_entities_storage`)
+   * instead of classifying the entity automatically. Automatic classification routes
+   * ids backed by a registered ORM table to that base table, so surfaces that manage
+   * doc records for ids that are ALSO table-backed (e.g. the entities records browser
+   * reading a module-declared custom entity such as `example:todo`) must set this flag.
+   * Honored by the hybrid query engine only; `BasicQueryEngine` has no doc-storage
+   * reader and ignores it.
+   */
+  forceCustomEntityStorage?: boolean
   // Optional UMES query extensions context. When provided, the engine will
   // emit sync lifecycle events and apply query-level enrichers.
   extensions?: QueryExtensionsConfig

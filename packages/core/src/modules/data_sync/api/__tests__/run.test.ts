@@ -127,4 +127,23 @@ describe('data_sync run route', () => {
     })
     expect(mockStartDataSyncRun).toHaveBeenCalled()
   })
+
+  it('does not leak the error message or stack in the 500 response (CWE-209)', async () => {
+    const internalDetail = '/srv/app/internal at customers_pkey; connection tenant_secret'
+    mockStartDataSyncRun.mockRejectedValueOnce(new Error(internalDetail))
+
+    const response = await postHandler(new Request('http://localhost/api/data_sync/run', {
+      method: 'POST',
+      body: JSON.stringify({
+        integrationId: 'generic_sync',
+        entityType: 'customers.person',
+        direction: 'import',
+      }),
+    }))
+
+    expect(response.status).toBe(500)
+    const body = await response.json()
+    expect(body).toEqual({ error: 'Failed to start data sync run.' })
+    expect(JSON.stringify(body)).not.toContain(internalDetail)
+  })
 })

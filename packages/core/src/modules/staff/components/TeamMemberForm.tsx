@@ -454,9 +454,12 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
     ]
 
     if (!tagsSection) {
+      // The tags field lives in its own card whose group title already reads
+      // "Tags" (see groups below). Leave the field label empty so the heading
+      // is not rendered twice in the team member edit view.
       baseFields.splice(5, 0, {
         id: 'tags',
-        label: translate('staff.teamMembers.form.fields.tags', 'Tags'),
+        label: '',
         type: 'tags',
         placeholder: translate('staff.teamMembers.form.fields.tags.placeholder', 'Add tags'),
       })

@@ -11,7 +11,7 @@
  * `console.warn` but leaves the rest of the registry working.
  *
  * @see packages/shared/src/lib/ai/llm-provider-registry.ts
- * @see .ai/specs/2026-04-14-llm-provider-ports-and-adapters.md
+ * @see .ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md
  */
 
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'

@@ -15,11 +15,19 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 
 export const metadata = {
   path: '/onboarding/onboarding',
   POST: {
     requireAuth: false,
+    rateLimit: readEndpointRateLimitConfig('ONBOARDING', {
+      points: 10,
+      duration: 60,
+      blockDuration: 60,
+      keyPrefix: 'onboarding',
+    }),
   },
 }
 
@@ -242,6 +250,7 @@ const onboardingPostDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Validation failed', schema: onboardingErrorSchema },
     { status: 404, description: 'Self-service onboarding disabled', schema: onboardingErrorSchema },
     { status: 409, description: 'Existing account or pending request', schema: onboardingErrorSchema },
+    { status: 429, description: 'Too many onboarding submissions from this IP', schema: rateLimitErrorSchema },
     { status: 500, description: 'Unexpected server error', schema: onboardingErrorSchema },
   ],
 }

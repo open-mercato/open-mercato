@@ -666,7 +666,7 @@ export const aiToolOverrides: AiToolOverridesMap = {
 },
 ```
 
-`apps/mercato/src/bootstrap.ts` (and the `create-mercato-app` template) already calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` to wire these up. Other domains (routes, events, workers, widgets, …) reuse the same `entry.overrides` umbrella per spec `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` — AI is Phase 1; subsequent domains roll out as focused PRs.
+`apps/mercato/src/bootstrap.ts` (and the `create-mercato-app` template) already calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` to wire these up. Other domains (routes, events, workers, widgets, …) reuse the same `entry.overrides` umbrella per spec `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md` — AI is Phase 1; subsequent domains roll out as focused PRs.
 
 ### 13.3 Programmatic API (boot-time / dynamic)
 
@@ -719,7 +719,7 @@ Full reference: `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
 - `apps/docs/docs/framework/ai-assistant/launcher.mdx` — global topbar launcher + Cmd/Ctrl+L.
 - `apps/docs/docs/framework/ai-assistant/settings.mdx` — per-tenant prompt and policy override UI.
 - `apps/docs/docs/framework/ai-assistant/playground.mdx` — smoke-test surface.
-- `.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md` — full agentic-loop spec (declarative `loop`, per-call overrides, operator budgets, LoopTrace, `ToolLoopAgent`).
+- `.ai/specs/implemented/2026-04-28-ai-agents-agentic-loop-controls.md` — full agentic-loop spec (declarative `loop`, per-call overrides, operator budgets, LoopTrace, `ToolLoopAgent`).
 - `apps/docs/docs/user-guide/ai-assistant.mdx` — operator-facing walkthrough (use this when designing copy / suggestions).
 - `packages/core/src/modules/customers/ai-agents.ts` + `ai-tools.ts` — canonical chat agent reference.
 - `packages/core/src/modules/catalog/ai-agents.ts` + `ai-tools.ts` — canonical mutation + object-mode reference.

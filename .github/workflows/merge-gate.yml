@@ -1,0 +1,85 @@
+name: Merge gate
+
+# Label-based merge-readiness gate. Fails when a PR is not safe to merge by
+# label policy, independent of build/test status:
+#
+#   - `needs-qa` present but `qa-approved` absent  -> manual QA not signed off
+#   - `qa-failed`  present                          -> QA explicitly failed
+#   - `do-not-merge` / `blocked` present            -> hard merge blocks
+#   - `needs-qa` and `skip-qa` both present         -> contradictory QA intent
+#
+# Wire this into branch protection as a required status check so the gate is
+# enforced, not just advisory. See AGENTS.md -> PR Workflow (QA-approval merge
+# gate) and the self-QA exception for the policy this encodes.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+    branches:
+      - main
+      - develop
+      - feat/wms
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: merge-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  label-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate merge-readiness labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+
+            // Re-read labels from the API rather than trusting the (possibly
+            // stale on `synchronize`) webhook payload.
+            const { data: labels } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              per_page: 100,
+            });
+            const names = new Set(labels.map((label) => label.name));
+            core.info(`PR #${prNumber} labels: ${[...names].join(', ') || '(none)'}`);
+
+            const has = (name) => names.has(name);
+            const blockers = [];
+
+            if (has('do-not-merge')) {
+              blockers.push('`do-not-merge` is set — this PR is explicitly held back.');
+            }
+            if (has('blocked')) {
+              blockers.push('`blocked` is set — progress depends on an external blocker.');
+            }
+            if (has('qa-failed')) {
+              blockers.push('`qa-failed` is set — manual QA failed; re-run QA and clear it before merging.');
+            }
+            if (has('needs-qa') && has('skip-qa')) {
+              blockers.push('`needs-qa` and `skip-qa` are both set — contradictory QA intent; pick one.');
+            }
+            if (has('needs-qa') && !has('qa-approved')) {
+              blockers.push(
+                '`needs-qa` is set without `qa-approved` — manual QA has not signed off. ' +
+                'A QA reviewer (or an engineer via the self-QA exception: run locally, click through, ' +
+                'attach a screenshot or written confirmation, then add `qa-approved` + `qa-self-verified`) ' +
+                'must approve before this can merge. Use `skip-qa` only for genuinely low-risk, ' +
+                'non-customer-facing changes.'
+              );
+            }
+
+            if (blockers.length > 0) {
+              core.setFailed(
+                `Merge gate failed for PR #${prNumber}:\n - ${blockers.join('\n - ')}`
+              );
+              return;
+            }
+
+            core.info('Merge gate passed: no blocking labels present.');

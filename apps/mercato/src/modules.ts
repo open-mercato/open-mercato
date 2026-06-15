@@ -4,7 +4,7 @@
 // - overrides: optional unified per-app override surface — replace or
 //   disable any contract a module presents: AI, routes, events, workers,
 //   widgets, notifications, interceptors, setup, ACL, DI, encryption, etc.
-//   See `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` and
+//   See `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md` and
 //   `apps/docs/docs/framework/modules/overrides.mdx`.
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { ModuleOverrides } from '@open-mercato/shared/modules/overrides'

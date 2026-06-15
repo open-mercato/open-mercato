@@ -1,7 +1,7 @@
 // packages/shared/src/lib/query/advanced-filter-tree.ts
 import type { FilterOperator } from './advanced-filter'
 import { isValuelessOperator } from './advanced-filter'
-import { escapeLikePattern } from '../db/escapeLikePattern'
+import { buildIlikeTerm } from '../db/buildIlikeTerm'
 
 export type FilterCombinator = 'and' | 'or'
 
@@ -102,22 +102,22 @@ function compileRule(rule: FilterRule): Record<string, unknown> | null {
     case 'contains': {
       const v = normalizeSingleValue(rule.value)
       if (v === null) return null
-      filter[rule.field] = { $ilike: `%${escapeLikePattern(String(v))}%` }; break
+      filter[rule.field] = { $ilike: buildIlikeTerm(String(v)) }; break
     }
     case 'does_not_contain': {
       const v = normalizeSingleValue(rule.value)
       if (v === null) return null
-      filter[rule.field] = { $not: { $ilike: `%${escapeLikePattern(String(v))}%` } }; break
+      filter[rule.field] = { $not: { $ilike: buildIlikeTerm(String(v)) } }; break
     }
     case 'starts_with': {
       const v = normalizeSingleValue(rule.value)
       if (v === null) return null
-      filter[rule.field] = { $ilike: `${escapeLikePattern(String(v))}%` }; break
+      filter[rule.field] = { $ilike: buildIlikeTerm(String(v), 'startsWith') }; break
     }
     case 'ends_with': {
       const v = normalizeSingleValue(rule.value)
       if (v === null) return null
-      filter[rule.field] = { $ilike: `%${escapeLikePattern(String(v))}` }; break
+      filter[rule.field] = { $ilike: buildIlikeTerm(String(v), 'endsWith') }; break
     }
     case 'is_empty': filter[rule.field] = { $exists: false }; break
     case 'is_not_empty': filter[rule.field] = { $exists: true }; break

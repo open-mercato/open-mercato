@@ -5,12 +5,21 @@ import { pathToFileURL } from 'node:url'
 import * as registry from '@open-mercato/shared/modules/registry'
 import {
   rewriteGeneratedAliasImports,
+  escapeUnsafeJsStringChars,
   findGeneratedFile,
   ensureApiRouteManifestsRegistered,
 } from '../generated-registry-loader'
 
 function makeTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'om-gen-loader-'))
+}
+
+// Mirror the production sanitizer so expectations match how the rewriter
+// embeds a resolved path into the generated source. For ordinary file URLs the
+// escape is a no-op, but routing the expected literal through the same helper
+// keeps the test honest if the rewriter's escaping ever changes.
+function safeJsLiteral(value: string): string {
+  return escapeUnsafeJsStringChars(JSON.stringify(value))
 }
 
 describe('rewriteGeneratedAliasImports', () => {
@@ -28,20 +37,20 @@ describe('rewriteGeneratedAliasImports', () => {
     const expectedUrl = pathToFileURL(
       path.join(appRoot, '.mercato/generated/entities'),
     ).href
-    expect(out).toBe(`import { x } from ${JSON.stringify(expectedUrl)}`)
+    expect(out).toBe(`import { x } from ${safeJsLiteral(expectedUrl)}`)
     expect(out).not.toContain('@/')
   })
 
   it('rewrites a dynamic `import("@/...")` call to an absolute file URL', () => {
     const appRoot = makeTempDir()
-    const out = rewriteGeneratedAliasImports(
-      `const tools = () => import("@/.mercato/generated/ai-tools.generated")`,
-      appRoot,
-    )
+    const aliasSpecifier = '"@/.mercato/generated/ai-tools.generated"'
+    const source = `const tools = () => import(${aliasSpecifier})`
+    const out = rewriteGeneratedAliasImports(source, appRoot)
     const expectedUrl = pathToFileURL(
       path.join(appRoot, '.mercato/generated/ai-tools.generated'),
     ).href
-    expect(out).toBe(`const tools = () => import(${JSON.stringify(expectedUrl)})`)
+    const expected = source.replace(aliasSpecifier, safeJsLiteral(expectedUrl))
+    expect(out).toBe(expected)
     expect(out).not.toContain('@/')
   })
 
@@ -53,7 +62,7 @@ describe('rewriteGeneratedAliasImports', () => {
     const out = rewriteGeneratedAliasImports(`import x from '@/src/thing'`, appRoot)
 
     const expectedUrl = pathToFileURL(path.join(appRoot, 'src', 'thing.ts')).href
-    expect(out).toBe(`import x from ${JSON.stringify(expectedUrl)}`)
+    expect(out).toBe(`import x from ${safeJsLiteral(expectedUrl)}`)
   })
 
   it('leaves non-alias imports untouched', () => {
@@ -63,6 +72,24 @@ describe('rewriteGeneratedAliasImports', () => {
       `import y from '@open-mercato/shared/x'`,
     ].join('\n')
     expect(rewriteGeneratedAliasImports(source, makeTempDir())).toBe(source)
+  })
+})
+
+describe('escapeUnsafeJsStringChars', () => {
+  it('escapes characters JSON.stringify leaves intact in a JS string literal', () => {
+    const lineSep = String.fromCharCode(0x2028)
+    const paraSep = String.fromCharCode(0x2029)
+    const out = escapeUnsafeJsStringChars(`a<b>c${lineSep}d${paraSep}e`)
+    expect(out).toBe('a\\u003Cb\\u003Ec\\u2028d\\u2029e')
+    expect(out).not.toContain('<')
+    expect(out).not.toContain('>')
+    expect(out).not.toContain(lineSep)
+    expect(out).not.toContain(paraSep)
+  })
+
+  it('leaves ordinary file URLs unchanged', () => {
+    const url = pathToFileURL(path.join('/tmp', 'app', '.mercato', 'x.generated')).href
+    expect(escapeUnsafeJsStringChars(JSON.stringify(url))).toBe(JSON.stringify(url))
   })
 })
 
