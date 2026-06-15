@@ -1,4 +1,4 @@
-# Queue Status Dashboard — Payload-Free Queue Health & Failed-Job Visibility
+# Queue Status Dashboard — Queue Health, Failed-Job Visibility & Privileged Job Inspection
 
 - **Status:** Draft (deferred — not yet implemented)
 - **Scope:** OSS
@@ -7,24 +7,45 @@
 
 ## TLDR
 
-Add a **read-only Queue Status** admin surface that shows, per registered queue, the
-current job counts by state (waiting / active / completed / failed / delayed) plus a
-**bounded, payload-free** list of recent failed jobs (id, queue, worker id, error/reason,
-attempts, failed-at). It must be **safe to open against very large queues**: it never
-enumerates the whole queue and **never loads or renders job payloads** (`job.data`),
-which can contain tenant-sensitive data. Counts come from aggregate APIs
-(`Queue.getJobCounts()` / BullMQ `getJobCounts`), and the failed-job list is fetched in a
-small bounded window with the payload stripped server-side. Works for both `local`
-(file-based) and `async` (BullMQ/Redis) strategies, degrading gracefully where the local
-strategy cannot supply a state.
+Add a **two-tier Queue Status** admin surface:
+
+- **Tier 1 — Status (default, payload-free, broad access).** Per registered queue, current
+  job counts by state (waiting / active / completed / failed / delayed) plus a **bounded,
+  payload-free** list of recent failed jobs (id, queue, worker id, error/reason, attempts,
+  failed-at). Safe to open against very large queues — it never enumerates the whole queue
+  and never loads or renders job payloads (`job.data`). Counts come from aggregate APIs
+  (`Queue.getJobCounts()`); the failed-job list is a small bounded window with the payload
+  stripped server-side.
+- **Tier 2 — Job Inspector (opt-in, privileged, audited).** A separately gated capability to
+  load the **last X jobs** for a queue (optionally filtered by state) **including their
+  payloads** for debugging. Because queues are infrastructure-level and shared across
+  tenants, and payloads can carry PII / encrypted-at-rest data, this tier is behind its own
+  higher-privilege feature (`configs.queues_status.inspect_payloads`), is **bounded**
+  (server-capped `X`), **audited** (every payload read is logged), and applies
+  **redaction-by-default** for encrypted/known-sensitive fields. It is explicitly NOT part
+  of the broadly-accessible dashboard.
+
+Both tiers work for `local` (file-based) and `async` (BullMQ/Redis) strategies, degrading
+gracefully where the local strategy cannot supply a state.
 
 ## Open Questions
 
-_None blocking._ The design reuses the existing `configs` system-status surface and the
-existing `Queue.getJobCounts()` contract, so no architecture-blocking unknowns remain. Two
-**deferred decisions** are explicitly out of scope for the first cut and tracked as
-non-goals below (mutating actions; cross-tenant aggregation). If the maintainer wants
-either folded into Phase 1, that changes the ACL/seam design — flag before implementation.
+The two architecture-blocking decisions for the **Job Inspector tier** are answered inline
+in this spec (gating model, redaction, audit), but the maintainer should confirm two policy
+choices before implementation — they change the ACL/redaction surface, not the overall
+shape:
+
+1. **Who may inspect payloads?** Default in this spec: a dedicated platform feature
+   `configs.queues_status.inspect_payloads`, granted to platform-operator/superadmin roles
+   only (NOT bundled with the read-only `.view` grant). Confirm whether ordinary tenant
+   admins should ever get it. Given cross-tenant exposure (see Tenant Scoping), the spec
+   recommends **superadmin/platform-operator only**.
+2. **Decrypt encrypted payload fields?** Default in this spec: **no** — encrypted-at-rest
+   fields are shown redacted/as-ciphertext; raw decryption is out of scope for Phase 2 and
+   would require an even higher, separately-audited privilege. Confirm this is acceptable.
+
+The previously deferred decisions (mutating actions; per-tenant aggregation) remain
+non-goals below.
 
 ## Problem Statement
 
@@ -50,35 +71,52 @@ The hard constraint is **safety at scale and tenant-data safety**:
    allowed.
 2. A job's payload (`job.data`) routinely carries **tenant-scoped, potentially
    encrypted-at-rest or PII** content (entity ids, emails, document bodies, sync records).
-   The status surface MUST NOT expose payloads. Only **non-sensitive status metadata**
-   (counts, ids, worker id, error message/reason, attempt count, timestamps) may leave the
-   server.
+   The **Tier 1 status surface** MUST NOT expose payloads — only **non-sensitive status
+   metadata** (counts, ids, worker id, error message/reason, attempt count, timestamps) may
+   leave the server.
+
+Operators have also asked to **inspect actual job payloads** for the last few jobs when
+debugging a stuck or misbehaving worker (e.g. "what exactly did that failed sync job
+receive?"). That is a legitimate need, but it is the **opposite** of constraint 2 above, so
+it cannot live on the broadly-accessible dashboard. The spec resolves this with a
+**second, privileged tier** (Job Inspector) that is separately gated, bounded, audited, and
+redaction-by-default — never folded into the Tier 1 grant.
 
 ## Proposed Solution
 
 ### Architecture overview
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│ configs module (admin surface)                                     │
-│   backend/config/queues-status/page.tsx   ──renders──▶ QueueStatusPanel │
-│   api/queues-status/route.ts  (GET, requireFeatures: queues_status.view)│
-│        │ resolves DI 'createQueue' + worker registry                │
-│        ▼                                                            │
-│   lib/queue-status.ts  buildQueueStatusSnapshot()                  │
-│        │ enumerate registered queues (dedupe worker descriptors)    │
-│        │ per queue: getJobCounts() + getFailedJobsSummary(limit)    │
-│        ▼ returns sanitized snapshot (NO job.data)                  │
-└────────────────────────────┼───────────────────────────────────────┘
-                             │ uses additive contract
-                             ▼
-┌──────────────────────────────────────────────────────────────────┐
-│ @open-mercato/queue (introspection contract — ADDITIVE only)       │
-│   Queue.getJobCounts()  (exists) → add optional `delayed`          │
-│   Queue.getFailedJobsSummary?(limit, offset)  (NEW, optional)      │
-│     async strategy: BullMQ getJobs(['failed'], 0, limit) → strip   │
-│     local strategy: read failed entries from state, bounded        │
-└──────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│ configs module (admin surface)                                             │
+│  TIER 1 — Status (payload-free, broad access)                              │
+│   backend/config/queues-status/page.tsx   ──renders──▶ QueueStatusPanel    │
+│   api/queues-status/route.ts  (GET, requireFeatures: queues_status.view)   │
+│        │ lib/queue-status.ts  buildQueueStatusSnapshot()                   │
+│        │ enumerate queues; per queue: getJobCounts() + getFailedJobsSummary│
+│        ▼ returns sanitized snapshot (NO job.data)                          │
+│                                                                            │
+│  TIER 2 — Job Inspector (payload-visible, privileged, audited)            │
+│   QueueJobInspector (drawer, opt-in)                                        │
+│   api/queues-status/jobs/route.ts                                          │
+│     (GET, requireFeatures: queues_status.inspect_payloads)                 │
+│        │ clamp X; audit-log the access (actor, queue, state, count)        │
+│        │ lib/queue-job-inspector.ts  loadRecentJobs(queue, state, X)       │
+│        │   → redact encrypted/sensitive fields by default                  │
+│        ▼ returns last-X jobs INCLUDING (redacted) payload                  │
+└───────────────────────────────┼────────────────────────────────────────────┘
+                                │ uses additive contract
+                                ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│ @open-mercato/queue (introspection contract — ADDITIVE only)               │
+│   Queue.getJobCounts()  (exists) → add optional `delayed`                  │
+│   Queue.getFailedJobsSummary?(limit, offset)  (NEW, optional) — no payload │
+│   Queue.getRecentJobs?(opts)  (NEW, optional) — INCLUDES raw payload       │
+│     async: BullMQ getJobs([state], 0, X-1) → full job incl. data           │
+│     local: read last-X entries from the queue file, bounded                │
+│   (getRecentJobs returns raw data; redaction is the CALLER's job in        │
+│    configs/lib/queue-job-inspector.ts, not the queue package's)            │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 Cross-module rule compliance: the admin surface lives in `configs`, the introspection
@@ -143,6 +181,80 @@ type FailedJobSummary = {
 If a strategy does not implement `getFailedJobsSummary`, the snapshot returns counts only
 and the UI shows "failed details unavailable for this strategy".
 
+### Job Inspector (Tier 2) — last-X jobs *with* payload (privileged, tenant-safe, audited)
+
+This is the capability behind "load the last X jobs and check their payloads too." It is
+**not** part of the Tier 1 dashboard grant. It exists so an operator can debug a specific
+stuck/failed job, and it is deliberately constrained on four axes: **bounded**, **gated**,
+**tenant-scoped**, and **audited**.
+
+A new **optional** method on the `Queue` contract returns full jobs *including* raw payload —
+redaction and tenant filtering are the **caller's** responsibility, never the queue
+package's (the queue stays a dumb transport):
+
+```ts
+getRecentJobs?(opts: {
+  state?: 'waiting' | 'active' | 'completed' | 'failed' | 'delayed'
+  limit: number          // last-X; server-clamped by the caller before this is reached
+  offset?: number
+}): Promise<RecentJob[]>
+
+type RecentJob = {
+  id: string
+  queue: string
+  state?: string
+  attemptsMade?: number
+  timestamp?: number
+  processedOn?: number
+  finishedOn?: number
+  failedReason?: string
+  data: unknown          // RAW payload — caller MUST tenant-filter + redact before responding
+}
+```
+
+- **async (BullMQ):** `queue.getJobs([state ?? all-states], 0, limit - 1)` → newest-first
+  window. **Never** a full scan.
+- **local:** read the last-X entries from the queue file, bounded.
+
+**Tenant safety (the core rule).** Queues are infrastructure-level and shared across
+tenants, so a raw last-X window can contain other tenants' jobs. The inspector layer
+(`configs/lib/queue-job-inspector.ts`) enforces tenant isolation **before** anything leaves
+the server:
+
+1. Resolve the actor's scope from the session: `isSuperAdmin`, `tenantId`,
+   `organizationId`.
+2. For each candidate job, extract its **own** tenant scope from the well-known job envelope
+   fields the platform already stamps on enqueued jobs (e.g. `data.tenantId` /
+   `data.organizationId`, mirroring the scoped-payload convention used elsewhere). A job
+   whose tenant cannot be determined is treated as **cross-tenant / not yours** (fail
+   closed), not shown to a tenant admin.
+3. **Filter:**
+   - **Superadmin / platform operator** (no tenant binding): may see jobs across **all**
+     tenants. The response still records which tenant each job belongs to, and the access is
+     audited.
+   - **Any non-superadmin** (even with `inspect_payloads`): the server **drops every job
+     whose `tenantId` ≠ the actor's `tenantId`** before building the response. A tenant
+     admin can therefore **never** see another tenant's jobs or payloads — the filtering is
+     server-side and not bypassable by query params. `X` is applied **after** the tenant
+     filter so the count can't be used to probe how many foreign jobs exist.
+4. **Redact-by-default:** known-sensitive / encrypted-at-rest payload fields are redacted
+   (shown as `«redacted»` / ciphertext marker) regardless of tier. Raw decryption is a
+   non-goal (see Open Questions Q2).
+
+**Gating.** A second, higher-privilege feature `configs.queues_status.inspect_payloads`,
+granted to platform-operator/superadmin roles only and NOT bundled with the read-only
+`.view` grant (Open Questions Q1). The cross-tenant *breadth* is gated by superadmin status
+on top of the feature — i.e. the feature lets you inspect payloads, being superadmin lets
+you inspect *beyond your own tenant*.
+
+**Bounding & audit.** `X` is server-clamped (e.g. ≤ 100, default 20). Every inspector call
+writes an **audit record** (actor id, tenant, queue, requested state, returned count,
+whether cross-tenant breadth was used) so payload access is traceable. The Tier 1 dashboard
+never triggers this path.
+
+If a strategy does not implement `getRecentJobs`, the Job Inspector is disabled for that
+queue and the UI shows "payload inspection unavailable for this strategy".
+
 ### Admin surface
 
 - New backend page `configs/backend/config/queues-status/page.tsx` rendering a
@@ -157,25 +269,53 @@ and the UI shows "failed details unavailable for this strategy".
 - All strings via `useT()` / `resolveTranslations()`; no hardcoded user-facing copy.
 - Manual auto-refresh only (button or a modest interval). Because every refresh is just
   aggregate counts + a tiny bounded window, polling stays cheap even on huge queues.
+- **Job Inspector drawer (Tier 2)** is rendered **only** when the session carries
+  `configs.queues_status.inspect_payloads`; otherwise the affordance is absent (not just
+  disabled). Opening it shows a clear notice that payloads may contain sensitive data and
+  that access is audited. For non-superadmins it states "showing only your tenant's jobs";
+  for superadmins it shows a per-row tenant badge. The payload renders as collapsed,
+  redaction-applied JSON.
 
 ### Access control
 
-New immutable feature id in `configs/acl.ts`: `configs.queues_status.view` (read). The route
-guards `GET` with `requireFeatures: ['configs.queues_status.view']`, matching how
-`system-status` guards `configs.system_status.view`. No mutating endpoint in Phase 1, so no
-`configs.manage`-style write feature is added yet.
+Two immutable feature ids in `configs/acl.ts`:
+
+- `configs.queues_status.view` (Tier 1, read) — guards `GET /api/configs/queues-status`,
+  mirroring how `system-status` guards `configs.system_status.view`. Safe to grant broadly
+  to admins; exposes no payloads.
+- `configs.queues_status.inspect_payloads` (Tier 2, privileged read) — guards
+  `GET /api/configs/queues-status/jobs`. **Not** bundled into the `.view` grant; synced only
+  to platform-operator/superadmin roles in `setup.ts`. Holding this feature lets you inspect
+  payloads **for your own tenant**; seeing **other tenants'** jobs additionally requires
+  superadmin status (enforced server-side in the inspector layer, see Tenant scoping).
+
+No mutating endpoint in this spec, so no `configs.manage`-style write feature is added yet
+(retry/remove is a deferred non-goal).
 
 ### Tenant scoping
 
-Queues in Open Mercato are **infrastructure-level**, not tenant-partitioned — a single
-BullMQ/local queue is shared across tenants and jobs carry their own tenant scope in the
-payload (which we deliberately never read). Therefore the dashboard is an
-**operator/admin** view gated by a platform feature, and it surfaces **aggregate counts
-only** — never per-tenant payload data — so it cannot leak cross-tenant content. The spec
-explicitly does NOT add per-tenant queue filtering in Phase 1 (it would require reading
-payloads to attribute jobs to tenants, which violates the core safety constraint). If
-per-tenant attribution is ever needed, it must come from queue-level metadata/tags, not
-payload inspection — tracked as a non-goal.
+Queues are **infrastructure-level**, not tenant-partitioned — one BullMQ/local queue is
+shared across tenants; each job carries its own tenant scope inside its envelope.
+
+- **Tier 1 (Status):** surfaces **aggregate counts** and **payload-free** failed metadata
+  only, so it cannot leak cross-tenant content regardless of who views it. (Counts are
+  process-wide infrastructure health, intentionally not per-tenant.)
+- **Tier 2 (Job Inspector):** because it reads payloads, it enforces strict tenant
+  isolation **server-side**, and this is the hard rule the feature must satisfy:
+
+  > **A non-superadmin MUST NOT be able to see jobs (or payloads) belonging to any tenant
+  > other than their own. Only a superadmin / platform operator may inspect jobs across
+  > tenants.**
+
+  The inspector resolves the actor's tenant from the session, extracts each job's tenant
+  from its envelope, and — for any non-superadmin — drops every job whose tenant ≠ the
+  actor's tenant **before** the response is built (the `X` limit is applied after this
+  filter, and the filter is not overridable by query params). Jobs whose tenant cannot be
+  determined are treated as not-yours and withheld from non-superadmins (fail closed).
+  Superadmins bypass the tenant filter but every access is audited with the tenant of each
+  returned job. This is enforced in `configs/lib/queue-job-inspector.ts` and covered by the
+  integration tests below (a tenant-A admin requesting jobs sees zero tenant-B jobs even
+  when tenant-B jobs are the most recent in the shared queue).
 
 ## Phasing (stories)
 
@@ -186,10 +326,15 @@ Additive, payload-free introspection on the `Queue` contract for both strategies
 `buildQueueStatusSnapshot()` + guarded `GET /api/configs/queues-status` returning the
 sanitized snapshot.
 
-### Phase 3 — Admin UI
+### Phase 3 — Admin UI (Tier 1)
 `QueueStatusPanel` + page + nav/injection + i18n + DS-token styling.
 
-### Phase 4 (non-goal / follow-up) — Mutating actions
+### Phase 4 — Job Inspector (Tier 2, privileged + tenant-safe + audited)
+`getRecentJobs` contract method, the tenant-isolating + redacting inspector lib, the
+`inspect_payloads`-gated `GET /api/configs/queues-status/jobs` route, the audit record, and
+the inspector drawer UI. This is the "load last X jobs and check payloads" capability.
+
+### Phase 5 (non-goal / follow-up) — Mutating actions
 Optional retry / remove-failed actions (own write feature, optimistic-lock-free since jobs
 are not user-editable entities, idempotent, audited). Explicitly **out of scope** here.
 
@@ -222,21 +367,55 @@ are not user-editable entities, idempotent, audited). Explicitly **out of scope*
    fields.
 7. **Page + nav + injection.** `backend/config/queues-status/page.tsx`, nav/menu entry under
    `config`, `InjectionSpot` `configs.queues_status:details`, link from System Status.
-8. **i18n + checks.** Add locale keys; run `yarn i18n:check-hardcoded`. Prefix any internal
-   `throw`/`toast` with `[internal]`.
+8. **Queue contract — recent jobs (Tier 2).** Add optional `getRecentJobs?(opts)` + `RecentJob`
+   type (includes raw `data`) to the `Queue` interface. Implement in `async.ts`
+   (`getJobs([state], 0, limit-1)`) and `local.ts` (last-X bounded file read). _Test:_ unit
+   test newest-first ordering + `limit` cap per strategy.
+9. **Inspector lib (tenant-safe + redaction).** `configs/lib/queue-job-inspector.ts`:
+   resolve actor scope (`isSuperAdmin`, `tenantId`), extract each job's tenant from the
+   envelope, **drop foreign-tenant jobs for non-superadmins (apply `X` after the filter,
+   fail closed on unknown tenant)**, redact encrypted/sensitive fields. zod schema for the
+   response. _Test (critical):_ unit test that a tenant-A actor receives **zero** tenant-B
+   jobs from a mixed queue, that the limit is applied post-filter, and that redaction hides
+   sensitive keys; superadmin sees both tenants with per-job tenant tag.
+10. **Inspector ACL + audit.** Add `configs.queues_status.inspect_payloads` to `acl.ts`;
+    sync to platform-operator/superadmin roles only in `setup.ts`. Write an audit record on
+    each inspector call. Run `yarn generate`.
+11. **Inspector API route.** `configs/api/queues-status/jobs/route.ts` `GET` guarded by
+    `requireFeatures: ['configs.queues_status.inspect_payloads']`; clamp `X` server-side;
+    delegate to the inspector lib; OpenAPI doc. _Test (integration):_ 401 unauth; 403 without
+    the feature; tenant-A admin sees only tenant-A jobs; superadmin sees cross-tenant; `X`
+    clamp; no un-redacted sensitive field in the body.
+12. **Inspector UI.** `QueueJobInspector` drawer rendered only when the feature is present;
+    sensitive-data + audit notice; per-row tenant badge for superadmin; collapsed redacted
+    JSON payload; `apiCall`, DS tokens, i18n. _Test:_ component test asserts the drawer is
+    absent without the feature and renders redacted payload with it.
+13. **i18n + checks.** Add locale keys; run `yarn i18n:check-hardcoded`. Prefix any internal
+    `throw`/`toast` with `[internal]`.
 
 ## Integration Coverage
 
 **Affected API paths**
-- `GET /api/configs/queues-status` — auth required (401 without session); feature gate
-  (403 without `configs.queues_status.view`); 200 returns a snapshot whose failed-job
+- `GET /api/configs/queues-status` (Tier 1) — auth required (401 without session); feature
+  gate (403 without `configs.queues_status.view`); 200 returns a snapshot whose failed-job
   entries contain **no payload/`data` field**; `limit` query is clamped to the server cap;
   works with `QUEUE_STRATEGY=local` and (when Redis configured) `QUEUE_STRATEGY=async`.
+- `GET /api/configs/queues-status/jobs` (Tier 2, Job Inspector) — auth required (401); feature
+  gate (403 without `configs.queues_status.inspect_payloads`); **tenant isolation (the
+  critical case): a tenant-A admin requesting the last-X jobs of a queue that contains
+  tenant-B jobs receives ONLY tenant-A jobs — zero tenant-B rows — even when tenant-B jobs
+  are the most recent**; a **superadmin** receives cross-tenant jobs each tagged with its
+  tenant; `X` is clamped server-side and applied **after** the tenant filter; the response
+  contains **no un-redacted sensitive/encrypted field**; every call writes an audit record.
 
 **Key UI paths**
 - `/backend/config/queues-status` — renders per-queue counts with DS status tokens;
   failed-jobs table shows only id/queue/worker/reason/attempts/failed-at; loading and error
-  states render via `LoadingMessage`/`ErrorMessage`; refresh re-fetches counts only.
+  states render via `LoadingMessage`/`ErrorMessage`; refresh re-fetches counts only. The Job
+  Inspector drawer is **absent** for a session lacking `inspect_payloads`.
+- `/backend/config/queues-status` (Job Inspector drawer, with `inspect_payloads`) — loads the
+  last X jobs for a queue; non-superadmin sees only own-tenant jobs; superadmin sees a tenant
+  badge per row; payload renders redacted; sensitive-data/audit notice shown.
 - `/backend/config/system-status` — the link/section to the queue status surface resolves.
 
 **Strategy coverage**
@@ -250,24 +429,36 @@ Contract surface touched: the `@open-mercato/queue` **types** and the **`Queue` 
 
 - `getJobCounts()` gains an **optional** `delayed?` field — existing callers that read only
   `waiting/active/completed/failed` are unaffected.
-- `getFailedJobsSummary?` is an **optional** method — existing `Queue` implementations and
-  callers that never reference it keep compiling and behaving identically.
-- New `FailedJobSummary` / `QueueStatusSnapshot` types and the new feature id, route, page,
-  and injection spot are **net-new additions**, not changes to existing ids.
-- No DB schema change, no migration, no event-id change, no removed/renamed export.
+- `getFailedJobsSummary?` and `getRecentJobs?` are **optional** methods — existing `Queue`
+  implementations and callers that never reference them keep compiling and behaving
+  identically.
+- New `FailedJobSummary` / `RecentJob` / `QueueStatusSnapshot` types and the two new feature
+  ids, the two routes, the page, drawer, and injection spot are **net-new additions**, not
+  changes to existing ids.
+- No DB schema change and no migration for the queue/status surface itself. If the audit
+  record is persisted to a new table, that table + migration follow the standard module
+  migration workflow and are themselves additive (new entity, no change to existing schema).
+- No event-id change, no removed/renamed export.
 
 No deprecation protocol is required because nothing is removed or changed in a
-breaking way. The new ACL feature must be synced to roles via `setup.ts` so existing tenants
-gain the grant on upgrade.
+breaking way. Both new ACL features must be synced to roles via `setup.ts` so existing
+tenants gain the appropriate grants on upgrade — `.view` broadly,
+`.inspect_payloads` to platform-operator/superadmin only.
 
 ## Non-Goals
 
-- Reading, decrypting, or displaying job payloads (`job.data`) — **explicitly forbidden**.
-- Enumerating entire queues or paginating across the full job set — only aggregate counts
-  plus a small bounded failed window.
+- **Tier 1 status surface** reading/displaying payloads — forbidden; counts + payload-free
+  metadata only.
+- **Tier 2 Job Inspector** decrypting encrypted-at-rest payload fields — redaction-by-default
+  only; raw decryption needs a separate, even-higher privilege (deferred; Open Questions Q2).
+- **Cross-tenant payload access for non-superadmins** — forbidden by design; only a
+  superadmin / platform operator may inspect jobs beyond their own tenant.
+- Enumerating entire queues or paginating across the full job set — only aggregate counts,
+  a small bounded failed window, and a small bounded last-X inspector window.
 - Mutating actions (retry/remove/drain) — deferred to a follow-up phase with its own write
   feature.
-- Per-tenant queue filtering/attribution — would require payload inspection; out of scope.
+- Per-tenant **aggregate count** attribution on Tier 1 — counts stay process-wide
+  infrastructure health (per-tenant counting would require payload inspection).
 - A real-time push/SSE feed — manual/interval refresh of cheap aggregates is sufficient.
 
 ## Validation Commands
