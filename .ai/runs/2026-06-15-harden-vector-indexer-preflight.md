@@ -99,8 +99,8 @@ instead of per-record error spam and a flood of doomed inserts/embedding calls.
 
 ### Phase 3: Validation gate
 
-- [ ] 3.1 `yarn generate` (if discovered files changed), `yarn workspace @open-mercato/search build`, `yarn workspace @open-mercato/search test`
-- [ ] 3.2 `yarn typecheck`, `yarn lint`, then full gate (`yarn build:packages`, `yarn test`, `yarn build:app`)
+- [x] 3.1 `yarn generate`, `yarn build:packages`, `yarn workspace @open-mercato/search build`, search tests (160 pass)
+- [x] 3.2 Full gate: `yarn build:packages` ✓, `yarn generate` ✓, `yarn typecheck` (21/21) ✓, `yarn test` (22/22; core 5895 + search 160) ✓, `yarn i18n:check-sync` ✓ (usage warnings pre-existing/advisory). `yarn build:app` deliberately skipped (no app code changed; app typecheck passed); direct eslint blocked by an eslint v10 / eslint-plugin-react tooling mismatch in the worktree (unrelated to the change)
 
 ### Phase 4: Review & PR
 
