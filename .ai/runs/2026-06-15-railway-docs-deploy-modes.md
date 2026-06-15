@@ -59,7 +59,7 @@ External References:
 
 ### Phase 1: Plan
 
-- [ ] 1.1 Create the resumable execution plan for this docs-only PR.
+- [x] 1.1 Create the resumable execution plan for this docs-only PR. — 0492376e0
 
 ### Phase 2: Docs
 
