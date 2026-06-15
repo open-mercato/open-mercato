@@ -39,9 +39,9 @@ Write a detailed, architecturally-compliant spec for an opt-in program that lets
 
 ### Phase 1: Author the spec
 
-- [ ] 1.1 Write the full spec document (TLDR, problem, solution, architecture, data models, API contracts, sanitization pipeline, consent model, hooks design, create-app extension, ingestion module, telemetry relationship, phasing, risks, compliance, changelog)
-- [ ] 1.2 Add spec to the spec listing/index if one is maintained; cross-link telemetry specs
+- [x] 1.1 Write the full spec document (TLDR, problem, solution, architecture, data models, API contracts, sanitization pipeline, consent model, hooks design, create-app extension, ingestion module, telemetry relationship, phasing, risks, compliance, changelog) — local PII + dangerous-data redaction before upload made the load-bearing Part C per follow-up request
+- [x] 1.2 Add spec to the spec listing/index if one is maintained; cross-link telemetry specs
 
 ### Phase 2: Self-review
 
-- [ ] 2.1 Re-read spec against om-spec-writing checklist + BC contract; tighten gaps
+- [x] 2.1 Re-read spec against om-spec-writing checklist + BC contract; tighten gaps
