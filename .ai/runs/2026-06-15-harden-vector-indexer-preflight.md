@@ -83,7 +83,7 @@ instead of per-record error spam and a flood of doomed inserts/embedding calls.
 
 ## Progress
 
-> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
+> Convention: `- [ ]` pending, `- [x]` done. Append `— <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Pure preflight helper + log helper
 
@@ -93,9 +93,9 @@ instead of per-record error spam and a flood of doomed inserts/embedding calls.
 
 ### Phase 2: Wire preflight into the vector-index worker
 
-- [ ] 2.1 Resolve embedding service + pgvector driver and run preflight in the `batch-index` path; skip with one warning while still advancing progress/heartbeat/lock
-- [ ] 2.2 Run preflight (no probe) in the single-record `index` path; skip with one warning; never gate `delete` jobs
-- [ ] 2.3 Unit tests: batch skip on dimension-mismatch & provider-unreachable emits one warning and indexes no records; single-record skip on mismatch
+- [x] 2.1 Resolve embedding service + pgvector driver and run preflight in the `batch-index` path; skip with one warning while still advancing progress/heartbeat/lock — 6273cdb80
+- [x] 2.2 Run preflight (no probe) in the single-record `index` path; skip with one warning; never gate `delete` jobs — 6273cdb80
+- [x] 2.3 Unit tests: batch skip on dimension-mismatch & provider-unreachable emits one warning and indexes no records; single-record skip on mismatch — 6273cdb80
 
 ### Phase 3: Validation gate
 
