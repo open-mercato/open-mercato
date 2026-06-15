@@ -51,7 +51,7 @@ Fix fresh `create-mercato-app` Railway local-source deployments so required app 
 ### Phase 1: Reproduce and narrow root cause
 
 - [x] 1.1 Reproduce scaffold ignore mismatch locally
-- [ ] 1.2 Record root-cause evidence in PR summary
+- [x] 1.2 Record root-cause evidence in PR summary
 
 ### Phase 2: Fix template and regression coverage
 
@@ -61,4 +61,4 @@ Fix fresh `create-mercato-app` Railway local-source deployments so required app 
 ### Phase 3: Validation and PR
 
 - [x] 3.1 Run focused create-app Railway template tests
-- [ ] 3.2 Open PR and summarize cause, fix, and workaround
+- [x] 3.2 Open PR and summarize cause, fix, and workaround — PR #3072
