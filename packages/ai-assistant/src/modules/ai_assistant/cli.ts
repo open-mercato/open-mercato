@@ -47,30 +47,42 @@ const mcpServe: ModuleCli = {
   command: 'mcp:serve',
   async run(rest) {
     const args = parseArgs(rest)
-    const apiKey = String(args['api-key'] ?? args.apiKey ?? '') || null
+    // Prefer the OPEN_MERCATO_API_KEY env var so the secret never has to be
+    // placed on the command line (argv is world-readable via ps / /proc).
+    // The --api-key flag stays supported for backward compatibility.
+    const apiKey = String(args['api-key'] ?? args.apiKey ?? '') || process.env.OPEN_MERCATO_API_KEY || null
     const tenantId = String(args.tenant ?? args.tenantId ?? '') || null
     const organizationId = String(args.org ?? args.organizationId ?? '') || null
     const userId = String(args.user ?? args.userId ?? '') || null
     const debug = args.debug === true || args.debug === 'true'
+    const allowUnauthenticatedSuperadmin =
+      args['allow-unauthenticated-superadmin'] === true ||
+      args['allow-unauthenticated-superadmin'] === 'true'
 
     // Either API key or tenant is required
     if (!apiKey && !tenantId) {
       console.error('Usage: mercato ai_assistant mcp:serve [options]')
       console.error('')
       console.error('Authentication (choose one):')
-      console.error('  --api-key <secret>   API key secret for authentication (recommended)')
-      console.error('  --tenant <id>        Tenant ID (for manual context)')
+      console.error('  OPEN_MERCATO_API_KEY env   API key secret (recommended — keeps the secret off argv)')
+      console.error('  --api-key <secret>         API key secret for authentication (visible in process listings)')
+      console.error('  --tenant <id>              Tenant ID (for manual context)')
       console.error('')
       console.error('Options (with --tenant):')
       console.error('  --org <id>           Organization ID (optional)')
-      console.error('  --user <id>          User ID for ACL (optional, uses superadmin if not set)')
+      console.error('  --user <id>          User ID for ACL (required unless --allow-unauthenticated-superadmin is set)')
       console.error('')
       console.error('Common options:')
       console.error('  --debug              Enable debug logging')
+      console.error('  --allow-unauthenticated-superadmin')
+      console.error('                       DEV/TEST ONLY: run as superadmin with no per-user ACL when')
+      console.error('                       no --user (and no --api-key) is supplied. Never use in production.')
       console.error('')
       console.error('Examples:')
+      console.error('  OPEN_MERCATO_API_KEY=omk_xxxx.yyyy... mercato ai_assistant mcp:serve')
       console.error('  mercato ai_assistant mcp:serve --api-key omk_xxxx.yyyy...')
-      console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000')
+      console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000 --user <user-id>')
+      console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000 --allow-unauthenticated-superadmin')
       return
     }
 
@@ -102,6 +114,7 @@ const mcpServe: ModuleCli = {
           organizationId,
           userId,
         },
+        allowUnauthenticatedSuperadmin,
       })
     }
   },
