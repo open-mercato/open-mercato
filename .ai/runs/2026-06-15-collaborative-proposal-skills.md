@@ -35,10 +35,14 @@ Ship a new group of agentic skills for **collaborative pre-spec ideation** — `
 
 ### Phase 1: Skills + contract + optional intake
 
-- [ ] 1.1 Proposal file contract (`om-proposal/references/proposal-template.md`)
-- [ ] 1.2 `om-proposal` SKILL.md (scan → defer-aware question gate → method → append → ready/move)
-- [ ] 1.3 `om-brainstorm` SKILL.md + `references/methods.md` (BMAD attribution)
-- [ ] 1.4 `om-spec-writing` optional intake (`references/proposal-intake.md` + guarded step, both copies)
-- [ ] 1.5 Monorepo wiring (`om-help` catalog + sequences §0; root `AGENTS.md` Task Router row)
-- [ ] 1.6 Standalone wiring (mirror skills; `generateShared()` copies + intake; shipped `om-help` refs)
-- [ ] 1.7 Tests (`shared.test.ts` asserts ship + wiring)
+- [x] 1.1 Proposal file contract (`om-proposal/references/proposal-template.md`) — cf672ccee
+- [x] 1.2 `om-proposal` SKILL.md (scan → defer-aware question gate → method → append → ready/move) — cf672ccee
+- [x] 1.3 `om-brainstorm` SKILL.md + `references/methods.md` (BMAD attribution) — cf672ccee
+- [x] 1.4 `om-spec-writing` optional intake (`references/proposal-intake.md` + guarded step, both copies) — cf672ccee
+- [x] 1.5 Monorepo wiring (`om-help` catalog + sequences §0; root `AGENTS.md` Task Router row) — cf672ccee
+- [x] 1.6 Standalone wiring (mirror skills; `generateShared()` copies + intake; shipped `om-help` refs) — cf672ccee
+- [x] 1.7 Tests (`shared.test.ts` asserts ship + wiring) — cf672ccee
+
+## Changelog
+
+- 2026-06-15 — Phase 1 implemented and verified (create-app `shared.test.ts` 6/6, typecheck clean, `node build.mjs` copies new skills into `dist/agentic`). PR opened on fork.
