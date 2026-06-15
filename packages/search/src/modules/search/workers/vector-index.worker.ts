@@ -2,7 +2,7 @@ import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
 import type { Kysely } from 'kysely'
 import { VECTOR_INDEXING_QUEUE_NAME, type VectorIndexJobPayload } from '../../../queue/vector-indexing'
 import type { SearchIndexer } from '../../../indexer/search-indexer'
-import type { EmbeddingService } from '../../../vector'
+import type { EmbeddingService, VectorDriver } from '../../../vector'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
@@ -11,7 +11,8 @@ import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-merca
 import { logVectorOperation } from '../../../vector/lib/vector-logs'
 import { resolveAutoIndexingEnabled } from '../lib/auto-indexing'
 import { resolveEmbeddingConfig } from '../lib/embedding-config'
-import { searchDebugWarn } from '../../../lib/debug'
+import { searchDebugWarn, searchWarn } from '../../../lib/debug'
+import { evaluateVectorPreflight, type VectorPreflightResult } from '../../../vector/lib/preflight'
 import { clearReindexLock, updateReindexProgress } from '../lib/reindex-lock'
 import { incrementReindexProgress } from '../lib/reindex-progress'
 
@@ -25,6 +26,47 @@ export const metadata: WorkerMeta = {
 }
 
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }
+
+/**
+ * Decide once per job whether vector work can succeed, so the worker can skip a
+ * doomed run with a single warning instead of failing every record. When the
+ * embedding service is not resolvable we return `ok` and let the existing
+ * strategy path decide, preserving prior behavior.
+ *
+ * `withProbe` issues one tiny embedding to detect an unreachable provider; use
+ * it for bulk reindex batches, not for hot single-record writes.
+ */
+async function runVectorPreflight(
+  ctx: HandlerContext,
+  options: { withProbe: boolean },
+): Promise<VectorPreflightResult> {
+  let embeddingService: EmbeddingService | null = null
+  try {
+    embeddingService = ctx.resolve<EmbeddingService>('vectorEmbeddingService')
+  } catch {
+    embeddingService = null
+  }
+  if (!embeddingService) return { ok: true }
+
+  let tableDimension: number | null = null
+  try {
+    const drivers = ctx.resolve<VectorDriver[]>('vectorDrivers')
+    const pgvectorDriver = drivers.find((driver) => driver.id === 'pgvector')
+    if (pgvectorDriver?.getTableDimension) {
+      tableDimension = await pgvectorDriver.getTableDimension()
+    }
+  } catch {
+    tableDimension = null
+  }
+
+  const service = embeddingService
+  return evaluateVectorPreflight({
+    providerConfigured: service.available,
+    effectiveDimension: typeof service.dimension === 'number' ? service.dimension : null,
+    tableDimension,
+    probe: options.withProbe ? () => service.createEmbedding('preflight') : undefined,
+  })
+}
 
 /**
  * Process a vector index job.
@@ -91,6 +133,37 @@ export async function handleVectorIndexJob(
       searchDebugWarn('vector-index.worker', 'Failed to load embedding config for batch, using defaults', {
         error: configErr instanceof Error ? configErr.message : configErr,
       })
+    }
+
+    // Preflight once: if the provider is unreachable/misconfigured or its
+    // dimension no longer matches the shared vector table, skip the whole batch
+    // with a single warning instead of failing every record. Still advance the
+    // reindex progress/lock so the run completes (records counted as processed).
+    const preflight = await runVectorPreflight(ctx, { withProbe: true })
+    if (!preflight.ok) {
+      searchWarn('vector-index.worker', `Skipping vector batch: ${preflight.reason}`, {
+        jobId: jobCtx.jobId,
+        code: preflight.code,
+        totalRecords: records.length,
+        tenantId,
+      })
+      if (db && records.length > 0) {
+        await updateReindexProgress(db, tenantId, 'vector', records.length, organizationId ?? null)
+      }
+      if (progressService && em && records.length > 0) {
+        const completed = await incrementReindexProgress({
+          em,
+          progressService,
+          type: 'vector',
+          tenantId,
+          organizationId: organizationId ?? null,
+          delta: records.length,
+        })
+        if (completed && db) {
+          await clearReindexLock(db, tenantId, 'vector', organizationId ?? null)
+        }
+      }
+      return
     }
 
     // Process each record in the batch
@@ -181,6 +254,25 @@ export async function handleVectorIndexJob(
       searchDebugWarn('vector-index.worker', 'Failed to load embedding config, using defaults', {
         error: configErr instanceof Error ? configErr.message : configErr,
       })
+    }
+  }
+
+  // Preflight index jobs only (delete never needs the provider): skip with a
+  // single warning when the provider is misconfigured or the configured
+  // dimension no longer matches the shared vector table. No reachability probe
+  // here — single-record writes are the hot path and the cheap checks already
+  // catch the common misconfiguration without an extra embedding call.
+  if (jobType === 'index') {
+    const preflight = await runVectorPreflight(ctx, { withProbe: false })
+    if (!preflight.ok) {
+      searchWarn('vector-index.worker', `Skipping vector index for record: ${preflight.reason}`, {
+        jobId: jobCtx.jobId,
+        code: preflight.code,
+        entityType,
+        recordId,
+        tenantId,
+      })
+      return
     }
   }
 
