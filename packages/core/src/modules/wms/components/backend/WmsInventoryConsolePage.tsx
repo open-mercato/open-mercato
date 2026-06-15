@@ -10,9 +10,22 @@ import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { Boxes, Route, ShieldCheck } from 'lucide-react'
 import { E } from '#generated/entities.ids.generated'
+import {
+  createInventoryDateTimeFormatter,
+  createInventoryQuantityFormatter,
+  formatCatalogVariantLabel,
+  formatInventoryDateTime,
+  formatInventoryQuantity,
+  formatReservationSourceLabel,
+  inventoryMovementTypeLabel,
+  inventoryReferenceTypeLabel,
+  inventoryReservationSourceTypeLabel,
+  inventoryReservationStatusLabel,
+} from '../../lib/inventoryDisplayUi'
 import { parseInventoryQuantity } from '../../lib/inventoryMutationUi'
 import { InventoryOperationsSection } from './InventoryOperationsSection'
 import { MoveInventoryDialog } from './MoveInventoryDialog'
@@ -57,6 +70,7 @@ type InventoryReservationRow = {
   quantity?: string | number | null
   source_type?: string | null
   source_id?: string | null
+  source_label?: string | null
   status?: string | null
 }
 
@@ -87,12 +101,38 @@ function formatVariantLabel(row: {
   variant_sku?: string | null
   catalog_variant_id?: string | null
 }): string {
-  const name = (row.variant_name ?? '').trim()
-  const sku = (row.variant_sku ?? '').trim()
-  if (name && sku) return `${name} (${sku})`
-  if (name) return name
-  if (sku) return sku
-  return row.catalog_variant_id || '—'
+  return formatCatalogVariantLabel(row)
+}
+
+const movementStatusMap: Record<string, StatusBadgeVariant> = {
+  receipt: 'success',
+  return_receive: 'success',
+  adjust: 'warning',
+  transfer: 'info',
+  pick: 'info',
+  pack: 'info',
+  cycle_count: 'neutral',
+  putaway: 'info',
+  ship: 'success',
+}
+
+const reservationStatusMap: Record<string, StatusBadgeVariant> = {
+  active: 'info',
+  released: 'neutral',
+  fulfilled: 'success',
+}
+
+function useInventoryDisplayFormatters() {
+  const locale = useLocale()
+  const quantityFormatter = React.useMemo(
+    () => createInventoryQuantityFormatter(locale),
+    [locale],
+  )
+  const dateTimeFormatter = React.useMemo(
+    () => createInventoryDateTimeFormatter(locale),
+    [locale],
+  )
+  return { quantityFormatter, dateTimeFormatter }
 }
 
 function formatWarehouseLabel(row: {
@@ -265,6 +305,7 @@ export function InventoryBalancesSection({
   access: WmsInventoryMutationAccess
 }) {
   const t = useT()
+  const { quantityFormatter } = useInventoryDisplayFormatters()
   const [moveOpen, setMoveOpen] = React.useState(false)
   const [movePreset, setMovePreset] = React.useState<InventoryBalanceRow | null>(null)
 
@@ -342,7 +383,11 @@ export function InventoryBalancesSection({
           'wms.backend.inventory.balances.columns.available',
           'Available',
         ),
-        cell: ({ row }) => String(row.original.quantity_available ?? 0),
+        cell: ({ row }) => (
+          <span className="tabular-nums">
+            {formatInventoryQuantity(row.original.quantity_available, quantityFormatter)}
+          </span>
+        ),
       },
       {
         accessorKey: 'quantity_reserved',
@@ -350,7 +395,11 @@ export function InventoryBalancesSection({
           'wms.backend.inventory.balances.columns.reserved',
           'Reserved',
         ),
-        cell: ({ row }) => String(row.original.quantity_reserved ?? 0),
+        cell: ({ row }) => (
+          <span className="tabular-nums">
+            {formatInventoryQuantity(row.original.quantity_reserved, quantityFormatter)}
+          </span>
+        ),
       },
       {
         accessorKey: 'quantity_allocated',
@@ -358,10 +407,14 @@ export function InventoryBalancesSection({
           'wms.backend.inventory.balances.columns.allocated',
           'Allocated',
         ),
-        cell: ({ row }) => String(row.original.quantity_allocated ?? 0),
+        cell: ({ row }) => (
+          <span className="tabular-nums">
+            {formatInventoryQuantity(row.original.quantity_allocated, quantityFormatter)}
+          </span>
+        ),
       },
     ],
-    [t],
+    [quantityFormatter, t],
   )
 
   const rowActions = React.useCallback(
@@ -430,6 +483,7 @@ export function InventoryReservationsSection({
   access: WmsInventoryMutationAccess
 }) {
   const t = useT()
+  const { quantityFormatter } = useInventoryDisplayFormatters()
   const [releaseOpen, setReleaseOpen] = React.useState(false)
   const [releasePreset, setReleasePreset] = React.useState<InventoryReservationRow | null>(null)
 
@@ -462,7 +516,11 @@ export function InventoryReservationsSection({
           'wms.backend.inventory.reservations.columns.quantity',
           'Quantity',
         ),
-        cell: ({ row }) => String(row.original.quantity ?? 0),
+        cell: ({ row }) => (
+          <span className="tabular-nums">
+            {formatInventoryQuantity(row.original.quantity, quantityFormatter)}
+          </span>
+        ),
       },
       {
         accessorKey: 'source_type',
@@ -470,7 +528,11 @@ export function InventoryReservationsSection({
           'wms.backend.inventory.reservations.columns.sourceType',
           'Source type',
         ),
-        cell: ({ row }) => row.original.source_type || '—',
+        cell: ({ row }) => {
+          const sourceType = row.original.source_type?.trim()
+          if (!sourceType) return '—'
+          return inventoryReservationSourceTypeLabel(sourceType, t)
+        },
       },
       {
         accessorKey: 'source_id',
@@ -478,7 +540,7 @@ export function InventoryReservationsSection({
           'wms.backend.inventory.reservations.columns.sourceId',
           'Source',
         ),
-        cell: ({ row }) => row.original.source_id || '—',
+        cell: ({ row }) => formatReservationSourceLabel(row.original, t),
       },
       {
         accessorKey: 'status',
@@ -486,10 +548,18 @@ export function InventoryReservationsSection({
           'wms.backend.inventory.reservations.columns.status',
           'Status',
         ),
-        cell: ({ row }) => row.original.status || '—',
+        cell: ({ row }) => {
+          const status = row.original.status?.trim()
+          if (!status) return '—'
+          return (
+            <StatusBadge variant={reservationStatusMap[status] ?? 'neutral'} dot>
+              {inventoryReservationStatusLabel(status, t)}
+            </StatusBadge>
+          )
+        },
       },
     ],
-    [t],
+    [quantityFormatter, t],
   )
 
   const rowActions = React.useCallback(
@@ -549,13 +619,22 @@ export function InventoryReservationsSection({
 
 export function InventoryMovementsSection() {
   const t = useT()
+  const { quantityFormatter, dateTimeFormatter } = useInventoryDisplayFormatters()
 
   const columns = React.useMemo<ColumnDef<InventoryMovementRow>[]>(
     () => [
       {
         accessorKey: 'type',
         header: t('wms.backend.inventory.movements.columns.type', 'Type'),
-        cell: ({ row }) => row.original.type || '—',
+        cell: ({ row }) => {
+          const type = row.original.type?.trim()
+          if (!type) return '—'
+          return (
+            <StatusBadge variant={movementStatusMap[type] ?? 'neutral'} dot>
+              {inventoryMovementTypeLabel(type, t)}
+            </StatusBadge>
+          )
+        },
       },
       {
         accessorKey: 'catalog_variant_id',
@@ -597,7 +676,11 @@ export function InventoryMovementsSection() {
           'wms.backend.inventory.movements.columns.quantity',
           'Quantity',
         ),
-        cell: ({ row }) => String(row.original.quantity ?? 0),
+        cell: ({ row }) => (
+          <span className="tabular-nums">
+            {formatInventoryQuantity(row.original.quantity, quantityFormatter)}
+          </span>
+        ),
       },
       {
         accessorKey: 'reference_type',
@@ -605,7 +688,11 @@ export function InventoryMovementsSection() {
           'wms.backend.inventory.movements.columns.referenceType',
           'Reference type',
         ),
-        cell: ({ row }) => row.original.reference_type || '—',
+        cell: ({ row }) => {
+          const referenceType = row.original.reference_type?.trim()
+          if (!referenceType) return '—'
+          return inventoryReferenceTypeLabel(referenceType, t)
+        },
       },
       {
         accessorKey: 'performed_at',
@@ -613,11 +700,17 @@ export function InventoryMovementsSection() {
           'wms.backend.inventory.movements.columns.performedAt',
           'Performed at',
         ),
-        cell: ({ row }) =>
-          row.original.performed_at || row.original.received_at || '—',
+        cell: ({ row }) => (
+          <span className="text-sm text-muted-foreground">
+            {formatInventoryDateTime(
+              row.original.performed_at || row.original.received_at,
+              dateTimeFormatter,
+            )}
+          </span>
+        ),
       },
     ],
-    [t],
+    [dateTimeFormatter, quantityFormatter, t],
   )
 
   return (

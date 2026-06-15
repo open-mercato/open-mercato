@@ -7,6 +7,7 @@ import { InventoryReservation } from '../../../data/entities'
 import { inventoryReservationListQuerySchema } from '../../../data/validators'
 import { createPagedListResponseSchema } from '../../openapi'
 import {
+  attachReservationSourceLabelsToListItems,
   attachVariantLabelsToListItems,
   attachWarehouseLabelsToListItems,
 } from '../../listEnrichers'
@@ -70,6 +71,7 @@ const crud = makeCrudRoute({
       await Promise.all([
         attachWarehouseLabelsToListItems(payload, ctx),
         attachVariantLabelsToListItems(payload, ctx),
+        attachReservationSourceLabelsToListItems(payload, ctx),
       ])
     },
   },
@@ -93,6 +95,7 @@ const reservationListItemSchema = z.object({
   quantity: z.union([z.string(), z.number()]).nullable().optional(),
   source_type: z.string().nullable().optional(),
   source_id: z.string().uuid().nullable().optional(),
+  source_label: z.string().nullable().optional(),
   expires_at: z.string().nullable().optional(),
   status: z.string().nullable().optional(),
   created_at: z.string().nullable().optional(),

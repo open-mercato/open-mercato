@@ -381,7 +381,7 @@ test.describe('TC-WMS-026: Inventory console row actions', () => {
         'reservations',
         variantSku,
         WMS_INVENTORY_ROW_ACTION_LABELS.release,
-        { extraRowText: orderId, search: false },
+        { search: false },
       )
 
       const releaseDialog = page
@@ -572,7 +572,6 @@ test.describe('TC-WMS-026: Inventory console row actions', () => {
       const reservationRow = inventoryConsoleSection(page, 'reservations')
         .getByRole('row')
         .filter({ hasText: variantSku })
-        .filter({ hasText: orderId ?? '' })
         .first()
       await expect(reservationRow).toBeVisible({ timeout: 15_000 })
       await expect(

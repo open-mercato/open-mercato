@@ -2,7 +2,10 @@
 
 import { E } from '#generated/entities.ids.generated'
 import {
+  attachInventoryProfileCatalogLabelsToListItems,
   attachLocationLabelsToListItems,
+  attachProductLabelsToListItems,
+  attachReservationSourceLabelsToListItems,
   attachVariantLabelsToListItems,
   attachWarehouseLabelsToListItems,
 } from '../listEnrichers'
@@ -21,6 +24,22 @@ function createQueryEngine(
       pageSize: rows.length,
       total: rows.length,
     })),
+  }
+}
+
+function createMultiEntityQueryEngine(
+  rowsByEntity: Record<string, Array<Record<string, unknown> & { id: string }>>,
+): QueryStub {
+  return {
+    query: jest.fn(async (entityId: string) => {
+      const rows = rowsByEntity[entityId] ?? []
+      return {
+        items: rows,
+        page: 1,
+        pageSize: rows.length,
+        total: rows.length,
+      }
+    }),
   }
 }
 
@@ -210,5 +229,81 @@ describe('attachVariantLabelsToListItems', () => {
       variant_sku: 'X',
       catalog_product_id: 'p',
     })
+  })
+})
+
+describe('attachProductLabelsToListItems', () => {
+  it('decorates items with product_title and product_sku', async () => {
+    const queryEngine = createQueryEngine([
+      { id: 'prod-1', title: 'Widget', sku: 'W-1' },
+    ])
+    const payload = {
+      items: [{ id: 'profile-1', catalog_product_id: 'prod-1' }] as Array<Record<string, unknown>>,
+    }
+
+    await attachProductLabelsToListItems(payload, createCtx(queryEngine))
+
+    expect(queryEngine.query).toHaveBeenCalledWith(
+      E.catalog.catalog_product,
+      expect.objectContaining({
+        filters: { id: { $in: ['prod-1'] } },
+        fields: ['id', 'title', 'sku'],
+      }),
+    )
+    expect(payload.items[0]).toMatchObject({
+      product_title: 'Widget',
+      product_sku: 'W-1',
+    })
+  })
+})
+
+describe('attachInventoryProfileCatalogLabelsToListItems', () => {
+  it('decorates inventory profile rows with product and variant labels', async () => {
+    const queryEngine = createMultiEntityQueryEngine({
+      [E.catalog.catalog_product]: [{ id: 'prod-1', title: 'Widget', sku: 'W-1' }],
+      [E.catalog.catalog_product_variant]: [{ id: 'var-1', name: 'Red', sku: 'RED-1', product_id: 'prod-1' }],
+    })
+    const payload = {
+      items: [{
+        id: 'profile-1',
+        catalog_product_id: 'prod-1',
+        catalog_variant_id: 'var-1',
+      }] as Array<Record<string, unknown>>,
+    }
+
+    await attachInventoryProfileCatalogLabelsToListItems(payload, createCtx(queryEngine))
+
+    expect(payload.items[0]).toMatchObject({
+      product_title: 'Widget',
+      product_sku: 'W-1',
+      variant_name: 'Red',
+      variant_sku: 'RED-1',
+    })
+  })
+})
+
+describe('attachReservationSourceLabelsToListItems', () => {
+  it('decorates order reservations with source_label from order_number', async () => {
+    const queryEngine = createQueryEngine([
+      { id: 'order-1', order_number: 'SO-1042' },
+    ])
+    const payload = {
+      items: [{
+        id: 'res-1',
+        source_type: 'order',
+        source_id: 'order-1',
+      }] as Array<Record<string, unknown>>,
+    }
+
+    await attachReservationSourceLabelsToListItems(payload, createCtx(queryEngine))
+
+    expect(queryEngine.query).toHaveBeenCalledWith(
+      E.sales.sales_order,
+      expect.objectContaining({
+        filters: { id: { $in: ['order-1'] } },
+        fields: ['id', 'order_number'],
+      }),
+    )
+    expect(payload.items[0]).toMatchObject({ source_label: 'SO-1042' })
   })
 })

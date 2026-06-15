@@ -210,3 +210,100 @@ export async function attachVariantLabelsToListItems(
     decorateOnce(item, 'catalog_product_id', row.product_id ?? null)
   }
 }
+
+// ---------------------------------------------------------------------------
+// Catalog products
+// ---------------------------------------------------------------------------
+
+type ProductLookupRow = LookupRow & { title?: string | null; sku?: string | null }
+
+const PRODUCT_FIELDS = ['id', 'title', 'sku']
+
+/**
+ * Decorate list items with `product_title` and `product_sku` when they carry a
+ * `catalog_product_id` column. Mutates `payload.items` in place.
+ */
+export async function attachProductLabelsToListItems(
+  payload: AnyListPayload,
+  ctx: CrudCtx,
+): Promise<void> {
+  const items = Array.isArray(payload?.items) ? payload.items : []
+  if (items.length === 0) return
+  const ids = uniqueIdsFromKeys(items, ['catalog_product_id'])
+  if (ids.length === 0) return
+  const map = (await batchLoadById(
+    ctx,
+    E.catalog.catalog_product,
+    ids,
+    PRODUCT_FIELDS,
+    'product',
+  )) as Map<string, ProductLookupRow>
+  if (map.size === 0) return
+  for (const item of items) {
+    const id = item?.catalog_product_id
+    if (typeof id !== 'string' || !id) continue
+    const row = map.get(id)
+    if (!row) continue
+    decorateOnce(item, 'product_title', row.title ?? null)
+    decorateOnce(item, 'product_sku', row.sku ?? null)
+  }
+}
+
+/**
+ * Decorate inventory profile rows with catalog product and variant labels.
+ * Mutates `payload.items` in place.
+ */
+export async function attachInventoryProfileCatalogLabelsToListItems(
+  payload: AnyListPayload,
+  ctx: CrudCtx,
+): Promise<void> {
+  await Promise.all([
+    attachProductLabelsToListItems(payload, ctx),
+    attachVariantLabelsToListItems(payload, ctx),
+  ])
+}
+
+// ---------------------------------------------------------------------------
+// Reservation sources
+// ---------------------------------------------------------------------------
+
+type SalesOrderLookupRow = LookupRow & { order_number?: string | null }
+
+const SALES_ORDER_FIELDS = ['id', 'order_number']
+
+/**
+ * Decorate reservation rows with `source_label` when the source can be resolved
+ * to a human-readable reference (currently sales orders). Mutates
+ * `payload.items` in place.
+ */
+export async function attachReservationSourceLabelsToListItems(
+  payload: AnyListPayload,
+  ctx: CrudCtx,
+): Promise<void> {
+  const items = Array.isArray(payload?.items) ? payload.items : []
+  if (items.length === 0) return
+
+  const orderIds = uniqueIdsFromKeys(
+    items.filter((item) => item?.source_type === 'order'),
+    ['source_id'],
+  )
+  if (orderIds.length === 0) return
+
+  const map = (await batchLoadById(
+    ctx,
+    E.sales.sales_order,
+    orderIds,
+    SALES_ORDER_FIELDS,
+    'reservation-source',
+  )) as Map<string, SalesOrderLookupRow>
+  if (map.size === 0) return
+
+  for (const item of items) {
+    if (item?.source_type !== 'order') continue
+    const id = item?.source_id
+    if (typeof id !== 'string' || !id) continue
+    const row = map.get(id)
+    const orderNumber = row?.order_number?.trim()
+    if (orderNumber) decorateOnce(item, 'source_label', orderNumber)
+  }
+}

@@ -10,6 +10,7 @@ import {
   productInventoryProfileUpdateSchema,
 } from '../../data/validators'
 import { createPagedListResponseSchema, createWmsCrudOpenApi, defaultOkResponseSchema } from '../openapi'
+import { attachInventoryProfileCatalogLabelsToListItems } from '../listEnrichers'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['wms.view'] },
@@ -89,6 +90,11 @@ const crud = makeCrudRoute({
       return filters
     },
   },
+  hooks: {
+    afterList: async (payload, ctx) => {
+      await attachInventoryProfileCatalogLabelsToListItems(payload, ctx)
+    },
+  },
   actions: {
     create: {
       commandId: 'wms.inventoryProfiles.create',
@@ -132,6 +138,10 @@ const profileListItemSchema = z.object({
   tenant_id: z.string().uuid().nullable().optional(),
   catalog_product_id: z.string().uuid().nullable().optional(),
   catalog_variant_id: z.string().uuid().nullable().optional(),
+  product_title: z.string().nullable().optional(),
+  product_sku: z.string().nullable().optional(),
+  variant_name: z.string().nullable().optional(),
+  variant_sku: z.string().nullable().optional(),
   default_uom: z.string().nullable().optional(),
   track_lot: z.boolean().nullable().optional(),
   track_serial: z.boolean().nullable().optional(),

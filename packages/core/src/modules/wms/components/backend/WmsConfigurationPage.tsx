@@ -17,7 +17,7 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Boxes, Layers, MapPinned, Warehouse } from 'lucide-react'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
@@ -25,6 +25,13 @@ import {
   loadCatalogVariantOptions,
   loadWarehouseOptions,
 } from './wmsLookupLoaders'
+import {
+  createInventoryQuantityFormatter,
+  formatCatalogProductLabel,
+  formatCatalogVariantLabel,
+  formatInventoryQuantity,
+  inventoryRotationStrategyLabel,
+} from '../../lib/inventoryDisplayUi'
 
 type PagedResponse<T> = {
   items: T[]
@@ -71,6 +78,10 @@ type InventoryProfileRow = {
   id: string
   catalog_product_id?: string | null
   catalog_variant_id?: string | null
+  product_title?: string | null
+  product_sku?: string | null
+  variant_name?: string | null
+  variant_sku?: string | null
   default_uom?: string | null
   default_strategy?: string | null
   track_lot?: boolean | null
@@ -1040,6 +1051,7 @@ export function LocationSection() {
 
 export function InventoryProfilesSection() {
   const t = useT()
+  const locale = useLocale()
   const queryClient = useQueryClient()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-profiles' })
@@ -1094,14 +1106,56 @@ export function InventoryProfilesSection() {
     { id: 'trackExpiration', type: 'checkbox', label: t('wms.backend.config.profiles.form.trackExpiration', 'Track expiration') },
   ], [t])
 
+  const quantityFormatter = React.useMemo(
+    () => createInventoryQuantityFormatter(locale),
+    [locale],
+  )
+
   const columns = React.useMemo<ColumnDef<InventoryProfileRow>[]>(() => [
-    { accessorKey: 'catalog_product_id', header: t('wms.backend.config.profiles.columns.product', 'Product'), cell: ({ row }) => row.original.catalog_product_id || '—' },
-    { accessorKey: 'catalog_variant_id', header: t('wms.backend.config.profiles.columns.variant', 'Variant'), cell: ({ row }) => row.original.catalog_variant_id || '—' },
+    {
+      accessorKey: 'catalog_product_id',
+      header: t('wms.backend.config.profiles.columns.product', 'Product'),
+      cell: ({ row }) => formatCatalogProductLabel(row.original),
+    },
+    {
+      accessorKey: 'catalog_variant_id',
+      header: t('wms.backend.config.profiles.columns.variant', 'Variant'),
+      cell: ({ row }) => {
+        if (!row.original.catalog_variant_id?.trim()) {
+          return t('wms.backend.config.profiles.allVariants', 'All variants')
+        }
+        return formatCatalogVariantLabel(row.original)
+      },
+    },
     { accessorKey: 'default_uom', header: t('wms.backend.config.profiles.columns.uom', 'UOM'), cell: ({ row }) => row.original.default_uom || '—' },
-    { accessorKey: 'default_strategy', header: t('wms.backend.config.profiles.columns.strategy', 'Strategy'), cell: ({ row }) => row.original.default_strategy || '—' },
-    { accessorKey: 'reorder_point', header: t('wms.backend.config.profiles.columns.reorderPoint', 'Reorder point'), cell: ({ row }) => String(row.original.reorder_point ?? 0) },
-    { accessorKey: 'safety_stock', header: t('wms.backend.config.profiles.columns.safetyStock', 'Safety stock'), cell: ({ row }) => String(row.original.safety_stock ?? 0) },
-  ], [t])
+    {
+      accessorKey: 'default_strategy',
+      header: t('wms.backend.config.profiles.columns.strategy', 'Strategy'),
+      cell: ({ row }) => {
+        const strategy = row.original.default_strategy?.trim()
+        if (!strategy) return '—'
+        return inventoryRotationStrategyLabel(strategy, t)
+      },
+    },
+    {
+      accessorKey: 'reorder_point',
+      header: t('wms.backend.config.profiles.columns.reorderPoint', 'Reorder point'),
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {formatInventoryQuantity(row.original.reorder_point, quantityFormatter)}
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'safety_stock',
+      header: t('wms.backend.config.profiles.columns.safetyStock', 'Safety stock'),
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {formatInventoryQuantity(row.original.safety_stock, quantityFormatter)}
+        </span>
+      ),
+    },
+  ], [quantityFormatter, t])
 
   const initialValues = React.useMemo<InventoryProfileFormValues>(() => {
     if (dialog?.mode === 'edit') {

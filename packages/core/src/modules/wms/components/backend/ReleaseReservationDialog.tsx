@@ -27,7 +27,11 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  createInventoryQuantityFormatter,
+  formatReservationSourceLabel,
+} from '../../lib/inventoryDisplayUi'
 import { parseInventoryQuantity } from '../../lib/inventoryMutationUi'
 import type { WmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 
@@ -44,6 +48,7 @@ type ReservationSummary = {
   quantity?: string | number | null
   source_type?: string | null
   source_id?: string | null
+  source_label?: string | null
   status?: string | null
 }
 
@@ -84,6 +89,11 @@ export function ReleaseReservationDialog({
   reservation,
 }: ReleaseReservationDialogProps) {
   const t = useT()
+  const locale = useLocale()
+  const quantityFormatter = React.useMemo(
+    () => createInventoryQuantityFormatter(locale),
+    [locale],
+  )
   const notAvailableLabel = t('wms.backend.inventory.common.notAvailable', '—')
   const queryClient = useQueryClient()
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -301,7 +311,7 @@ export function ReleaseReservationDialog({
                       {t('wms.backend.inventory.release.summary.quantity', 'Quantity')}
                     </dt>
                     <dd className="font-medium tabular-nums">
-                      {parseInventoryQuantity(reservation.quantity)}
+                      {quantityFormatter.format(parseInventoryQuantity(reservation.quantity))}
                     </dd>
                   </div>
                   <div className="flex flex-wrap gap-x-2">
@@ -309,9 +319,7 @@ export function ReleaseReservationDialog({
                       {t('wms.backend.inventory.release.summary.source', 'Source')}
                     </dt>
                     <dd className="font-medium">
-                      {[reservation.source_type, reservation.source_id]
-                        .filter(Boolean)
-                        .join(' · ') || notAvailableLabel}
+                      {formatReservationSourceLabel(reservation, t) || notAvailableLabel}
                     </dd>
                   </div>
                 </dl>
