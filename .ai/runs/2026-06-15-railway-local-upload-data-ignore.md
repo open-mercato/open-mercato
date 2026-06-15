@@ -55,10 +55,10 @@ Fix fresh `create-mercato-app` Railway local-source deployments so required app 
 
 ### Phase 2: Fix template and regression coverage
 
-- [ ] 2.1 Anchor Railway runtime data ignore rule
-- [ ] 2.2 Add regression coverage for module data source files
+- [x] 2.1 Anchor Railway runtime data ignore rule — d52442e0b
+- [x] 2.2 Add regression coverage for module data source files — d52442e0b
 
 ### Phase 3: Validation and PR
 
-- [ ] 3.1 Run focused create-app Railway template tests
+- [x] 3.1 Run focused create-app Railway template tests
 - [ ] 3.2 Open PR and summarize cause, fix, and workaround
