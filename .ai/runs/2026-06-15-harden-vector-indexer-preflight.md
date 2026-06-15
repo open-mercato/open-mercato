@@ -104,5 +104,5 @@ instead of per-record error spam and a flood of doomed inserts/embedding calls.
 
 ### Phase 4: Review & PR
 
-- [ ] 4.1 `om-code-review` + BC self-review
-- [ ] 4.2 Open PR against `develop`, normalize labels (bug, risk-medium, priority-medium, skip-qa), run `om-auto-review-pr`, post summary comment
+- [x] 4.1 BC self-review (additive exports only; preflight not in public barrel) + adversarial code-review pass (no code defects; two test-coverage gaps closed) — 2d32c7b81
+- [x] 4.2 Opened PR #3094 against `develop`; labels review/bug/risk-medium/priority-medium/skip-qa with rationale comment; summary comment posted
