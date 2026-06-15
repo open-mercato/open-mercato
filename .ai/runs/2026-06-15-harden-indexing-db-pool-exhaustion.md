@@ -2,6 +2,8 @@
 
 ## Overview
 
+> Shipped as PR #3089 (against `develop`).
+
 Onboarding on the demo seeds fully but never sets `preparationCompletedAt` — the
 preparing page polls forever. Root-cause analysis traced this to **DB connection
 starvation of the request/onboarding path by background worker jobs**, newly
