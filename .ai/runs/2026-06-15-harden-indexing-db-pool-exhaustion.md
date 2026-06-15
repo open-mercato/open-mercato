@@ -101,7 +101,7 @@ pin connections.
 
 ### Phase 2: Abort the embedding fetch on timeout
 
-- [ ] 2.1 AbortSignal cancellation in `createEmbedding` + tests
+- [x] 2.1 AbortSignal cancellation in `createEmbedding` + tests — 1b36cde42
 
 ### Phase 3: Document the connection-budget invariant
 
