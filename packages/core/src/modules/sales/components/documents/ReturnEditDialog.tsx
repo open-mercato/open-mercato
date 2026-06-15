@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
 import { handleSectionMutationError } from './optimisticLock'
@@ -108,11 +109,11 @@ export function ReturnEditDialog({
             ...(returnedAt ? { returnedAt } : {}),
           },
           {
-            successMessage: t('sales.returns.updated', 'Return updated.'),
             errorMessage: t('sales.returns.errors.update', 'Failed to update return.'),
           },
         )
         if (result.ok) {
+          flash(t('sales.returns.updated', 'Return updated.'), 'success')
           onClose()
           await onSaved()
         }
