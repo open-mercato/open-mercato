@@ -42,5 +42,5 @@
 
 ### Phase 2: Delivery
 
-- [ ] 2.1 Open a tracking GitHub issue linking the spec path and the spec PR
-- [ ] 2.2 Commit, push, open the docs-only PR, normalize labels, post run summary
+- [x] 2.1 Open a tracking GitHub issue linking the spec path and the spec PR — issue #3092
+- [x] 2.2 Commit, push, open the docs-only PR, normalize labels, post run summary — PR #3093
