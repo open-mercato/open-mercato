@@ -30,8 +30,19 @@ jest.mock('../modules/search/lib/embedding-config', () => ({
   resolveEmbeddingConfig: jest.fn().mockResolvedValue(null),
 }))
 
+jest.mock('../modules/search/lib/reindex-lock', () => ({
+  updateReindexProgress: jest.fn().mockResolvedValue(undefined),
+  clearReindexLock: jest.fn().mockResolvedValue(undefined),
+}))
+
+jest.mock('../modules/search/lib/reindex-progress', () => ({
+  incrementReindexProgress: jest.fn().mockResolvedValue(true),
+}))
+
 import { handleVectorIndexJob } from '../modules/search/workers/vector-index.worker'
 import { handleFulltextIndexJob } from '../modules/search/workers/fulltext-index.worker'
+import { updateReindexProgress, clearReindexLock } from '../modules/search/lib/reindex-lock'
+import { incrementReindexProgress } from '../modules/search/lib/reindex-progress'
 
 /**
  * Create a mock job context
@@ -212,8 +223,46 @@ describe('Vector Index Worker', () => {
     await handleVectorIndexJob(job, createMockJobContext(), mockContainer)
 
     expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
+    expect(mockEmbeddingService.createEmbedding).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(String(warnSpy.mock.calls[0][0])).toContain('Skipping vector batch')
+    warnSpy.mockRestore()
+  })
+
+  it('should still advance reindex progress/lock when a batch is skipped (no stuck run)', async () => {
+    mockTableDimension = 768
+    mockEmbeddingService.dimension = 1536
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const mockDb = { kysely: true }
+    const containerWithProgress: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchIndexer') return mockSearchIndexer
+        if (name === 'em') return { getKysely: () => mockDb }
+        if (name === 'progressService') return { id: 'progress' }
+        if (name === 'vectorEmbeddingService') return mockEmbeddingService
+        if (name === 'vectorDrivers') return [mockPgvectorDriver]
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const job = createMockJob<VectorIndexJobPayload>({
+      jobType: 'batch-index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      records: [
+        { entityId: 'test:entity', recordId: 'rec-1' },
+        { entityId: 'test:entity', recordId: 'rec-2' },
+      ],
+    })
+
+    await handleVectorIndexJob(job, createMockJobContext(), containerWithProgress)
+
+    expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
+    // Skipped records are counted as processed so the reindex run still completes.
+    expect(updateReindexProgress).toHaveBeenCalledWith(mockDb, 'tenant-123', 'vector', 2, 'org-456')
+    expect(incrementReindexProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'vector', tenantId: 'tenant-123', delta: 2 }),
+    )
+    expect(clearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'vector', 'org-456')
     warnSpy.mockRestore()
   })
 
