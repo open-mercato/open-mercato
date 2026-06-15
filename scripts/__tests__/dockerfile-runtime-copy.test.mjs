@@ -13,10 +13,6 @@ test('production Dockerfile avoids duplicating the generated Next output layer',
     dockerfile,
     /COPY --from=builder \/app\/apps\/mercato\/\.mercato\/generated \.\/apps\/mercato\/\.mercato\/generated/,
   )
-  assert.match(
-    dockerfile,
-    /COPY --from=builder \/app\/apps\/mercato\/\.mercato\/queue \.\/apps\/mercato\/\.mercato\/queue/,
-  )
   assert.doesNotMatch(
     dockerfile,
     /COPY --from=builder \/app\/apps\/mercato\/\.mercato \.\/apps\/mercato\/\.mercato/,

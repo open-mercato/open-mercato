@@ -107,7 +107,6 @@ COPY --from=builder /app/apps/mercato/postcss.config.mjs ./apps/mercato/
 
 # Copy generated files and other runtime necessities
 COPY --from=builder /app/apps/mercato/.mercato/generated ./apps/mercato/.mercato/generated
-COPY --from=builder /app/apps/mercato/.mercato/queue ./apps/mercato/.mercato/queue
 COPY --from=builder /app/apps/mercato/src ./apps/mercato/src
 COPY --from=builder /app/apps/mercato/types ./apps/mercato/types
 
