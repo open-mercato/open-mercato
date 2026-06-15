@@ -96,8 +96,8 @@ pin connections.
 
 ### Phase 1: Worker connection-budget bulkhead
 
-- [ ] 1.1 Pure `resolveWorkerConcurrencyBudget()` helper + unit tests
-- [ ] 1.2 Apply budget in `worker --all` / single-queue + startup logging
+- [x] 1.1 Pure `resolveWorkerConcurrencyBudget()` helper + unit tests — ad6580b8f
+- [x] 1.2 Apply budget in `worker --all` / single-queue + startup logging — 5ff4dca3b
 
 ### Phase 2: Abort the embedding fetch on timeout
 
