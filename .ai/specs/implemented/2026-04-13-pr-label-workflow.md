@@ -38,9 +38,9 @@ These track where a PR is in the pipeline. The `om-auto-review-pr` skill, QA hum
 |-------|-------|--------|---------|
 | `review` | `#1d76db` blue | Author / automation | PR is ready for code review (human or skill) |
 | `changes-requested` | `#BA6609` orange | Reviewer / skill | Code review found issues; author must fix |
-| `qa` | `#12B0D1` cyan | Reviewer / skill | Code review passed → waiting for QA testing |
+| `qa` | `#12B0D1` cyan | QA reviewer (manual) | Manual QA is in progress — a QA reviewer is actively testing. Applied manually by a QA reviewer, never by an auto-skill |
 | `qa-failed` | `#bfb420` yellow | QA tester | QA found issues; author must fix |
-| `merge-queue` | `#0E8A16` green | QA / reviewer | All gates passed → ready to merge |
+| `merge-queue` | `#0E8A16` green | Reviewer / skill | Code review passed → queued for merge. A `needs-qa` PR queues here too, but the `merge-gate` check holds the merge until `qa-approved` lands |
 | `blocked` | `#aaaaaa` grey | Anyone | Blocked on external dependency or decision |
 | `do-not-merge` | `#DF0D61` red | Anyone | Explicitly held from merging (WIP, discussion, etc.) |
 
@@ -128,19 +128,20 @@ Rules:
        │                     ▼
        │                  Author fixes → pushes → label: review (restart)
        │
-       ├─── Approved + has `needs-qa`? ──► label: qa
-       │                                      │
-       │                                      ▼
+       ├─── Approved + has `needs-qa`? ──► label: merge-queue (keep `needs-qa`)
+       │                                      │   merge-gate holds the merge
+       │                                      ▼   until `qa-approved` lands
        │                               ┌──────────────┐
-       │                               │  QA Testing   │  ← human
-       │                               │  (manual)     │
+       │                               │  QA Testing   │  ← QA reviewer picks it
+       │                               │  (manual):    │    up, manually sets
+       │                               │  label: qa    │    label: qa
        │                               └──────┬───────┘
        │                                      │
-       │                          ├─── Pass ──► label: merge-queue
+       │                          ├─── Pass ──► label: merge-queue + qa-approved
        │                          └─── Fail ──► label: qa-failed
        │                                           │
        │                                           ▼
-       │                                    Author fixes → label: qa (restart)
+       │                                    Author fixes → QA re-tests → label: qa (restart)
        │
        └─── Approved + no `needs-qa`? ──► label: merge-queue
                                               │
@@ -157,12 +158,13 @@ Rules:
 |------|----|---------|-----|
 | *(new PR)* | `review` | PR opened/ready for review | Author |
 | `review` | `changes-requested` | Code review finds issues | `om-auto-review-pr` skill or human reviewer |
-| `review` | `qa` | Code review approves + `needs-qa` present | `om-auto-review-pr` skill or human reviewer |
+| `review` | `merge-queue` (keep `needs-qa`) | Code review approves + `needs-qa` present; merge-gate holds the merge until `qa-approved` | `om-auto-review-pr` skill or human reviewer |
 | `review` | `merge-queue` | Code review approves + no `needs-qa` | `om-auto-review-pr` skill or human reviewer |
 | `changes-requested` | `review` | Author pushes fixes | Author (or automation on push) |
-| `qa` | `merge-queue` | QA passes | QA tester |
+| `merge-queue` | `qa` | QA reviewer picks up a `needs-qa` PR to test it | QA reviewer (manual) |
+| `qa` | `merge-queue` + `qa-approved` | QA passes | QA tester |
 | `qa` | `qa-failed` | QA finds issues | QA tester |
-| `qa-failed` | `qa` | Author pushes fixes | Author |
+| `qa-failed` | `qa` | Author pushes fixes; QA re-tests | QA reviewer (manual) |
 | *(any)* | `blocked` | External blocker | Anyone |
 | *(any)* | `do-not-merge` | Hold from merge | Anyone |
 | `blocked` | `review` | Blocker resolved | Anyone |
@@ -285,8 +287,8 @@ Current behavior already uses `merge-queue` and `changes-requested`. Changes nee
 3. **Release on finish** — remove `in-progress`, post a completion comment with the verdict; keep the assignee
 4. **Add `review` label awareness** — when starting a review, verify PR has `review` label (or apply it)
 5. **QA gate logic** — after approving:
-   - If `needs-qa` label is present → set `qa` label (not `merge-queue`)
-   - If `needs-qa` absent → set `merge-queue` label (current behavior)
+   - Always set `merge-queue`. If `needs-qa` is present (no `skip-qa`), keep `needs-qa` on the PR so the `merge-gate` check holds the merge until a QA reviewer adds `qa-approved`
+   - Never set the `qa` pipeline label — `qa` means "manual QA in progress" and is applied manually by a QA reviewer who picks the PR up. The skill requests QA with the `needs-qa` meta label only, and never applies `qa-approved` from reading the diff
 6. **Remove old label names** — stop referencing `approved`, `merge queue` (space), `changes requested` (space)
 7. **Label transition helper** — extract a shared `setPipelineLabel(prNumber, newLabel)` function that:
    - Adds the new pipeline label
@@ -325,7 +327,7 @@ A triage skill invoked via `/om-merge-buddy`. Scans **all open PRs** and produce
    - **Not draft**: `isDraft` must be `false`
    - **No blocking labels**: must not have `changes-requested`, `qa-failed`, `blocked`, `do-not-merge`
    - **Not in progress**: must not have `in-progress` label (another auto-skill is mid-run); skip silently with reason "in progress"
-   - **QA gate**: if `needs-qa` is present, must also have `merge-queue` label (meaning QA passed)
+   - **QA gate**: if `needs-qa` is present, must also have `qa-approved` (manual QA signed off). A `needs-qa` PR queues in `merge-queue` before QA, so the pipeline label alone is not proof; a `qa` pipeline label means QA is still in progress and is itself a blocker
    - **No merge conflicts**: `mergeable !== 'CONFLICTING'`
 
 3. **Classify each PR** into one of:
@@ -433,13 +435,16 @@ A **day-start triage skill** invoked via `/om-review-prs`. Finds all open PRs th
 Add convenience commands to `AGENTS.md` or a lightweight skill:
 
 ```bash
+# QA reviewer starts testing a queued needs-qa PR (manual — only QA sets `qa`)
+gh pr edit <number> --remove-label "merge-queue" --add-label "qa"
+
 # QA approves a PR
-gh pr edit <number> --remove-label "qa" --add-label "merge-queue"
+gh pr edit <number> --remove-label "qa" --add-label "merge-queue" --add-label "qa-approved"
 
 # QA rejects a PR
 gh pr edit <number> --remove-label "qa" --add-label "qa-failed"
 
-# Author requests re-QA after fix
+# Author requests re-QA after fix (QA reviewer re-tests)
 gh pr edit <number> --remove-label "qa-failed" --add-label "qa"
 ```
 
@@ -506,7 +511,7 @@ for-core-contributors
 | Name | Color | Description |
 |------|-------|-------------|
 | `review` | `#1d76db` | Ready for code review |
-| `qa` | `#12B0D1` | Waiting for QA testing |
+| `qa` | `#12B0D1` | Manual QA in progress (set manually by a QA reviewer) |
 | `qa-failed` | `#bfb420` | QA found issues |
 | `needs-qa` | `#d876e3` | Requires manual QA before merge |
 | `skip-qa` | `#c5def5` | QA not required |
@@ -662,6 +667,7 @@ This label is deliberately outside the 21-label PR workflow state machine above.
 | Phase 4 — Automation | Not Started | — | Optional GitHub Actions enforcement remains deferred |
 | Phase 5 — Priority Labels | Done | 2026-05-04 | Added `priority-low/medium/high/extreme` to communicate urgency on issues and PRs; documented in this spec and root `AGENTS.md` |
 | Phase 6 — Risk Labels | Done | 2026-06-13 | Added `risk-low/medium/high` to communicate change blast radius (orthogonal to priority); `om-auto-*` skills infer/carry/preserve it; documented in this spec and root `AGENTS.md` |
+| Phase 7 — QA-label ownership | Done | 2026-06-15 | Reframed `qa` to mean "manual QA in progress", applied **manually by a QA reviewer** and never by an auto-skill. `om-auto-review-pr` now routes an approved `needs-qa` PR to `merge-queue` (keeping `needs-qa`) where the `merge-gate` check holds the merge until `qa-approved`; auto-skills only ever request QA via `needs-qa`. Updated this spec, root `AGENTS.md`, `om-auto-continue-pr` (+loop), and `om-merge-buddy` (gate on `qa-approved`, not the pipeline label) |
 
 ### Detailed Progress
 
@@ -674,6 +680,7 @@ This label is deliberately outside the 21-label PR workflow state machine above.
 - [x] Add PR workflow guidance to root `AGENTS.md`
 - [x] Add `priority-low/medium/high/extreme` labels and triage rules (2026-05-04)
 - [x] Add `risk-low/medium/high` labels, inference rules, and `om-auto-*` skill handling (2026-06-13)
+- [x] Reframe `qa` as manual-only "QA in progress"; auto-skills request QA via `needs-qa` only and route approved `needs-qa` PRs to `merge-queue` gated by `merge-gate` (2026-06-15)
 - [ ] Add optional GitHub Actions enforcement
 
 ---

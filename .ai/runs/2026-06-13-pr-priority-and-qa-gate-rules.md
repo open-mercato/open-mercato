@@ -79,7 +79,18 @@ dedicated QA reviewers have no capacity.
 - [x] 4.3 Mirror priority handling for risk across `om-auto-*` skills: create-pr (+loop) apply; fix-github / verify-and-fix-github carry from issue; review-pr infer/preserve/mutually-exclusive; continue-pr (+loop) preserve; qa-scenarios depth-by-risk; sec-report-pr → `risk-low`; prepare-issue `--risk` flag
 - [x] 4.4 Add a `risk-*` checklist item to the PR template
 
+### Phase 5: QA-label ownership (follow-up — `qa` is manual-only)
+
+> Added per maintainer request: the `qa` pipeline label means "manual QA is **in progress**" and is applied **manually by a QA reviewer**, never by an `om-auto-*` skill. Auto-skills request QA only via the `needs-qa` meta label. The live GitHub `qa` label description ("QA in progress") already matched this intent; the docs/skills were the part out of sync.
+
+- [x] 5.1 Root `AGENTS.md` PR Workflow: route approved `needs-qa` PRs to `merge-queue` (keep `needs-qa`, merge-gate holds merge until `qa-approved`); add the manual-only `qa` rule; rewrite the manual QA transition commands
+- [x] 5.2 `om-auto-review-pr`: stop setting `qa`; approve→`merge-queue` keeping `needs-qa`; update label rules, suggested comments, step 8a manual-QA instructions, report-back, and Rules
+- [x] 5.3 `om-auto-continue-pr` (+loop): on new customer-facing work, re-open QA by adding `needs-qa` + dropping stale `qa-approved` (never move to `qa`); never set `qa`/`qa-approved`
+- [x] 5.4 `om-merge-buddy`: gate `needs-qa` PRs on `qa-approved` (pipeline label alone is not QA proof; `qa` is a blocker)
+- [x] 5.5 Canonical label spec `.ai/specs/implemented/2026-04-13-pr-label-workflow.md`: update `qa`/`merge-queue` rows, state-machine diagram + transition table, skill-integration + merge-buddy gate, QA helper commands, label table, and add Phase 7 status row
+
 ## Changelog
 
 - 2026-06-13 — Shipped as PR #3055 against `develop`. `label-gate`, `validate-skills-tiers`, and `lint` checks green. New `qa-self-verified` GitHub label created. Gate still needs to be wired into branch protection as a required check by a maintainer to enforce.
 - 2026-06-13 — Phase 4 (follow-up): added `risk-low` / `risk-medium` / `risk-high` labels as first-class signals (blast radius, orthogonal to priority). Mirrored priority handling across all `om-auto-*` skills + `om-prepare-issue` `--risk`, documented in root `AGENTS.md` and the canonical label spec, added a PR-template checklist item, and attached descriptions to the pre-existing GitHub risk labels.
+- 2026-06-15 — Phase 5 (follow-up): reframed `qa` as the manual, QA-owned "QA in progress" pipeline label. Auto-skills now request QA via `needs-qa` only and never set `qa`; `om-auto-review-pr` routes approved `needs-qa` PRs to `merge-queue` (gated by `merge-gate` until `qa-approved`). Updated root `AGENTS.md`, `om-auto-review-pr`, `om-auto-continue-pr` (+loop), `om-merge-buddy`, and the canonical label spec. The live GitHub `qa` label description already read "QA in progress" — no GitHub label change required.
