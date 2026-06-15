@@ -7,9 +7,6 @@ import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import type { OnboardingRequest } from '@open-mercato/onboarding/modules/onboarding/data/entities'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboarding/lib/ready-email'
-import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
-import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
-import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { PREPARATION_CLAIM_STALE_MS } from '@open-mercato/onboarding/modules/onboarding/lib/preparation-claim'
 
@@ -115,67 +112,47 @@ async function enqueueVectorReindex(args: {
   ])
 }
 
-async function rebuildTenantQueryIndexes(args: {
-  em: EntityManager
+type PersistentEventBus = {
+  emitEvent: (event: string, payload: unknown, options?: { persistent?: boolean }) => Promise<void>
+}
+
+async function enqueueQueryIndexRebuild(args: {
+  container: { resolve: <T = unknown>(name: string) => T }
   tenantId: string
   organizationId: string
 }) {
-  const coverageRefreshKeys = new Set<string>()
+  // Hand the heavy query-index rebuild to the durable queue instead of running
+  // a multi-minute force purge+reindex of every system entity inline — that
+  // inline rebuild was what stalled the preparing page and exhausted the PG
+  // pool. Each entity becomes a persistent `query_index.reindex` job, so it
+  // survives a worker/process restart and is retried independently of
+  // onboarding. reindexEntity({ force: true }) purges the scope and refreshes
+  // coverage internally, so no explicit purge/coverage sweep is needed here.
+  let eventBus: PersistentEventBus | null = null
   try {
-    const allEntities = getEntityIds()
-    const entityIds = flattenSystemEntityIds(allEntities)
-    for (const entityType of entityIds) {
-      try {
-        await purgeIndexScope(args.em, { entityType, tenantId: args.tenantId })
-      } catch (error) {
-        console.error('[onboarding.verify] failed to purge query index scope', {
-          entityType,
-          tenantId: args.tenantId,
-          error,
-        })
-      }
-      try {
-        await reindexEntity(args.em, {
-          entityType,
-          tenantId: args.tenantId,
-          force: true,
-          emitVectorizeEvents: false,
-          vectorService: null,
-        })
-      } catch (error) {
-        console.error('[onboarding.verify] failed to reindex entity', {
-          entityType,
-          tenantId: args.tenantId,
-          error,
-        })
-      }
-      coverageRefreshKeys.add(`${entityType}|${args.tenantId}|__null__`)
-      coverageRefreshKeys.add(`${entityType}|${args.tenantId}|${args.organizationId}`)
-    }
-  } catch (error) {
-    console.error('[onboarding.verify] failed to rebuild query indexes', { tenantId: args.tenantId, error })
+    eventBus = args.container.resolve<PersistentEventBus>('eventBus')
+  } catch {
+    eventBus = null
   }
+  if (!eventBus) return
 
-  if (!coverageRefreshKeys.size) return
-
-  for (const entry of coverageRefreshKeys) {
-    const [entityType, tenantKey, orgKey] = entry.split('|')
-    const orgScope = orgKey === '__null__' ? null : orgKey
+  const entityIds = flattenSystemEntityIds(getEntityIds())
+  for (const entityType of entityIds) {
     try {
-      await refreshCoverageSnapshot(
-        args.em,
+      await eventBus.emitEvent(
+        'query_index.reindex',
         {
           entityType,
-          tenantId: tenantKey,
-          organizationId: orgScope,
-          withDeleted: false,
+          tenantId: args.tenantId,
+          organizationId: args.organizationId,
+          force: true,
         },
+        { persistent: true },
       )
     } catch (error) {
-      console.error('[onboarding.verify] failed to refresh coverage snapshot', {
+      console.error('[onboarding.verify] failed to enqueue query index rebuild', {
         entityType,
-        tenantId: tenantKey,
-        organizationId: orgScope,
+        tenantId: args.tenantId,
         error,
       })
     }
@@ -249,14 +226,15 @@ export async function runDeferredProvisioning(args: {
     }
   }
 
-  // The rebuild runs BEFORE the completion flag: preparationCompletedAt is the
-  // terminal gate for both the status-route scheduling and claimPreparation,
-  // so a runner that dies mid-rebuild must leave the flag unset — the stale
-  // claim then makes the whole chain reclaimable and the rebuild self-heals.
-  // rebuildTenantQueryIndexes never throws (it logs per-entity failures).
-  await service.renewPreparation(args.requestId, new Date()).catch(() => {})
-  await rebuildTenantQueryIndexes({
-    em,
+  // The query-index rebuild is ENQUEUED before the completion flag, not run
+  // inline: preparationCompletedAt is the terminal gate for both the
+  // status-route scheduling and claimPreparation, so a runner that dies before
+  // the jobs are queued must leave the flag unset — the stale claim then makes
+  // the chain reclaimable and re-enqueues (a repeated force reindex is
+  // harmless). Enqueuing is fast, so the workspace is marked ready in seconds
+  // while the actual reindex runs in the background workers.
+  await enqueueQueryIndexRebuild({
+    container,
     tenantId: args.tenantId,
     organizationId: args.organizationId,
   })
