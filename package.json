@@ -32,7 +32,7 @@
     "build:packages": "turbo run build --filter='./packages/*'",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "test": "cross-env NODE_OPTIONS=--max-old-space-size=768 turbo run test --concurrency=4",
+    "test": "cross-env NODE_OPTIONS=--max-old-space-size=768 turbo run test --concurrency=2",
     "start": "turbo run start --filter=@open-mercato/app",
     "generate": "turbo run generate --filter=@open-mercato/app",
     "reinstall": "turbo run reinstall --filter=@open-mercato/app",
