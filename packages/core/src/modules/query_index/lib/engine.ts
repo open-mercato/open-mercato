@@ -3,6 +3,7 @@ import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine, resolveEntityTableName, resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
 import { type Kysely, sql, type RawBuilder } from 'kysely'
 import type { EventBus } from '@open-mercato/events'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
@@ -996,32 +997,44 @@ export class HybridQueryEngine implements QueryEngine {
     if (cached !== undefined) return cached
     let result = false
     try {
-      const db = this.getDb() as any
-      const row = await db
-        .selectFrom('custom_entities')
-        .select('id')
-        .where('entity_id', '=', entity)
-        .where('is_active', '=', true)
-        .executeTakeFirst()
-      if (row) {
-        result = true
-      } else if (resolveRegisteredEntityTableName(this.em, entity) !== null) {
-        // An id backed by a registered ORM table is never doc-storage-backed by
-        // inference: stray `custom_entities_storage` rows for such an id (e.g. written
-        // through the generic entities data engine) must not hijack every list/detail
-        // read for the whole entity type away from its base table (#2939). Surfaces
-        // that intentionally read doc records for a dual-declared id pass
-        // `forceCustomEntityStorage` in QueryOptions instead.
+      if (isOrmBackedSystemEntityId(this.em, entity)) {
+        // An id backed by a registered ORM table is never doc-storage-backed. Classify it
+        // as its base table BEFORE probing `custom_entities`, so neither a stray
+        // `custom_entities_storage` row nor an active `custom_entities` row (e.g. a
+        // presentation-metadata overlay for a system entity) can hijack every list/detail
+        // read for the whole entity type away from its base table (#2939). This mirrors the
+        // ORM-backed-first ordering already used by the records API (`classifyRecordsEntity`)
+        // and the doc-storage write guard (`assertCustomEntityStorageEntityId`); without it
+        // the read classifier alone trusted an active registration row over ORM-table
+        // resolution. Surfaces that intentionally read doc records for a dual-declared id
+        // pass `forceCustomEntityStorage` in QueryOptions instead.
         result = false
       } else {
-        // Read/write symmetry. Records written through the entities data engine
-        // (`de.createCustomEntityRecord`) always land in `custom_entities_storage`,
-        // even for module-declared custom entities whose id is also a frozen system
-        // id — those are NEVER registered in `custom_entities` (install treats a
-        // system id as non-registrable). Without this fallback the query routes to
-        // the empty ORM/index path and those records are write-only (created with
-        // 200 but unreadable on the edit form).
-        result = await this.hasCustomEntityStorageRows(entity)
+        const db = this.getDb() as any
+        const row = await db
+          .selectFrom('custom_entities')
+          .select('id')
+          .where('entity_id', '=', entity)
+          .where('is_active', '=', true)
+          .executeTakeFirst()
+        if (row) {
+          result = true
+        } else if (resolveRegisteredEntityTableName(this.em, entity) !== null) {
+          // A non-registry id whose entity segment collides with an ORM class name (e.g.
+          // `user:todo` vs the example module's `Todo`) resolves to a table but is NOT an
+          // ORM-backed system entity, so it is not short-circuited above. Stray
+          // `custom_entities_storage` rows for such an id must not hijack reads either.
+          result = false
+        } else {
+          // Read/write symmetry. Records written through the entities data engine
+          // (`de.createCustomEntityRecord`) always land in `custom_entities_storage`,
+          // even for module-declared custom entities whose id is also a frozen system
+          // id — those are NEVER registered in `custom_entities` (install treats a
+          // system id as non-registrable). Without this fallback the query routes to
+          // the empty ORM/index path and those records are write-only (created with
+          // 200 but unreadable on the edit form).
+          result = await this.hasCustomEntityStorageRows(entity)
+        }
       }
     } catch {
       result = false
