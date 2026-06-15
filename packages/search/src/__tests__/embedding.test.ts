@@ -38,6 +38,29 @@ describe('EmbeddingService', () => {
     )
   })
 
+  it('aborts the in-flight request when it times out', async () => {
+    process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
+    process.env.VECTOR_EMBEDDING_TIMEOUT_MS = '5'
+    let capturedSignal: AbortSignal | undefined
+    mockedEmbed.mockImplementation((options) => {
+      capturedSignal = (options as { abortSignal?: AbortSignal }).abortSignal
+      return new Promise(() => undefined)
+    })
+
+    const service = new EmbeddingService({
+      config: {
+        providerId: 'ollama',
+        model: 'nomic-embed-text',
+        dimension: 768,
+        updatedAt: new Date().toISOString(),
+      },
+    })
+
+    await expect(service.createEmbedding('test input')).rejects.toThrow('timed out')
+    expect(capturedSignal).toBeInstanceOf(AbortSignal)
+    expect(capturedSignal?.aborted).toBe(true)
+  })
+
   it('returns embeddings when provider responds before the timeout', async () => {
     process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
     process.env.VECTOR_EMBEDDING_TIMEOUT_MS = '100'

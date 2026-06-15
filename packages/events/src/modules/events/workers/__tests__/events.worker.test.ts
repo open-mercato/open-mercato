@@ -33,6 +33,19 @@ describe('Events Worker', () => {
   })
 
   describe('handle', () => {
+    // These tests exercise the legacy exact-match dispatch (the worker runs every
+    // matching subscriber, persistent or not). Single-delivery (now default-on)
+    // dispatches only persistent subscribers in the worker, so pin the legacy
+    // path here; single-delivery semantics are covered in the sibling describe.
+    const ORIG_SINGLE_DELIVERY = process.env.OM_EVENTS_SINGLE_DELIVERY
+    beforeEach(() => {
+      process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
+    })
+    afterEach(() => {
+      if (ORIG_SINGLE_DELIVERY === undefined) delete process.env.OM_EVENTS_SINGLE_DELIVERY
+      else process.env.OM_EVENTS_SINGLE_DELIVERY = ORIG_SINGLE_DELIVERY
+    })
+
     const createMockJob = (
       event: string,
       payload: unknown,
@@ -486,8 +499,27 @@ describe('Events Worker', () => {
       expect(calls).toEqual(['p'])
     })
 
-    it('flag OFF (default): preserves legacy exact-match dispatch and never reaches wildcards', async () => {
+    it('default (unset): dispatches wildcard persistent subscribers (single-delivery is default-on)', async () => {
       delete process.env.OM_EVENTS_SINGLE_DELIVERY
+      clearListenerCache()
+      const calls: string[] = []
+      registerCliModules([{
+        id: 'm',
+        subscribers: [
+          { id: 'p', event: 'user.created', persistent: true, handler: () => { calls.push('p') } },
+          { id: 'w', event: '*', persistent: true, handler: () => { calls.push('w') } },
+        ],
+      }])
+
+      await handle(createMockJob('user.created', {}), createMockContext())
+
+      // Default-on: pattern dispatch reaches both the exact-match and the wildcard
+      // persistent subscriber.
+      expect(calls.sort()).toEqual(['p', 'w'])
+    })
+
+    it('flag explicitly OFF (legacy opt-out): preserves exact-match dispatch and never reaches wildcards', async () => {
+      process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
       clearListenerCache()
       const calls: string[] = []
       registerCliModules([{

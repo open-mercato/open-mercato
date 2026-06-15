@@ -15,7 +15,13 @@ import {
   resolveLazyRestart,
 } from './lib/auto-spawn-workers'
 import { startLazyWorkerSupervisor } from './lib/queue-worker-supervisor'
+import { applyEventsSingleDeliveryGuard } from './lib/events-single-delivery'
 import { createPerJobWorkerHandler } from './lib/worker-job-handler'
+import {
+  planWorkerConcurrency,
+  resolveWorkerConnectionBudget,
+  type WorkerConcurrencyPlan,
+} from './lib/worker-connection-budget'
 import {
   resolveAutoSpawnSchedulerMode,
   resolveLazySchedulerPollMs,
@@ -523,6 +529,46 @@ function formatQueueWorkerLabel(queueNames: string[]): string {
   const sorted = [...queueNames].sort((a, b) => a.localeCompare(b))
   const preview = sorted.length > 4 ? `${sorted.slice(0, 4).join(', ')}, +${sorted.length - 4} more` : sorted.join(', ')
   return `Queue worker (${preview})`
+}
+
+/**
+ * Fit the requested per-queue worker concurrency to the worker process's DB
+ * connection budget and log the resolved plan. Since each job runs in its own
+ * request container (one pooled connection per in-flight job), the sum of worker
+ * concurrency is the worker's peak connection demand — it MUST stay within the
+ * pool so background jobs cannot starve the request/onboarding path that shares
+ * the same database.
+ */
+async function resolveWorkerBudgetPlan(
+  requestedByQueue: { queue: string; concurrency: number }[],
+): Promise<WorkerConcurrencyPlan> {
+  const { resolvePoolConfig } = await import('@open-mercato/shared/lib/db/mikro')
+  const poolMax = resolvePoolConfig(process.env).poolMax
+  const budget = resolveWorkerConnectionBudget(process.env, poolMax)
+  const plan = planWorkerConcurrency(requestedByQueue, budget)
+
+  console.log(
+    `[worker] DB connection budget: ${plan.budget} (pool max ${poolMax}); ` +
+      `requested Σconcurrency ${plan.totalRequested}, effective ${plan.totalEffective}`,
+  )
+  if (plan.clamped) {
+    const perQueue = plan.entries
+      .map((entry) => `${entry.queue}=${entry.effective}/${entry.requested}`)
+      .join(', ')
+    console.warn(
+      `[worker] Worker concurrency clamped to fit the DB connection budget (${plan.budget}): ${perQueue}. ` +
+        `Raise DB_POOL_MAX or set OM_WORKERS_DB_CONNECTION_BUDGET to change this. ` +
+        `Keep web_pool_max + worker_pool_max + overhead <= Postgres max_connections.`,
+    )
+  }
+  if (plan.belowQueueFloor) {
+    console.warn(
+      `[worker] DB connection budget (${plan.budget}) is smaller than the number of queues ` +
+        `(${requestedByQueue.length}); every queue runs at concurrency 1 and total demand ` +
+        `(${plan.totalEffective}) still exceeds the budget. Raise DB_POOL_MAX.`,
+    )
+  }
+  return plan
 }
 
 function lookupModuleCommand(
@@ -1520,12 +1566,31 @@ export async function run(argv = process.argv) {
             }
 
             const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+
+            // Fit Σconcurrency to the worker's DB connection budget before
+            // starting any worker, so the per-job containers (one connection each)
+            // can never over-subscribe the pool the request path shares.
+            const requestedByQueue = discoveredQueues.map((queue) => {
+              const queueWorkers = allWorkers.filter((w) => w.queue === queue)
+              return {
+                queue,
+                concurrency: concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1),
+              }
+            })
+            const budgetPlan = await resolveWorkerBudgetPlan(requestedByQueue)
+            const effectiveByQueue = new Map(
+              budgetPlan.entries.map((entry) => [entry.queue, entry.effective]),
+            )
+
             console.log(`[worker] Starting workers for all queues: ${discoveredQueues.join(', ')}`)
 
             // Start all queue workers in background mode
             const workerPromises = discoveredQueues.map(async (queue) => {
               const queueWorkers = allWorkers.filter((w) => w.queue === queue)
-              const concurrency = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+              const concurrency =
+                effectiveByQueue.get(queue) ??
+                concurrencyOverride ??
+                Math.max(...queueWorkers.map((w) => w.concurrency), 1)
 
               console.log(`[worker] Starting "${queue}" with ${queueWorkers.length} handler(s), concurrency: ${concurrency}`)
 
@@ -1552,7 +1617,11 @@ export async function run(argv = process.argv) {
             if (queueWorkers.length > 0) {
               // Use discovered workers
               const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-              const concurrency = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+              const requested = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+              // Bound a single-queue run to the connection budget too, so it can
+              // never check out more pooled connections than the worker pool holds.
+              const budgetPlan = await resolveWorkerBudgetPlan([{ queue: queueName!, concurrency: requested }])
+              const concurrency = budgetPlan.entries[0]?.effective ?? requested
 
               console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
 
@@ -1993,6 +2062,12 @@ export async function run(argv = process.argv) {
               envReloader.reload()
               const runtimeEnv = buildServerProcessEnvironment(process.env)
               const autoSpawnWorkersMode = resolveAutoSpawnWorkersMode(process.env)
+              // Guard the default-on events single-delivery: if this process runs
+              // no events worker, fall back to safe inline dual-dispatch so
+              // persistent side effects are never silently dropped. Mutates both
+              // process.env (in-process bus) and runtimeEnv (spawned workers) so
+              // they agree.
+              applyEventsSingleDeliveryGuard({ processEnv: process.env, runtimeEnv, autoSpawnWorkersMode })
               const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
               const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
               const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
@@ -2146,6 +2221,10 @@ export async function run(argv = process.argv) {
           const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
           const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
           const runtimeEnv = buildServerProcessEnvironment(process.env)
+          // Guard the default-on events single-delivery (see the dev `server`
+          // command): fall back to safe inline dual-dispatch when this process
+          // runs no events worker, keeping process.env and runtimeEnv in sync.
+          applyEventsSingleDeliveryGuard({ processEnv: process.env, runtimeEnv, autoSpawnWorkersMode })
           // Throws on single-instance strategies under a multi-instance topology,
           // aborting before the start lock is acquired or any process is spawned.
           assertSingleInstanceStrategies(runtimeEnv)
