@@ -113,7 +113,11 @@ async function enqueueVectorReindex(args: {
 }
 
 type PersistentEventBus = {
-  emitEvent: (event: string, payload: unknown, options?: { persistent?: boolean }) => Promise<void>
+  emitEvent: (
+    event: string,
+    payload: unknown,
+    options?: { persistent?: boolean; deliverInline?: boolean },
+  ) => Promise<void>
 }
 
 async function enqueueQueryIndexRebuild(args: {
@@ -143,6 +147,13 @@ async function enqueueQueryIndexRebuild(args: {
   const entityIds = flattenSystemEntityIds(getEntityIds())
   for (const entityType of entityIds) {
     try {
+      // deliverInline: false is load-bearing here. A bare `{ persistent: true }`
+      // emit dual-dispatches: the events worker drains the queued job AND the
+      // subscriber runs inline in THIS request — so the multi-minute force
+      // reindex of every system entity would still block onboarding (and reuse
+      // the request's already-committed em, spamming "Transaction is already
+      // committed" from the vector-purge status-log prune). Enqueue-only hands
+      // the rebuild to the worker and returns immediately.
       await eventBus.emitEvent(
         'query_index.reindex',
         {
@@ -150,7 +161,7 @@ async function enqueueQueryIndexRebuild(args: {
           tenantId: args.tenantId,
           force: true,
         },
-        { persistent: true },
+        { persistent: true, deliverInline: false },
       )
     } catch (error) {
       console.error('[onboarding.verify] failed to enqueue query index rebuild', {

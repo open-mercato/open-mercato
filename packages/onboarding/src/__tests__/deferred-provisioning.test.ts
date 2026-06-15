@@ -189,10 +189,14 @@ describe('runDeferredProvisioning single-flight claim', () => {
         tenantId: RUN_ARGS.tenantId,
         force: true,
       })
+      // deliverInline: false makes the persistent emit enqueue-only — the heavy
+      // reindex runs solely in the events worker, never inline in this request.
+      // A bare { persistent: true } would dual-dispatch and re-introduce the
+      // onboarding stall, so the exact options shape is asserted here.
       expect(emitEvent).toHaveBeenCalledWith(
         'query_index.reindex',
         expect.objectContaining({ entityType }),
-        { persistent: true },
+        { persistent: true, deliverInline: false },
       )
     }
     expect(markPreparationCompleted).toHaveBeenCalledTimes(1)

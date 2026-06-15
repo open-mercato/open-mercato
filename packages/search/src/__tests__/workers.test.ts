@@ -14,8 +14,7 @@ jest.mock('@open-mercato/shared/lib/indexers/status-log', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/query_index/lib/coverage', () => ({
-  applyCoverageAdjustments: jest.fn().mockResolvedValue(undefined),
-  createCoverageAdjustments: jest.fn().mockReturnValue([]),
+  refreshCoverageSnapshot: jest.fn().mockResolvedValue(undefined),
 }))
 
 jest.mock('../vector/lib/vector-logs', () => ({
@@ -36,13 +35,15 @@ jest.mock('../modules/search/lib/reindex-lock', () => ({
 }))
 
 jest.mock('../modules/search/lib/reindex-progress', () => ({
+  hasActiveReindexProgress: jest.fn().mockResolvedValue(true),
   incrementReindexProgress: jest.fn().mockResolvedValue(true),
 }))
 
 import { handleVectorIndexJob } from '../modules/search/workers/vector-index.worker'
 import { handleFulltextIndexJob } from '../modules/search/workers/fulltext-index.worker'
 import { updateReindexProgress, clearReindexLock } from '../modules/search/lib/reindex-lock'
-import { incrementReindexProgress } from '../modules/search/lib/reindex-progress'
+import { hasActiveReindexProgress, incrementReindexProgress } from '../modules/search/lib/reindex-progress'
+import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
 
 /**
  * Create a mock job context
@@ -104,6 +105,7 @@ describe('Vector Index Worker', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    ;(hasActiveReindexProgress as jest.Mock).mockResolvedValue(true)
     mockEmbeddingService.available = true
     mockEmbeddingService.dimension = 1536
     mockEmbeddingService.createEmbedding.mockResolvedValue([0.1, 0.2, 0.3])
@@ -143,6 +145,39 @@ describe('Vector Index Worker', () => {
       tenantId: 'tenant-123',
       organizationId: 'org-456',
     })
+  })
+
+  it('refreshes vector coverage from storage after indexing instead of incrementing it blindly', async () => {
+    const mockEventBus = { emitEvent: jest.fn().mockResolvedValue(undefined) }
+    const containerWithEventBus: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchIndexer') return mockSearchIndexer
+        if (name === 'em') return null
+        if (name === 'eventBus') return mockEventBus
+        if (name === 'vectorEmbeddingService') return mockEmbeddingService
+        if (name === 'vectorDrivers') return [mockPgvectorDriver]
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const job = createMockJob<VectorIndexJobPayload>({
+      jobType: 'index',
+      entityType: 'customers:customer_person_profile',
+      recordId: 'rec-123',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+    })
+
+    await handleVectorIndexJob(job, createMockJobContext(), containerWithEventBus)
+
+    expect(mockSearchIndexer.indexRecordById).toHaveBeenCalledTimes(1)
+    expect(mockEventBus.emitEvent).toHaveBeenCalledWith('query_index.coverage.refresh', {
+      entityType: 'customers:customer_person_profile',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      withDeleted: false,
+      delayMs: 1000,
+    })
+    expect(refreshCoverageSnapshot).not.toHaveBeenCalled()
   })
 
   it('should delete record when jobType is delete', async () => {
@@ -266,6 +301,75 @@ describe('Vector Index Worker', () => {
     warnSpy.mockRestore()
   })
 
+  it('counts handled-but-skipped batch records as processed so progress can complete', async () => {
+    mockSearchIndexer.indexRecordById
+      .mockResolvedValueOnce({ action: 'skipped' })
+      .mockResolvedValueOnce({ action: 'skipped' })
+    const mockDb = { kysely: true }
+    const mockBatchEm = { getKysely: () => mockDb }
+    const containerWithProgress: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchIndexer') return mockSearchIndexer
+        if (name === 'em') return mockBatchEm
+        if (name === 'progressService') return { id: 'progress' }
+        if (name === 'vectorEmbeddingService') return mockEmbeddingService
+        if (name === 'vectorDrivers') return [mockPgvectorDriver]
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const job = createMockJob<VectorIndexJobPayload>({
+      jobType: 'batch-index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      records: [
+        { entityId: 'test:entity', recordId: 'rec-1' },
+        { entityId: 'test:entity', recordId: 'rec-2' },
+      ],
+    })
+
+    await handleVectorIndexJob(job, createMockJobContext(), containerWithProgress)
+
+    expect(mockSearchIndexer.indexRecordById).toHaveBeenCalledTimes(2)
+    expect(updateReindexProgress).toHaveBeenCalledWith(mockDb, 'tenant-123', 'vector', 2, 'org-456')
+    expect(incrementReindexProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'vector', tenantId: 'tenant-123', delta: 2 }),
+    )
+    expect(clearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'vector', 'org-456')
+    expect(refreshCoverageSnapshot).toHaveBeenCalledWith(mockBatchEm, expect.objectContaining({
+      entityType: 'test:entity',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+    }))
+  })
+
+  it('clears an orphaned reindex lock instead of recreating it when no progress job is active', async () => {
+    ;(hasActiveReindexProgress as jest.Mock).mockResolvedValueOnce(false)
+    const mockDb = { kysely: true }
+    const containerWithProgress: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchIndexer') return mockSearchIndexer
+        if (name === 'em') return { getKysely: () => mockDb }
+        if (name === 'progressService') return { id: 'progress' }
+        if (name === 'vectorEmbeddingService') return mockEmbeddingService
+        if (name === 'vectorDrivers') return [mockPgvectorDriver]
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const job = createMockJob<VectorIndexJobPayload>({
+      jobType: 'batch-index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      records: [{ entityId: 'test:entity', recordId: 'rec-1' }],
+    })
+
+    await handleVectorIndexJob(job, createMockJobContext(), containerWithProgress)
+
+    expect(mockSearchIndexer.indexRecordById).toHaveBeenCalledTimes(1)
+    expect(updateReindexProgress).not.toHaveBeenCalled()
+    expect(incrementReindexProgress).not.toHaveBeenCalled()
+    expect(clearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'vector', 'org-456')
+  })
+
   it('should skip a single-record index on dimension mismatch without indexing or embedding', async () => {
     mockTableDimension = 768
     mockEmbeddingService.dimension = 1536
@@ -352,6 +456,9 @@ describe('Fulltext Index Worker', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    ;(hasActiveReindexProgress as jest.Mock).mockResolvedValue(true)
+    mockFulltextStrategy.isAvailable.mockResolvedValue(true)
+    mockSearchIndexer.indexRecordById.mockResolvedValue({ action: 'indexed', created: true })
   })
 
   it('should skip job with missing tenantId', async () => {
@@ -396,6 +503,67 @@ describe('Fulltext Index Worker', () => {
       tenantId: 'tenant-123',
       organizationId: undefined,
     })
+  })
+
+  it('counts handled fulltext batch records as processed so progress can complete', async () => {
+    mockSearchIndexer.indexRecordById
+      .mockResolvedValueOnce({ action: 'skipped' })
+      .mockResolvedValueOnce({ action: 'skipped' })
+    const records = [
+      { entityId: 'test:entity', recordId: 'rec-1' },
+      { entityId: 'test:entity', recordId: 'rec-2' },
+    ]
+    const containerWithProgress: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchStrategies') return [mockFulltextStrategy]
+        if (name === 'em') return mockEm
+        if (name === 'searchIndexer') return mockSearchIndexer
+        if (name === 'progressService') return { id: 'progress' }
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'batch-index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      records,
+    })
+
+    await handleFulltextIndexJob(job, createMockJobContext(), containerWithProgress)
+
+    expect(mockSearchIndexer.indexRecordById).toHaveBeenCalledTimes(2)
+    expect(updateReindexProgress).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 2, 'org-456')
+    expect(incrementReindexProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'fulltext', tenantId: 'tenant-123', delta: 2 }),
+    )
+    expect(clearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
+  })
+
+  it('clears an orphaned fulltext reindex lock instead of recreating it when no progress job is active', async () => {
+    ;(hasActiveReindexProgress as jest.Mock).mockResolvedValueOnce(false)
+    const records = [{ entityId: 'test:entity', recordId: 'rec-1' }]
+    const containerWithProgress: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchStrategies') return [mockFulltextStrategy]
+        if (name === 'em') return mockEm
+        if (name === 'searchIndexer') return mockSearchIndexer
+        if (name === 'progressService') return { id: 'progress' }
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'batch-index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      records,
+    })
+
+    await handleFulltextIndexJob(job, createMockJobContext(), containerWithProgress)
+
+    expect(mockSearchIndexer.indexRecordById).toHaveBeenCalledTimes(1)
+    expect(updateReindexProgress).not.toHaveBeenCalled()
+    expect(incrementReindexProgress).not.toHaveBeenCalled()
+    expect(clearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
   })
 
   it('should skip batch-index with empty records', async () => {
