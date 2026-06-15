@@ -461,6 +461,7 @@
   "sales.documents.adjustments.errorDelete": "No se pudo eliminar el ajuste.",
   "sales.documents.adjustments.errorLoad": "No se pudieron cargar los ajustes.",
   "sales.documents.adjustments.errorRate": "Introduce un porcentaje.",
+  "sales.documents.adjustments.errorReturnZero": "Los ajustes de devolución deben usar un importe distinto de cero. Crea la devolución desde la pestaña Devoluciones en lugar de registrar un ajuste de devolución con valor cero.",
   "sales.documents.adjustments.errorSave": "No se pudo guardar el ajuste.",
   "sales.documents.adjustments.errorScope": "Se requieren organización y arrendatario.",
   "sales.documents.adjustments.kind": "Tipo",

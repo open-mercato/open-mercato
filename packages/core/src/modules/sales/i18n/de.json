@@ -461,6 +461,7 @@
   "sales.documents.adjustments.errorDelete": "Anpassung konnte nicht gelöscht werden.",
   "sales.documents.adjustments.errorLoad": "Anpassungen konnten nicht geladen werden.",
   "sales.documents.adjustments.errorRate": "Geben Sie einen Prozentsatz ein.",
+  "sales.documents.adjustments.errorReturnZero": "Rückgabe-Anpassungen müssen einen Betrag ungleich null verwenden. Erstellen Sie die Rückgabe über den Tab „Rückgaben“, anstatt eine Rückgabe-Anpassung mit dem Wert null zu erfassen.",
   "sales.documents.adjustments.errorSave": "Anpassung konnte nicht gespeichert werden.",
   "sales.documents.adjustments.errorScope": "Organisation und Mandant sind erforderlich.",
   "sales.documents.adjustments.kind": "Typ",
