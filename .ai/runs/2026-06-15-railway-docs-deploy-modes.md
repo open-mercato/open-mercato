@@ -64,6 +64,7 @@ External References:
 ### Phase 2: Docs
 
 - [x] 2.1 Update the Railway deployment guide prerequisites, quickstart, source mode, token, account tier, environment, and troubleshooting sections. — 5d4d8bc0a
+- [x] Follow-up: add `yarn generate` and `yarn build` as pre-deploy verification commands. — df09ae1c2
 
 ### Phase 3: Review
 
@@ -72,3 +73,4 @@ External References:
 ## Changelog
 
 - 2026-06-15: Completed the docs-only Railway deployment guide update and opened PR #3064.
+- 2026-06-15: Added follow-up guidance to run `yarn generate` and `yarn build` before Railway deployment.
