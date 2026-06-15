@@ -49,10 +49,10 @@ break that a blanket bump to 8.x would cause in `webpack-bundle-analyzer`.
 
 ### Phase 1: Bump resolutions and regenerate lockfile
 
-- [ ] 1.1 Bump `protobufjs` resolution to `7.6.4` and add scoped `ws` resolutions (`^7.3.1`→`7.5.11`, 8.x→`8.21.0`)
-- [ ] 1.2 Run `yarn install` to regenerate `yarn.lock`; confirm resolved versions
+- [x] 1.1 Bump `protobufjs` resolution to `7.6.4` and add scoped `ws` resolutions (`^7.3.1`→`7.5.11`, 8.x→`8.21.0`) — b075665bf
+- [x] 1.2 Run `yarn install` to regenerate `yarn.lock`; confirm resolved versions (ws 7.5.11 + 8.21.0, protobufjs 7.6.4) — b075665bf
 
 ### Phase 2: Verify the audit gate
 
-- [ ] 2.1 Run `yarn npm audit --all --recursive --severity high` and confirm it passes
-- [ ] 2.2 Confirm `yarn install --immutable` is a no-op (lockfile consistent)
+- [x] 2.1 Run `yarn npm audit --all --recursive --severity high` and confirm it passes (exit 0, "No audit suggestions") — b075665bf
+- [x] 2.2 Confirm `yarn install --immutable` is a no-op (lockfile consistent) — b075665bf
