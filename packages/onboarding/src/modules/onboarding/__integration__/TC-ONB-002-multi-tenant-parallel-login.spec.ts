@@ -67,11 +67,19 @@ async function readPreparationState(requestId: string): Promise<{
   });
 }
 
-async function waitForPreparationComplete(requestId: string): Promise<void> {
+async function waitForPreparationComplete(
+  request: APIRequestContext,
+  tenant: OnboardingTenant,
+): Promise<void> {
   const deadline = Date.now() + 60_000;
   let lastState: Awaited<ReturnType<typeof readPreparationState>> | null = null;
   while (Date.now() < deadline) {
-    lastState = await readPreparationState(requestId);
+    // Drive the same recovery the real preparing page provides: it polls the
+    // status endpoint every ~1s, and each poll re-schedules deferred
+    // provisioning when no fresh claim is held. Watching only the DB would never
+    // recover a deferred runner that crashed after claiming its lease.
+    await pollOnboardingStatus(request, tenant.tenantId!).catch(() => undefined);
+    lastState = await readPreparationState(tenant.requestId!);
     if (lastState.preparation_completed_at && !lastState.preparation_started_at) return;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
@@ -187,7 +195,7 @@ test.describe('TC-ONB-002: multi-tenant onboarding parallel login', () => {
         expect(response.status(), 'status polling should not exhaust the app DB pool').toBe(200);
       }
 
-      await Promise.all(tenants.map((tenant) => waitForPreparationComplete(tenant.requestId!)));
+      await Promise.all(tenants.map((tenant) => waitForPreparationComplete(request, tenant)));
       await Promise.all(
         tenants.map((tenant, index) => loginAndAssertBackend(browserSessions[index], tenant)),
       );
