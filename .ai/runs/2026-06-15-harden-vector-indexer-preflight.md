@@ -87,9 +87,9 @@ instead of per-record error spam and a flood of doomed inserts/embedding calls.
 
 ### Phase 1: Pure preflight helper + log helper
 
-- [ ] 1.1 Add always-on `searchWarn` to `packages/search/src/lib/debug.ts`
-- [ ] 1.2 Add pure `evaluateVectorPreflight` helper in `packages/search/src/vector/lib/preflight.ts`
-- [ ] 1.3 Unit tests for `evaluateVectorPreflight` (ok + all three skip codes, probe injected)
+- [x] 1.1 Add always-on `searchWarn` to `packages/search/src/lib/debug.ts` — b01f9bb71
+- [x] 1.2 Add pure `evaluateVectorPreflight` helper in `packages/search/src/vector/lib/preflight.ts` — b01f9bb71
+- [x] 1.3 Unit tests for `evaluateVectorPreflight` (ok + all three skip codes, probe injected) — b01f9bb71
 
 ### Phase 2: Wire preflight into the vector-index worker
 
