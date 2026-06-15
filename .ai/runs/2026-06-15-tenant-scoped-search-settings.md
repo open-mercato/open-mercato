@@ -37,8 +37,8 @@
 
 ### Phase 1: Plan and spec authoring
 
-- [ ] 1.1 Add the run plan on the task branch
-- [ ] 1.2 Author the full spec at `.ai/specs/2026-06-15-tenant-scoped-search-settings.md`
+- [x] 1.1 Add the run plan on the task branch — 2803ede84
+- [x] 1.2 Author the full spec at `.ai/specs/2026-06-15-tenant-scoped-search-settings.md` — e024ac938
 
 ### Phase 2: Delivery
 
