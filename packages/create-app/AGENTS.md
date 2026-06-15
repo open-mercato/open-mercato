@@ -155,6 +155,7 @@ The `agentic/` directory contains standalone-app-specific AI coding tool configu
 packages/create-app/agentic/
 ├── shared/                      # Always generated (AGENTS.md, .ai/ structure)
 │   ├── AGENTS.md.template       # {{PROJECT_NAME}} placeholder substitution
+│   ├── ai/skills/               # Skill folders + packages.json manifest (see Skill Packages below)
 │   └── ai/specs/                # Spec templates for standalone apps
 ├── claude-code/                 # Claude Code tool config
 │   ├── CLAUDE.md.template       # {{PROJECT_NAME}} placeholder substitution
@@ -177,6 +178,15 @@ packages/create-app/agentic/
 - When adding new auto-discovery paths or module files
 - When changing CLI commands that standalone apps use
 - When the entity-migration hook logic needs adjustment
+- **When adding or removing a skill** under `agentic/shared/ai/skills/`: assign it to exactly one package in `agentic/shared/ai/skills/packages.json`. The `shared.test.ts` coverage guard fails if a skill folder is orphaned or listed-but-missing.
+
+### Skill Packages (`packages.json`)
+
+`generateShared()` copies skills from `agentic/shared/ai/skills/packages.json` (shape mirrors the monorepo `.ai/skills/tiers.json`): `{ default, packages: { name: { description, skills[], extraFiles? } } }`.
+
+- `core` is always installed; `default` lists packages shipped on an accept-defaults / non-interactive run; other packages are opt-in.
+- The wizard asks which packages to install (shown for every tool). Non-TTY / CI runs skip the prompt and use `default`; `--skill-packages <csv>` overrides non-interactively (validated against the manifest).
+- `extraFiles` are package-owned files living under a skill in another package (e.g. `creative` owns `om-spec-writing/references/proposal-intake.md`). They are gated: skipped during folder copy unless their package is selected. See `src/setup/tools/skill-packages.ts` (pure resolver) and `loadSkillManifest()` in `shared.ts`.
 
 ### Key Constraints
 

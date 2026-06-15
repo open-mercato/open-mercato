@@ -166,7 +166,7 @@ Refactor `generateShared()` from a flat copy list to a **group manifest**, add a
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase 1 — Skills + contract + optional intake | Done | 2026-06-15 | All steps 1.1–1.7 implemented; `shared.test.ts` 6/6 green; create-app typecheck clean. |
-| Phase 2 — Installer skill-package selection | Not Started | — | Deferred to a separate spec. |
+| Phase 2 — Installer skill-package selection | Done | 2026-06-15 | Implemented in `.ai/specs/2026-06-15-installer-skill-packages.md`. The ideation skills became the opt-in `creative` package — the **default scaffold no longer ships `om-proposal`/`om-brainstorm`** unless the user selects `creative` (or passes `--skill-packages …,creative`). |
 
 ### Phase 1 — Detailed Progress
 - [x] 1.1 Proposal file contract — `.ai/skills/om-proposal/references/proposal-template.md`

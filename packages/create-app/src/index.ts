@@ -15,6 +15,8 @@ import {
 import { applyStarterPreset } from './lib/apply-starter-preset.js'
 import { DEFAULT_PRESET_ID, VALID_PRESET_IDS } from './lib/starter-presets.js'
 import { runAgenticSetup } from './setup/wizard.js'
+import { loadSkillManifest } from './setup/tools/shared.js'
+import { findUnknownPackages, parseSkillPackagesInput } from './setup/tools/skill-packages.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'))
@@ -28,6 +30,7 @@ interface Options {
   registry?: string
   initGit?: boolean
   skipAgenticSetup: boolean
+  skillPackages?: string[]
   verdaccio: boolean
   help: boolean
   version: boolean
@@ -50,6 +53,7 @@ ${pc.bold('Options:')}
   --init-git         Initialize a local Git repository after scaffolding
   --no-init-git      Do not prompt for or initialize a local Git repository
   --skip-agentic-setup  Skip the interactive agentic setup wizard
+  --skill-packages <csv>  Skill packages to install (e.g. core,creative); skips the package prompt
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
   --help, -h         Show help
@@ -65,6 +69,7 @@ ${pc.bold('Examples:')}
   npx create-mercato-app my-marketplace --app-url https://github.com/some-agency/ready-app-marketplace
   npx create-mercato-app my-store --verdaccio
   npx create-mercato-app my-store --registry http://localhost:4873
+  npx create-mercato-app my-store --skill-packages core,creative
 `)
 }
 
@@ -104,6 +109,9 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
       options.version = true
     } else if (arg === '--skip-agentic-setup') {
       options.skipAgenticSetup = true
+    } else if (arg === '--skill-packages') {
+      options.skillPackages = parseSkillPackagesInput(requireOptionValue(args, index, arg))
+      index += 1
     } else if (arg === '--init-git') {
       options.initGit = true
     } else if (arg === '--no-init-git') {
@@ -419,10 +427,30 @@ async function scaffoldImportedReadyApp(targetDir: string, source: ReadyAppSourc
   ensureGeneratedCssPlaceholder(targetDir)
 }
 
-async function maybeRunAgenticSetup(targetDir: string, skipAgenticSetup: boolean): Promise<void> {
+async function maybeRunAgenticSetup(
+  targetDir: string,
+  skipAgenticSetup: boolean,
+  skillPackages?: string[],
+): Promise<void> {
   if (skipAgenticSetup) {
     await runAgenticSetup(targetDir, async () => '', { tool: 'skip' })
     return
+  }
+
+  let resolvedPackages = skillPackages
+  if (resolvedPackages && resolvedPackages.length > 0) {
+    const manifest = loadSkillManifest()
+    const unknown = findUnknownPackages(resolvedPackages, manifest)
+    if (unknown.length > 0) {
+      console.error(pc.red(`Unknown skill package(s): ${unknown.join(', ')}`))
+      console.error(`   Valid packages: ${Object.keys(manifest.packages).join(', ')}`)
+      process.exit(1)
+    }
+  } else if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    // Non-interactive (CI / piped stdin): can't prompt for packages — a follow-up
+    // readline question would starve on EOF and abandon setup. Use the manifest default,
+    // matching how the starter-preset and git prompts degrade without a TTY.
+    resolvedPackages = loadSkillManifest().default
   }
 
   const rl = createInterface({ input: process.stdin, output: process.stdout })
@@ -430,7 +458,7 @@ async function maybeRunAgenticSetup(targetDir: string, skipAgenticSetup: boolean
     new Promise<string>((resolveAnswer) => rl.question(question, (answer) => resolveAnswer(answer.trim())))
 
   try {
-    await runAgenticSetup(targetDir, ask)
+    await runAgenticSetup(targetDir, ask, { skillPackages: resolvedPackages })
   } finally {
     rl.close()
   }
@@ -560,7 +588,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   console.log('')
 
   if (!readyAppSource) {
-    await maybeRunAgenticSetup(targetDir, options.skipAgenticSetup)
+    await maybeRunAgenticSetup(targetDir, options.skipAgenticSetup, options.skillPackages)
   }
 
   const gitResult = await maybeInitializeGitRepository(targetDir, options)

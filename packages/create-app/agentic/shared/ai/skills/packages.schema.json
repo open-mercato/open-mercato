@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Standalone skill packages manifest",
+  "description": "Groups the standalone agentic skills into named packages the create-mercato-app installer can offer. The 'core' package is always installed; 'default' lists packages installed on an accept-defaults run.",
+  "type": "object",
+  "required": ["default", "packages"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "default": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Package names installed when the user accepts defaults / runs non-interactively."
+    },
+    "packages": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["description", "skills"],
+        "additionalProperties": false,
+        "properties": {
+          "description": { "type": "string" },
+          "skills": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Skill folder names (under .ai/skills/) belonging to this package."
+          },
+          "extraFiles": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Package-owned files living under a skill not in this package (paths relative to .ai/skills/). Shipped only when this package is selected."
+          }
+        }
+      }
+    }
+  }
+}

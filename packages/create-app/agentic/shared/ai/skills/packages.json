@@ -1,0 +1,48 @@
+{
+  "$schema": "./packages.schema.json",
+  "default": ["core", "automation", "integrations", "migration"],
+  "packages": {
+    "core": {
+      "description": "Daily-driver skills. Always installed (cannot be deselected).",
+      "skills": [
+        "om-spec-writing",
+        "om-implement-spec",
+        "om-code-review",
+        "om-backend-ui-design",
+        "om-data-model-design",
+        "om-module-scaffold",
+        "om-integration-tests",
+        "om-troubleshooter",
+        "om-help",
+        "om-system-extension",
+        "om-eject-and-customize"
+      ]
+    },
+    "automation": {
+      "description": "PR and issue automation (auto-create-pr, review, fix, slimdown).",
+      "skills": [
+        "om-auto-create-pr",
+        "om-auto-continue-pr",
+        "om-auto-create-pr-loop",
+        "om-auto-continue-pr-loop",
+        "om-auto-review-pr",
+        "om-auto-fix-github",
+        "om-prepare-issue",
+        "om-trim-unused-modules"
+      ]
+    },
+    "integrations": {
+      "description": "Integration provider builder (payment, shipping, data-sync).",
+      "skills": ["om-integration-builder"]
+    },
+    "migration": {
+      "description": "Version-pinned upgrade helpers.",
+      "skills": ["om-auto-upgrade-0.4.10-to-0.5.0"]
+    },
+    "creative": {
+      "description": "Collaborative pre-spec ideation — proposals and brainstorming (party mode, Socratic).",
+      "skills": ["om-proposal", "om-brainstorm"],
+      "extraFiles": ["om-spec-writing/references/proposal-intake.md"]
+    }
+  }
+}
