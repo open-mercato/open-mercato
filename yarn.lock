@@ -7397,7 +7397,7 @@ __metadata:
     "@types/mailparser": "npm:^3.4.5"
     "@types/react": "npm:^19.2.17"
     "@types/react-dom": "npm:^19.2.3"
-    esbuild: "npm:^0.28.0"
+    esbuild: "npm:^0.28.1"
     glob: "npm:^13.0.6"
     jest: "npm:^30.4.2"
     mailparser: "npm:^3.7.1"
@@ -7425,7 +7425,7 @@ __metadata:
     "@types/nodemailer": "npm:^8.0.0"
     "@types/react": "npm:^19.2.17"
     "@types/react-dom": "npm:^19.2.3"
-    esbuild: "npm:^0.28.0"
+    esbuild: "npm:^0.28.1"
     glob: "npm:^13.0.6"
     imapflow: "npm:^1.3.7"
     jest: "npm:^30.4.2"
@@ -7453,7 +7453,7 @@ __metadata:
     "@types/react": "npm:^19.2.17"
     "@types/react-dom": "npm:^19.2.3"
     bcryptjs: "npm:^3.0.3"
-    esbuild: "npm:^0.28.0"
+    esbuild: "npm:^0.28.1"
     glob: "npm:^13.0.6"
     jest: "npm:^30.4.2"
     react: "npm:19.2.7"
@@ -7609,7 +7609,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/react": "npm:^19.2.17"
     "@types/react-dom": "npm:^19.2.3"
-    esbuild: "npm:^0.28.0"
+    esbuild: "npm:^0.28.1"
     glob: "npm:^13.0.6"
     jest: "npm:^30.4.2"
     react: "npm:19.2.7"
@@ -7734,7 +7734,7 @@ __metadata:
     "@open-mercato/core": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@types/jest": "npm:^30.0.0"
-    esbuild: "npm:^0.28.0"
+    esbuild: "npm:^0.28.1"
     glob: "npm:^13.0.6"
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
@@ -7754,7 +7754,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/react": "npm:^19.2.17"
     "@types/react-dom": "npm:^19.2.3"
-    esbuild: "npm:^0.28.0"
+    esbuild: "npm:^0.28.1"
     glob: "npm:^13.0.6"
     jest: "npm:^30.4.2"
     node-html-markdown: "npm:^2.0.0"
@@ -7825,7 +7825,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/react": "npm:^19.2.17"
     "@types/react-dom": "npm:^19.2.3"
-    esbuild: "npm:^0.28.0"
+    esbuild: "npm:^0.28.1"
     glob: "npm:^13.0.6"
     jest: "npm:^30.4.2"
     react: "npm:19.2.7"
@@ -14650,7 +14650,7 @@ __metadata:
   resolution: "create-mercato-app@workspace:packages/create-app"
   dependencies:
     "@types/node": "npm:^25.9.2"
-    esbuild: "npm:^0.28.0"
+    esbuild: "npm:^0.28.1"
     picocolors: "npm:^1.1.0"
     tar: "npm:^7.5.16"
     tsx: "npm:^4.22.4"
@@ -20510,15 +20510,15 @@ __metadata:
   linkType: hard
 
 "joi@npm:^17.9.2":
-  version: 17.13.3
-  resolution: "joi@npm:17.13.3"
+  version: 17.13.4
+  resolution: "joi@npm:17.13.4"
   dependencies:
     "@hapi/hoek": "npm:^9.3.0"
     "@hapi/topo": "npm:^5.1.0"
     "@sideway/address": "npm:^4.1.5"
     "@sideway/formula": "npm:^3.0.1"
     "@sideway/pinpoint": "npm:^2.0.0"
-  checksum: 10/4c150db0c820c3a52f4a55c82c1fc5e144a5b5f4da9ffebc7339a15469d1a447ebb427ced446efcb9709ab56bd71a06c4c67c9381bc1b9f9ae63fc7c89209bdf
+  checksum: 10/0e407d4cc6cb0830b93c2d107f8b85113338473296025c31a931589359b58883e61fd183dd7532d3ab1ee014a01a20830a8fca90d9f0217d0c0894ee2cbf9ff5
   languageName: node
   linkType: hard
 
@@ -23484,7 +23484,7 @@ __metadata:
     date-fns: "npm:4.4.0"
     date-fns-tz: "npm:^3.2.0"
     dotenv: "npm:^17.4.2"
-    esbuild: "npm:^0.28.0"
+    esbuild: "npm:^0.28.1"
     eslint: "npm:^10.4.1"
     glob: "npm:^13.0.6"
     husky: "npm:^9.1.7"
@@ -29934,8 +29934,8 @@ __metadata:
   linkType: hard
 
 "webpack-dev-server@npm:^5.2.2":
-  version: 5.2.3
-  resolution: "webpack-dev-server@npm:5.2.3"
+  version: 5.2.5
+  resolution: "webpack-dev-server@npm:5.2.5"
   dependencies:
     "@types/bonjour": "npm:^3.5.13"
     "@types/connect-history-api-fallback": "npm:^1.5.4"
@@ -29974,7 +29974,7 @@ __metadata:
       optional: true
   bin:
     webpack-dev-server: bin/webpack-dev-server.js
-  checksum: 10/6a3d55c5d84d10b5e23a0638e0031ef85b262947fdacc86d96b7392538ad5894ac14aebef1e2b877f8d27302c71247215b7aa6713e01b1c37d31342415b1a150
+  checksum: 10/2bd8e03615c32ecac53e783e2be5670ccac051d051ef4ed7fe944df8fd8745b508c8ebc63bfecfdccd23c2200ca4c373b22ea2da76ce4e1c0a6f58d900c11ecb
   languageName: node
   linkType: hard
 

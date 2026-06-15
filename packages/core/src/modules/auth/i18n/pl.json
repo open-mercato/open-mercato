@@ -43,7 +43,6 @@
   "auth.login.errors.invalidCredentials": "Nieprawidłowy email lub hasło",
   "auth.login.errors.permissionDenied": "Nie masz uprawnień do tego obszaru. Skontaktuj się z administratorem.",
   "auth.login.errors.tenantInvalid": "Nie znaleziono najemcy. Wyczyść wybór i spróbuj ponownie.",
-  "auth.login.errors.tenantRequired": "Użyj linku logowania z aktywacji najemcy, aby kontynuować.",
   "auth.login.featureDenied": "Nie masz dostępu do tej funkcji ({feature}). Skontaktuj się z administratorem.",
   "auth.login.forgotPassword": "Nie pamiętasz hasła?",
   "auth.login.loading": "Ładowanie...",
