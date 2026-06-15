@@ -317,6 +317,26 @@ shared across tenants; each job carries its own tenant scope inside its envelope
   integration tests below (a tenant-A admin requesting jobs sees zero tenant-B jobs even
   when tenant-B jobs are the most recent in the shared queue).
 
+## Risks & Impact Review
+
+Each risk lists the concrete failure scenario, severity, affected area, mitigation, and
+residual risk after mitigation.
+
+| # | Failure scenario | Severity | Affected area | Mitigation | Residual risk |
+|---|------------------|----------|---------------|------------|---------------|
+| R1 | **Cross-tenant payload/PII leak.** A non-superadmin with `inspect_payloads` retrieves jobs belonging to another tenant from the shared queue (the headline risk — payloads carry PII / encrypted-at-rest content). | Critical | Tier 2 Job Inspector (`configs/lib/queue-job-inspector.ts`, `GET /api/configs/queues-status/jobs`) | Server-side tenant filter drops every job whose `tenantId` ≠ actor's before the response is built; filter not overridable by query params; `X` applied **after** the filter; unknown-tenant jobs fail closed (withheld). Cross-tenant breadth additionally gated by superadmin status, not just the feature. Covered by the critical integration test (tenant-A sees zero tenant-B rows). | Low — depends on the job envelope correctly stamping `tenantId`. A job enqueued without a tenant stamp is treated as foreign (fail closed), so the residual is "a legitimately own-tenant job is hidden", never "a foreign job is shown". |
+| R2 | **Sensitive field exposed despite redaction.** A payload field that is sensitive but not on the known-sensitive/encrypted list renders in cleartext in the inspector. | High | Tier 2 inspector redaction | Redact-by-default for known-sensitive/encrypted keys; encrypted-at-rest fields shown as ciphertext marker; raw decryption is a non-goal. Audit record makes any access traceable. | Medium — redaction is allow-list/heuristic-based; an unrecognized sensitive key could surface. Mitigated operationally by the audit trail and by restricting the feature to superadmin/platform-operator roles. Tightening the redaction list is a follow-up. |
+| R3 | **Scale / DoS on a huge queue.** A view enumerates hundreds of thousands of jobs, hammering Redis or reading a massive local file, OOMing the request. | High | Tier 1 counts + failed window, Tier 2 last-X window | Counts come from aggregate `getJobCounts()` (O(1)-ish); failed list and inspector are hard-capped bounded windows (`limit` server-clamped, never a full scan); no full-queue enumeration anywhere. | Low — bounded windows cap worst-case work regardless of queue size. |
+| R4 | **Privilege creep via grant bundling.** `inspect_payloads` accidentally bundled into the broadly-granted `.view` feature, giving ordinary admins payload access. | High | ACL (`configs/acl.ts`, `setup.ts`) | The two features are distinct immutable ids; `.inspect_payloads` is synced to platform-operator/superadmin roles only and explicitly NOT bundled with `.view`. Open Question Q1 flags this for maintainer confirmation. | Low if the setup sync is implemented as specified; an ACL test should assert `.inspect_payloads` is absent from ordinary-admin roles. |
+| R5 | **Audit gap.** A payload read is not recorded, so cross-tenant / superadmin access is untraceable. | Medium | Tier 2 audit record | Every inspector call writes an audit record (actor, tenant, queue, state, returned count, cross-tenant-breadth flag) before returning; integration test asserts a record is written per call. | Low — audit sits on the single server-side code path the route delegates to. |
+| R6 | **Misleading local-strategy counts.** The `local` strategy reports partial/derived counts that an operator reads as exact live numbers and makes a wrong call. | Low | Tier 1 counts (local strategy) | Snapshot marks local queues `fidelity: 'partial'`; the UI labels them honestly rather than implying exact live counts. | Low — operational/cosmetic, not a data-safety risk. |
+| R7 | **Backward-compatibility regression.** Adding introspection methods breaks existing `Queue` implementations or callers. | Low | `@open-mercato/queue` contract | All additions are optional (`delayed?`, `getFailedJobsSummary?`, `getRecentJobs?`); existing callers and implementations are unaffected (see Backward Compatibility). | Negligible — additive-only; verified by the existing queue contract tests plus new shape tests. |
+
+**Overall impact:** a net-new admin surface with no DB schema change to the queue/status
+surface itself and no migration (an optional persisted audit table, if chosen, is itself
+additive). The dominant risk is R1 (cross-tenant payload leak); the design treats
+server-side tenant isolation with fail-closed semantics as the hard, test-gated invariant.
+
 ## Phasing (stories)
 
 ### Phase 1 — Introspection contract (queue package)
@@ -471,3 +491,34 @@ yarn typecheck
 yarn lint
 yarn i18n:check-hardcoded
 ```
+
+## Final Compliance Report
+
+This spec is **Draft (deferred — not yet implemented)**. The compliance gate below is the
+checklist the implementing PR(s) must satisfy before this spec moves to
+`.ai/specs/implemented/`; it is recorded now so the implementer inherits the bar rather than
+re-deriving it.
+
+| Gate | Status | Notes |
+|------|--------|-------|
+| Architecture: admin surface in `configs`, contract in `@open-mercato/queue`; no direct ORM cross-module relationship | ☐ deferred | Verified at design time against the existing `system-status` pattern and the worker registry export. |
+| Tenant isolation: non-superadmin never sees another tenant's jobs/payloads (server-side, fail-closed) | ☐ deferred | Hard invariant; gated by the critical integration test (tenant-A → zero tenant-B rows). |
+| Backward compatibility: all `@open-mercato/queue` changes additive-only | ☐ deferred | `delayed?`, `getFailedJobsSummary?`, `getRecentJobs?` optional; no removed/renamed export, no event-id change. |
+| ACL: `.view` broad, `.inspect_payloads` superadmin/platform-operator only, not bundled | ☐ deferred | Immutable feature ids in `configs/acl.ts`; synced via `setup.ts`. |
+| UI: DS status tokens, `apiCall`, `LoadingMessage`/`ErrorMessage`, i18n via `useT()`/`resolveTranslations()` | ☐ deferred | No hardcoded status colors or user-facing strings. |
+| Integration coverage: both API paths + key UI paths + both `local`/`async` strategies | ☐ deferred | Enumerated in the Integration Coverage section. |
+| `yarn generate` / `typecheck` / `lint` / `i18n:check-hardcoded` green | ☐ deferred | See Validation Commands. |
+
+No code lands in this PR, so there is nothing to compliance-gate at merge beyond the spec
+content checklist (TLDR, Problem Statement, Proposed Solution, Architecture, Data Models /
+contracts, Risks & Impact Review, this report, Changelog), which this revision now satisfies.
+
+## Changelog
+
+- **2026-06-15** — Spec authored (Draft, deferred). Two-tier design: Tier 1 payload-free
+  Queue Status (counts + bounded failed window) and Tier 2 privileged, tenant-safe, audited
+  Job Inspector (last-X jobs with redacted payloads). Additive `@open-mercato/queue`
+  introspection contract; no DB schema change. Tracking issue to be linked after creation.
+- **2026-06-15** — Added the privileged Job Inspector tier (cross-tenant fail-closed filter,
+  redaction-by-default, audit record) and the structured Risks & Impact Review + Final
+  Compliance Report sections to meet the spec content checklist.
