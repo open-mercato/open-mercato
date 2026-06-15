@@ -7,7 +7,7 @@ import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { upsertCustomEntitySchema } from '@open-mercato/core/modules/entities/data/validators'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/system-entities'
-import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
+import { isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -108,15 +108,18 @@ export async function POST(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
 
-  // A registration for a module-declared, table-backed system entity would flip
-  // query-engine classification to doc storage for the whole entity type (#2939's
-  // failure mode via another door) — refuse to create one.
-  if (isOrmBackedSystemEntityId(em, input.entityId)) {
-    return NextResponse.json(
-      { error: 'System entities cannot be registered as custom entities', code: SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, entityId: input.entityId },
-      { status: 400 },
-    )
-  }
+  // For a module-declared, ORM-backed system entity we persist ONLY a presentation-metadata
+  // overlay (label/description/defaultEditor) — never a record-bearing custom-entity registration.
+  // Such an entity's records always live in its own ORM table; the overlay row is inert for
+  // storage classification because every seam keys off isOrmBackedSystemEntityId, not the row:
+  // the records API (classifyRecordsEntity) and the doc-storage write guard
+  // (assertCustomEntityStorageEntityId) check it first, and the read classifier
+  // (HybridQueryEngine.isCustomEntity) was hardened to do the same (#3106). So the overlay cannot
+  // reopen #2939. We force showInSidebar off and leave labelField untouched so the overlay can
+  // neither surface a records UI nor relabel the system entity's record routing. The full
+  // "Edit Definitions" editor relies on this to persist label/description/defaultEditor for a
+  // system entity (restoring the capability the broad #2939 guard had removed).
+  const isSystemEntity = isOrmBackedSystemEntityId(em, input.entityId)
 
   const where: any = { entityId: input.entityId, organizationId: auth.orgId ?? null, tenantId: auth.tenantId ?? null }
   let ent = await em.findOne(CustomEntity, where)
@@ -124,9 +127,13 @@ export async function POST(req: Request) {
   ent.label = input.label
   ent.description = input.description ?? null
   ent.isActive = input.isActive ?? true
-  ent.labelField = input.labelField ?? ent.labelField ?? null
   ent.defaultEditor = input.defaultEditor ?? ent.defaultEditor ?? null
-  ent.showInSidebar = input.showInSidebar ?? ent.showInSidebar ?? false
+  if (isSystemEntity) {
+    ent.showInSidebar = false
+  } else {
+    ent.labelField = input.labelField ?? ent.labelField ?? null
+    ent.showInSidebar = input.showInSidebar ?? ent.showInSidebar ?? false
+  }
   ent.updatedAt = new Date()
   em.persist(ent)
   await em.flush()
