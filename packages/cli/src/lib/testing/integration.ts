@@ -1,4 +1,3 @@
-import { GenericContainer } from 'testcontainers'
 import type { ChildProcess, StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
@@ -2931,6 +2930,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     const databaseUser = 'mercato'
     const databasePassword = 'secret'
 
+    const { GenericContainer } = await import('testcontainers')
     const databaseContainer = await new GenericContainer('postgres:16')
       .withEnvironment({
         POSTGRES_DB: databaseName,
