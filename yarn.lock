@@ -53,16 +53,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ai-sdk/gateway@npm:3.0.126":
-  version: 3.0.126
-  resolution: "@ai-sdk/gateway@npm:3.0.126"
+"@ai-sdk/gateway@npm:3.0.131":
+  version: 3.0.131
+  resolution: "@ai-sdk/gateway@npm:3.0.131"
   dependencies:
     "@ai-sdk/provider": "npm:3.0.10"
-    "@ai-sdk/provider-utils": "npm:4.0.27"
+    "@ai-sdk/provider-utils": "npm:4.0.29"
     "@vercel/oidc": "npm:3.2.0"
   peerDependencies:
     zod: ^3.25.76 || ^4.1.8
-  checksum: 10/4a9204c220247ac9c15723a2a65100451c06ce52f0a9a830705b1f3fe4573d9734a83a81b80711ef84f7fe774b357323c038d838c0e63550d8584dbfe23c47db
+  checksum: 10/499b2505fec61d6a6f53983772a45d5d4f1b0fe9875bf8171335e78883af8ab0a36d3791d3f855e0b06ccd1261187f3709415a01008a57114996e89f55fc80f0
   languageName: node
   linkType: hard
 
@@ -102,19 +102,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ai-sdk/provider-utils@npm:4.0.27, @ai-sdk/provider-utils@npm:^4.0.27":
-  version: 4.0.27
-  resolution: "@ai-sdk/provider-utils@npm:4.0.27"
-  dependencies:
-    "@ai-sdk/provider": "npm:3.0.10"
-    "@standard-schema/spec": "npm:^1.1.0"
-    eventsource-parser: "npm:^3.0.8"
-  peerDependencies:
-    zod: ^3.25.76 || ^4.1.8
-  checksum: 10/5c13b222269f70a92ced605135f5ce82bdd3fa86c8d54be20ecd62e7cea993928ddb59782ce86379bc05a14017a6fa7a93a6587e249f28092177c0b49a591c25
-  languageName: node
-  linkType: hard
-
 "@ai-sdk/provider-utils@npm:4.0.29":
   version: 4.0.29
   resolution: "@ai-sdk/provider-utils@npm:4.0.29"
@@ -125,6 +112,19 @@ __metadata:
   peerDependencies:
     zod: ^3.25.76 || ^4.1.8
   checksum: 10/63b7e1fb7cb1c6509c722e79b4d895c6f73d12613465d25a7579db4a1de218d3bb828170f64cf84d3cafb53295e327e215d205e30867795d14e34c01d64a2eab
+  languageName: node
+  linkType: hard
+
+"@ai-sdk/provider-utils@npm:^4.0.27":
+  version: 4.0.27
+  resolution: "@ai-sdk/provider-utils@npm:4.0.27"
+  dependencies:
+    "@ai-sdk/provider": "npm:3.0.10"
+    "@standard-schema/spec": "npm:^1.1.0"
+    eventsource-parser: "npm:^3.0.8"
+  peerDependencies:
+    zod: ^3.25.76 || ^4.1.8
+  checksum: 10/5c13b222269f70a92ced605135f5ce82bdd3fa86c8d54be20ecd62e7cea993928ddb59782ce86379bc05a14017a6fa7a93a6587e249f28092177c0b49a591c25
   languageName: node
   linkType: hard
 
@@ -7435,7 +7435,7 @@ __metadata:
     "@open-mercato/ui": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     "@types/mailparser": "npm:^3.4.5"
-    "@types/nodemailer": "npm:^8.0.0"
+    "@types/nodemailer": "npm:^8.0.1"
     "@types/react": "npm:^19.2.17"
     "@types/react-dom": "npm:^19.2.3"
     esbuild: "npm:^0.28.1"
@@ -11528,12 +11528,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/nodemailer@npm:^8.0.0":
-  version: 8.0.0
-  resolution: "@types/nodemailer@npm:8.0.0"
+"@types/nodemailer@npm:^8.0.1":
+  version: 8.0.1
+  resolution: "@types/nodemailer@npm:8.0.1"
   dependencies:
     "@types/node": "npm:*"
-  checksum: 10/d1178b557e8c547018e708459af06fdf2e9cfd6d65fed109517cddfe6b5add6201d941882a2e4eeede529de08ae71a68fb2a1d8f1c41cb3761d3a6c2458025fe
+  checksum: 10/ec2d9783387a0b24de0cfa76a8da6beab7342e97329fe1e2cf7a26d05e57b241f8dd45276385f1ee5bd089000f35b60beb8f31a9e2e7deaec5486ff1c640e641
   languageName: node
   linkType: hard
 
@@ -12547,17 +12547,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ai@npm:6.0.198":
-  version: 6.0.198
-  resolution: "ai@npm:6.0.198"
+"ai@npm:6.0.205":
+  version: 6.0.205
+  resolution: "ai@npm:6.0.205"
   dependencies:
-    "@ai-sdk/gateway": "npm:3.0.126"
+    "@ai-sdk/gateway": "npm:3.0.131"
     "@ai-sdk/provider": "npm:3.0.10"
-    "@ai-sdk/provider-utils": "npm:4.0.27"
+    "@ai-sdk/provider-utils": "npm:4.0.29"
     "@opentelemetry/api": "npm:^1.9.0"
   peerDependencies:
     zod: ^3.25.76 || ^4.1.8
-  checksum: 10/8e6ee805c42d6d3b3ba77679c8617d440526e066c9472d637eae7cc736f9847f66eced1dee269602946f0f5616c269db5802c2c67b7509fce235229eb75a878e
+  checksum: 10/785cc705a8e1180de938117e51d6b29fb1782f442a6d8f8779b1f017bca83ce8d85d45e7037850606374398b25b8b5901c63f776d93a1ae1b84abd7702724f70
   languageName: node
   linkType: hard
 
