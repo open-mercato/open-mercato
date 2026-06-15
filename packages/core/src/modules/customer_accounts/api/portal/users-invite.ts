@@ -15,6 +15,7 @@ import {
   customerInviteIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
+import { sendCustomerInvitationEmail } from '@open-mercato/core/modules/customer_accounts/lib/invitationEmail'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -84,7 +85,7 @@ export async function POST(req: Request) {
 
   const customerInvitationService = container.resolve('customerInvitationService') as CustomerInvitationService
 
-  const { invitation } = await customerInvitationService.createInvitation(
+  const { invitation, rawToken } = await customerInvitationService.createInvitation(
     parsed.data.email,
     { tenantId: auth.tenantId, organizationId: auth.orgId },
     {
@@ -94,6 +95,18 @@ export async function POST(req: Request) {
       displayName: parsed.data.displayName || null,
     },
   )
+
+  try {
+    await sendCustomerInvitationEmail({
+      container,
+      organizationId: auth.orgId,
+      email: invitation.email,
+      rawToken,
+    })
+  } catch (error) {
+    console.error('[customer_accounts.portal.users-invite] invitation email failed', error)
+    return NextResponse.json({ ok: false, error: 'Invitation email could not be sent' }, { status: 502 })
+  }
 
   return NextResponse.json({
     ok: true,
@@ -126,6 +139,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 401, description: 'Not authenticated', schema: errorSchema },
     { status: 403, description: 'Insufficient permissions or non-assignable role', schema: errorSchema },
     { status: 429, description: 'Too many invitation requests', schema: rateLimitErrorSchema },
+    { status: 502, description: 'Invitation email could not be sent', schema: errorSchema },
   ],
 }
 
