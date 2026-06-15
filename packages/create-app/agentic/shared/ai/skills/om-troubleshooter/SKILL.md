@@ -39,7 +39,7 @@ When the developer reports a problem, follow this order:
 
 ### Step 2: Check Generated Files
 
-Run these commands first — they fix 60%+ of issues:
+These commands fix 60%+ of issues, so they are usually the first fix to propose (they are mutating — propose, then run after confirmation per [Step 4](#step-4-propose-before-fixing)):
 
 ```bash
 yarn generate          # Regenerate module discovery files
@@ -61,6 +61,28 @@ ls .mercato/generated/
 yarn typecheck
 ```
 
+### Step 4: Propose Before Fixing
+
+Once you have diagnosed the root cause, **do not apply the fix immediately**. First present:
+
+1. The **root cause** — what is actually broken and why.
+2. The **proposed fix** — the exact commands and/or code changes you intend to apply.
+
+Then **wait for explicit user confirmation** before applying any **mutating** change. This keeps the developer in control and avoids surprise edits, migrations, or restarts.
+
+**Read-only diagnostics may run without asking** — they only gather information and change nothing:
+
+| Allowed without confirmation (read-only) | Requires confirmation (mutating) |
+|------------------------------------------|----------------------------------|
+| `yarn typecheck` | `yarn generate` |
+| `grep` / file reads / `ls` | `yarn db:generate` |
+| log / browser-console inspection | `yarn db:migrate` |
+| `docker compose ps` | editing files |
+| `curl` against a running endpoint (GET) | restarting the dev server (`yarn dev`) |
+| | `docker compose up` |
+
+When in doubt about whether an action mutates state, treat it as mutating and ask first. Once the user confirms, apply the fix and verify it.
+
 ---
 
 ## 2. Module Issues
@@ -76,24 +98,24 @@ yarn typecheck
    // Must have this entry:
    { id: '<module_id>', from: '@app' }
    ```
-   Fix: Add the entry and run `yarn generate`.
+   Proposed fix: Add the entry and run `yarn generate`.
 
 2. **Did you run `yarn generate`?**
    Check if `.mercato/generated/` contains your module's entries.
-   Fix: Run `yarn generate`.
+   Proposed fix: Run `yarn generate`.
 
 3. **Is the module folder named correctly?**
    Must be plural, snake_case: `src/modules/<module_id>/`
-   Fix: Rename folder to match module ID.
+   Proposed fix: Rename folder to match module ID.
 
 4. **Does `index.ts` export `metadata`?**
    ```typescript
    export const metadata: ModuleInfo = { name: '<module_id>', ... }
    ```
-   Fix: Add the metadata export.
+   Proposed fix: Add the metadata export.
 
 5. **Is the dev server running with latest changes?**
-   Fix: Restart with `yarn dev`.
+   Proposed fix: Restart with `yarn dev`.
 
 ### Module loads but pages 404
 
@@ -104,17 +126,17 @@ yarn typecheck
 1. **Are backend page files in the right location?**
    - List page: `backend/page.tsx` (not `backend/index.tsx`)
    - Detail page: `backend/<entities>/[id].tsx` (bracket notation)
-   Fix: Rename to match auto-discovery convention.
+   Proposed fix: Rename to match auto-discovery convention.
 
 2. **Do pages export `metadata` with `requireAuth`?**
    ```typescript
    export const metadata = { requireAuth: true, features: ['<module_id>.view'] }
    ```
-   Fix: Add metadata export.
+   Proposed fix: Add metadata export.
 
 3. **Does the user have the required ACL features?**
    Check `setup.ts` has `defaultRoleFeatures` for the user's role.
-   Fix: Add features to role defaults, re-run setup.
+   Proposed fix: Add features to role defaults, re-run setup.
 
 ---
 
@@ -130,22 +152,22 @@ yarn typecheck
    ```bash
    yarn db:generate     # Probes/creates migration file
    ```
-   Fix: Run `yarn db:generate` to inspect the required migration, then keep only the scoped SQL for your module and update `src/modules/<module_id>/migrations/.snapshot-open-mercato.json`.
+   Proposed fix: Run `yarn db:generate` to inspect the required migration, then keep only the scoped SQL for your module and update `src/modules/<module_id>/migrations/.snapshot-open-mercato.json`.
 
 2. **Is the entity declared in the right file with the right imports?**
    Entity classes belong in `src/modules/<module_id>/data/entities.ts` and decorators must come from `@mikro-orm/decorators/legacy`.
-   Fix: move stale `entities/<Entity>.ts` patterns into `data/entities.ts` and fix the imports before regenerating the migration.
+   Proposed fix: move stale `entities/<Entity>.ts` patterns into `data/entities.ts` and fix the imports before regenerating the migration.
 
 3. **Did you apply the migration?**
    ```bash
    yarn db:migrate      # Applies pending migrations
    ```
-   Fix: Run `yarn db:migrate`.
+   Proposed fix: Run `yarn db:migrate`.
 
 4. **Is the migration file correct?**
    Check `src/modules/<module_id>/migrations/` for the latest migration.
    Verify it has the expected columns and types.
-   Fix: If wrong, delete the migration file, fix the entity, and regenerate.
+   Proposed fix: If wrong, delete the migration file, fix the entity, and regenerate.
 
 ### Migration generation creates unexpected changes
 
@@ -160,11 +182,11 @@ yarn typecheck
 
 2. **Did you modify a core module entity without ejecting?**
    Never edit `node_modules/@open-mercato/*`.
-   Fix: Revert changes to node_modules. Use UMES extensions instead, or eject the module.
+   Proposed fix: Revert changes to node_modules. Use UMES extensions instead, or eject the module.
 
 3. **Is a module snapshot stale?**
    Check whether the generated SQL recreates a table or column that already has a committed migration.
-   Fix: update that module's `migrations/.snapshot-open-mercato.json` to include the already-migrated schema, then re-run `yarn db:generate` and expect `no changes`.
+   Proposed fix: update that module's `migrations/.snapshot-open-mercato.json` to include the already-migrated schema, then re-run `yarn db:generate` and expect `no changes`.
 
 ### Entity changes not reflected
 
@@ -443,9 +465,10 @@ yarn dev               # 5. Restart dev server
 
 ## Rules
 
-- **ALWAYS** run `yarn generate` as first diagnostic step
+- **ALWAYS** present the diagnosed root cause and the proposed fix (commands/code), then **wait for explicit user confirmation before applying any mutating change** (see [Step 4](#step-4-propose-before-fixing)). Only read-only diagnostics may run without asking.
 - **ALWAYS** check server logs / browser console for actual error messages
 - **NEVER** edit files in `.mercato/generated/` or `node_modules/`
 - **NEVER** assume the issue — verify with actual error output
+- Treat `yarn generate` as the most likely first fix, but propose it before running — it regenerates files and is a mutating action
 - Fix the root cause, not the symptom — temporary workarounds become permanent bugs
-- When suggesting a fix, include the exact command or code change needed
+- When proposing a fix, include the exact command or code change needed

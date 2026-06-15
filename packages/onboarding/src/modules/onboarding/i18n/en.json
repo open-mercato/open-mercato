@@ -77,7 +77,10 @@
   "onboarding.preparing.descriptionWithTenant": "We are finishing the demo environment for {tenant}. We will send you an email with the correct tenant login link as soon as it is ready.",
   "onboarding.preparing.emailNotice": "You do not need to keep this page open. We will email you when everything is ready.",
   "onboarding.preparing.homeCta": "Go to home page",
+  "onboarding.preparing.loginCta": "Open tenant login",
   "onboarding.preparing.redirecting": "Your workspace is ready. Redirecting you to the tenant login page now.",
+  "onboarding.preparing.statusErrorBody": "We could not check the workspace status. The workspace may still be preparing; this page will keep retrying.",
+  "onboarding.preparing.statusErrorTitle": "Workspace status check failed",
   "onboarding.preparing.title": "We are preparing your workspace",
   "onboarding.readyEmail.body": "Your Open Mercato workspace for {organizationName} has finished preparing. Use the secure link below to sign in.",
   "onboarding.readyEmail.cta": "Open login",
@@ -87,5 +90,11 @@
   "onboarding.readyEmail.preview": "Your workspace is ready. Use your secure login link to sign in.",
   "onboarding.readyEmail.subject": "Your Open Mercato workspace is ready",
   "onboarding.subtitle": "Tell us a bit about you and we will set everything up.",
-  "onboarding.title": "Create your Open Mercato workspace"
+  "onboarding.title": "Create your Open Mercato workspace",
+  "onboarding.verifyStatus.alreadyExists": "We already have an account with this email. Try signing in or resetting your password.",
+  "onboarding.verifyStatus.error": "We could not complete verification. Please try again or contact support.",
+  "onboarding.verifyStatus.invalid": "The verification link is invalid or expired. Submit the onboarding form again to receive a new link.",
+  "onboarding.verifyStatus.originNotAllowed": "The verification link was opened from an origin that is not allowed. Check APP_URL and APP_ALLOWED_ORIGINS, then open the verification link again.",
+  "onboarding.verifyStatus.redirectMisconfigured": "The verification link cannot redirect safely because APP_URL does not match the URL that handled the request. Check APP_URL and APP_ALLOWED_ORIGINS, then open the verification link again.",
+  "onboarding.verifyStatus.urlNotConfigured": "Onboarding verification is not configured. APP_URL must be set before verification links can be used."
 }

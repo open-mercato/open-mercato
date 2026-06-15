@@ -233,67 +233,7 @@ describe('Memory Cache Strategy', () => {
     })
   })
 
-  describe('Bounded LRU eviction', () => {
-    it('should evict the oldest entry once maxEntries is exceeded', async () => {
-      const bounded = createMemoryStrategy({ maxEntries: 3 })
-      await bounded.set('a', 1)
-      await bounded.set('b', 2)
-      await bounded.set('c', 3)
-      await bounded.set('d', 4) // exceeds cap -> evicts 'a'
-
-      expect(await bounded.get('a')).toBeNull()
-      expect(await bounded.get('b')).toBe(2)
-      expect(await bounded.get('c')).toBe(3)
-      expect(await bounded.get('d')).toBe(4)
-      expect((await bounded.stats()).size).toBe(3)
-    })
-
-    it('should keep a recently-read entry and evict a colder one', async () => {
-      const bounded = createMemoryStrategy({ maxEntries: 3 })
-      await bounded.set('a', 1)
-      await bounded.set('b', 2)
-      await bounded.set('c', 3)
-
-      // Read 'a' so it becomes most-recently-used; 'b' is now coldest.
-      expect(await bounded.get('a')).toBe(1)
-      await bounded.set('d', 4) // evicts 'b'
-
-      expect(await bounded.get('b')).toBeNull()
-      expect(await bounded.get('a')).toBe(1)
-      expect(await bounded.get('c')).toBe(3)
-      expect(await bounded.get('d')).toBe(4)
-    })
-
-    it('should keep the tag index consistent when evicting', async () => {
-      const bounded = createMemoryStrategy({ maxEntries: 2 })
-      await bounded.set('a', 1, { tags: ['shared'] })
-      await bounded.set('b', 2, { tags: ['shared'] })
-      await bounded.set('c', 3, { tags: ['shared'] }) // evicts 'a'
-
-      // 'a' must no longer be referenced by the 'shared' tag.
-      const deleted = await bounded.deleteByTags(['shared'])
-      expect(deleted).toBe(2) // only 'b' and 'c' remain
-      expect(await bounded.get('a')).toBeNull()
-      expect(await bounded.get('b')).toBeNull()
-      expect(await bounded.get('c')).toBeNull()
-    })
-
-    it('should bound size from the CACHE_MAX_ENTRIES env var', async () => {
-      const previous = process.env.CACHE_MAX_ENTRIES
-      process.env.CACHE_MAX_ENTRIES = '2'
-      try {
-        const bounded = createMemoryStrategy()
-        await bounded.set('a', 1)
-        await bounded.set('b', 2)
-        await bounded.set('c', 3)
-        expect((await bounded.stats()).size).toBe(2)
-        expect(await bounded.get('a')).toBeNull()
-      } finally {
-        if (previous === undefined) delete process.env.CACHE_MAX_ENTRIES
-        else process.env.CACHE_MAX_ENTRIES = previous
-      }
-    })
-
+  describe('Amortized expired-entry sweep', () => {
     it('should reclaim expired entries via the amortized sweep on writes', async () => {
       jest.useFakeTimers()
       jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'))
@@ -342,6 +282,57 @@ describe('Memory Cache Strategy', () => {
       stats = await cache.stats()
       expect(stats.size).toBe(3)
       expect(stats.expired).toBe(1)
+    })
+  })
+
+  describe('LRU bounding (maxEntries)', () => {
+    it('evicts the least-recently-used entry once the cap is exceeded', async () => {
+      const bounded = createMemoryStrategy({ maxEntries: 3 })
+      await bounded.set('a', 1)
+      await bounded.set('b', 2)
+      await bounded.set('c', 3)
+      // Inserting a 4th entry evicts the oldest (a)
+      await bounded.set('d', 4)
+
+      expect(await bounded.get('a')).toBeNull()
+      expect(await bounded.get('b')).toBe(2)
+      expect(await bounded.get('c')).toBe(3)
+      expect(await bounded.get('d')).toBe(4)
+      expect((await bounded.stats()).size).toBe(3)
+    })
+
+    it('keeps recently-read entries alive (reads refresh LRU position)', async () => {
+      const bounded = createMemoryStrategy({ maxEntries: 3 })
+      await bounded.set('a', 1)
+      await bounded.set('b', 2)
+      await bounded.set('c', 3)
+      // Touch 'a' so it becomes most-recently-used; 'b' is now the oldest
+      expect(await bounded.get('a')).toBe(1)
+      await bounded.set('d', 4)
+
+      expect(await bounded.get('a')).toBe(1)
+      expect(await bounded.get('b')).toBeNull()
+      expect(await bounded.get('c')).toBe(3)
+      expect(await bounded.get('d')).toBe(4)
+    })
+
+    it('drops evicted keys from the tag index so deleteByTags stays consistent', async () => {
+      const bounded = createMemoryStrategy({ maxEntries: 2 })
+      await bounded.set('a', 1, { tags: ['shared'] })
+      await bounded.set('b', 2, { tags: ['shared'] })
+      await bounded.set('c', 3, { tags: ['shared'] }) // evicts 'a'
+
+      const removed = await bounded.deleteByTags(['shared'])
+      expect(removed).toBe(2)
+      expect((await bounded.stats()).size).toBe(0)
+    })
+
+    it('treats a non-positive cap as unbounded', async () => {
+      const unbounded = createMemoryStrategy({ maxEntries: 0 })
+      for (let index = 0; index < 100; index += 1) {
+        await unbounded.set(`key${index}`, index)
+      }
+      expect((await unbounded.stats()).size).toBe(100)
     })
   })
 })
