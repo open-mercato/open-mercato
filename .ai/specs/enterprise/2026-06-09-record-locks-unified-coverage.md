@@ -8,11 +8,11 @@
 
 **Scope:**
 - **Phase 1 — CRM v2 (deal, company, person):** make record_locks fully functional on the v2 detail screens (presence + acquire/heartbeat on load + pessimistic block + conflict/merge dialog), including the Deal screen's custom `DealForm` + custom stage/closure command endpoints which today are completely unwired.
-- **Phase 2+ — one module per phase (customers-first), covering EVERY module with editable entities:** customers (subforms + deletes) → sales (documents, sub-resources, config dialogs) → catalog → auth + directory + staff + resources → platform-config modules (dictionaries, currencies, workflows, feature_toggles, business_rules) → cross-cutting delete sweep. Every entity audited by the OSS `optimistic-lock-editable-entities.test.ts` gets a record_locks decision (enabled, or intentionally exempt with a documented reason).
+- **Phase 2+ — one module/package per phase (customers-first), covering EVERY module with editable entities and every other OSS lock site:** customers (subforms + deletes) → sales (documents, sub-resources, config dialogs) → catalog → auth + directory + staff + resources → platform-config modules (dictionaries, currencies, workflows, feature_toggles, business_rules) → command/raw-helper/package sweep (`entities`, `planner`, `api_keys`, `integrations`, `webhooks`, `checkout`, etc.) → cross-cutting delete sweep. Every entity audited by the OSS `optimistic-lock-editable-entities.test.ts`, every direct `enforceCommandOptimisticLock` call, and every raw UI `buildOptimisticLockHeader` site gets a record_locks decision (enabled, or intentionally exempt with a documented reason).
 
 **Concerns:**
 - **Enterprise must be a strict superset of OSS safety, never a liability.** record_locks therefore *layers on* the always-on server-side OSS `updated_at` floor — it never *replaces* it. Enforcement is server-authoritative and **independent of the client widget**: removing/replacing the merge-dialog widget or editing the layout degrades UX (plain conflict bar) but can never open a no-lock hole; delegation is fail-closed to the OSS compare (S1/S5, risk register §"Widget removed / layout tampered").
-- **1:1 command coverage with OSS.** OSS optimistic locking covers not just `makeCrudRoute` entities but every command-pattern write via `enforceCommandOptimisticLock` (17 sites across 13 modules). record_locks reaches all of them through a single server seam, including 8 modules outside the entity audit (`entities`, `staff/job-histories`, `feature_toggles/overrides`, `customer_accounts`, `inbox_ops`, `data_sync`, `auth` ACL, `perspectives`) — Phase 6b.
+- **1:1 command coverage with OSS.** OSS optimistic locking covers not just `makeCrudRoute` entities but every command-pattern write via `enforceCommandOptimisticLock` (audit update 2026-06-15: **34 direct call lines across 21 non-test files**, including `checkout` and `webhooks`). record_locks reaches them through an **additive async DI-aware seam** plus explicit call-site/wrapper migration, not by secretly changing the existing synchronous helper's behavior — Phase 6b.
 - Avoiding **double conflict UX**: solved at the **surface** (one 409 shape returned; `surfaceRecordConflict` dedupes the dialog) — *not* by disabling a server guard (S3).
 - The Deal screen uses a bespoke mutation pipeline (not `CrudForm.updateCrud`), so it needs more than a prop flip.
 - Enterprise-only module extending OSS call sites **without** creating cross-module ORM coupling or breaking the OSS-only build: all integration flows through injection spots + DI seams, never `core → enterprise` imports.
@@ -23,7 +23,7 @@ The enterprise `record_locks` module (`packages/enterprise/src/modules/record_lo
 
 In parallel, the OSS `updated_at` optimistic-lock guard (SPEC `2026-05-25-oss-optimistic-locking`, `-05-28-coverage-completion`, `-05-29-all-crudforms`, SPEC-035 mutation-guard-mechanism) was rolled out **default-ON** across every `makeCrudRoute` entity and most CRUD UIs, with two regression guard tests (`optimistic-lock-editable-entities.test.ts`, `optimistic-lock-ui-coverage.test.ts`) enforcing coverage. The result: the platform now has **two locking systems**, and record_locks reaches only a subset of the sites the OSS guard covers.
 
-This spec unifies them: where record_locks is enabled, it becomes the **single** guard (replacing the OSS guard via the existing `crudMutationGuardService` and `createCommandOptimisticLockGuardService({ resolveExpected })` seams) and the **single** conflict surface (merge dialog supersedes the conflict bar); where it is disabled/absent, the OSS guard remains the fallback. Then it extends that unified guard to every OSS lock site, CRM v2 first.
+This spec unifies them by **layering** record_locks on the OSS floor: where record_locks is enabled, the OSS `updated_at` compare still runs and record_locks can only add richer pessimistic/action-log detection plus a single conflict surface (merge dialog supersedes the conflict bar); where record_locks is disabled/absent, the OSS guard remains the behavior. CRUD coverage flows through the existing mutation-guard bridge/registry; command coverage needs a new async DI-aware seam because the current `enforceCommandOptimisticLock` helper is synchronous and has no container parameter. The rollout then extends that layered guard to every OSS lock site, CRM v2 first.
 
 > **Market Reference**: Studied **Atlassian Jira/Confluence** (optimistic save + edit-conflict dialog + presence avatars), **Salesforce record locking** (pessimistic record lock with admin force-unlock), and **MediaWiki edit conflicts** (3-way merge view). We **adopt** their presence-indicator + last-writer-guard + field-level merge-dialog model (already implemented in record_locks). We **reject** full operational-transform / CRDT real-time co-editing (Google Docs style) as disproportionate for back-office CRUD — the existing acquire/heartbeat + action-log diff is the right altitude.
 
@@ -43,9 +43,21 @@ This spec unifies them: where record_locks is enabled, it becomes the **single**
 
 record_locks already registers `crudMutationGuardService` in its `di.ts`, overriding the OSS CRUD-layer guard for all `makeCrudRoute` paths when the module is active. The CRUD guard already covers **update *and* delete** — `createRecordLockCrudMutationGuardService` maps `operation === 'delete'` → `DELETE` (`record_locks/lib/crudMutationGuardService.ts:13`) and `validateMutation` emits `record_locks.record.deleted` — so for every `makeCrudRoute`/`CrudForm` entity, delete parity already exists once the resource is enabled. **No per-entity delete work is required at the CRUD layer.**
 
-The gap is the **command layer**, and it is bigger than a DI override. The OSS command guard is the standalone helper **`enforceCommandOptimisticLock`** (`packages/shared/src/lib/crud/optimistic-lock-command.ts`), and **every call site invokes that helper directly** (verified: 17 non-test call sites across `sales`, `customers`, `business_rules`, `dictionaries`, `workflows`, `entities`, `staff`, `customer_accounts`, `inbox_ops`, `data_sync`, `auth`, `perspectives`, `feature_toggles`). The companion `createCommandOptimisticLockGuardService({ resolveExpected })` factory exists but is **not registered in any `di.ts` and is resolved by nobody today** — so "record_locks overrides the command guard service via DI" would intercept *nothing*. Two viable mechanisms:
-- **(Recommended) Make the helper the seam.** Teach `enforceCommandOptimisticLock` to look up an optionally-registered `commandOptimisticLockGuardService` from the active DI container (mirroring how `makeCrudRoute` resolves `crudMutationGuardService`) and delegate to it when present, else run the current OSS `updated_at` compare. record_locks then registers that service once; **all 17 call sites are covered with zero per-site edits** and the OSS-only build is unchanged (no service registered → helper behaves exactly as today). This is the single chokepoint and the lowest-risk path.
-- **(Alternative) Migrate call sites** to resolve the DI service instead of calling the helper — higher churn, touches 17 files, and easy to miss a new one.
+The gap is the **command layer**, and it is bigger than a DI override. The OSS command guard is the standalone helper **`enforceCommandOptimisticLock`** (`packages/shared/src/lib/crud/optimistic-lock-command.ts`), and call sites invoke that helper directly (audit update 2026-06-15: **34 direct call lines across 21 non-test files** under `packages/core`, `packages/checkout`, and `packages/webhooks`). The companion `createCommandOptimisticLockGuardService({ resolveExpected })` factory exists but is **not registered in any `di.ts` and is resolved by nobody today**.
+
+There is also a critical implementation constraint: `enforceCommandOptimisticLock` is **synchronous** and takes no container, while an enterprise record_locks resolver is DI-backed and async. Therefore the seam MUST NOT be implemented by silently making the existing helper async or by firing an un-awaited Promise. That would be a hidden behavior break: stale writes could continue before the enterprise check resolves.
+
+**Recommended mechanism (revised): add an async command-guard seam and migrate call sites/wrappers to await it.**
+- Keep `enforceCommandOptimisticLock(input): void` as the OSS floor helper for backward compatibility. It remains synchronous and behaves exactly as today for external callers.
+- Add an additive async helper/service runner, e.g. `enforceCommandOptimisticLockWithGuards(container, input): Promise<void>` (final name during implementation), that:
+  1. runs the existing OSS compare first (or delegates to the default `createCommandOptimisticLockGuardService()` behavior);
+  2. resolves optional `commandOptimisticLockGuardService` from the request container;
+  3. awaits enterprise enrichment when registered;
+  4. fails closed to the OSS compare if the enterprise service is absent, throws, or times out.
+- Migrate shared wrappers first (`enforceSalesDocumentOptimisticLock`, package route helpers), then direct command/route call sites to `await` the async seam. This is deliberate churn, but it is safer than pretending a synchronous helper can intercept async enterprise work.
+- Add a command-coverage guard that fails when a new direct `enforceCommandOptimisticLock` call is added without either migrating to the async seam or documenting an OSS-only exemption.
+
+Rejected mechanism: "make the current helper resolve DI automatically." It has no container, no request scope, and no async return contract, so it cannot safely execute record_locks logic.
 
 **Cooperation, not replacement (the binding contract).** Today record_locks' `crudMutationGuardService` *replaces* the OSS check — `createRecordLockCrudMutationGuardService` calls `validateMutation` **only**, with no `updated_at` compare anywhere in the file (verified, 88 lines). `validateMutation` is driven by lock **tokens**, **conflict-ids**, and the action log — all supplied by the client widget — so a **tokenless** write (widget removed, plain API/CLI client) can pass a stale write through. That is a safety **regression** vs OSS and is forbidden by S5/H2. Both the CRUD override and the command seam MUST therefore be **decorators that call through to the OSS guard**, never substitutes:
 
@@ -58,12 +70,20 @@ record_locks guard (decorator)
    (both pass → allow)
 ```
 
-So record_locks can only **add** blocks, never remove the floor. The same applies to the command path: `enforceCommandOptimisticLock` runs its OSS compare **unconditionally first**, then delegates to the optional record_locks `commandOptimisticLockGuardService` for enrichment.
+So record_locks can only **add** blocks, never remove the floor. The same applies to the command path through the new async seam: the OSS compare runs **unconditionally first**, then the optional record_locks `commandOptimisticLockGuardService` is awaited for enrichment. The existing synchronous helper remains the OSS floor and is not weakened.
 
 **Enablement-switch parity.** OSS is gated by `OM_OPTIMISTIC_LOCK` (env, default ON, allowlist by `resourceKind`); record_locks enrichment is gated by tenant settings via `isRecordLockingEnabledForResource(settings, resourceKind)`. These are **layered, not alternative**: the **floor** is governed solely by `OM_OPTIMISTIC_LOCK` (so `=off` disables *all* locking, OSS and enterprise, identically — the single global kill switch); record_locks enrichment additionally requires the floor to be on **and** the resource enabled in settings. record_locks' guard MUST short-circuit to a pure floor pass-through when `OM_OPTIMISTIC_LOCK=off`, so it can never re-enable locking the operator turned off. The **operation set reaching parity is update, delete, and custom/status-transition** (status changes, conversions) — not just update.
 
 ### S2 — Reusable presence context, decoupled from CrudForm
-The presence/acquire/heartbeat lifecycle must run on page load with the **real record**, independent of any form. The `backend:record:current` spot is **already mounted globally by `AppShell` (`AppShell.tsx:1362`)** — but it only receives `{ path, query }`, so the widget falls back to a hardcoded URL-path allowlist (customers people/companies/deals, sales orders/quotes/documents) and gets no `updatedAt`/record `data`. **Core (OSS) pages cannot import enterprise**, so the fix is **context, not a component**: a single helper in core/UI — `buildRecordInjectionContext({ resourceKind, resourceId, data, updatedAt, path })` — that each detail screen feeds into the backend injection context the global mount reads (e.g. via a context provider / the page-level injection-context API), so acquire resolves the right resource with its version instead of guessing from the URL. This is the reusable primitive every Phase 2+ site adopts: one context object, no enterprise dependency, no second `<InjectionSpot>`. (Screens whose route the allowlist already matches — deals, orders, quotes — get presence today; they still adopt this to supply `updatedAt`/`data` and to cover the `*-v2` routes the heuristic misses.)
+The presence/acquire/heartbeat lifecycle must run on page load with the **real record**, independent of any form. The `backend:record:current` spot is **already mounted globally by `AppShell` (`AppShell.tsx:1362`)** — but it only receives `{ path, query }`, so the widget falls back to a hardcoded URL-path allowlist (customers people/companies/deals, sales orders/quotes/documents) and gets no `updatedAt`/record `data`.
+
+**Core (OSS) pages cannot import enterprise**, so the fix is **context transport, not an enterprise component**. Implementation must account for the real tree shape: the AppShell spot renders **before** page `children`, so a page cannot simply pass props "up" to that existing `<InjectionSpot>`. Add a UI/core transport first:
+- `AppShell` owns a `currentRecordInjectionContext` state and merges it with the base `{ path, query }` injection context passed to `backend:record:current`.
+- `AppShell` provides a `BackendRecordInjectionContextProvider` / hook to page children.
+- Detail pages render a small page-side publisher (or server-to-client bridge) that calls `setCurrentRecordInjectionContext(buildRecordInjectionContext({ resourceKind, resourceId, data, updatedAt, path }))` after the record loads and clears it on unmount/navigation.
+- The record_locks widget reacquires/releases when that context changes. Tests must prove no stale context leaks across route transitions or rapid record switches.
+
+This is the reusable primitive every Phase 2+ site adopts: one context object, no enterprise dependency, no second `<InjectionSpot>`. Screens whose route the allowlist already matches — deals, orders, quotes — get some presence today; they still adopt this transport to supply `updatedAt`/`data`, to cover the `*-v2` routes the heuristic misses, and to avoid a growing path-allowlist.
 
 ### S3 — Single conflict *surface* (dedupe at render, not by disabling a server guard)
 The dedupe that prevents a double conflict UX happens at the **rendering layer**, never by switching off a server check. The server emits **one** 409 shape per request (record_locks short-circuits and returns `record_lock_conflict` when it owns the resource and resolves a conflict; otherwise the OSS `optimistic_lock_conflict` is returned by the floor). On the client, `surfaceRecordConflict(err, t)` **defers** to the merge dialog when a `record_lock_conflict` payload is present, else renders the OSS conflict bar. **Key safety property:** if the merge-dialog widget is absent (removed/overridden), `surfaceRecordConflict` still renders the OSS conflict bar for *any* 409 — so a conflict is always surfaced to the user; the worst case is plainer UX, never a silently-swallowed conflict. Where record_locks is disabled, behavior is exactly as OSS today.
@@ -74,9 +94,9 @@ Every OSS lock site is converted by (a) ensuring its resource is record-lock ena
 ### S5 — Hardening: enterprise locking is a strict superset of OSS safety
 The whole point of an enterprise feature is to be **safer**, never a liability. record_locks must satisfy every rule below; each is testable.
 
-- **H1 — Server-authoritative, widget-independent enforcement.** Conflict *prevention* lives entirely server-side in the guard service (`crudMutationGuardService`) and `enforceCommandOptimisticLock` delegation. It MUST NOT depend on any client widget having mounted, acquired a lock, or sent record-lock headers. The `backend:record:current` / `crud-form:*` / merge-dialog widget provides **UX only** (presence banner, heartbeat, field-level merge). Unmounting it degrades UX; it can never open a write hole.
+- **H1 — Server-authoritative, widget-independent enforcement.** Conflict *prevention* lives entirely server-side in the guard service (`crudMutationGuardService`) and the async command-guard seam. It MUST NOT depend on any client widget having mounted, acquired a lock, or sent record-lock headers. The `backend:record:current` / `crud-form:*` / merge-dialog widget provides **UX only** (presence banner, heartbeat, field-level merge). Unmounting it degrades UX; it can never open a write hole.
 - **H2 — OSS floor never removed (defense in depth).** When record_locks is active and resolves a conflict → return `record_lock_conflict`. When record_locks is active but **cannot resolve** (no acquired lock / no client token / no action-log base — e.g. widget absent, or a non-widget API client) → the guard MUST **fall through to the OSS `updated_at` compare**, never pass the write through. The server derives the expected version from authoritative state it already holds (`resolveExpected` reads the latest action log; the record's own `updated_at` is the ultimate base), so it can always run *at least* the OSS check without any client cooperation beyond the version header CrudForm/commands already send.
-- **H3 — Fail-closed delegation.** The `enforceCommandOptimisticLock` / `crudMutationGuardService` delegation to record_locks MUST be wrapped so that if the record_locks service is unregistered, throws, or times out, control **falls back to the OSS compare** — never to "skip the guard." A broken enterprise guard degrades to OSS protection, not to zero. (Mirrors the existing fail-closed contract for interceptors.)
+- **H3 — Fail-closed delegation.** The async command seam / `crudMutationGuardService` delegation to record_locks MUST be wrapped so that if the record_locks service is unregistered, throws, or times out, control **falls back to the OSS compare** — never to "skip the guard." A broken enterprise guard degrades to OSS protection, not to zero. (Mirrors the existing fail-closed contract for interceptors.)
 - **H4 — Layout/registration tamper resilience.** Because the widget is mounted by `AppShell` and is reachable by component-replacement / custom layouts, the design assumes it **can** be removed or replaced by a third party. Server protection is unaffected by H1–H3. A regression test MUST prove it: with the record-lock **widget unmounted**, two concurrent edits to the same record still produce a server 409 (OSS floor), and with the widget present they produce the `record_lock_conflict` + merge dialog. Removing the widget changes only which surface renders.
 - **H5 — Pessimistic lock is advisory UX, never the sole gate.** The pessimistic "someone is editing" block is a courtesy to reduce collisions; the **authoritative** gate is the optimistic version/action-log check on write. A failed/absent/expired pessimistic acquire (heartbeat death, force-release, widget gone) therefore can never let a stale write land — the write-time check still runs server-side.
 - **H6 — No new bypass vs OSS.** Anything OSS guards today (every `makeCrudRoute` entity + every `enforceCommandOptimisticLock` site) MUST remain guarded with record_locks active. The coverage guard tests (CRUD + command parity lists, Phase 6b/7) fail if a site that was OSS-protected loses protection under record_locks. `OM_OPTIMISTIC_LOCK=off` remains the only intentional disable, and it disables **both** layers identically.
@@ -84,8 +104,8 @@ The whole point of an enterprise feature is to be **safer**, never a liability. 
 ### Design Decisions
 | Decision | Rationale |
 |----------|-----------|
-| Reuse `crudMutationGuardService` + make `enforceCommandOptimisticLock` resolve a DI guard service | Minimal change; one server chokepoint covers all 17 command sites; preserves OSS fallback (S1) |
-| Presence context = fed to the global core-rendered injection mount, not an enterprise component import | Keeps `core` build enterprise-free; honors module isolation; survives layout edits |
+| Reuse `crudMutationGuardService` + add an async command-guard seam | Preserves the OSS floor while allowing enterprise enrichment to be awaited safely; avoids hidden async behavior changes in the legacy helper (S1) |
+| Presence context = AppShell-owned context transport feeding the global injection mount, not an enterprise component import | Keeps `core` build enterprise-free; honors module isolation; works with the real AppShell-before-children tree shape (S2) |
 | **Layered guard (OSS floor always on) + single *surface*** — not replace | Eliminates double-409 UX **without** ever creating a no-lock hole; enterprise ⊇ OSS safety (S1/S3/S5) |
 | Server-authoritative enforcement; widget is UX-only | Removing/replacing the widget degrades UX, never protection (H1/H4) |
 | Fail-closed delegation to record_locks | A broken/absent enterprise guard degrades to OSS protection, never to zero (H3) |
@@ -103,7 +123,7 @@ The whole point of an enterprise feature is to be **safer**, never a liability. 
 - **A sales rep** editing a Deal **sees a banner** when a colleague opens the same Deal, so they avoid clobbering each other.
 - **A CRM manager** who changes a Deal's stage while someone else edited it **gets a merge dialog** (accept incoming / keep mine) instead of a silent overwrite.
 - **An admin** can **force-release** a stale lock on any company/person/deal (existing `record_locks.force_release` feature) from the presence banner.
-- **A developer** adding a new detail screen renders **one injection spot** and gets presence + conflict handling for free.
+- **A developer** adding a new detail screen publishes **one record context** to the AppShell-owned injection spot and gets presence + conflict handling for free.
 
 ## Architecture
 
@@ -132,11 +152,14 @@ Mutation request (CRUD route OR command endpoint)
 ```
 The enterprise guard is a **decorator** around the OSS floor: the floor runs on every request regardless of widget/token state; record_locks can only **add** a 409. Removing the widget, an unregistered/throwing enterprise service, or a tokenless API client all degrade to *at least* OSS protection — never to zero (S5/H1–H3).
 
-### Client mount + conflict resolution (per detail screen)
+### Client context + conflict resolution (per detail screen)
 ```
-Detail page (core) renders:
-  <InjectionSpot spotId="backend:record:current" context={buildRecordInjectionContext({...})} data={data} />
-        │ (enterprise widget injected here, pri 600)
+AppShell renders the existing global:
+  <InjectionSpot spotId="backend:record:current" context={base + currentRecordContext} />
+        ▲
+Detail page publishes:
+  setCurrentRecordInjectionContext(buildRecordInjectionContext({...}))
+        │ (enterprise widget injected globally, pri 600)
         ▼
   acquire → presence banner + heartbeat loop
         │
@@ -146,7 +169,7 @@ Detail page (core) renders:
 ```
 
 ### Resource-kind resolution
-The widget's existing `resolveResourceKind(context)` already supports `context.resourceKind`, `personId`/`companyId`/`dealId`, `entityId` with `:`, and `/backend/customers/{people|companies|deals}/…` path fallbacks. Phase 1 guarantees `resourceKind` + `resourceId` are **explicit** in the injection context for all three screens (no reliance on path heuristics).
+The widget's existing `resolveResourceKind(context)` already supports `context.resourceKind`, `personId`/`companyId`/`dealId`, `entityId` with `:`, and `/backend/customers/{people|companies|deals}/…` path fallbacks. Phase 1 guarantees `resourceKind` + `resourceId` are **explicit** in the AppShell-published injection context for all three screens (no reliance on path heuristics).
 
 ### Commands & Events (existing — reused, not redefined)
 - **Commands**: `record_locks.conflict.accept_incoming`, `record_locks.conflict.accept_mine`.
@@ -161,9 +184,10 @@ The widget's existing `resolveResourceKind(context)` already supports `context.r
 All CRM v2 entities already expose `updated_at` (camel + snake in API responses), satisfying both the OSS guard fallback and the action-log base resolution.
 
 ## API Contracts
-**No new endpoints.** Reuse existing `/api/record_locks/{acquire|heartbeat|release|validate|force-release|settings}`. New behavior is server-side guard wiring only:
+**No new HTTP endpoints.** Reuse existing `/api/record_locks/{acquire|heartbeat|release|validate|force-release|settings}`. New behavior is server-side guard wiring plus UI context transport:
 - Deal custom command endpoints (stage-change, closure) — read `x-om-record-lock-*` (and OSS `x-om-ext-optimistic-lock-expected-updated-at`) headers and route through the command guard seam; on conflict return the same `409` shapes already defined (`record_lock_conflict` when record_locks active, else `optimistic_lock_conflict`).
-- `createCommandOptimisticLockGuardService({ resolveExpected })` — enterprise registers a `resolveExpected` that derives the expected base from the latest action log for the resource (parity with `validateMutation`).
+- Add an exported async command-guard helper/service runner (name finalized during implementation) while keeping `enforceCommandOptimisticLock(input): void` unchanged.
+- `commandOptimisticLockGuardService` — enterprise registers a DI service that derives the expected base from the latest action log for the resource (parity with `validateMutation`) and is awaited by the async seam.
 
 ## Internationalization (i18n)
 - Reuse existing record_locks i18n keys (presence, conflict dialog, force-release) in en/de/es/pl.
@@ -182,17 +206,18 @@ All CRM v2 entities already expose `updated_at` (camel + snake in API responses)
 ### Phase 0 — Foundational: make OSS + record_locks cooperate (prerequisite, ship before any rollout)
 This phase has **no per-module work** — it hardens the two shared chokepoints so that enabling record_locks for any resource in later phases is safe by construction.
 1. **CRUD guard chaining.** Refactor `createRecordLockCrudMutationGuardService` (`packages/enterprise/src/modules/record_locks/lib/crudMutationGuardService.ts`) into a **decorator** that (a) first runs the OSS `updated_at` compare (resolve/call the default OSS `crudMutationGuardService` it overrides, or the shared OSS compare directly), and (b) then runs `validateMutation`. record_locks may only **add** a 409, never skip the OSS floor. Today it calls `validateMutation` only — this is the fix for the H2 regression.
-2. **Command helper as a fail-safe seam.** Implement S1's recommended option in `packages/shared/src/lib/crud/optimistic-lock-command.ts`: `enforceCommandOptimisticLock` runs the OSS compare **unconditionally**, then resolves an optional `commandOptimisticLockGuardService` from the active container and delegates for enrichment. Wrap the delegation **fail-closed** (try/catch → OSS-only on throw/timeout/missing service). record_locks registers that service in its `di.ts`.
+2. **Command seam without hidden async breakage.** Implement S1's revised option in `packages/shared/src/lib/crud/optimistic-lock-command.ts`: keep `enforceCommandOptimisticLock(input): void` as the legacy synchronous OSS helper, and add an async DI-aware helper/service runner (final name during implementation, e.g. `enforceCommandOptimisticLockWithGuards(container, input): Promise<void>`). The async seam runs the OSS compare **unconditionally first**, resolves optional `commandOptimisticLockGuardService` from the request container, awaits enrichment, and wraps enterprise delegation **fail-closed** (try/catch/timeout → OSS-only). record_locks registers that service in its `di.ts`; command call sites/wrappers migrate to `await` the new seam.
 3. **Enablement parity.** Gate the floor on `OM_OPTIMISTIC_LOCK` (unchanged); make record_locks' guard short-circuit to a pure floor pass-through when `OM_OPTIMISTIC_LOCK=off`, and require both env-on **and** `isRecordLockingEnabledForResource` for enrichment. One global kill switch; no asymmetry.
 4. **Server-authoritative base resolution.** Ensure record_locks' `resolveExpected` / `validateMutation` derive the expected version from authoritative server state (latest action log; the record's own `updated_at`) and never *require* a client lock token to detect a stale write — the floor (step 1/2) already guarantees detection, but record_locks' own path must not silently pass tokenless writes either.
-5. **Fail-safe regression tests (H1–H4):** (a) record_locks enabled + **widget unmounted** → two concurrent edits still 409 (proves server floor, H1/H4); (b) record_locks service **throws** → mutation degrades to OSS 409, not pass-through (H3); (c) `OM_OPTIMISTIC_LOCK=off` → both layers off (parity); (d) tokenless API client → stale write still 409.
+5. **Presence context transport.** Add the AppShell-owned provider/publisher described in S2, then move page work to "publish context" instead of "render another `backend:record:current` spot." Include cleanup on unmount/path change and a stale-context regression test.
+6. **Fail-safe regression tests (H1–H4):** (a) record_locks enabled + **widget unmounted** → two concurrent edits still 409 (proves server floor, H1/H4); (b) record_locks service **throws** → mutation degrades to OSS 409, not pass-through (H3); (c) `OM_OPTIMISTIC_LOCK=off` → both layers off (parity); (d) tokenless API client → stale write still 409; (e) a migrated command call awaits the async seam before mutating, while an intentionally legacy direct helper remains OSS-only and is reported by the coverage guard.
 
 ### Phase 1 — CRM v2 (deal, company, person): full locking
-1. **Core: standardized presence mount.** Add `buildRecordInjectionContext(...)` helper (UI/core) and render `<InjectionSpot spotId="backend:record:current" context={...} data={...} />` on `people-v2/[id]/page.tsx`, `companies-v2/[id]/page.tsx`, and `deals/[id]/page.tsx`, with explicit `resourceKind` (`customers.person|company|deal`), `resourceId`, `updatedAt`, and `path`.
+1. **Core: standardized presence context.** Use the Phase-0 AppShell provider/publisher + `buildRecordInjectionContext(...)` helper (UI/core) on `people-v2/[id]/page.tsx`, `companies-v2/[id]/page.tsx`, and `deals/[id]/page.tsx`, with explicit `resourceKind` (`customers.person|company|deal`), `resourceId`, `updatedAt`, record `data`, and `path`. Do not render a second `backend:record:current` spot.
 2. **Core: Deal form injection.** Pass `injectionSpotId="customers.deal"` (and resource/version context) from `DealForm` to its embedded `CrudForm` so the `crud-form:customers.deal` widget mounts with a resolvable resource.
 3. **Core: Deal command headers.** Wrap stage-change and Won/Lost closure calls (`useDealPipeline` / `useDealClosure`) in `withScopedApiRequestHeaders(buildOptimisticLockHeader(dealUpdatedAt), …)` and route 409s through `surfaceRecordConflict(err, t, { onRefresh })`.
-4. **Core: Deal command server guard.** Guard the deal stage-change/closure command handlers with `enforceCommandOptimisticLock` / the command guard service (parity with sales `enforceSalesDocumentOptimisticLock`), reading the lock headers; default OSS behavior preserved when record_locks disabled.
-5. **Enterprise: command guard override.** Register an override of `createCommandOptimisticLockGuardService` with a `resolveExpected` backed by the action log, scoped to enabled resources, so deal command endpoints defer to record_locks conflict detection (S1).
+4. **Core: Deal command server guard.** Guard the deal stage-change/closure command handlers with the async command seam (parity with sales `enforceSalesDocumentOptimisticLock` after that wrapper migrates), reading the lock headers; default OSS behavior preserved when record_locks disabled.
+5. **Enterprise: command guard service.** Register `commandOptimisticLockGuardService` with a `resolveExpected` backed by the action log, scoped to enabled resources, so migrated command endpoints defer to record_locks conflict detection through the async seam (S1).
 6. **Enterprise/UI: unified conflict surface.** Teach `surfaceRecordConflict` to defer when a `record_lock_conflict` payload is present so only the merge dialog shows (S3); verify `crudMutationGuardService` override already covers the three CRUD routes.
 7. **Tests:** integration TC-LOCK-CRM-{person,company,deal} (presence on load, contended lock, save conflict → merge dialog, force-release); unit tests for the command guard seam + `surfaceRecordConflict` deferral.
 8. **i18n + DS pass** on all touched screens.
@@ -200,7 +225,7 @@ This phase has **no per-module work** — it hardens the two shared chokepoints 
 > **Module coverage contract:** Phases 2–6 must collectively cover **every module audited by `optimistic-lock-editable-entities.test.ts`** — `customers`, `sales`, `catalog`, `auth`, `directory`, `staff`, `resources`, `dictionaries`, `currencies`, `workflows`, `feature_toggles`, `business_rules` — plus any module added to that audit after this spec. Each entity ends in one of two states: **record-lock enabled** (presence + unified guard) or **intentionally exempt** (append-only logs, junction/assignment rows, sub-resources guarded by a parent aggregate, state-machine rows) with a one-line reason in the coverage guard test.
 
 > **How to read the per-phase manifests below.** Each phase lists the exact sites to touch, grouped by the three kinds of work this spec defines:
-> - **Presence context** — the `backend:record:current` spot is **already mounted globally by `AppShell` (`AppShell.tsx:1362`) on every backend page**, but with only `{ path, query }` context, so the record_locks widget resolves the record from a **hardcoded URL-path allowlist** (`/backend/customers/{people,companies,deals}/<id>`, `/backend/sales/{orders,quotes,documents}/<id>`) or from explicit context a host passes. The per-screen work below labelled "presence mount" therefore means **supply explicit page-load context** — `resourceKind`, `resourceId`, `updatedAt`, record `data` — to that global mount (via the page's injection-context provider, S2) for screens the heuristic doesn't recognize: **every module beyond customers/sales, the `*-v2` routes, and any custom command pipeline**. It is *not* about adding a second `<InjectionSpot>`. **Subforms inherit** the parent screen's context — they never supply their own.
+> - **Presence context** — the `backend:record:current` spot is **already mounted globally by `AppShell` (`AppShell.tsx:1362`) on every backend page**, but with only `{ path, query }` context, so the record_locks widget resolves the record from a **hardcoded URL-path allowlist** (`/backend/customers/{people,companies,deals}/<id>`, `/backend/sales/{orders,quotes,documents}/<id>`) or from explicit context a host passes. The per-screen work below labelled "presence mount" therefore means **publish explicit page-load context** — `resourceKind`, `resourceId`, `updatedAt`, record `data` — to the AppShell-owned global mount (S2) for screens the heuristic doesn't recognize: **every module beyond customers/sales, the `*-v2` routes, and any custom command pipeline**. It is *not* about adding a second `<InjectionSpot>`. **Subforms inherit** the parent screen's context — they never supply their own.
 > - **Guard wiring** — ensure the write path runs the unified guard: `<CrudForm>` hosts and `makeCrudRoute` entities are **auto-covered** by `crudMutationGuardService` once the resource is record-lock enabled; **custom** mutation paths (raw `apiCall`, `useGuardedMutation`, command/action endpoints) need the header on the client and the command-guard seam (S1) on the server, then route their 409 to the merge dialog via `surfaceRecordConflict` (S3).
 > - **Decision** — every audited entity ends **enabled** (presence + unified guard) or **exempt** (documented reason). Junction/assignment add-remove, reorder/position writes, append-only logs, derived documents, and sub-resource lines guarded by a parent aggregate are the standard exempt classes.
 >
@@ -244,13 +269,13 @@ Extend the record_locks coverage guard assertion for `customers`; integration TC
 
 ### Phase 3 — Sales: documents, sub-resources, config dialogs, deletes
 
-Sales is command-pattern, not `CrudForm`. The order/quote aggregate version is already enforced for most writes by `enforceSalesDocumentOptimisticLock` (in `packages/core/src/modules/sales/commands/shared.ts`, with `SALES_RESOURCE_KIND_ORDER='sales.order'` / `SALES_RESOURCE_KIND_QUOTE='sales.quote'`). The work is (a) route that wrapper through the record_locks command guard seam (S1), (b) mount presence on the document screen, and (c) **close the two verified command-guard gaps**.
+Sales is command-pattern, not `CrudForm`. The order/quote aggregate version is already enforced for most writes by `enforceSalesDocumentOptimisticLock` (in `packages/core/src/modules/sales/commands/shared.ts`, with `SALES_RESOURCE_KIND_ORDER='sales.order'` / `SALES_RESOURCE_KIND_QUOTE='sales.quote'`). The work is (a) migrate that wrapper to await the async record_locks command guard seam (S1), (b) publish presence context from the document screen, and (c) **close the two verified command-guard gaps**.
 
-**Presence mounts:**
-- `backend/sales/documents/[id]/page.tsx` (the shared order/quote detail host; `orders/[id]/page.tsx` and `quotes/[id]/page.tsx` delegate to it) — render `backend:record:current` with `resourceKind` `sales.order`/`sales.quote` resolved from the document kind, `resourceId` = document id. Sub-resource sections (`components/documents/ItemsSection.tsx`, `AdjustmentsSection.tsx`, `PaymentsSection.tsx`, `ShipmentsSection.tsx`, `ReturnsSection.tsx`) inherit it.
+**Presence context:**
+- `backend/sales/documents/[id]/page.tsx` (the shared order/quote detail host; `orders/[id]/page.tsx` and `quotes/[id]/page.tsx` delegate to it) — publish AppShell record context with `resourceKind` `sales.order`/`sales.quote` resolved from the document kind, `resourceId` = document id, `updatedAt`, and document `data`. Sub-resource sections (`components/documents/ItemsSection.tsx`, `AdjustmentsSection.tsx`, `PaymentsSection.tsx`, `ShipmentsSection.tsx`, `ReturnsSection.tsx`) inherit it.
 
 **Guard wiring:**
-- Bridge `enforceSalesDocumentOptimisticLock` → `createCommandOptimisticLockGuardService` (S1) so the aggregate check defers to record_locks' action-log diff when the resource is enabled. Already-guarded commands (verified): `commands/documents.ts` (quotes.update, quote→order convert, order/quote line upsert+delete, order/quote adjustment upsert+delete) and `commands/returns.ts` (return create).
+- Bridge `enforceSalesDocumentOptimisticLock` → the async command seam (S1) so the aggregate check awaits record_locks' action-log diff when the resource is enabled. Already-guarded commands (verified): `commands/documents.ts` (quotes.update, quote→order convert, order/quote line upsert+delete, order/quote adjustment upsert+delete) and `commands/returns.ts` (return create).
 - **Gap A — `commands/payments.ts`:** verified **zero** `enforceSalesDocumentOptimisticLock` calls. Wrap payment create/update/delete to guard the parent order's aggregate version.
 - **Gap B — `commands/shipments.ts`:** verified **zero** calls. Wrap shipment create/update/delete to guard the parent order.
 - **Confirm** `sales.orders.update` header update and derived `invoices`/`credit_memos` writes guard the parent; if a header path is unguarded, add it (or document derived docs as exempt).
@@ -345,11 +370,11 @@ Extend coverage guard per module; integration TC-LOCK-{DICT-entry,CUR-currency,W
 
 ### Phase 6b — Command-layer guard seam + every `enforceCommandOptimisticLock` site (incl. modules outside the entity audit)
 
-This phase makes the spec's command-layer promise real and **covers the operations/commands OSS guards that record_locks misses today**. It is the highest-leverage phase: one shared change (S1, recommended option) plus a per-site enable/decision pass.
+This phase makes the spec's command-layer promise real and **covers the operations/commands OSS guards that record_locks misses today**. It is the highest-leverage phase, but it is not zero-churn: the current helper is synchronous, so implementation must add an async seam and migrate wrappers/call sites to await it.
 
-**Step 1 — Wire the seam (one change, covers all sites).** Implement S1's recommended option: teach `enforceCommandOptimisticLock` (`packages/shared/src/lib/crud/optimistic-lock-command.ts`) to resolve an optional `commandOptimisticLockGuardService` from the active container and delegate when present; record_locks registers that service in its `di.ts` alongside `crudMutationGuardService`. OSS-only builds register nothing → unchanged. This single change routes **every** existing `enforceCommandOptimisticLock` call through record_locks' action-log conflict detection when the resource is enabled — covering update, delete, and status-transition operations at once.
+**Step 1 — Wire the seam (additive, async).** Implement S1's revised option: add an async DI-aware command guard runner while preserving the existing `enforceCommandOptimisticLock(input): void` helper. record_locks registers `commandOptimisticLockGuardService` in its `di.ts` alongside `crudMutationGuardService`. OSS-only builds register nothing and migrated call sites still get the OSS compare. The old helper remains available for external callers and explicitly OSS-only paths.
 
-**Step 2 — Per-site enable + decision.** The 17 verified non-test call sites (the parity worklist). Sites already inside Phases 1–6 (sales, customers interactions, business_rules, dictionaries, workflows) just confirm they ride the seam. The rest belong to **modules the entity audit never lists** and were silently missing from this spec — each needs a record_locks decision:
+**Step 2 — Per-site enable + decision.** Audit update 2026-06-15: repo-wide grep finds **34 direct `enforceCommandOptimisticLock` call lines across 21 non-test files** after excluding docs/tests/integration specs. Sites already inside Phases 1–6 (sales, customers interactions, business_rules, dictionaries, workflows) migrate their wrappers/routes to the async seam. The rest belong to modules/packages the entity audit never lists and were silently missing from this spec — each needs a record_locks decision:
 
 | Module | Command-guard site(s) | Operations | record_locks decision |
 |--------|-----------------------|------------|-----------------------|
@@ -366,18 +391,34 @@ This phase makes the spec's command-layer promise real and **covers the operatio
 | **data_sync** | `lib/sync-schedule-service.ts` | update | command-seam parity; enabled or config-exempt. **Was missing.** |
 | **auth** | `api/roles/acl/route.ts`, `api/users/acl/route.ts` | update | enabled — ACL edits are real concurrent-edit surfaces (Phase 5 treated these as "separate"; they are OSS command-guarded and must reach parity). **Sidebar prefs** `api/sidebar/preferences/route.ts` = per-user single-owner preference → **exempt**. |
 | **perspectives** | `services/perspectiveService.ts` | update, delete | decide: enabled (shared saved views) vs exempt (per-owner views). **Was missing.** |
+| **webhooks** | `packages/webhooks/src/modules/webhooks/api/webhooks/[id]/route.ts` | update, delete | enabled — webhook endpoint config is tenant/org scoped, encrypted-secret adjacent, and already OSS command-guarded. **Was missing from the spec and outside core UI scan.** |
+| **checkout** | `packages/checkout/src/modules/checkout/commands/{links,templates}.ts` | update, delete | enabled for admin pay-link/template edits. Public pay/transaction status flows remain server-authoritative/idempotent and are not collaborative-edit surfaces. **Was missing from the spec and outside core UI scan.** |
 
-**Step 3 — Coverage guard.** Extend the regression assertion (Phase 7 step 2) with a **command-guard parity list** keyed by `enforceCommandOptimisticLock` call sites (grep is the worklist), so a new direct-helper call site cannot ship without a record_locks decision — the command-layer analogue of `optimistic-lock-ui-coverage.test.ts`.
+**Step 3 — Coverage guard.** Add a **command-guard parity test** that scans all workspace packages, not just `packages/core`, and fails when a new direct-helper call site appears without one of:
+- migrated async seam usage;
+- an explicit `record_locks` enabled/exempt decision in the parity map;
+- a documented OSS-only reason.
 
-**Step 4 — two more OSS-locked modules outside both audits (header-helper sites).** `attachments` and `translations` send OSS lock headers via the UI helpers (`buildOptimisticLockHeader` / raw `apiCall` PUT), not `makeCrudRoute` and not `enforceCommandOptimisticLock`, so neither audit catches them:
+**Step 4 — raw UI header-helper sites outside both audits.** `attachments` and `translations` were the first two missed examples: they send OSS lock headers via UI helpers (`buildOptimisticLockHeader` / raw `apiCall` PUT), not `makeCrudRoute` and not `enforceCommandOptimisticLock`, so neither entity nor command audits catch them:
 - **attachments** — `components/AttachmentPartitionSettings.tsx` → custom routes under `api/partitions/`. Decision: config surface; enable record_locks or document single-admin exempt. Floor covers it once Phase 0 lands (it already sends the header).
 - **translations** — `components/TranslationManager.tsx` (a **cross-entity injected widget**, `crud-form:<entityId>:fields`) → raw `PUT /api/translations/[entityType]/put`. The translation rows belong to the **host entity** being edited. Decision: **inherit the host entity's version** (guard against the host's `updated_at`, like custom-field values) rather than a separate `translations` resource — so editing a product's translations participates in the product's lock. Confirm during impl.
 
-> **Scope note:** these command-guard + header-helper modules (`entities`, `staff/job-histories`, `feature_toggles/overrides`, `customer_accounts`, `inbox_ops`, `data_sync`, `auth` ACL, `perspectives`, `attachments`, `translations`) sit **outside** `optimistic-lock-editable-entities.test.ts` because that audit is entity-`updated_at`-shaped; OSS locking (command helper + UI header helpers) is broader. This spec's done-definition therefore covers **all three** surfaces: every editable entity (CRUD layer), every `enforceCommandOptimisticLock` site (command layer), and every raw UI header-helper site (`optimistic-lock-ui-coverage.test.ts`).
+**Step 5 — workspace-wide raw-helper sweep.** Extend the raw-mutation/header audit beyond `packages/core/src/modules` (the current `optimistic-lock-ui-coverage.test.ts` root) to all module packages. At minimum, this sweep must cover:
+- `planner` availability rule sets/rules (`AvailabilityRuleSetForm`, `AvailabilityRulesEditor`, `AvailabilitySchedule`) — currently OSS header-helper protected but absent from the matrix.
+- `api_keys` list-row delete — OSS header-helper protected; decide enabled vs security-config exempt.
+- `integrations` state/credentials/bundle toggles — several sites send a header; bundle routes currently use `buildOptimisticLockHeader(undefined)` due a TODO, which is a **scanner false positive** and must be fixed or explicitly exempted.
+- `webhooks` admin list/detail UI — package-level header helper + command guard.
+- `checkout` `LinkTemplateForm` — package-level header helper + command guard for links/templates.
+- `customer_accounts` domain mappings and admin user/role pages — header helpers plus command guards.
+- `attachments` and `translations` from Step 4.
+
+The coverage test must not treat a bare reference to `buildOptimisticLockHeader(undefined)` as protected unless an inline exempt reason explains why the write is intentionally tokenless. Otherwise the scan can pass while the request sends no version header.
+
+> **Scope note:** these command-guard + header-helper modules/packages (`entities`, `staff/job-histories`, `feature_toggles/overrides`, `customer_accounts`, `inbox_ops`, `data_sync`, `auth` ACL/sidebar prefs, `perspectives`, `webhooks`, `checkout`, `planner`, `api_keys`, `integrations`, `attachments`, `translations`) sit **outside** `optimistic-lock-editable-entities.test.ts` because that audit is entity-`updated_at`-shaped; OSS locking (command helper + UI header helpers) is broader. This spec's done-definition therefore covers **all three** surfaces: every editable entity (CRUD layer), every command-helper site (command layer), and every raw UI header-helper site across workspace packages.
 
 ### Phase 7 — Cross-cutting delete sweep + completeness verdict
-1. Sweep all remaining delete flows across the modules above that send the OSS lock header but were not yet routed through the unified guard/merge surface (the `optimistic-lock-ui-coverage.test.ts` `MUTATION` scan is the worklist: every file matching `deleteCrud(` / `method:'DELETE'`). Confirm each enabled resource's delete surfaces `record_locks.record.deleted`.
-2. Final alignment of both OSS guard tests (`optimistic-lock-editable-entities.test.ts`, `optimistic-lock-ui-coverage.test.ts`) with the new record_locks coverage assertion — add a parallel `record_locks` decision map (enabled vs exempt+reason) keyed by the same entity universe so a new editable entity cannot ship without a record_locks decision.
+1. Sweep all remaining delete flows across the modules/packages above that send the OSS lock header but were not yet routed through the unified guard/merge surface (workspace-wide `MUTATION` scan: every file matching `deleteCrud(` / `method:'DELETE'`). Confirm each enabled resource's delete surfaces `record_locks.record.deleted`.
+2. Final alignment of the OSS guard tests (`optimistic-lock-editable-entities.test.ts`, `optimistic-lock-ui-coverage.test.ts`) plus new command/raw-helper workspace scans with the new record_locks coverage assertion — add a parallel `record_locks` decision map (enabled vs exempt+reason) keyed by editable entities, command-helper call sites, and raw UI header-helper files so a new OSS lock site cannot ship without a record_locks decision.
 3. Produce the coverage matrix below as the spec's done-definition.
 
 ### Coverage Matrix (done-definition — every audited entity has a record_locks decision)
@@ -411,29 +452,37 @@ This phase makes the spec's command-layer promise real and **covers the operatio
 | perspectives | saved views | 6b | enabled (shared) vs exempt (per-owner) — decide |
 | attachments | partitions | 6b | config; enabled vs single-admin exempt |
 | translations | translation rows | 6b | inherit host entity version (like custom-field values) |
+| planner | AvailabilityRuleSet, AvailabilityRule | 6b | enabled or scheduling-config exempt; raw-helper protected today |
+| api_keys | ApiKey row delete/edit surfaces | 6b | enabled vs security-config exempt; raw-helper protected today |
+| integrations | Integration state/credentials/bundle toggles | 6b | enabled; fix `buildOptimisticLockHeader(undefined)` false-positive sites or document exemption |
+| webhooks | Webhook endpoint | 6b | enabled (package command + UI header sites) |
+| checkout | CheckoutLink, CheckoutLinkTemplate | 6b | enabled for admin edits; public transaction/pay flows exempt |
+| customer_accounts | domain mappings | 6b | enabled vs single-admin config exempt; raw-helper protected today |
 
 ### File Manifest (Phase 0 — shared foundational seam)
 | File | Action | Purpose |
 |------|--------|---------|
 | `packages/enterprise/src/modules/record_locks/lib/crudMutationGuardService.ts` | Modify | Decorator: run OSS `updated_at` compare first, then `validateMutation` (H2 chaining) |
-| `packages/shared/src/lib/crud/optimistic-lock-command.ts` | Modify | `enforceCommandOptimisticLock` runs OSS compare, then resolves+delegates to optional `commandOptimisticLockGuardService` (fail-closed) |
+| `packages/shared/src/lib/crud/optimistic-lock-command.ts` | Modify | Keep synchronous `enforceCommandOptimisticLock` unchanged; add async DI-aware command seam that runs OSS compare, then awaits optional `commandOptimisticLockGuardService` (fail-closed) |
 | `packages/enterprise/src/modules/record_locks/di.ts` | Modify | Register `commandOptimisticLockGuardService` (record_locks impl) |
 | `packages/enterprise/src/modules/record_locks/lib/recordLockService.ts` | Modify | `validateMutation`/`resolveExpected` derive base from server state; never pass tokenless stale writes |
-| `packages/enterprise/src/modules/record_locks/__integration__/` + `packages/shared/.../__tests__/` | Create | Fail-safe tests: widget-unmounted, service-throws, env-off, tokenless-client (H1–H4) |
-| `packages/core/src/__tests__/optimistic-lock-command-coverage.test.ts` | Create | Command-parity coverage guard (every `enforceCommandOptimisticLock` site has a record_locks decision) |
+| `packages/ui/src/backend/AppShell.tsx` + `packages/ui/src/backend/injection/` | Modify/Create | AppShell-owned record-context provider/publisher; global `backend:record:current` context merges `{ path, query }` with page-published record context |
+| `packages/enterprise/src/modules/record_locks/__integration__/` + `packages/shared/.../__tests__/` | Create | Fail-safe tests: widget-unmounted, service-throws, env-off, tokenless-client, awaited async command seam, stale-context cleanup (H1–H4) |
+| `packages/core/src/__tests__/optimistic-lock-command-coverage.test.ts` | Create | Workspace command-parity coverage guard (new direct helper calls require async-seam migration or record_locks decision/exemption) |
+| `packages/core/src/__tests__/optimistic-lock-ui-coverage.test.ts` or successor workspace scan | Modify/Create | Workspace raw-helper coverage guard; `buildOptimisticLockHeader(undefined)` is not "covered" without an inline exemption |
 
 ### File Manifest (Phase 1)
 | File | Action | Purpose |
 |------|--------|---------|
 | `packages/ui/src/backend/conflicts/index.ts` (or `optimisticLock` util) | Modify | `surfaceRecordConflict` defers on `record_lock_conflict` payload |
-| `packages/ui/src/backend/injection/` (helper) | Create | `buildRecordInjectionContext(...)` shared context builder |
-| `packages/core/src/modules/customers/backend/customers/people-v2/[id]/page.tsx` | Modify | Render `backend:record:current` mount |
-| `packages/core/src/modules/customers/backend/customers/companies-v2/[id]/page.tsx` | Modify | Render `backend:record:current` mount |
-| `packages/core/src/modules/customers/backend/customers/deals/[id]/page.tsx` | Modify | Render mount + presence context |
+| `packages/ui/src/backend/injection/` (helper) | Create | `buildRecordInjectionContext(...)` shared context builder + page-side publisher hook/component |
+| `packages/core/src/modules/customers/backend/customers/people-v2/[id]/page.tsx` | Modify | Publish AppShell record context for person |
+| `packages/core/src/modules/customers/backend/customers/companies-v2/[id]/page.tsx` | Modify | Publish AppShell record context for company |
+| `packages/core/src/modules/customers/backend/customers/deals/[id]/page.tsx` | Modify | Publish AppShell record context for deal |
 | `packages/core/src/modules/customers/components/detail/DealForm.tsx` | Modify | Pass `injectionSpotId` + resource/version context |
 | `packages/core/src/modules/customers/components/detail/useDealPipeline.ts` / `useDealClosure.ts` | Modify | Send lock headers + surface conflicts |
-| `packages/core/src/modules/customers/commands/*deal*` | Modify | Guard stage-change/closure via command guard service |
-| `packages/enterprise/src/modules/record_locks/di.ts` | Modify | Register `createCommandOptimisticLockGuardService` override (`resolveExpected`) |
+| `packages/core/src/modules/customers/commands/*deal*` | Modify | Guard stage-change/closure via awaited async command seam |
+| `packages/enterprise/src/modules/record_locks/di.ts` | Modify | Register `commandOptimisticLockGuardService` (`resolveExpected`) |
 | `packages/core/src/__tests__/optimistic-lock-ui-coverage.test.ts` | Modify | Parallel record_locks coverage assertion |
 | `packages/enterprise/src/modules/record_locks/__integration__/` | Create | TC-LOCK-CRM-{person,company,deal} |
 
@@ -443,9 +492,11 @@ This phase makes the spec's command-layer promise real and **covers the operatio
   - **Fail-closed delegation (H3):** record_locks guard service throws/unavailable → mutation degrades to the OSS 409, never a silent pass-through.
   - **Tokenless client:** a plain API/CLI client that sends only the OSS `updated_at` header (no record-lock token) → stale write still 409 (floor catches it).
   - **Enablement parity:** `OM_OPTIMISTIC_LOCK=off` disables both layers; settings-enabled + env-off → no locking; env-on + settings-off → OSS floor only.
+  - **Awaited command seam:** a migrated command route awaits the async command seam before mutating; an enterprise-service conflict prevents the write, and an unregistered/throwing service falls back to the OSS compare.
+  - **Presence context cleanup:** navigate record A → record B → non-detail page and verify the AppShell-published context reacquires/releases correctly and never heartbeats the stale record.
   - **No-double-409:** a single conflicting save returns exactly one 409 shape; client renders one surface (merge dialog with widget, conflict bar without).
-- **Coverage guards (Phase 6b/7):** extend `optimistic-lock-ui-coverage.test.ts` + add `optimistic-lock-command-coverage.test.ts` so any new `makeCrudRoute` entity, `enforceCommandOptimisticLock` site, or raw UI header site must carry a record_locks decision (enabled/exempt) — fails CI otherwise.
-- **Unit**: the CRUD decorator chaining order (OSS floor runs before/independently of `validateMutation`), command-helper delegation + fail-closed wrapper, `resolveExpected` server-state derivation, `surfaceRecordConflict` deferral, resource-kind resolution for deal.
+- **Coverage guards (Phase 6b/7):** extend `optimistic-lock-ui-coverage.test.ts` or add a successor workspace scan + add `optimistic-lock-command-coverage.test.ts` so any new `makeCrudRoute` entity, direct command-helper site, or raw UI header site across `packages/*` must carry a record_locks decision (enabled/exempt). The raw-helper scan must flag `buildOptimisticLockHeader(undefined)` unless there is an inline exemption reason.
+- **Unit**: the CRUD decorator chaining order (OSS floor runs before/independently of `validateMutation`), async command seam awaits enterprise service + fail-closed wrapper, legacy synchronous helper remains unchanged, `resolveExpected` server-state derivation, `surfaceRecordConflict` deferral, resource-kind resolution for deal.
 - **Integration (Playwright)**: two concurrent sessions per enabled entity — presence banner appears, contended pessimistic lock blocks, optimistic save → merge dialog with field diff, accept-incoming/accept-mine resolution, force-release. Self-contained fixtures via API; teardown deletes created records.
 
 ## Risks & Impact Review
@@ -461,7 +512,7 @@ This phase makes the spec's command-layer promise real and **covers the operatio
 - All lock lookups are `tenant_id`-scoped (optional `organization_id`); the new command guard seam must pass the same scope. Mitigation: `resolveExpected` derives scope from the request ctx, never global.
 
 ### Migration & Deployment Risks
-- **No schema migration.** Behavior change is guard-routing + UI mounts. OSS-only deployments (no enterprise module) are unaffected: seams fall back to OSS guard; `backend:record:current` simply renders nothing.
+- **No schema migration.** Behavior change is guard-routing + AppShell context transport. OSS-only deployments (no enterprise module) are unaffected: seams fall back to OSS guard; `backend:record:current` simply renders nothing.
 
 ### Operational Risks
 - **Heartbeat storm** as more screens acquire locks. Mitigation: existing `heartbeatSeconds` (default 30s) config; presence acquire only on detail screens, not lists.
@@ -476,12 +527,33 @@ This phase makes the spec's command-layer promise real and **covers the operatio
 - **Mitigation**: **Layered, server-authoritative model (S1/S5).** The OSS `updated_at` floor always runs server-side (H2); record_locks delegation is fail-closed (H3); enforcement never depends on the widget (H1). The widget is UX-only. Regression test H4 proves concurrent edits still 409 with the widget unmounted.
 - **Residual risk**: With the widget gone the user sees the plain OSS conflict bar instead of the merge dialog (degraded UX), but the write is still blocked. `OM_OPTIMISTIC_LOCK=off` is the only switch that disables protection, and it disables OSS too — no asymmetry.
 
+#### Command-layer async seam implemented unsafely
+- **Scenario**: The implementation makes `enforceCommandOptimisticLock` async without migrating callers to `await`, or fires an un-awaited DI service promise from the synchronous helper. The route mutates before record_locks can block, so enterprise conflict detection is illusory.
+- **Severity**: Critical
+- **Affected area**: Every command-pattern write, especially package modules (`checkout`, `webhooks`) and routes outside `makeCrudRoute`.
+- **Mitigation**: Preserve the synchronous helper as OSS-only; add a separate async seam; migrate wrappers/call sites to `await`; add unit tests proving mutation code is not reached until the seam resolves. Coverage guard fails on new direct-helper call sites without a decision.
+- **Residual risk**: Existing external callers may continue using the legacy helper and remain OSS-only until they opt into the async seam; documented as backward-compatible behavior.
+
 #### Command-layer coverage gap vs OSS
-- **Scenario**: An `enforceCommandOptimisticLock` site (e.g. `entities` EAV records, `feature_toggles` overrides, `customer_accounts` admin, `auth` ACL, `data_sync` schedule) stays OSS-only while its CRUD siblings get record_locks, so concurrent command writes aren't covered by the enterprise guard.
+- **Scenario**: A direct command-helper site (e.g. `entities` EAV records, `feature_toggles` overrides, `customer_accounts` admin, `auth` ACL, `data_sync` schedule, `webhooks` endpoints, `checkout` links/templates) stays OSS-only while its CRUD siblings get record_locks, so concurrent command writes aren't covered by the enterprise guard.
 - **Severity**: High
-- **Affected area**: 8 modules outside the entity audit (Phase 6b).
-- **Mitigation**: The single helper-seam (S1) routes **all** command sites through record_locks at once; the command-parity coverage test (Phase 6b step 3) fails if a new direct-helper site ships without a decision.
-- **Residual risk**: A site that bypasses both the helper and `makeCrudRoute` (hand-rolled write) — caught by the existing `optimistic-lock-ui-coverage` raw-mutation scan extended to the command layer.
+- **Affected area**: Modules/packages outside the editable-entity audit (Phase 6b).
+- **Mitigation**: The async seam + per-site migration routes enabled command sites through record_locks; the workspace command-parity coverage test fails if a new direct-helper site ships without a decision.
+- **Residual risk**: A site that bypasses both the helper and `makeCrudRoute` (hand-rolled write) — caught by the workspace raw-mutation/header scan.
+
+#### Presence context leaks across routes
+- **Scenario**: The AppShell-owned record context is not cleared when navigating away or switching records. The record_locks widget could heartbeat/acquire the previous resource while the user is on a different page, creating false contention or releasing the wrong lock.
+- **Severity**: High
+- **Affected area**: All screens using the S2 publisher.
+- **Mitigation**: Publisher cleanup on unmount/path change; AppShell compares `path + resourceKind + resourceId`; integration test navigates A → B → list and asserts only the current record receives heartbeat/release calls.
+- **Residual risk**: A short-lived stale banner during client navigation before the cleanup effect runs; acceptable if no stale heartbeat continues after route settle.
+
+#### Raw-helper coverage false positive
+- **Scenario**: A UI file references `buildOptimisticLockHeader` but passes `undefined` (or no current version), so the scanner marks it covered while the request sends no version header.
+- **Severity**: High
+- **Affected area**: Raw `apiCall` / `useGuardedMutation` paths, especially `integrations` bundle toggles and create/update hybrids.
+- **Mitigation**: Workspace raw-helper scan must inspect `buildOptimisticLockHeader(undefined)` and require either a real `updatedAt` source or an inline `optimistic-lock-exempt` reason. Add regression fixtures for at least one true-positive and one exempt tokenless write.
+- **Residual risk**: Dynamic token expressions may be hard to prove statically; human review required for allowlisted complex cases.
 
 #### Double conflict surface
 - **Scenario**: A save triggers both the OSS conflict bar and the record_locks merge dialog.
@@ -519,13 +591,13 @@ This phase makes the spec's command-layer promise real and **covers the operatio
 |-------------|------|--------|-------|
 | root AGENTS.md | No direct ORM relationships between modules | Compliant | Integration via injection spots + DI seams + FK ids only |
 | root AGENTS.md | Filter by organization_id / tenant_id | Compliant | Lock lookups + `resolveExpected` carry request scope |
-| root AGENTS.md | No `core → enterprise` imports | Compliant | Presence mount is a core-rendered injection spot |
+| root AGENTS.md | No `core → enterprise` imports | Compliant | Presence context transport lives in UI/core; enterprise only injects into existing spot |
 | root AGENTS.md | Optimistic locking default-ON for editable entities | Compliant | record_locks **chains** the OSS guard (decorator) — floor always runs; enterprise only adds blocks (Phase 0/S1) |
 | packages/ui/AGENTS.md | Use `apiCall`/`useGuardedMutation`, never raw fetch | Compliant | Deal commands wrapped via `withScopedApiRequestHeaders` |
 | packages/ui/AGENTS.md | Single conflict surface (`surfaceRecordConflict`) | Compliant | Deferral logic added for record_locks payloads; conflict bar still renders if widget absent |
 | DS rules | Semantic tokens, shared primitives, dialog Cmd+Enter/Esc | Compliant | Reuses existing widget UI; Boy Scout on touched lines |
-| BACKWARD_COMPATIBILITY.md | No removal of contract surfaces | Compliant | Additive only — see Migration & Backward Compatibility below; the `enforceCommandOptimisticLock` change is signature-compatible (resolves an *optional* service) |
-| packages/core/AGENTS.md | Command guard via existing seam (#2232) | Compliant | `enforceCommandOptimisticLock` becomes the seam (resolves optional `commandOptimisticLockGuardService`); OSS compare runs unconditionally |
+| BACKWARD_COMPATIBILITY.md | No removal of contract surfaces | Compliant | Additive only — see Migration & Backward Compatibility below; keep `enforceCommandOptimisticLock(input): void` unchanged and add a new async seam |
+| packages/core/AGENTS.md | Command guard via existing seam (#2232) | Compliant | New async command seam resolves optional `commandOptimisticLockGuardService`; migrated call sites await it; OSS compare runs unconditionally |
 | S5 hardening | Enterprise ⊇ OSS safety; widget-independent; fail-closed | Compliant | Phase 0 chaining + H1–H6 tests; verified gap (current guard *replaces*) scheduled as the first task |
 
 ### Internal Consistency Check
@@ -535,37 +607,45 @@ This phase makes the spec's command-layer promise real and **covers the operatio
 | API contracts match UI/UX | Pass | Existing record_locks APIs power the banner/dialog |
 | Risks cover all write operations | Pass | CRUD + command + delete covered |
 | Commands defined for all mutations | Pass | Reuses existing conflict commands |
-| Guard coverage enforced by test | Pass | Coverage guard test extended |
+| Guard coverage enforced by test | Pass | Coverage guard test extended to editable entities + workspace command/raw-helper sites |
 
 ### Non-Compliant Items
 - **One verified defect, scheduled as Phase 0 (first task):** the current `crudMutationGuardService` override *replaces* the OSS `updated_at` compare instead of chaining it, so a tokenless write can pass a stale write through (H2 regression). This MUST be fixed (decorator chaining) before any resource is enabled in later phases. Until Phase 0 lands, the spec's safety guarantees are aspirational.
+- **Previous command-seam plan was unsafe; now corrected in Phase 0/6b:** the existing helper is synchronous and containerless, so implementation MUST add an async seam and migrate call sites to `await`; it must not silently change the legacy helper's return contract.
+- **Previous coverage matrix was core-biased; now corrected in Phase 6b/7:** package modules (`webhooks`, `checkout`) and raw-helper false positives (`buildOptimisticLockHeader(undefined)`) require workspace scans before the spec can claim "all OSS lock sites."
 
 ### Verdict
-- **Compliant, conditional on Phase 0.** Approved for phased implementation **provided Phase 0 (guard cooperation + fail-safe tests) ships first**; it is the prerequisite that makes enterprise locking a strict superset of OSS safety.
+- **Compliant, conditional on Phase 0 + Phase 6b/7 coverage guards.** Approved for phased implementation **provided Phase 0 (guard cooperation + fail-safe tests + AppShell context transport) ships first** and the all-sites claim is not made until Phase 6b/7 covers workspace command/raw-helper sites.
 
 ## Migration & Backward Compatibility
-Per `BACKWARD_COMPATIBILITY.md`, the only contract-surface touch is `enforceCommandOptimisticLock` (`packages/shared/src/lib/crud/optimistic-lock-command.ts`), a STABLE shared helper.
-- **Signature-compatible, additive behavior.** The change adds an internal step (resolve an *optional* `commandOptimisticLockGuardService` from the active container and delegate when present). The exported signature is unchanged; no parameter added/removed. When no service is registered (OSS-only build, or record_locks disabled) the helper runs exactly the OSS `updated_at` compare it does today — byte-for-byte behavior for existing callers.
-- **No removal.** `createCommandOptimisticLockGuardService` remains exported (now also consumed); all `enforceCommandOptimisticLock` call sites keep working unchanged; no event ID, command ID, API route, DI key, or DB schema is removed or renamed. No migration.
+Per `BACKWARD_COMPATIBILITY.md`, the command seam touches a STABLE shared helper surface and must be additive.
+- **Do not change `enforceCommandOptimisticLock(input): void`.** It remains exported, synchronous, and behaviorally identical for existing callers. No hidden `Promise` return, no required container parameter, and no silent un-awaited enterprise work.
+- **Additive new helper/service.** Add a new async DI-aware command guard runner (final exported name during implementation) and optional DI key `commandOptimisticLockGuardService`. Migrated platform call sites opt into it explicitly with `await`; external callers can keep using the legacy OSS helper.
+- **No removal.** `createCommandOptimisticLockGuardService` remains exported; `enforceCommandOptimisticLock` remains exported; no event ID, command ID, API route, DI key, widget spot ID, or DB schema is removed or renamed. No migration.
 - **New DI key (additive):** `commandOptimisticLockGuardService` (optional; absent by default). Documented in RELEASE_NOTES.md when implemented.
-- **OSS-only build unaffected.** record_locks lives in `@open-mercato/enterprise`; with it absent, nothing registers the service and the helper/CRUD guard behave as pure OSS.
-- **Deprecation protocol:** N/A (no surface deprecated). The `crudMutationGuardService` decorator change is internal to the enterprise package.
+- **OSS-only build unaffected.** record_locks lives in `@open-mercato/enterprise`; with it absent, nothing registers the service and migrated async-seam calls run only the OSS compare.
+- **Deprecation protocol:** N/A for this spec as written (no surface deprecated). If a future release wants to deprecate direct `enforceCommandOptimisticLock` usage in internal code, it must add `@deprecated` JSDoc, bridge for at least one minor, and document in RELEASE_NOTES.md.
 
 ## Changelog
+### 2026-06-15 (pre-implementation gap hardening)
+- **Command seam corrected for async/BC reality.** Re-audited `enforceCommandOptimisticLock` and found the old low-churn helper-seam plan was unsafe: the helper is synchronous, takes no container, and currently has **34 direct call lines across 21 non-test files** under `packages/core`, `packages/checkout`, and `packages/webhooks`. The spec now requires an additive async DI-aware seam, explicit `await` migration for wrappers/call sites, and preservation of `enforceCommandOptimisticLock(input): void` for backward compatibility.
+- **Presence context transport made implementable.** The old "page feeds context to global mount" wording ignored that `AppShell` renders `backend:record:current` before page children. The spec now requires an AppShell-owned context provider/publisher, page-side cleanup on unmount/navigation, and stale-context tests.
+- **All-sites coverage expanded beyond the core entity audit.** Added missing package/raw-helper surfaces: `webhooks`, `checkout`, `planner`, `api_keys`, `integrations`, `customer_accounts` domain mappings, plus workspace-wide command/raw-helper scans. The raw-helper scan must not treat `buildOptimisticLockHeader(undefined)` as covered without an inline exemption.
+- **BC and risk analysis updated.** Migration section now forbids hidden async changes to the legacy helper; risk register now covers un-awaited command guards, stale AppShell context, and scanner false positives.
 ### 2026-06-09 (cooperation model + gap fills)
-- **Cooperation, not replacement (the core fix).** Verified the current `crudMutationGuardService` *replaces* the OSS compare (calls `validateMutation` only; no `updated_at` compare in the 88-line file) and `validateMutation` is token/conflict-id/action-log driven — so a tokenless write can pass a stale write. Rewrote S1 to mandate the enterprise guard be a **decorator that chains the OSS floor** (run OSS compare first, then `validateMutation`; enterprise only *adds* blocks). Added **Phase 0** (foundational, ships before any rollout) implementing the CRUD-guard chaining, the fail-closed command-helper seam, enablement parity, server-authoritative base resolution, and the H1–H4 fail-safe tests. Logged the current replace-behavior as a **verified defect** in the compliance report (conditional verdict: Phase 0 first).
+- **Cooperation, not replacement (the core fix).** Verified the current `crudMutationGuardService` *replaces* the OSS compare (calls `validateMutation` only; no `updated_at` compare in the 88-line file) and `validateMutation` is token/conflict-id/action-log driven — so a tokenless write can pass a stale write. Rewrote S1 to mandate the enterprise guard be a **decorator that chains the OSS floor** (run OSS compare first, then `validateMutation`; enterprise only *adds* blocks). Added **Phase 0** (foundational, ships before any rollout) implementing the CRUD-guard chaining, command-layer hardening, enablement parity, server-authoritative base resolution, and the H1–H4 fail-safe tests. Logged the current replace-behavior as a **verified defect** in the compliance report (conditional verdict: Phase 0 first).
 - **Enablement-switch parity.** Defined the interaction of `OM_OPTIMISTIC_LOCK` (env floor) and `isRecordLockingEnabledForResource` (settings enrichment): one global kill switch (`=off` disables both), enrichment requires env-on **and** settings-on; record_locks short-circuits to floor-only when env-off.
 - **Filled the out-of-scope modules.** Added `attachments` (partition settings) and `translations` (cross-entity `TranslationManager` → inherit host-entity version) — both send OSS lock headers via UI helpers and were caught by neither audit. Coverage matrix now lists all Phase-6b modules.
-- **Stale sections fixed + BC added.** Compliance matrix updated ("replaces" → "chains"); Testing Strategy now lists the fail-safe + command-parity coverage tests as first-class; added a **Migration & Backward Compatibility** section (the `enforceCommandOptimisticLock` change is signature-compatible/additive) and **Phase 0 + Phase 6b file manifests**.
+- **Stale sections fixed + BC added.** Compliance matrix updated ("replaces" → "chains"); Testing Strategy now lists the fail-safe + command-parity coverage tests as first-class; added a **Migration & Backward Compatibility** section and **Phase 0 + Phase 6b file manifests**. The command-seam mechanism in this 2026-06-09 entry was later corrected by the 2026-06-15 hardening entry above.
 ### 2026-06-09 (command parity + safety hardening)
-- **Command-layer 1:1 parity with OSS.** OSS optimistic locking guards not just `makeCrudRoute` entities but every command-pattern write via the `enforceCommandOptimisticLock` helper (17 verified non-test sites across 13 modules). Found that the helper is called **directly** everywhere and `createCommandOptimisticLockGuardService` is **not DI-registered anywhere** — so the spec's original "override the command guard service via DI" (S1) would have intercepted nothing. Rewrote S1 to make `enforceCommandOptimisticLock` resolve an optional DI guard service (one chokepoint, zero per-site edits). Added **Phase 6b** enumerating all 17 sites and the **8 modules the entity audit never listed** (`entities`, `staff/job-histories`, `feature_toggles/overrides` [was wrongly marked exempt], `customer_accounts`, `inbox_ops`, `data_sync`, `auth` ACL, `perspectives`) with a per-site decision and a command-layer coverage-guard test. Clarified the parity operation set: update, **delete**, and status-transition (record_locks' CRUD guard already maps delete; the gap was the command layer).
+- **Command-layer 1:1 parity with OSS.** This revision correctly identified that command-pattern writes were outside the CRUD entity audit and that `createCommandOptimisticLockGuardService` was **not DI-registered anywhere**, but its low-churn helper-seam mechanism was later superseded by the 2026-06-15 audit. The current plan is the additive async DI-aware seam plus explicit awaited migration described in S1 and Phase 6b above. Clarified the parity operation set: update, **delete**, and status-transition (record_locks' CRUD guard already maps delete; the gap was the command layer).
 - **Safety hardening — enterprise ⊇ OSS, never a liability.** Replaced the "single-guard (replace)" model with a **layered, server-authoritative, fail-safe** model (new **S5**, revised S1/S3, Design Decisions, two new Risk Register entries). Core guarantees: (H1) enforcement is server-side and **independent of the client widget**; (H2) the OSS `updated_at` floor is **never removed** — record_locks that can't resolve falls through to it; (H3) delegation is **fail-closed** (broken enterprise guard degrades to OSS, not to zero); (H4) a regression test proves concurrent edits still 409 with the **widget unmounted / layout tampered**; (H5) pessimistic lock is advisory UX, the optimistic write-time check is authoritative; (H6) no site OSS-protects today may lose protection under record_locks. Dedupe of the double-409 UX moved to the **surface** (S3), not by disabling a server guard.
 ### 2026-06-09 (mechanism correction)
 - **Corrected a factual error** in Problem Statement #1/#2, S2, and the phase preamble. An earlier draft said "no core page renders `backend:record:current`." In fact `AppShell` mounts that spot **globally on every backend page** (`AppShell.tsx:1362`) with `{ path, query }` context; the widget resolves the record from a hardcoded URL-path allowlist (`widget.client.tsx:337-430`) limited to `customers/{people,companies,deals}` and `sales/{orders,quotes,documents}` — which is why enterprise locks already work on those screens. Restated the real gaps: (a) the `*-v2` person/company routes miss the allowlist so get no page-load presence; (b) the Deal page *does* get presence but its `DealForm` save path (no `injectionSpotId`) and custom stage/closure command endpoints are unguarded; (c) all other modules get no presence because their path isn't recognized and no explicit context is supplied. The Phase 2+ "presence mount" work is therefore **supplying explicit `resourceKind`/`resourceId`/`updatedAt`/`data` context to the existing global mount**, not rendering a new spot.
 ### 2026-06-09 (deepening)
 - Expanded Phases 2–7 from high-level bullets into **file-level manifests** grounded in a full codebase audit of every editable-entity lock site. Each phase now enumerates the exact presence mounts to add, the custom write paths / command-guard seams to wire, the auto-covered `makeCrudRoute` entities (with `entityId`s), and a per-entity enabled/exempt decision.
-- Verified facts now baked into the plan: **no core page renders `backend:record:current` today**; CRM v2 person/company pass `injectionSpotId` but `DealForm` does not; sales `enforceSalesDocumentOptimisticLock` already guards `documents.ts`/`returns.ts` but **`commands/payments.ts` and `commands/shipments.ts` have zero guard calls (Gap A/B)**; catalog category/variant edit pages are missing `injectionSpotId`; workflows has a bespoke visual-editor save path; business_rules routes already call `enforceCommandOptimisticLock`.
+- Verified facts baked into that revision included CRM v2 person/company passing `injectionSpotId`, `DealForm` lacking it, sales `enforceSalesDocumentOptimisticLock` already guarding `documents.ts`/`returns.ts` while **`commands/payments.ts` and `commands/shipments.ts` had zero guard calls (Gap A/B)**, catalog category/variant edit pages missing `injectionSpotId`, workflows having a bespoke visual-editor save path, and business_rules routes already calling `enforceCommandOptimisticLock`. The earlier "no core page renders `backend:record:current`" statement was later corrected in the mechanism-correction entry above.
 - Added a how-to-read preamble distinguishing **presence mount** vs **guard wiring** vs **decision**, and a **Coverage Matrix** done-definition listing a record_locks decision for every entity audited by `optimistic-lock-editable-entities.test.ts`.
 ### 2026-06-09
-- Initial specification. Open Questions resolved: single-guard via DI seam (Q1), full Phase-1 experience (Q2), guard Deal form + command endpoints (Q3), customers-first Phase 2+ ordering (Q4).
+- Initial specification. Open Questions resolved at the time: single-guard via DI seam (Q1, later replaced by the layered async-seam plan above), full Phase-1 experience (Q2), guard Deal form + command endpoints (Q3), customers-first Phase 2+ ordering (Q4).
 - Tracking issue: #2187 (CRM ↔ enterprise record-locking). Related: #2232 (command-level pessimistic locking seam), SPEC-ENT-003 (record-locking module), SPEC-035 (mutation-guard mechanism), `2026-05-25/28/29` OSS optimistic-locking specs.
