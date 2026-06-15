@@ -19,7 +19,9 @@ Default tier — installed by `yarn install-skills`.
 | Skill | Trigger phrase / When to use | Preceded by | Followed by |
 |-------|------------------------------|-------------|-------------|
 | `om-help` | "what now?", "next steps?", "which skill?", "how do I X in OM?", orientation questions | — | any |
-| `om-spec-writing` | New feature (3+ files), architectural change, new module | — | `om-pre-implement-spec` |
+| `om-proposal` | Collaborative pre-spec ideation — capture/refine an idea in `.ai/proposals/`, surface teammates' open questions (async, file-based) | — | `om-brainstorm` then `om-spec-writing` |
+| `om-brainstorm` | Facilitate ideation — party mode (persona panel), Socratic, 5-whys, yes-and | `om-proposal` | `om-proposal` (writes findings back) |
+| `om-spec-writing` | New feature (3+ files), architectural change, new module | `om-proposal` (optional) | `om-pre-implement-spec` |
 | `om-pre-implement-spec` | Before implementing a spec — BC audit, gap analysis, readiness report | `om-spec-writing` | `om-implement-spec` |
 | `om-implement-spec` | Execute an existing spec phase by phase | `om-pre-implement-spec` | `om-code-review` |
 | `om-code-review` | Review before merge — architecture, security, DS, conventions | `om-implement-spec` | `om-check-and-commit` |

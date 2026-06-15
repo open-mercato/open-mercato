@@ -34,6 +34,33 @@ const POLYFILL_PATTERNS = {
 // regression at PR time instead of at customer install time.
 const TRACKED_TEMPLATES = ['ai/qa/tests/playwright.config.ts']
 
+// Collaborative pre-spec ideation skills shipped to standalone apps. Each must
+// exist under agentic/shared AND be wired into generateShared()'s copy list, or
+// a `create-mercato-app` user gets a broken/partial proposal workflow.
+const PROPOSAL_SKILL_FILES = [
+  'ai/skills/om-proposal/SKILL.md',
+  'ai/skills/om-proposal/references/proposal-template.md',
+  'ai/skills/om-brainstorm/SKILL.md',
+  'ai/skills/om-brainstorm/references/methods.md',
+  'ai/skills/om-spec-writing/references/proposal-intake.md',
+]
+
+const SHARED_GENERATOR_SOURCE = readFileSync(join(__dirname, 'shared.ts'), 'utf8')
+
+for (const relativePath of PROPOSAL_SKILL_FILES) {
+  test(`proposal skill "${relativePath}" ships and is wired into generateShared()`, () => {
+    const fullPath = join(AGENTIC_SHARED_DIR, relativePath)
+    assert.doesNotThrow(
+      () => readFileSync(fullPath, 'utf8'),
+      `${relativePath} is missing from agentic/shared — standalone apps would not receive it.`,
+    )
+    assert.ok(
+      SHARED_GENERATOR_SOURCE.includes(`'${relativePath}'`),
+      `${relativePath} exists but generateShared() does not copy it — add a copyFile() call in shared.ts.`,
+    )
+  })
+}
+
 for (const relativePath of TRACKED_TEMPLATES) {
   test(`agentic/shared template "${relativePath}" is ESM-safe`, () => {
     const fullPath = join(AGENTIC_SHARED_DIR, relativePath)

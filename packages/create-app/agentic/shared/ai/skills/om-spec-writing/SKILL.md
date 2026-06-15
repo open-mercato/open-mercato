@@ -10,6 +10,7 @@ Design and review specifications (SPECs) against Open Mercato architecture and q
 ## Workflow
 
 1. **Load Context**: Read `AGENTS.md` for module conventions and `.ai/specs/` for existing specs.
+   - **Proposal intake (optional)**: if `references/proposal-intake.md` is present, follow it before initializing the spec file — a matching `.ai/proposals/**/<slug>.md` may supply the starting brief and carry-forward Open Questions. If the file is absent, skip this and proceed normally.
 2. **Initialize**: Create `{date}-{title}.md` in `.ai/specs/`.
 3. **Start Minimal**: Write a Skeleton Spec (TLDR + 2-3 key sections). Do NOT write the full spec in one pass.
    - Scan for **critical unknowns** — decisions that block data model, scope, or architecture.

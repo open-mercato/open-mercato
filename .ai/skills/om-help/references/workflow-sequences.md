@@ -5,6 +5,7 @@
 
 ## Table of Contents
 
+- [Ideate Before a Spec (Collaborative)](#0-ideate-before-a-spec-collaborative)
 - [New Feature](#1-new-feature)
 - [Bug Fix](#2-bug-fix)
 - [UI / Design System Change](#3-ui--design-system-change)
@@ -17,6 +18,28 @@
 - [AI Agent / MCP Tool](#10-ai-agent--mcp-tool)
 - [Spec Fix / Rename](#11-spec-fix--rename)
 - [Choosing the Right Sequence](#choosing-the-right-sequence)
+
+---
+
+## 0. Ideate Before a Spec (Collaborative)
+
+**Use when:** A feature/module is still a rough idea and the team should weigh in before a spec is
+locked. Collaboration is asynchronous and file-based via `.ai/proposals/` (committed to git).
+
+```
+om-proposal        (open/refine a proposal; surface teammates' open questions; defer or answer)
+  → om-brainstorm  (party mode, Socratic, 5-whys, yes-and — findings flow back to the proposal)
+  → om-proposal    (mark ready; moves to .ai/proposals/ready/)
+  → om-spec-writing (consumes the proposal's "For the spec" brief + carried-forward questions)
+```
+
+**Rationale per step:**
+1. `om-proposal` — capture the idea and pull in unanswered questions teammates left behind.
+2. `om-brainstorm` — explore with a facilitation method; every method ends with a distillation.
+3. `om-proposal` — when the team agrees, mark `ready` and hand off.
+4. `om-spec-writing` — auto-consumes the brief when its proposal-intake hook is installed.
+
+> Optional pre-spec layer. For a solo quick feature, skip straight to `om-spec-writing`.
 
 ---
 

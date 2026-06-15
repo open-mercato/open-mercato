@@ -20,6 +20,8 @@ Skills for creating new functionality in your standalone Open Mercato applicatio
 | Skill | Trigger / When to use | Preceded by | Followed by |
 |-------|----------------------|-------------|-------------|
 | `om-help` | "what now?", "which skill?", "next steps?", "how do I X?", orientation | — | any |
+| `om-proposal` | Capture/refine a pre-spec idea collaboratively (async, file-based in `.ai/proposals/`); surface teammates' open questions | — | `om-brainstorm` then `om-spec-writing` |
+| `om-brainstorm` | Facilitate ideation — party mode (persona panel), Socratic, 5-whys, yes-and | `om-proposal` | `om-proposal` (writes findings back) |
 | `om-data-model-design` | Designing entities, relationships, migrations, encryption maps for PII | — | `om-spec-writing` or `om-module-scaffold` |
 | `om-spec-writing` | Writing a spec before building a non-trivial feature | `om-data-model-design` | `om-module-scaffold` or `om-implement-spec` |
 | `om-module-scaffold` | Creating a new module with entity, routes, pages, ACL, DI | `om-spec-writing` or `om-data-model-design` | `om-integration-tests` |

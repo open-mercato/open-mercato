@@ -106,6 +106,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | **Testing** | |
 | Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.ai/skills/om-integration-tests/SKILL.md` |
 | **Spec & PR Automation** | |
+| Collaborative pre-spec ideation (capture an idea, brainstorm with party mode / Socratic, surface teammates' open questions before a spec exists) — async, file-based via `.ai/proposals/` | Browse `.ai/skills/{om-proposal,om-brainstorm}/SKILL.md`; hands off to `om-spec-writing` via its optional `references/proposal-intake.md`. Spec: `.ai/specs/2026-06-15-collaborative-proposal-skills.md` |
 | Spec lifecycle (pre-implement → implement → write/update), code review, DS review | Browse `.ai/skills/{om-spec-writing,om-pre-implement-spec,om-implement-spec,om-code-review,om-ds-guardian}/SKILL.md` + `.ai/specs/AGENTS.md` + `.ai/ds-rules.md` |
 | PR/issue automation (one-shot auto-PR, resumable loop variants, review/merge-buddy, post-merge sync, changelog). **Default for one-off bug fixes / small features:** `om-auto-create-pr` | Browse `.ai/skills/{om-auto-create-pr,om-auto-continue-pr,om-auto-create-pr-loop,om-auto-continue-pr-loop,om-auto-review-pr,om-merge-buddy,om-review-prs,om-sync-merged-pr-issues,om-auto-update-changelog}/SKILL.md` |
 

@@ -5,6 +5,7 @@
 
 ## Table of Contents
 
+- [Ideate Before a Spec (Collaborative)](#0-ideate-before-a-spec-collaborative)
 - [New Module](#1-new-module)
 - [New Feature in Existing Module](#2-new-feature-in-existing-module)
 - [Extend an Existing Module](#3-extend-an-existing-module)
@@ -15,6 +16,28 @@
 - [Slim Down the App](#8-slim-down-the-app)
 - [Upgrade Open Mercato](#9-upgrade-open-mercato)
 - [Choosing the Right Sequence](#choosing-the-right-sequence)
+
+---
+
+## 0. Ideate Before a Spec (Collaborative)
+
+**Use when:** A feature/module is still a rough idea and you want the team to weigh in before a
+spec is locked. Collaboration is asynchronous and file-based via `.ai/proposals/`.
+
+```
+om-proposal        (open/refine a proposal; surface teammates' open questions; defer or answer)
+  → om-brainstorm  (party mode, Socratic, 5-whys, yes-and — findings flow back to the proposal)
+  → om-proposal    (mark ready; moves to .ai/proposals/ready/)
+  → om-spec-writing (consumes the proposal's "For the spec" brief + carried-forward questions)
+```
+
+**Rationale per step:**
+1. `om-proposal` — capture the idea, pull in unanswered questions other teammates left behind.
+2. `om-brainstorm` — explore with a facilitation method; every method ends with a distillation.
+3. `om-proposal` — when the team agrees, mark `ready` and hand off.
+4. `om-spec-writing` — picks up the brief automatically when its proposal-intake hook is installed.
+
+> Optional layer. For a solo quick feature, skip straight to `om-spec-writing` (or `om-module-scaffold`).
 
 ---
 

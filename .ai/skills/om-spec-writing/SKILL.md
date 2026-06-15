@@ -10,6 +10,7 @@ Design and review specifications (SPECs) against Open Mercato's architecture, na
 ## Workflow
 
 1.  **Load Context**: Load initial context, take user provided context prompt, and load related files using the Task-Routing table from root `AGENTS.md`.
+    - **Proposal intake (optional)**: if `references/proposal-intake.md` is present, follow it before initializing the spec file — a matching `.ai/proposals/**/<slug>.md` may supply the starting brief and carry-forward Open Questions. If the file is absent, skip this and proceed normally.
 2.  **Initialize**: Create an empty file with the correct naming convention for scope:
     - OSS scope: `{date}-{title}.md` in `.ai/specs/`
     - Enterprise scope: `{date}-{title}.md` in `.ai/specs/enterprise/`

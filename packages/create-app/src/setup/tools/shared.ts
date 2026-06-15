@@ -58,6 +58,30 @@ export function generateShared(config: AgenticConfig): void {
     'ai/skills/om-spec-writing/references/spec-checklist.md',
     join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'spec-checklist.md'),
   )
+  // Optional proposal intake — present so om-spec-writing can consume a `.ai/proposals/` brief.
+  // The guarded SKILL.md step is a no-op when this file is absent.
+  copyFile(
+    'ai/skills/om-spec-writing/references/proposal-intake.md',
+    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'proposal-intake.md'),
+  )
+
+  // Collaborative pre-spec ideation skills (proposal -> spec -> implement).
+  copyFile(
+    'ai/skills/om-proposal/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-proposal', 'SKILL.md'),
+  )
+  copyFile(
+    'ai/skills/om-proposal/references/proposal-template.md',
+    join(targetDir, '.ai', 'skills', 'om-proposal', 'references', 'proposal-template.md'),
+  )
+  copyFile(
+    'ai/skills/om-brainstorm/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-brainstorm', 'SKILL.md'),
+  )
+  copyFile(
+    'ai/skills/om-brainstorm/references/methods.md',
+    join(targetDir, '.ai', 'skills', 'om-brainstorm', 'references', 'methods.md'),
+  )
 
   copyFile(
     'ai/skills/om-backend-ui-design/SKILL.md',
