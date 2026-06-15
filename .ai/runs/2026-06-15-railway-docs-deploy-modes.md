@@ -63,7 +63,7 @@ External References:
 
 ### Phase 2: Docs
 
-- [ ] 2.1 Update the Railway deployment guide prerequisites, quickstart, source mode, token, account tier, environment, and troubleshooting sections.
+- [x] 2.1 Update the Railway deployment guide prerequisites, quickstart, source mode, token, account tier, environment, and troubleshooting sections. — 5d4d8bc0a
 
 ### Phase 3: Review
 
