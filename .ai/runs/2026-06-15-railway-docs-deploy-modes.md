@@ -67,4 +67,8 @@ External References:
 
 ### Phase 3: Review
 
-- [ ] 3.1 Run docs-only validation and self-review, then open the PR with documentation labels.
+- [x] 3.1 Run docs-only validation and self-review, then open the PR with documentation labels. — PR #3064
+
+## Changelog
+
+- 2026-06-15: Completed the docs-only Railway deployment guide update and opened PR #3064.
