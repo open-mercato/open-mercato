@@ -177,15 +177,21 @@ describe('runDeferredProvisioning single-flight claim', () => {
     await runDeferredProvisioning(RUN_ARGS)
 
     expect(emitEvent).toHaveBeenCalledTimes(REINDEX_ENTITIES.length)
+    // Tenant-wide rebuild — NO organizationId. toContainEqual is a deep match,
+    // so an accidental org-narrowing of the payload fails here: org-scoping
+    // would silently drop organization_id IS NULL rows and org-derived
+    // entities (e.g. directory:organization) that the prior inline rebuild
+    // covered.
+    const emittedPayloads = emitEvent.mock.calls.map((call) => call[1])
     for (const entityType of REINDEX_ENTITIES) {
+      expect(emittedPayloads).toContainEqual({
+        entityType,
+        tenantId: RUN_ARGS.tenantId,
+        force: true,
+      })
       expect(emitEvent).toHaveBeenCalledWith(
         'query_index.reindex',
-        expect.objectContaining({
-          entityType,
-          tenantId: RUN_ARGS.tenantId,
-          organizationId: RUN_ARGS.organizationId,
-          force: true,
-        }),
+        expect.objectContaining({ entityType }),
         { persistent: true },
       )
     }

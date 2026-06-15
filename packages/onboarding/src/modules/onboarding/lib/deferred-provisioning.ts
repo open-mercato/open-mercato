@@ -119,7 +119,6 @@ type PersistentEventBus = {
 async function enqueueQueryIndexRebuild(args: {
   container: { resolve: <T = unknown>(name: string) => T }
   tenantId: string
-  organizationId: string
 }) {
   // Hand the heavy query-index rebuild to the durable queue instead of running
   // a multi-minute force purge+reindex of every system entity inline — that
@@ -128,6 +127,11 @@ async function enqueueQueryIndexRebuild(args: {
   // survives a worker/process restart and is retried independently of
   // onboarding. reindexEntity({ force: true }) purges the scope and refreshes
   // coverage internally, so no explicit purge/coverage sweep is needed here.
+  //
+  // Scope is the whole tenant (no organizationId): the previous inline rebuild
+  // reindexed tenant-wide, which also covers organization_id IS NULL rows and
+  // entities whose org is derived from the row (e.g. directory:organization).
+  // Narrowing to a single org would silently drop those.
   let eventBus: PersistentEventBus | null = null
   try {
     eventBus = args.container.resolve<PersistentEventBus>('eventBus')
@@ -144,7 +148,6 @@ async function enqueueQueryIndexRebuild(args: {
         {
           entityType,
           tenantId: args.tenantId,
-          organizationId: args.organizationId,
           force: true,
         },
         { persistent: true },
@@ -236,7 +239,6 @@ export async function runDeferredProvisioning(args: {
   await enqueueQueryIndexRebuild({
     container,
     tenantId: args.tenantId,
-    organizationId: args.organizationId,
   })
 
   await markWorkspaceReady({
