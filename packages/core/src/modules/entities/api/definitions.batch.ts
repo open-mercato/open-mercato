@@ -13,16 +13,20 @@ export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
 }
 
+const MAX_DEFINITIONS_PER_BATCH = 1000
+
 const batchSchema = z
   .object({
     entityId: z.string().regex(/^[a-z0-9_]+:[a-z0-9_]+$/),
-    definitions: z.array(
-      upsertCustomFieldDefSchema
-        .omit({ entityId: true })
-        .extend({
-          configJson: z.any().optional(),
-        })
-    ),
+    definitions: z
+      .array(
+        upsertCustomFieldDefSchema
+          .omit({ entityId: true })
+          .extend({
+            configJson: z.any().optional(),
+          })
+      )
+      .max(MAX_DEFINITIONS_PER_BATCH),
   })
   .extend(customFieldEntityConfigSchema.shape)
 

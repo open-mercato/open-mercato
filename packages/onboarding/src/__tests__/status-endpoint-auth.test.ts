@@ -170,6 +170,44 @@ describe('onboarding status endpoint authorization', () => {
     expect(res.status).toBe(404)
   })
 
+  it('does not schedule deferred provisioning while a fresh preparation claim is active', async () => {
+    // Regression for the 2026-06-11 demo outage: every preparing-page poll
+    // scheduled another full deferred-provisioning chain until the completion
+    // flag landed, exhausting the PG connection pool. While a fresh claim is
+    // recorded the poll must not schedule another run.
+    findLatestByTenantId.mockResolvedValue(
+      makeRequest({
+        userId: '55555555-5555-4555-8555-555555555555',
+        preparationCompletedAt: null,
+        preparationStartedAt: new Date(),
+      }),
+    )
+
+    const res = await GET(
+      buildRequest({ tenantId: TENANT_ID, cookie: `om_login_tenant=${TENANT_ID}` }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(runDeferredProvisioning).not.toHaveBeenCalled()
+  })
+
+  it('schedules deferred provisioning again once the preparation claim is stale', async () => {
+    findLatestByTenantId.mockResolvedValue(
+      makeRequest({
+        userId: '55555555-5555-4555-8555-555555555555',
+        preparationCompletedAt: null,
+        preparationStartedAt: new Date(Date.now() - 20 * 60 * 1000),
+      }),
+    )
+
+    const res = await GET(
+      buildRequest({ tenantId: TENANT_ID, cookie: `om_login_tenant=${TENANT_ID}` }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(runDeferredProvisioning).toHaveBeenCalledTimes(1)
+  })
+
   it('recovers an interrupted processing request that already has provisioned ids', async () => {
     const request = makeRequest({
       status: 'processing',
