@@ -81,10 +81,10 @@ subscribers during seedExamples; the force reindex is the consistency sweep.
 
 ### Phase 1: Decouple readiness from the inline reindex
 
-- [ ] 1.1 Replace inline `rebuildTenantQueryIndexes` with durable `enqueueQueryIndexRebuild` (persistent `query_index.reindex` jobs); reorder to enqueue → mark ready → email
-- [ ] 1.2 Update unit tests to assert durable per-entity enqueue before the completion gate, ready/email no longer wait on the reindex, and the email failure stays non-fatal
+- [x] 1.1 Replace inline `rebuildTenantQueryIndexes` with durable `enqueueQueryIndexRebuild` (persistent `query_index.reindex` jobs); reorder to enqueue → mark ready → email — 098ce9e6e
+- [x] 1.2 Update unit tests to assert durable per-entity enqueue before the completion gate, ready/email no longer wait on the reindex, and the email failure stays non-fatal — 098ce9e6e
 
 ### Phase 2: Validation
 
-- [ ] 2.1 Full validation gate (build:packages, generate, i18n, typecheck, test, build:app)
-- [ ] 2.2 Code-review + BC self-review
+- [x] 2.1 Full validation gate (build:packages, generate, i18n, typecheck, test, build:app) — all green; one transient turbo worker-teardown flake in core resolved on standalone re-run (5895/5895)
+- [x] 2.2 Code-review + BC self-review — no contract surface changes; `query_index.reindex` is an existing persistent event
