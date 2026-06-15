@@ -199,4 +199,40 @@ describe('Cache Service', () => {
       expect(stats.expired).toBe(0)
     })
   })
+
+  describe('Memory bound env resolution (CACHE_MEMORY_MAX_ENTRIES)', () => {
+    afterEach(() => {
+      delete process.env.CACHE_MEMORY_MAX_ENTRIES
+    })
+
+    it('bounds a memory-backed service when the env var is set', async () => {
+      process.env.CACHE_MEMORY_MAX_ENTRIES = '10'
+      const cache = createCacheService({ strategy: 'memory' })
+
+      for (let index = 0; index < 30; index += 1) {
+        await cache.set(`key:${index}`, index)
+      }
+
+      const stats = await cache.stats()
+      // The LRU cap kept the store far below the 30 logical writes and the
+      // surfaced eviction counter proves the bound was actively enforced.
+      expect(stats.size).toBeLessThan(30)
+      expect(stats.evictions).toBeGreaterThan(0)
+    })
+
+    it('ignores an invalid env value and stays unbounded by default', async () => {
+      process.env.CACHE_MEMORY_MAX_ENTRIES = 'not-a-number'
+      const cache = createCacheService({ strategy: 'memory' })
+
+      for (let index = 0; index < 30; index += 1) {
+        await cache.set(`key:${index}`, index)
+      }
+
+      const stats = await cache.stats()
+      // Invalid value parses to NaN, is discarded, and the default cap (50k)
+      // leaves all 30 entries resident with no evictions.
+      expect(stats.size).toBe(30)
+      expect(stats.evictions).toBe(0)
+    })
+  })
 })
