@@ -89,7 +89,18 @@ Review the generated `.env` before deployment. Replace placeholders and add prov
 
 Keep environment files out of version control. The CLI uploads their values as Railway variables; it does not include the file in a local-source upload.
 
-### 5. Preview the deployment
+### 5. Verify the app locally
+
+Before deploying, run generation and a production build from the standalone app root:
+
+```bash
+yarn generate
+yarn build
+```
+
+`yarn generate` refreshes module registries and generated metadata. `yarn build` verifies the Next.js production build before Railway receives the source. In standalone apps, `yarn build` also runs generation, but running `yarn generate` explicitly first makes discovery or registry failures easier to identify before deployment.
+
+### 6. Preview the deployment
 
 Run a dry run before creating billable resources:
 
@@ -99,7 +110,7 @@ yarn mercato deploy railway --dry-run
 
 The plan shows the selected source mode, Railway operations, and environment-variable changes. Secret values are redacted.
 
-### 6. Deploy
+### 7. Deploy
 
 ```bash
 yarn mercato deploy railway
