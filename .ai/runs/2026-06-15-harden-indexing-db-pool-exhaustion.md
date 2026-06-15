@@ -105,4 +105,4 @@ pin connections.
 
 ### Phase 3: Document the connection-budget invariant
 
-- [ ] 3.1 Document invariant + env knobs in queue/shared AGENTS.md
+- [x] 3.1 Document invariant + env knobs in queue/shared AGENTS.md — 2fe735233
