@@ -88,3 +88,4 @@ subscribers during seedExamples; the force reindex is the consistency sweep.
 
 - [x] 2.1 Full validation gate (build:packages, generate, i18n, typecheck, test, build:app) — all green; one transient turbo worker-teardown flake in core resolved on standalone re-run (5895/5895)
 - [x] 2.2 Code-review + BC self-review — no contract surface changes; `query_index.reindex` is an existing persistent event
+- [x] Post-review fix: adversarial review flagged the queued payload narrowed the rebuild to one org; emit tenant-wide (no `organizationId`) to match the prior inline rebuild and avoid dropping org-null / org-derived rows — 1958af7d0
