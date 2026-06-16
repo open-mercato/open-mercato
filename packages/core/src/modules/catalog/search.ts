@@ -3,6 +3,7 @@ import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const CATALOG_PRODUCTS_URL = '/backend/catalog/products'
+const CATALOG_SERVICES_URL = '/backend/catalog/services'
 const CATALOG_CATEGORIES_URL = '/backend/catalog/categories'
 const CATALOG_CONFIG_URL = '/backend/config/catalog'
 
@@ -93,6 +94,11 @@ function buildProductUrl(productId: string | null): string | null {
   return `${CATALOG_PRODUCTS_URL}/${encodeURIComponent(productId)}`
 }
 
+function buildServiceUrl(serviceId: string | null): string | null {
+  if (!serviceId) return null
+  return `${CATALOG_SERVICES_URL}/${encodeURIComponent(serviceId)}/edit`
+}
+
 function buildVariantUrl(productId: string | null, variantId: string | null): string | null {
   if (!productId || !variantId) return null
   return `${CATALOG_PRODUCTS_URL}/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`
@@ -138,6 +144,27 @@ function buildProductPresenter(
     statusText,
   ) ?? snippet(readRecordText(record, 'description'))
   return { title, subtitle, icon: 'package', badge: label }
+}
+
+function buildServicePresenter(
+  translate: TranslateFn,
+  record: Record<string, unknown>,
+): SearchResultPresenter {
+  const label = translate('catalog.search.badge.service', 'Service')
+  const title = pickText(
+    readRecordText(record, 'title'),
+    readRecordText(record, 'id'),
+  ) ?? label
+  const isActive = record.is_active ?? record.isActive
+  const statusText = isActive === false ? translate('catalog.search.status.inactive', 'Inactive') : null
+  const priceAmount = readRecordText(record, 'default_price_amount', 'defaultPriceAmount')
+  const priceCurrency = readRecordText(record, 'default_price_currency_code', 'defaultPriceCurrencyCode')
+  const subtitle = formatSubtitle(
+    readRecordText(record, 'scope'),
+    priceAmount && priceCurrency ? `${priceAmount} ${priceCurrency}` : null,
+    statusText,
+  ) ?? snippet(readRecordText(record, 'description'))
+  return { title, subtitle, icon: 'briefcase-business', badge: label }
 }
 
 function buildVariantPresenter(
@@ -331,6 +358,31 @@ export const searchConfig: SearchModuleConfig = {
           'unit_price_reference_unit',
         ],
         excluded: ['metadata', 'dimensions', 'tax_rate_id'],
+      },
+    },
+    {
+      entityId: 'catalog:catalog_service',
+      enabled: true,
+      priority: 9,
+      buildSource: async (ctx) => {
+        const { t: translate } = await resolveTranslations()
+        const record = ctx.record
+        const lines: string[] = []
+        appendLine(lines, 'Title', record.title)
+        appendLine(lines, 'Description', record.description)
+        appendLine(lines, 'Scope', record.scope)
+        appendLine(lines, 'Default price', record.default_price_amount ?? record.defaultPriceAmount)
+        appendLine(lines, 'Default currency', record.default_price_currency_code ?? record.defaultPriceCurrencyCode)
+        return buildIndexSource(ctx, buildServicePresenter(translate, record), lines)
+      },
+      formatResult: async (ctx) => {
+        const { t: translate } = await resolveTranslations()
+        return buildServicePresenter(translate, ctx.record)
+      },
+      resolveUrl: async (ctx) => buildServiceUrl(readRecordText(ctx.record, 'id')),
+      fieldPolicy: {
+        searchable: ['title', 'description', 'scope', 'default_price_currency_code'],
+        excluded: ['metadata'],
       },
     },
     {

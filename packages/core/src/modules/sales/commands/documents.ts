@@ -261,6 +261,7 @@ type QuoteLineSnapshot = {
   status: string | null;
   productId: string | null;
   productVariantId: string | null;
+  serviceId: string | null;
   catalogSnapshot: Record<string, unknown> | null;
   name: string | null;
   description: string | null;
@@ -379,6 +380,7 @@ type OrderLineSnapshot = {
   status: string | null;
   productId: string | null;
   productVariantId: string | null;
+  serviceId: string | null;
   catalogSnapshot: Record<string, unknown> | null;
   name: string | null;
   description: string | null;
@@ -474,6 +476,7 @@ type InvoiceLineSnapshot = {
   orderLineId: string | null;
   lineNumber: number;
   kind: string;
+  serviceId: string | null;
   name: string | null;
   sku: string | null;
   description: string | null;
@@ -523,6 +526,8 @@ type CreditMemoLineSnapshot = {
   id: string;
   orderLineId: string | null;
   lineNumber: number;
+  kind: string;
+  serviceId: string | null;
   name: string | null;
   sku: string | null;
   description: string | null;
@@ -1496,6 +1501,7 @@ async function loadQuoteSnapshot(
       status: line.status ?? null,
       productId: line.productId ?? null,
       productVariantId: line.productVariantId ?? null,
+      serviceId: line.serviceId ?? null,
       catalogSnapshot: line.catalogSnapshot
         ? cloneJson(line.catalogSnapshot)
         : null,
@@ -1798,6 +1804,7 @@ async function loadOrderSnapshot(
       status: line.status ?? null,
       productId: line.productId ?? null,
       productVariantId: line.productVariantId ?? null,
+      serviceId: line.serviceId ?? null,
       catalogSnapshot: line.catalogSnapshot
         ? cloneJson(line.catalogSnapshot)
         : null,
@@ -1912,6 +1919,7 @@ async function loadInvoiceSnapshot(
       orderLineId: line.orderLineId ?? null,
       lineNumber: line.lineNumber,
       kind: line.kind ?? "product",
+      serviceId: line.serviceId ?? null,
       name: line.name ?? null,
       sku: line.sku ?? null,
       description: line.description ?? null,
@@ -1980,6 +1988,8 @@ async function loadCreditMemoSnapshot(
       id: line.id,
       orderLineId: line.orderLineId ?? null,
       lineNumber: line.lineNumber,
+      kind: line.kind ?? "product",
+      serviceId: line.serviceId ?? null,
       name: line.name ?? null,
       sku: line.sku ?? null,
       description: line.description ?? null,
@@ -2740,6 +2750,7 @@ function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSnapshot {
     kind: line.kind,
     productId: line.productId ?? null,
     productVariantId: line.productVariantId ?? null,
+    serviceId: line.serviceId ?? null,
     name: line.name ?? null,
     description: line.description ?? null,
     comment: line.comment ?? null,
@@ -2771,6 +2782,7 @@ function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesLineSnapshot {
     kind: line.kind,
     productId: line.productId ?? null,
     productVariantId: line.productVariantId ?? null,
+    serviceId: line.serviceId ?? null,
     name: line.name ?? null,
     description: line.description ?? null,
     comment: line.comment ?? null,
@@ -2864,6 +2876,7 @@ function createLineSnapshotFromInput(
     kind: line.kind ?? "product",
     productId: line.productId ?? null,
     productVariantId: line.productVariantId ?? null,
+    serviceId: line.serviceId ?? null,
     name: line.name ?? null,
     description: line.description ?? null,
     comment: line.comment ?? null,
@@ -2943,6 +2956,7 @@ function convertLineCalculationToEntityInput(
     statusEntryId: sourceLine.statusEntryId ?? null,
     productId: sourceLine.productId ?? null,
     productVariantId: sourceLine.productVariantId ?? null,
+    serviceId: sourceLine.serviceId ?? null,
     catalogSnapshot: sourceLine.catalogSnapshot
       ? cloneJson(sourceLine.catalogSnapshot)
       : null,
@@ -3923,6 +3937,7 @@ async function restoreQuoteGraph(
       status: line.status ?? null,
       productId: line.productId ?? null,
       productVariantId: line.productVariantId ?? null,
+      serviceId: line.serviceId ?? null,
       catalogSnapshot: line.catalogSnapshot
         ? cloneJson(line.catalogSnapshot)
         : null,
@@ -4247,6 +4262,7 @@ async function restoreOrderGraph(
       status: line.status ?? null,
       productId: line.productId ?? null,
       productVariantId: line.productVariantId ?? null,
+      serviceId: line.serviceId ?? null,
       catalogSnapshot: line.catalogSnapshot
         ? cloneJson(line.catalogSnapshot)
         : null,
@@ -6168,6 +6184,7 @@ const convertQuoteToOrderCommand: CommandHandler<
           status: (line as any).status ?? null,
           productId: line.productId ?? null,
           productVariantId: line.productVariantId ?? null,
+          serviceId: line.serviceId ?? null,
           catalogSnapshot: line.catalogSnapshot
             ? cloneJson(line.catalogSnapshot)
             : null,
@@ -6599,6 +6616,7 @@ const orderLineUpsertCommand: CommandHandler<
       productId: parsed.productId ?? existingSnapshot?.productId ?? null,
       productVariantId:
         parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+      serviceId: parsed.serviceId ?? existingSnapshot?.serviceId ?? null,
       name: parsed.name ?? existingSnapshot?.name ?? null,
       description: parsed.description ?? existingSnapshot?.description ?? null,
       comment: parsed.comment ?? existingSnapshot?.comment ?? null,
@@ -7089,6 +7107,7 @@ const quoteLineUpsertCommand: CommandHandler<
       productId: parsed.productId ?? existingSnapshot?.productId ?? null,
       productVariantId:
         parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+      serviceId: parsed.serviceId ?? existingSnapshot?.serviceId ?? null,
       name: parsed.name ?? existingSnapshot?.name ?? null,
       description: parsed.description ?? existingSnapshot?.description ?? null,
       comment: parsed.comment ?? existingSnapshot?.comment ?? null,
@@ -8429,6 +8448,7 @@ const createInvoiceCommand: CommandHandler<
                   tenantId: parsed.tenantId,
                   lineNumber: line.lineNumber ?? i + 1,
                   kind: line.kind ?? "product",
+                  serviceId: line.serviceId ?? null,
                   name: line.name ?? null,
                   sku: line.sku ?? null,
                   description: line.description ?? null,
@@ -8781,6 +8801,7 @@ const deleteInvoiceCommand: CommandHandler<
         tenantId: before.invoice.tenantId,
         lineNumber: line.lineNumber,
         kind: line.kind,
+        serviceId: line.serviceId,
         name: line.name,
         sku: line.sku,
         description: line.description,
@@ -8925,6 +8946,8 @@ const createCreditMemoCommand: CommandHandler<
                   organizationId: parsed.organizationId,
                   tenantId: parsed.tenantId,
                   lineNumber: line.lineNumber ?? i + 1,
+                  kind: line.kind ?? "product",
+                  serviceId: line.serviceId ?? null,
                   name: line.name ?? null,
                   sku: line.sku ?? null,
                   description: line.description ?? null,
@@ -9267,6 +9290,8 @@ const deleteCreditMemoCommand: CommandHandler<
         organizationId: before.creditMemo.organizationId,
         tenantId: before.creditMemo.tenantId,
         lineNumber: line.lineNumber,
+        kind: line.kind,
+        serviceId: line.serviceId,
         name: line.name,
         sku: line.sku,
         description: line.description,

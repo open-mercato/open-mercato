@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import { CATALOG_PRICE_DISPLAY_MODES, CATALOG_PRODUCT_TYPES } from './types'
+import {
+  CATALOG_PRICE_DISPLAY_MODES,
+  CATALOG_PRODUCT_TYPES,
+  CATALOG_SERVICE_WORK_ALLOCATION_MODES,
+  CATALOG_SERVICE_WORK_TARGET_TYPES,
+} from './types'
 import { REFERENCE_UNIT_CODES } from '../lib/unitCodes'
 import {
   getCatalogPriceAmountValidationMessage,
@@ -112,6 +117,8 @@ export const offerUpdateSchema = z
   )
 
 const productTypeSchema = z.enum(CATALOG_PRODUCT_TYPES)
+const serviceWorkTargetTypeSchema = z.enum(CATALOG_SERVICE_WORK_TARGET_TYPES)
+const serviceWorkAllocationModeSchema = z.enum(CATALOG_SERVICE_WORK_ALLOCATION_MODES)
 const uomRoundingModeSchema = z.enum(['half_up', 'down', 'up'])
 const unitPriceReferenceUnitSchema = z.enum(REFERENCE_UNIT_CODES)
 const unitPriceConfigSchema = z.object({
@@ -232,6 +239,51 @@ export const productUpdateSchema = z
     productType: productTypeSchema.optional(),
   })
   .superRefine(productUomCrossFieldRefinement)
+
+export const serviceMediaInputSchema = z.object({
+  id: uuid().optional(),
+  fileId: uuid().optional().nullable(),
+  url: z.string().trim().max(1000).optional().nullable(),
+  alt: z.string().trim().max(500).optional().nullable(),
+  contentType: z.string().trim().max(191).optional().nullable(),
+  sortOrder: z.coerce.number().int().min(0).max(100000).optional(),
+  isDefault: z.boolean().optional(),
+  metadata: metadataSchema,
+})
+
+export const serviceWorkRequirementInputSchema = z.object({
+  id: uuid().optional(),
+  targetType: serviceWorkTargetTypeSchema,
+  targetId: uuid().optional().nullable(),
+  labelSnapshot: z.string().trim().min(1).max(255),
+  allocationMode: serviceWorkAllocationModeSchema,
+  allocationValue: z.coerce.number().positive().max(100000),
+  sortOrder: z.coerce.number().int().min(0).max(100000).optional(),
+  metadata: metadataSchema,
+})
+
+const serviceBaseSchema = scoped.extend({
+  title: z.string().trim().min(1).max(255),
+  description: z.string().trim().max(4000).optional().nullable(),
+  scope: z.string().trim().max(4000).optional().nullable(),
+  categoryId: uuid().optional().nullable(),
+  defaultPriceAmount: catalogPriceAmountSchema.optional().nullable(),
+  defaultPriceCurrencyCode: currencyCodeSchema.optional().nullable(),
+  defaultMediaId: uuid().optional().nullable(),
+  defaultMediaUrl: z.string().trim().max(1000).optional().nullable(),
+  metadata: metadataSchema,
+  isActive: z.boolean().optional(),
+  media: z.array(serviceMediaInputSchema).max(100).optional(),
+  workRequirements: z.array(serviceWorkRequirementInputSchema).max(100).optional(),
+})
+
+export const serviceCreateSchema = serviceBaseSchema
+
+export const serviceUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(serviceBaseSchema.partial())
 
 export const variantCreateSchema = scoped.extend({
   productId: uuid(),
@@ -366,6 +418,10 @@ export const productUnitConversionDeleteSchema = scoped.extend({
 
 export type ProductCreateInput = z.infer<typeof productCreateSchema>
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>
+export type ServiceCreateInput = z.infer<typeof serviceCreateSchema>
+export type ServiceUpdateInput = z.infer<typeof serviceUpdateSchema>
+export type ServiceMediaInput = z.infer<typeof serviceMediaInputSchema>
+export type ServiceWorkRequirementInput = z.infer<typeof serviceWorkRequirementInputSchema>
 export type VariantCreateInput = z.infer<typeof variantCreateSchema>
 export type VariantUpdateInput = z.infer<typeof variantUpdateSchema>
 export type OptionSchemaTemplateCreateInput = z.infer<typeof optionSchemaTemplateCreateSchema>

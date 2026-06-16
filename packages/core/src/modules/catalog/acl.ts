@@ -11,6 +11,18 @@ export const features = [
     module: 'catalog',
     dependsOn: ['catalog.products.view'],
   },
+  {
+    id: 'catalog.services.view',
+    title: 'View catalog services',
+    module: 'catalog',
+    dependsOn: ['currencies.view', 'dictionaries.view'],
+  },
+  {
+    id: 'catalog.services.manage',
+    title: 'Manage catalog services',
+    module: 'catalog',
+    dependsOn: ['catalog.services.view'],
+  },
   { id: 'catalog.categories.view', title: 'View catalog categories', module: 'catalog' },
   {
     id: 'catalog.categories.manage',

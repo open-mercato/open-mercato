@@ -11,14 +11,14 @@ const createPageIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['catalog.products.manage'],
-  pageTitle: 'Create product',
-  pageTitleKey: 'catalog.products.create.title',
+  requireFeatures: ['catalog.services.manage'],
+  pageTitle: 'Create service',
+  pageTitleKey: 'catalog.services.form.createTitle',
   pageGroup: 'Catalog',
   pageGroupKey: 'catalog.nav.group',
   icon: createPageIcon,
   breadcrumb: [
-    { label: 'Products', labelKey: 'catalog.products.page.title', href: '/backend/catalog/products' },
+    { label: 'Services', labelKey: 'catalog.services.page.title', href: '/backend/catalog/services' },
     { label: 'Create', labelKey: 'common.create' },
   ],
 }
