@@ -233,6 +233,31 @@ describe('Memory Cache Strategy', () => {
     })
   })
 
+  describe('Amortized expired-entry sweep', () => {
+    it('should reclaim expired entries via the amortized sweep on writes', async () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'))
+      try {
+        const bounded = createMemoryStrategy()
+        for (let i = 0; i < 200; i++) {
+          await bounded.set(`expiring:${i}`, i, { ttl: 50 })
+        }
+        // All 200 entries are now expired but still resident (no sweep yet).
+        await jest.advanceTimersByTimeAsync(100)
+        expect((await bounded.stats()).size).toBe(200)
+
+        // Cross the sweep interval (256 cumulative writes) with fresh entries.
+        for (let i = 0; i < 60; i++) {
+          await bounded.set(`fresh:${i}`, i)
+        }
+        // The expired cohort was reclaimed; only the 60 fresh entries remain.
+        expect((await bounded.stats()).size).toBe(60)
+      } finally {
+        jest.useRealTimers()
+      }
+    })
+  })
+
   describe('Statistics', () => {
     beforeEach(() => {
       jest.useFakeTimers()

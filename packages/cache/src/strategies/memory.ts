@@ -1,6 +1,8 @@
 import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
 import { matchCacheKeyPattern } from '../patterns'
 
+const EXPIRED_SWEEP_WRITE_INTERVAL = 256
+
 /**
  * Default upper bound on the number of entries a memory cache retains.
  * Bounds memory for long-lived (process-wide) instances; LRU eviction drops
@@ -17,14 +19,25 @@ function normalizeMaxEntries(raw?: number): number {
 }
 
 /**
- * In-memory cache strategy with tag support
- * Fast but data is lost when process restarts
+ * In-memory cache strategy with tag support.
+ * Fast but data is lost when process restarts.
+ *
+ * Bounded by an LRU cap (`maxEntries`, default {@link DEFAULT_MEMORY_MAX_ENTRIES},
+ * env-tunable via `CACHE_MEMORY_MAX_ENTRIES` resolved in the cache service) so a
+ * process-shared instance (OM_BOOTSTRAP_CACHE, long-lived workers, memory-backed
+ * CRUD list cache) cannot grow without limit on user-controllable key
+ * cardinality. Recency is refreshed on read (Map re-insertion), the oldest
+ * entries are evicted on write, and expired entries are reclaimed by an
+ * amortized sweep every N writes — no per-instance timer, so the per-request
+ * default stays leak-free (a per-instance setInterval would pin every request's
+ * Maps for the process lifetime).
  */
 export function createMemoryStrategy(options?: { defaultTtl?: number; maxEntries?: number }): CacheStrategy {
   const store = new Map<string, CacheEntry>()
   const tagIndex = new Map<string, Set<string>>() // tag -> Set of keys
   const defaultTtl = options?.defaultTtl
   const maxEntries = normalizeMaxEntries(options?.maxEntries)
+  let writesSinceSweep = 0
 
   function isExpired(entry: CacheEntry): boolean {
     if (entry.expiresAt === null) return false
@@ -86,6 +99,20 @@ export function createMemoryStrategy(options?: { defaultTtl?: number; maxEntries
     }
   }
 
+  // Amortized reclamation of already-expired entries. Runs every N writes
+  // instead of on a timer, keeping the no-shared-state property that makes the
+  // per-request default safe. Independent of the LRU cap so expired-but-cold
+  // entries are reclaimed even when the store stays under `maxEntries`.
+  function sweepExpiredIfDue(): void {
+    if (++writesSinceSweep < EXPIRED_SWEEP_WRITE_INTERVAL) return
+    writesSinceSweep = 0
+    for (const [key, entry] of store.entries()) {
+      if (isExpired(entry)) {
+        cleanupExpiredEntry(key, entry)
+      }
+    }
+  }
+
   const get = async (key: string, options?: CacheGetOptions): Promise<CacheValue | null> => {
     const entry = store.get(key)
     if (!entry) return null
@@ -123,6 +150,7 @@ export function createMemoryStrategy(options?: { defaultTtl?: number; maxEntries
 
     store.set(key, entry)
     addToTagIndex(key, tags)
+    sweepExpiredIfDue()
     evictIfNeeded()
   }
 
