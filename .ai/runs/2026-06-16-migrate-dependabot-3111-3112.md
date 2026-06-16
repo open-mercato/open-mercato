@@ -50,4 +50,4 @@ Both are transitive dependencies (not referenced directly in any `package.json`)
 ### Phase 2: Validate
 
 - [x] 2.1 Confirm immutable install is clean — 2ef746598
-- [ ] 2.2 Sanity build/typecheck for lockfile-only change
+- [x] 2.2 Sanity build/typecheck for lockfile-only change — 2ef746598 (`yarn build:packages` 21/21 ✓; `yarn typecheck` fails only on pre-existing `packages/events/src/bus.ts` duplicate `parseBooleanWithDefault` import that already exists on `develop` and is untouched by this branch)
