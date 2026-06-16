@@ -719,6 +719,7 @@ async function createMovement(
     performedAt: Date
     receivedAt: Date
     reason?: string | null
+    reasonCode?: string | null
     metadata?: Record<string, unknown> | null
     idempotencyKey: string
   },
@@ -740,6 +741,7 @@ async function createMovement(
     performedAt: input.performedAt,
     receivedAt: input.receivedAt,
     reason: input.reason ?? null,
+    reasonCode: input.reasonCode ?? null,
     metadata: input.metadata ?? null,
     idempotencyKey: input.idempotencyKey,
   })
@@ -762,6 +764,7 @@ type MovementMutationInput = {
   performedAt: Date
   receivedAt: Date
   reason?: string | null
+  reasonCode?: string | null
   metadata?: Record<string, unknown> | null
 }
 
@@ -1258,6 +1261,7 @@ const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId:
         performedAt,
         receivedAt: performedAt,
         reason: input.reason,
+        reasonCode: input.reasonCode ?? null,
         metadata: input.metadata ?? null,
       }
       const idempotencyKey = buildMovementIdempotencyKey({
@@ -1534,6 +1538,7 @@ const moveInventoryCommand: CommandHandler<InventoryMoveInput, { movementId: str
         performedAt,
         receivedAt,
         reason: input.reason,
+        reasonCode: input.reasonCode ?? null,
         metadata: input.metadata ?? null,
       }
       const idempotencyKey = buildMovementIdempotencyKey({

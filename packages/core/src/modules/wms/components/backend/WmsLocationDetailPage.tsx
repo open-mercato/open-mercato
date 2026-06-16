@@ -12,14 +12,13 @@ import {
   ClipboardList,
   Download,
   ExternalLink,
-  MoreHorizontal,
   SlidersHorizontal,
   Warehouse,
 } from 'lucide-react'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
-import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
@@ -741,10 +740,7 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
     warehouseLabel !== '—' ? warehouseLabel : null,
     locationQuery.data?.is_active === false
       ? t('wms.backend.location.header.inactive', 'Inactive')
-      : t('wms.backend.location.header.active', 'Active'),
-    lastCounted
-      ? t('wms.backend.location.header.lastCounted', 'Last counted {when}', { when: lastCounted.label })
-      : t('wms.backend.location.header.neverCounted', 'Never counted'),
+      : null,
   ].filter(Boolean)
 
   const itemColumns = React.useMemo<ColumnDef<InventoryBalanceRow>[]>(
@@ -830,16 +826,6 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
             </StatusBadge>
           )
         },
-      },
-      {
-        id: 'actions',
-        header: '',
-        cell: () => (
-          <Button type="button" variant="ghost" size="icon" className="size-8" disabled aria-hidden>
-            <MoreHorizontal className="size-4 text-muted-foreground" />
-          </Button>
-        ),
-        meta: { maxWidth: '2.5rem' },
       },
     ],
     [
@@ -1241,13 +1227,10 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
         ) : null}
 
         {!isLoading && !hasError && !locationQuery.data ? (
-          <ErrorMessage
+          <RecordNotFoundState
             label={t('wms.backend.location.errors.notFound', 'Location not found.')}
-            action={(
-              <Button type="button" variant="outline" size="sm" onClick={() => router.push(locationsHref)}>
-                {t('wms.backend.location.actions.backToLocations', 'Back to locations')}
-              </Button>
-            )}
+            backHref={locationsHref}
+            backLabel={t('wms.backend.location.actions.backToLocations', 'Back to locations')}
           />
         ) : null}
       </PageBody>

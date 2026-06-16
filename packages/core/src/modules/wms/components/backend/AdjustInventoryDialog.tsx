@@ -389,42 +389,43 @@ export function AdjustInventoryDialog({
 
       setSubmitting(true)
       try {
-        const reason = reasonLabel(parsed.data.reasonCode)
-        const notes = parsed.data.notes?.trim()
-        const lotNumber = parsed.data.lotNumber?.trim()
-        let lotId: string | undefined
-        if (lotNumber) {
-          try {
-            lotId = await ensureLotIdForInventoryMutation({
-              catalogVariantId: parsed.data.catalogVariantId,
-              lotNumber,
-              organizationId: access.organizationId,
-              tenantId: access.tenantId,
-            })
-          } catch (error: unknown) {
-            const message =
-              error instanceof InventoryLotMutationError
-                ? error.message
-                : t(
-                    'wms.backend.inventory.adjust.errors.lot',
-                    'Failed to resolve inventory lot.',
-                  )
-            setFieldErrors({ lotNumber: message })
-            return
-          }
+      const reason = reasonLabel(parsed.data.reasonCode)
+      const notes = parsed.data.notes?.trim()
+      const lotNumber = parsed.data.lotNumber?.trim()
+      let lotId: string | undefined
+      if (lotNumber) {
+        try {
+          lotId = await ensureLotIdForInventoryMutation({
+            catalogVariantId: parsed.data.catalogVariantId,
+            lotNumber,
+            organizationId: access.organizationId,
+            tenantId: access.tenantId,
+          })
+        } catch (error: unknown) {
+          const message =
+            error instanceof InventoryLotMutationError
+              ? error.message
+              : t(
+                  'wms.backend.inventory.adjust.errors.lot',
+                  'Failed to resolve inventory lot.',
+                )
+          setFieldErrors({ lotNumber: message })
+          return
         }
-        const payload: Record<string, unknown> = {
-          organizationId: access.organizationId,
-          tenantId: access.tenantId,
-          warehouseId: parsed.data.warehouseId,
-          locationId: parsed.data.locationId,
-          catalogVariantId: parsed.data.catalogVariantId,
-          delta: parsed.data.delta,
-          reason,
-          referenceType: 'manual',
-          referenceId: buildInventoryMutationReferenceId(),
-          performedBy: access.userId,
-        }
+      }
+      const payload: Record<string, unknown> = {
+        organizationId: access.organizationId,
+        tenantId: access.tenantId,
+        warehouseId: parsed.data.warehouseId,
+        locationId: parsed.data.locationId,
+        catalogVariantId: parsed.data.catalogVariantId,
+        delta: parsed.data.delta,
+        reason,
+        reasonCode: parsed.data.reasonCode,
+        referenceType: 'manual',
+        referenceId: buildInventoryMutationReferenceId(),
+        performedBy: access.userId,
+      }
         if (lotId) payload.lotId = lotId
         const serial = parsed.data.serialNumber?.trim()
         if (serial) payload.serialNumber = serial

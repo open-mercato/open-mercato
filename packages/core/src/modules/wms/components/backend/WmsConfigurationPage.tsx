@@ -159,35 +159,27 @@ const zoneFormSchema = z.object({
   priority: z.coerce.number().int().min(0).optional(),
 })
 
-const inventoryProfileFormSchema = z.object({
-  catalogProductId: z.string().uuid(),
-  catalogVariantId: z.string().uuid().optional().or(z.literal('')),
-  defaultUom: z.string().trim().min(1),
-  defaultStrategy: z.enum(['fifo', 'lifo', 'fefo']),
-  trackLot: z.boolean().default(false),
-  trackSerial: z.boolean().default(false),
-  trackExpiration: z.boolean().default(false),
-  reorderPoint: z.coerce.number().min(0).optional(),
-  safetyStock: z.coerce.number().min(0).optional(),
-}).superRefine((payload, ctx) => {
-  if (payload.trackExpiration && payload.defaultStrategy !== 'fefo') {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['defaultStrategy'],
-      message: 'FEFO is required when expiration tracking is enabled.',
-    })
-  }
-})
-
-const LOCATION_TYPE_OPTIONS: CrudFieldOption[] = [
-  { value: 'zone', label: 'Zone' },
-  { value: 'aisle', label: 'Aisle' },
-  { value: 'rack', label: 'Rack' },
-  { value: 'bin', label: 'Bin' },
-  { value: 'slot', label: 'Slot' },
-  { value: 'dock', label: 'Dock' },
-  { value: 'staging', label: 'Staging' },
-]
+function buildInventoryProfileFormSchema(fefoRequiredMsg: string) {
+  return z.object({
+    catalogProductId: z.string().uuid(),
+    catalogVariantId: z.string().uuid().optional().or(z.literal('')),
+    defaultUom: z.string().trim().min(1),
+    defaultStrategy: z.enum(['fifo', 'lifo', 'fefo']),
+    trackLot: z.boolean().default(false),
+    trackSerial: z.boolean().default(false),
+    trackExpiration: z.boolean().default(false),
+    reorderPoint: z.coerce.number().min(0).optional(),
+    safetyStock: z.coerce.number().min(0).optional(),
+  }).superRefine((payload, ctx) => {
+    if (payload.trackExpiration && payload.defaultStrategy !== 'fefo') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['defaultStrategy'],
+        message: fefoRequiredMsg,
+      })
+    }
+  })
+}
 
 const STRATEGY_OPTIONS: CrudFieldOption[] = [
   { value: 'fifo', label: 'FIFO' },
@@ -255,20 +247,31 @@ function SectionCard({
   title,
   description,
   icon,
+  viewAllHref,
+  viewAllLabel,
   children,
 }: {
   title: string
   description: string
   icon: React.ReactNode
+  viewAllHref?: string
+  viewAllLabel?: string
   children: React.ReactNode
 }) {
   return (
     <section className="rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
       <div className="mb-4 flex items-start gap-3">
         <div className="rounded-md border bg-muted/40 p-2 text-muted-foreground">{icon}</div>
-        <div className="space-y-1">
-          <h2 className="text-xl font-semibold">{title}</h2>
-          <p className="text-sm text-muted-foreground">{description}</p>
+        <div className="flex flex-1 items-start justify-between gap-2">
+          <div className="space-y-1">
+            <h2 className="text-xl font-semibold">{title}</h2>
+            <p className="text-sm text-muted-foreground">{description}</p>
+          </div>
+          {viewAllHref && (
+            <Link href={viewAllHref} className="shrink-0 text-sm font-medium text-primary hover:underline">
+              {viewAllLabel}
+            </Link>
+          )}
         </div>
       </div>
       {children}
@@ -465,6 +468,8 @@ export function WarehouseSection() {
         title={t('wms.backend.config.warehouses.title', 'Warehouses')}
         description={t('wms.backend.config.warehouses.description', 'Manage the high-level warehouse nodes used by WMS reservations and inventory movements.')}
         icon={<Warehouse className="size-5" />}
+        viewAllHref="/backend/wms/warehouses"
+        viewAllLabel={t('wms.backend.config.viewAll', 'View all →')}
       >
         <DataTable
           embedded
@@ -530,11 +535,6 @@ export function WarehouseSection() {
             embedded
             isLoading={submitting}
             twoColumn
-            extraActions={(
-              <Button type="button" variant="ghost" onClick={closeDialog}>
-                {t('common.cancel', 'Cancel')}
-              </Button>
-            )}
           />
         </DialogContent>
       </Dialog>
@@ -708,6 +708,8 @@ export function ZoneSection() {
         title={t('wms.backend.config.zones.title', 'Zones')}
         description={t('wms.backend.config.zones.description', 'Group locations into functional zones (e.g. receiving, pick face, bulk) to drive routing and priority.')}
         icon={<Layers className="size-5" />}
+        viewAllHref="/backend/wms/zones"
+        viewAllLabel={t('wms.backend.config.viewAll', 'View all →')}
       >
         <DataTable
           embedded
@@ -773,11 +775,6 @@ export function ZoneSection() {
             embedded
             isLoading={submitting}
             twoColumn
-            extraActions={(
-              <Button type="button" variant="ghost" onClick={closeDialog}>
-                {t('common.cancel', 'Cancel')}
-              </Button>
-            )}
           />
         </DialogContent>
       </Dialog>
@@ -827,7 +824,15 @@ export function LocationSection() {
       type: 'select',
       label: t('wms.backend.config.locations.form.type', 'Type'),
       required: true,
-      options: LOCATION_TYPE_OPTIONS,
+      options: [
+        { value: 'zone', label: t('wms.backend.config.locations.type.zone', 'Zone') },
+        { value: 'aisle', label: t('wms.backend.config.locations.type.aisle', 'Aisle') },
+        { value: 'rack', label: t('wms.backend.config.locations.type.rack', 'Rack') },
+        { value: 'bin', label: t('wms.backend.config.locations.type.bin', 'Bin') },
+        { value: 'slot', label: t('wms.backend.config.locations.type.slot', 'Slot') },
+        { value: 'dock', label: t('wms.backend.config.locations.type.dock', 'Dock') },
+        { value: 'staging', label: t('wms.backend.config.locations.type.staging', 'Staging') },
+      ],
     },
     { id: 'capacityUnits', type: 'number', label: t('wms.backend.config.locations.form.capacityUnits', 'Capacity units') },
     { id: 'capacityWeight', type: 'number', label: t('wms.backend.config.locations.form.capacityWeight', 'Capacity weight') },
@@ -971,6 +976,8 @@ export function LocationSection() {
         title={t('wms.backend.config.locations.title', 'Locations')}
         description={t('wms.backend.config.locations.description', 'Maintain aisle/bin/dock level topology buckets that hold operational inventory.')}
         icon={<MapPinned className="size-5" />}
+        viewAllHref="/backend/wms/locations"
+        viewAllLabel={t('wms.backend.config.viewAll', 'View all →')}
       >
         <DataTable
           embedded
@@ -1036,11 +1043,6 @@ export function LocationSection() {
             embedded
             isLoading={submitting}
             twoColumn
-            extraActions={(
-              <Button type="button" variant="ghost" onClick={closeDialog}>
-                {t('common.cancel', 'Cancel')}
-              </Button>
-            )}
           />
         </DialogContent>
       </Dialog>
@@ -1058,6 +1060,10 @@ export function InventoryProfilesSection() {
   const [page, setPage] = React.useState(1)
   const [submitting, setSubmitting] = React.useState(false)
   const [dialog, setDialog] = React.useState<DialogMode<InventoryProfileRow> | null>(null)
+  const inventoryProfileFormSchema = React.useMemo(
+    () => buildInventoryProfileFormSchema(t('wms.backend.config.profiles.validation.fefoRequired', 'FEFO is required when expiration tracking is enabled.')),
+    [t],
+  )
 
   const params = React.useMemo(
     () => buildQuery({ page, pageSize: 10, sortField: 'updatedAt', sortDir: 'desc' }),
@@ -1324,11 +1330,6 @@ export function InventoryProfilesSection() {
             embedded
             isLoading={submitting}
             twoColumn
-            extraActions={(
-              <Button type="button" variant="ghost" onClick={closeDialog}>
-                {t('common.cancel', 'Cancel')}
-              </Button>
-            )}
           />
         </DialogContent>
       </Dialog>

@@ -5,7 +5,7 @@ export const metadata = {
   pageTitleKey: 'wms.backend.lots.nav.title',
   pageGroup: 'WMS',
   pageGroupKey: 'wms.nav.group',
-  pageOrder: 120,
+  pageOrder: 130,
   breadcrumb: [
     { label: 'WMS', labelKey: 'wms.backend.nav.title', href: '/backend/wms' },
     { label: 'Lots', labelKey: 'wms.backend.lots.nav.title' },

@@ -378,7 +378,7 @@ export class SalesOrderWarehouseAssignment extends WmsScopedEntity {
     'create unique index "wms_inventory_movements_idempotency_unique_idx" on "wms_inventory_movements" ("organization_id", "idempotency_key") where idempotency_key is not null and deleted_at is null',
 })
 export class InventoryMovement extends WmsScopedEntity {
-  [OptionalProps]?: WmsOptionalProps | 'locationFrom' | 'locationTo' | 'lot' | 'serialNumber' | 'reason' | 'idempotencyKey'
+  [OptionalProps]?: WmsOptionalProps | 'locationFrom' | 'locationTo' | 'lot' | 'serialNumber' | 'reason' | 'reasonCode' | 'idempotencyKey'
 
   @ManyToOne(() => Warehouse, { fieldName: 'warehouse_id' })
   warehouse!: Warehouse
@@ -421,6 +421,9 @@ export class InventoryMovement extends WmsScopedEntity {
 
   @Property({ type: 'text', nullable: true })
   reason?: string | null
+
+  @Property({ name: 'reason_code', type: 'text', nullable: true })
+  reasonCode?: string | null
 
   @Property({ name: 'idempotency_key', type: 'text', nullable: true })
   idempotencyKey?: string | null

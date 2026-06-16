@@ -12,14 +12,13 @@ import {
   ClipboardList,
   Download,
   ExternalLink,
-  MoreHorizontal,
   SlidersHorizontal,
   Warehouse,
 } from 'lucide-react'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
-import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
@@ -711,13 +710,6 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
     variantName || null,
     variantQuery.data?.is_active === false
       ? t('wms.backend.sku.header.inactive', 'Inactive')
-      : t('wms.backend.sku.header.active', 'Active'),
-    variantQuery.data?.created_at
-      ? t('wms.backend.sku.header.since', 'SKU since {date}', {
-          date: new Intl.DateTimeFormat(locale, { month: 'short', year: 'numeric' }).format(
-            new Date(variantQuery.data.created_at),
-          ),
-        })
       : null,
   ].filter(Boolean)
 
@@ -803,16 +795,6 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
             </StatusBadge>
           )
         },
-      },
-      {
-        id: 'actions',
-        header: '',
-        cell: () => (
-          <Button type="button" variant="ghost" size="icon" className="size-8" disabled aria-hidden>
-            <MoreHorizontal className="size-4 text-muted-foreground" />
-          </Button>
-        ),
-        meta: { maxWidth: '2.5rem' },
       },
     ],
     [
@@ -1197,13 +1179,10 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
         ) : null}
 
         {!isLoading && !hasError && !variantQuery.data ? (
-          <ErrorMessage
+          <RecordNotFoundState
             label={t('wms.backend.sku.errors.notFound', 'SKU not found.')}
-            action={(
-              <Button type="button" variant="outline" size="sm" onClick={() => router.push(inventoryHref)}>
-                {t('wms.backend.sku.actions.backToInventory', 'Back to inventory')}
-              </Button>
-            )}
+            backHref={inventoryHref}
+            backLabel={t('wms.backend.sku.actions.backToInventory', 'Back to inventory')}
           />
         ) : null}
       </PageBody>

@@ -424,6 +424,7 @@ export function MoveInventoryDialog({
           catalogVariantId: parsed.data.catalogVariantId,
           quantity: parsed.data.quantity,
           reason,
+          reasonCode: parsed.data.reasonCode,
           referenceType: 'manual',
           referenceId: buildInventoryMutationReferenceId(),
           performedBy: access.userId,

@@ -199,6 +199,7 @@ export function ReleaseReservationDialog({
           tenantId: access.tenantId,
           reservationId: reservation.id,
           reason: reasonParts.join(' — ').slice(0, 120),
+          reasonCode: parsed.data.reasonCode,
         }
 
         await runMutation({

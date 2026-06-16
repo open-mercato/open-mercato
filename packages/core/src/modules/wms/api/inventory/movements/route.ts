@@ -48,6 +48,7 @@ const crud = makeCrudRoute({
       'performed_at',
       'received_at',
       'reason',
+      'reason_code',
       'created_at',
       'updated_at',
     ],
@@ -81,6 +82,7 @@ const crud = makeCrudRoute({
           $or: [
             { serial_number: { $ilike: like } },
             { reason: { $ilike: like } },
+            { reason_code: { $ilike: like } },
           ],
         })
       }

@@ -12,14 +12,13 @@ import {
   ClipboardList,
   Download,
   ExternalLink,
-  MoreHorizontal,
   SlidersHorizontal,
   Warehouse,
 } from 'lucide-react'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
-import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
@@ -807,18 +806,10 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
   const subtitleParts = [
     skuLabel !== '—' ? skuLabel : null,
     variantName || null,
-    lotData?.created_at
-      ? t('wms.backend.lot.header.received', 'Received {date}', {
-          date: dateFormatter.format(new Date(lotData.created_at)),
-        })
-      : null,
     lotData?.expires_at
       ? t('wms.backend.lot.header.expires', 'Exp {date}', {
           date: dateFormatter.format(new Date(lotData.expires_at)),
         })
-      : null,
-    daysToExpiry !== null
-      ? t('wms.backend.lot.header.daysRemaining', '{days} days remaining', { days: daysToExpiry })
       : null,
   ].filter(Boolean)
 
@@ -891,16 +882,6 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
             </StatusBadge>
           )
         },
-      },
-      {
-        id: 'actions',
-        header: '',
-        cell: () => (
-          <Button type="button" variant="ghost" size="icon" className="size-8" disabled aria-hidden>
-            <MoreHorizontal className="size-4 text-muted-foreground" />
-          </Button>
-        ),
-        meta: { maxWidth: '2.5rem' },
       },
     ],
     [
@@ -1129,54 +1110,9 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
               id="lot-locations"
               className="rounded-lg border bg-card text-card-foreground shadow-sm"
             >
-              <div className="border-b px-5 py-4">
-                <h2 className="text-base font-semibold">
-                  {t('wms.backend.lot.distribution.title', 'Where this lot lives')}
-                </h2>
-              </div>
-              <div className="flex flex-col gap-4 border-b px-5 py-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex flex-wrap gap-2">
-                  {filterChips.map((chip) => (
-                    <Button
-                      key={chip.id}
-                      type="button"
-                      size="sm"
-                      variant={distributionFilter === chip.id ? 'default' : 'outline'}
-                      className={cn('rounded-full', distributionFilter === chip.id && 'shadow-sm')}
-                      onClick={() => setDistributionFilter(chip.id)}
-                    >
-                      {chip.label}
-                    </Button>
-                  ))}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="outline" onClick={handleExportDistributionCsv}>
-                    <Download className="size-4" />
-                    {t('wms.backend.lot.distribution.actions.exportCsv', 'Export CSV')}
-                  </Button>
-                  {access.canCycleCount ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => openCycleCountDialog(resolveMutationContext())}
-                    >
-                      {t('wms.backend.lot.distribution.actions.cycleCountZone', 'Cycle count zone')}
-                    </Button>
-                  ) : null}
-                  {access.canAdjust ? (
-                    <Button
-                      type="button"
-                      variant="default"
-                      disabled={selectedBalances.length === 0}
-                      onClick={() => openAdjustDialog(resolveMutationContext())}
-                    >
-                      {t('wms.backend.lot.distribution.actions.adjustSelected', 'Adjust selected')}
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
               <DataTable<InventoryBalanceRow>
                 embedded
+                title={t('wms.backend.lot.distribution.title', 'Where this lot lives')}
                 columns={distributionColumns}
                 data={pagedBalances}
                 disableRowClick
@@ -1189,6 +1125,49 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
                   totalPages: distributionTotalPages,
                   onPageChange: setDistributionPage,
                 }}
+                actions={(
+                  <>
+                    <div className="flex flex-wrap gap-1.5">
+                      {filterChips.map((chip) => (
+                        <Button
+                          key={chip.id}
+                          type="button"
+                          size="sm"
+                          variant={distributionFilter === chip.id ? 'default' : 'outline'}
+                          className={cn('rounded-full', distributionFilter === chip.id && 'shadow-sm')}
+                          onClick={() => setDistributionFilter(chip.id)}
+                        >
+                          {chip.label}
+                        </Button>
+                      ))}
+                    </div>
+                    <Button type="button" variant="outline" size="sm" onClick={handleExportDistributionCsv}>
+                      <Download className="size-4" />
+                      {t('wms.backend.lot.distribution.actions.exportCsv', 'Export CSV')}
+                    </Button>
+                    {access.canCycleCount ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openCycleCountDialog(resolveMutationContext())}
+                      >
+                        {t('wms.backend.lot.distribution.actions.cycleCountZone', 'Cycle count zone')}
+                      </Button>
+                    ) : null}
+                    {access.canAdjust ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="default"
+                        disabled={selectedBalances.length === 0}
+                        onClick={() => openAdjustDialog(resolveMutationContext())}
+                      >
+                        {t('wms.backend.lot.distribution.actions.adjustSelected', 'Adjust selected')}
+                      </Button>
+                    ) : null}
+                  </>
+                )}
                 emptyState={(
                   <EmptyState
                     title={t('wms.backend.lot.distribution.empty.title', 'No locations in this view')}
@@ -1282,13 +1261,10 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
         ) : null}
 
         {!isLoading && !hasError && !lotQuery.data ? (
-          <ErrorMessage
+          <RecordNotFoundState
             label={t('wms.backend.lot.errors.notFound', 'Lot not found.')}
-            action={(
-              <Button type="button" variant="outline" size="sm" onClick={() => router.push(inventoryHref)}>
-                {t('wms.backend.lot.actions.backToLots', 'Back to lots')}
-              </Button>
-            )}
+            backHref={inventoryHref}
+            backLabel={t('wms.backend.lot.actions.backToLots', 'Back to lots')}
           />
         ) : null}
       </PageBody>

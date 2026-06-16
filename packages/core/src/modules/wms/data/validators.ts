@@ -238,6 +238,7 @@ export const inventoryReservationCreateSchema = scopedSchema.extend({
 export const inventoryReservationReleaseSchema = scopedSchema.extend({
   reservationId: uuid(),
   reason: z.string().trim().min(1).max(120),
+  reasonCode: z.string().trim().max(80).optional(),
   metadata: metadataSchema,
 })
 
@@ -256,6 +257,7 @@ export const inventoryAdjustSchema = scopedSchema.extend({
     message: 'Inventory delta must be non-zero.',
   }),
   reason: z.string().trim().min(1).max(500),
+  reasonCode: z.string().trim().max(80).optional(),
   referenceType: inventoryMovementReferenceTypeSchema.default('manual'),
   referenceId: uuid(),
   performedBy: uuid(),
@@ -272,6 +274,7 @@ export const inventoryMoveSchema = scopedSchema.extend({
   serialNumber: z.string().trim().max(120).optional(),
   quantity: positiveQuantity,
   reason: z.string().trim().min(1).max(500),
+  reasonCode: z.string().trim().max(80).optional(),
   referenceType: inventoryMovementReferenceTypeSchema.default('manual'),
   referenceId: uuid(),
   performedBy: uuid(),
