@@ -36,6 +36,7 @@ import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
+import { ChangeLotStatusDialog } from './ChangeLotStatusDialog'
 import { CycleCountWizardDialog } from './CycleCountWizardDialog'
 import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 
@@ -64,6 +65,7 @@ type InventoryLotRow = {
   expires_at?: string | null
   status?: string | null
   created_at?: string | null
+  updated_at?: string | null
 }
 
 type InventoryProfileRow = {
@@ -438,7 +440,8 @@ type LotKpiCardProps = {
   badgeLabel: string | null
   badgeVariant: StatusBadgeVariant
   ctaLabel: string
-  ctaHref: string
+  ctaHref?: string
+  onCtaClick?: () => void
 }
 
 function LotKpiCard({
@@ -449,6 +452,7 @@ function LotKpiCard({
   badgeVariant,
   ctaLabel,
   ctaHref,
+  onCtaClick,
 }: LotKpiCardProps) {
   return (
     <section className="flex min-h-52 flex-col rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
@@ -462,9 +466,15 @@ function LotKpiCard({
           </StatusBadge>
         ) : null}
       </div>
-      <LinkButton asChild variant="primary" size="sm" className="mt-auto pt-4 w-fit">
-        <Link href={ctaHref}>{ctaLabel}</Link>
-      </LinkButton>
+      {onCtaClick ? (
+        <LinkButton variant="primary" size="sm" className="mt-auto pt-4 w-fit" onClick={onCtaClick}>
+          {ctaLabel}
+        </LinkButton>
+      ) : ctaHref ? (
+        <LinkButton asChild variant="primary" size="sm" className="mt-auto pt-4 w-fit">
+          <Link href={ctaHref}>{ctaLabel}</Link>
+        </LinkButton>
+      ) : null}
     </section>
   )
 }
@@ -489,6 +499,7 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
   const [adjustPreset, setAdjustPreset] = React.useState<InventoryMutationPreset>({})
   const [cycleOpen, setCycleOpen] = React.useState(false)
   const [cyclePreset, setCyclePreset] = React.useState<Pick<InventoryMutationPreset, 'warehouseId' | 'locationId'>>({})
+  const [changeStatusOpen, setChangeStatusOpen] = React.useState(false)
 
   const distributionPageSize = 20
   const inventoryHref = '/backend/wms/inventory'
@@ -1101,8 +1112,9 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
                 value={qualityStatus.value}
                 badgeLabel={t(qualityStatus.labelKey, qualityStatus.labelFallback)}
                 badgeVariant={qualityStatus.variant}
-                ctaLabel={t('wms.backend.lot.kpis.qualityStatus.cta', 'Edit lot profile')}
-                ctaHref="/backend/config/wms"
+                ctaLabel={t('wms.backend.lot.kpis.qualityStatus.cta', 'Change status')}
+                onCtaClick={access.canAdjust ? () => setChangeStatusOpen(true) : undefined}
+                ctaHref={!access.canAdjust ? '/backend/config/wms' : undefined}
               />
             </section>
 
@@ -1289,6 +1301,16 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
           initialWarehouseId={cyclePreset.warehouseId ?? (warehouseId !== 'all' ? warehouseId : undefined)}
           initialLocationId={cyclePreset.locationId}
           initialLotId={scopedLotId ?? undefined}
+        />
+      ) : null}
+      {access.canAdjust && scopedLotId ? (
+        <ChangeLotStatusDialog
+          open={changeStatusOpen}
+          onOpenChange={setChangeStatusOpen}
+          access={access}
+          lotId={scopedLotId}
+          currentStatus={lotData?.status}
+          lotUpdatedAt={lotData?.updated_at}
         />
       ) : null}
     </Page>

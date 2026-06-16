@@ -3,10 +3,11 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { ClipboardList, SlidersHorizontal, Upload } from 'lucide-react'
+import { ArrowDown, ClipboardList, SlidersHorizontal, Upload } from 'lucide-react'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
 import { CycleCountWizardDialog } from './CycleCountWizardDialog'
 import { ImportInventoryDialog } from './ImportInventoryDialog'
+import { ReceiveInventoryDialog } from './ReceiveInventoryDialog'
 import type { WmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 
 function SectionCard({
@@ -38,11 +39,12 @@ export function InventoryOperationsSection({
 }) {
   const t = useT()
   const [adjustOpen, setAdjustOpen] = React.useState(false)
+  const [receiveOpen, setReceiveOpen] = React.useState(false)
   const [cycleOpen, setCycleOpen] = React.useState(false)
   const [importOpen, setImportOpen] = React.useState(false)
 
   if (!access.scopeReady) return null
-  if (!access.canAdjust && !access.canCycleCount && !access.canImport) return null
+  if (!access.canAdjust && !access.canReceive && !access.canCycleCount && !access.canImport) return null
 
   return (
     <>
@@ -50,7 +52,7 @@ export function InventoryOperationsSection({
         title={t('wms.backend.inventory.operations.title', 'Inventory operations')}
         description={t(
           'wms.backend.inventory.operations.description',
-          'Post adjustments for opening balances and corrections, or run a simple cycle count.',
+          'Receive inbound stock, post adjustments for corrections, or run a cycle count.',
         )}
       >
         {access.canImport ? (
@@ -60,7 +62,7 @@ export function InventoryOperationsSection({
           </Button>
         ) : null}
         {access.canAdjust ? (
-          <Button type="button" variant="default" onClick={() => setAdjustOpen(true)}>
+          <Button type="button" variant="outline" onClick={() => setAdjustOpen(true)}>
             <SlidersHorizontal className="size-4" />
             {t('wms.backend.inventory.operations.adjust', 'Adjust inventory')}
           </Button>
@@ -71,12 +73,21 @@ export function InventoryOperationsSection({
             {t('wms.backend.inventory.operations.cycleCount', 'Cycle count')}
           </Button>
         ) : null}
+        {access.canReceive ? (
+          <Button type="button" variant="default" onClick={() => setReceiveOpen(true)}>
+            <ArrowDown className="size-4" />
+            {t('wms.backend.inventory.operations.receive', 'Receive stock')}
+          </Button>
+        ) : null}
       </SectionCard>
       {access.canImport ? (
         <ImportInventoryDialog open={importOpen} onOpenChange={setImportOpen} access={access} />
       ) : null}
       {access.canAdjust ? (
         <AdjustInventoryDialog open={adjustOpen} onOpenChange={setAdjustOpen} access={access} />
+      ) : null}
+      {access.canReceive ? (
+        <ReceiveInventoryDialog open={receiveOpen} onOpenChange={setReceiveOpen} access={access} />
       ) : null}
       {access.canCycleCount ? (
         <CycleCountWizardDialog open={cycleOpen} onOpenChange={setCycleOpen} access={access} />

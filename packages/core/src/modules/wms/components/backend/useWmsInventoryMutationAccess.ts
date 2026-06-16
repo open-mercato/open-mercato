@@ -65,6 +65,7 @@ export function useWmsInventoryMutationAccess() {
     userId,
     scopeReady,
     canAdjust: hasFeature(granted, 'wms.adjust_inventory'),
+    canReceive: hasFeature(granted, 'wms.adjust_inventory'),
     canCycleCount: hasFeature(granted, 'wms.cycle_count'),
     canImport: hasFeature(granted, 'wms.import'),
     canMove: hasFeature(granted, 'wms.adjust_inventory'),

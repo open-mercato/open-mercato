@@ -2,17 +2,18 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
-import { Boxes, Route, ShieldCheck } from 'lucide-react'
+import { Boxes, Route, ShieldCheck, Warehouse as WarehouseIcon } from 'lucide-react'
 import { E } from '#generated/entities.ids.generated'
 import {
   createInventoryDateTimeFormatter,
@@ -34,6 +35,7 @@ import {
   useWmsInventoryMutationAccess,
   type WmsInventoryMutationAccess,
 } from './useWmsInventoryMutationAccess'
+import { loadWarehouseOptions, resolveWarehouseLabel } from './inventoryMutationLoaders'
 
 type PagedResponse<T> = {
   items: T[]
@@ -185,14 +187,22 @@ function SectionCard({
   )
 }
 
-function buildInventoryQuery(search: string, page: number, pageSize: number) {
+function buildInventoryQuery(
+  search: string,
+  page: number,
+  pageSize: number,
+  sorting: SortingState,
+  warehouseId: string,
+) {
+  const sortCol = sorting[0]
   const params = new URLSearchParams({
     page: String(page),
     pageSize: String(pageSize),
-    sortField: 'updatedAt',
-    sortDir: 'desc',
+    sortField: sortCol ? sortCol.id : 'updatedAt',
+    sortDir: sortCol ? (sortCol.desc ? 'desc' : 'asc') : 'desc',
   })
   if (search.trim()) params.set('search', search.trim())
+  if (warehouseId.trim()) params.set('warehouseId', warehouseId.trim())
   return params.toString()
 }
 
@@ -216,6 +226,7 @@ type InventoryDataTableSectionProps<T> = {
   icon: React.ReactNode
   columns: ColumnDef<T>[]
   rowActions?: (row: T) => React.ReactNode
+  warehouseId?: string
 }
 
 function InventoryDataTableSection<T>({
@@ -238,15 +249,26 @@ function InventoryDataTableSection<T>({
   icon,
   columns,
   rowActions,
+  warehouseId = '',
 }: InventoryDataTableSectionProps<T>) {
   const t = useT()
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const [sorting, setSorting] = React.useState<SortingState>([])
+
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
+    setPage(1)
+  }, [])
 
   const params = React.useMemo(
-    () => buildInventoryQuery(search, page, 20),
-    [page, search],
+    () => buildInventoryQuery(search, page, 20, sorting, warehouseId),
+    [page, search, sorting, warehouseId],
   )
+
+  React.useEffect(() => {
+    setPage(1)
+  }, [warehouseId])
 
   const query = useQuery({
     queryKey: ['wms-inventory-console', sectionQueryKey, params],
@@ -287,6 +309,10 @@ function InventoryDataTableSection<T>({
           onPageChange: setPage,
         }}
         perspective={{ tableId }}
+        sortable
+        manualSorting
+        sorting={sorting}
+        onSortingChange={handleSortingChange}
         rowActions={rowActions}
         emptyState={
           <EmptyState
@@ -299,10 +325,68 @@ function InventoryDataTableSection<T>({
   )
 }
 
+function WarehouseScopeBar({
+  warehouseId,
+  onWarehouseChange,
+}: {
+  warehouseId: string
+  onWarehouseChange: (id: string) => void
+}) {
+  const t = useT()
+  const [labelCache, setLabelCache] = React.useState<Record<string, string>>({})
+  const labelCacheRef = React.useRef(labelCache)
+  labelCacheRef.current = labelCache
+
+  React.useEffect(() => {
+    if (!warehouseId.trim()) return
+    if (labelCacheRef.current[warehouseId]) return
+    let cancelled = false
+    void resolveWarehouseLabel(warehouseId).then((label) => {
+      if (cancelled || !label) return
+      setLabelCache((c) => ({ ...c, [warehouseId]: label }))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [warehouseId])
+
+  return (
+    <div className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3 shadow-sm">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <WarehouseIcon className="size-4 shrink-0" />
+        <span className="text-sm font-medium">
+          {t('wms.backend.inventory.console.scopeBar.warehouse', 'Warehouse')}
+        </span>
+      </div>
+      <div className="w-64">
+        <ComboboxInput
+          value={warehouseId}
+          onChange={(next) => onWarehouseChange(next.trim())}
+          loadSuggestions={async (query) => {
+            const options = await loadWarehouseOptions(query)
+            setLabelCache((c) => {
+              const next = { ...c }
+              for (const o of options) next[o.value] = o.label
+              return next
+            })
+            return options.map((o) => ({ value: o.value, label: o.label }))
+          }}
+          resolveLabel={(value) => labelCache[value] ?? value}
+          placeholder={t('wms.backend.inventory.console.scopeBar.allWarehouses', 'All warehouses')}
+          allowCustomValues={false}
+          clearable
+        />
+      </div>
+    </div>
+  )
+}
+
 export function InventoryBalancesSection({
   access,
+  warehouseId = '',
 }: {
   access: WmsInventoryMutationAccess
+  warehouseId?: string
 }) {
   const t = useT()
   const { quantityFormatter } = useInventoryDisplayFormatters()
@@ -319,6 +403,7 @@ export function InventoryBalancesSection({
       {
         accessorKey: 'catalog_variant_id',
         header: t('wms.backend.inventory.balances.columns.variant', 'Variant'),
+        enableSorting: true,
         cell: ({ row }) => {
           const variantId = row.original.catalog_variant_id?.trim()
           const label = formatVariantLabel(row.original)
@@ -339,6 +424,7 @@ export function InventoryBalancesSection({
           'wms.backend.inventory.balances.columns.warehouse',
           'Warehouse',
         ),
+        enableSorting: true,
         cell: ({ row }) => formatWarehouseLabel(row.original),
       },
       {
@@ -347,6 +433,7 @@ export function InventoryBalancesSection({
           'wms.backend.inventory.balances.columns.location',
           'Location',
         ),
+        enableSorting: true,
         cell: ({ row }) => {
           const locationId = row.original.location_id?.trim()
           const label = formatLocationLabel(row.original as Record<string, unknown>, 'location')
@@ -364,6 +451,7 @@ export function InventoryBalancesSection({
       {
         accessorKey: 'lot_id',
         header: t('wms.backend.inventory.balances.columns.lot', 'Lot'),
+        enableSorting: false,
         cell: ({ row }) => {
           const lotId = row.original.lot_id?.trim()
           if (!lotId) return '—'
@@ -383,6 +471,7 @@ export function InventoryBalancesSection({
           'wms.backend.inventory.balances.columns.available',
           'Available',
         ),
+        enableSorting: true,
         cell: ({ row }) => (
           <span className="tabular-nums">
             {formatInventoryQuantity(row.original.quantity_available, quantityFormatter)}
@@ -395,6 +484,7 @@ export function InventoryBalancesSection({
           'wms.backend.inventory.balances.columns.reserved',
           'Reserved',
         ),
+        enableSorting: true,
         cell: ({ row }) => (
           <span className="tabular-nums">
             {formatInventoryQuantity(row.original.quantity_reserved, quantityFormatter)}
@@ -407,6 +497,7 @@ export function InventoryBalancesSection({
           'wms.backend.inventory.balances.columns.allocated',
           'Allocated',
         ),
+        enableSorting: true,
         cell: ({ row }) => (
           <span className="tabular-nums">
             {formatInventoryQuantity(row.original.quantity_allocated, quantityFormatter)}
@@ -459,6 +550,7 @@ export function InventoryBalancesSection({
         icon={<Boxes className="size-5" />}
         columns={columns}
         rowActions={rowActions}
+        warehouseId={warehouseId}
       />
       {access.canMove ? (
         <MoveInventoryDialog
@@ -479,8 +571,10 @@ export function InventoryBalancesSection({
 
 export function InventoryReservationsSection({
   access,
+  warehouseId = '',
 }: {
   access: WmsInventoryMutationAccess
+  warehouseId?: string
 }) {
   const t = useT()
   const { quantityFormatter } = useInventoryDisplayFormatters()
@@ -500,6 +594,7 @@ export function InventoryReservationsSection({
           'wms.backend.inventory.reservations.columns.variant',
           'Variant',
         ),
+        enableSorting: true,
         cell: ({ row }) => formatVariantLabel(row.original),
       },
       {
@@ -508,6 +603,7 @@ export function InventoryReservationsSection({
           'wms.backend.inventory.reservations.columns.warehouse',
           'Warehouse',
         ),
+        enableSorting: true,
         cell: ({ row }) => formatWarehouseLabel(row.original),
       },
       {
@@ -516,6 +612,7 @@ export function InventoryReservationsSection({
           'wms.backend.inventory.reservations.columns.quantity',
           'Quantity',
         ),
+        enableSorting: true,
         cell: ({ row }) => (
           <span className="tabular-nums">
             {formatInventoryQuantity(row.original.quantity, quantityFormatter)}
@@ -528,6 +625,7 @@ export function InventoryReservationsSection({
           'wms.backend.inventory.reservations.columns.sourceType',
           'Source type',
         ),
+        enableSorting: true,
         cell: ({ row }) => {
           const sourceType = row.original.source_type?.trim()
           if (!sourceType) return '—'
@@ -540,6 +638,7 @@ export function InventoryReservationsSection({
           'wms.backend.inventory.reservations.columns.sourceId',
           'Source',
         ),
+        enableSorting: false,
         cell: ({ row }) => formatReservationSourceLabel(row.original, t),
       },
       {
@@ -548,6 +647,7 @@ export function InventoryReservationsSection({
           'wms.backend.inventory.reservations.columns.status',
           'Status',
         ),
+        enableSorting: true,
         cell: ({ row }) => {
           const status = row.original.status?.trim()
           if (!status) return '—'
@@ -604,6 +704,7 @@ export function InventoryReservationsSection({
         icon={<ShieldCheck className="size-5" />}
         columns={columns}
         rowActions={rowActions}
+        warehouseId={warehouseId}
       />
       {access.canRelease ? (
         <ReleaseReservationDialog
@@ -617,7 +718,7 @@ export function InventoryReservationsSection({
   )
 }
 
-export function InventoryMovementsSection() {
+export function InventoryMovementsSection({ warehouseId = '' }: { warehouseId?: string }) {
   const t = useT()
   const { quantityFormatter, dateTimeFormatter } = useInventoryDisplayFormatters()
 
@@ -626,6 +727,7 @@ export function InventoryMovementsSection() {
       {
         accessorKey: 'type',
         header: t('wms.backend.inventory.movements.columns.type', 'Type'),
+        enableSorting: true,
         cell: ({ row }) => {
           const type = row.original.type?.trim()
           if (!type) return '—'
@@ -642,6 +744,7 @@ export function InventoryMovementsSection() {
           'wms.backend.inventory.movements.columns.variant',
           'Variant',
         ),
+        enableSorting: true,
         cell: ({ row }) => formatVariantLabel(row.original),
       },
       {
@@ -650,6 +753,7 @@ export function InventoryMovementsSection() {
           'wms.backend.inventory.movements.columns.warehouse',
           'Warehouse',
         ),
+        enableSorting: true,
         cell: ({ row }) => formatWarehouseLabel(row.original),
       },
       {
@@ -658,6 +762,7 @@ export function InventoryMovementsSection() {
           'wms.backend.inventory.movements.columns.locationFrom',
           'From',
         ),
+        enableSorting: false,
         cell: ({ row }) =>
           formatLocationLabel(row.original as Record<string, unknown>, 'location_from'),
       },
@@ -667,6 +772,7 @@ export function InventoryMovementsSection() {
           'wms.backend.inventory.movements.columns.locationTo',
           'To',
         ),
+        enableSorting: false,
         cell: ({ row }) =>
           formatLocationLabel(row.original as Record<string, unknown>, 'location_to'),
       },
@@ -676,6 +782,7 @@ export function InventoryMovementsSection() {
           'wms.backend.inventory.movements.columns.quantity',
           'Quantity',
         ),
+        enableSorting: true,
         cell: ({ row }) => (
           <span className="tabular-nums">
             {formatInventoryQuantity(row.original.quantity, quantityFormatter)}
@@ -688,6 +795,7 @@ export function InventoryMovementsSection() {
           'wms.backend.inventory.movements.columns.referenceType',
           'Reference type',
         ),
+        enableSorting: true,
         cell: ({ row }) => {
           const referenceType = row.original.reference_type?.trim()
           if (!referenceType) return '—'
@@ -700,6 +808,7 @@ export function InventoryMovementsSection() {
           'wms.backend.inventory.movements.columns.performedAt',
           'Performed at',
         ),
+        enableSorting: true,
         cell: ({ row }) => (
           <span className="text-sm text-muted-foreground">
             {formatInventoryDateTime(
@@ -733,21 +842,24 @@ export function InventoryMovementsSection() {
       entityId={E.wms.inventory_movement}
       icon={<Route className="size-5" />}
       columns={columns}
+      warehouseId={warehouseId}
     />
   )
 }
 
 export default function WmsInventoryConsolePage() {
   const access = useWmsInventoryMutationAccess()
+  const [warehouseId, setWarehouseId] = React.useState('')
 
   return (
     <Page>
       <PageBody>
         <div className="space-y-6">
           <InventoryOperationsSection access={access} />
-          <InventoryBalancesSection access={access} />
-          <InventoryReservationsSection access={access} />
-          <InventoryMovementsSection />
+          <WarehouseScopeBar warehouseId={warehouseId} onWarehouseChange={setWarehouseId} />
+          <InventoryBalancesSection access={access} warehouseId={warehouseId} />
+          <InventoryReservationsSection access={access} warehouseId={warehouseId} />
+          <InventoryMovementsSection warehouseId={warehouseId} />
         </div>
       </PageBody>
     </Page>

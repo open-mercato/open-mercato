@@ -187,6 +187,7 @@ export function CycleCountWizardDialog({
   const [systemOnHand, setSystemOnHand] = React.useState(0)
   const [loadingBalance, setLoadingBalance] = React.useState(false)
   const [submitting, setSubmitting] = React.useState(false)
+  const [linesPosted, setLinesPosted] = React.useState(0)
   const [autoAdjust, setAutoAdjust] = React.useState(true)
   const [referenceId] = React.useState(() => buildInventoryMutationReferenceId())
   const [optionLabelByValue, setOptionLabelByValue] = React.useState<Record<string, string>>({})
@@ -292,6 +293,25 @@ export function CycleCountWizardDialog({
     setAssigneeCanListUsers(true)
     setScopeEstimateError(null)
     setBalanceError(null)
+    setLinesPosted(0)
+  }, [])
+
+  const resetToStep2 = React.useCallback(() => {
+    setStep(2)
+    setForm((current) => ({
+      ...current,
+      locationId: '',
+      catalogVariantId: '',
+      lotId: '',
+      countedQuantity: 0,
+      countNotes: '',
+      reason: 'cycle_count',
+    }))
+    setFieldErrors({})
+    setSystemOnHand(0)
+    setLoadingBalance(false)
+    setBalanceError(null)
+    setAutoAdjust(true)
   }, [])
 
   const closeDialog = React.useCallback(() => {
@@ -766,7 +786,8 @@ export function CycleCountWizardDialog({
       )
       await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
       await queryClient.invalidateQueries({ queryKey: ['wms-sku-detail'] })
-      closeDialog()
+      setLinesPosted((n) => n + 1)
+      resetToStep2()
     } finally {
       setSubmitting(false)
     }
@@ -774,12 +795,12 @@ export function CycleCountWizardDialog({
     access,
     applyValidationErrors,
     autoAdjust,
-    closeDialog,
     commitSchema,
     form,
     mutationContext,
     queryClient,
     referenceId,
+    resetToStep2,
     runMutation,
     t,
     variance,
@@ -838,6 +859,13 @@ export function CycleCountWizardDialog({
       )
     }
     if (step === 2) {
+      if (linesPosted > 0) {
+        return t(
+          'wms.backend.inventory.cycleCount.steps.counting.subtitleWithPosted',
+          'Step 2 of 3 · {count} line(s) posted — count next SKU',
+          { count: linesPosted },
+        )
+      }
       return t(
         'wms.backend.inventory.cycleCount.steps.counting.subtitle',
         'Step 2 of 3 · Scan and tally items',
@@ -847,7 +875,7 @@ export function CycleCountWizardDialog({
       'wms.backend.inventory.cycleCount.steps.review.subtitle',
       'Step 3 of 3 · Review variances and commit',
     )
-  }, [step, t])
+  }, [linesPosted, step, t])
 
   const shortcutHint = React.useMemo(() => {
     if (step === 1) {
@@ -1597,6 +1625,20 @@ export function CycleCountWizardDialog({
                   {t('wms.backend.inventory.cycleCount.steps.back', 'Back')}
                 </Button>
               )}
+              {step === 2 && linesPosted > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={closeDialog}
+                  disabled={loadingBalance || submitting}
+                >
+                  {t(
+                    'wms.backend.inventory.cycleCount.steps.counting.finish',
+                    'Finish session ({count})',
+                    { count: linesPosted },
+                  )}
+                </Button>
+              ) : null}
               <Button type="submit" disabled={primaryDisabled}>
                 {step === 1
                   ? t(
@@ -1610,7 +1652,7 @@ export function CycleCountWizardDialog({
                       )
                     : t(
                         'wms.backend.inventory.cycleCount.steps.review.submit',
-                        'Commit count',
+                        'Commit & count next',
                       )}
               </Button>
             </div>
