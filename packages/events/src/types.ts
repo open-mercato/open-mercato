@@ -43,6 +43,12 @@ export type SubscriberDescriptor = {
   id: string
   /** Event name to subscribe to */
   event: string
+  /**
+   * Whether this subscriber is dispatched through the persistent events queue
+   * (events worker) rather than inline. Consulted by the `OM_EVENTS_SINGLE_DELIVERY`
+   * single-delivery path to decide which subscribers run inline vs in the worker.
+   */
+  persistent?: boolean
   /** Handler function */
   handler: SubscriberHandler
 }
@@ -100,8 +106,10 @@ export interface EventBus {
    *
    * @param event - Event name to listen for
    * @param handler - Handler function
+   * @param options - Optional registration options. `persistent: true` marks the
+   *   handler as worker-dispatched so the single-delivery path skips it inline.
    */
-  on(event: string, handler: SubscriberHandler): void
+  on(event: string, handler: SubscriberHandler, options?: { persistent?: boolean }): void
 
   /**
    * Register multiple module subscribers at once.
