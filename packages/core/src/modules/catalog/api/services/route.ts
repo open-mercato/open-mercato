@@ -226,7 +226,7 @@ const crud = makeCrudRoute({
   },
   list: {
     schema: listSchema,
-    entityId: 'catalog:service',
+    entityId: 'catalog:catalog_service',
     fields: [
       'id',
       'organization_id',
