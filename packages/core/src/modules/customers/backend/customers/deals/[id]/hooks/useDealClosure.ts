@@ -65,21 +65,18 @@ export function useDealClosure({
     async (input: { lossReasonId: string; lossNotes?: string }) => {
       if (!currentDealId) return
       if (!(await confirmDiscardIfDirty())) return
+      const lossPayload = {
+        id: currentDealId,
+        closureOutcome: 'lost' as const,
+        status: 'loose',
+        lossReasonId: input.lossReasonId,
+        ...(input.lossNotes ? { lossNotes: input.lossNotes } : {}),
+      }
       await runMutationWithContext(
         () =>
-          updateCrud('customers/deals', {
-            id: currentDealId,
-            closureOutcome: 'lost',
-            status: 'loose',
-            lossReasonId: input.lossReasonId,
-            lossNotes: input.lossNotes ?? null,
-          }),
+          updateCrud('customers/deals', lossPayload),
         {
-          id: currentDealId,
-          closureOutcome: 'lost',
-          status: 'loose',
-          lossReasonId: input.lossReasonId,
-          lossNotes: input.lossNotes ?? null,
+          ...lossPayload,
           operation: 'closeLost',
         },
       )
