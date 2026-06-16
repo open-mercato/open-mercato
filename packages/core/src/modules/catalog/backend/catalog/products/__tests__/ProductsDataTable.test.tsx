@@ -162,7 +162,7 @@ describe('ProductsDataTable', () => {
       expect(apiCall).toHaveBeenCalled()
       expect(screen.getByTestId('data-table-cache-status')).toHaveTextContent('hit')
     })
-    expect(screen.getByTestId('data-table-title')).toHaveTextContent('Products & services')
+    expect(screen.getByTestId('data-table-title')).toHaveTextContent('Products')
     expect(screen.getByTestId('data-table-sticky-actions')).toHaveTextContent('true')
     expect((apiCall as jest.Mock).mock.calls[0][0]).toContain('/api/catalog/products?page=1&pageSize=25')
     expect(applyCustomFieldVisibility).toHaveBeenCalled()
