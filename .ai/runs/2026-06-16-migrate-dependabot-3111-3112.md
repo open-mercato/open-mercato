@@ -44,10 +44,10 @@ Both are transitive dependencies (not referenced directly in any `package.json`)
 
 ### Phase 1: Bump dependencies
 
-- [ ] 1.1 Re-resolve launch-editor@2.14.1 and @babel/core@7.29.7 on develop
-- [ ] 1.2 Verify yarn.lock diff scoped to target packages
+- [x] 1.1 Re-resolve launch-editor@2.14.1 and @babel/core@7.29.7 on develop — 2ef746598
+- [x] 1.2 Verify yarn.lock diff scoped to target packages — 2ef746598
 
 ### Phase 2: Validate
 
-- [ ] 2.1 Confirm immutable install is clean
+- [x] 2.1 Confirm immutable install is clean — 2ef746598
 - [ ] 2.2 Sanity build/typecheck for lockfile-only change
