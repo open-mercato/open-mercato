@@ -35,7 +35,10 @@ All tasks are kept as a Harbor **dataset** — `evals/dataset.toml` (`open-merca
 ```bash
 # Add a new task directory to the dataset and pin its content digest
 harbor add evals/tasks/<task-id> --to evals/dataset.toml
-harbor sync evals/dataset.toml          # refresh digests after editing a task
+# Re-pin after editing a LOCAL task: re-run `harbor add` (updates the entry in
+# place). `harbor sync` only refreshes registry tasks and skips local paths.
+harbor add evals/tasks/<task-id> --to evals/dataset.toml
+harbor sync evals/dataset.toml          # only updates registry tasks (-u for latest)
 
 # Run the whole dataset (matrix across agents)
 harbor run -p evals/dataset.toml -e daytona -a claude-code -m anthropic/claude-opus-4-8 --agent-kwarg version=<pin>
@@ -43,7 +46,7 @@ harbor run -p evals/dataset.toml -e daytona -a claude-code -m anthropic/claude-o
 harbor run -p evals/tasks/<task-id> -e docker -a oracle
 ```
 
-After changing any file inside a task, re-run `harbor sync evals/dataset.toml` so the pinned digest matches (CI should verify the manifest is in sync).
+After changing any file inside a local task, re-run `harbor add evals/tasks/<task-id> --to evals/dataset.toml` so the pinned digest matches (it updates the existing entry in place). `harbor sync` does **not** recompute local-path tasks — it only refreshes registry-sourced tasks (it reports local tasks as `skipped`). CI should verify the manifest is in sync.
 
 ## Always
 
@@ -85,5 +88,5 @@ harbor run -p evals/tasks/app-OME-FEAT-001 -e daytona -a codex       -m openai/g
 4. Write `solution/solve.sh` (oracle) using the canonical OM conventions (reference: `packages/core/src/modules/customers`).
 5. Write `tests/hidden/*.spec.ts` (Playwright over HTTP via `@open-mercato/core/helpers/integration/api`).
 6. Encode the rubric in `tests/rubric.ts` (ts-morph AST/fs checks; LLM judge only for subjective criteria).
-7. Register it in the dataset: `harbor add evals/tasks/<id> --to evals/dataset.toml && harbor sync evals/dataset.toml`.
+7. Register it in the dataset: `harbor add evals/tasks/<id> --to evals/dataset.toml` (re-run the same command to re-pin after later edits — `harbor sync` skips local-path tasks).
 8. Prove `harbor run -a oracle` is green and each negative control fails its intended criterion before wiring real agents.

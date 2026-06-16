@@ -3,7 +3,7 @@ artifacts = [ "/logs/artifacts",]
 
 [task]
 name = "open-mercato/app-OME-FEAT-001"
-description = "Add an app-level bookmarks CRUD module to a freshly scaffolded standalone Open Mercato app, following platform conventions."
+description = "Add an app-level bookmarks CRUD module to a freshly scaffolded standalone Open Mercato app, following platform conventions. NOTE: the app is scaffolded with --skip-agentic-setup, so the agent does NOT have the Open Mercato repo skills (.claude/ + .ai/skills, e.g. om-module-scaffold) available — it must infer conventions from the in-repo reference modules and docs alone."
 keywords = [ "open-mercato", "crud", "module-creation",]
 [[task.authors]]
 name = "Mateusz Staniaszek"

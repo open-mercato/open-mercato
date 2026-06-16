@@ -1,0 +1,59 @@
+# Harbor job config — run the pinned coding agents (claude-code + codex) across
+# the Open Mercato eval dataset on Daytona in a single job.
+#
+# Usage (from the repo root):
+#   export ANTHROPIC_API_KEY=...   # agents' Claude key + the verifier LLM judge
+#   export OPENAI_API_KEY=...      # codex agent key
+#   export DAYTONA_API_KEY=...     # Daytona sandbox access
+#   harbor run --config evals/job_config.yaml --yes
+#
+# No secrets live in this file: ${VAR} / ${VAR:-default} templates resolve from
+# the host environment at run time (Harbor's resolve_env_vars).
+#
+# This file is the SINGLE source of truth. CI (.github/workflows/evals.yml)
+# consumes it verbatim and overrides only the CI-specific fields on the CLI:
+#   harbor run --config evals/job_config.yaml \
+#     --env daytona --jobs-dir <tmp>/jobs --job-name evals-<version> --yes
+# So `environment.type: docker` below is the LOCAL default; CI swaps it for
+# daytona via `--env`. Keep agent/verifier/dataset config here, not in the YAML.
+
+
+jobs_dir: jobs
+# Today: 1 task x 2 agents = 2 trials. Raise as the dataset grows.
+n_concurrent_trials: 4
+
+# A local dataset path must be the DIRECTORY of task dirs — Harbor scans it
+# (iterdir) for valid tasks. It is NOT the dataset.toml manifest; that file +
+# its digests are used by `harbor publish` and the CLI `-p` flag, not here.
+datasets:
+  - path: ./evals/tasks
+
+environment:
+  type: docker
+  env:
+    # The independent variable. Override per release: OM_VERSION=X.Y.Z harbor run ...
+    OM_VERSION: "${OM_VERSION:-0.6.4}"
+
+verifier:
+  env:
+    # The LLM judge (OM_JUDGE_MODEL in task.toml) always needs Anthropic,
+    # regardless of which agent produced the solution.
+    ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+
+agents:
+  - name: claude-code
+    model_name: anthropic/claude-opus-4-8
+    # TODO: pin the Claude Code CLI version once chosen (spec Open Dependency #2).
+    # kwargs values are NOT env-templated, so use a literal here.
+    kwargs:
+      version: latest
+    env:
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+
+  - name: codex
+    model_name: openai/gpt-5.5
+    # TODO: pin the Codex CLI version once chosen (spec Open Dependency #2).
+    kwargs:
+      version: latest
+    env:
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
