@@ -24,6 +24,7 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LinkButton } from '@open-mercato/ui/primitives/link-button'
+import { Progress } from '@open-mercato/ui/primitives/progress'
 import {
   Select,
   SelectContent,
@@ -361,6 +362,7 @@ type LocationKpiCardProps = {
   badgeVariant: StatusBadgeVariant
   ctaLabel: string
   ctaHref: string
+  progress?: number | null
 }
 
 function LocationKpiCard({
@@ -371,6 +373,7 @@ function LocationKpiCard({
   badgeVariant,
   ctaLabel,
   ctaHref,
+  progress,
 }: LocationKpiCardProps) {
   return (
     <section className="flex min-h-52 flex-col rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
@@ -384,6 +387,15 @@ function LocationKpiCard({
           </StatusBadge>
         ) : null}
       </div>
+      {progress != null ? (
+        <Progress
+          value={progress}
+          max={100}
+          tone={progress >= 80 ? 'warning' : 'accent'}
+          size="sm"
+          className="mt-3"
+        />
+      ) : null}
       <LinkButton asChild variant="primary" size="sm" className="mt-auto pt-4 w-fit">
         <Link href={ctaHref}>{ctaLabel}</Link>
       </LinkButton>
@@ -561,7 +573,7 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
     return t(`wms.backend.location.types.${type}`, type)
   }, [locationQuery.data?.type, t])
 
-  const nowMs = Date.now()
+  const nowMs = React.useMemo(() => Date.now(), [])
 
   const totals = React.useMemo(() => {
     const items = balancesQuery.data?.items ?? []
@@ -1010,6 +1022,7 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
                 badgeVariant={capacityUsedPercent !== null && capacityUsedPercent >= 80 ? 'warning' : 'success'}
                 ctaLabel={t('wms.backend.location.kpis.capacityUsed.cta', 'Edit location')}
                 ctaHref="/backend/config/wms"
+                progress={capacityUsedPercent}
               />
               <LocationKpiCard
                 title={t('wms.backend.location.kpis.activeLots.title', 'Active lots')}
@@ -1042,14 +1055,14 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
                 caption={t('wms.backend.location.kpis.lastCounted.caption', 'Most recent cycle count')}
                 value={lastCounted?.label ?? '—'}
                 badgeLabel={
-                  lastCounted && Date.now() - lastCounted.ts > 14 * 24 * 60 * 60 * 1000
+                  lastCounted && nowMs - lastCounted.ts > 14 * 24 * 60 * 60 * 1000
                     ? t('wms.backend.location.kpis.lastCounted.badgeStale', 'Due soon')
                     : lastCounted
                       ? t('wms.backend.location.kpis.lastCounted.badgeRecent', 'Recent')
                       : t('wms.backend.location.kpis.lastCounted.badgeNever', 'Never')
                 }
                 badgeVariant={
-                  !lastCounted || Date.now() - (lastCounted?.ts ?? 0) > 14 * 24 * 60 * 60 * 1000
+                  !lastCounted || nowMs - (lastCounted?.ts ?? 0) > 14 * 24 * 60 * 60 * 1000
                     ? 'warning'
                     : 'success'
                 }
@@ -1101,14 +1114,13 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
                       {t('wms.backend.location.items.actions.cycleCountZone', 'Cycle count zone')}
                     </Button>
                   ) : null}
-                  {access.canAdjust ? (
+                  {access.canAdjust && selectedBalances.length > 0 ? (
                     <Button
                       type="button"
                       variant="default"
-                      disabled={selectedBalances.length === 0}
                       onClick={() => openAdjustDialog(resolveMutationContext())}
                     >
-                      {t('wms.backend.location.items.actions.adjustSelected', 'Adjust selected')}
+                      {t('wms.backend.location.items.actions.adjustSelected', 'Adjust selected ({count})', { count: selectedBalances.length })}
                     </Button>
                   ) : null}
                 </div>

@@ -638,7 +638,7 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
     '—'
   const variantName = (variantQuery.data?.name ?? '').trim()
   const pageTitle = lotLabel
-  const nowMs = Date.now()
+  const nowMs = React.useMemo(() => Date.now(), [])
 
   const qualityStatus = React.useMemo(
     () => resolveLotQualityStatus(lotData?.status, lotData?.expires_at, nowMs),
@@ -1167,15 +1167,14 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
                         {t('wms.backend.lot.distribution.actions.cycleCountZone', 'Cycle count zone')}
                       </Button>
                     ) : null}
-                    {access.canAdjust ? (
+                    {access.canAdjust && selectedBalances.length > 0 ? (
                       <Button
                         type="button"
                         size="sm"
                         variant="default"
-                        disabled={selectedBalances.length === 0}
                         onClick={() => openAdjustDialog(resolveMutationContext())}
                       >
-                        {t('wms.backend.lot.distribution.actions.adjustSelected', 'Adjust selected')}
+                        {t('wms.backend.lot.distribution.actions.adjustSelected', 'Adjust selected ({count})', { count: selectedBalances.length })}
                       </Button>
                     ) : null}
                   </>

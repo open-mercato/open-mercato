@@ -647,8 +647,10 @@ export function MoveInventoryDialog({
               error={fieldErrors.quantity}
             >
               <Input
-                type="text"
+                type="number"
                 inputMode="decimal"
+                min="0.001"
+                step="any"
                 value={quantityInput}
                 onChange={(event) => {
                   setQuantityInput(event.target.value)

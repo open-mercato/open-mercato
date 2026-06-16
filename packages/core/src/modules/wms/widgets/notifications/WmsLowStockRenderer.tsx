@@ -106,8 +106,8 @@ export function WmsLowStockRenderer({
         <div className="mt-2 flex items-center gap-2">
           <Button
             type="button"
+            variant="default"
             size="sm"
-            className="h-8 rounded-md px-2.5 bg-accent-indigo text-accent-indigo-foreground hover:bg-accent-indigo/90"
             onClick={(e) => {
               e.stopPropagation()
               handleView()
@@ -115,7 +115,7 @@ export function WmsLowStockRenderer({
             disabled={executing || (!viewAction && !notification.linkHref)}
           >
             <ExternalLink className="size-3.5" aria-hidden="true" />
-            {t('wms.notifications.lowStock.renderer.viewInventory', 'View Inventory')}
+            {t('wms.notifications.lowStock.renderer.viewSku', 'View SKU')}
             {executing ? <Loader2 className="ml-1 size-3 animate-spin" /> : null}
           </Button>
           <Button

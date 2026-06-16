@@ -308,8 +308,10 @@ test.describe('TC-WMS-INVENTORY-UI-001: Inventory console mutations', () => {
       }).toPass({ timeout: 20_000 })
       await expect(cycleDialog.getByText('-3', { exact: true })).toBeVisible()
 
-      await cycleDialog.getByRole('button', { name: 'Commit count' }).click()
+      await cycleDialog.getByRole('button', { name: 'Commit & count next' }).click()
       await expect(page.getByText(/Cycle count posted/i).first()).toBeVisible({ timeout: 10_000 })
+      // After committing, the wizard resets to step 2 (multi-line mode); close it via "Finish session"
+      await cycleDialog.getByRole('button', { name: /Finish session/i }).click()
       await expect(cycleDialog).toHaveCount(0)
 
       const balanceRow = page.getByRole('row').filter({ hasText: variantSku }).first()

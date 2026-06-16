@@ -38,7 +38,7 @@ export default async function handle(payload: LowStockPayload, ctx: ResolverCont
       },
       sourceEntityType: 'wms:inventory_balance',
       sourceEntityId: payload.catalogVariantId,
-      linkHref: '/backend/wms/inventory',
+      linkHref: `/backend/wms/sku/${encodeURIComponent(payload.catalogVariantId)}`,
     })
 
     await notificationService.createForFeature(notificationInput, {

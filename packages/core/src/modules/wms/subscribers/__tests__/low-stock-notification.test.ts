@@ -58,7 +58,7 @@ describe('wms low-stock-notification subscriber', () => {
         },
         sourceEntityType: 'wms:inventory_balance',
         sourceEntityId: 'variant-uuid-1',
-        linkHref: '/backend/wms/inventory',
+        linkHref: '/backend/wms/sku/variant-uuid-1',
       }),
     )
   })

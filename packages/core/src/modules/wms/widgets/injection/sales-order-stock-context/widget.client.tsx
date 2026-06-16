@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useQueryClient } from '@tanstack/react-query'
+import { useRouter } from 'next/navigation'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   StatusBadge,
@@ -15,8 +15,8 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { hasFeature } from '@open-mercato/shared/security/features'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
+import { useWmsInventoryMutationAccess } from '../../../components/backend/useWmsInventoryMutationAccess'
 import { loadWarehouseOptions } from '../../../components/backend/wmsLookupLoaders'
 
 type ReservationStatus =
@@ -69,11 +69,11 @@ export default function SalesOrderStockContextWidget(
 ) {
   const { data } = props
   const t = useT()
-  const queryClient = useQueryClient()
+  const router = useRouter()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
+  const access = useWmsInventoryMutationAccess()
   const orderId = resolveOrderId(data)
   const wms = data?._wms
-  const [grantedFeatures, setGrantedFeatures] = React.useState<string[]>([])
   const [selectedWarehouseId, setSelectedWarehouseId] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
 
@@ -86,28 +86,6 @@ export default function SalesOrderStockContextWidget(
   )
 
   React.useEffect(() => {
-    let cancelled = false
-    async function loadFeatures() {
-      try {
-        const call = await apiCall<{ granted?: string[] }>('/api/auth/feature-check', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ features: ['wms.manage_reservations'] }),
-        })
-        if (!cancelled) {
-          setGrantedFeatures(Array.isArray(call.result?.granted) ? call.result.granted : [])
-        }
-      } catch {
-        if (!cancelled) setGrantedFeatures([])
-      }
-    }
-    void loadFeatures()
-    return () => {
-      cancelled = true
-    }
-  }, [organizationId, tenantId])
-
-  React.useEffect(() => {
     if (wms?.isExplicitlyAssigned && wms.assignedWarehouseId) {
       setSelectedWarehouseId(wms.assignedWarehouseId)
       return
@@ -115,7 +93,7 @@ export default function SalesOrderStockContextWidget(
     setSelectedWarehouseId(null)
   }, [wms?.assignedWarehouseId, wms?.isExplicitlyAssigned])
 
-  const canManageAssignment = hasFeature(grantedFeatures, 'wms.manage_reservations')
+  const canManageAssignment = access.canRelease
   const assignedLabel =
     wms?.assignedWarehouseName ||
     (wms?.isExplicitlyAssigned ? wms.assignedWarehouseId : null) ||
@@ -162,7 +140,7 @@ export default function SalesOrderStockContextWidget(
           mutationPayload,
         })
 
-        await queryClient.invalidateQueries()
+        router.refresh()
         flash(
           warehouseId
             ? t(
@@ -187,7 +165,7 @@ export default function SalesOrderStockContextWidget(
         setSaving(false)
       }
     },
-    [mutationContext, orderId, organizationId, queryClient, runMutation, t, tenantId],
+    [mutationContext, orderId, organizationId, router, runMutation, t, tenantId],
   )
 
   if (!wms) return null

@@ -81,9 +81,9 @@ describe('WmsLowStockRenderer', () => {
     expect(screen.getByText(/3/)).toBeTruthy()
   })
 
-  it('renders View Inventory CTA button', () => {
+  it('renders View SKU CTA button', () => {
     render(<WmsLowStockRenderer {...defaultProps} />)
-    expect(screen.getByText('View Inventory')).toBeTruthy()
+    expect(screen.getByText('View SKU')).toBeTruthy()
   })
 
   it('renders Dismiss button', () => {
@@ -98,10 +98,12 @@ describe('WmsLowStockRenderer', () => {
     expect(defaultProps.onDismiss).toHaveBeenCalledTimes(1)
   })
 
-  it('uses accent-indigo token on the CTA button', () => {
+  it('renders a CTA button that does not use manual accent-indigo override class', () => {
     const { container } = render(<WmsLowStockRenderer {...defaultProps} />)
-    const ctaButton = container.querySelector('.bg-accent-indigo')
-    expect(ctaButton).toBeTruthy()
+    const buttons = container.querySelectorAll('button')
+    buttons.forEach((btn) => {
+      expect(btn.className).not.toContain('bg-accent-indigo')
+    })
   })
 
   it('does not use the deprecated bg-status-warning-icon token on the CTA button', () => {

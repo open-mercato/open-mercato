@@ -574,7 +574,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
     return Math.round(totals.available / daily)
   }, [movementsQuery.data, totals.available])
 
-  const nowMs = Date.now()
+  const nowMs = React.useMemo(() => Date.now(), [])
 
   const filteredBalances = React.useMemo(() => {
     const items = balancesQuery.data?.items ?? []
@@ -1058,14 +1058,13 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
                       {t('wms.backend.sku.distribution.actions.cycleCountZone', 'Cycle count zone')}
                     </Button>
                   ) : null}
-                  {access.canAdjust ? (
+                  {access.canAdjust && selectedBalances.length > 0 ? (
                     <Button
                       type="button"
                       variant="default"
-                      disabled={selectedBalances.length === 0}
                       onClick={() => openAdjustDialog(resolveMutationContext())}
                     >
-                      {t('wms.backend.sku.distribution.actions.adjustSelected', 'Adjust selected')}
+                      {t('wms.backend.sku.distribution.actions.adjustSelected', 'Adjust selected ({count})', { count: selectedBalances.length })}
                     </Button>
                   ) : null}
                 </div>

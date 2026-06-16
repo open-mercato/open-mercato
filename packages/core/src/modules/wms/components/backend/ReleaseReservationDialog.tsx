@@ -327,6 +327,13 @@ export function ReleaseReservationDialog({
               </div>
             </div>
 
+            <p className="rounded-lg border border-status-warning-border bg-status-warning-bg px-3 py-2.5 text-sm text-status-warning-text">
+              {t(
+                'wms.backend.inventory.release.warning',
+                'This action cannot be undone — the reserved quantity will be released immediately.',
+              )}
+            </p>
+
             <FormField
               label={t('wms.backend.inventory.release.form.reason', 'Reason')}
               required

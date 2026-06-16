@@ -81,7 +81,7 @@ const EMPTY_FORM: AdjustFormValues = {
   warehouseId: '',
   locationId: '',
   lotNumber: '',
-  delta: -1,
+  delta: 1,
   reasonCode: '',
   notes: '',
   serialNumber: '',
