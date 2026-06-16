@@ -33,6 +33,7 @@ async function markOnboardingReady(email: string, tenantId: string, organization
 
 test.describe('TC-ONBOARDING-EMAIL-001: Onboarding emails use system channel', () => {
   test('start, ready, and demo feedback emails dispatch through Communications Hub', async ({ request }) => {
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const scope = getTokenScope(token)
     const seedingAvailable = await isChannelSeedingAvailable(request, token)

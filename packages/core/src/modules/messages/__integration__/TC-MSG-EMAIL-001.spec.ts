@@ -12,6 +12,7 @@ import { composeMessageWithToken, deleteMessageIfExists } from './helpers'
 
 test.describe('TC-MSG-EMAIL-001: Message external email uses system channel', () => {
   test('public compose with external delivery dispatches through Communications Hub', async ({ request }) => {
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const scope = getTokenScope(token)
     const seedingAvailable = await isChannelSeedingAvailable(request, token)

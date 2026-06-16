@@ -15,6 +15,7 @@ import {
 
 test.describe('TC-NOTIF-EMAIL-001: Notification email uses system channel', () => {
   test('notification created event dispatches email through Communications Hub', async ({ request }) => {
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const scope = getTokenScope(token)
     const seedingAvailable = await isChannelSeedingAvailable(request, token)

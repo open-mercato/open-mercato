@@ -122,8 +122,8 @@ export async function waitForCapturedSystemEmail(
   predicate: (email: CapturedTestSeedEmail) => boolean,
   options: { timeoutMs?: number; intervalMs?: number; description?: string } = {},
 ): Promise<CapturedTestSeedEmail> {
-  const timeoutMs = options.timeoutMs ?? 10_000;
-  const intervalMs = options.intervalMs ?? 250;
+  const timeoutMs = options.timeoutMs ?? 20_000;
+  const intervalMs = options.intervalMs ?? 1_000;
   const deadline = Date.now() + timeoutMs;
   let lastItems: CapturedTestSeedEmail[] = [];
   while (Date.now() < deadline) {

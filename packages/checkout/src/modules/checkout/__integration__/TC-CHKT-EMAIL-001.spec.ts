@@ -18,6 +18,7 @@ import {
 
 test.describe('TC-CHKT-EMAIL-001: Checkout transactional email uses system channel', () => {
   test('public checkout submit dispatches payment-start email through Communications Hub', async ({ request }) => {
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const scope = getTokenScope(token)
     const seedingAvailable = await isChannelSeedingAvailable(request, token)

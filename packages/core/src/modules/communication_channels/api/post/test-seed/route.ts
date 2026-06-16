@@ -140,11 +140,6 @@ export async function POST(req: Request): Promise<Response> {
     )
   }
 
-  const container = await createRequestContainer()
-  // Defensive: make sure the stub adapter is registered for this process even if
-  // a worker-only node skipped module di registration.
-  ensureTestSeedAdapterRegistered()
-
   const tenantId = auth.tenantId as string
   const organizationId = (auth as { orgId?: string | null }).orgId ?? null
   const userId = auth.sub as string
@@ -157,6 +152,11 @@ export async function POST(req: Request): Promise<Response> {
   if (body.action === 'list-capture') {
     return NextResponse.json({ items: await listTestSeedCapturedMessages() })
   }
+
+  const container = await createRequestContainer()
+  // Defensive: make sure the stub adapter is registered for this process even if
+  // a worker-only node skipped module di registration.
+  ensureTestSeedAdapterRegistered()
 
   if (body.action === 'seed-system-channel') {
     const em = (container.resolve('em') as EntityManager).fork()
