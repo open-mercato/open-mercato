@@ -7716,10 +7716,10 @@ __metadata:
     "@types/nodemailer": "npm:^8.0.0"
     "@types/react": "npm:^19.2.17"
     "@types/react-dom": "npm:^19.2.3"
-    esbuild: "npm:^0.28.0"
+    esbuild: "npm:^0.28.1"
     glob: "npm:^13.0.6"
     jest: "npm:^30.4.2"
-    nodemailer: "npm:^8.0.10"
+    nodemailer: "npm:^9.0.0"
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
     ts-jest: "npm:^29.4.11"
@@ -23464,13 +23464,6 @@ __metadata:
   version: 8.0.10
   resolution: "nodemailer@npm:8.0.10"
   checksum: 10/b46d7636257c2ddb68f47cdba40f7b2c544e0030185c8a9c8af907ae29fd754a7147742e48bad9c31541a1368a22d6dbab46b16e37ad5eb99128ca00f2d03178
-  languageName: node
-  linkType: hard
-
-"nodemailer@npm:^8.0.10":
-  version: 8.0.11
-  resolution: "nodemailer@npm:8.0.11"
-  checksum: 10/81f74337c99d5af0ced47558d7e0bf629b5f4c4f5403fd7e515430b3ce982fdf72ab09a18040822090c640e3707d7e32172de66265e5f04097150d1c07b4b567
   languageName: node
   linkType: hard
 
