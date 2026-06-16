@@ -2,7 +2,17 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   CrudForm: () => null,
 }))
 
-import { buildEntityMetadataPayload } from '../[entityId]/page'
+import { buildEntityMetadataPayload, shouldRegisterEntityMetadata } from '../[entityId]/page'
+
+describe('shouldRegisterEntityMetadata', () => {
+  it('registers metadata for custom (user-defined) entities', () => {
+    expect(shouldRegisterEntityMetadata('custom')).toBe(true)
+  })
+
+  it('does not register metadata for code-declared system entities (#3115)', () => {
+    expect(shouldRegisterEntityMetadata('code')).toBe(false)
+  })
+})
 
 describe('buildEntityMetadataPayload', () => {
   describe('code-sourced (system) entities', () => {
