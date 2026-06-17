@@ -1,4 +1,5 @@
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import type { WebhookHandlerResult, WebhookIngestionStatus } from '@open-mercato/shared/lib/webhooks'
 
 @Entity({ tableName: 'webhooks' })
 @Index({ properties: ['organizationId', 'tenantId', 'isActive'] })
@@ -183,4 +184,58 @@ export class WebhookInboundReceiptEntity {
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'webhook_ingestions' })
+@Index({ properties: ['sourceKey', 'status', 'createdAt'] })
+@Index({ properties: ['organizationId', 'tenantId', 'createdAt'] })
+@Index({ properties: ['externalMessageId'] })
+export class WebhookIngestionEntity {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'source_key', type: 'text' })
+  sourceKey!: string
+
+  @Property({ name: 'event_type', type: 'text' })
+  eventType!: string
+
+  @Property({ name: 'external_message_id', type: 'text', nullable: true })
+  externalMessageId?: string | null
+
+  @Property({ name: 'payload', type: 'json' })
+  payload!: Record<string, unknown>
+
+  @Property({ name: 'headers', type: 'json', nullable: true })
+  headers?: Record<string, string> | null
+
+  @Property({ name: 'status', type: 'text', default: 'received' })
+  status: WebhookIngestionStatus = 'received'
+
+  @Property({ name: 'error_message', type: 'text', nullable: true })
+  errorMessage?: string | null
+
+  @Property({ name: 'processed_at', type: Date, nullable: true })
+  processedAt?: Date | null
+
+  @Property({ name: 'handler_count', type: 'int', default: 0 })
+  handlerCount: number = 0
+
+  @Property({ name: 'handler_results', type: 'json', nullable: true })
+  handlerResults?: WebhookHandlerResult[] | null
+
+  @Property({ name: 'duration_ms', type: 'int', nullable: true })
+  durationMs?: number | null
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }

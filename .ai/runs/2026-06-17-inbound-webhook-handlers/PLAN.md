@@ -14,7 +14,7 @@
 |-------|------|-------|--------|--------|
 | 1 | 1.1 | Bake analysis remediation into the spec; add analysis report | done | 9dcea46a0 |
 | 1 | 1.2 | Shared inbound types in @open-mercato/shared | done | e0076c573 |
-| 2 | 2.1 | WebhookIngestion entity + IngestionStatus enum + encryption map | todo | — |
+| 2 | 2.1 | WebhookIngestion entity + IngestionStatus enum + encryption map | done | ef34f53ef |
 | 2 | 2.2 | InboundEndpointConfig entity | todo | — |
 | 2 | 2.3 | Migration + snapshot for new inbound tables | todo | — |
 | 2 | 2.4 | Add webhooks.inbound.processed / handler_failed events | todo | — |
