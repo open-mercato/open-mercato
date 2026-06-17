@@ -11,7 +11,7 @@
 | 1 | 1.2 | `ModuleConfigService` scope-aware (resolution order, scoped writes, v2 cache keys) | done | 316b41f12 |
 | 1 | 1.3 | Unit tests: scoped→global→null resolution, scoped-write isolation, BC default path, cache keying | done | f479bb87e |
 | 2 | 2.1 | Thread auth `tenantId` into embedding/global-search/auto-index resolve+save flows | done | 3dffd2203 |
-| 2 | 2.2 | Env-derived defaults + `source` discriminator in GET responses | todo | — |
+| 2 | 2.2 | Env-derived defaults + `source` discriminator in GET responses | done | e00a1cbc8 |
 | 2 | 2.3 | Integration tests (search): Tenant A save ↛ Tenant B; unset inherits env/instance | todo | — |
 | 3 | 3.1 | `EmbeddingProviderProbe` (Ollama `/api/tags` probe, key-presence others), cached + fail-closed + DI | todo | — |
 | 3 | 3.2 | Wire `isProviderConfigured`/`EmbeddingService.available`/`VectorSearchStrategy.isAvailable` + POST save guard | todo | — |

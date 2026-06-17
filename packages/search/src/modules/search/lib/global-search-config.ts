@@ -71,3 +71,31 @@ export async function saveGlobalSearchStrategies(
 
   await service.setValue('search', GLOBAL_SEARCH_STRATEGIES_KEY, validStrategies, options?.scope)
 }
+
+export type GlobalSearchSource = 'tenant' | 'instance' | 'env'
+
+/**
+ * Resolve the enabled strategies together with their source discriminator:
+ * `tenant` (own scoped row), `instance` (inherited global row), or `env`
+ * (no stored row -> default strategies).
+ */
+export async function resolveGlobalSearchStrategiesResult(
+  resolver: Resolver,
+  options?: { defaultValue?: SearchStrategyId[]; scope?: ConfigScope },
+): Promise<{ strategies: SearchStrategyId[]; source: GlobalSearchSource }> {
+  const fallback = options?.defaultValue ?? DEFAULT_GLOBAL_SEARCH_STRATEGIES
+  let service: ModuleConfigService
+  try {
+    service = resolver.resolve<ModuleConfigService>('moduleConfigService')
+  } catch {
+    return { strategies: fallback, source: 'env' }
+  }
+  try {
+    const record = await service.getRecord('search', GLOBAL_SEARCH_STRATEGIES_KEY, options?.scope)
+    const value = record?.value
+    if (Array.isArray(value) && value.length > 0) {
+      return { strategies: value as SearchStrategyId[], source: record!.source }
+    }
+  } catch {}
+  return { strategies: fallback, source: 'env' }
+}

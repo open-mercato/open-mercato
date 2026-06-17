@@ -6,11 +6,13 @@ import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib
 import { envDisablesAutoIndexing, resolveAutoIndexingEnabled, SEARCH_AUTO_INDEX_CONFIG_KEY } from '../../lib/auto-indexing'
 import {
   resolveEmbeddingConfig,
+  resolveEmbeddingConfigResult,
   saveEmbeddingConfig,
   getConfiguredProviders,
   detectConfigChange,
   getEffectiveDimension,
 } from '../../lib/embedding-config'
+import type { EmbeddingConfigSource } from '../../lib/embedding-config'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EmbeddingProviderConfig, EmbeddingProviderId, VectorDriver } from '../../../../vector'
 import { EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG, EmbeddingService } from '../../../../vector'
@@ -42,6 +44,7 @@ type SettingsResponse = {
     autoIndexingLocked: boolean
     lockReason: string | null
     embeddingConfig: EmbeddingProviderConfig | null
+    embeddingConfigSource: EmbeddingConfigSource
     configuredProviders: EmbeddingProviderId[]
     indexedDimension: number | null
     reindexRequired: boolean
@@ -109,7 +112,9 @@ export async function GET(req: Request) {
       }
     }
 
-    const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null, scope: { tenantId: auth.tenantId } })
+    const { config: embeddingConfig, source: embeddingConfigSource } = await resolveEmbeddingConfigResult(container, {
+      scope: { tenantId: auth.tenantId },
+    })
     const configuredProviders = getConfiguredProviders()
     const indexedDimension = await getIndexedDimension(container)
 
@@ -135,6 +140,7 @@ export async function GET(req: Request) {
         autoIndexingLocked: lockedByEnv,
         lockReason: lockedByEnv ? 'env' : null,
         embeddingConfig,
+        embeddingConfigSource,
         configuredProviders,
         indexedDimension,
         reindexRequired,
@@ -283,6 +289,10 @@ export async function POST(req: Request) {
       ? await getVectorDocumentCount(container, auth.tenantId, auth.orgId)
       : null
 
+    const { source: embeddingConfigSource } = await resolveEmbeddingConfigResult(container, {
+      scope: { tenantId: auth.tenantId },
+    })
+
     return toJson({
       settings: {
         openaiConfigured: openAiConfigured(),
@@ -290,6 +300,7 @@ export async function POST(req: Request) {
         autoIndexingLocked: lockedByEnv,
         lockReason: lockedByEnv ? 'env' : null,
         embeddingConfig,
+        embeddingConfigSource,
         configuredProviders: getConfiguredProviders(),
         indexedDimension,
         reindexRequired,
