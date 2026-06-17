@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/scheduler",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Database-managed scheduled jobs with admin UI",
   "type": "module",
   "main": "./dist/index.js",
@@ -80,7 +80,7 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/node": "^25.9.2",
+    "@types/node": "^25.9.3",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.11"
   },

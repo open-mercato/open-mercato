@@ -148,6 +148,20 @@ export function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'om-integration-tests', 'SKILL.md'),
   )
 
+  // help / workflow navigator skill
+  copyFile(
+    'ai/skills/om-help/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'SKILL.md'),
+  )
+  copyFile(
+    'ai/skills/om-help/references/skills-catalog.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'references', 'skills-catalog.md'),
+  )
+  copyFile(
+    'ai/skills/om-help/references/workflow-sequences.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'references', 'workflow-sequences.md'),
+  )
+
   // 0.4.10 -> 0.5.0 upgrade companion skill
   copyFile(
     'ai/skills/om-auto-upgrade-0.4.10-to-0.5.0/SKILL.md',

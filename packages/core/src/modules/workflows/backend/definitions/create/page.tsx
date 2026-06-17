@@ -53,8 +53,7 @@ export default function CreateWorkflowDefinitionPage() {
   return (
     <Page>
       <PageBody>
-        <Alert variant="info" className="mb-6">
-          <Zap className="w-4 h-4" />
+        <Alert variant="info" icon={<Zap aria-hidden="true" />} className="mb-6">
           <AlertTitle>{t('workflows.create.eventTriggersTitle')}</AlertTitle>
           <AlertDescription>
             {t('workflows.create.eventTriggersDescription')}

@@ -18,7 +18,8 @@
         "om-skill-creator",
         "om-fix-specs",
         "om-migrate-mikro-orm",
-        "om-create-ai-agent"
+        "om-create-ai-agent",
+        "om-help"
       ]
     },
     "automation": {

@@ -44,7 +44,7 @@ export interface AiChatMessageUiPart {
 
 /**
  * Snapshot of a single task in the visible agent task plan
- * (spec `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`). Tasks are
+ * (spec `.ai/specs/implemented/2026-05-13-ai-chat-visible-task-plan.md`). Tasks are
  * streamed as additive `data-agent-task-plan` / `data-agent-task-update`
  * SSE chunks and rendered above raw tool-call rows in `<AiChat>`.
  *

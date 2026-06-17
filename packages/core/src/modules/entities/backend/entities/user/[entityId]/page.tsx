@@ -45,7 +45,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const [label, setLabel] = useState('')
   const [entitySource, setEntitySource] = useState<'code'|'custom'>('custom')
   const [entityFormLoading, setEntityFormLoading] = useState(true)
-  const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string; showInSidebar?: boolean }>({})
+  const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string; showInSidebar?: boolean; updatedAt?: string }>({})
   const [defs, setDefs] = useState<Def[]>([])
   const [orderDirty, setOrderDirty] = useState(false)
   const [orderSaving, setOrderSaving] = useState(false)
@@ -171,6 +171,8 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           const defaultEditorValue =
             typeof record?.defaultEditor === 'string' ? record.defaultEditor : ''
           const showInSidebarValue = record?.showInSidebar === true
+          const updatedAtValue =
+            typeof record?.updatedAt === 'string' && record.updatedAt.length > 0 ? record.updatedAt : undefined
           setLabel(labelValue)
           if (record?.source === 'code' || record?.source === 'custom') setEntitySource(record.source)
           setEntityInitial({
@@ -179,6 +181,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             labelField: labelFieldValue,
             defaultEditor: defaultEditorValue,
             showInSidebar: showInSidebarValue,
+            updatedAt: updatedAtValue,
           })
           setEntityFormLoading(false)
         }

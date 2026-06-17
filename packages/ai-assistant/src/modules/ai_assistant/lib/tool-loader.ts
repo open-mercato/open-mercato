@@ -8,6 +8,11 @@ import {
 } from './ai-overrides'
 import type { McpToolDefinition, McpToolContext } from './types'
 import { ToolSearchService } from './tool-search'
+import {
+  findGeneratedFile,
+  compileAndImportGenerated,
+  ensureApiRouteManifestsRegistered,
+} from './generated-registry-loader'
 
 /**
  * Module tool definition as exported from ai-tools.ts files.
@@ -144,6 +149,33 @@ export function applyAiToolOverrideEntries(
 }
 
 /**
+ * Import the generated `ai-tools.generated.ts` registry.
+ *
+ * Dual-strategy so the same code works in every runtime without changing the
+ * existing Next.js / agents-framework behavior:
+ *  1. Prefer the `@/` path-alias import. Inside the Next.js bundler this
+ *     resolves at build time exactly as before — the in-app agents framework
+ *     path is untouched.
+ *  2. Fall back to locating + compiling the file from disk when the alias
+ *     import throws. That only happens in a standalone Node process (the
+ *     `mcp:dev` / `mcp:serve` MCP servers), where `@/` is not a real package
+ *     specifier and Node throws `ERR_MODULE_NOT_FOUND`.
+ *
+ * Returns `null` when no generated file exists (pre-generate builds, tests).
+ */
+async function importGeneratedAiToolsModule(): Promise<Record<string, unknown> | null> {
+  try {
+    return (await import(
+      '@/.mercato/generated/ai-tools.generated'
+    )) as Record<string, unknown>
+  } catch {
+    const tsPath = findGeneratedFile('ai-tools.generated.ts')
+    if (!tsPath) return null
+    return compileAndImportGenerated(tsPath)
+  }
+}
+
+/**
  * Read `aiToolOverrideEntries` from `ai-tools.generated.ts` and apply
  * them on top of the live tool registry. Safe to call when the file is
  * missing (pre-generate builds, tests) — applies only the
@@ -152,12 +184,13 @@ export function applyAiToolOverrideEntries(
 export async function loadGeneratedAiToolOverrides(): Promise<void> {
   let entries: AiToolOverrideConfigEntry[] = []
   try {
-    const mod = (await import(
-      '@/.mercato/generated/ai-tools.generated'
-    )) as { aiToolOverrideEntries?: unknown[] }
-    entries = Array.isArray(mod.aiToolOverrideEntries)
-      ? (mod.aiToolOverrideEntries as AiToolOverrideConfigEntry[])
-      : []
+    const mod = (await importGeneratedAiToolsModule()) as {
+      aiToolOverrideEntries?: unknown[]
+    } | null
+    entries =
+      mod && Array.isArray(mod.aiToolOverrideEntries)
+        ? (mod.aiToolOverrideEntries as AiToolOverrideConfigEntry[])
+        : []
   } catch {
     // No override file generated.
   }
@@ -172,9 +205,13 @@ export async function loadGeneratedAiToolOverrides(): Promise<void> {
  */
 export async function loadGeneratedModuleAiTools(): Promise<number> {
   try {
-    const mod = (await import(
-      '@/.mercato/generated/ai-tools.generated'
-    )) as { aiToolConfigEntries?: AiToolConfigEntry[] }
+    const mod = (await importGeneratedAiToolsModule()) as {
+      aiToolConfigEntries?: AiToolConfigEntry[]
+    } | null
+    if (!mod) {
+      // No generated file (pre-generate build or tests).
+      return 0
+    }
     const entries = Array.isArray(mod.aiToolConfigEntries)
       ? mod.aiToolConfigEntries
       : []
@@ -227,6 +264,20 @@ export async function loadAllModuleTools(): Promise<void> {
     )
   } catch (error) {
     console.error('[MCP Tools] Could not load module AI tools:', error)
+  }
+
+  // 4. Register the API route manifest so API-backed module tools can run.
+  // Their handlers delegate to createAiApiOperationRunner, which fails closed
+  // with "No API route manifest registered" outside the Next.js bootstrap.
+  try {
+    const routeCount = await ensureApiRouteManifestsRegistered()
+    if (routeCount > 0) {
+      console.error(
+        `[MCP Tools] Registered ${routeCount} API route manifests for API-backed tools`
+      )
+    }
+  } catch (error) {
+    console.error('[MCP Tools] Could not register API route manifests:', error)
   }
 }
 

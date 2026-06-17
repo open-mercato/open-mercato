@@ -190,7 +190,7 @@ export async function POST(request: Request) {
     const stack = error instanceof Error ? error.stack : undefined
     console.error('[sync_excel.import] unhandled error', { message, stack })
     return NextResponse.json(
-      { error: 'Failed to start sync_excel import.', message, stack },
+      { error: 'Failed to start sync_excel import.' },
       { status: 500 },
     )
   }

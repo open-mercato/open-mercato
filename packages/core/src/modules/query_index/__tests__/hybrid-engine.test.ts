@@ -162,6 +162,10 @@ function resolveFirstRow(
       organization_id: null,
     }
   }
+  if (table === 'custom_entities_storage' && log.limit === 1) {
+    // Existence probe used by isCustomEntity/hasCustomEntityStorageRows.
+    return (config.rows?.custom_entities_storage ?? []).length ? { one: 1 } : undefined
+  }
   // Count subquery / data reads: look for `count` alias in selects.
   const hasCount = log.selects.some((s: any) => {
     try { return String(s?.name ?? s) === 'count' || typeof s?.as === 'function' } catch { return false }
@@ -216,6 +220,16 @@ function resolveRows(
 
 function buildEm(db: any): any {
   return { getKysely: () => db }
+}
+
+function buildEmWithOrmMetadata(db: any, classTables: Record<string, string>): any {
+  return {
+    getKysely: () => db,
+    getMetadata: () => ({
+      find: (className: string) => (classTables[className] ? { tableName: classTables[className] } : undefined),
+      getAll: () => Object.values(classTables).map((tableName) => ({ tableName })),
+    }),
+  }
 }
 
 describe('HybridQueryEngine', () => {
@@ -718,5 +732,74 @@ describe('sort direction coercion (#2704)', () => {
     const serialized = serializeOrderBys(db)
     expect(serialized).not.toContain('pg_sleep')
     expect(serialized).not.toContain('vault')
+  })
+})
+
+describe('HybridQueryEngine custom-entity classification (#2939)', () => {
+  test('stray doc-storage rows must not reroute a table-backed ORM entity away from its base table', async () => {
+    const db = createFakeKysely({
+      baseTable: 'customer_deals',
+      hasIndexAny: false,
+      baseCount: 282,
+      indexCount: 0,
+      customFieldKeys: {},
+      rows: { custom_entities_storage: [{ entity_id: 'stray-doc-record' }] },
+    })
+    const em = buildEmWithOrmMetadata(db, { CustomerDeal: 'customer_deals' })
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent: jest.fn() }))
+
+    await expect((engine as any).isCustomEntity('customers:customer_deal')).resolves.toBe(false)
+
+    await engine.query('customers:customer_deal', {
+      fields: ['id', 'title', 'pipeline_stage_id'],
+      includeCustomFields: true,
+      organizationIds: ['org1'],
+      tenantId: 't1',
+    })
+
+    const chains = db._chains as ChainLog[]
+    expect(chains.some((chain) => chain.table === 'customer_deals')).toBe(true)
+  })
+
+  test('module-declared custom entities without an ORM table keep doc-storage routing (read/write symmetry)', async () => {
+    const db = createFakeKysely({
+      baseTable: 'unused',
+      hasIndexAny: false,
+      baseCount: 0,
+      indexCount: 0,
+      customFieldKeys: {},
+      rows: { custom_entities_storage: [{ entity_id: 'calendar-record' }] },
+    })
+    const em = buildEmWithOrmMetadata(db, {})
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent: jest.fn() }))
+
+    await expect((engine as any).isCustomEntity('example:calendar_entity')).resolves.toBe(true)
+  })
+
+  test('forceCustomEntityStorage routes a dual-declared id to doc storage (entities records surface)', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: false,
+      baseCount: 0,
+      indexCount: 0,
+      customFieldKeys: {},
+      rows: { custom_entities_storage: [{ entity_id: 'todo-doc-record' }] },
+    })
+    const em = buildEmWithOrmMetadata(db, { Todo: 'todos' })
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent: jest.fn() }))
+
+    await engine.query('example:todo', {
+      fields: ['id', 'title'],
+      organizationIds: ['org1'],
+      tenantId: 't1',
+      forceCustomEntityStorage: true,
+    })
+
+    const chains = db._chains as ChainLog[]
+    expect(chains.some((chain) => chain.table === 'custom_entities_storage' && chain.selects.length > 0)).toBe(true)
+    expect(chains.some((chain) => chain.table === 'todos')).toBe(false)
   })
 })
