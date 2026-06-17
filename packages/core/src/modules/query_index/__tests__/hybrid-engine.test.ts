@@ -8,6 +8,7 @@ type KyselyMockConfig = {
   indexCount: number
   coverageRefreshedAt?: Date | string | null
   customFieldKeys?: Record<string, string[]>
+  customEntityIds?: string[]
   rows?: Record<string, Array<Record<string, unknown>>>
   /** If provided, returned for information_schema.columns lookups. */
   columns?: Array<{ table_name: string; column_name: string }>
@@ -126,11 +127,20 @@ function resolveFirstRow(
   customFieldKeys: Record<string, string[]>,
 ): any {
   if (table === 'information_schema.tables') {
-    const lookingFor = log.wheres
-      .flatMap((entry: any[]) => entry)
-      .find((arg: any) => typeof arg === 'string')
-    // Any table_name lookup is satisfied if it matches baseTable or is our service table.
-    return lookingFor ? { one: 1 } : undefined
+    const args = log.wheres.flatMap((entry: any[]) => entry)
+    const tableName = args[args.indexOf('table_name') + 2] as string | undefined
+    const serviceTables = new Set([
+      'custom_entities',
+      'custom_entities_storage',
+      'custom_field_defs',
+      'entity_indexes',
+      'entity_index_coverage',
+      'search_tokens',
+    ])
+    if (tableName === config.baseTable || serviceTables.has(tableName ?? '') || config.rows?.[tableName ?? '']) {
+      return { one: 1 }
+    }
+    return undefined
   }
   if (table === 'information_schema.columns') {
     // Collect column/table names from the captured wheres to match the requested pair.
@@ -175,6 +185,9 @@ function resolveFirstRow(
     return config.hasIndexAny ? { entity_id: 'x' } : undefined
   }
   if (table === 'custom_entities') {
+    const args = log.wheres.flatMap((entry: any[]) => entry)
+    const entityId = args[args.indexOf('entity_id') + 2] as string | undefined
+    if (entityId && config.customEntityIds?.includes(entityId)) return { id: entityId }
     return undefined
   }
   return undefined
@@ -529,6 +542,42 @@ describe('HybridQueryEngine', () => {
       expect.objectContaining({ entity: 'example:todo', total: 10, fallbackTotal: 10 }),
     )
     warnSpy.mockRestore()
+  })
+
+  test('uses the base table when a core entity also has a custom entity registry row', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 1,
+      indexCount: 1,
+      customEntityIds: ['example:todo'],
+      rows: {
+        todos: [{ id: 'todo-1', title: 'Core row' }],
+      },
+      columns: [
+        { table_name: 'todos', column_name: 'id' },
+        { table_name: 'todos', column_name: 'tenant_id' },
+        { table_name: 'todos', column_name: 'organization_id' },
+        { table_name: 'todos', column_name: 'deleted_at' },
+        { table_name: 'todos', column_name: 'title' },
+      ],
+    })
+    const engine = new HybridQueryEngine(buildEm(db), { query: jest.fn() } as any)
+    ;(engine as any).parseCount = jest.fn().mockReturnValue(1)
+
+    const result = await engine.query('example:todo', {
+      fields: ['id', 'title'],
+      filters: {
+        title: { $eq: 'Core row' },
+      },
+      organizationId: 'org1',
+      tenantId: 't1',
+      page: { page: 1, pageSize: 25 },
+    })
+
+    expect(result.items).toEqual([{ id: 'todo-1', title: 'Core row' }])
+    expect(result.total).toBe(1)
+    expect((db._chains as ChainLog[]).some((chain) => chain.table === 'custom_entities_storage')).toBe(false)
   })
 
   test('skips partial coverage warning when entity has no custom fields', async () => {
@@ -924,7 +973,6 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
 
     await engine.query('customers:customer_deal', {
       fields: ['id', 'title', 'pipeline_stage_id'],
-      includeCustomFields: true,
       organizationIds: ['org1'],
       tenantId: 't1',
     })
