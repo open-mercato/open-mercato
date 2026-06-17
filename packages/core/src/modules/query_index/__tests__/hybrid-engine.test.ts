@@ -430,6 +430,57 @@ describe('HybridQueryEngine', () => {
     warnSpy.mockRestore()
   })
 
+  test('falls back from false zero even when partial index forcing is enabled', async () => {
+    process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'true'
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 10,
+      indexCount: 0,
+      customFieldKeys: {
+        'example:todo': ['priority'],
+      },
+      columns: [
+        { table_name: 'todos', column_name: 'id' },
+        { table_name: 'todos', column_name: 'tenant_id' },
+        { table_name: 'todos', column_name: 'organization_id' },
+        { table_name: 'todos', column_name: 'deleted_at' },
+        { table_name: 'todos', column_name: 'pipeline_id' },
+        { table_name: 'todos', column_name: 'pipeline_stage_id' },
+        { table_name: 'todos', column_name: 'updated_at' },
+      ],
+    })
+    const em = buildEm(db)
+    const fallback = {
+      query: jest.fn().mockResolvedValue({ items: [{ id: 'todo-1' }], page: 1, pageSize: 25, total: 10 }),
+    }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const result = await engine.query('example:todo', {
+      fields: ['id', 'pipeline_id', 'pipeline_stage_id', 'updated_at'],
+      includeCustomFields: true,
+      filters: {
+        pipeline_id: { $eq: 'pipeline-1' },
+        pipeline_stage_id: { $eq: 'stage-1' },
+      },
+      sort: [{ field: 'updated_at', dir: SortDir.Desc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+      page: { page: 1, pageSize: 25 },
+    })
+
+    expect(fallback.query).toHaveBeenCalled()
+    expect(result.items).toEqual([{ id: 'todo-1' }])
+    expect(result.total).toBe(10)
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Hybrid query returned zero rows'),
+      expect.objectContaining({ entity: 'example:todo', fallbackTotal: 10 }),
+    )
+    warnSpy.mockRestore()
+  })
+
   test('skips partial coverage warning when entity has no custom fields', async () => {
     const db = createFakeKysely({
       baseTable: 'todos', hasIndexAny: true, baseCount: 8, indexCount: 2, customFieldKeys: {},

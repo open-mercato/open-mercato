@@ -889,13 +889,17 @@ export class HybridQueryEngine implements QueryEngine {
         total = this.parseCount(countRow)
       }
 
+      const hasFilterInput = normalizedFilters.length > 0 || (
+        !!opts.filters &&
+        typeof opts.filters === 'object' &&
+        (!Array.isArray(opts.filters) || opts.filters.length > 0) &&
+        (Array.isArray(opts.filters) || Object.keys(opts.filters as Record<string, unknown>).length > 0)
+      )
       if (
         total === 0 &&
-        wantsCf &&
-        normalizedFilters.length > 0 &&
+        hasFilterInput &&
         cfFilters.length === 0 &&
-        searchFilters.length === 0 &&
-        !partialIndexWarning
+        searchFilters.length === 0
       ) {
         const fallbackResult = await this.fallback.query<T>(entity, opts)
         const fallbackTotal = typeof fallbackResult?.total === 'number'
