@@ -3,15 +3,15 @@
 **Last updated:** 2026-06-17T14:35:00Z
 **Branch:** feat/tenant-scoped-search-settings-impl (fork; stacked on origin/fix/tenant-scoped-search-settings, spec PR #3093)
 **PR:** not yet opened (opens after Phase 4, per skill — fork has no upstream label perms so claim/labels degrade to comments)
-**Current phase/step:** Phase 1 COMPLETE → next is Phase 2 Step 2.1
-**Last commit:** 15cd812a1 — test(configs): cover ModuleConfigService tenant scoping
+**Current phase/step:** Phase 2 COMPLETE → next is Phase 3 Step 3.1
+**Last commit:** a760e0310 — test(search): tenant-scoped settings isolation + source
 
 ## What just happened
-- Phase 1 landed in full: scope columns + partial unique indexes + migration + snapshot (1.1); scope-aware ModuleConfigService (1.2); unit tests (1.3).
-- Checkpoint 1 green: 5/5 new unit tests, 41/41 configs regression, build:packages 21/21 (exit 0).
+- Phase 2 landed: scope threaded through search settings helpers + routes (2.1); env-derived defaults + source discriminator on GET (2.2); isolation/source tests (2.3).
+- Checkpoint 2 green: search build exit 0, search lib tests 7/7.
 
 ## Next concrete action
-- Step 2.1: thread the authenticated `tenantId` (auth context only) into `resolveEmbeddingConfig`/`saveEmbeddingConfig` (`packages/search/src/modules/search/lib/embedding-config.ts`), `resolveGlobalSearchStrategies`/`saveGlobalSearchStrategies` (`global-search-config.ts`), and the auto-index flag flow in `api/embeddings/route.ts`. Pass `{ scope: { tenantId } }` through to `moduleConfigService`.
+- Step 3.1: add `EmbeddingProviderProbe` (DI-registered in search) with `checkAvailability(providerId)` — Ollama `/api/tags` via AbortController (~1500ms), key-presence for the rest, cached (~30s, global key) + fail-closed.
 
 ## Blockers / open questions
 - none

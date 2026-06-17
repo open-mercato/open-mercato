@@ -13,3 +13,8 @@
 - Checks: new unit 5/5, configs regression 41/41, build:packages 21/21 (exit 0).
 - Full typecheck + db:generate drift probe deferred to final gate (need `yarn generate` barrels on fresh worktree).
 - Decision: pausing for user check-in after the foundational/highest-risk phase before driving Phase 2–4.
+
+## 2026-06-17T14:55:00Z — checkpoint 2 (Phase 2 complete)
+- Steps 2.1–2.3 landed (pushed head a760e0310).
+- Checks: search build exit 0; search lib tests 7/7; TC-SEARCH-010 deferred to integration suite.
+- Decision logged: embedding-config consumers driving the shared pgvector table stay instance-level by design (single global table dimension).
