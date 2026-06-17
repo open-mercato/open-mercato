@@ -63,10 +63,10 @@ tracking issue (using the repo's existing "Implement: …" tracking-issue conven
 
 ### Phase 1: Skill rewrite
 
-- [ ] 1.1 Update frontmatter description and intro for dual-mode
-- [ ] 1.2 Add spec-detection step and spec tracking-issue workflow
-- [ ] 1.3 Update Inputs and Rules sections
+- [x] 1.1 Update frontmatter description and intro for dual-mode
+- [x] 1.2 Add spec-detection step and spec tracking-issue workflow
+- [x] 1.3 Update Inputs and Rules sections
 
 ### Phase 2: Validation
 
-- [ ] 2.1 Re-read diff; verify YAML frontmatter and internal references
+- [x] 2.1 Re-read diff; verify YAML frontmatter and internal references
