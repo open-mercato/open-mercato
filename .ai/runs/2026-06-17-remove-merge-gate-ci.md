@@ -77,4 +77,8 @@ Delete the `merge-gate` GitHub Actions workflow and sync every doc/skill that cl
 ### Phase 3: Validate and open PR
 
 - [x] 3.1 Repo-wide grep + diff re-read — confirmed only docs/CI-config changed; historical run/spec/CHANGELOG records intentionally left
-- [ ] 3.2 Open PR, labels, review pass, summary
+- [x] 3.2 Open PR, labels, review pass, summary — PR #3144
+
+## Changelog
+
+- 2026-06-17 — Opened PR #3144 (`fix/remove-merge-gate-ci`) against `develop`. Status: complete. Maintainer must remove "Merge gate" from branch-protection required checks (flagged in PR body).
