@@ -1,20 +1,6 @@
-# @open-mercato/enterprise
+# Open Mercato Enterprise Subscription
 
-Enterprise-only package for commercial Open Mercato modules and overlays.
-
-This package is where Enterprise Edition implementations are delivered, currently including:
-
-- **MFA / 2FA** — multi-factor authentication with pluggable providers (TOTP, WebAuthn/passkeys, OTP email), enforcement policies, sudo challenge flows, provider-specific challenge UI registry, and enrollment redirect UX
-- **SSO & Directory Sync** — SAML/OIDC single sign-on with SCIM directory provisioning, per-org IdP configuration, and JIT user provisioning
-- **Record Locking** — optimistic and pessimistic mutation protection with participant presence, conflict detection/resolution, and force release
-- **Auth Login Interceptors** — MFA login gating via UMES extension points with zero core modifications
-- **System Status Overlays** — enterprise overlays and injected widgets for system status pages
-
-## Open Mercato Partnership Program
-
-Build Open Mercato implementations without production risk.
-
-Open Mercato takes responsibility for platform standards, security, and production certification. Partner agencies own delivery, revenue, and the client relationship.
+The commercial layer of Open Mercato — proprietary enterprise modules plus certification, review, and operational support that take AI-built CRM/ERP systems to production. Delivered as the `@open-mercato/enterprise` package.
 
 ## The Problem We Solve
 
@@ -39,11 +25,11 @@ Production requires:
 
 This is a production requirement.
 
-## Open Mercato Enterprise Subscription
+## The Solution
 
-The Enterprise Subscription combines the proprietary enterprise software modules above with certification, review, and operational support — so teams can take AI-built CRM/ERP systems to production with confidence. It is governed by the Open Mercato Enterprise License Agreement.
+The Enterprise Subscription answers this directly: run verified builds of Open Mercato on Open Mercato's infrastructure, develop and edit them in the cloud, and let Open Mercato's tooling certify them for production. One subscription bundles the proprietary enterprise modules, the certification path (architecture audit, security / performance / custom-code reviews, homologation), and operational support. It is governed by the Open Mercato Enterprise License Agreement.
 
-### Licensing model
+## Licensing Model
 
 - **Per project, not per seat.** Charged per Open Mercato project / monorepo, never per developer or end user.
 - **Unlimited seats.** No limit on users or servers within a given system.
@@ -52,7 +38,7 @@ The Enterprise Subscription combines the proprietary enterprise software modules
 
 A *project* is a single business domain / department / goal-oriented deployment of Open Mercato — not limited to a single physical instance (a multi-server deployment can be one project).
 
-### Subscription tiers
+## Subscription Tiers
 
 Three tiers scale the level of service with company size. Every tier includes the full Enterprise Software Package and unlimited seats. Commercial terms are provided on request.
 
@@ -73,6 +59,16 @@ Three tiers scale the level of service with company size. Every tier includes th
 
 Startups below $5M in annual revenue can request a startup discount via [info@openmercato.com](mailto:info@openmercato.com).
 
+## Enterprise Software Package
+
+The `@open-mercato/enterprise` package delivers the proprietary modules included with every subscription — not available in the open-source distribution:
+
+- **MFA / 2FA** — multi-factor authentication with pluggable providers (TOTP, WebAuthn/passkeys, OTP email), enforcement policies, sudo challenge flows, provider-specific challenge UI registry, and enrollment redirect UX
+- **SSO & Directory Sync** — SAML/OIDC single sign-on with SCIM directory provisioning, per-org IdP configuration, and JIT user provisioning
+- **Record Locking** — optimistic and pessimistic mutation protection with participant presence, conflict detection/resolution, and force release
+- **Auth Login Interceptors** — MFA login gating via UMES extension points with zero core modifications
+- **System Status Overlays** — enterprise overlays and injected widgets for system status pages
+
 ## Sandboxes
 
 Open Mercato Sandboxes are pre-provisioned cloud environments with Open Mercato (in dev mode) and AI coding agents preinstalled — ready in about 30 seconds, no local setup. Start from a ready-made template (e.g. a CRM app) or an empty project, and you get a real, production-grade stack to build on (RBAC, encryption, multi-tenancy) on an industry-standard toolchain, so skills transfer to real work — no proprietary lock-in.
@@ -86,6 +82,12 @@ Build and learn in the sandbox, then move the application to your own infrastruc
 Pre-launch (waitlist): [sandboxes.openmercato.com](https://sandboxes.openmercato.com)
 
 Sandboxes are for building and learning. Production still runs the certification and homologation path above.
+
+## Open Mercato Partnership Program
+
+Build Open Mercato implementations without production risk.
+
+Open Mercato takes responsibility for platform standards, security, and production certification. Partner agencies own delivery, revenue, and the client relationship.
 
 ## Open Mercato Certified Agencies
 
