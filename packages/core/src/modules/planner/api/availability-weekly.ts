@@ -102,6 +102,16 @@ export const openApi = {
         { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
+        {
+          status: 409,
+          description: 'Optimistic lock conflict',
+          schema: z.object({
+            error: z.string(),
+            code: z.literal('optimistic_lock_conflict'),
+            currentUpdatedAt: z.string(),
+            expectedUpdatedAt: z.string(),
+          }),
+        },
       ],
     },
   },
