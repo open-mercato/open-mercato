@@ -3,15 +3,14 @@
 **Last updated:** 2026-06-17T14:35:00Z
 **Branch:** feat/tenant-scoped-search-settings-impl (fork; stacked on origin/fix/tenant-scoped-search-settings, spec PR #3093)
 **PR:** not yet opened (opens after Phase 4, per skill — fork has no upstream label perms so claim/labels degrade to comments)
-**Current phase/step:** Phase 3 COMPLETE → next is Phase 4 Step 4.1
+**Current phase/step:** ALL PHASES COMPLETE — final gate green, opening PR
 **Last commit:** a760e0310 — test(search): tenant-scoped settings isolation + source
 
 ## What just happened
-- Phase 3 landed: EmbeddingProviderProbe (3.1); GET availability annotations + POST 409 save guard (3.2); probe unit tests (3.3).
-- Checkpoint 3 green: search build exit 0, search lib tests 15/15.
+- Phases 1-4 complete (all 13 task rows done). Final gate: generate ✅, build:packages 21/21 ✅, typecheck 21/21 0-errors ✅, i18n in sync ✅, full unit suite green except the documented cli inotify flake. DS self-check clean.
 
 ## Next concrete action
-- Step 4.1: update the search settings UI (`VectorSearchSection.tsx` / `GlobalSearchSection.tsx` / `SearchSettingsPageClient.tsx`) to render provider cards from `providerAvailability` (disable unreachable + show reason), surface `source`/inheritance, and a Refresh control. DS-compliant (semantic status tokens, no arbitrary sizes).
+- Open the PR against upstream develop (fork head). Post run summary.
 
 ## Blockers / open questions
 - none

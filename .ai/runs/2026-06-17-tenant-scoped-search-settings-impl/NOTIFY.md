@@ -23,3 +23,7 @@
 - Steps 3.1–3.3 landed (probe + gate + tests).
 - Checks: search build exit 0; search lib tests 15/15.
 - Note: probe is the availability authority for selection; sync available getters stay presence-based (documented).
+
+## 2026-06-17T15:40:00Z — final gate (all phases complete)
+- generate exit 0; build:packages 21/21; typecheck 21/21 (0 TS errors); i18n in sync; full unit suite green except documented cli dev-env-reload inotify flake (fs.watch ENOSPC live-probed; not touched by this run).
+- build:app + test:integration deferred to CI (heavy/needs ephemeral stack; app typecheck clean). create-app:integration skipped (no packaging/shared-export change). ds-guardian: TSX diff clean.
