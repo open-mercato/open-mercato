@@ -239,3 +239,32 @@ export class WebhookIngestionEntity {
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 }
+
+@Entity({ tableName: 'webhook_inbound_configs' })
+@Unique({ name: 'webhook_inbound_configs_source_scope_unique', properties: ['sourceKey', 'organizationId', 'tenantId'] })
+@Index({ properties: ['sourceKey', 'isActive'] })
+export class InboundEndpointConfigEntity {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'source_key', type: 'text' })
+  sourceKey!: string
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'integration_id', type: 'text', nullable: true })
+  integrationId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
