@@ -1,18 +1,23 @@
 ---
 name: om-followup-issue-from-pr
-description: Turn a review comment into a follow-up GitHub issue assigned to the PR author. Paste a link to a PR or a PR comment; the skill extracts the actionable ask from the comment, gathers PR context, and opens a tracking issue. Assignee is the comment's @-mention if present, otherwise the PR author. Use during code review when the user says "make a follow-up issue", "create an issue for this", "om-followup", or pastes a PR/comment link with that intent.
+description: Turn a PR into tracked follow-up work. Two modes (both can fire for one PR). (1) Comment mode — paste a PR or PR-comment link; the skill extracts the actionable ask, gathers PR context, and opens a follow-up issue assigned to the comment's @-mention if present, otherwise the PR author. (2) Spec mode — if the PR adds/contains a spec under `.ai/specs/`, the skill checks whether a tracking issue for implementing that spec already exists and, if not, opens an `Implement: …` tracking issue. Use during code review when the user says "make a follow-up issue", "create an issue for this", "om-followup", or pastes a PR/comment link with that intent.
 ---
 
-# Follow-up Issue from PR Comment
+# Follow-up Issue from PR
 
-Companion to the code-review process. The user pastes a link to a **PR** or a **specific PR comment** that contains an actionable request (usually written by the reviewer). This skill turns that request into a GitHub issue so the follow-up work is tracked, assigned to the right person.
+Companion to the code-review and spec-writing processes. The user pastes a link to a **PR** or a **specific PR comment**. This skill turns the PR into tracked follow-up work in up to two ways, and **both can apply to the same PR**:
+
+- **Comment mode** — the linked comment (or a comment chosen from a plain PR link) contains an actionable request (usually written by the reviewer). The skill turns that request into a GitHub issue, assigned to the right person.
+- **Spec mode** — the PR adds or contains a spec file under `.ai/specs/` (a spec PR). The skill checks whether a tracking issue for *implementing that spec* already exists and, if not, opens one following the repo's `Implement: …` tracking-issue convention.
+
+When a plain PR link is pasted, always run the spec check (step 2a) in addition to the comment handling. When a specific comment link is pasted, comment mode is the primary intent, but still surface any new spec in the PR so the user can opt into a tracking issue.
 
 ## Inputs
 
 - **A GitHub URL** (required), one of:
   - PR comment link: `…/pull/<num>#issuecomment-<id>`
   - Inline review comment link: `…/pull/<num>#discussion_r<id>`
-  - Plain PR link: `…/pull/<num>` — no specific comment; see step 2.
+  - Plain PR link: `…/pull/<num>` — no specific comment; runs spec detection (step 2a) and, if comments exist, comment selection (step 2).
 - The repo is parsed from the URL (`owner/repo`). Don't assume the current repo.
 
 ## Steps
