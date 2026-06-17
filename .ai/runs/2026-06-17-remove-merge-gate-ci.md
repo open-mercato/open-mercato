@@ -76,5 +76,5 @@ Delete the `merge-gate` GitHub Actions workflow and sync every doc/skill that cl
 
 ### Phase 3: Validate and open PR
 
-- [ ] 3.1 Repo-wide grep + diff re-read
+- [x] 3.1 Repo-wide grep + diff re-read — confirmed only docs/CI-config changed; historical run/spec/CHANGELOG records intentionally left
 - [ ] 3.2 Open PR, labels, review pass, summary
