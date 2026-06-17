@@ -23,7 +23,7 @@
 | 4 | 4.1 | Webhook source/handler bootstrap-registry helpers (+ tests) | done | 5abaf1a97 |
 | 4 | 4.2 | generators.ts plugins (webhook-sources.ts + webhook-handlers.ts) + spec convention update | done | 1effcf1ec |
 | 5 | 5.1 | Unify inbound route: source registry first, adapter fallback | done | fcb100459 |
-| 5 | 5.2 | Unit tests for unified route resolution / dedup / reject | todo | — |
+| 5 | 5.2 | Unit tests for unified route resolution / dedup / reject | done | 976560a48 |
 
 ## Goal
 
