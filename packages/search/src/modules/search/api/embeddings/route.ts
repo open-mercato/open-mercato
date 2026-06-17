@@ -13,6 +13,8 @@ import {
   getEffectiveDimension,
 } from '../../lib/embedding-config'
 import type { EmbeddingConfigSource } from '../../lib/embedding-config'
+import { checkAllProviders } from '../../lib/provider-probe'
+import type { EmbeddingProviderProbe, ProviderAvailabilityEntry } from '../../lib/provider-probe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EmbeddingProviderConfig, EmbeddingProviderId, VectorDriver } from '../../../../vector'
 import { EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG, EmbeddingService } from '../../../../vector'
@@ -46,6 +48,7 @@ type SettingsResponse = {
     embeddingConfig: EmbeddingProviderConfig | null
     embeddingConfigSource: EmbeddingConfigSource
     configuredProviders: EmbeddingProviderId[]
+    providerAvailability: ProviderAvailabilityEntry[]
     indexedDimension: number | null
     reindexRequired: boolean
     documentCount: number | null
@@ -64,6 +67,26 @@ const unauthorized = async () => {
 const configUnavailable = async () => {
   const { t } = await resolveTranslations()
   return NextResponse.json({ error: t('search.api.errors.configUnavailable', 'Configuration service unavailable') }, { status: 503 })
+}
+
+function resolveProbe(container: { resolve: <T = unknown>(name: string) => T }): EmbeddingProviderProbe | null {
+  try {
+    return container.resolve<EmbeddingProviderProbe>('embeddingProviderProbe')
+  } catch {
+    return null
+  }
+}
+
+async function resolveProviderAvailability(
+  container: { resolve: <T = unknown>(name: string) => T },
+): Promise<ProviderAvailabilityEntry[]> {
+  const probe = resolveProbe(container)
+  if (!probe) return []
+  try {
+    return await checkAllProviders(probe)
+  } catch {
+    return []
+  }
 }
 
 async function getIndexedDimension(container: { resolve: <T = unknown>(name: string) => T }): Promise<number | null> {
@@ -116,6 +139,7 @@ export async function GET(req: Request) {
       scope: { tenantId: auth.tenantId },
     })
     const configuredProviders = getConfiguredProviders()
+    const providerAvailability = await resolveProviderAvailability(container)
     const indexedDimension = await getIndexedDimension(container)
 
     const effectiveDimension = embeddingConfig
@@ -142,6 +166,7 @@ export async function GET(req: Request) {
         embeddingConfig,
         embeddingConfigSource,
         configuredProviders,
+        providerAvailability,
         indexedDimension,
         reindexRequired,
         documentCount,
@@ -216,6 +241,24 @@ export async function POST(req: Request) {
           { error: t('search.api.errors.providerNotConfigured', `Provider ${providerInfo.name} is not configured. Set ${providerInfo.envKeyRequired} environment variable.`) },
           { status: 400 },
         )
+      }
+
+      // Save-time availability guard: never persist a provider the probe reports unreachable.
+      const probe = resolveProbe(container)
+      if (probe) {
+        const availability = await probe.checkAvailability(newConfig.providerId)
+        if (!availability.available) {
+          return NextResponse.json(
+            {
+              error: t(
+                'search.api.errors.providerUnavailable',
+                `Provider ${providerInfo.name} is not available: ${availability.reason ?? 'unreachable'}`,
+              ),
+              reason: availability.reason ?? null,
+            },
+            { status: 409 },
+          )
+        }
       }
 
       const change = detectConfigChange(
@@ -302,6 +345,7 @@ export async function POST(req: Request) {
         embeddingConfig,
         embeddingConfigSource,
         configuredProviders: getConfiguredProviders(),
+        providerAvailability: await resolveProviderAvailability(container),
         indexedDimension,
         reindexRequired,
         documentCount: updatedDocumentCount,

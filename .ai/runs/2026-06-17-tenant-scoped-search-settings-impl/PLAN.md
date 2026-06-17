@@ -14,7 +14,7 @@
 | 2 | 2.2 | Env-derived defaults + `source` discriminator in GET responses | done | e00a1cbc8 |
 | 2 | 2.3 | Integration tests (search): Tenant A save ↛ Tenant B; unset inherits env/instance | done | 1b1c4f25b |
 | 3 | 3.1 | `EmbeddingProviderProbe` (Ollama `/api/tags` probe, key-presence others), cached + fail-closed + DI | done | 4dcb14d6d |
-| 3 | 3.2 | Wire `isProviderConfigured`/`EmbeddingService.available`/`VectorSearchStrategy.isAvailable` + POST save guard | todo | — |
+| 3 | 3.2 | Wire provider-availability probe into GET annotations + POST save guard | done | 93049daf5 |
 | 3 | 3.3 | Unit tests: Ollama reachable/unreachable/timeout, availability propagation, save guard | todo | — |
 | 4 | 4.1 | UI: provider cards reflect real availability (disable + reason), `source`/inheritance, Refresh (DS-compliant) | todo | — |
 | 4 | 4.2 | Integration test: unreachable provider blocked in UI + rejected by API | todo | — |

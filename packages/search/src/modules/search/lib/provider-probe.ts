@@ -13,8 +13,26 @@ export type ProviderAvailability = {
   models?: number
 }
 
+export type ProviderAvailabilityEntry = ProviderAvailability & {
+  providerId: EmbeddingProviderId
+}
+
 export type EmbeddingProviderProbe = {
   checkAvailability(providerId: EmbeddingProviderId, options?: { force?: boolean }): Promise<ProviderAvailability>
+}
+
+const ALL_PROVIDERS: EmbeddingProviderId[] = ['openai', 'google', 'mistral', 'cohere', 'bedrock', 'ollama']
+
+export async function checkAllProviders(
+  probe: EmbeddingProviderProbe,
+  options?: { force?: boolean },
+): Promise<ProviderAvailabilityEntry[]> {
+  return Promise.all(
+    ALL_PROVIDERS.map(async (providerId) => ({
+      providerId,
+      ...(await probe.checkAvailability(providerId, options)),
+    })),
+  )
 }
 
 const cacheKey = (providerId: string) => `embedding-provider-probe:${CACHE_VERSION}:${providerId}`
