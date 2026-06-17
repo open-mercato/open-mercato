@@ -128,7 +128,7 @@ export function DealLostSummaryDialog({
             {lossNotes ? (
               <div className="rounded-xl bg-primary/15 px-4 py-4 text-left">
                 <div className="text-overline font-bold uppercase tracking-[0.16em] text-foreground">
-                  {t('customers.deals.detail.lost.nextHeading', "What's next")}
+                  {t('customers.deals.detail.lost.nextHeading', 'Loss notes')}
                 </div>
                 <div className="mt-2 text-xs leading-5 text-muted-foreground">{lossNotes}</div>
               </div>

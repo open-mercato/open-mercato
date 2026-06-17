@@ -35,6 +35,8 @@ type LaneProps = {
   deals: DealCardData[]
   /** Server-side aggregate for accurate counts/totals across all deals in this stage, not just loaded ones */
   aggregate?: LaneAggregateProp | null
+  /** Total reported by the list endpoint for this lane; used for pagination decisions */
+  listTotal?: number | null
   selectedDealIds: Set<string>
   buildMenuItems: (deal: DealCardData) => RowActionItem[]
   activeDragDealId?: string | null
@@ -185,6 +187,7 @@ function LaneImpl({
   stage,
   deals,
   aggregate,
+  listTotal,
   selectedDealIds,
   buildMenuItems,
   activeDragDealId,
@@ -221,7 +224,10 @@ function LaneImpl({
     : null
   const visibleCount = deals.length
   const totalCount = stats.count
-  const hasMoreDeals = totalCount > visibleCount
+  const paginationTotal = typeof listTotal === 'number' && Number.isFinite(listTotal)
+    ? listTotal
+    : totalCount
+  const hasMoreDeals = paginationTotal > visibleCount
   const accentClass = getAccentClass(stage.tone)
   const countBadgeClass = getCountBadgeClass(stage.tone)
 
@@ -345,7 +351,7 @@ function LaneImpl({
                   t,
                   'customers.deals.kanban.lane.loadMore',
                   'Show more ({remaining})',
-                  { remaining: totalCount - visibleCount },
+                  { remaining: paginationTotal - visibleCount },
                 )}
           </DashedTileButton>
         ) : null}
@@ -367,6 +373,7 @@ export const Lane = React.memo(LaneImpl, (prev, next) => {
   if (prev.stage !== next.stage) return false
   if (prev.deals !== next.deals) return false
   if (prev.aggregate !== next.aggregate) return false
+  if (prev.listTotal !== next.listTotal) return false
   if (prev.selectedDealIds !== next.selectedDealIds) return false
   if (prev.buildMenuItems !== next.buildMenuItems) return false
   if (prev.activeDragDealId !== next.activeDragDealId) return false

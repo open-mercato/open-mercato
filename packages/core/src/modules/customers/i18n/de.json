@@ -778,7 +778,7 @@
   "customers.deals.detail.lost.dealsThisWeek": "Lost this week",
   "customers.deals.detail.lost.followUpFallbackTitle": "Revisit closed deal",
   "customers.deals.detail.lost.followUpTitle": "Revisit {{title}}",
-  "customers.deals.detail.lost.nextHeading": "What's next",
+  "customers.deals.detail.lost.nextHeading": "Verlustnotizen",
   "customers.deals.detail.lost.notesLabel": "Loss notes (optional)",
   "customers.deals.detail.lost.notesPlaceholder": "Additional context about the loss...",
   "customers.deals.detail.lost.popupSubtitle": "Even great teams miss a shot sometimes",

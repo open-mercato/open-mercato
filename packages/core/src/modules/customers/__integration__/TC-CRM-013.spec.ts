@@ -90,4 +90,96 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
       await deleteEntityByBody(request, token, '/api/customers/pipelines', pipelineId);
     }
   });
+
+  test('keeps aggregate counts, paginated list totals, and Show more aligned', async ({ page, request }) => {
+    test.slow();
+
+    let token: string | null = null;
+    let pipelineId: string | null = null;
+    let stageId: string | null = null;
+    let laterStageId: string | null = null;
+    const dealIds: string[] = [];
+
+    const timestamp = Date.now();
+    const pipelineName = `QA TC-CRM-013 Pagination Pipeline ${timestamp}`;
+    const stageName = 'Qualified';
+    const laterStageName = 'Review';
+    const titlePrefix = `QA TC-CRM-013 Page Deal ${timestamp}`;
+
+    try {
+      token = await getAuthToken(request);
+      pipelineId = await createPipelineFixture(request, token, { name: pipelineName });
+      stageId = await createPipelineStageFixture(request, token, { pipelineId, label: stageName, order: 0 });
+      laterStageId = await createPipelineStageFixture(request, token, { pipelineId, label: laterStageName, order: 1 });
+
+      for (let index = 1; index <= 27; index += 1) {
+        const dealId = await createDealFixture(request, token, {
+          title: `${titlePrefix} ${String(index).padStart(2, '0')}`,
+          pipelineId: pipelineId!,
+          pipelineStageId: stageId!,
+          valueAmount: 1000 + index,
+          valueCurrency: 'USD',
+        });
+        dealIds.push(dealId);
+      }
+
+      const aggregateResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/customers/deals/aggregate?pipelineId=${encodeURIComponent(pipelineId!)}`,
+        { token },
+      );
+      expect(aggregateResponse.ok(), `GET aggregate failed: ${aggregateResponse.status()}`).toBeTruthy();
+      const aggregateBody = (await aggregateResponse.json()) as {
+        perStage?: Array<{ stageId?: string; count?: number }>;
+      };
+      const aggregateStage = (aggregateBody.perStage ?? []).find((row) => row.stageId === stageId);
+      expect(aggregateStage?.count).toBe(27);
+
+      const pageOneResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/customers/deals?pipelineId=${encodeURIComponent(pipelineId!)}&pipelineStageId=${encodeURIComponent(stageId!)}&page=1&pageSize=25&sortField=updatedAt&sortDir=desc`,
+        { token },
+      );
+      expect(pageOneResponse.ok(), `GET deals page 1 failed: ${pageOneResponse.status()}`).toBeTruthy();
+      const pageOneBody = (await pageOneResponse.json()) as { items?: Array<Record<string, unknown>>; total?: number };
+      expect(pageOneBody.items ?? []).toHaveLength(25);
+      expect(pageOneBody.total).toBe(27);
+
+      const pageTwoResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/customers/deals?pipelineId=${encodeURIComponent(pipelineId!)}&pipelineStageId=${encodeURIComponent(stageId!)}&page=2&pageSize=25&sortField=updatedAt&sortDir=desc`,
+        { token },
+      );
+      expect(pageTwoResponse.ok(), `GET deals page 2 failed: ${pageTwoResponse.status()}`).toBeTruthy();
+      const pageTwoBody = (await pageTwoResponse.json()) as { items?: Array<Record<string, unknown>>; total?: number };
+      expect(pageTwoBody.items ?? []).toHaveLength(2);
+      expect(pageTwoBody.total).toBe(27);
+
+      await login(page, 'admin');
+      await page.goto('/backend/customers/deals/pipeline');
+      const pipelineChip = page.getByRole('button', { name: /^Pipeline:/ });
+      await expect(pipelineChip).toBeVisible({ timeout: 10_000 });
+      await pipelineChip.click();
+      const pipelinePopover = page.getByRole('dialog').last();
+      await pipelinePopover.getByRole('radio', { name: pipelineName, exact: true }).click();
+      await pipelinePopover.getByRole('button', { name: 'Apply', exact: true }).click();
+
+      await expect(page.getByText(stageName, { exact: true })).toBeVisible();
+      await expect(page.locator(`[aria-label="Deal: ${titlePrefix} 27"]`)).toBeVisible();
+      await expect(page.locator(`[aria-label="Deal: ${titlePrefix} 01"]`)).not.toBeVisible();
+
+      await page.getByRole('button', { name: new RegExp(`Load more deals in ${stageName}`) }).click();
+      await expect(page.locator(`[aria-label="Deal: ${titlePrefix} 01"]`)).toBeVisible();
+    } finally {
+      for (const dealId of dealIds) {
+        await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
+      }
+      await deleteEntityByBody(request, token, '/api/customers/pipeline-stages', laterStageId);
+      await deleteEntityByBody(request, token, '/api/customers/pipeline-stages', stageId);
+      await deleteEntityByBody(request, token, '/api/customers/pipelines', pipelineId);
+    }
+  });
 });

@@ -26,6 +26,7 @@ const querySchema = z.object({
   ownerUserId: z.array(z.string().uuid()).optional(),
   personId: z.array(z.string().uuid()).optional(),
   companyId: z.array(z.string().uuid()).optional(),
+  valueCurrency: z.string().optional(),
   isStuck: z.preprocess((value) => {
     const parsed = parseBooleanFromUnknown(value)
     return parsed === null ? value : parsed
@@ -149,6 +150,7 @@ export async function GET(req: Request) {
     ownerUserId: readArrayParam(params, 'ownerUserId') ?? undefined,
     personId: readArrayParam(params, 'personId') ?? undefined,
     companyId: readArrayParam(params, 'companyId') ?? undefined,
+    valueCurrency: params.get('valueCurrency') ?? undefined,
     isStuck: params.get('isStuck') ?? undefined,
     isOverdue: params.get('isOverdue') ?? undefined,
     expectedCloseAtFrom: params.get('expectedCloseAtFrom') ?? undefined,
@@ -199,6 +201,11 @@ export async function GET(req: Request) {
   if (parsed.data.pipelineId) {
     where.push('pipeline_id = ?')
     values.push(parsed.data.pipelineId)
+  }
+  const valueCurrency = parsed.data.valueCurrency?.trim().toUpperCase()
+  if (valueCurrency) {
+    where.push('UPPER(value_currency) = ?')
+    values.push(valueCurrency)
   }
   const search = parsed.data.search?.trim()
   if (search) {

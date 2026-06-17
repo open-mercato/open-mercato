@@ -266,6 +266,7 @@ export class HybridQueryEngine implements QueryEngine {
       const wantsCf = (
         (opts.fields || []).some((field) => typeof field === 'string' && (field.startsWith('cf:') || field.startsWith('l10n:'))) ||
         cfFilters.length > 0 ||
+        opts.includeCustomFields === true ||
         (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.length > 0)
       )
 

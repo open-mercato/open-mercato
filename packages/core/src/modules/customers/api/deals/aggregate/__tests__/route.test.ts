@@ -79,6 +79,23 @@ describe('customers deals aggregate route', () => {
     expect(values).toContain(dealId)
   })
 
+  it('applies the valueCurrency filter used by kanban lane list requests', async () => {
+    const response = await GET(
+      new Request(
+        `http://localhost/api/customers/deals/aggregate?pipelineId=${pipelineId}&valueCurrency=gbp`,
+      ),
+    )
+
+    expect(response.status).toBe(200)
+
+    const aggregateCall = executeMock.mock.calls[1]
+    const sql = String(aggregateCall[0])
+    const values = aggregateCall[1] as string[]
+
+    expect(sql).toContain('UPPER(value_currency) = ?')
+    expect(values).toContain('GBP')
+  })
+
   it('collapses to zero rows when token lookup has no matches and encryption is enabled (default)', async () => {
     // `customers:customer_deal.title` and `.description` are encrypted at rest, so
     // the ILIKE fallback would silently match nothing on the ciphertext. The route
