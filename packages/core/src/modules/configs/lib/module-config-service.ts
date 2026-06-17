@@ -202,7 +202,12 @@ export function createModuleConfigService(container: AppContainer): ModuleConfig
     }
     await em.flush()
     const record = toRecord(entity, tenantId ? 'tenant' : 'instance')
-    await writeCache(resolveCache(container), cacheKey(moduleId, name, tenantId), { found: true, record }, moduleId)
+    const cache = resolveCache(container)
+    if (tenantId) {
+      await writeCache(cache, cacheKey(moduleId, name, tenantId), { found: true, record }, moduleId)
+    } else {
+      await deleteCacheByModule(cache, moduleId)
+    }
     return record
   }
 

@@ -9,7 +9,7 @@
 | 0 | 0.1 | Seed run folder (PLAN/HANDOFF/NOTIFY) | done | b960486b8 |
 | 1 | 1.1 | `module_configs` scope columns + partial unique indexes (entity + migration + snapshot) | done | 5c33bf349 |
 | 1 | 1.2 | `ModuleConfigService` scope-aware (resolution order, scoped writes, v2 cache keys) | done | 316b41f12 |
-| 1 | 1.3 | Unit tests: scoped→global→null resolution, scoped-write isolation, BC default path, cache keying | todo | — |
+| 1 | 1.3 | Unit tests: scoped→global→null resolution, scoped-write isolation, BC default path, cache keying | done | f479bb87e |
 | 2 | 2.1 | Thread auth `tenantId` into embedding/global-search/auto-index resolve+save flows | todo | — |
 | 2 | 2.2 | Env-derived defaults + `source` discriminator in GET responses | todo | — |
 | 2 | 2.3 | Integration tests (search): Tenant A save ↛ Tenant B; unset inherits env/instance | todo | — |
