@@ -75,10 +75,15 @@ Startups below $5M in annual revenue can request a startup discount via [info@op
 
 ## Sandboxes
 
-Open Mercato Sandboxes are one-click cloud environments with Open Mercato and your coding agents preinstalled, with live previews, ready in about 30 seconds. Build and learn in the sandbox, then move the application to your own infrastructure. This unified trial-and-build path replaces ad-hoc demos — teams can start AI-engineering immediately, without first clearing a security review.
+Open Mercato Sandboxes are pre-provisioned cloud environments with Open Mercato (in dev mode) and AI coding agents preinstalled — ready in about 30 seconds, no local setup. Start from a ready-made template (e.g. a CRM app) or an empty project, and you get a real, production-grade stack to build on (RBAC, encryption, multi-tenancy) on an industry-standard toolchain, so skills transfer to real work — no proprietary lock-in.
 
-- **Backups & restore:** download a backup of sandbox data and restore state up to 7 days back.
-- **Pre-launch (waitlist):** [sandboxes.openmercato.com](https://sandboxes.openmercato.com)
+- A browser workspace: a terminal with your coding agents (Claude Code, Codex) one pick away and a live preview, plus an IDE-with-chat view.
+- Full GitHub integration and live previews you can share by URL.
+- Pause, resume, or delete sandboxes; state persists, with backups and restore up to 7 days back.
+
+Build and learn in the sandbox, then move the application to your own infrastructure. This unified trial-and-build path replaces ad-hoc demos — start immediately, without first clearing a security review.
+
+Pre-launch (waitlist): [sandboxes.openmercato.com](https://sandboxes.openmercato.com)
 
 Sandboxes are for building and learning. Production still runs the certification and homologation path above.
 

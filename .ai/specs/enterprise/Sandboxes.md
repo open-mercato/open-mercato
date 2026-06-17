@@ -1,71 +1,18 @@
 # Open Mercato — Sandboxes
 
-Open Mercato distinguishes two cloud offerings:
+## Sandboxes
 
-- **Sandboxes** — one-click cloud dev/build environments with Open Mercato and your coding agents preinstalled, with live previews, ready in about 30 seconds. Build and learn in the sandbox, then move the application to your own infrastructure (backups + 7-day restore). This is the unified trial-and-build path that replaces ad-hoc demos. Public waitlist: https://sandboxes.openmercato.com.
-- **Developer Sandbox Cloud** — the optional, fully managed dev/test (and production) infrastructure described below, for clients who want Open Mercato to own setup, monitoring and maintenance instead of self-hosting.
+Open Mercato Sandboxes are pre-provisioned cloud environments with Open Mercato pre-installed (in dev mode) and AI coding agents wired in — for learning and building on Open Mercato with no local setup. A sandbox boots in about 30 seconds and provides:
+
+- The full Open Mercato framework in dev mode (entities, modules, generators, hot reload) on an industry-standard stack (TypeScript, React, Next.js, Postgres) — no proprietary lock-in, so skills transfer to real work.
+- A browser workspace: a terminal with coding agents (Claude Code, Codex) available from a quick menu, plus live preview, and an IDE-with-chat variant.
+- Start from a ready-made template (e.g. a CRM app) or an empty project, with full GitHub integration and shareable preview URLs.
+- Per-sandbox lifecycle (create, pause/resume, delete) with persistent volumes, backups, and restore up to 7 days back.
+
+Build and learn in the sandbox, then move the application to your own infrastructure. This unified trial-and-build path in the cloud replaces ad-hoc demos. Public waitlist: https://sandboxes.openmercato.com.
 
 ## Developer Sandbox Cloud
 
-Developer Sandbox Cloud is a managed infrastructure environment for Open Mercato clients. It covers full setup, maintenance and monitoring of production or development infrastructure based on Dokploy + VPS (Hetzner or client's own infrastructure).
+Developer Sandbox Cloud is an optional, fully managed dev/test infrastructure offering for clients who would rather Open Mercato own setup, monitoring and maintenance than self-host. It is based on a reference self-hosted deployment (Dokploy + parallel queue processing) and can run on Open Mercato-provided or client-owned infrastructure.
 
-The service provides the client with a ready-to-use, secure and monitored environment — without the need for an in-house DevOps team.
-
----
-
-## What's Included
-
-### Setup (one-time)
-- VPS provisioning and security hardening (fail2ban, SSH keys only, firewall, root login disabled)
-- Dokploy installation and configuration
-- CI/CD configuration for application deployment - GitHub repository integration
-- Domain / DNS / SSL configuration
-- Automated backup configuration (snapshots + remote backup to S3)
-- Monitoring and alerting setup (uptime, CPU, RAM, disk, logs)
-- Client onboarding doc — how to deploy, how to report issues, what's covered by support
-
-### Monthly Maintenance
-- Infrastructure monitoring and alert response
-- System and Dokploy updates (security patches)
-- Quarterly backup restore testing in a recovery environment
-- Deployment assistance and infrastructure-level troubleshooting
-- Quarterly security review (CVEs, certificates, backup status)
-- **4h of support per month** included in the package
-
-### SLA
-- **Response time:** up to 24h (business hours, Mon–Fri 9–17 CET)
-- **Support channels:** email / Slack / dedicated channel
-- **Coverage continuity:** mutual backup with a second engineer — service continuity in case of vacation or sick leave
-
----
-
-## What's NOT Included
-
-- Application code debugging and fixes (business logic, bugs in Node/Python/etc.)
-- Development of new application features
-- Integration with client's external systems — **priced separately**
-- Data migration between environments — **priced separately**
-- Work exceeding 4h/month 
-
-### Responsibility Boundary
-Everything related to infrastructure, Docker, Terraform, server configuration and deployment — **DevOps responsibility**. 
-Application code — **development team responsibility**.
-
----
-
-## Pricing
-
-| Item | Price |
-|---|---|
-| Setup — Hetzner (standard) | **Please Contact us** |
-| Setup — client infrastructure (custom) | **quoted individually**  |
-| Monthly maintenance + 24h SLA + 4h support | **Please Contact us** |
-| Additional hours beyond package | **Please Contact us** |
-| Client system integrations | **quoted individually** |
-
----
-
-## Additional Information
-
-- Standard stack: **Dokploy + Hetzner VPS**. Other providers (AWS, GCP, Azure) available — setup priced individually.
-- Ownership of IaC, scripts and templates remains with **Open Mercato** — enabling reuse and continuous service improvement.
+Scope and commercial terms are agreed per engagement.
