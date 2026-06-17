@@ -26,3 +26,29 @@ describe('computeAvailableReturnQuantity (issue #1540)', () => {
     expect(computeAvailableReturnQuantity({ quantity: 1, returnedQuantity: Number.POSITIVE_INFINITY })).toBe(0)
   })
 })
+
+describe('computeAvailableReturnQuantity shipped cap (issue #3034)', () => {
+  it('caps availability at shipped quantity when nothing has shipped', () => {
+    expect(computeAvailableReturnQuantity({ quantity: 3, returnedQuantity: 0, shippedQuantity: 0 })).toBe(0)
+  })
+
+  it('caps availability at shipped quantity below the ordered quantity', () => {
+    expect(computeAvailableReturnQuantity({ quantity: 3, returnedQuantity: 0, shippedQuantity: 2 })).toBe(2)
+  })
+
+  it('subtracts already-returned quantity from the shipped cap', () => {
+    expect(computeAvailableReturnQuantity({ quantity: 3, returnedQuantity: 1, shippedQuantity: 2 })).toBe(1)
+  })
+
+  it('never exceeds ordered quantity even when more was shipped', () => {
+    expect(computeAvailableReturnQuantity({ quantity: 2, returnedQuantity: 0, shippedQuantity: 5 })).toBe(2)
+  })
+
+  it('falls back to ordered quantity when shipped quantity is omitted (legacy callers)', () => {
+    expect(computeAvailableReturnQuantity({ quantity: 4, returnedQuantity: 1 })).toBe(3)
+  })
+
+  it('ignores a non-finite shipped quantity and falls back to ordered quantity', () => {
+    expect(computeAvailableReturnQuantity({ quantity: 4, returnedQuantity: 0, shippedQuantity: Number.NaN })).toBe(4)
+  })
+})
