@@ -180,5 +180,8 @@
   "search.table.sources": "Fuentes",
   "search.table.stats.results": "Resultados",
   "search.table.stats.sources": "Fuentes",
-  "search.table.title": "Resultados de búsqueda"
+  "search.table.title": "Resultados de búsqueda",
+  "search.settings.vector.inheritingDefault": "Este inquilino hereda el valor predeterminado de la instancia/entorno. Guardar un proveedor crea una anulación para este inquilino.",
+  "search.settings.vector.usingTenantConfig": "Este inquilino usa su propia configuración de incrustaciones.",
+  "search.api.errors.providerUnavailable": "El proveedor seleccionado no está disponible."
 }

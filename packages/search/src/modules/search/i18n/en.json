@@ -180,5 +180,8 @@
   "search.table.sources": "Sources",
   "search.table.stats.results": "Results",
   "search.table.stats.sources": "Sources",
-  "search.table.title": "Search Results"
+  "search.table.title": "Search Results",
+  "search.settings.vector.inheritingDefault": "This tenant is inheriting the instance/environment default. Saving a provider creates an override for this tenant.",
+  "search.settings.vector.usingTenantConfig": "This tenant is using its own embedding settings.",
+  "search.api.errors.providerUnavailable": "The selected provider is not available."
 }

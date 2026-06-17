@@ -180,5 +180,8 @@
   "search.table.sources": "Quellen",
   "search.table.stats.results": "Ergebnisse",
   "search.table.stats.sources": "Quellen",
-  "search.table.title": "Suchergebnisse"
+  "search.table.title": "Suchergebnisse",
+  "search.settings.vector.inheritingDefault": "Dieser Mandant erbt die Instanz-/Umgebungsvorgabe. Das Speichern eines Anbieters erstellt eine Überschreibung für diesen Mandanten.",
+  "search.settings.vector.usingTenantConfig": "Dieser Mandant verwendet eigene Embedding-Einstellungen.",
+  "search.api.errors.providerUnavailable": "Der ausgewählte Anbieter ist nicht verfügbar."
 }

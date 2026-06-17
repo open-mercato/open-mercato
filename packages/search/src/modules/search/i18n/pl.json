@@ -180,5 +180,8 @@
   "search.table.sources": "Źródła",
   "search.table.stats.results": "Wyniki",
   "search.table.stats.sources": "Źródła",
-  "search.table.title": "Wyniki wyszukiwania"
+  "search.table.title": "Wyniki wyszukiwania",
+  "search.settings.vector.inheritingDefault": "Ten najemca dziedziczy domyślne ustawienia instancji/środowiska. Zapisanie dostawcy tworzy nadpisanie dla tego najemcy.",
+  "search.settings.vector.usingTenantConfig": "Ten najemca używa własnych ustawień osadzania.",
+  "search.api.errors.providerUnavailable": "Wybrany dostawca jest niedostępny."
 }
