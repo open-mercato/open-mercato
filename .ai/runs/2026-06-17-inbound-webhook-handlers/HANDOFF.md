@@ -1,10 +1,10 @@
 # Handoff — 2026-06-17-inbound-webhook-handlers
 
-**Last updated:** 2026-06-17T01:00:00Z
+**Last updated:** 2026-06-17T01:30:00Z
 **Branch:** feat/inbound-webhook-handlers (pushed to `fork`)
-**PR:** not yet opened
-**Current phase/step:** Phase 2 Step 2.3 (next)
-**Last commit:** ea82001e0 — feat(webhooks): add inbound.processed and inbound.handler_failed events
+**PR:** https://github.com/open-mercato/open-mercato/pull/3145 (DRAFT, Status: in-progress)
+**Current phase/step:** Phase 2 Step 2.3 (next — first `todo` row)
+**Last commit:** a0d081c8f — feat(webhooks): add inbound source/handler registries with wildcard resolution
 
 ## What just happened
 - Steps 1.1–2.2 + 2.4 landed and pushed. Checkpoint 1 green: shared typecheck clean, webhooks 105/105 tests pass.
