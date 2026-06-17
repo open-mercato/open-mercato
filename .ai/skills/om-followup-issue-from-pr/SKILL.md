@@ -41,7 +41,7 @@ When a plain PR link is pasted, always run the spec check (step 2a) in addition 
    gh pr view <num> --repo <owner>/<repo> --json files \
      --jq '.files[].path | select(test("^\\.ai/specs/(enterprise/)?[^/]+\\.md$"))'
    ```
-   - Keep only spec files **at the top level** of `.ai/specs/` or `.ai/specs/enterprise/`. **Skip** anything under an `implemented/` subdirectory — moving a spec to `implemented/` (or editing an already-implemented spec) is not new work to track.
+   - Keep only spec files **at the top level** of `.ai/specs/` or `.ai/specs/enterprise/`. **Skip** anything under an `implemented/` subdirectory — moving a spec to `implemented/` (or editing an already-implemented spec) is not new work to track. **Skip** `AGENTS.md` and any other non-spec doc (a real spec is named `YYYY-MM-DD-<slug>.md`, or has a legacy `SPEC-*`/`SPEC-ENT-*` prefix).
    - Prefer files the PR **added** (status `added`) over files it merely modified. A pure edit to an existing, still-pending spec usually already has a tracking issue; treat modified-only specs as a soft signal and confirm with the user before filing.
    - If no qualifying spec file is found, spec mode is a no-op — continue with comment mode only.
    - For each qualifying spec, derive its `<slug>`: strip the directory, the trailing `.md`, and any leading `YYYY-MM-DD-` date prefix (legacy `SPEC-*`/`SPEC-ENT-*` prefixes: strip the prefix too). Note whether the path is under `enterprise/`.
