@@ -1,10 +1,18 @@
 # Inbound Webhook Handlers — Module-Level Consumption System
 
-**Status**: Draft
+**Status**: Phase 1 in progress
 **Author**: AI-assisted
 **Created**: 2026-03-23
 **Related**: SPEC-057 (Webhooks Module), SPEC-045 (Integration Marketplace)
 **Extends**: SPEC-057 Phase 3 (Inbound Webhooks)
+**Pre-implement analysis**: `.ai/specs/analysis/ANALYSIS-2026-03-23-inbound-webhook-handlers.md` (applied 2026-06-17)
+
+> **Analysis remediation applied (2026-06-17).** The route **unifies** on the existing
+> `POST /api/webhooks/inbound/[endpointId]` receiver rather than introducing a colliding
+> `:sourceKey` route (see §3.1, §5.1, §14). The Phase 4 `inbox_ops` baseline was corrected
+> (it already has encrypted per-tenant secrets + Svix). Credential storage reuses the
+> integrations `credentials` encryption map; `WebhookIngestion.payload`/`headers` are
+> encrypted via the webhooks module encryption map. See the changelog.
 
 ---
 
@@ -51,7 +59,7 @@ External services (Stripe, PayPal, DHL, SendGrid, Shopify, etc.) all send webhoo
 |---------|-------------|
 | **Webhook Source** | An external system that sends webhooks (e.g., `stripe`, `paypal`, `dhl`). Registered via `webhook-sources.ts`. |
 | **Webhook Handler** | A module-level file in `webhook-handlers/*.ts` that processes a specific inbound webhook event type. Auto-discovered. |
-| **Inbound Endpoint** | `POST /api/webhooks/inbound/:sourceKey` — single entry point per source. |
+| **Inbound Endpoint** | `POST /api/webhooks/inbound/[endpointId]` — the existing single entry point. The path segment is resolved against the source registry first, then the legacy adapter registry (see §3.1, §5.1). |
 | **Source Verifier** | A pluggable function that validates the authenticity of an inbound webhook (HMAC, asymmetric signature, IP allowlist, etc.). |
 | **Webhook Ingestion Log** | Persisted record of every inbound webhook received, for audit and replay. |
 
@@ -60,6 +68,13 @@ External services (Stripe, PayPal, DHL, SendGrid, Shopify, etc.) all send webhoo
 ## 3. Architecture
 
 ### 3.1 Inbound Flow
+
+> **Route unification.** There is no new route file. The shipped
+> `packages/webhooks/src/modules/webhooks/api/inbound/[endpointId]/route.ts` is extended so the
+> `[endpointId]` segment resolves against the new `webhookSourceRegistry` first (source-based flow
+> below). If no source matches, it falls back to `getWebhookEndpointAdapter(endpointId)` and the
+> legacy adapter path runs unchanged. So `…/inbound/stripe` means "source key `stripe`" when a
+> source is registered, and "adapter provider key `stripe`" otherwise.
 
 ```
   ┌──────────────┐  POST /api/webhooks/inbound/stripe   ┌─────────────────────┐
@@ -329,6 +344,18 @@ export interface WebhookSourceConfig {
     body: Record<string, unknown>,
     headers: Record<string, string>
   ) => { tenantId?: string; organizationId?: string }
+  /**
+   * Optional descriptor of the credential fields this source needs, used by the
+   * source-credential admin UI (§11.4) to render the form. `webhook_source_*` keys
+   * are not registered integration providers, so `integrationCredentialsService.getSchema()`
+   * returns nothing for them — this descriptor is the schema source instead.
+   */
+  credentialFields?: Array<{
+    key: string
+    label: string
+    secret?: boolean
+    required?: boolean
+  }>
 }
 
 export interface WebhookHandlerMeta {
@@ -377,7 +404,7 @@ export interface InboundWebhookRequest {
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/api/webhooks/inbound/:sourceKey` | None (source-verified) | Receive inbound webhook from external source |
+| POST | `/api/webhooks/inbound/[endpointId]` | None (source-verified) | Receive inbound webhook. `[endpointId]` resolves to a registered source key first, else a legacy adapter provider key. |
 
 **Request**: Raw body from external source (JSON or form-encoded depending on source).
 
@@ -620,7 +647,7 @@ All webhook source credentials (signing secrets, API keys) MUST be stored encryp
 - **Retrieval**: Transparent decryption via `findOneWithDecryption` / `credentialsService.resolve()`
 - **No plaintext secrets**: Signing secrets, API keys, and any sensitive credential fields are never stored in plaintext in the database
 - **No runtime env vars**: After initial provisioning, secrets are resolved from encrypted storage, not from `process.env`
-- **EncryptionMap**: Each webhook source credential entity MUST have an `EncryptionMap` entry declaring which fields are encrypted
+- **EncryptionMap**: Credentials are stored in the integrations `integration_credentials.credentials` JSON column, which is **already** declared in the `integrations` module `defaultEncryptionMaps` — no new per-source map is needed for credentials. Separately, `WebhookIngestion.payload` and `WebhookIngestion.headers` (which can carry PII) are declared in the **webhooks** module `encryption.ts` and read via `findOneWithDecryption`.
 - **Rotation**: Credential rotation updates the encrypted blob; previous credentials kept during dual-verification window
 
 ### 10.2 Signature Verification
@@ -657,8 +684,14 @@ const isDuplicate = await cache.get(dedupeKey)
 if (isDuplicate) {
   return NextResponse.json({ received: true, duplicate: true }, { status: 409 })
 }
-await cache.set(dedupeKey, '1', { ttl: 86400 }) // 24h TTL
+await cache.set(dedupeKey, '1', { ttl: 86_400_000 }) // 24h TTL — cache TTL is in milliseconds
 ```
+
+**Durable source of truth.** The cache check above is a fast-path only. The authoritative
+deduplication remains the existing `webhook_inbound_receipts` unique constraint on
+`(endpointId, messageId)` — a duplicate that survives cache eviction is still caught at insert
+time (Postgres `23505`) and returns the idempotent duplicate response. Phase 1 reuses that
+constraint; the cache fast-path is optional and additive.
 
 ### 10.4 Replay Protection
 
@@ -797,11 +830,14 @@ Form for configuring encrypted credentials for a webhook source:
 
 **Goal**: Refactor `inbox_ops` to use the inbound webhook handler system for Resend inbound email webhooks. The existing `inbox_ops` webhook endpoint (`api/webhook/inbound.ts`) is replaced by the generic inbound system, with **100% backward compatibility** — no behavior changes, no data loss, no URL changes.
 
-**Current state** (what needs to change):
-- `inbox_ops/api/webhook/inbound.ts` uses hardcoded `process.env` for secrets (`INBOX_OPS_WEBHOOK_SECRET`, `RESEND_WEBHOOK_SIGNING_SECRET`, `RESEND_API_KEY`)
-- Verification logic (HMAC + Svix) is embedded inline
-- No tenant scoping — secrets are global env vars
-- `fetchResendEmail()` instantiates Resend client with hardcoded API key
+**Current state** (verified 2026-06-17 — corrected from the original draft):
+- `inbox_ops/api/webhook/inbound.ts` (URL `POST /api/inbox_ops/webhook/inbound`) verifies with **both** a custom HMAC-SHA256 scheme (`x-webhook-signature` + `x-webhook-timestamp`, 5-minute replay window, timing-safe compare) **and** Svix (`svix-*` headers, via the `svix` package). Verification is selected per request and embedded inline.
+- Tenant scoping **already exists**: `InboxSettings.webhookSecret` is an **encrypted per-tenant column**; the route resolves a per-tenant secret and falls back to env (`INBOX_OPS_WEBHOOK_SECRET`, `RESEND_WEBHOOK_SIGNING_SECRET`) only when no per-tenant secret is set. `RESEND_API_KEY` is read by `fetchResendEmail()`.
+- `fetchResendEmail()` builds a Resend client from `RESEND_API_KEY` and calls `resend.emails.receiving.get(emailId)`.
+- Events emitted today: `inbox_ops.email.received`, `inbox_ops.email.deduplicated` (plus `…processed/failed/reprocessed` declared).
+- `setup.ts` has `onTenantCreated` (seeds default `InboxSettings`) and a no-op `seedDefaults`.
+
+So Phase 4 is **"env fallback → encrypted credentials store"**, NOT "global → tenant-scoped" — per-tenant scoping is already in place. Both HMAC and Svix paths and the existing event IDs MUST be preserved.
 
 **Target state**:
 - Resend webhook source registered via `webhook-sources.ts` in the `inbox_ops` module
@@ -917,12 +953,37 @@ Form for configuring encrypted credentials for a webhook source:
 | `POST /api/webhooks/inbound/:sourceKey` | STABLE | Cannot rename/remove |
 | `WebhookIngestion` schema | ADDITIVE-ONLY | New columns with defaults OK |
 
-### Migration from SPEC-057 Phase 3
+### Route unification (BC#1 — resolved)
 
-The existing `WebhookEndpointAdapter` interface from SPEC-057 Phase 3 is superseded by this spec's `WebhookSourceConfig` + handler pattern. The adapter interface should be deprecated with a bridge:
+The inbound endpoint is **not** a new route. `POST /api/webhooks/inbound/[endpointId]`
+(`api/inbound/[endpointId]/route.ts`) is the single, shipped entry point and its URL is
+preserved. The handler resolves the path segment in this order:
 
-- Existing `WebhookEndpointAdapter` implementations → wrap as `WebhookSourceConfig` with a compatibility shim
-- Deprecation notice for 1 minor version before removal
+1. `getWebhookSource(endpointId)` from the new source registry → run the source/handler flow
+   (verify via the source `verifier` + decrypted credentials, extract event type + message id,
+   record a `WebhookIngestion`, enqueue `webhook-inbound-dispatch`, emit
+   `webhooks.inbound.received` for continuity, return `{ ok: true }`).
+2. Otherwise `getWebhookEndpointAdapter(endpointId)` → the **legacy adapter path runs exactly as
+   before** (verify, receipt dedup, emit `webhooks.inbound.received`).
+3. Otherwise `404`.
+
+This keeps every existing adapter working with zero behavior change and avoids a colliding route file.
+
+### Migration from SPEC-057 Phase 3 (`WebhookEndpointAdapter` deprecation bridge)
+
+The `WebhookEndpointAdapter` interface and its registry (`registerWebhookEndpointAdapter`,
+`getWebhookEndpointAdapter`, `listWebhookEndpointAdapters`, `clearWebhookEndpointAdapters` in
+`lib/adapter-registry.ts`) are **public contract surfaces (types + functions)** and are superseded
+by `WebhookSourceConfig` + the handler convention. They MUST follow the deprecation protocol:
+
+- **Keep them exported and functional for ≥1 minor version.** The unified route's step (2) above is
+  the live bridge — registered adapters keep receiving inbound traffic.
+- Add `@deprecated` JSDoc on the interface and the four registry functions, pointing to
+  `webhook-sources.ts` + `webhook-handlers/*.ts`.
+- Provide an optional adapter→`WebhookSourceConfig` wrapper helper so providers can migrate
+  incrementally (a registered source for `key` shadows an adapter with the same `providerKey`).
+- Document the deprecation + removal target in `RELEASE_NOTES.md`.
+- Removal happens only after the bridge minor, in a follow-up spec.
 
 ---
 
@@ -963,6 +1024,7 @@ The existing `WebhookEndpointAdapter` interface from SPEC-057 Phase 3 is superse
 | Date | Change |
 |------|--------|
 | 2026-03-23 | Initial draft |
+| 2026-06-17 | Applied pre-implement analysis remediation: unify inbound on the existing `[endpointId]` route (resolves BC#1 route collision); add a concrete `WebhookEndpointAdapter` deprecation-bridge subsection (§14); correct the Phase 4 `inbox_ops` baseline (encrypted per-tenant secret + Svix already exist); fix dedup cache TTL to milliseconds and clarify the receipt-table durable dedup source of truth (§10.3); add optional `credentialFields` to `WebhookSourceConfig` for the admin UI; clarify credential encryption reuses the integrations map and `WebhookIngestion.payload`/`headers` are encrypted via the webhooks map (§10.1). Phase 1 implementation started. |
 
 ---
 
