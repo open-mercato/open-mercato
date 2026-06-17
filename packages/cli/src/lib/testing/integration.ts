@@ -1660,6 +1660,15 @@ function buildReusableEnvironment(
     NODE_ENV: 'production',
     JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
     OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
+    // Integration probe + tests expect `admin@acme.com / secret` and
+    // `employee@acme.com / secret`. NODE_ENV=production routes derived-user
+    // password resolution through the random-fallback branch unless these
+    // env vars are explicitly set; without the override every fresh
+    // ephemeral run would mint random passwords and the login probe would
+    // never converge. This is the documented production contract: set
+    // OM_INIT_*_PASSWORD to fix the seeded credential.
+    OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
+    OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
     OM_INTEGRATION_TEST: 'true',
     OM_ENABLE_ENTERPRISE_MODULES: enterpriseModulesFlag,
     OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
@@ -1671,6 +1680,11 @@ function buildReusableEnvironment(
     // not have to call flushPendingCrudAccessLogs() explicitly.
     OM_CRUD_ACCESS_LOG_BLOCKING: process.env.OM_CRUD_ACCESS_LOG_BLOCKING ?? '1',
     OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
+    // Keep the bus in the Playwright process (used by in-test queue-drain helpers)
+    // on the same delivery mode as the app server it drives: inline persistent
+    // delivery so event side effects are deterministic for assertions. See the
+    // matching OM_EVENTS_SINGLE_DELIVERY note on the app server environment below.
+    OM_EVENTS_SINGLE_DELIVERY: process.env.OM_EVENTS_SINGLE_DELIVERY ?? 'false',
     ENABLE_CRUD_API_CACHE: 'true',
     MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
     MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
@@ -2956,6 +2970,11 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
       OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
       NODE_ENV: 'production',
+      // See the auth-probe block above: pin derived-user passwords to the
+      // documented 'secret' so the ephemeral login probe converges under
+      // NODE_ENV=production.
+      OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
+      OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
       // Pool sizing for the ephemeral integration runtime. Defaults were once
       // very aggressive (max=5, idle=1000) which exposed flaky 'timeout exceeded
       // when trying to connect' errors on `progressService.createJob`-backed
@@ -2987,6 +3006,18 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       CI: 'true',
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',
       AUTO_SPAWN_WORKERS: process.env.AUTO_SPAWN_WORKERS ?? 'true',
+      // Process persistent event subscribers INLINE in the request that emits
+      // the event (legacy dual-dispatch), rather than the production default of
+      // worker-only single delivery. Integration specs assert event side effects
+      // (sync mappings, workflow-trigger instances, notifications) immediately
+      // after the emitting API call and poll for them on short budgets; routing
+      // those subscribers through the async events worker makes the side effect
+      // race the poll under the 15-shard CI load, which surfaced as flaky
+      // timeouts in TC-CRM-028 (inbound sync mapping) and TC-WF-008 (event-
+      // triggered workflow) once single-delivery became default-ON. Inline
+      // delivery makes the side effects deterministic for tests; production keeps
+      // the single-delivery default. Honor an explicit override if the caller set one.
+      OM_EVENTS_SINGLE_DELIVERY: process.env.OM_EVENTS_SINGLE_DELIVERY ?? 'false',
       AUTO_SPAWN_SCHEDULER: 'false',
       // Hide the demo feedback floating action button — it lives at
       // `fixed bottom-6 right-6 z-banner` and consistently intercepts pointer

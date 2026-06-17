@@ -1464,6 +1464,19 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 
 ## Changelog
 
+### 2026-06-11 - Harden latent MCP server-config module (#2672)
+
+**What changed** (`lib/mcp-server-config.ts`, currently dead code — no callers):
+- Added `validateMcpServerUrl()` (exported): restricts external MCP server URLs to `http:`/`https:` (blocks `file:`/`gopher:`/`data:` local-file disclosure) and rejects literal loopback, link-local (`169.254.0.0/16`, `fe80::/10`), and RFC1918 private hosts plus `localhost`/`0.0.0.0`/IPv4-mapped IPv6 — reducing SSRF exposure if a management route is ever wired up. `validateMcpServerConfig` now uses it for HTTP configs.
+- `saveMcpServerConfig` / `updateMcpServerConfig` now call `validateMcpServerConfig` and throw on invalid input, so persistence is **fail-closed**.
+- `generateId()` now uses `randomUUID()` (CSPRNG) instead of `Date.now()` + `Math.random()`.
+
+Note: the guard is intentionally NOT added to `mcp-client.ts` `connectHttp`, which legitimately connects to the app's own loopback MCP server (`localhost:3001`). DNS-rebinding (resolution-time checks) is out of scope for this dead-code hardening.
+
+**Files**: `lib/mcp-server-config.ts`. Regression test: `lib/__tests__/mcp-server-config-hardening.test.ts`.
+
+**Backward compatibility**: `validateMcpServerUrl` is additive. The module has no callers, so the tightened HTTP validation + fail-closed persistence change no live behavior.
+
 ### 2026-06-11 - MCP stdio server fails closed without auth (#2673)
 
 **What changed**:
