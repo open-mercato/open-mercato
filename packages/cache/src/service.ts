@@ -170,7 +170,11 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
       const expiresAt = metadata?.expiresAt ?? null
       if (expiresAt !== null && expiresAt <= now) expired++
     }
-    return { size, expired }
+    // size/expired stay tenant-scoped (derived from this tenant's meta keys);
+    // surface the underlying strategy's process-global bound counters too so
+    // operators reading the DI cacheService can see LRU/sweep activity.
+    const { evictions, sweeps, lastSweepReclaimed } = await base.stats()
+    return { size, expired, evictions, sweeps, lastSweepReclaimed }
   }
 
   const cleanup = base.cleanup
@@ -274,7 +278,13 @@ export class CacheService implements CacheStrategy {
     return this.strategy.keys(pattern)
   }
 
-  async stats(): Promise<{ size: number; expired: number }> {
+  async stats(): Promise<{
+    size: number
+    expired: number
+    evictions?: number
+    sweeps?: number
+    lastSweepReclaimed?: number
+  }> {
     return this.strategy.stats()
   }
 

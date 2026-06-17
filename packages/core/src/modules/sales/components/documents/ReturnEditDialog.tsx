@@ -79,6 +79,7 @@ export function ReturnEditDialog({
         id: 'returnedAt',
         label: t('sales.returns.returnedAt', 'Returned at'),
         type: 'date',
+        maxDate: new Date(),
       },
       {
         id: 'notes',

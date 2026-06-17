@@ -803,11 +803,23 @@ const returnLineQuantitySchema = z.coerce
   .min(1, 'Return quantity must be at least 1.')
   .max(MAX_QUANTITY, 'Quantity is too large.')
 
+export const RETURN_DATE_IN_FUTURE_MESSAGE = 'Return date cannot be in the future.'
+
+// A return records when goods physically came back to the seller, so a future
+// date is not yet a fact. Evaluate "now" at parse time (not module-load time)
+// so a long-running server never rejects legitimate same-day returns.
+const returnedAtSchema = z.coerce
+  .date()
+  .refine((value) => value.getTime() <= Date.now(), {
+    message: RETURN_DATE_IN_FUTURE_MESSAGE,
+  })
+  .optional()
+
 export const returnCreateSchema = scoped.extend({
   orderId: uuid(),
   reason: z.string().trim().max(4000).optional(),
   notes: z.string().trim().max(4000).optional(),
-  returnedAt: z.coerce.date().optional(),
+  returnedAt: returnedAtSchema,
   lines: z
     .array(
       z.object({
@@ -823,7 +835,7 @@ export const returnUpdateSchema = scoped.extend({
   orderId: uuid(),
   reason: z.string().trim().max(4000).optional(),
   notes: z.string().trim().max(4000).optional(),
-  returnedAt: z.coerce.date().optional(),
+  returnedAt: returnedAtSchema,
 })
 
 export const returnDeleteSchema = scoped.extend({

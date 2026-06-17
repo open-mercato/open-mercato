@@ -395,7 +395,7 @@ export default function LoginPage() {
                   <div className="font-medium">
                     {tenantLoading
                       ? translate('auth.login.tenantLoading', 'Loading tenant details...')
-                      : translate('auth.login.tenantBanner', "You're logging in to {tenant} tenant.", {
+                      : translate('auth.login.tenantBanner', "You're logging in to {tenant}.", {
                           tenant: tenantName || tenantId,
                         })}
                   </div>
