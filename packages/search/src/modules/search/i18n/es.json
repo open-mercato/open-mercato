@@ -11,6 +11,7 @@
   "search.api.errors.missingQuery": "Se requiere una consulta de búsqueda.",
   "search.api.errors.noIndexableStrategy": "No hay estrategia indexable disponible.",
   "search.api.errors.providerNotConfigured": "El proveedor no está configurado. Configure la variable de entorno requerida.",
+  "search.api.errors.providerUnavailable": "El proveedor seleccionado no está disponible.",
   "search.api.errors.purgeFailed": "Error al purgar el índice de búsqueda.",
   "search.api.errors.recreateFailed": "No se pudo recrear la tabla vectorial con la nueva dimensión.",
   "search.api.errors.reindexFailed": "La operación de reindexación falló.",
@@ -155,6 +156,7 @@
   "search.settings.vector.comingSoon": "Próximamente",
   "search.settings.vector.howTo": "Cómo configurar",
   "search.settings.vector.howToDescription": "Configure un proveedor de embeddings para habilitar la búsqueda vectorial.",
+  "search.settings.vector.inheritingDefault": "Este inquilino hereda el valor predeterminado de la instancia/entorno. Guardar un proveedor crea una anulación para este inquilino.",
   "search.settings.vector.modelsAvailable": "Modelos disponibles",
   "search.settings.vector.providers": "Proveedores",
   "search.settings.vector.providersHint": "Configure un proveedor de embeddings mediante variables de entorno.",
@@ -162,6 +164,7 @@
   "search.settings.vector.sectionTitle": "Búsqueda vectorial",
   "search.settings.vector.setEnvVar": "Configurar variable de entorno",
   "search.settings.vector.store": "Almacén vectorial",
+  "search.settings.vector.usingTenantConfig": "Este inquilino usa su propia configuración de incrustaciones.",
   "search.settings.vectorDocumentsLabel": "Documentos vectoriales",
   "search.settings.vectorNotConfigured": "La búsqueda vectorial no está configurada.",
   "search.settings.vectorNotConfiguredHint": "Configure una clave API del proveedor de embeddings para la búsqueda vectorial.",
@@ -180,8 +183,5 @@
   "search.table.sources": "Fuentes",
   "search.table.stats.results": "Resultados",
   "search.table.stats.sources": "Fuentes",
-  "search.table.title": "Resultados de búsqueda",
-  "search.settings.vector.inheritingDefault": "Este inquilino hereda el valor predeterminado de la instancia/entorno. Guardar un proveedor crea una anulación para este inquilino.",
-  "search.settings.vector.usingTenantConfig": "Este inquilino usa su propia configuración de incrustaciones.",
-  "search.api.errors.providerUnavailable": "El proveedor seleccionado no está disponible."
+  "search.table.title": "Resultados de búsqueda"
 }

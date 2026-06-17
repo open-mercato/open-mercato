@@ -11,6 +11,7 @@
   "search.api.errors.missingQuery": "Suchanfrage ist erforderlich.",
   "search.api.errors.noIndexableStrategy": "Keine indizierbare Strategie verfügbar.",
   "search.api.errors.providerNotConfigured": "Anbieter ist nicht konfiguriert. Setzen Sie die erforderliche Umgebungsvariable.",
+  "search.api.errors.providerUnavailable": "Der ausgewählte Anbieter ist nicht verfügbar.",
   "search.api.errors.purgeFailed": "Suchindex konnte nicht bereinigt werden.",
   "search.api.errors.recreateFailed": "Fehler beim Neuerstellen der Vektortabelle mit neuer Dimension.",
   "search.api.errors.reindexFailed": "Neuindizierung fehlgeschlagen.",
@@ -155,6 +156,7 @@
   "search.settings.vector.comingSoon": "Demnächst verfügbar",
   "search.settings.vector.howTo": "Konfigurationsanleitung",
   "search.settings.vector.howToDescription": "Embedding-Anbieter für die Vektorsuche konfigurieren.",
+  "search.settings.vector.inheritingDefault": "Dieser Mandant erbt die Instanz-/Umgebungsvorgabe. Das Speichern eines Anbieters erstellt eine Überschreibung für diesen Mandanten.",
   "search.settings.vector.modelsAvailable": "Verfügbare Modelle",
   "search.settings.vector.providers": "Anbieter",
   "search.settings.vector.providersHint": "Embedding-Anbieter über Umgebungsvariablen konfigurieren.",
@@ -162,6 +164,7 @@
   "search.settings.vector.sectionTitle": "Vektorsuche",
   "search.settings.vector.setEnvVar": "Umgebungsvariable setzen",
   "search.settings.vector.store": "Vektorspeicher",
+  "search.settings.vector.usingTenantConfig": "Dieser Mandant verwendet eigene Embedding-Einstellungen.",
   "search.settings.vectorDocumentsLabel": "Vektordokumente",
   "search.settings.vectorNotConfigured": "Vektorsuche ist nicht konfiguriert.",
   "search.settings.vectorNotConfiguredHint": "Embedding-Anbieter-API-Schlüssel für die Vektorsuche setzen.",
@@ -180,8 +183,5 @@
   "search.table.sources": "Quellen",
   "search.table.stats.results": "Ergebnisse",
   "search.table.stats.sources": "Quellen",
-  "search.table.title": "Suchergebnisse",
-  "search.settings.vector.inheritingDefault": "Dieser Mandant erbt die Instanz-/Umgebungsvorgabe. Das Speichern eines Anbieters erstellt eine Überschreibung für diesen Mandanten.",
-  "search.settings.vector.usingTenantConfig": "Dieser Mandant verwendet eigene Embedding-Einstellungen.",
-  "search.api.errors.providerUnavailable": "Der ausgewählte Anbieter ist nicht verfügbar."
+  "search.table.title": "Suchergebnisse"
 }
