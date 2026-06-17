@@ -70,9 +70,9 @@ Delete the `merge-gate` GitHub Actions workflow and sync every doc/skill that cl
 
 ### Phase 2: Sync PR-automation skill references
 
-- [ ] 2.1 Update `om-merge-buddy`, `om-auto-create-pr`, `om-auto-review-pr` SKILL.md references
-- [ ] 2.2 Update `om-auto-fix-github`, `om-auto-verify-and-fix-github`, `om-auto-create-pr-loop` SKILL.md references
-- [ ] 2.3 Update `om-auto-continue-pr`, `om-auto-continue-pr-loop` SKILL.md references
+- [x] 2.1 Update `om-merge-buddy`, `om-auto-create-pr`, `om-auto-review-pr` SKILL.md references — b287e351f
+- [x] 2.2 Update `om-auto-fix-github`, `om-auto-verify-and-fix-github`, `om-auto-create-pr-loop` SKILL.md references — b287e351f
+- [x] 2.3 Update `om-auto-continue-pr`, `om-auto-continue-pr-loop` SKILL.md references — b287e351f
 
 ### Phase 3: Validate and open PR
 
