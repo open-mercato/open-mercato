@@ -1,3 +1,4 @@
+import { FetchTimeoutError } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import { decodeBase64Url, encodeBase64Url, getGmailApiClient, GmailApiError, setGmailApiClient } from '../gmail-client'
 
 describe('base64url encoding helpers', () => {
@@ -53,6 +54,10 @@ function fakeResponse(init: FakeResponseInit): Response {
 }
 
 describe('FetchGmailApiClient.requestJson retry/backoff', () => {
+  // Mirrors GMAIL_DEFAULT_REQUEST_TIMEOUT_MS in gmail-client.ts: the per-request
+  // timeout `fetchWithTimeout` schedules when no OM_CHANNEL_GMAIL_REQUEST_TIMEOUT_MS
+  // override is set (none of these tests set it).
+  const GMAIL_DEFAULT_REQUEST_TIMEOUT_MS = 30_000
   const originalFetch = globalThis.fetch
   const originalSetTimeout = globalThis.setTimeout
   const originalRandom = Math.random
@@ -65,8 +70,15 @@ describe('FetchGmailApiClient.requestJson retry/backoff', () => {
     capturedDelays = []
     // Replace the backoff sleep with a synchronous no-wait shim that records the
     // requested delay and fires the callback immediately, so the retry loop runs
-    // without real timers while we assert the computed wait durations.
+    // without real timers while we assert the computed wait durations. The
+    // shared `fetchWithTimeout` helper also schedules a per-request timeout timer
+    // (`GMAIL_DEFAULT_REQUEST_TIMEOUT_MS`); delegate that one to the real timer —
+    // the helper clears it in its `finally` before the mocked fetch resolves, so
+    // it never fires and never pollutes the recorded backoff delays.
     globalThis.setTimeout = ((callback: () => void, ms?: number) => {
+      if (ms === GMAIL_DEFAULT_REQUEST_TIMEOUT_MS) {
+        return originalSetTimeout(callback, ms)
+      }
       capturedDelays.push(typeof ms === 'number' ? ms : 0)
       callback()
       return 0 as unknown as ReturnType<typeof setTimeout>
@@ -241,6 +253,29 @@ describe('FetchGmailApiClient.requestJson retry/backoff', () => {
     expect(calls).toBe(2)
     expect(profile.historyId).toBe('5')
     // computeBackoff(0) = 500ms (jitter stripped) — the timeout took the retry path.
+    expect(capturedDelays).toEqual([500])
+  })
+
+  it('treats a shared-helper FetchTimeoutError as transient and retries it (issue #3068)', async () => {
+    Math.random = () => 0
+    let calls = 0
+    globalThis.fetch = (() => {
+      calls += 1
+      if (calls === 1) {
+        // After consolidating onto `fetchWithTimeout`, an elapsed per-request
+        // timeout surfaces as `FetchTimeoutError` (a real Error subclass), not a
+        // `TimeoutError` DOMException — exercise that production failure shape.
+        return Promise.reject(new FetchTimeoutError('https://gmail.googleapis.com/gmail/v1/users/me/profile', 30_000))
+      }
+      return Promise.resolve(
+        fakeResponse({ status: 200, statusText: 'OK', body: JSON.stringify({ emailAddress: 'a@gmail.com', historyId: '11' }) }),
+      )
+    }) as unknown as typeof globalThis.fetch
+
+    const profile = await getGmailApiClient().getProfile({ accessToken: 'token' })
+
+    expect(calls).toBe(2)
+    expect(profile.historyId).toBe('11')
     expect(capturedDelays).toEqual([500])
   })
 

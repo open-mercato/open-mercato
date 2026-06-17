@@ -342,9 +342,11 @@ export async function GET(req: Request) {
     }
 
     const slugByOrgId = new Map<string, string | null>()
+    const updatedAtByOrgId = new Map<string, string | null>()
     const logoUrlByOrgId = new Map<string, string | null>()
     for (const org of allOrgs) {
       slugByOrgId.set(String(org.id), org.slug ?? null)
+      updatedAtByOrgId.set(String(org.id), org.updatedAt instanceof Date ? org.updatedAt.toISOString() : null)
       logoUrlByOrgId.set(String(org.id), org.logoUrl ?? null)
     }
 
@@ -429,6 +431,7 @@ export async function GET(req: Request) {
         id: node.id,
         name: node.name,
         slug: slugByOrgId.get(recordId) ?? null,
+        updatedAt: updatedAtByOrgId.get(recordId) ?? null,
         logoUrl: logoUrlByOrgId.get(recordId) ?? null,
         tenantId: tid,
         tenantName: tenantNameMap[tid] ?? tid,
