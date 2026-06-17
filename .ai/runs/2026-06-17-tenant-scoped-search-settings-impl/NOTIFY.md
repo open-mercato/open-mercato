@@ -18,3 +18,8 @@
 - Steps 2.1–2.3 landed (pushed head a760e0310).
 - Checks: search build exit 0; search lib tests 7/7; TC-SEARCH-010 deferred to integration suite.
 - Decision logged: embedding-config consumers driving the shared pgvector table stay instance-level by design (single global table dimension).
+
+## 2026-06-17T15:10:00Z — checkpoint 3 (Phase 3 complete)
+- Steps 3.1–3.3 landed (probe + gate + tests).
+- Checks: search build exit 0; search lib tests 15/15.
+- Note: probe is the availability authority for selection; sync available getters stay presence-based (documented).
