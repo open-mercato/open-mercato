@@ -38,22 +38,23 @@ Docs/harness-only. One detail home (per-package `packages/core/AGENTS.md`), one 
 
 ### Phase 1: Detail home
 
-- [ ] 1.1 Add `### Cross-Module Coupling` section to `packages/core/AGENTS.md` after `### Decoupling Rules`
+- [x] 1.1 Add `### Cross-Module Coupling` section to `packages/core/AGENTS.md` after `### Decoupling Rules` — 340aa16f0
 
 ### Phase 2: Routing pointer
 
-- [ ] 2.1 Add one Task Router row to root `AGENTS.md` after the Extensions row
+- [x] 2.1 Add one Task Router row to root `AGENTS.md` after the Extensions row — deddd143c
 
 ### Phase 3: Enforcement skills
 
-- [ ] 3.1 Add soft-optional/direction bullet to om-code-review `references/review-checklist.md` § 1
-- [ ] 3.2 Add mechanism/direction/absent-behavior bullet to om-spec-writing `references/spec-checklist.md` § 2
-- [ ] 3.3 Extend om-spec-writing `SKILL.md` heuristic #5 (Module Isolation) for optional peers
+- [x] 3.1 Add soft-optional/direction bullet to om-code-review `references/review-checklist.md` § 1 — 00c32368f
+- [x] 3.2 Add mechanism/direction/absent-behavior bullet to om-spec-writing `references/spec-checklist.md` § 2 — 00c32368f
+- [x] 3.3 Extend om-spec-writing `SKILL.md` heuristic #5 (Module Isolation) for optional peers — 00c32368f
 
 ### Phase 4: Scaffold-time doc
 
-- [ ] 4.1 Add optional-peer bullet to `.ai/docs/module-development.md` Module Rules
+- [x] 4.1 Add optional-peer bullet to `.ai/docs/module-development.md` Module Rules — f84760803
 
 ## Changelog
 
 - Plan drafted.
+- All four phases landed (6 edits across 6 files).
