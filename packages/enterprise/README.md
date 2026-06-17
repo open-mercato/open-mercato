@@ -59,6 +59,26 @@ Three tiers scale the level of service with company size. Every tier includes th
 
 Startups below $5M in annual revenue can request a startup discount via [info@openmercato.com](mailto:info@openmercato.com).
 
+## Service Detail
+
+**Pre-deployment Architecture Audit.** A structured architecture review before production deployment: overall system architecture, identification of structural risks, and recommendations for production readiness.
+
+**Monthly Security Review (up to 4h/mo).** Application code review, infrastructure and environment configuration review, identification of security risks, and remediation guidance.
+
+**Monthly Performance Review — custom code (up to 4h/mo).** Detection of performance bottlenecks, review of scalability risks, and optimization recommendations.
+
+**Monthly Custom Module Code Review (up to 4h/mo).** Alignment with Open Mercato best practices, code quality and maintainability, agent-friendly architecture patterns, and upgrade safety.
+
+**Priority Technical Support.** Priority helpdesk (Slack / Discord or ticketing) for architecture and development questions, handled with AI assistance within tier limits. Advisory only — it does not include custom software development.
+
+**Dedicated Customer Success Manager (pre-go-live).** A CSM supports the Product Owner and technical team until launch: one 1-hour online meeting per month, ongoing ticketing support, and rollout-readiness guidance.
+
+**Software Updates.** Security patches, new platform features, and partner-ready upgrade packages with documented risks and upgrade procedures. Basic: update packages are provided and applied by the customer independently. Medium: update packages with support and guidance from our team during the upgrade. Enterprise: managed upgrades — planning, validation, and application by our team. Customers may continue using the software after license expiration, but new updates, security patches, and platform enhancements require an active license.
+
+**Production Approval (Homologation).** A formal production-readiness assessment before go-live: production approval report, risk summary, and go-live recommendation.
+
+**Production Hosting Reference.** A reference self-hosted deployment setup (including Dokploy and parallel queue processing), with an optional fully managed Developer Sandbox Cloud offering for development and testing environments.
+
 ## Enterprise Software Package
 
 The `@open-mercato/enterprise` package delivers the proprietary modules included with every subscription — not available in the open-source distribution:
