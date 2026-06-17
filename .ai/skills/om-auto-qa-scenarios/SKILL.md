@@ -110,7 +110,22 @@ so the report stays usable. Typical areas:
 - Catalog, Attachments, Shared Backend UI, Visual Regressions
 - Low-Priority Manual QA And Broad Smoke Only
 
-Assign a priority to each area:
+Assign a priority to each area. These P0/P1/P2 tags map onto the PR
+`priority-*` labels (root `AGENTS.md` → PR Workflow): P0 ≈ `priority-high`/
+`priority-extreme`, P1 ≈ `priority-medium`, P2 ≈ `priority-low`. When a PR in
+the window already carries a `priority-*` label, prefer it over re-deriving the
+tag. The same P0/P1/P2 route format is what a QA reviewer (or an engineer using
+the self-QA exception) follows pre-merge before applying `qa-approved` to a
+`needs-qa` PR — so keep the routes concrete enough to act as a QA sign-off
+checklist, not just a retrospective.
+
+Also weigh each PR's `risk-*` label (root `AGENTS.md` → PR Workflow) when
+deciding QA depth: priority sets *how soon* an area is exercised, risk sets *how
+hard*. A `risk-high` PR (auth/money/tenant-scope, migrations, encryption, event
+reliability, shared contracts, or broad cross-module edits) deserves a deeper,
+more adversarial route — edge cases, rollback, cross-tenant checks — even when
+its priority is modest. A `risk-low` PR can take the broad-smoke route. When a
+PR has no `risk-*` label, infer one per the root risk-inference rule.
 
 - **P0** — auth/sessions/tenant scope, money flows, event/webhook
   reliability, anything that can leak data across tenants or double-charge.

@@ -37,6 +37,7 @@ import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../
 import { PersonDetailHeader } from '../../../../components/detail/PersonDetailHeader'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
 import { PersonDetailTabs, resolveLegacyTab, type PersonTabId } from '../../../../components/detail/PersonDetailTabs'
+import { AddressesSection } from '../../../../components/detail/AddressesSection'
 import { PersonCompaniesSection } from '../../../../components/detail/PersonCompaniesSection'
 import { MobilePersonDetail } from '../../../../components/detail/MobilePersonDetail'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
@@ -541,6 +542,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 activitiesCount={interactionCount}
                 dealsCount={dealCount}
                 companiesCount={companyCount}
+                addressesCount={data?.counts?.addresses ?? 0}
                 tasksCount={todoCount}
                 sectionAction={sectionAction}
               >
@@ -615,6 +617,22 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                         initialLinkedCompanies={data?.companies ?? []}
                         onChanged={loadData}
                         runGuardedMutation={runMutationWithContext}
+                      />
+                    )
+                  }
+
+                  if (activeTab === 'addresses') {
+                    return (
+                      <AddressesSection
+                        entityId={personId}
+                        emptyLabel={t('customers.people.detail.empty.addresses', 'No addresses linked to this person.')}
+                        addActionLabel={t('customers.people.detail.addresses.add', 'Add address')}
+                        emptyState={{
+                          title: t('customers.people.detail.emptyState.addresses.title', 'No addresses yet'),
+                          actionLabel: t('customers.people.detail.emptyState.addresses.action', 'Add address'),
+                        }}
+                        onActionChange={handleSectionActionChange}
+                        translator={detailTranslator}
                       />
                     )
                   }

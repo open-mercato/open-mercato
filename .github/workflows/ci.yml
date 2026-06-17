@@ -360,11 +360,22 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cache/pip
-          key: pip-markitdown-v1
+          key: pip-markitdown-v2
           restore-keys: pip-markitdown-
 
+      - name: Upgrade pip
+        # Upgrade pip in its own invocation: the system pip (24.0) resolver
+        # backtracks through markitdown versions and dead-ends on markdownify
+        # (ResolutionImpossible). A combined `pip install --upgrade pip markitdown`
+        # does NOT help because the newer resolver only takes effect on the next
+        # invocation. Splitting the upgrade out lets the install below run on the
+        # modern resolver.
+        run: python3 -m pip install --upgrade pip
+
       - name: Install markitdown CLI
-        run: python3 -m pip install --upgrade pip markitdown
+        # Pin the version so resolution is deterministic and a future
+        # markitdown/markdownify release cannot break CI without an explicit bump.
+        run: python3 -m pip install 'markitdown==0.1.6'
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'

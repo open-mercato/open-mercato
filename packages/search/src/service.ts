@@ -202,19 +202,10 @@ export class SearchService {
       strategies.map((strategy) => this.executeStrategyIndex(strategy, record)),
     )
 
-    // Log any failures
-    for (let i = 0; i < results.length; i++) {
-      const result = results[i]
-      if (result.status === 'rejected') {
-        const strategy = strategies[i]
-        searchError('SearchService', 'Strategy index failed', {
-          strategyId: strategy?.id,
-          entityId: record.entityId,
-          recordId: record.recordId,
-          error: result.reason instanceof Error ? result.reason.message : result.reason,
-        })
-      }
-    }
+    this.throwOnStrategyFailures('index', strategies, results, {
+      entityId: record.entityId,
+      recordId: record.recordId,
+    })
   }
 
   /**
@@ -231,19 +222,7 @@ export class SearchService {
       strategies.map((strategy) => this.executeStrategyDelete(strategy, entityId, recordId, tenantId)),
     )
 
-    // Log any failures
-    for (let i = 0; i < results.length; i++) {
-      const result = results[i]
-      if (result.status === 'rejected') {
-        const strategy = strategies[i]
-        searchError('SearchService', 'Strategy delete failed', {
-          strategyId: strategy?.id,
-          entityId,
-          recordId,
-          error: result.reason instanceof Error ? result.reason.message : result.reason,
-        })
-      }
-    }
+    this.throwOnStrategyFailures('delete', strategies, results, { entityId, recordId })
   }
 
   /**
@@ -312,18 +291,54 @@ export class SearchService {
       }),
     )
 
-    // Log any failures
+    this.throwOnStrategyFailures('purge', strategies, results, { entityId })
+  }
+
+  /**
+   * Inspect the settled results of a per-strategy write operation, log every
+   * rejection, and re-throw an aggregated error when any strategy failed.
+   *
+   * Write operations (index/delete/purge) must surface failures to the caller
+   * so the queue worker re-throws and the job is retried. Swallowing rejections
+   * here causes silent, permanent index gaps on transient failures such as
+   * Postgres connection-pool exhaustion (issue #3103). Successful strategies
+   * still commit their work; only the aggregated failure propagates.
+   */
+  private throwOnStrategyFailures(
+    operation: 'index' | 'delete' | 'purge',
+    strategies: SearchStrategy[],
+    results: PromiseSettledResult<unknown>[],
+    context: { entityId: string; recordId?: string },
+  ): void {
+    const failures: Array<{ strategyId: string; reason: unknown }> = []
+
     for (let i = 0; i < results.length; i++) {
       const result = results[i]
       if (result.status === 'rejected') {
         const strategy = strategies[i]
-        searchError('SearchService', 'Strategy purge failed', {
+        failures.push({ strategyId: strategy?.id || 'unknown', reason: result.reason })
+        searchError('SearchService', `Strategy ${operation} failed`, {
           strategyId: strategy?.id,
-          entityId,
+          entityId: context.entityId,
+          recordId: context.recordId,
           error: result.reason instanceof Error ? result.reason.message : result.reason,
         })
       }
     }
+
+    if (failures.length === 0) return
+
+    const summary = `Search ${operation} failed for ${failures.length} strategy(ies): ${failures
+      .map((failure) => {
+        const message = failure.reason instanceof Error ? failure.reason.message : String(failure.reason)
+        return `${failure.strategyId} (${message})`
+      })
+      .join(', ')}`
+
+    throw new AggregateError(
+      failures.map((failure) => failure.reason),
+      summary,
+    )
   }
 
   /**

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getBundle, getBundleIntegrations, getIntegration } from '@open-mercato/shared/modules/integrations/types'
-import type { CredentialsService } from '../../lib/credentials-service'
+import { CredentialsEncryptionUnavailableError, type CredentialsService } from '../../lib/credentials-service'
 import type { IntegrationStateService } from '../../lib/state-service'
 import type { IntegrationLogService } from '../../lib/log-service'
 import { deriveIntegrationHealthStatus, getEffectiveHealthCheckConfig } from '../../lib/health-service'
@@ -60,7 +60,10 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
 
   const [credentials, state, analyticsMap] = await Promise.all([
-    credentialsService.resolve(integration.id, scope),
+    credentialsService.resolve(integration.id, scope).catch((err) => {
+      if (err instanceof CredentialsEncryptionUnavailableError) return null
+      throw err
+    }),
     stateService.resolveState(integration.id, scope),
     logService.aggregateAnalytics([integration.id], scope, 30),
   ])
