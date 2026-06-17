@@ -18,7 +18,7 @@ Specs awaiting implementation or in design phase.
 | --- | --- | --- | --- |
 | [Health Endpoints](SPEC-ENT-002-2026-02-17-mercato-health-endpoints.md) | 2026-02-17 | Enterprise Health Endpoints | Liveness (`/api/health/live`) and readiness (`/api/health/ready`) endpoints for deployment orchestration |
 | [Usage Telemetry / Phone Home](2026-06-04-usage-telemetry-phone-home.md) | 2026-06-04 | Usage Telemetry & "Phone Home" Verification | OSS telemetry client + separate-repo central admin module reporting aggregate usage counts for transparent billing verification; fail-safe 100 ms beacon, daily worker, dual OSS/enterprise modes |
-| [Sandboxes](Sandboxes.md) | — | Sandboxes | One-click cloud dev/build environments (OM + coding agents) + optional managed dev/test infrastructure |
+| [Sandboxes](Sandboxes.md) | — | Sandboxes | One-click cloud dev/build environments with Open Mercato and coding agents preinstalled |
 | [Password Change](CONSIDERATION-password-change-integration-2026-03-05.md) | 2026-03-05 | Password Change Integration (Consideration) | Design decision for enterprise password change flow without modifying core |
 
 ## Implemented Specifications
