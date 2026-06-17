@@ -123,7 +123,7 @@ Agencies operate on the front line; Open Mercato stands behind system quality.
 ## Contact
 
 - Enterprise licensing and program details: [info@catchthetornado.com](mailto:info@catchthetornado.com)
-- Certified agency partnership: [tom@catchthetornado.com](mailto:tom@catchthetornado.com)
+- Certified agency partnership: [mat@openmercato.com](mailto:mat@openmercato.com)
 
 ## Important
 
