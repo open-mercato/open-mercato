@@ -39,17 +39,48 @@ Production requires:
 
 This is a production requirement.
 
-## Open Mercato Enterprise License
+## Open Mercato Enterprise Subscription
 
-The Enterprise License includes:
-- Pre-Deployment Architecture Audit: structured review for platform best practices and enterprise readiness.
-- Monthly Technical Reviews: recurring security review, performance review, and custom module code review (advisory review allocation each month).
-- Priority Technical and Customer Success Support: priority helpdesk access and dedicated customer success guidance until production launch.
-- Compliance and Environment Support: GDPR guidance/templates and production environment advisory support (including Docker/Kubernetes setup guidance).
-- Software Updates: access to Open Mercato security updates and new platform features.
-- Production Approval (Homologation): formal pre-go-live readiness assessment with production approval report and risk summary.
+The Enterprise Subscription combines the proprietary enterprise software modules above with certification, review, and operational support — so teams can take AI-built CRM/ERP systems to production with confidence. It is governed by the Open Mercato Enterprise License Agreement.
 
-Final commercial terms are scoped per client engagement after joint assessment.
+### Licensing model
+
+- **Per project, not per seat.** Charged per Open Mercato project / monorepo, never per developer or end user.
+- **Unlimited seats.** No limit on users or servers within a given system.
+- **Revenue-based tiers.** The applicable tier is determined by the Licensee's annual revenue, verified against public registry data (e.g. KRS).
+- **Usage verification ("Phone Home").** On-premise deployments report aggregate usage counts for transparent billing verification, without Open Mercato needing standing access to your repository.
+
+A *project* is a single business domain / department / goal-oriented deployment of Open Mercato — not limited to a single physical instance (a multi-server deployment can be one project).
+
+### Subscription tiers
+
+Three tiers scale the level of service with company size. Every tier includes the full Enterprise Software Package and unlimited seats. Commercial terms are provided on request.
+
+| Capability | Basic | Medium | Enterprise |
+|---|---|---|---|
+| Company revenue band | below $25M | $25M–$250M | above $250M |
+| Enterprise software modules (MFA, SSO & Directory Sync, Record Locking) | Included | Included | Included |
+| Unlimited users & servers (per project / monorepo) | Included | Included | Included |
+| Project sandboxes (dev/staging + prod env, CI/CD, AI SDLC pipeline, 7-day restore) | 1 active project | 3 active projects | 10 active projects |
+| Priority support (AI-assisted helpdesk, issue triage) | up to 5 accounts | up to 10 accounts, Discord | unlimited accounts, Discord |
+| Software updates | self-serve | assisted | managed for you |
+| Pre-deployment Architecture Audit | — | Included | Included |
+| Monthly Security / Performance / Custom-code Reviews | — | optional | Included |
+| Production Approval (Homologation) & go-live recommendation | — | optional | Included |
+| Proactive deployment monitoring & lead-application upgrades | — | — | Included |
+| Dedicated Customer Success Manager (pre-go-live) | — | optional | Included |
+| GDPR documentation & production-config advisory | templates | Included | Included |
+
+Startups below $5M in annual revenue can request a startup discount via [info@openmercato.com](mailto:info@openmercato.com).
+
+## Sandboxes
+
+Open Mercato Sandboxes are one-click cloud environments with Open Mercato and your coding agents preinstalled, with live previews, ready in about 30 seconds. Build and learn in the sandbox, then move the application to your own infrastructure. This unified trial-and-build path replaces ad-hoc demos — teams can start AI-engineering immediately, without first clearing a security review.
+
+- **Backups & restore:** download a backup of sandbox data and restore state up to 7 days back.
+- **Pre-launch (waitlist):** [sandboxes.openmercato.com](https://sandboxes.openmercato.com)
+
+Sandboxes are for building and learning. Production still runs the certification and homologation path above.
 
 ## Open Mercato Certified Agencies
 

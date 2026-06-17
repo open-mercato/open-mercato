@@ -1,8 +1,13 @@
-# Open Mercato — Developer's Cloud
+# Open Mercato — Sandboxes
 
-## Service Description
+Open Mercato distinguishes two cloud offerings:
 
-Developer's Cloud is a managed infrastructure environment for Open Mercato clients. It covers full setup, maintenance and monitoring of production or development infrastructure based on Dokploy + VPS (Hetzner or client's own infrastructure).
+- **Sandboxes** — one-click cloud dev/build environments with Open Mercato and your coding agents preinstalled, with live previews, ready in about 30 seconds. Build and learn in the sandbox, then move the application to your own infrastructure (backups + 7-day restore). This is the unified trial-and-build path that replaces ad-hoc demos. Public waitlist: https://sandboxes.openmercato.com.
+- **Developer Sandbox Cloud** — the optional, fully managed dev/test (and production) infrastructure described below, for clients who want Open Mercato to own setup, monitoring and maintenance instead of self-hosting.
+
+## Developer Sandbox Cloud
+
+Developer Sandbox Cloud is a managed infrastructure environment for Open Mercato clients. It covers full setup, maintenance and monitoring of production or development infrastructure based on Dokploy + VPS (Hetzner or client's own infrastructure).
 
 The service provides the client with a ready-to-use, secure and monitored environment — without the need for an in-house DevOps team.
 
