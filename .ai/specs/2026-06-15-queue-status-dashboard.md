@@ -271,14 +271,16 @@ type InFlightJobSummary = {
 }
 ```
 
-- **async (BullMQ):** `queue.getJobs([state], 0, limit - 1)` (bounded, newest-first), map the
-  allow-listed fields. `runningMs`/`ageMs` are computed **server-side** from the job
-  timestamps and the request time so the client never derives them. `job.data` is never read.
+- **async (BullMQ):** `queue.getJobs([state], 0, limit - 1)` (bounded window), map the
+  allow-listed fields. For `waiting`/`delayed` this window is the **head of the queue** (the
+  oldest / next-to-run jobs — exactly the ones that look stuck); for `active` it is the
+  in-progress set. `runningMs`/`ageMs` are computed **server-side** from the job timestamps and
+  the request time so the client never derives them. `job.data` is never read.
 - **local:** best-effort from the bounded file window; partial fidelity where timestamps are
   unavailable.
 - The active view is what "currently processed items and how long it takes" renders; the
-  waiting/delayed view (sorted oldest-first) is how an operator spots a backlog of stuck
-  records. `limit` is hard-capped server-side.
+  waiting/delayed view (oldest-first, the queue head) is how an operator spots a backlog of
+  stuck records. `limit` is hard-capped server-side.
 
 If a strategy does not implement `getInFlightJobsSummary`, the snapshot omits the in-flight
 block and the UI shows it as unavailable for that strategy.
