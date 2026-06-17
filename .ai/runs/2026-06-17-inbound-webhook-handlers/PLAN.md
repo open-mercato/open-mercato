@@ -17,7 +17,7 @@
 | 2 | 2.1 | WebhookIngestion entity + IngestionStatus enum + encryption map | done | ef34f53ef |
 | 2 | 2.2 | InboundEndpointConfig entity | done | 765265c45 |
 | 2 | 2.3 | Migration + snapshot for new inbound tables | todo | — |
-| 2 | 2.4 | Add webhooks.inbound.processed / handler_failed events | todo | — |
+| 2 | 2.4 | Add webhooks.inbound.processed / handler_failed events | done | 139a73e4f |
 | 3 | 3.1 | Source + handler registries; handler resolution + pattern match (unit tests) | todo | — |
 | 3 | 3.2 | Inbound dispatch worker + queue helper | todo | — |
 | 4 | 4.1 | Generator: scan webhook-sources.ts + webhook-handlers/*.ts | todo | — |
