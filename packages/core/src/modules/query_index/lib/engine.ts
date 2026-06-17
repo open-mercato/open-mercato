@@ -939,6 +939,37 @@ export class HybridQueryEngine implements QueryEngine {
         () => dataBuilder.execute(),
         { page, pageSize }, profiler,
       )
+      const expectedPageHasRows = total > 0 && (page - 1) * pageSize < total
+      if (
+        expectedPageHasRows &&
+        Array.isArray(itemsRaw) &&
+        itemsRaw.length === 0 &&
+        hasFilterInput &&
+        cfFilters.length === 0 &&
+        searchFilters.length === 0
+      ) {
+        const fallbackResult = await this.fallback.query<T>(entity, opts)
+        const fallbackItems = Array.isArray(fallbackResult?.items) ? fallbackResult.items.length : 0
+        const fallbackTotal = typeof fallbackResult?.total === 'number'
+          ? fallbackResult.total
+          : fallbackItems
+        if (fallbackItems > 0 || fallbackTotal > 0) {
+          console.warn('[HybridQueryEngine] Hybrid query returned an empty page while fallback found matches; falling back to basic engine:', {
+            entity,
+            total,
+            fallbackTotal,
+            page,
+            pageSize,
+          })
+          if (debugEnabled) this.debug('query:fallback:false-empty-page', { entity, total, fallbackTotal, page, pageSize })
+          finishProfile({
+            result: 'fallback',
+            reason: 'hybrid_false_empty_page',
+            total: fallbackTotal,
+          })
+          return await applyAfterExtensions(fallbackResult)
+        }
+      }
       if (debugEnabled) this.debug('query:complete', { entity, total, items: Array.isArray(itemsRaw) ? itemsRaw.length : 0 })
 
       let items = itemsRaw as any[]
