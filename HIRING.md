@@ -12,8 +12,8 @@ Open Mercato is built in the spirit of modern AI Engineering. Alongside the core
 
 We are now looking for a senior person to join the Open Mercato Core Team in a hybrid role:
 
-- **20–30% Core Product Engineering** — improving Open Mercato itself, its architecture, modules, DX, test coverage, AI skills, and product foundations.
-- **70–80% Forward Deployed Engineering** — working directly with partners and key customers on real Open Mercato implementations.
+- **Core Product Engineering** — improving Open Mercato itself, its architecture, modules, DX, test coverage, AI skills, and product foundations.
+- **Forward Deployed Engineering** — working directly with partners and key customers on real Open Mercato implementations.
 
 We treat every implementation as **Product Learning**. You will work close to business users, implementation teams, and partners, identify recurring patterns, and turn field experience into improvements in the core product.
 
