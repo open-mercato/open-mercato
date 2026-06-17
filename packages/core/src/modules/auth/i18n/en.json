@@ -51,7 +51,7 @@
   "auth.login.requireRoleMessage": "Access requires role: {roles}",
   "auth.login.requireRolesMessage": "Access requires one of the following roles: {roles}",
   "auth.login.subtitle": "Access your workspace",
-  "auth.login.tenantBanner": "You're logging in to {tenant} tenant.",
+  "auth.login.tenantBanner": "You're logging in to {tenant}.",
   "auth.login.tenantClear": "Clear",
   "auth.login.tenantLoading": "Loading tenant details...",
   "auth.manageAuthSettings": "Manage authentication settings.",
