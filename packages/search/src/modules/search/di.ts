@@ -3,6 +3,7 @@ import { Pool } from 'pg'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { EmbeddingService, createPgVectorDriver, createChromaDbDriver, createQdrantDriver } from '../../vector'
+import type { PgPool } from '../../vector/drivers/pgvector'
 import { createVectorIndexingQueue, type VectorIndexJobPayload } from '../../queue/vector-indexing'
 import { createFulltextIndexingQueue, type FulltextIndexJobPayload } from '../../queue/fulltext-indexing'
 import type { Queue } from '@open-mercato/queue'
@@ -14,6 +15,19 @@ const FULLTEXT_INDEX_QUEUE_KEY = '__omSearchFulltextIndexQueue__'
 const PG_POOL_KEY = '__omSearchVectorPgPool__'
 const SHUTDOWN_KEY = '__omSearchSingletonsShutdown__'
 
+type SearchSingletonCache = {
+  [EMBEDDING_SERVICE_KEY]?: EmbeddingService
+  [VECTOR_DRIVERS_KEY]?: ReturnType<typeof createPgVectorDriver>[]
+  [VECTOR_INDEX_QUEUE_KEY]?: Queue<VectorIndexJobPayload>
+  [FULLTEXT_INDEX_QUEUE_KEY]?: Queue<FulltextIndexJobPayload>
+  [PG_POOL_KEY]?: PgPool
+  [SHUTDOWN_KEY]?: boolean
+}
+
+function getSearchGlobals(): SearchSingletonCache {
+  return globalThis as unknown as SearchSingletonCache
+}
+
 function isSingletonCacheEnabled(): boolean {
   return process.env.SEARCH_DISABLE_SINGLETON_CACHE !== '1'
 }
@@ -24,7 +38,7 @@ function getOrCreateSingletons(): {
   vectorIndexQueue: Queue<VectorIndexJobPayload>
   fulltextIndexQueue: Queue<FulltextIndexJobPayload>
 } {
-  const g = globalThis as any
+  const g = getSearchGlobals()
 
   if (
     g[EMBEDDING_SERVICE_KEY] &&
@@ -43,15 +57,15 @@ function getOrCreateSingletons(): {
   const embeddingService = new EmbeddingService()
 
   // Create the pgvector pool separately so we can close it in the shutdown hook
-  let pgPool: InstanceType<typeof Pool> | undefined
+  let pgPool: PgPool | undefined
   const dbUrl = process.env.DATABASE_URL
   if (dbUrl) {
-    pgPool = new Pool({ connectionString: dbUrl })
+    pgPool = new Pool({ connectionString: dbUrl }) as unknown as PgPool
     g[PG_POOL_KEY] = pgPool
   }
 
   const drivers = [
-    createPgVectorDriver(pgPool ? { pool: pgPool as any } : {}),
+    createPgVectorDriver(pgPool ? { pool: pgPool } : {}),
     createChromaDbDriver(),
     createQdrantDriver(),
   ]

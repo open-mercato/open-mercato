@@ -28,6 +28,14 @@ import { createPresenterEnricher } from './lib/presenter-enricher'
 
 const FULLTEXT_DRIVER_KEY = '__omSearchFulltextDriver__'
 
+type SearchModuleGlobals = {
+  [FULLTEXT_DRIVER_KEY]?: FullTextSearchDriver
+}
+
+function getSearchModuleGlobals(): SearchModuleGlobals {
+  return globalThis as unknown as SearchModuleGlobals
+}
+
 /**
  * Check if encrypted fields should be excluded from search indexing.
  * Controlled by SEARCH_EXCLUDE_ENCRYPTED_FIELDS environment variable.
@@ -165,7 +173,7 @@ export function registerSearchModule(
   if (!options?.skipFulltext) {
     const excludeEncrypted = shouldExcludeEncryptedFields()
     const singletonCacheEnabled = process.env.SEARCH_DISABLE_SINGLETON_CACHE !== '1'
-    const g = globalThis as any
+    const g = getSearchModuleGlobals()
 
     // The fulltext driver is safe to memoize only when SEARCH_EXCLUDE_ENCRYPTED_FIELDS is
     // OFF — in that case the driver holds no request-scoped Kysely reference. When the flag

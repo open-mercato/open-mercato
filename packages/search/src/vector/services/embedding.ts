@@ -72,7 +72,7 @@ export class EmbeddingService {
       config.model === this.config.model &&
       config.dimension === this.config.dimension &&
       config.outputDimensionality === this.config.outputDimensionality &&
-      (config as any).apiKey === (this.config as any).apiKey
+      config.baseUrl === this.config.baseUrl
     ) {
       return
     }
