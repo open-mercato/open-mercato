@@ -13,7 +13,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
-import { Boxes, Route, ShieldCheck, Warehouse as WarehouseIcon } from 'lucide-react'
+import { Boxes, Package, Route, ShieldCheck, Warehouse as WarehouseIcon, X } from 'lucide-react'
 import { E } from '#generated/entities.ids.generated'
 import {
   createInventoryDateTimeFormatter,
@@ -35,7 +35,13 @@ import {
   useWmsInventoryMutationAccess,
   type WmsInventoryMutationAccess,
 } from './useWmsInventoryMutationAccess'
-import { loadWarehouseOptions, resolveWarehouseLabel } from './inventoryMutationLoaders'
+import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  loadCatalogVariantOptions,
+  loadWarehouseOptions,
+  resolveCatalogVariantLabel,
+  resolveWarehouseLabel,
+} from './inventoryMutationLoaders'
 
 type PagedResponse<T> = {
   items: T[]
@@ -193,6 +199,7 @@ function buildInventoryQuery(
   pageSize: number,
   sorting: SortingState,
   warehouseId: string,
+  variantId: string,
 ) {
   const sortCol = sorting[0]
   const params = new URLSearchParams({
@@ -203,6 +210,7 @@ function buildInventoryQuery(
   })
   if (search.trim()) params.set('search', search.trim())
   if (warehouseId.trim()) params.set('warehouseId', warehouseId.trim())
+  if (variantId.trim()) params.set('catalogVariantId', variantId.trim())
   return params.toString()
 }
 
@@ -227,6 +235,7 @@ type InventoryDataTableSectionProps<T> = {
   columns: ColumnDef<T>[]
   rowActions?: (row: T) => React.ReactNode
   warehouseId?: string
+  variantId?: string
 }
 
 function InventoryDataTableSection<T>({
@@ -250,6 +259,7 @@ function InventoryDataTableSection<T>({
   columns,
   rowActions,
   warehouseId = '',
+  variantId = '',
 }: InventoryDataTableSectionProps<T>) {
   const t = useT()
   const [page, setPage] = React.useState(1)
@@ -262,13 +272,13 @@ function InventoryDataTableSection<T>({
   }, [])
 
   const params = React.useMemo(
-    () => buildInventoryQuery(search, page, 20, sorting, warehouseId),
-    [page, search, sorting, warehouseId],
+    () => buildInventoryQuery(search, page, 20, sorting, warehouseId, variantId),
+    [page, search, sorting, warehouseId, variantId],
   )
 
   React.useEffect(() => {
     setPage(1)
-  }, [warehouseId])
+  }, [warehouseId, variantId])
 
   const query = useQuery({
     queryKey: ['wms-inventory-console', sectionQueryKey, params],
@@ -325,58 +335,111 @@ function InventoryDataTableSection<T>({
   )
 }
 
-function WarehouseScopeBar({
+function InventoryScopeBar({
   warehouseId,
+  variantId,
   onWarehouseChange,
+  onVariantChange,
 }: {
   warehouseId: string
+  variantId: string
   onWarehouseChange: (id: string) => void
+  onVariantChange: (id: string) => void
 }) {
   const t = useT()
-  const [labelCache, setLabelCache] = React.useState<Record<string, string>>({})
-  const labelCacheRef = React.useRef(labelCache)
-  labelCacheRef.current = labelCache
+  const [warehouseLabelCache, setWarehouseLabelCache] = React.useState<Record<string, string>>({})
+  const [variantLabelCache, setVariantLabelCache] = React.useState<Record<string, string>>({})
+  const warehouseLabelCacheRef = React.useRef(warehouseLabelCache)
+  warehouseLabelCacheRef.current = warehouseLabelCache
+  const variantLabelCacheRef = React.useRef(variantLabelCache)
+  variantLabelCacheRef.current = variantLabelCache
 
   React.useEffect(() => {
-    if (!warehouseId.trim()) return
-    if (labelCacheRef.current[warehouseId]) return
+    if (!warehouseId.trim() || warehouseLabelCacheRef.current[warehouseId]) return
     let cancelled = false
     void resolveWarehouseLabel(warehouseId).then((label) => {
       if (cancelled || !label) return
-      setLabelCache((c) => ({ ...c, [warehouseId]: label }))
+      setWarehouseLabelCache((c) => ({ ...c, [warehouseId]: label }))
     })
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [warehouseId])
 
+  React.useEffect(() => {
+    if (!variantId.trim() || variantLabelCacheRef.current[variantId]) return
+    let cancelled = false
+    void resolveCatalogVariantLabel(variantId).then((label) => {
+      if (cancelled || !label) return
+      setVariantLabelCache((c) => ({ ...c, [variantId]: label }))
+    })
+    return () => { cancelled = true }
+  }, [variantId])
+
+  const hasScope = warehouseId.trim() || variantId.trim()
+
   return (
-    <div className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3 shadow-sm">
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card px-4 py-3 shadow-sm">
       <div className="flex items-center gap-2 text-muted-foreground">
         <WarehouseIcon className="size-4 shrink-0" />
         <span className="text-sm font-medium">
-          {t('wms.backend.inventory.console.scopeBar.warehouse', 'Warehouse')}
+          {t('wms.backend.inventory.console.scopeBar.label', 'Scope')}
         </span>
       </div>
-      <div className="w-64">
+      <div className="w-56">
         <ComboboxInput
           value={warehouseId}
           onChange={(next) => onWarehouseChange(next.trim())}
           loadSuggestions={async (query) => {
             const options = await loadWarehouseOptions(query)
-            setLabelCache((c) => {
-              const next = { ...c }
-              for (const o of options) next[o.value] = o.label
-              return next
+            setWarehouseLabelCache((c) => {
+              const updated = { ...c }
+              for (const o of options) updated[o.value] = o.label
+              return updated
             })
             return options.map((o) => ({ value: o.value, label: o.label }))
           }}
-          resolveLabel={(value) => labelCache[value] ?? value}
+          resolveLabel={(value) => warehouseLabelCache[value] ?? value}
           placeholder={t('wms.backend.inventory.console.scopeBar.allWarehouses', 'All warehouses')}
           allowCustomValues={false}
           clearable
         />
       </div>
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <Package className="size-4 shrink-0" />
+      </div>
+      <div className="w-56">
+        <ComboboxInput
+          value={variantId}
+          onChange={(next) => onVariantChange(next.trim())}
+          loadSuggestions={async (query) => {
+            const options = await loadCatalogVariantOptions(query)
+            setVariantLabelCache((c) => {
+              const updated = { ...c }
+              for (const o of options) updated[o.value] = o.label
+              return updated
+            })
+            return options.map((o) => ({ value: o.value, label: o.label }))
+          }}
+          resolveLabel={(value) => variantLabelCache[value] ?? value}
+          placeholder={t('wms.backend.inventory.console.scopeBar.allVariants', 'All SKUs')}
+          allowCustomValues={false}
+          clearable
+        />
+      </div>
+      {hasScope ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-auto px-2 py-1 text-xs"
+          onClick={() => {
+            onWarehouseChange('')
+            onVariantChange('')
+          }}
+        >
+          <X className="size-3" />
+          {t('wms.backend.inventory.console.scopeBar.clearAll', 'Clear')}
+        </Button>
+      ) : null}
     </div>
   )
 }
@@ -384,9 +447,11 @@ function WarehouseScopeBar({
 export function InventoryBalancesSection({
   access,
   warehouseId = '',
+  variantId = '',
 }: {
   access: WmsInventoryMutationAccess
   warehouseId?: string
+  variantId?: string
 }) {
   const t = useT()
   const { quantityFormatter } = useInventoryDisplayFormatters()
@@ -551,6 +616,7 @@ export function InventoryBalancesSection({
         columns={columns}
         rowActions={rowActions}
         warehouseId={warehouseId}
+        variantId={variantId}
       />
       {access.canMove ? (
         <MoveInventoryDialog
@@ -572,9 +638,11 @@ export function InventoryBalancesSection({
 export function InventoryReservationsSection({
   access,
   warehouseId = '',
+  variantId = '',
 }: {
   access: WmsInventoryMutationAccess
   warehouseId?: string
+  variantId?: string
 }) {
   const t = useT()
   const { quantityFormatter } = useInventoryDisplayFormatters()
@@ -705,6 +773,7 @@ export function InventoryReservationsSection({
         columns={columns}
         rowActions={rowActions}
         warehouseId={warehouseId}
+        variantId={variantId}
       />
       {access.canRelease ? (
         <ReleaseReservationDialog
@@ -718,7 +787,13 @@ export function InventoryReservationsSection({
   )
 }
 
-export function InventoryMovementsSection({ warehouseId = '' }: { warehouseId?: string }) {
+export function InventoryMovementsSection({
+  warehouseId = '',
+  variantId = '',
+}: {
+  warehouseId?: string
+  variantId?: string
+}) {
   const t = useT()
   const { quantityFormatter, dateTimeFormatter } = useInventoryDisplayFormatters()
 
@@ -843,6 +918,7 @@ export function InventoryMovementsSection({ warehouseId = '' }: { warehouseId?: 
       icon={<Route className="size-5" />}
       columns={columns}
       warehouseId={warehouseId}
+      variantId={variantId}
     />
   )
 }
@@ -850,16 +926,22 @@ export function InventoryMovementsSection({ warehouseId = '' }: { warehouseId?: 
 export default function WmsInventoryConsolePage() {
   const access = useWmsInventoryMutationAccess()
   const [warehouseId, setWarehouseId] = React.useState('')
+  const [variantId, setVariantId] = React.useState('')
 
   return (
     <Page>
       <PageBody>
         <div className="space-y-6">
           <InventoryOperationsSection access={access} />
-          <WarehouseScopeBar warehouseId={warehouseId} onWarehouseChange={setWarehouseId} />
-          <InventoryBalancesSection access={access} warehouseId={warehouseId} />
-          <InventoryReservationsSection access={access} warehouseId={warehouseId} />
-          <InventoryMovementsSection warehouseId={warehouseId} />
+          <InventoryScopeBar
+            warehouseId={warehouseId}
+            variantId={variantId}
+            onWarehouseChange={setWarehouseId}
+            onVariantChange={setVariantId}
+          />
+          <InventoryBalancesSection access={access} warehouseId={warehouseId} variantId={variantId} />
+          <InventoryReservationsSection access={access} warehouseId={warehouseId} variantId={variantId} />
+          <InventoryMovementsSection warehouseId={warehouseId} variantId={variantId} />
         </div>
       </PageBody>
     </Page>

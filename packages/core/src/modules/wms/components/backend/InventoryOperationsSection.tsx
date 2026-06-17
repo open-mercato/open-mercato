@@ -3,11 +3,13 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { ArrowDown, ClipboardList, SlidersHorizontal, Upload } from 'lucide-react'
+import { ArrowDown, ArrowLeftRight, ClipboardList, ShieldCheck, SlidersHorizontal, Upload } from 'lucide-react'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
 import { CycleCountWizardDialog } from './CycleCountWizardDialog'
 import { ImportInventoryDialog } from './ImportInventoryDialog'
+import { MoveInventoryDialog } from './MoveInventoryDialog'
 import { ReceiveInventoryDialog } from './ReceiveInventoryDialog'
+import { ReserveInventoryDialog } from './ReserveInventoryDialog'
 import type { WmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 
 function SectionCard({
@@ -40,11 +42,20 @@ export function InventoryOperationsSection({
   const t = useT()
   const [adjustOpen, setAdjustOpen] = React.useState(false)
   const [receiveOpen, setReceiveOpen] = React.useState(false)
+  const [reserveOpen, setReserveOpen] = React.useState(false)
+  const [moveOpen, setMoveOpen] = React.useState(false)
   const [cycleOpen, setCycleOpen] = React.useState(false)
   const [importOpen, setImportOpen] = React.useState(false)
 
   if (!access.scopeReady) return null
-  if (!access.canAdjust && !access.canReceive && !access.canCycleCount && !access.canImport) return null
+  if (
+    !access.canAdjust &&
+    !access.canReceive &&
+    !access.canReserve &&
+    !access.canMove &&
+    !access.canCycleCount &&
+    !access.canImport
+  ) return null
 
   return (
     <>
@@ -52,7 +63,7 @@ export function InventoryOperationsSection({
         title={t('wms.backend.inventory.operations.title', 'Inventory operations')}
         description={t(
           'wms.backend.inventory.operations.description',
-          'Receive inbound stock, post adjustments for corrections, or run a cycle count.',
+          'Receive inbound stock, reserve or move stock, post adjustments, or run a cycle count.',
         )}
       >
         {access.canImport ? (
@@ -73,6 +84,18 @@ export function InventoryOperationsSection({
             {t('wms.backend.inventory.operations.cycleCount', 'Cycle count')}
           </Button>
         ) : null}
+        {access.canMove ? (
+          <Button type="button" variant="outline" onClick={() => setMoveOpen(true)}>
+            <ArrowLeftRight className="size-4" />
+            {t('wms.backend.inventory.operations.move', 'Move stock')}
+          </Button>
+        ) : null}
+        {access.canReserve ? (
+          <Button type="button" variant="outline" onClick={() => setReserveOpen(true)}>
+            <ShieldCheck className="size-4" />
+            {t('wms.backend.inventory.operations.reserve', 'Reserve')}
+          </Button>
+        ) : null}
         {access.canReceive ? (
           <Button type="button" variant="default" onClick={() => setReceiveOpen(true)}>
             <ArrowDown className="size-4" />
@@ -88,6 +111,12 @@ export function InventoryOperationsSection({
       ) : null}
       {access.canReceive ? (
         <ReceiveInventoryDialog open={receiveOpen} onOpenChange={setReceiveOpen} access={access} />
+      ) : null}
+      {access.canReserve ? (
+        <ReserveInventoryDialog open={reserveOpen} onOpenChange={setReserveOpen} access={access} />
+      ) : null}
+      {access.canMove ? (
+        <MoveInventoryDialog open={moveOpen} onOpenChange={setMoveOpen} access={access} />
       ) : null}
       {access.canCycleCount ? (
         <CycleCountWizardDialog open={cycleOpen} onOpenChange={setCycleOpen} access={access} />
