@@ -44,4 +44,11 @@ Add a top-level `HIRING.md` describing the "Senior AI Engineering / Forward Depl
 - [x] 3.1 TC-CRM-062 hard fail: field-picker helper grabbed a stale/closing combobox (`.first()` → detached mid-fill) and leaked the regex `i` flag into the search query ("Namei"). Fixed with close-before-open + close-after-select waits and `.source`-based query text.
 - [x] 3.2 TC-CRM-059 / TC-CRM-060 / TC-CRM-061 reopen race (People / Companies / Deals "Clear all"): preset-apply closes the panel (onOpenChange(false)); the reopen click raced the Radix exit animation. Now wait for `toBeHidden` before reopening. (TC-CRM-061 surfaced from run 27592817564 / PR #3119.)
 - [x] 3.3 TC-CRM-013 pipeline-nav 20s timeout: heavy multi-navigation flow exceeds the default budget under CI load. Added `test.slow()`.
-- [x] 3.4 TC-LOCK-OSS-043 conflict-bar timing: list-row delete surfaces the conflict bar slower than an in-form save under CI load. Added an optional `timeout` to `expectConflictBanner` (default unchanged, BC) and passed 20s from the webhook list test.
+- [x] 3.4 TC-LOCK-OSS-043 conflict-bar: added an optional `timeout` to `expectConflictBanner` (default unchanged, BC) and passed 20s from the webhook list test.
+
+### Phase 4: Second-pass deepening (after CI run on sha 302df6d99 went green but 2 specs still flaked-on-retry)
+
+> Run 27680101869 was green (0 failed) but TC-CRM-062 and TC-LOCK-OSS-043 still needed a retry. Diagnosed the deeper, real root causes from the run's error-context artifacts and fixed them so neither needs a retry.
+
+- [x] 4.1 TC-CRM-062 (now flaked at the reorder assertion, not the helper): the dnd-kit keyboard lift→move→drop fired back-to-back occasionally dropped the ArrowUp, leaving the order unchanged. Wrapped the sequence in a `toPass` retry with `toBeFocused` + settle ticks (Escape resets a half-applied lift).
+- [x] 4.2 TC-LOCK-OSS-043: error-context showed the list ended "No Webhooks yet" — the DELETE had SUCCEEDED (no 409), so the timeout bump was the wrong fix. The list fires a second settle GET (org-scope resolve) that occasionally lands after the out-of-band PUT and refreshes the row's lock token to the new value. Added `waitForLoadState('networkidle')` before the bump so all initial GETs settle first and the captured token is deterministically stale.

@@ -131,23 +131,30 @@ test.describe('TC-CRM-062: keyboard reorder within group', () => {
       // Focus the drag handle of the second rule (index 1)
       const secondHandle = ruleNodes.nth(1).locator('[data-testid="filter-drag-handle"]').first();
       await expect(secondHandle).toBeVisible();
-      await secondHandle.focus();
 
-      // dnd-kit keyboard protocol: Space lifts, ArrowUp moves up, Space drops
-      await page.keyboard.press('Space');
-      await page.keyboard.press('ArrowUp');
-      await page.keyboard.press('Space');
+      const ruleOrder = async () =>
+        ruleNodes.evaluateAll((nodes) =>
+          nodes.map((n) => n.getAttribute('data-filter-rule-id') ?? '').join('|'),
+        );
 
-      // Wait for the reorder to apply by polling the new id order until it differs.
-      await expect
-        .poll(
-          async () =>
-            await ruleNodes.evaluateAll((nodes) =>
-              nodes.map((n) => n.getAttribute('data-filter-rule-id') ?? '').join('|'),
-            ),
-          { timeout: 10_000 },
-        )
-        .not.toBe(idsBefore.join('|'));
+      // dnd-kit KeyboardSensor protocol: Space lifts, ArrowUp moves up, Space drops.
+      // dnd-kit measures droppable rects on lift and recomputes per move, so firing
+      // the three keys back-to-back occasionally dropped the ArrowUp and left the
+      // order unchanged. Retry the whole lift→move→drop sequence (Escape first
+      // cancels any half-applied lift from a prior attempt) with a settle tick
+      // between steps, until the rule id order actually changes.
+      await expect(async () => {
+        await page.keyboard.press('Escape');
+        await secondHandle.focus();
+        await expect(secondHandle).toBeFocused();
+        await page.keyboard.press('Space');
+        await page.waitForTimeout(200);
+        await page.keyboard.press('ArrowUp');
+        await page.waitForTimeout(200);
+        await page.keyboard.press('Space');
+        await page.waitForTimeout(200);
+        expect(await ruleOrder()).not.toBe(idsBefore.join('|'));
+      }).toPass({ timeout: 20_000 });
 
       const idsAfter = await ruleNodes.evaluateAll((nodes) =>
         nodes.map((n) => n.getAttribute('data-filter-rule-id') ?? ''),
