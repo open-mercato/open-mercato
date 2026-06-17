@@ -215,13 +215,19 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
             ),
         )
         if (!call.ok) {
-          throw new Error(
-            typeof call.result?.error === 'string' ? call.result.error : 'Failed to delete dictionary entry',
+          throw Object.assign(
+            new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to delete dictionary entry'),
+            { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
           )
         }
         await invalidateDictionaryEntries(queryClient, dictionaryId)
         flash(t('dictionaries.config.entries.success.delete', 'Dictionary entry deleted.'), 'success')
       } catch (err) {
+        // Route a concurrent-edit 409 through the single conflict surface (matching
+        // the entry save path); fall back to a flash for any other delete failure.
+        if (surfaceRecordConflict(err, t)) {
+          return
+        }
         console.error('Failed to delete dictionary entry', err)
         flash(t('dictionaries.config.entries.error.delete', 'Failed to delete dictionary entry.'), 'error')
       } finally {

@@ -77,6 +77,7 @@ export async function getOverrides(
                 name: toggle.name,
                 category: toggle.category ?? '',
                 isOverride: true,
+                updatedAt: override.updatedAt instanceof Date ? override.updatedAt.toISOString() : null,
             })
         } else {
             response.push({

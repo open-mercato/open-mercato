@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -8,6 +9,7 @@ import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { E } from '#generated/entities.ids.generated'
@@ -81,6 +83,7 @@ async function submitCategoryUpdate(
 export default function EditCatalogCategoryPage({ params }: { params?: { id?: string } }) {
   const categoryId = params?.id ?? ''
   const t = useT()
+  const pathname = usePathname()
   const [initialValues, setInitialValues] = React.useState<CategoryFormValues | null>(null)
   const [pathLabel, setPathLabel] = React.useState<string>('')
   const [loading, setLoading] = React.useState<boolean>(true)
@@ -195,6 +198,20 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
     },
   ], [t])
 
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `catalog.category` + id
+  // explicitly. The resourceKind mirrors the CrudForm `versionHistory` so the held
+  // lock matches the save-time conflict surface for the same category.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'catalog.category',
+      resourceId: categoryId || null,
+      updatedAt: initialValues?.updatedAt ?? null,
+      data: initialValues as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
+
   if (!categoryId) {
     return (
       <Page>
@@ -240,6 +257,7 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
           versionHistory={{ resourceKind: 'catalog.category', resourceId: categoryId ? String(categoryId) : '' }}
           fields={fields}
           groups={groups}
+          injectionSpotId="crud-form:catalog.category"
           entityId={E.catalog.catalog_product_category}
           initialValues={initialValues ?? { id: categoryId, name: '', slug: '', description: '', parentId: '', isActive: true }}
           optimisticLockUpdatedAt={initialValues?.updatedAt}

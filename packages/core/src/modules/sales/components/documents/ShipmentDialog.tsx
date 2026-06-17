@@ -15,7 +15,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { handleSectionMutationError, rowOptimisticVersion } from './optimisticLock'
+import { handleSectionMutationError } from './optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
@@ -46,6 +46,7 @@ type ShipmentDialogProps = {
   currencyCode?: string | null
   organizationId: string | null
   tenantId: string | null
+  documentUpdatedAt?: string | null
   computeAvailable: (lineId: string, excludeShipmentId?: string | null) => number
   shippingAddressSnapshot?: NormalizedAddressSnapshot | Record<string, unknown> | null
   onClose: () => void
@@ -264,6 +265,7 @@ export function ShipmentDialog({
   currencyCode,
   organizationId,
   tenantId,
+  documentUpdatedAt,
   computeAvailable,
   shippingAddressSnapshot,
   onClose,
@@ -1071,7 +1073,9 @@ export function ShipmentDialog({
       let result
       try {
         result = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(shipment?.id ? rowOptimisticVersion(shipment) : undefined),
+          // The server guards the PARENT order's aggregate version (Gap B) for
+          // both create and update, so send the order's `updated_at`.
+          buildOptimisticLockHeader(documentUpdatedAt ?? undefined),
           () =>
             action(
               'sales/shipments',
@@ -1201,6 +1205,7 @@ export function ShipmentDialog({
     },
     [
       currencyCode,
+      documentUpdatedAt,
       lines,
       mode,
       onAddComment,
@@ -1208,7 +1213,6 @@ export function ShipmentDialog({
       orderId,
       organizationId,
       shipment?.id,
-      shipment?.updatedAt,
       addressOptions,
       addressOptionsMap,
       shippingMethods,

@@ -117,6 +117,7 @@ export default function CreateCatalogCategoryPage() {
           backHref="/backend/catalog/categories"
           fields={fields}
           groups={groups}
+          injectionSpotId="crud-form:catalog.category"
           entityId={E.catalog.catalog_product_category}
           initialValues={{ name: '', slug: '', description: '', parentId: '', isActive: true }}
           submitLabel={t('catalog.categories.form.action.create', 'Create')}

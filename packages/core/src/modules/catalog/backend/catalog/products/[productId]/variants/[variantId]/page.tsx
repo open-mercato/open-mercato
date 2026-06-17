@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -10,6 +10,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -100,6 +101,7 @@ function resolveVariantPriceLabel(prices: Record<string, VariantPriceDraft> | un
 export default function EditVariantPage({ params }: { params?: { productId?: string; variantId?: string } }) {
   const router = useRouter()
   const t = useT()
+  const pathname = usePathname()
   const productId = params?.productId ? String(params.productId) : null
   const variantId = params?.variantId ? String(params.variantId) : null
   const isCreateSentinel = variantId === 'create'
@@ -463,6 +465,19 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     return list
   }, [optionDefinitions, priceKinds, t, taxRates])
 
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `catalog.variant` + id
+  // explicitly. Skipped on the create-delegation path (no record to lock).
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'catalog.variant',
+      resourceId: isCreateSentinel ? null : variantId,
+      updatedAt: initialValues?.updatedAt ?? null,
+      data: initialValues as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
+
   if (isCreateSentinel) {
     if (!productId) {
       return (
@@ -555,6 +570,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
           )}
           fields={[]}
           groups={groups}
+          injectionSpotId="crud-form:catalog.variant"
           entityId={E.catalog.catalog_product_variant}
           customFieldsetBindings={{ [E.catalog.catalog_product_variant]: { valueKey: 'customFieldsetCode' } }}
           initialValues={initialValues ?? undefined}

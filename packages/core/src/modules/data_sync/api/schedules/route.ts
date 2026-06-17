@@ -73,7 +73,7 @@ export async function POST(req: Request) {
     }, {
       organizationId: auth.orgId as string,
       tenantId: auth.tenantId,
-    })
+    }, container)
     return NextResponse.json(serializeSchedule(schedule), { status: 201 })
   } catch (error) {
     if (isCrudHttpError(error)) {

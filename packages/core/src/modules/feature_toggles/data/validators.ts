@@ -99,6 +99,7 @@ export const overrideListResponseSchema = z.object({
   name: z.string(),
   category: z.string(),
   isOverride: z.boolean(),
+  updatedAt: z.string().nullable().optional(),
 });
 
 export type OverrideListResponse = z.infer<typeof overrideListResponseSchema>

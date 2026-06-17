@@ -14,6 +14,7 @@ import { Plus } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -121,6 +122,14 @@ export default function ExchangeRatesPage() {
         )
 
         if (!call.ok) {
+          // Route a concurrent-edit 409 through the single conflict surface (unified
+          // conflict bar, or the enterprise merge dialog when its handler is mounted);
+          // fall back to a flash for any other delete failure.
+          const conflictError = Object.assign(
+            new Error(t('exchangeRates.flash.deleteError')),
+            { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
+          )
+          if (surfaceRecordConflict(conflictError, t, { onRefresh: () => setReloadToken((token) => token + 1) })) return
           flash(t('exchangeRates.flash.deleteError'), 'error')
           return
         }
@@ -128,6 +137,7 @@ export default function ExchangeRatesPage() {
         flash(t('exchangeRates.flash.deleted'), 'success')
         setReloadToken((token) => token + 1)
       } catch (error) {
+        if (surfaceRecordConflict(error, t, { onRefresh: () => setReloadToken((token) => token + 1) })) return
         flash(t('exchangeRates.flash.deleteError'), 'error')
       }
     },

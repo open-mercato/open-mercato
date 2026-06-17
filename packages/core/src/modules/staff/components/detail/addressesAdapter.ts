@@ -1,6 +1,7 @@
 "use client"
 
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import type { AddressDataAdapter } from '@open-mercato/ui/backend/detail'
 import type { AddressTypesAdapter } from '@open-mercato/ui/backend/detail'
 import { loadStaffDictionaryEntries, createStaffDictionaryEntry } from './dictionaries'
@@ -77,6 +78,12 @@ export function createStaffAddressAdapter(translator: Translator): AddressDataAd
                 : typeof record.isPrimary === 'boolean'
                   ? record.isPrimary
                   : false,
+            updatedAt:
+              typeof record.updated_at === 'string'
+                ? record.updated_at
+                : typeof record.updatedAt === 'string'
+                  ? record.updatedAt
+                  : null,
           }
         })
         .filter((value): value is NonNullable<typeof value> => value !== null)
@@ -85,6 +92,7 @@ export function createStaffAddressAdapter(translator: Translator): AddressDataAd
       const response = await apiCallOrThrow<Record<string, unknown>>(
         '/api/staff/addresses',
         {
+          // optimistic-lock-exempt: address create-only (no prior version to compare)
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
@@ -97,30 +105,38 @@ export function createStaffAddressAdapter(translator: Translator): AddressDataAd
       )
       return response.result ?? {}
     },
-    update: async ({ id, payload }) => {
-      await apiCallOrThrow(
-        '/api/staff/addresses',
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            id,
-            ...payload,
-            country: payload.country ? payload.country.toUpperCase() : undefined,
-          }),
-        },
-        { errorMessage: translator('staff.teamMembers.detail.addresses.error', 'Failed to save address.') },
+    update: async ({ id, payload, updatedAt }) => {
+      // Send the optimistic-lock header (address's loaded updatedAt) so a stale
+      // edit surfaces the unified conflict (409) instead of silently overwriting.
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(updatedAt ?? null),
+        () => apiCallOrThrow(
+          '/api/staff/addresses',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              id,
+              ...payload,
+              country: payload.country ? payload.country.toUpperCase() : undefined,
+            }),
+          },
+          { errorMessage: translator('staff.teamMembers.detail.addresses.error', 'Failed to save address.') },
+        ),
       )
     },
-    delete: async ({ id }) => {
-      await apiCallOrThrow(
-        '/api/staff/addresses',
-        {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id }),
-        },
-        { errorMessage: translator('staff.teamMembers.detail.addresses.error', 'Failed to delete address.') },
+    delete: async ({ id, updatedAt }) => {
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(updatedAt ?? null),
+        () => apiCallOrThrow(
+          '/api/staff/addresses',
+          {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id }),
+          },
+          { errorMessage: translator('staff.teamMembers.detail.addresses.error', 'Failed to delete address.') },
+        ),
       )
     },
   }

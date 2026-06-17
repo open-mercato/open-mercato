@@ -1,7 +1,8 @@
 import * as React from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type {
   CompanyAssociationApiRecord,
@@ -263,7 +264,10 @@ export function useDealAssociations({
       setPeopleSaving(true)
       try {
         await runMutationWithContext(
-          () => updateCrud('customers/deals', { id: currentDealId, personIds: nextIds }),
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(data?.deal.updatedAt),
+            () => updateCrud('customers/deals', { id: currentDealId, personIds: nextIds }),
+          ),
           { id: currentDealId, personIds: nextIds, operation: 'updateDealPeople' },
         )
         const nextPeople = await loadPeopleAssociations(nextIds.slice(0, 3))
@@ -294,7 +298,7 @@ export function useDealAssociations({
         setPeopleSaving(false)
       }
     },
-    [currentDealId, data?.people, loadPeopleAssociations, peopleEditorIds, runMutationWithContext, setData, t],
+    [currentDealId, data?.deal.updatedAt, data?.people, loadPeopleAssociations, peopleEditorIds, runMutationWithContext, setData, t],
   )
 
   const handleCompaniesAssociationsChange = React.useCallback(
@@ -307,7 +311,10 @@ export function useDealAssociations({
       setCompaniesSaving(true)
       try {
         await runMutationWithContext(
-          () => updateCrud('customers/deals', { id: currentDealId, companyIds: nextIds }),
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(data?.deal.updatedAt),
+            () => updateCrud('customers/deals', { id: currentDealId, companyIds: nextIds }),
+          ),
           { id: currentDealId, companyIds: nextIds, operation: 'updateDealCompanies' },
         )
         const nextCompanies = await loadCompanyAssociations(nextIds.slice(0, 3))
@@ -342,6 +349,7 @@ export function useDealAssociations({
       companiesEditorIds,
       currentDealId,
       data?.companies,
+      data?.deal.updatedAt,
       loadCompanyAssociations,
       runMutationWithContext,
       setData,

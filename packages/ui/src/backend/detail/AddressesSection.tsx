@@ -40,13 +40,14 @@ export type AddressSummary = {
   postalCode?: string | null
   country?: string | null
   isPrimary?: boolean
+  updatedAt?: string | null
 }
 
 export type AddressDataAdapter<C = unknown> = {
   list: (params: { entityId: string | null; context?: C }) => Promise<AddressSummary[]>
   create: (params: { entityId: string; payload: AddressInput; context?: C }) => Promise<{ id?: string } | void>
-  update: (params: { id: string; payload: AddressInput; context?: C }) => Promise<void>
-  delete: (params: { id: string; context?: C }) => Promise<void>
+  update: (params: { id: string; payload: AddressInput; updatedAt?: string | null; context?: C }) => Promise<void>
+  delete: (params: { id: string; updatedAt?: string | null; context?: C }) => Promise<void>
 }
 
 export type AddressesSectionProps<C = unknown> = {
@@ -205,7 +206,8 @@ function AddressesSectionImpl<C = unknown>({
       pushLoading()
       setIsSubmitting(true)
       try {
-        await dataAdapter.update({ id, payload, context: dataContext })
+        const addressUpdatedAt = addresses.find((address) => address.id === id)?.updatedAt ?? null
+        await dataAdapter.update({ id, payload, updatedAt: addressUpdatedAt, context: dataContext })
         setAddresses((prev) => {
           return prev.map((address) => {
             if (address.id !== id) {
@@ -242,7 +244,7 @@ function AddressesSectionImpl<C = unknown>({
         popLoading()
       }
     },
-    [dataAdapter, dataContext, label, normalizedEntityId, popLoading, pushLoading],
+    [addresses, dataAdapter, dataContext, label, normalizedEntityId, popLoading, pushLoading],
   )
 
   const handleDelete = React.useCallback(
@@ -253,7 +255,8 @@ function AddressesSectionImpl<C = unknown>({
       pushLoading()
       setIsSubmitting(true)
       try {
-        await dataAdapter.delete({ id, context: dataContext })
+        const addressUpdatedAt = addresses.find((address) => address.id === id)?.updatedAt ?? null
+        await dataAdapter.delete({ id, updatedAt: addressUpdatedAt, context: dataContext })
         setAddresses((prev) => prev.filter((address) => address.id !== id))
         flash(label('deleted', 'Address deleted.'), 'success')
       } catch (err) {
@@ -266,7 +269,7 @@ function AddressesSectionImpl<C = unknown>({
         popLoading()
       }
     },
-    [dataAdapter, dataContext, label, normalizedEntityId, popLoading, pushLoading],
+    [addresses, dataAdapter, dataContext, label, normalizedEntityId, popLoading, pushLoading],
   )
 
   const displayAddresses = React.useMemo<AddressValue[]>(() => {

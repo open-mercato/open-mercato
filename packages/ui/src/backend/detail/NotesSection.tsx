@@ -48,6 +48,7 @@ export type CommentSummary = {
   id: string
   body: string
   createdAt: string
+  updatedAt?: string | null
   authorUserId?: string | null
   authorName?: string | null
   authorEmail?: string | null
@@ -87,8 +88,8 @@ export type NotesDataAdapter<C = unknown> = {
     totalPages: number
   }>
   create: (params: NotesCreatePayload & { context?: C }) => Promise<Partial<CommentSummary> | void>
-  update: (params: { id: string; patch: NotesUpdatePayload; context?: C }) => Promise<void>
-  delete: (params: { id: string; context?: C }) => Promise<void>
+  update: (params: { id: string; patch: NotesUpdatePayload; updatedAt?: string | null; context?: C }) => Promise<void>
+  delete: (params: { id: string; updatedAt?: string | null; context?: C }) => Promise<void>
 }
 
 type RenderIconFn = (icon: string, className?: string) => React.ReactNode
@@ -221,6 +222,12 @@ export function mapCommentSummary(input: unknown): CommentSummary {
       : typeof data.created_at === 'string'
         ? data.created_at
         : new Date().toISOString()
+  const updatedAt =
+    typeof data.updatedAt === 'string'
+      ? data.updatedAt
+      : typeof data.updated_at === 'string'
+        ? data.updated_at
+        : null
   const authorUserId =
     typeof data.authorUserId === 'string'
       ? data.authorUserId
@@ -267,6 +274,7 @@ export function mapCommentSummary(input: unknown): CommentSummary {
     id,
     body,
     createdAt,
+    updatedAt,
     authorUserId,
     authorName,
     authorEmail,
@@ -699,6 +707,7 @@ function NotesSectionImpl<C = unknown>({
             : undefined
       const sanitizedColor =
         patch.appearanceColor !== undefined ? sanitizeHexColor(patch.appearanceColor ?? null) : undefined
+      const noteUpdatedAt = notes.find((comment) => comment.id === noteId)?.updatedAt ?? null
       try {
         await dataAdapter.update({
           id: noteId,
@@ -707,6 +716,7 @@ function NotesSectionImpl<C = unknown>({
             appearanceIcon: sanitizedIcon,
             appearanceColor: sanitizedColor,
           },
+          updatedAt: noteUpdatedAt,
           context: dataContext,
         })
         setNotes((prev) => {
@@ -727,7 +737,7 @@ function NotesSectionImpl<C = unknown>({
         throw error instanceof Error ? error : new Error(message)
       }
     },
-    [dataAdapter, dataContext, t],
+    [dataAdapter, dataContext, notes, t],
   )
 
   const handleDeleteNote = React.useCallback(
@@ -740,7 +750,7 @@ function NotesSectionImpl<C = unknown>({
       setDeletingNoteId(note.id)
       pushLoading()
       try {
-        await dataAdapter.delete({ id: note.id, context: dataContext })
+        await dataAdapter.delete({ id: note.id, updatedAt: note.updatedAt ?? null, context: dataContext })
         setNotes((prev) => prev.filter((existing) => existing.id !== note.id))
         if (pagedMode) {
           setVisibleCount((prev) => Math.max(0, prev - 1))

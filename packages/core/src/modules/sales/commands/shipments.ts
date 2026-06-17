@@ -29,6 +29,8 @@ import {
   ensureSameScope,
   ensureTenantScope,
   extractUndoPayload,
+  enforceSalesDocumentOptimisticLock,
+  SALES_RESOURCE_KIND_ORDER,
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
@@ -438,6 +440,10 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     const shipment = await em.transactional(async (tx) => {
       const order = await loadOrder(tx, input.orderId)
       ensureSameScope(order, input.organizationId, input.tenantId)
+      // Guard the parent order's aggregate version (Gap B): a shipment mutation
+      // recalculates the order's fulfilled quantities, so a stale parent must 409
+      // before we touch it.
+      await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
       const { items: normalizedItems, lineMap } = await validateShipmentItems({
         em: tx,
         order,
@@ -670,6 +676,10 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
       if (input.orderId && input.orderId !== order.id) {
         throw new CrudHttpError(400, { error: 'sales.shipments.invalid_order' })
       }
+      // Guard the parent order's aggregate version (Gap B): updating a shipment
+      // recalculates the order's fulfilled quantities, so a stale parent must 409
+      // before we touch it.
+      await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
 
       // Check if order is financially closed - prevent modifications to shipments
       const paidAmount = parseFloat(order.paidTotalAmount || '0')
@@ -972,6 +982,10 @@ const deleteShipmentCommand: CommandHandler<
       if (order.id !== payload.orderId) {
         throw new CrudHttpError(400, { error: translate('sales.shipments.invalid_order', 'Shipment does not belong to this order') })
       }
+      // Guard the parent order's aggregate version (Gap B): deleting a shipment
+      // recalculates the order's fulfilled quantities, so a stale parent must 409
+      // before we touch it.
+      await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
       const scope = { tenantId: shipmentEntity.tenantId, organizationId: shipmentEntity.organizationId }
       const items = await findWithDecryption(tx, SalesShipmentItem, { shipment: shipmentEntity }, {}, scope)
       items.forEach((item) => tx.remove(item))

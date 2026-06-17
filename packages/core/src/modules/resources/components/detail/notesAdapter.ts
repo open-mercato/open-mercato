@@ -1,6 +1,7 @@
 "use client"
 
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { mapCommentSummary, type NotesDataAdapter } from '@open-mercato/ui/backend/detail/NotesSection'
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
@@ -35,29 +36,37 @@ export function createResourceNotesAdapter(translator: Translator): NotesDataAda
       )
       return response.result ?? {}
     },
-    update: async ({ id, patch }) => {
+    update: async ({ id, patch, updatedAt }) => {
       const payload: Record<string, unknown> = { id }
       if (patch.body !== undefined) payload.body = patch.body
       if (patch.appearanceIcon !== undefined) payload.appearanceIcon = patch.appearanceIcon
       if (patch.appearanceColor !== undefined) payload.appearanceColor = patch.appearanceColor
-      await apiCallOrThrow(
-        '/api/resources/comments',
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        },
-        { errorMessage: translator('resources.resources.detail.notes.updateError', 'Failed to update note.') },
+      // Send the optimistic-lock header (note's loaded updatedAt) so a stale edit
+      // surfaces the unified conflict (409) instead of silently overwriting.
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(updatedAt ?? null),
+        () => apiCallOrThrow(
+          '/api/resources/comments',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: translator('resources.resources.detail.notes.updateError', 'Failed to update note.') },
+        ),
       )
     },
-    delete: async ({ id }) => {
-      await apiCallOrThrow(
-        `/api/resources/comments?id=${encodeURIComponent(id)}`,
-        {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-        },
-        { errorMessage: translator('resources.resources.detail.notes.deleteError', 'Failed to delete note') },
+    delete: async ({ id, updatedAt }) => {
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(updatedAt ?? null),
+        () => apiCallOrThrow(
+          `/api/resources/comments?id=${encodeURIComponent(id)}`,
+          {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+          },
+          { errorMessage: translator('resources.resources.detail.notes.deleteError', 'Failed to delete note') },
+        ),
       )
     },
   }

@@ -16,8 +16,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { CredentialFieldType, IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
@@ -147,15 +146,12 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     const currentBundleId = resolveCurrentBundleId()
     if (!currentBundleId) return
     setIsSavingCreds(true)
-    // TODO(#2373-B): thread updatedAt — integration detail/state response does not expose a record version yet
-    const call = await withScopedApiRequestHeaders(
-      buildOptimisticLockHeader(undefined),
-      () => apiCall(`/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credentials: credValues }),
-      }, { fallback: null }),
-    )
+    // optimistic-lock-exempt: integration credentials are a single-admin config blob keyed by an immutable bundle id; the integration detail/state/credentials responses expose no per-record version and this is not a collaborative-edit surface (record_locks Phase 6b decision).
+    const call = await apiCall(`/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credentials: credValues }),
+    }, { fallback: null })
     if (call.ok) {
       flash(t('integrations.detail.credentials.saved'), 'success')
     } else {
@@ -166,15 +162,12 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
 
   const handleToggle = React.useCallback(async (integrationId: string, enabled: boolean) => {
     setTogglingIds((prev) => new Set(prev).add(integrationId))
-    // TODO(#2373-B): thread updatedAt — integration detail/state response does not expose a record version yet
-    const call = await withScopedApiRequestHeaders(
-      buildOptimisticLockHeader(undefined),
-      () => apiCall(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isEnabled: enabled }),
-      }, { fallback: null }),
-    )
+    // optimistic-lock-exempt: integration enablement is a single-admin on/off toggle keyed by an immutable integration id; the state response exposes no per-record version and this is not a collaborative-edit surface (record_locks Phase 6b decision).
+    const call = await apiCall(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isEnabled: enabled }),
+    }, { fallback: null })
     if (call.ok) {
       setDetail((prev) => {
         if (!prev) return prev

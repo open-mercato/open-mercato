@@ -12,7 +12,7 @@ import { adminUpdateUserSchema } from '@open-mercato/core/modules/customer_accou
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOwnedCompanyEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 export const metadata = {}
@@ -143,7 +143,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   // customer user in parallel cannot silently clobber each other (#2055). The
   // check is strictly additive — a no-op when the client sends no expected-version header.
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'customer_accounts.user',
       resourceId: user.id,
       current: user.updatedAt ?? null,
@@ -267,7 +267,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   // Optimistic lock: refuse a stale delete (e.g. deleting a record another admin
   // already modified). Strictly additive — a no-op without the expected-version header.
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'customer_accounts.user',
       resourceId: user.id,
       current: user.updatedAt ?? null,

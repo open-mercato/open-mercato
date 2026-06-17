@@ -8,7 +8,7 @@ import { upsertCustomEntitySchema } from '@open-mercato/core/modules/entities/da
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/system-entities'
 import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const CUSTOM_ENTITY_DEFINITION_RESOURCE_KIND = 'entities.entity'
@@ -110,8 +110,8 @@ export async function POST(req: Request) {
   }
   const input = parsed.data
 
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as any
 
   // A registration for a module-declared, table-backed system entity would flip
   // query-engine classification to doc storage for the whole entity type (#2939's
@@ -127,7 +127,7 @@ export async function POST(req: Request) {
   let ent = await em.findOne(CustomEntity, where)
   if (ent) {
     try {
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(container, {
         resourceKind: CUSTOM_ENTITY_DEFINITION_RESOURCE_KIND,
         resourceId: ent.id,
         current: ent.updatedAt ?? null,

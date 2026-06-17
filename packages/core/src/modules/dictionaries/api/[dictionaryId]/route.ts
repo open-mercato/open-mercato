@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   resolveDictionaryEntrySortMode,
@@ -111,7 +111,7 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     const payload = updateSchema.parse(await req.json().catch(() => ({})))
     const dictionary = await loadDictionary(context, dictionaryId)
 
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(context.container, {
       resourceKind: 'dictionaries.dictionary',
       resourceId: dictionary.id,
       current: dictionary.updatedAt ?? null,

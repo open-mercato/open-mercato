@@ -4,7 +4,7 @@ import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictiona
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
 import { updateDictionaryEntrySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -72,7 +72,7 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     })
     const dictionary = await loadDictionary(context, dictionaryId)
     const entry = await loadEntry(context, dictionary, entryId)
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(context.container, {
       resourceKind: 'dictionaries.entry',
       resourceId: entry.id,
       current: entry.updatedAt ?? null,

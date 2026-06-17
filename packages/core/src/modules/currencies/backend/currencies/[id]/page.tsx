@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useRouter, useParams, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -9,6 +9,8 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
@@ -34,6 +36,7 @@ type CurrencyData = {
 export default function EditCurrencyPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const router = useRouter()
+  const pathname = usePathname()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
 
   const [currency, setCurrency] = React.useState<CurrencyData | null>(null)
@@ -145,7 +148,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
 
     try {
       const headers = buildOptimisticLockHeader(currency.updatedAt ?? currency.updated_at ?? null)
-      await withScopedApiRequestHeaders(headers, () => (
+      const call = await withScopedApiRequestHeaders(headers, () => (
         apiCall('/api/currencies/currencies', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
@@ -153,12 +156,40 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
         })
       ))
 
+      if (!call.ok) {
+        // Route a concurrent-edit 409 through the single conflict surface (unified
+        // conflict bar, or the enterprise merge dialog when its handler is mounted);
+        // fall back to a flash for any other delete failure.
+        const conflictError = Object.assign(
+          new Error(t('currencies.flash.deleteError')),
+          { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
+        )
+        if (surfaceRecordConflict(conflictError, t)) return
+        flash(t('currencies.flash.deleteError'), 'error')
+        return
+      }
+
       flash(t('currencies.flash.deleted'), 'success')
       router.push('/backend/currencies')
     } catch (error) {
+      if (surfaceRecordConflict(error, t)) return
       flash(t('currencies.flash.deleteError'), 'error')
     }
   }, [currency, t, router, confirmDialog])
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `currencies.currency` + id
+  // explicitly. The resourceKind mirrors the CrudForm `versionHistory` so the held
+  // lock matches the save-time conflict surface for the same currency.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'currencies.currency',
+      resourceId: currency?.id ?? null,
+      updatedAt: currency?.updatedAt ?? currency?.updated_at ?? null,
+      data: currency as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
 
   if (loading) {
     return (

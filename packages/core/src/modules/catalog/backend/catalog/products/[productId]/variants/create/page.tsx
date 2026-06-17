@@ -323,6 +323,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
           backHref={`/backend/catalog/products/${productId}`}
           fields={[]}
           groups={groups}
+          injectionSpotId="crud-form:catalog.variant"
           entityId={E.catalog.catalog_product_variant}
           customFieldsetBindings={{ [E.catalog.catalog_product_variant]: { valueKey: 'customFieldsetCode' } }}
           initialValues={initialValues ?? undefined}

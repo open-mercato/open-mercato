@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { BACKEND_MUTATION_ERROR_EVENT } from '@open-mercato/ui/backend/injection/mutationEvents'
+import { registerRecordLockConflictHandler } from '@open-mercato/ui/backend/conflicts'
 import { useSearchParams } from 'next/navigation'
 import { Mail } from 'lucide-react'
 import {
@@ -1065,6 +1066,33 @@ export default function RecordLockingWidget({
       window.removeEventListener('om:crud-save-error', onCrudSaveError)
     }
   }, [formId, isPrimaryInstance])
+
+  // Single conflict surface (S3): own the surface for record_lock_conflict 409s
+  // routed through `surfaceRecordConflict` (command/raw-write paths that don't
+  // emit the crud-save-error event). Opening the dialog here is idempotent with
+  // the listener above; returning true tells the core helper to suppress the OSS
+  // bar (so we never render both). Decline (false) for a different record so the
+  // bar still renders there — a conflict is never swallowed.
+  React.useEffect(() => {
+    if (!isPrimaryInstance) return
+    if (!resourceKind || !resourceId) return
+    const unregister = registerRecordLockConflictHandler((_conflict, error) => {
+      const payload = extractRecordLockConflictPayload(error)
+      if (!payload) return false
+      const payloadKind = payload.conflict.resourceKind?.trim() ?? ''
+      const payloadId = payload.conflict.resourceId?.trim() ?? ''
+      if (payloadKind && payloadId && (payloadKind !== resourceKind || payloadId !== resourceId)) return false
+      setIsConflictDialogOpen(true)
+      setRecordLockFormState(formId, {
+        conflict: payload.conflict,
+        pendingConflictId: payload.conflict.id,
+        pendingResolution: 'normal',
+        pendingResolutionArmed: false,
+      })
+      return true
+    })
+    return unregister
+  }, [formId, isPrimaryInstance, resourceKind, resourceId])
 
   const handleTakeOver = React.useCallback(async () => {
     keepMineRetryVersionRef.current += 1

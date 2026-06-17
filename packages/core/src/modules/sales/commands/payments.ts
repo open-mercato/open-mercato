@@ -30,6 +30,8 @@ import {
   ensureTenantScope,
   extractUndoPayload,
   toNumericString,
+  enforceSalesDocumentOptimisticLock,
+  SALES_RESOURCE_KIND_ORDER,
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
@@ -348,6 +350,9 @@ const createPaymentCommand: CommandHandler<
       if (order.deletedAt) {
         throw new CrudHttpError(404, { error: 'sales.payments.order_not_found' })
       }
+      // Guard the parent order's aggregate version (Gap A): a payment mutation
+      // recalculates the order totals, so a stale parent must 409 before we touch it.
+      await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
       if (
         order.currencyCode &&
         input.currencyCode &&
@@ -737,6 +742,9 @@ const updatePaymentCommand: CommandHandler<
     )
     ensureSameScope(payment, resolvedOrganizationId, resolvedTenantId)
     const previousOrder = payment.order as SalesOrder | null
+    // Guard the parent order's aggregate version (Gap A): updating a payment
+    // recalculates the order totals, so a stale parent must 409 before mutating.
+    await enforceSalesDocumentOptimisticLock(ctx, previousOrder, SALES_RESOURCE_KIND_ORDER)
     // Apply payment scalar fields, order/line status changes and the
     // allocations rebuild in one transaction so a mid-write failure cannot
     // leave the payment and its allocations partially committed (#2336).
@@ -1069,6 +1077,9 @@ const deletePaymentCommand: CommandHandler<
     )
     ensureSameScope(payment, input.organizationId, input.tenantId)
     const order = payment.order as SalesOrder | null
+    // Guard the parent order's aggregate version (Gap A): deleting a payment
+    // recalculates the order totals, so a stale parent must 409 before mutating.
+    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
     const allocations = await findWithDecryption(em, SalesPaymentAllocation, { payment }, {}, { tenantId: payment.tenantId, organizationId: payment.organizationId })
     const allocationOrders = allocations
       .map((allocation) =>

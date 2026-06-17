@@ -9,6 +9,8 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Save, Plus, X } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -188,6 +190,17 @@ export function TranslationManager({
     },
   })
 
+  // Optimistic lock keys off the TRANSLATION ROW'S OWN version (`updatedAt` from
+  // the GET response), not the host entity's: the host's EAV `entityType`
+  // (`module:entity`) has no reliable server-side mapping to a registered
+  // optimistic-lock reader, so the route enforces against the translation row's
+  // own `updated_at`. `null` for a brand-new translation (no existing row → the
+  // header is omitted and the route enforces nothing on insert).
+  const translationRowUpdatedAt = React.useMemo(() => {
+    const value = translationData?.updatedAt
+    return typeof value === 'string' && value.trim().length > 0 ? value : null
+  }, [translationData])
+
   const translationSignature = React.useMemo(() => JSON.stringify(translationData ?? null), [translationData])
   const lastTranslationSignatureRef = React.useRef<string | null>(null)
 
@@ -240,7 +253,7 @@ export function TranslationManager({
         throw new Error(t('translations.manager.errors.nothingToSave', 'Nothing to save — enter a translation first'))
       }
       const res = await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(translationData?.updatedAt),
+        buildOptimisticLockHeader(translationRowUpdatedAt),
         () => apiCall(
           `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
           {
@@ -251,7 +264,7 @@ export function TranslationManager({
         ),
       )
       if (!res.ok) {
-        throw new Error(t('translations.manager.errors.save', 'Failed to save translations'))
+        await raiseCrudError(res.response, t('translations.manager.errors.save', 'Failed to save translations'))
       }
       return true
     },
@@ -262,6 +275,7 @@ export function TranslationManager({
       void refetchTranslation()
     },
     onError: (err: unknown) => {
+      if (surfaceRecordConflict(err, t)) return
       const message = err instanceof Error ? err.message : t('translations.manager.errors.save', 'Failed to save translations')
       flash(message, 'error')
     },

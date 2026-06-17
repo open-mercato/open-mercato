@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, usePathname } from 'next/navigation'
 import { Book, Plus, Pencil, Trash2 } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -18,6 +18,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { DictionaryEntriesEditor } from './DictionaryEntriesEditor'
@@ -57,6 +58,7 @@ export function DictionariesManager() {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const searchParams = useSearchParams()
+  const pathname = usePathname()
   const [items, setItems] = React.useState<DictionarySummary[]>([])
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -314,6 +316,24 @@ export function DictionariesManager() {
   )
 
   const selectedDictionary = items.find((item) => item.id === selectedId) ?? null
+
+  // Publish the open dictionary's record context to the AppShell-owned
+  // `backend:record:current` mount so the enterprise record_locks widget resolves
+  // `dictionaries.dictionary` + id while the manager is open. Editing here is
+  // inline/dialog-driven (not a `[id]` detail route or a CrudForm with a stable
+  // `injectionSpotId`), so mounting presence on the manager keyed to the selected
+  // dictionary is the simplest place to hold the lock — it mirrors the
+  // `dictionaries.dictionary` resourceKind the dictionary PATCH route guards on.
+  // Cleared automatically when no dictionary is selected or on unmount.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'dictionaries.dictionary',
+      resourceId: selectedDictionary?.id ?? null,
+      updatedAt: selectedDictionary?.updatedAt ?? null,
+      data: (selectedDictionary ?? null) as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
 
   return (
     <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
