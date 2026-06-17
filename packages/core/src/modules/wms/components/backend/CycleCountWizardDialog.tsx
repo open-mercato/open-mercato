@@ -36,9 +36,13 @@ import {
 import {
   BalanceLookupError,
   ScopeEstimateError,
+  ScopeQueueError,
+  buildCycleCountScopeQueue,
   fetchBalanceOnHand,
   fetchCycleCountScopeEstimate,
+  filterLocationsByCodeRange,
   formatCycleCountZoneLabel,
+  loadAllLocations,
   loadAssigneeOptions,
   loadBinLocationOptions,
   loadCatalogVariantOptions,
@@ -46,6 +50,7 @@ import {
   loadLotOptions,
   loadWarehouseOptions,
   loadZoneOptions,
+  mapLocationOptions,
   resolveAssigneeLabel,
   resolveCatalogVariantLabel,
   resolveLocationLabel,
@@ -53,6 +58,7 @@ import {
   resolveWarehouseLabel,
   resolveZoneLabel,
 } from './inventoryMutationLoaders'
+import type { ScopeQueueItem } from './inventoryMutationLoaders'
 import type { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 
 type CycleCountWizardDialogProps = {
@@ -201,6 +207,18 @@ export function CycleCountWizardDialog({
   const [scopeEstimateError, setScopeEstimateError] = React.useState<string | null>(null)
   const [balanceError, setBalanceError] = React.useState<string | null>(null)
 
+  const [scopeQueue, setScopeQueue] = React.useState<ScopeQueueItem[]>([])
+  const [scopeQueueIndex, setScopeQueueIndex] = React.useState(0)
+  const [scopeQueueLoading, setScopeQueueLoading] = React.useState(false)
+  const [scopeQueueReady, setScopeQueueReady] = React.useState(false)
+  const [scopeQueueError, setScopeQueueError] = React.useState<string | null>(null)
+  const [finishConfirmPending, setFinishConfirmPending] = React.useState(false)
+
+  const scopeQueueRef = React.useRef<ScopeQueueItem[]>([])
+  const scopeQueueIndexRef = React.useRef(0)
+  scopeQueueRef.current = scopeQueue
+  scopeQueueIndexRef.current = scopeQueueIndex
+
   const registerOptionLabels = React.useCallback(
     (options: Array<{ value: string; label: string }>) => {
       setOptionLabelByValue((current) => {
@@ -294,24 +312,50 @@ export function CycleCountWizardDialog({
     setScopeEstimateError(null)
     setBalanceError(null)
     setLinesPosted(0)
+    setScopeQueue([])
+    setScopeQueueIndex(0)
+    setScopeQueueLoading(false)
+    setScopeQueueReady(false)
+    setScopeQueueError(null)
+    setFinishConfirmPending(false)
   }, [])
 
   const resetToStep2 = React.useCallback(() => {
+    const currentQueue = scopeQueueRef.current
+    const currentIndex = scopeQueueIndexRef.current
+    const nextIndex = currentIndex + 1
+    const nextItem = currentQueue[nextIndex]
+
     setStep(2)
-    setForm((current) => ({
-      ...current,
-      locationId: '',
-      catalogVariantId: '',
-      lotId: '',
-      countedQuantity: 0,
-      countNotes: '',
-      reason: 'cycle_count',
-    }))
     setFieldErrors({})
     setSystemOnHand(0)
     setLoadingBalance(false)
     setBalanceError(null)
     setAutoAdjust(true)
+    setFinishConfirmPending(false)
+
+    if (nextItem) {
+      setScopeQueueIndex(nextIndex)
+      setForm((current) => ({
+        ...current,
+        locationId: nextItem.locationId,
+        catalogVariantId: nextItem.catalogVariantId,
+        lotId: nextItem.lotId ?? '',
+        countedQuantity: 0,
+        countNotes: '',
+        reason: 'cycle_count',
+      }))
+    } else {
+      setForm((current) => ({
+        ...current,
+        locationId: '',
+        catalogVariantId: '',
+        lotId: '',
+        countedQuantity: 0,
+        countNotes: '',
+        reason: 'cycle_count',
+      }))
+    }
   }, [])
 
   const closeDialog = React.useCallback(() => {
@@ -534,6 +578,7 @@ export function CycleCountWizardDialog({
     open,
     patchForm,
     step,
+    t,
   ])
 
   React.useEffect(() => {
@@ -602,6 +647,7 @@ export function CycleCountWizardDialog({
     form.warehouseId,
     open,
     step,
+    t,
   ])
 
   const applyValidationErrors = React.useCallback((issues: z.ZodIssue[]) => {
@@ -637,11 +683,78 @@ export function CycleCountWizardDialog({
       })
       return
     }
-    const nextLocationId = form.fromLocationId.trim() || form.locationId.trim()
-    if (nextLocationId && nextLocationId !== form.locationId.trim()) {
-      patchForm({ locationId: nextLocationId })
+
+    const fromLocId = form.fromLocationId.trim() || null
+    const toLocId = form.toLocationId.trim() || null
+    const hasRange = !!(fromLocId || toLocId)
+
+    if (!hasRange) {
+      const nextLocationId = form.fromLocationId.trim() || form.locationId.trim()
+      if (nextLocationId && nextLocationId !== form.locationId.trim()) {
+        patchForm({ locationId: nextLocationId })
+      }
     }
+
     setStep(2)
+
+    if (hasRange) {
+      setScopeQueue([])
+      setScopeQueueIndex(0)
+      setScopeQueueLoading(true)
+      setScopeQueueReady(false)
+      setScopeQueueError(null)
+
+      void buildCycleCountScopeQueue({
+        warehouseId: form.warehouseId,
+        fromLocationId: fromLocId,
+        toLocationId: toLocId,
+      })
+        .then((queue) => {
+          setScopeQueue(queue)
+          setScopeQueueIndex(0)
+          setScopeQueueReady(true)
+
+          for (const item of queue) {
+            registerOptionLabels([{ value: item.locationId, label: item.locationCode }])
+          }
+
+          if (queue.length > 0) {
+            const first = queue[0]
+            setForm((current) => ({
+              ...current,
+              locationId: first.locationId,
+              catalogVariantId: first.catalogVariantId,
+              lotId: first.lotId ?? '',
+            }))
+          }
+        })
+        .catch((error: unknown) => {
+          setScopeQueueReady(true)
+          if (error instanceof ScopeQueueError) {
+            setScopeQueueError(
+              t(
+                'wms.backend.inventory.cycleCount.steps.counting.queueError',
+                'Failed to load scope — enter location manually.',
+              ),
+            )
+          } else {
+            console.error('[CycleCountWizardDialog] buildCycleCountScopeQueue failed', error)
+            setScopeQueueError(
+              t(
+                'wms.backend.inventory.cycleCount.steps.counting.queueError',
+                'Failed to load scope — enter location manually.',
+              ),
+            )
+          }
+        })
+        .finally(() => {
+          setScopeQueueLoading(false)
+        })
+    } else {
+      setScopeQueueReady(true)
+      setScopeQueueLoading(false)
+      setScopeQueueError(null)
+    }
   }, [
     applyValidationErrors,
     form.assigneeId,
@@ -653,6 +766,7 @@ export function CycleCountWizardDialog({
     form.warehouseId,
     form.zoneId,
     patchForm,
+    registerOptionLabels,
     setupSchema,
     t,
   ])
@@ -851,6 +965,11 @@ export function CycleCountWizardDialog({
     setFieldErrors({})
   }, [])
 
+  const isQueueActive = scopeQueueReady && scopeQueue.length > 0
+  const isQueueComplete = isQueueActive && scopeQueueIndex >= scopeQueue.length
+  const queueCurrent = scopeQueueIndex + 1
+  const queueTotal = scopeQueue.length
+
   const stepSubtitle = React.useMemo(() => {
     if (step === 1) {
       return t(
@@ -898,7 +1017,54 @@ export function CycleCountWizardDialog({
   const variantLabel = form.catalogVariantId ? resolveOptionLabel(form.catalogVariantId) : '—'
   const lotLabel = form.lotId ? resolveOptionLabel(form.lotId) : '—'
 
-  const primaryDisabled = submitting || (step === 2 && loadingBalance)
+  const primaryDisabled =
+    submitting ||
+    (step === 2 && (loadingBalance || scopeQueueLoading || isQueueComplete))
+
+  const loadRangeFilteredLocationOptions = React.useCallback(
+    async (query?: string) => {
+      const warehouseId = form.warehouseId.trim()
+      if (!warehouseId) return []
+
+      const fromLocId = form.fromLocationId.trim()
+      const toLocId = form.toLocationId.trim()
+      if (!fromLocId && !toLocId) {
+        const options = await loadLocationOptions(warehouseId, query)
+        registerOptionLabels(options)
+        return options.map((option) => ({ value: option.value, label: option.label }))
+      }
+
+      try {
+        const allLocations = await loadAllLocations(warehouseId, {
+          search: query?.trim() || undefined,
+        })
+        const fromCode = fromLocId
+          ? (optionLabelByValueRef.current[fromLocId] !== fromLocId
+              ? optionLabelByValueRef.current[fromLocId]
+              : undefined)
+          : undefined
+        const toCode = toLocId
+          ? (optionLabelByValueRef.current[toLocId] !== toLocId
+              ? optionLabelByValueRef.current[toLocId]
+              : undefined)
+          : undefined
+        const filtered = filterLocationsByCodeRange(allLocations, fromCode, toCode)
+        const options = mapLocationOptions(filtered)
+        registerOptionLabels(options)
+        return options.map((option) => ({ value: option.value, label: option.label }))
+      } catch {
+        const options = await loadLocationOptions(warehouseId, query)
+        registerOptionLabels(options)
+        return options.map((option) => ({ value: option.value, label: option.label }))
+      }
+    },
+    [
+      form.fromLocationId,
+      form.toLocationId,
+      form.warehouseId,
+      registerOptionLabels,
+    ],
+  )
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : closeDialog())}>
@@ -1242,204 +1408,271 @@ export function CycleCountWizardDialog({
 
             {step === 2 ? (
               <>
-                <FormField
-                  label={t(
-                    'wms.backend.inventory.cycleCount.form.currentlyScanning',
-                    'Currently scanning',
-                  )}
-                >
-                  <div className="relative rounded-md bg-muted/50 px-3 py-2.5 pl-9 text-sm text-muted-foreground">
-                    <PackageSearch
-                      className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                    {variantScanLabel}
-                  </div>
-                </FormField>
-
-                <FormField
-                  label={t('wms.backend.inventory.cycleCount.form.variant', 'Variant / SKU')}
-                  required
-                  error={fieldErrors.catalogVariantId}
-                >
-                  <ComboboxInput
-                    value={form.catalogVariantId}
-                    onChange={(next) => {
-                      patchForm({
-                        catalogVariantId: next.trim(),
-                        lotId: '',
-                      })
-                    }}
-                    loadSuggestions={async (query) => {
-                      const options = await loadCatalogVariantOptions(query)
-                      registerOptionLabels(options)
-                      return options.map((option) => ({
-                        value: option.value,
-                        label: option.label,
-                        description: option.description,
-                      }))
-                    }}
-                    resolveLabel={resolveOptionLabel}
-                    placeholder={t(
-                      'wms.backend.inventory.cycleCount.form.variantPlaceholder',
-                      'Search variant or SKU',
+                {scopeQueueLoading ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      'wms.backend.inventory.cycleCount.steps.counting.queueLoading',
+                      'Loading count scope…',
                     )}
-                    allowCustomValues={false}
-                    disabled={loadingBalance || submitting}
-                  />
-                </FormField>
+                  </p>
+                ) : null}
 
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <FormField
-                    label={t('wms.backend.inventory.cycleCount.form.location', 'Location')}
-                    required
-                    error={fieldErrors.locationId}
-                  >
-                    <ComboboxInput
-                      value={form.locationId}
-                      onChange={(next) => patchForm({ locationId: next.trim() })}
-                      loadSuggestions={async (query) => {
-                        const options = await loadLocationOptions(form.warehouseId, query)
-                        registerOptionLabels(options)
-                        return options.map((option) => ({
-                          value: option.value,
-                          label: option.label,
-                        }))
-                      }}
-                      resolveLabel={resolveOptionLabel}
-                      placeholder={t(
-                        'wms.backend.inventory.cycleCount.form.locationPlaceholder',
-                        'Select location',
-                      )}
-                      allowCustomValues={false}
-                      disabled={loadingBalance || submitting || !form.warehouseId}
-                    />
-                  </FormField>
+                {!scopeQueueLoading && scopeQueueError ? (
+                  <p className="text-xs text-status-warning-fg">{scopeQueueError}</p>
+                ) : null}
 
-                  <FormField
-                    label={t('wms.backend.inventory.cycleCount.form.lot', 'Lot')}
-                    error={fieldErrors.lotId}
-                  >
-                    <ComboboxInput
-                      value={form.lotId}
-                      onChange={(next) => patchForm({ lotId: next.trim() })}
-                      loadSuggestions={async (query) => {
-                        const options = await loadLotOptions(form.catalogVariantId, query)
-                        registerOptionLabels(options)
-                        return options.map((option) => ({
-                          value: option.value,
-                          label: option.label,
-                        }))
-                      }}
-                      resolveLabel={resolveOptionLabel}
-                      placeholder={t(
-                        'wms.backend.inventory.cycleCount.form.lotPlaceholder',
-                        'Select lot (optional)',
-                      )}
-                      allowCustomValues={false}
-                      disabled={loadingBalance || submitting || !form.catalogVariantId}
-                    />
-                  </FormField>
-                </div>
-
-                <FormField
-                  label={t('wms.backend.inventory.cycleCount.form.counted', 'Counted')}
-                  required
-                  error={fieldErrors.countedQuantity}
-                >
-                  <div className="flex w-28 items-center gap-2 rounded-md border bg-background p-2 shadow-xs">
-                    <IconButton
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      aria-label={t(
-                        'wms.backend.inventory.cycleCount.form.decrease',
-                        'Decrease quantity',
-                      )}
-                      onClick={() => adjustCounted(-1)}
-                      disabled={loadingBalance || submitting}
-                    >
-                      <Minus className="size-4" />
-                    </IconButton>
-                    <Input
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      value={String(form.countedQuantity)}
-                      onChange={(event) => {
-                        const parsed = Number(event.target.value)
-                        if (!Number.isFinite(parsed) || parsed < 0) return
-                        patchForm({ countedQuantity: parsed })
-                      }}
-                      className="h-8 border-0 bg-transparent px-0 text-center shadow-none focus-visible:ring-0"
-                      disabled={loadingBalance || submitting}
-                    />
-                    <IconButton
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      aria-label={t(
-                        'wms.backend.inventory.cycleCount.form.increase',
-                        'Increase quantity',
-                      )}
-                      onClick={() => adjustCounted(1)}
-                      disabled={loadingBalance || submitting}
-                    >
-                      <Plus className="size-4" />
-                    </IconButton>
-                  </div>
-                </FormField>
-
-                <FormField label={t('wms.backend.inventory.cycleCount.form.countNotes', 'Notes')}>
-                  <Textarea
-                    value={form.countNotes}
-                    onChange={(event) => patchForm({ countNotes: event.target.value })}
-                    placeholder={t(
-                      'wms.backend.inventory.cycleCount.form.countNotesPlaceholder',
-                      'Optional — defects, packaging notes',
-                    )}
-                    rows={3}
-                    disabled={loadingBalance || submitting}
-                  />
-                </FormField>
-
-                {form.catalogVariantId && form.locationId ? (
-                  <SummaryPanel
-                    title={t('wms.backend.inventory.cycleCount.review.progress.title', 'Progress')}
-                  >
-                    <div className="mt-2 flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold tabular-nums text-foreground">
+                {!scopeQueueLoading && scopeQueueReady && isQueueActive && !isQueueComplete ? (
+                  <div className="rounded-lg border bg-muted/40 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold text-foreground">
                         {t(
-                          'wms.backend.inventory.cycleCount.review.progress.summary',
-                          'System {system} · Counted {counted}',
-                          {
-                            system: systemOnHand,
-                            counted: form.countedQuantity,
-                          },
+                          'wms.backend.inventory.cycleCount.steps.counting.queueItem',
+                          'Item {current} of {total}',
+                          { current: queueCurrent, total: queueTotal },
                         )}
                       </p>
-                      {variance === 0 ? (
-                        <StatusBadge variant="success">
-                          {t('wms.backend.inventory.cycleCount.review.progress.match', 'Match')}
-                        </StatusBadge>
-                      ) : (
-                        <StatusBadge variant="info">
-                          {formatSignedQuantity(variance)}
-                        </StatusBadge>
-                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {resolveOptionLabel(form.locationId || '')}
+                      </p>
                     </div>
-                    {loadingBalance ? (
+                    {form.expectedSkus > 0 ? (
                       <p className="mt-1 text-xs text-muted-foreground">
                         {t(
-                          'wms.backend.inventory.cycleCount.review.progress.loading',
-                          'Refreshing balance…',
+                          'wms.backend.inventory.cycleCount.steps.counting.progressSkus',
+                          '{posted} / {expected} SKUs counted',
+                          { posted: linesPosted, expected: form.expectedSkus },
                         )}
                       </p>
                     ) : null}
-                    {balanceError ? (
-                      <p className="mt-1 text-xs text-status-warning-fg">{balanceError}</p>
+                  </div>
+                ) : null}
+
+                {!scopeQueueLoading && scopeQueueReady && isQueueActive && !isQueueComplete && scopeQueueError === null && scopeQueue.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      'wms.backend.inventory.cycleCount.steps.counting.queueEmpty',
+                      'No items found in range — enter location manually.',
+                    )}
+                  </p>
+                ) : null}
+
+                {isQueueComplete ? (
+                  <div className="rounded-lg border border-status-success-border bg-status-success-bg px-4 py-3">
+                    <p className="text-sm font-semibold text-status-success-fg">
+                      {t(
+                        'wms.backend.inventory.cycleCount.steps.counting.queueComplete',
+                        'All {total} items counted — session complete',
+                        { total: queueTotal },
+                      )}
+                    </p>
+                  </div>
+                ) : null}
+
+                {!isQueueComplete ? (
+                  <>
+                    {!isQueueActive && form.expectedSkus > 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        {t(
+                          'wms.backend.inventory.cycleCount.steps.counting.progressSkus',
+                          '{posted} / {expected} SKUs counted',
+                          { posted: linesPosted, expected: form.expectedSkus },
+                        )}
+                      </p>
                     ) : null}
-                  </SummaryPanel>
+
+                    <FormField
+                      label={t(
+                        'wms.backend.inventory.cycleCount.form.currentlyScanning',
+                        'Currently scanning',
+                      )}
+                    >
+                      <div className="relative rounded-md bg-muted/50 px-3 py-2.5 pl-9 text-sm text-muted-foreground">
+                        <PackageSearch
+                          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                        {variantScanLabel}
+                      </div>
+                    </FormField>
+
+                    <FormField
+                      label={t('wms.backend.inventory.cycleCount.form.variant', 'Variant / SKU')}
+                      required
+                      error={fieldErrors.catalogVariantId}
+                    >
+                      <ComboboxInput
+                        value={form.catalogVariantId}
+                        onChange={(next) => {
+                          patchForm({
+                            catalogVariantId: next.trim(),
+                            lotId: '',
+                          })
+                        }}
+                        loadSuggestions={async (query) => {
+                          const options = await loadCatalogVariantOptions(query)
+                          registerOptionLabels(options)
+                          return options.map((option) => ({
+                            value: option.value,
+                            label: option.label,
+                            description: option.description,
+                          }))
+                        }}
+                        resolveLabel={resolveOptionLabel}
+                        placeholder={t(
+                          'wms.backend.inventory.cycleCount.form.variantPlaceholder',
+                          'Search variant or SKU',
+                        )}
+                        allowCustomValues={false}
+                        disabled={loadingBalance || submitting || scopeQueueLoading}
+                      />
+                    </FormField>
+
+                    <div className="grid gap-5 sm:grid-cols-2">
+                      <FormField
+                        label={t('wms.backend.inventory.cycleCount.form.location', 'Location')}
+                        required
+                        error={fieldErrors.locationId}
+                      >
+                        <ComboboxInput
+                          value={form.locationId}
+                          onChange={(next) => patchForm({ locationId: next.trim() })}
+                          loadSuggestions={loadRangeFilteredLocationOptions}
+                          resolveLabel={resolveOptionLabel}
+                          placeholder={t(
+                            'wms.backend.inventory.cycleCount.form.locationPlaceholder',
+                            'Select location',
+                          )}
+                          allowCustomValues={false}
+                          disabled={loadingBalance || submitting || !form.warehouseId || scopeQueueLoading}
+                        />
+                      </FormField>
+
+                      <FormField
+                        label={t('wms.backend.inventory.cycleCount.form.lot', 'Lot')}
+                        error={fieldErrors.lotId}
+                      >
+                        <ComboboxInput
+                          value={form.lotId}
+                          onChange={(next) => patchForm({ lotId: next.trim() })}
+                          loadSuggestions={async (query) => {
+                            const options = await loadLotOptions(form.catalogVariantId, query)
+                            registerOptionLabels(options)
+                            return options.map((option) => ({
+                              value: option.value,
+                              label: option.label,
+                            }))
+                          }}
+                          resolveLabel={resolveOptionLabel}
+                          placeholder={t(
+                            'wms.backend.inventory.cycleCount.form.lotPlaceholder',
+                            'Select lot (optional)',
+                          )}
+                          allowCustomValues={false}
+                          disabled={loadingBalance || submitting || !form.catalogVariantId}
+                        />
+                      </FormField>
+                    </div>
+
+                    <FormField
+                      label={t('wms.backend.inventory.cycleCount.form.counted', 'Counted')}
+                      required
+                      error={fieldErrors.countedQuantity}
+                    >
+                      <div className="flex w-28 items-center gap-2 rounded-md border bg-background p-2 shadow-xs">
+                        <IconButton
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-label={t(
+                            'wms.backend.inventory.cycleCount.form.decrease',
+                            'Decrease quantity',
+                          )}
+                          onClick={() => adjustCounted(-1)}
+                          disabled={loadingBalance || submitting}
+                        >
+                          <Minus className="size-4" />
+                        </IconButton>
+                        <Input
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          value={String(form.countedQuantity)}
+                          onChange={(event) => {
+                            const parsed = Number(event.target.value)
+                            if (!Number.isFinite(parsed) || parsed < 0) return
+                            patchForm({ countedQuantity: parsed })
+                          }}
+                          className="h-8 border-0 bg-transparent px-0 text-center shadow-none focus-visible:ring-0"
+                          disabled={loadingBalance || submitting}
+                        />
+                        <IconButton
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-label={t(
+                            'wms.backend.inventory.cycleCount.form.increase',
+                            'Increase quantity',
+                          )}
+                          onClick={() => adjustCounted(1)}
+                          disabled={loadingBalance || submitting}
+                        >
+                          <Plus className="size-4" />
+                        </IconButton>
+                      </div>
+                    </FormField>
+
+                    <FormField label={t('wms.backend.inventory.cycleCount.form.countNotes', 'Notes')}>
+                      <Textarea
+                        value={form.countNotes}
+                        onChange={(event) => patchForm({ countNotes: event.target.value })}
+                        placeholder={t(
+                          'wms.backend.inventory.cycleCount.form.countNotesPlaceholder',
+                          'Optional — defects, packaging notes',
+                        )}
+                        rows={3}
+                        disabled={loadingBalance || submitting}
+                      />
+                    </FormField>
+
+                    {form.catalogVariantId && form.locationId ? (
+                      <SummaryPanel
+                        title={t('wms.backend.inventory.cycleCount.review.progress.title', 'Progress')}
+                      >
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold tabular-nums text-foreground">
+                            {t(
+                              'wms.backend.inventory.cycleCount.review.progress.summary',
+                              'System {system} · Counted {counted}',
+                              {
+                                system: systemOnHand,
+                                counted: form.countedQuantity,
+                              },
+                            )}
+                          </p>
+                          {variance === 0 ? (
+                            <StatusBadge variant="success">
+                              {t('wms.backend.inventory.cycleCount.review.progress.match', 'Match')}
+                            </StatusBadge>
+                          ) : (
+                            <StatusBadge variant="info">
+                              {formatSignedQuantity(variance)}
+                            </StatusBadge>
+                          )}
+                        </div>
+                        {loadingBalance ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t(
+                              'wms.backend.inventory.cycleCount.review.progress.loading',
+                              'Refreshing balance…',
+                            )}
+                          </p>
+                        ) : null}
+                        {balanceError ? (
+                          <p className="mt-1 text-xs text-status-warning-fg">{balanceError}</p>
+                        ) : null}
+                      </SummaryPanel>
+                    ) : null}
+                  </>
                 ) : null}
               </>
             ) : null}
@@ -1625,41 +1858,73 @@ export function CycleCountWizardDialog({
                   {t('wms.backend.inventory.cycleCount.steps.back', 'Back')}
                 </Button>
               )}
-              {step === 2 && linesPosted > 0 ? (
+              {step === 2 && (linesPosted > 0 || isQueueComplete) ? (
                 <Button
                   type="button"
-                  variant="outline"
-                  onClick={closeDialog}
+                  variant={finishConfirmPending ? 'destructive' : 'outline'}
+                  onClick={() => {
+                    const remaining = form.expectedSkus - linesPosted
+                    if (!finishConfirmPending && remaining > 0 && !isQueueComplete) {
+                      setFinishConfirmPending(true)
+                      return
+                    }
+                    closeDialog()
+                  }}
                   disabled={loadingBalance || submitting}
-                  title={t(
-                    'wms.backend.inventory.cycleCount.steps.counting.finishTooltip',
-                    '{count} line(s) already committed — click to close without losing them',
-                    { count: linesPosted },
-                  )}
+                  title={
+                    isQueueComplete
+                      ? undefined
+                      : t(
+                          'wms.backend.inventory.cycleCount.steps.counting.finishTooltip',
+                          '{count} line(s) already committed — click to close without losing them',
+                          { count: linesPosted },
+                        )
+                  }
                 >
-                  {t(
-                    'wms.backend.inventory.cycleCount.steps.counting.finish',
-                    'Finish session ({count})',
-                    { count: linesPosted },
-                  )}
+                  {finishConfirmPending
+                    ? t(
+                        'wms.backend.inventory.cycleCount.steps.counting.finishConfirm',
+                        'Confirm finish',
+                      )
+                    : isQueueComplete
+                      ? t(
+                          'wms.backend.inventory.cycleCount.steps.counting.finishComplete',
+                          'Close session',
+                        )
+                      : t(
+                          'wms.backend.inventory.cycleCount.steps.counting.finish',
+                          'Finish session ({count})',
+                          { count: linesPosted },
+                        )}
                 </Button>
               ) : null}
-              <Button type="submit" disabled={primaryDisabled}>
-                {step === 1
-                  ? t(
-                      'wms.backend.inventory.cycleCount.steps.setup.submit',
-                      'Start counting',
-                    )
-                  : step === 2
+              {finishConfirmPending ? (
+                <p className="order-first text-xs text-status-warning-fg sm:order-none sm:self-center">
+                  {t(
+                    'wms.backend.inventory.cycleCount.steps.counting.finishWarning',
+                    '{remaining} item(s) still in scope — confirm to finish early.',
+                    { remaining: form.expectedSkus - linesPosted },
+                  )}
+                </p>
+              ) : null}
+              {!isQueueComplete ? (
+                <Button type="submit" disabled={primaryDisabled}>
+                  {step === 1
                     ? t(
-                        'wms.backend.inventory.cycleCount.steps.counting.submit',
-                        'Review variances',
+                        'wms.backend.inventory.cycleCount.steps.setup.submit',
+                        'Start counting',
                       )
-                    : t(
-                        'wms.backend.inventory.cycleCount.steps.review.submit',
-                        'Commit & count next',
-                      )}
-              </Button>
+                    : step === 2
+                      ? t(
+                          'wms.backend.inventory.cycleCount.steps.counting.submit',
+                          'Review variances',
+                        )
+                      : t(
+                          'wms.backend.inventory.cycleCount.steps.review.submit',
+                          'Commit & count next',
+                        )}
+                </Button>
+              ) : null}
             </div>
           </DialogFooter>
         </form>

@@ -275,7 +275,7 @@ export function formatCycleCountZoneLabel(
   return `${trimmed} · ${stats.expectedSkus} SKUs · ${stats.binCount} bins`
 }
 
-function mapLocationOptions(items: LocationListRow[]): CrudFieldOption[] {
+export function mapLocationOptions(items: LocationListRow[]): CrudFieldOption[] {
   return items
     .map((item) => {
       const value = typeof item.id === 'string' ? item.id : null
@@ -286,7 +286,7 @@ function mapLocationOptions(items: LocationListRow[]): CrudFieldOption[] {
     .filter((option): option is CrudFieldOption => option !== null)
 }
 
-async function loadAllLocations(
+export async function loadAllLocations(
   warehouseId: string,
   filters: { type?: string; search?: string },
 ): Promise<LocationListRow[]> {
@@ -312,7 +312,7 @@ async function loadAllLocations(
   return items
 }
 
-function filterLocationsByCodeRange(
+export function filterLocationsByCodeRange(
   locations: LocationListRow[],
   fromCode?: string | null,
   toCode?: string | null,
@@ -654,6 +654,106 @@ export async function loadLotNumberOptions(
   query?: string,
 ): Promise<CrudFieldOption[]> {
   return loadInventoryLotListOptions(catalogVariantId, query, mapInventoryLotListRowToLotNumberOption)
+}
+
+export class ScopeQueueError extends Error {
+  constructor(message = 'Failed to build cycle count scope queue.') {
+    super(message)
+    this.name = 'ScopeQueueError'
+  }
+}
+
+export type ScopeQueueItem = {
+  locationId: string
+  locationCode: string
+  catalogVariantId: string
+  lotId: string | null
+  expectedOnHand: number
+}
+
+export async function buildCycleCountScopeQueue(input: {
+  warehouseId: string
+  fromLocationId?: string | null
+  toLocationId?: string | null
+}): Promise<ScopeQueueItem[]> {
+  const warehouseId = input.warehouseId.trim()
+  if (!warehouseId) return []
+
+  const bins = await loadAllLocations(warehouseId, { type: 'bin' })
+  const binById = new Map(
+    bins
+      .map((b) => {
+        const id = b.id?.trim()
+        return id ? ([id, b] as const) : null
+      })
+      .filter((entry): entry is readonly [string, LocationListRow] => entry !== null),
+  )
+
+  const fromCode = input.fromLocationId?.trim()
+    ? binById.get(input.fromLocationId.trim())?.code
+    : undefined
+  const toCode = input.toLocationId?.trim()
+    ? binById.get(input.toLocationId.trim())?.code
+    : undefined
+
+  const scopedBins = filterLocationsByCodeRange(bins, fromCode, toCode)
+  const scopedBinIds = new Set(
+    scopedBins.map((b) => b.id?.trim()).filter((id): id is string => Boolean(id)),
+  )
+
+  if (scopedBinIds.size === 0) return []
+
+  type BalanceRow = {
+    catalog_variant_id?: string | null
+    location_id?: string | null
+    lot_id?: string | null
+    quantity_on_hand?: string | number | null
+  }
+
+  const items: ScopeQueueItem[] = []
+  let page = 1
+  let totalPages = 1
+
+  while (page <= totalPages && page <= 20) {
+    const params = buildQuery({ page, pageSize: 100, warehouseId })
+    const call = await apiCall<PagedResponse<BalanceRow>>(
+      `/api/wms/inventory/balances?${params}`,
+    )
+    if (!call.ok) throw new ScopeQueueError()
+
+    for (const row of call.result?.items ?? []) {
+      const locationId = row.location_id?.trim()
+      const variantId = row.catalog_variant_id?.trim()
+      const lotId = row.lot_id?.trim() || null
+      const onHand = Number(row.quantity_on_hand ?? 0)
+
+      if (!locationId || !variantId) continue
+      if (!scopedBinIds.has(locationId)) continue
+      if (!Number.isFinite(onHand) || onHand <= 0) continue
+
+      const bin = binById.get(locationId)
+      items.push({
+        locationId,
+        locationCode: bin?.code?.trim() ?? locationId,
+        catalogVariantId: variantId,
+        lotId,
+        expectedOnHand: onHand,
+      })
+    }
+
+    totalPages = call.result?.totalPages ?? 1
+    page += 1
+  }
+
+  items.sort((a, b) => {
+    const cmp = a.locationCode.localeCompare(b.locationCode, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    })
+    return cmp !== 0 ? cmp : a.catalogVariantId.localeCompare(b.catalogVariantId)
+  })
+
+  return items
 }
 
 export async function fetchVariantReorderPoint(catalogVariantId: string): Promise<number> {
