@@ -103,13 +103,13 @@ export async function GET(req: Request) {
     let autoIndexingEnabled = !lockedByEnv
     if (!lockedByEnv) {
       try {
-        autoIndexingEnabled = await resolveAutoIndexingEnabled(container, { defaultValue: true })
+        autoIndexingEnabled = await resolveAutoIndexingEnabled(container, { defaultValue: true, scope: { tenantId: auth.tenantId } })
       } catch {
         autoIndexingEnabled = true
       }
     }
 
-    const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null })
+    const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null, scope: { tenantId: auth.tenantId } })
     const configuredProviders = getConfiguredProviders()
     const indexedDimension = await getIndexedDimension(container)
 
@@ -186,10 +186,10 @@ export async function POST(req: Request) {
           { status: 409 },
         )
       }
-      await service.setValue('vector', SEARCH_AUTO_INDEX_CONFIG_KEY, parsed.data.autoIndexingEnabled)
+      await service.setValue('vector', SEARCH_AUTO_INDEX_CONFIG_KEY, parsed.data.autoIndexingEnabled, { tenantId: auth.tenantId })
     }
 
-    let embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null })
+    let embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null, scope: { tenantId: auth.tenantId } })
     let reindexRequired = false
     let indexedDimension = await getIndexedDimension(container)
 
@@ -255,7 +255,7 @@ export async function POST(req: Request) {
         }
       }
 
-      await saveEmbeddingConfig(container, change.newConfig)
+      await saveEmbeddingConfig(container, change.newConfig, { scope: { tenantId: auth.tenantId } })
       embeddingConfig = change.newConfig
 
       try {
@@ -272,7 +272,7 @@ export async function POST(req: Request) {
     let autoIndexingEnabled = !lockedByEnv
     if (!lockedByEnv) {
       try {
-        autoIndexingEnabled = await resolveAutoIndexingEnabled(container, { defaultValue: true })
+        autoIndexingEnabled = await resolveAutoIndexingEnabled(container, { defaultValue: true, scope: { tenantId: auth.tenantId } })
       } catch {
         autoIndexingEnabled = true
       }

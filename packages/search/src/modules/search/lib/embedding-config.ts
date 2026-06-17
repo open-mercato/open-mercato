@@ -1,4 +1,4 @@
-import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import type { ConfigScope, ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { EmbeddingProviderConfig, EmbeddingProviderId } from '../../../vector'
 import { EMBEDDING_CONFIG_KEY, EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG } from '../../../vector'
 
@@ -123,7 +123,7 @@ type Resolver = {
 
 export async function resolveEmbeddingConfig(
   resolver: Resolver,
-  options?: { defaultValue?: EmbeddingProviderConfig | null }
+  options?: { defaultValue?: EmbeddingProviderConfig | null; scope?: ConfigScope }
 ): Promise<EmbeddingProviderConfig | null> {
   const fallback = options?.defaultValue ?? null
   let service: ModuleConfigService
@@ -133,7 +133,10 @@ export async function resolveEmbeddingConfig(
     return fallback
   }
   try {
-    const value = await service.getValue<EmbeddingProviderConfig>('vector', EMBEDDING_CONFIG_KEY, { defaultValue: fallback })
+    const value = await service.getValue<EmbeddingProviderConfig>('vector', EMBEDDING_CONFIG_KEY, {
+      defaultValue: fallback,
+      scope: options?.scope,
+    })
     return value
   } catch {
     return fallback
@@ -142,7 +145,8 @@ export async function resolveEmbeddingConfig(
 
 export async function saveEmbeddingConfig(
   resolver: Resolver,
-  config: EmbeddingProviderConfig
+  config: EmbeddingProviderConfig,
+  options?: { scope?: ConfigScope }
 ): Promise<void> {
   let service: ModuleConfigService
   try {
@@ -153,7 +157,7 @@ export async function saveEmbeddingConfig(
   await service.setValue('vector', EMBEDDING_CONFIG_KEY, {
     ...config,
     updatedAt: new Date().toISOString(),
-  })
+  }, options?.scope)
 }
 
 export function createDefaultConfig(): EmbeddingProviderConfig {

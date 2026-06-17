@@ -39,6 +39,7 @@ export async function GET(req: Request) {
   try {
     const enabledStrategies = await resolveGlobalSearchStrategies(container, {
       defaultValue: DEFAULT_GLOBAL_SEARCH_STRATEGIES,
+      scope: { tenantId: auth.tenantId },
     })
 
     return toJson({ enabledStrategies })
@@ -75,7 +76,9 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   try {
-    await saveGlobalSearchStrategies(container, parsed.data.enabledStrategies)
+    await saveGlobalSearchStrategies(container, parsed.data.enabledStrategies, {
+      scope: { tenantId: auth.tenantId },
+    })
 
     return NextResponse.json({ ok: true, enabledStrategies: parsed.data.enabledStrategies })
   } catch (error) {

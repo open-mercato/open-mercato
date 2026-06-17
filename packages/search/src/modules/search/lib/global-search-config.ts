@@ -1,4 +1,4 @@
-import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import type { ConfigScope, ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { SearchStrategyId } from '@open-mercato/shared/modules/search'
 
 export const GLOBAL_SEARCH_STRATEGIES_KEY = 'global_search_strategies'
@@ -16,7 +16,7 @@ type Resolver = {
  */
 export async function resolveGlobalSearchStrategies(
   resolver: Resolver,
-  options?: { defaultValue?: SearchStrategyId[] },
+  options?: { defaultValue?: SearchStrategyId[]; scope?: ConfigScope },
 ): Promise<SearchStrategyId[]> {
   const fallback = options?.defaultValue ?? DEFAULT_GLOBAL_SEARCH_STRATEGIES
   let service: ModuleConfigService
@@ -26,7 +26,10 @@ export async function resolveGlobalSearchStrategies(
     return fallback
   }
   try {
-    const value = await service.getValue<SearchStrategyId[]>('search', GLOBAL_SEARCH_STRATEGIES_KEY, { defaultValue: fallback })
+    const value = await service.getValue<SearchStrategyId[]>('search', GLOBAL_SEARCH_STRATEGIES_KEY, {
+      defaultValue: fallback,
+      scope: options?.scope,
+    })
     // Ensure we always return a non-empty array
     if (!Array.isArray(value) || value.length === 0) {
       return fallback
@@ -43,6 +46,7 @@ export async function resolveGlobalSearchStrategies(
 export async function saveGlobalSearchStrategies(
   resolver: Resolver,
   strategies: SearchStrategyId[],
+  options?: { scope?: ConfigScope },
 ): Promise<void> {
   let service: ModuleConfigService
   try {
@@ -65,5 +69,5 @@ export async function saveGlobalSearchStrategies(
     throw new Error('At least one valid search strategy must be enabled')
   }
 
-  await service.setValue('search', GLOBAL_SEARCH_STRATEGIES_KEY, validStrategies)
+  await service.setValue('search', GLOBAL_SEARCH_STRATEGIES_KEY, validStrategies, options?.scope)
 }
