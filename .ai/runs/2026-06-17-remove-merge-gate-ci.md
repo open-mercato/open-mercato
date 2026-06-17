@@ -64,9 +64,9 @@ Delete the `merge-gate` GitHub Actions workflow and sync every doc/skill that cl
 
 ### Phase 1: Remove the workflow and canonical policy docs
 
-- [ ] 1.1 Delete `.github/workflows/merge-gate.yml`
-- [ ] 1.2 Update `AGENTS.md` merge-gate references
-- [ ] 1.3 Update `.github/QA-DEPLOYMENT.md` merge-gate reference
+- [x] 1.1 Delete `.github/workflows/merge-gate.yml` — fc6a0e420
+- [x] 1.2 Update `AGENTS.md` merge-gate references — fc6a0e420
+- [x] 1.3 Update `.github/QA-DEPLOYMENT.md` merge-gate reference — fc6a0e420
 
 ### Phase 2: Sync PR-automation skill references
 
