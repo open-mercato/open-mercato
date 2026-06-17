@@ -49,6 +49,7 @@ Three tiers scale the level of service with company size. Every tier includes th
 | Unlimited users & servers (per project / monorepo) | Included | Included | Included |
 | Project sandboxes — *time-limited offer* (dev/staging + prod env, CI/CD, AI SDLC pipeline, 7-day restore) | 1 active project | 3 active projects | 10 active projects |
 | Priority support (AI-assisted helpdesk, issue triage) | up to 5 accounts | up to 10 accounts, Discord | unlimited accounts, Discord |
+| Support & review coverage | Open Mercato core (open-source) | core + custom code | core + custom code |
 | Software updates | self-serve | assisted | managed for you |
 | Pre-deployment Architecture Audit | — | Included | Included |
 | Monthly Security / Performance / Custom-code Reviews | — | optional | Included |
@@ -69,7 +70,7 @@ Startups below $5M in annual revenue can request a startup discount via [info@op
 
 **Monthly Custom Module Code Review (up to 4h/mo).** Alignment with Open Mercato best practices, code quality and maintainability, agent-friendly architecture patterns, and upgrade safety.
 
-**Priority Technical Support.** Priority helpdesk (Slack / Discord or ticketing) for architecture and development questions, handled with AI assistance within tier limits. Advisory only — it does not include custom software development.
+**Priority Technical Support.** Priority helpdesk (Slack / Discord or ticketing) for architecture and development questions, handled with AI assistance within tier limits. Advisory only — it does not include custom software development. Coverage: Basic covers the Open Mercato core (open-source libraries); Medium and Enterprise also cover your custom code.
 
 **Dedicated Customer Success Manager (pre-go-live).** A CSM supports the Product Owner and technical team until launch: one 1-hour online meeting per month, ongoing ticketing support, and rollout-readiness guidance.
 
