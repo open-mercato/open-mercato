@@ -42,6 +42,6 @@ Add a top-level `HIRING.md` describing the "Senior AI Engineering / Forward Depl
 > The docs-only change is complete; the PR's "Standalone App Integration Tests" job was red due to pre-existing flaky/failing specs unrelated to HIRING.md. Root causes diagnosed from CI runs 27671942959 (PR #3132) and 27670188539 (PR #3131). All fixes are test-harness robustness only — no app behavior changed.
 
 - [x] 3.1 TC-CRM-062 hard fail: field-picker helper grabbed a stale/closing combobox (`.first()` → detached mid-fill) and leaked the regex `i` flag into the search query ("Namei"). Fixed with close-before-open + close-after-select waits and `.source`-based query text.
-- [x] 3.2 TC-CRM-059 / TC-CRM-060 reopen race: preset-apply closes the panel (onOpenChange(false)); the reopen click raced the Radix exit animation. Now wait for `toBeHidden` before reopening.
+- [x] 3.2 TC-CRM-059 / TC-CRM-060 / TC-CRM-061 reopen race (People / Companies / Deals "Clear all"): preset-apply closes the panel (onOpenChange(false)); the reopen click raced the Radix exit animation. Now wait for `toBeHidden` before reopening. (TC-CRM-061 surfaced from run 27592817564 / PR #3119.)
 - [x] 3.3 TC-CRM-013 pipeline-nav 20s timeout: heavy multi-navigation flow exceeds the default budget under CI load. Added `test.slow()`.
 - [x] 3.4 TC-LOCK-OSS-043 conflict-bar timing: list-row delete surfaces the conflict bar slower than an in-form save under CI load. Added an optional `timeout` to `expectConflictBanner` (default unchanged, BC) and passed 20s from the webhook list test.
