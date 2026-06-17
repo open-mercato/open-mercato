@@ -47,8 +47,9 @@ Three tiers scale the level of service with company size. Every tier includes th
 | Company revenue band | below $25M | $25M–$250M | above $250M |
 | Enterprise software modules (MFA, SSO & Directory Sync, Record Locking) | Included | Included | Included |
 | Unlimited users & servers (per project / monorepo) | Included | Included | Included |
-| Project sandboxes (dev/staging + prod env, CI/CD, AI SDLC pipeline, 7-day restore) | 1 active project | 3 active projects | 10 active projects |
+| Project sandboxes — *time-limited offer* (dev/staging + prod env, CI/CD, AI SDLC pipeline, 7-day restore) | 1 active project | 3 active projects | 10 active projects |
 | Priority support (AI-assisted helpdesk, issue triage) | up to 5 accounts | up to 10 accounts, Discord | unlimited accounts, Discord |
+| Support & review coverage | Open Mercato core (open-source) | core + custom code | core + custom code |
 | Software updates | self-serve | assisted | managed for you |
 | Pre-deployment Architecture Audit | — | Included | Included |
 | Monthly Security / Performance / Custom-code Reviews | — | optional | Included |
@@ -58,6 +59,26 @@ Three tiers scale the level of service with company size. Every tier includes th
 | GDPR documentation & production-config advisory | templates | Included | Included |
 
 Startups below $5M in annual revenue can request a startup discount via [info@openmercato.com](mailto:info@openmercato.com).
+
+## Service Detail
+
+**Pre-deployment Architecture Audit.** A structured architecture review before production deployment: overall system architecture, identification of structural risks, and recommendations for production readiness.
+
+**Monthly Security Review (up to 4h/mo).** Application code review, infrastructure and environment configuration review, identification of security risks, and remediation guidance.
+
+**Monthly Performance Review — custom code (up to 4h/mo).** Detection of performance bottlenecks, review of scalability risks, and optimization recommendations.
+
+**Monthly Custom Module Code Review (up to 4h/mo).** Alignment with Open Mercato best practices, code quality and maintainability, agent-friendly architecture patterns, and upgrade safety.
+
+**Priority Technical Support.** Priority helpdesk (Slack / Discord or ticketing) for architecture and development questions, handled with AI assistance within tier limits. Advisory only — it does not include custom software development. Coverage: Basic covers the Open Mercato core (open-source libraries); Medium and Enterprise also cover your custom code.
+
+**Dedicated Customer Success Manager (pre-go-live).** A CSM supports the Product Owner and technical team until launch: one 1-hour online meeting per month, ongoing ticketing support, and rollout-readiness guidance.
+
+**Software Updates.** Security patches, new platform features, and partner-ready upgrade packages with documented risks and upgrade procedures. Basic: update packages are provided and applied by the customer independently. Medium: update packages with support and guidance from our team during the upgrade. Enterprise: managed upgrades — planning, validation, and application by our team. Customers may continue using the software after license expiration, but new updates, security patches, and platform enhancements require an active license.
+
+**Production Approval (Homologation).** A formal production-readiness assessment before go-live: production approval report, risk summary, and go-live recommendation.
+
+**Production Hosting Reference.** A reference self-hosted deployment setup (including Dokploy and parallel queue processing), with an optional fully managed Developer Sandbox Cloud offering for development and testing environments.
 
 ## Enterprise Software Package
 
@@ -79,9 +100,9 @@ Open Mercato Sandboxes are pre-provisioned cloud environments with Open Mercato 
 
 Build and learn in the sandbox, then move the application to your own infrastructure. This unified trial-and-build path replaces ad-hoc demos — start immediately, without first clearing a security review.
 
-Pre-launch (waitlist): [sandboxes.openmercato.com](https://sandboxes.openmercato.com)
+Within the Enterprise Subscription, project sandboxes are included as a time-limited offer. Sandboxes are for building and learning; production still runs the certification and homologation path above.
 
-Sandboxes are for building and learning. Production still runs the certification and homologation path above.
+More detail: [Sandboxes spec](../../.ai/specs/enterprise/Sandboxes.md) · pre-launch waitlist: [sandboxes.openmercato.com](https://sandboxes.openmercato.com)
 
 ## Open Mercato Partnership Program
 
@@ -129,7 +150,7 @@ Agencies operate on the front line; Open Mercato stands behind system quality.
 
 ## Contact
 
-- Enterprise licensing and program details: [info@catchthetornado.com](mailto:info@catchthetornado.com)
+- Enterprise licensing and program details: [info@openmercato.com](mailto:info@openmercato.com)
 - Certified agency partnership: [mat@openmercato.com](mailto:mat@openmercato.com)
 
 ## Important
