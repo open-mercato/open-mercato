@@ -34,6 +34,13 @@ export class AttachmentPartition {
   @Property({ name: 'ocr_model', type: 'text', nullable: true })
   ocrModel?: string | null
 
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  @Index({ name: 'attachment_partitions_tenant_idx' })
+  tenantId?: string | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 

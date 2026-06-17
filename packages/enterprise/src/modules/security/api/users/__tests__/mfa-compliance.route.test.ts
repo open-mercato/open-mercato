@@ -21,6 +21,11 @@ jest.mock('../_shared', () => ({
       const body = (error as Error & { body?: unknown }).body
       return NextResponse.json(body, { status })
     }
+    if (error instanceof Error && 'statusCode' in error) {
+      const statusCode = (error as Error & { statusCode: number }).statusCode
+      const body = 'body' in error ? (error as Error & { body?: unknown }).body : { error: error.message }
+      return NextResponse.json(body, { status: statusCode })
+    }
     return NextResponse.json({ error: 'Failed to process user security request.' }, { status: 500 })
   }),
 }))
@@ -47,7 +52,7 @@ describe('security users mfa compliance route', () => {
     mockedResolveIsSuperAdmin.mockResolvedValue(false)
   })
 
-  test('returns 200 for own-tenant compliance', async () => {
+  test('returns 200 for own-tenant compliance and forwards full scope (tenantId + organizationId + isSuperAdmin)', async () => {
     const bulkComplianceCheck = jest.fn(async () => [])
     mockedResolveSecurityUsersContext.mockResolvedValue(buildContext(bulkComplianceCheck))
     mockedAssertActorOwnsTenantScope.mockResolvedValue(tenantA)
@@ -56,10 +61,14 @@ describe('security users mfa compliance route', () => {
     const response = await GET(req)
 
     expect(response.status).toBe(200)
-    expect(bulkComplianceCheck).toHaveBeenCalledWith(tenantA, { tenantId: tenantA, isSuperAdmin: false })
+    expect(bulkComplianceCheck).toHaveBeenCalledWith(tenantA, {
+      tenantId: tenantA,
+      organizationId: 'org-1',
+      isSuperAdmin: false,
+    })
   })
 
-  test('returns 403 when requesting a foreign tenant as a non-superadmin', async () => {
+  test('returns 403 when requesting a foreign tenant as a non-superadmin (assertActorOwnsTenantScope rejects)', async () => {
     const bulkComplianceCheck = jest.fn()
     mockedResolveSecurityUsersContext.mockResolvedValue(buildContext(bulkComplianceCheck))
     mockedAssertActorOwnsTenantScope.mockRejectedValueOnce(forbidden('Not authorized to target this tenant.'))
@@ -81,7 +90,11 @@ describe('security users mfa compliance route', () => {
     const response = await GET(req)
 
     expect(response.status).toBe(200)
-    expect(bulkComplianceCheck).toHaveBeenCalledWith(tenantB, { tenantId: tenantA, isSuperAdmin: true })
+    expect(bulkComplianceCheck).toHaveBeenCalledWith(tenantB, {
+      tenantId: tenantA,
+      organizationId: 'org-1',
+      isSuperAdmin: true,
+    })
   })
 
   test('returns 400 when no tenant context resolves', async () => {

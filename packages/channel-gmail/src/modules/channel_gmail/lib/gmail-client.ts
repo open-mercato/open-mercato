@@ -14,6 +14,8 @@
  *   - deleteMessage    → gmail.users.messages.trash (move to trash; matches `deleteMessage: true` capability)
  */
 
+import { fetchWithTimeout, FetchTimeoutError } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+
 const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1'
 
 export interface GmailApiAuth {
@@ -116,6 +118,12 @@ export interface GmailApiClient {
 const GMAIL_MAX_RETRIES = 3
 const GMAIL_BACKOFF_BASE_MS = 500
 const GMAIL_BACKOFF_CAP_MS = 8_000
+const GMAIL_DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+
+function resolveGmailRequestTimeoutMs(): number {
+  const fromEnv = Number.parseInt(process.env.OM_CHANNEL_GMAIL_REQUEST_TIMEOUT_MS ?? '', 10)
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : GMAIL_DEFAULT_REQUEST_TIMEOUT_MS
+}
 
 class FetchGmailApiClient implements GmailApiClient {
   async listHistory(auth: GmailApiAuth, input: GmailHistoryListInput): Promise<GmailHistoryListResponse> {
@@ -190,7 +198,37 @@ class FetchGmailApiClient implements GmailApiClient {
     let attempt = 0
     let lastError: GmailApiError | null = null
     while (attempt <= GMAIL_MAX_RETRIES) {
-      const res = await fetch(url.toString(), { method, headers, body: payload })
+      let res: Response
+      try {
+        res = await fetchWithTimeout(url.toString(), {
+          method,
+          headers,
+          body: payload,
+          // Bound each attempt so a stalled connection fails fast instead of
+          // hanging on undici's multi-minute default and pinning the worker slot.
+          timeoutMs: resolveGmailRequestTimeoutMs(),
+        })
+      } catch (err) {
+        // A timed-out/aborted connection is transient — let the bounded retry
+        // loop retry it rather than propagating a raw error. `fetchWithTimeout`
+        // surfaces an elapsed timeout as `FetchTimeoutError`; an externally-aborted
+        // request still surfaces as an `AbortError` DOMException. Match the
+        // `FetchTimeoutError` type and the abort `name` field (DOMException does
+        // not subclass Error across realms) — treat both as transient.
+        const errName = (err as { name?: unknown } | null)?.name
+        const aborted = err instanceof FetchTimeoutError || errName === 'TimeoutError' || errName === 'AbortError'
+        if (!aborted) throw err
+        const timeoutError = new GmailApiError(
+          `Gmail API ${method} ${url.pathname} timed out`,
+          599,
+          'request timed out',
+        )
+        if (attempt === GMAIL_MAX_RETRIES) throw timeoutError
+        lastError = timeoutError
+        await sleep(computeBackoff(attempt))
+        attempt += 1
+        continue
+      }
       const text = await res.text()
       if (res.ok) {
         if (!text) return undefined as unknown as T

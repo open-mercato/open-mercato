@@ -71,6 +71,40 @@ describe('security user mfa reset route', () => {
     expect(execute).toHaveBeenCalledWith('security.admin.mfa.reset', expect.any(Object))
   })
 
+  test('propagates 404 when the command rejects with MfaAdminServiceError statusCode 404', async () => {
+    const execute = jest.fn(async () => {
+      const error = Object.assign(new Error('User not found'), {
+        name: 'MfaAdminServiceError',
+        statusCode: 404,
+      })
+      throw error
+    })
+    mockedResolveSecurityUsersContext.mockResolvedValue({
+      auth: { sub: 'admin-1', tenantId: 'tenant-1', orgId: 'org-1' },
+      container: {
+        resolve: (name: string) => {
+          if (name === 'commandBus') return { execute }
+          throw new Error(`Unexpected dependency: ${name}`)
+        },
+      },
+      commandContext: {} as never,
+      mfaAdminService: {} as never,
+    } as never)
+
+    const req = new Request(`https://example.test/api/security/users/${userId}/mfa/reset`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-sudo-token': 'sudo-token' },
+      body: JSON.stringify({ reason: 'security incident' }),
+    })
+
+    const response = await POST(req, {
+      params: Promise.resolve({ id: userId }),
+    })
+
+    expect(response.status).toBe(404)
+    expect(execute).toHaveBeenCalledWith('security.admin.mfa.reset', expect.any(Object))
+  })
+
   test('returns 403 when sudo validation fails', async () => {
     mockedResolveSecurityUsersContext.mockResolvedValue({
       auth: { sub: 'admin-1', tenantId: 'tenant-1', orgId: 'org-1' },
