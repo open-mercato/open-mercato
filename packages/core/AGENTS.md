@@ -220,6 +220,18 @@ export default setup
 4. Use `getEntityIds()` at runtime (not import-time) for cross-module lookups
 5. Integration provider packages that need bootstrap credentials or mappings SHOULD preconfigure themselves from env inside the provider module via `setup.ts` and provider-local helpers/CLI. Do not add provider-specific env bootstrapping to core setup orchestration.
 
+### Cross-Module Coupling
+
+When one module needs another, pick the sanctioned mechanism by use-case:
+
+- **Events** for write side-effects — the source module emits (`createModuleEvents`), the other module subscribes (`subscribers/`). See § Events.
+- **Widget injection + response enrichers** for read/UI — render another module's data without importing it. See § Widget Injection, § Response Enrichers.
+- **FK-id + snapshot** for data — reference by UUID and denormalize a snapshot so reads survive the source module being absent or changed. See § Database Entities, § Extensions.
+
+Optional integration (e.g. CRM deals optionally adjusting WMS stock): the **optional consumer** owns the glue (subscriber / enricher / widget) and resolves the peer's service inside a `try/catch` — a per-module local `tryResolve` helper that wraps `container.resolve()` and returns `undefined` when the peer is absent (see `inbox_ops/subscribers/extractionWorker.ts`, `shipping_carriers/api/webhook/[provider]/route.ts`) — then no-ops or degrades gracefully. Never declare a hard `requires` on an optional peer and never call an unconditional `container.resolve(...)` for it. The upstream/depended-on module MUST NOT import, resolve, or hard-require the consumer — inverting that direction breaks the upstream module's isomorphism.
+
+The cross-module ORM-relation and direct-business-logic-import bans already live at line 24 and root `AGENTS.md` § Architecture — do not restate them. Verify absent-module behavior with `packages/core/src/__tests__/module-decoupling.test.ts` (§ Testing with Disabled Modules).
+
 ### ACL Grant Sync
 
 When adding features to `acl.ts`, also add them to `setup.ts` `defaultRoleFeatures` for `admin` and any other default roles that should see the module immediately (for example `employee`, portal/customer roles, or module-specific custom roles). Then run the idempotent sync command so existing tenants receive the new grants:
