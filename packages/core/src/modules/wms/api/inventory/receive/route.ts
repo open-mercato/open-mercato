@@ -4,7 +4,7 @@ import { inventoryReceiveSchema } from '../../../data/validators'
 import { executeWmsCustomPostRoute } from '../helpers'
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['wms.adjust_inventory'] },
+  POST: { requireAuth: true, requireFeatures: ['wms.receive_inventory'] },
 }
 
 export async function POST(request: Request) {

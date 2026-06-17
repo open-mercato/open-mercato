@@ -30,6 +30,7 @@ export function useWmsInventoryMutationAccess() {
           body: JSON.stringify({
             features: [
               'wms.adjust_inventory',
+              'wms.receive_inventory',
               'wms.cycle_count',
               'wms.import',
               'wms.manage_reservations',
@@ -65,7 +66,7 @@ export function useWmsInventoryMutationAccess() {
     userId,
     scopeReady,
     canAdjust: hasFeature(granted, 'wms.adjust_inventory'),
-    canReceive: hasFeature(granted, 'wms.adjust_inventory'),
+    canReceive: hasFeature(granted, 'wms.receive_inventory'),
     canCycleCount: hasFeature(granted, 'wms.cycle_count'),
     canImport: hasFeature(granted, 'wms.import'),
     canMove: hasFeature(granted, 'wms.adjust_inventory'),

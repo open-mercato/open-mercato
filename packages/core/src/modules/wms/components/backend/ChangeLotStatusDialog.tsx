@@ -137,6 +137,7 @@ export function ChangeLotStatusDialog({
         }
         if (parsed.data.notes) payload.notes = parsed.data.notes
 
+        let conflictHandled = false
         await runMutation({
           operation: async () => {
             const call = await apiCall<{ ok?: boolean }>(
@@ -151,7 +152,10 @@ export function ChangeLotStatusDialog({
               },
             )
             if (!call.ok) {
-              if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return {}
+              if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) {
+                conflictHandled = true
+                return {}
+              }
               await raiseCrudError(
                 call.response,
                 t('wms.backend.lot.changeStatus.errors.submit', 'Failed to update lot status.'),
@@ -162,6 +166,8 @@ export function ChangeLotStatusDialog({
           context: mutationContext,
           mutationPayload: payload,
         })
+
+        if (conflictHandled) return
 
         flash(t('wms.backend.lot.changeStatus.flash.success', 'Lot status updated'), 'success')
         await queryClient.invalidateQueries({ queryKey: ['wms-lot-detail'] })

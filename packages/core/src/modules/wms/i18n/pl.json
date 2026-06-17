@@ -330,6 +330,7 @@
   "wms.backend.inventory.cycleCount.review.variancesNone": "Brak",
   "wms.backend.inventory.cycleCount.steps.back": "Wstecz",
   "wms.backend.inventory.cycleCount.steps.counting.finish": "Finish session ({count})",
+  "wms.backend.inventory.cycleCount.steps.counting.finishTooltip": "{count} line(s) already committed — click to close without losing them",
   "wms.backend.inventory.cycleCount.steps.counting.shortcut": "aby kontynuować",
   "wms.backend.inventory.cycleCount.steps.counting.submit": "Pokaż rozbieżności",
   "wms.backend.inventory.cycleCount.steps.counting.subtitle": "Krok 2 z 3 · Skanuj i zliczaj pozycje",

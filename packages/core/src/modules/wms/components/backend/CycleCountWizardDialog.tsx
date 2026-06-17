@@ -1631,6 +1631,11 @@ export function CycleCountWizardDialog({
                   variant="outline"
                   onClick={closeDialog}
                   disabled={loadingBalance || submitting}
+                  title={t(
+                    'wms.backend.inventory.cycleCount.steps.counting.finishTooltip',
+                    '{count} line(s) already committed — click to close without losing them',
+                    { count: linesPosted },
+                  )}
                 >
                   {t(
                     'wms.backend.inventory.cycleCount.steps.counting.finish',

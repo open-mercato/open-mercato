@@ -10,6 +10,7 @@ export const WMS_CUSTOM_ROLE_NAMES = [WMS_OPERATOR_ROLE, WMS_SUPERVISOR_ROLE] as
 export const WMS_OPERATOR_FEATURES = [
   'wms.view',
   'wms.adjust_inventory',
+  'wms.receive_inventory',
   'wms.cycle_count',
 ] as const
 

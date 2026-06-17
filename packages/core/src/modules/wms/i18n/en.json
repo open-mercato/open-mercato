@@ -330,6 +330,7 @@
   "wms.backend.inventory.cycleCount.review.variancesNone": "None",
   "wms.backend.inventory.cycleCount.steps.back": "Back",
   "wms.backend.inventory.cycleCount.steps.counting.finish": "Finish session ({count})",
+  "wms.backend.inventory.cycleCount.steps.counting.finishTooltip": "{count} line(s) already committed — click to close without losing them",
   "wms.backend.inventory.cycleCount.steps.counting.shortcut": "to continue",
   "wms.backend.inventory.cycleCount.steps.counting.submit": "Review variances",
   "wms.backend.inventory.cycleCount.steps.counting.subtitle": "Step 2 of 3 · Scan and tally items",
