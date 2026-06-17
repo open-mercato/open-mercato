@@ -2,8 +2,9 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ChangeLotStatusDialog } from '../ChangeLotStatusDialog'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string) => fallback ?? _key,
@@ -19,7 +20,7 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
   useGuardedMutation: () => ({
-    runMutation: jest.fn(),
+    runMutation: jest.fn(async ({ operation }: { operation: () => Promise<unknown> }) => operation()),
     retryLastMutation: jest.fn(),
   }),
 }))
@@ -139,5 +140,40 @@ describe('ChangeLotStatusDialog', () => {
       />,
     )
     expect(screen.getByRole('button', { name: /Update status/i })).toBeTruthy()
+  })
+
+  it('submits status updates to the collection PUT endpoint', async () => {
+    const mockedApiCall = apiCall as jest.MockedFunction<typeof apiCall>
+    mockedApiCall.mockResolvedValue({
+      ok: true,
+      status: 200,
+      response: new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      result: { ok: true },
+    })
+
+    render(
+      <ChangeLotStatusDialog
+        open
+        onOpenChange={jest.fn()}
+        access={buildAccess()}
+        lotId="cdf758fc-fc4d-4399-ba25-3ec1bd5a17a9"
+        currentStatus="hold"
+        lotUpdatedAt="2026-06-17T10:00:00.000Z"
+      />,
+    )
+
+    const form = document.querySelector('form')
+    expect(form).toBeTruthy()
+    fireEvent.submit(form!)
+
+    await waitFor(() => {
+      expect(mockedApiCall).toHaveBeenCalledWith(
+        '/api/wms/lots',
+        expect.objectContaining({
+          method: 'PUT',
+          body: expect.stringContaining('"id":"cdf758fc-fc4d-4399-ba25-3ec1bd5a17a9"'),
+        }),
+      )
+    })
   })
 })

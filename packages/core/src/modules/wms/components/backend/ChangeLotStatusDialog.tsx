@@ -141,7 +141,7 @@ export function ChangeLotStatusDialog({
         await runMutation({
           operation: async () => {
             const call = await apiCall<{ ok?: boolean }>(
-              `/api/wms/lots/${lotId}`,
+              '/api/wms/lots',
               {
                 method: 'PUT',
                 headers: {
