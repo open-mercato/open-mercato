@@ -48,6 +48,14 @@ test.describe('TC-CRM-062: keyboard reorder within group', () => {
     fieldLabelMatcher: RegExp,
   ): Promise<boolean> {
     const panel = page.locator('[data-testid="advanced-filter-panel"]').first();
+    // A previously selected field picker lingers in the DOM during its Radix exit
+    // animation. Wait for any open picker to fully close before opening the next
+    // one, so the search input targeted below is always the freshly opened picker
+    // and never a detaching stale one (the historic flake: `.first()` resolved to
+    // a closing popover still holding the prior query, then detached mid-fill).
+    const searchInputs = page.getByPlaceholder(/search field/i);
+    await expect(searchInputs).toHaveCount(0, { timeout: 5_000 }).catch(() => {});
+
     const emptyAddBtn = panel
       .locator('[data-testid="filter-empty-state"]')
       .getByRole('button', { name: /add condition/i })
@@ -60,14 +68,20 @@ test.describe('TC-CRM-062: keyboard reorder within group', () => {
       await builderAddBtn.click();
     }
 
-    const search = page.getByPlaceholder(/search field/i).first();
+    const search = searchInputs.last();
     await expect(search).toBeVisible({ timeout: 5_000 });
-    const optionLabel = fieldLabelMatcher.toString().replace(/[\\/^$]/g, '').slice(0, 30);
+    // Use `.source` (e.g. /^Name$/i → "^Name$") and strip the anchors. `.toString()`
+    // leaked the trailing `i` flag into the typed query ("Namei"), which filtered
+    // out every option and left the rule unseeded.
+    const optionLabel = fieldLabelMatcher.source.replace(/[\\^$]/g, '').slice(0, 30);
     await search.fill(optionLabel);
     const option = page.getByRole('option', { name: fieldLabelMatcher }).first();
     const haveField = await option.isVisible({ timeout: 3_000 }).catch(() => false);
     if (!haveField) return false;
     await option.click();
+    // Selecting closes the picker (onSelect → onOpenChange(false)). Wait for it to
+    // detach so the next addRule call starts from a single, clean picker state.
+    await expect(searchInputs).toHaveCount(0, { timeout: 5_000 }).catch(() => {});
     return true;
   }
 

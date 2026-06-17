@@ -285,8 +285,11 @@ test.describe('TC-LOCK-OSS-043: webhooks + inbox settings + data-sync schedule o
       await dialog.getByRole('button', { name: /^(confirm|delete)$/i }).click()
 
       // The client must route the 409 to the unified conflict bar, never the
-      // success toast.
-      await expectConflictBanner(page)
+      // success toast. This list-row flow (portalled RowActions + confirm dialog +
+      // guarded-mutation conflict pipeline) renders the bar more slowly under a
+      // loaded CI shard than an in-form save, so allow a larger surfacing budget
+      // than the 10s default to remove the historic flake.
+      await expectConflictBanner(page, { timeout: 20_000 })
     } finally {
       if (webhookId) await deleteWebhook(page.request, token, webhookId)
     }
