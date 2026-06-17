@@ -55,7 +55,7 @@ After changing any file inside a local task, re-run `harbor add evals/tasks/<tas
 - Pin agent CLI versions and model IDs in `task.toml`; record them in every result record.
 - Emit a rich multi-dimensional `reward.json` (boolean `passed` + continuous component/per-criterion scores) so trends are legible.
 - Base each task's `environment/docker-compose.yaml` on the scaffold's own services (postgres `pgvector`, redis, meilisearch); the agent container MUST be named `main`.
-- Scaffold non-interactively: `--preset empty --skip-agentic-setup --no-init-git`, and `export YARN_ENABLE_IMMUTABLE_INSTALLS=0` before the first `yarn install`.
+- Scaffold non-interactively: `--preset empty --no-init-git`, and `export YARN_ENABLE_IMMUTABLE_INSTALLS=0` before the first `yarn install`. Choose the agentic-harness mode deliberately — `--skip-agentic-setup` (no `.claude/`/`.ai/skills`, agent works from in-repo conventions only) vs `--agents claude-code,codex` (harness present). When a task exists in both modes, keep them identical except that flag so the pair isolates the harness's effect (see the `app-OME-FEAT-001` / `app-OME-FEAT-001-agentic` pair).
 - Provision the tenant non-interactively with `mercato auth setup --orgName Acme --orgSlug acme --email superadmin@acme.com --password secret --skip-password-policy --json` so setup derives `admin@acme.com` (role `admin`, password `secret`) for the integration helper. Three traps: seeding `admin@acme.com` as the primary makes it a superadmin whose writes 400 with "Organization context is required"; `secret` fails the default password policy without `--skip-password-policy`; and the CLI wrapper exits 0 even on failure — check the output, not just the exit code.
 
 ## Ask First
