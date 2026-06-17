@@ -33,3 +33,14 @@
 - 2.3 migration generated via docker Postgres (`Migration20260617141327_webhooks.ts` + snapshot), DDL validated in rolled-back tx; 3.2 dispatch worker + queue + 4 tests. Checkpoint 2 green: tsc clean, webhooks 117/117.
 - DECISION: paused before Phase 4 (generator) and Phase 5 (route) — the two highest-risk pieces. Generator has a real subtlety (source configs contain functions → can't be inlined like worker metadata; need lazy-loader representation + async bootstrap). Route has security-sensitive cross-tenant credential probing + an unresolved write-time-encryption question for `WebhookIngestion.payload`/`headers`. Both deferred to a full-budget resume rather than rushed. Precise generator edit-map + route design + the encryption open-question are in HANDOFF.md.
 - Run now 8/12. Resume: `om-auto-continue-pr 3145` (resume point 4.1).
+
+## 2026-06-17T04:00:00Z — resume continued: steps 4.1, 4.2, 5.1, 5.2 landed (12/12)
+- Write-time encryption question RESOLVED: `encryption/subscriber.ts` `beforeCreate`/`beforeUpdate` auto-encrypt mapped fields → route needs no explicit encryption.
+- DECISION (auto-discovery): used the sanctioned `generators.ts` plugin mechanism (`webhooks.sources` + `webhooks.handlers`) instead of forking the two core generators (string + AST paths). `bootstrapRegistration` auto-wires `setWebhookSources`/`setWebhookHandlers` via the existing `runBootstrapRegistrations()` in both app + create-app template — zero core-CLI/bootstrap edits. Consequence: handlers declared in a module-root `webhook-handlers.ts` barrel (impl under `webhook-handlers/`) rather than a `webhook-handlers/*.ts` folder scan. Spec §3.2/§6 + changelog updated.
+- 4.1 registry helpers (+3 tests); 4.2 generators.ts plugins + spec; 5.1 unified route (source-first, adapter fallback, 401, dedup, ingestion, dispatch); 5.2 route tests (+4).
+
+## 2026-06-17T04:30:00Z — final gate + run complete
+- typecheck 21/21 ✓; build:app ✓ "Compiled successfully"; i18n sync+usage ✓; webhooks 121/121 ✓.
+- `yarn test` (all): 1 failure = `@open-mercato/cli dev-env-reload.test.ts` — UNRELATED (no CLI files touched; fails standalone; watcher-timing ENOENT; develop 39 commits ahead). Documented in final-gate-checks.md.
+- Deferred (heavy, PR kept DRAFT): `yarn test:integration`, `yarn test:create-app:integration` → CI/maintainer. ds-guardian N/A (no UI). `om-auto-review-pr` cannot run on upstream (no access).
+- Phase 1 implementation COMPLETE. PR #3145 stays draft pending integration suites + maintainer review/labels + branch update onto develop.
