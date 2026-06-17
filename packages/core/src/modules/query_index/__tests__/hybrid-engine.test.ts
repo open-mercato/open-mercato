@@ -390,6 +390,46 @@ describe('HybridQueryEngine', () => {
     warnSpy.mockRestore()
   })
 
+  test('falls back when hybrid base query returns a false zero for includeCustomFields list queries', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 0,
+      indexCount: 0,
+      customFieldKeys: {
+        'example:todo': ['priority'],
+      },
+    })
+    const em = buildEm(db)
+    const fallback = {
+      query: jest.fn().mockResolvedValue({ items: [{ id: 'todo-1' }], page: 1, pageSize: 25, total: 10 }),
+    }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const result = await engine.query('example:todo', {
+      fields: ['id', 'title'],
+      includeCustomFields: true,
+      filters: {
+        pipeline_id: { $eq: 'pipeline-1' },
+        pipeline_stage_id: { $eq: 'stage-1' },
+      },
+      organizationId: 'org1',
+      tenantId: 't1',
+      page: { page: 1, pageSize: 25 },
+    })
+
+    expect(fallback.query).toHaveBeenCalled()
+    expect(result.items).toEqual([{ id: 'todo-1' }])
+    expect(result.total).toBe(10)
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Hybrid query returned zero rows'),
+      expect.objectContaining({ entity: 'example:todo', fallbackTotal: 10 }),
+    )
+    warnSpy.mockRestore()
+  })
+
   test('skips partial coverage warning when entity has no custom fields', async () => {
     const db = createFakeKysely({
       baseTable: 'todos', hasIndexAny: true, baseCount: 8, indexCount: 2, customFieldKeys: {},

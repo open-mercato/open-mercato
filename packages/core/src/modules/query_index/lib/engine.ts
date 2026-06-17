@@ -889,6 +889,35 @@ export class HybridQueryEngine implements QueryEngine {
         total = this.parseCount(countRow)
       }
 
+      if (
+        total === 0 &&
+        wantsCf &&
+        normalizedFilters.length > 0 &&
+        cfFilters.length === 0 &&
+        searchFilters.length === 0 &&
+        !partialIndexWarning
+      ) {
+        const fallbackResult = await this.fallback.query<T>(entity, opts)
+        const fallbackTotal = typeof fallbackResult?.total === 'number'
+          ? fallbackResult.total
+          : Array.isArray(fallbackResult?.items)
+            ? fallbackResult.items.length
+            : 0
+        if (fallbackTotal > 0) {
+          console.warn('[HybridQueryEngine] Hybrid query returned zero rows while fallback found matches; falling back to basic engine:', {
+            entity,
+            fallbackTotal,
+          })
+          if (debugEnabled) this.debug('query:fallback:false-zero', { entity, fallbackTotal })
+          finishProfile({
+            result: 'fallback',
+            reason: 'hybrid_false_zero',
+            total: fallbackTotal,
+          })
+          return await applyAfterExtensions(fallbackResult)
+        }
+      }
+
       const dataRoot = db.selectFrom(`${baseTable} as b` as any)
       let dataBuilder = await applyQueryShape(dataRoot)
       dataBuilder = applySelection(dataBuilder)
