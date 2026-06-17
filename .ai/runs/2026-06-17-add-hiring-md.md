@@ -30,9 +30,9 @@ Add a top-level `HIRING.md` describing the "Senior AI Engineering / Forward Depl
 
 ### Phase 1: Author HIRING.md
 
-- [ ] 1.1 Write HIRING.md role content (formatted from the brief)
-- [ ] 1.2 Add Apply section with info@openmercato.com routing + GDPR consent & processing notice
+- [x] 1.1 Write HIRING.md role content (formatted from the brief) — e801665ae
+- [x] 1.2 Add Apply section with info@openmercato.com routing + GDPR consent & processing notice — e801665ae
 
 ### Phase 2: Validate & ship
 
-- [ ] 2.1 Re-read diff, lint markdown, open PR against develop with labels
+- [x] 2.1 Re-read diff, lint markdown, open PR against develop with labels — (this commit)
