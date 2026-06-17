@@ -47,7 +47,7 @@ Three tiers scale the level of service with company size. Every tier includes th
 | Company revenue band | below $25M | $25M–$250M | above $250M |
 | Enterprise software modules (MFA, SSO & Directory Sync, Record Locking) | Included | Included | Included |
 | Unlimited users & servers (per project / monorepo) | Included | Included | Included |
-| Project sandboxes (dev/staging + prod env, CI/CD, AI SDLC pipeline, 7-day restore) | 1 active project | 3 active projects | 10 active projects |
+| Project sandboxes — *time-limited offer* (dev/staging + prod env, CI/CD, AI SDLC pipeline, 7-day restore) | 1 active project | 3 active projects | 10 active projects |
 | Priority support (AI-assisted helpdesk, issue triage) | up to 5 accounts | up to 10 accounts, Discord | unlimited accounts, Discord |
 | Software updates | self-serve | assisted | managed for you |
 | Pre-deployment Architecture Audit | — | Included | Included |
@@ -99,9 +99,9 @@ Open Mercato Sandboxes are pre-provisioned cloud environments with Open Mercato 
 
 Build and learn in the sandbox, then move the application to your own infrastructure. This unified trial-and-build path replaces ad-hoc demos — start immediately, without first clearing a security review.
 
-Pre-launch (waitlist): [sandboxes.openmercato.com](https://sandboxes.openmercato.com)
+Within the Enterprise Subscription, project sandboxes are included as a time-limited offer. Sandboxes are for building and learning; production still runs the certification and homologation path above.
 
-Sandboxes are for building and learning. Production still runs the certification and homologation path above.
+More detail: [Sandboxes spec](../../.ai/specs/enterprise/Sandboxes.md) · pre-launch waitlist: [sandboxes.openmercato.com](https://sandboxes.openmercato.com)
 
 ## Open Mercato Partnership Program
 
