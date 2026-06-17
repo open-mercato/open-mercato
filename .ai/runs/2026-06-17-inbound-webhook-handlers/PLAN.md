@@ -20,8 +20,8 @@
 | 2 | 2.4 | Add webhooks.inbound.processed / handler_failed events | done | 139a73e4f |
 | 3 | 3.1 | Source + handler registries; handler resolution + pattern match (unit tests) | done | 98590a878 |
 | 3 | 3.2 | Inbound dispatch worker + queue helper | done | a16284884 |
-| 4 | 4.1 | Generator: scan webhook-sources.ts + webhook-handlers/*.ts | todo | — |
-| 4 | 4.2 | Generator: process + emit registries; extend Module type; bootstrap + template wiring | todo | — |
+| 4 | 4.1 | Webhook source/handler bootstrap-registry helpers (+ tests) | done | 5abaf1a97 |
+| 4 | 4.2 | generators.ts plugins (webhook-sources.ts + webhook-handlers.ts) + spec convention update | todo | — |
 | 5 | 5.1 | Unify inbound route: source registry first, adapter fallback | todo | — |
 | 5 | 5.2 | Unit tests for unified route resolution / dedup / reject | todo | — |
 
