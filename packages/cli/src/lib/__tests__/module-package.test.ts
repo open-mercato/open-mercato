@@ -57,6 +57,33 @@ describe('module-package', () => {
     expect(modulePackage.distModuleDir).toContain(path.join('dist', 'modules', 'test_package'))
   })
 
+  it('validates a third-party (non-@open-mercato) module package by structure', () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@fast-white-cat', 'integration-ksef-direct')
+    for (const base of ['src', 'dist']) {
+      fs.mkdirSync(path.join(packageRoot, base, 'modules', 'ksef_direct'), { recursive: true })
+    }
+    fs.writeFileSync(
+      path.join(packageRoot, 'package.json'),
+      JSON.stringify({ name: '@fast-white-cat/integration-ksef-direct', version: '0.1.0' }),
+    )
+    fs.writeFileSync(
+      path.join(packageRoot, 'src', 'modules', 'ksef_direct', 'index.ts'),
+      "export const metadata = { title: 'KSeF Direct', ejectable: false }\n",
+    )
+    fs.writeFileSync(
+      path.join(packageRoot, 'dist', 'modules', 'ksef_direct', 'index.js'),
+      'exports.metadata = {};\n',
+    )
+
+    const modulePackage = readOfficialModulePackageFromRoot(
+      packageRoot,
+      '@fast-white-cat/integration-ksef-direct',
+    )
+
+    expect(modulePackage.packageName).toBe('@fast-white-cat/integration-ksef-direct')
+    expect(modulePackage.metadata.moduleId).toBe('ksef_direct')
+  })
+
   it('resolves a hoisted installed module package from a monorepo app', () => {
     const appDir = path.join(tmpDir, 'apps', 'mercato')
     const installedPackageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')

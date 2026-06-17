@@ -14,11 +14,8 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { roleCrudEvents, roleCrudIndexer } from '@open-mercato/core/modules/auth/commands/roles'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import {
-  assertActorCanAccessRoleTarget,
-  assertActorCanModifySuperAdminRoleTarget,
-} from '@open-mercato/core/modules/auth/lib/grantChecks'
-import { enforceTenantSelection } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import { assertActorCanModifySuperAdminRoleTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import { enforceRoleTenantAccess } from '@open-mercato/core/modules/auth/lib/roleTenantGuard'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const querySchema = z.object({
@@ -88,18 +85,8 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     create: {
       commandId: 'auth.roles.create',
       schema: rawBodySchema,
-      mapInput: async ({ parsed, ctx }) => {
-        // Preserve an explicit null so the create command rejects it (400 — global
-        // roles are unsupported); only resolve string/omitted tenantId against the actor.
-        if (parsed.tenantId === null) return parsed
-        const requestedTenantId = typeof parsed.tenantId === 'string' ? parsed.tenantId : undefined
-        const resolvedTenantId = await enforceTenantSelection(
-          { auth: ctx.auth, container: ctx.container },
-          requestedTenantId,
-        )
-        if (resolvedTenantId) parsed.tenantId = resolvedTenantId
-        return parsed
-      },
+      mapInput: async ({ parsed, ctx }) =>
+        enforceRoleTenantAccess('create', parsed, { auth: ctx.auth, container: ctx.container }),
       response: ({ result }) => ({ id: String(result.id) }),
       status: 201,
     },
@@ -109,9 +96,8 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       mapInput: async ({ parsed, ctx }) => {
         if (ctx.request && typeof parsed.id === 'string' && parsed.id.length) {
           await assertCanModifySuperAdminRole(ctx.request, parsed.id)
-          await assertCanAccessRoleTarget(ctx.request, parsed.id)
         }
-        return parsed
+        return enforceRoleTenantAccess('update', parsed, { auth: ctx.auth, container: ctx.container })
       },
       response: () => ({ ok: true }),
     },
@@ -121,9 +107,8 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
         const targetId = resolveDeleteTargetId(parsed, raw)
         if (ctx.request && targetId) {
           await assertCanModifySuperAdminRole(ctx.request, targetId)
-          await assertCanAccessRoleTarget(ctx.request, targetId)
         }
-        return parsed
+        return enforceRoleTenantAccess('delete', parsed, { auth: ctx.auth, container: ctx.container })
       },
       response: () => ({ ok: true }),
     },
@@ -275,7 +260,6 @@ export const DELETE = async (req: Request) => {
   if (targetId) {
     try {
       await assertCanModifySuperAdminRole(req, targetId)
-      await assertCanAccessRoleTarget(req, targetId)
     } catch (err) {
       if (err instanceof CrudHttpError) {
         return NextResponse.json(err.body, { status: err.status })
@@ -292,21 +276,6 @@ async function assertCanModifySuperAdminRole(req: Request, targetRoleId: string)
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   await assertActorCanModifySuperAdminRoleTarget({
-    em,
-    rbacService: container.resolve('rbacService') as RbacService,
-    actorUserId: auth.sub,
-    tenantId: auth.tenantId ?? null,
-    organizationId: auth.orgId ?? null,
-    targetRoleId,
-  })
-}
-
-async function assertCanAccessRoleTarget(req: Request, targetRoleId: string) {
-  const auth = await getAuthFromRequest(req)
-  if (!auth?.sub) throw new CrudHttpError(401, { error: 'Unauthorized' })
-  const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
-  await assertActorCanAccessRoleTarget({
     em,
     rbacService: container.resolve('rbacService') as RbacService,
     actorUserId: auth.sub,
@@ -343,7 +312,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     POST: {
       summary: 'Create role',
-      description: 'Creates a new role for the current tenant or globally when `tenantId` is omitted.',
+      description: 'Creates a new role anchored to the caller\'s tenant. Non-superadmins cannot target another tenant; supplying a foreign `tenantId` is rejected.',
       requestBody: {
         contentType: 'application/json',
         schema: roleCreateSchema,

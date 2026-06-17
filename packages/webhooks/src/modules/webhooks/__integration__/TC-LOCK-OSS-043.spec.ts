@@ -253,6 +253,13 @@ test.describe('TC-LOCK-OSS-043: webhooks + inbox settings + data-sync schedule o
         .first()
       await expect(row, 'created webhook should appear in the list').toBeVisible({ timeout: 20_000 })
 
+      // Let ALL of the list's initial GETs settle (it fires a second fetch once the
+      // org scope resolves) before bumping out-of-band. Otherwise a late settle GET
+      // can land AFTER the PUT and refresh the in-page row token to the new value,
+      // so the subsequent DELETE carries a fresh token and succeeds (200) instead of
+      // 409ing — the historic flake (the list ended up empty, no conflict surfaced).
+      await page.waitForLoadState('networkidle')
+
       // Advance updated_at out-of-band → the in-page row token is now stale.
       // NOTE: bump description (not name) so the row locator stays valid even if
       // the list re-fetches after the PUT.
@@ -285,8 +292,10 @@ test.describe('TC-LOCK-OSS-043: webhooks + inbox settings + data-sync schedule o
       await dialog.getByRole('button', { name: /^(confirm|delete)$/i }).click()
 
       // The client must route the 409 to the unified conflict bar, never the
-      // success toast.
-      await expectConflictBanner(page)
+      // success toast. Allow a larger surfacing budget than the 10s default for the
+      // portalled RowActions + confirm dialog + guarded-mutation pipeline on a
+      // loaded CI shard.
+      await expectConflictBanner(page, { timeout: 20_000 })
     } finally {
       if (webhookId) await deleteWebhook(page.request, token, webhookId)
     }

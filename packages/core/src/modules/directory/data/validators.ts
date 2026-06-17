@@ -12,11 +12,22 @@ export const tenantUpdateSchema = z.object({
 })
 
 const slugField = z.string().trim().toLowerCase().regex(/^[a-z0-9\-_]+$/).max(150).optional().nullable()
+const logoUrlField = z
+  .union([
+    z.string().trim().url().max(2048).refine(
+      (value) => value.startsWith('https://') || value.startsWith('http://'),
+      { message: 'Logo URL must use http or https.' },
+    ),
+    z.string().trim().regex(/^\/api\/attachments\/(?:image|file)\/[A-Za-z0-9%_.~/?=&-]+$/).max(2048),
+  ])
+  .optional()
+  .nullable()
 
 export const organizationCreateSchema = z.object({
   tenantId: z.string().uuid().optional(),
   name: z.string().min(1).max(200),
   slug: slugField,
+  logoUrl: logoUrlField,
   isActive: z.boolean().optional(),
   parentId: z.string().uuid().nullable().optional(),
   childIds: z.array(z.string().uuid()).optional(),
@@ -27,6 +38,7 @@ export const organizationUpdateSchema = z.object({
   tenantId: z.string().uuid().optional(),
   name: z.string().min(1).max(200).optional(),
   slug: slugField,
+  logoUrl: logoUrlField,
   isActive: z.boolean().optional(),
   parentId: z.string().uuid().nullable().optional(),
   childIds: z.array(z.string().uuid()).optional(),
