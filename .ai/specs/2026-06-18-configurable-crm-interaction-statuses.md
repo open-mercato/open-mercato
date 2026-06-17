@@ -281,6 +281,15 @@ filter; add `@deprecated` to `interactionStatusValues`.
 4. Broaden `lib/interactionProjection.ts:35`, `api/interactions/conflicts/route.ts:103`,
    `api/people/[id]/route.ts:560`, `api/companies/[id]/route.ts:528` to the open predicate → unit
    tests asserting an `in_progress` row is included.
+   - **Query-index consistency (R6):** broadening the next-interaction projection changes the
+     denormalized `next_interaction_*` fields on `customer_entities` (query-indexed). The path MUST
+     keep emitting `query_index.upsert_one` for affected entities so global search / token filters do
+     not go stale (per `.ai/lessons.md` → "Projection updates that change indexed parent fields must
+     emit query-index upserts"). Add an integration assertion that an `in_progress` interaction
+     updates the indexed `next_interaction_*`.
+   - **Ordering (R7):** define the "next step" ordering explicitly now that non-scheduled open
+     statuses (in_progress/waiting) can enter the projection — the projection orders by `scheduledAt`,
+     so decide scheduled-first then `createdAt`, and unit-test the mixed (NULL `scheduledAt`) case.
 5. Broaden the count param in `api/interactions/counts/route.ts:15` (`open` bucket = non-terminal,
    `planned` alias retained) → route test.
 6. Broaden UI "mark done" predicates to `isOpenInteractionStatus` → component/render test.
@@ -337,6 +346,8 @@ fixtures via API, clean up in teardown):
 | R3 | Existing tenant has no seeded `interaction_status` dictionary → empty status dropdown until the upgrade action runs. | Medium (UX) | settings + task form for existing tenants | Phase 5 idempotent upgrade action seeds all tenants; lenient validation keeps the API working meanwhile; helper defaults keep open/terminal correct regardless of dictionary presence. | Low. |
 | R4 | AI tool status filter spelling divergence (`'completed'`/`'cancelled'` double-L vs stored `'done'`/`'canceled'`) — pre-existing. | Low | AI agent task filtering | Phase 5 widens and spelling-aligns the filter; the terminal helper tolerates `'completed'`. | Low (pre-existing, not introduced here). |
 | R5 | Legacy `completed` rows misclassified. | Low | a small number of legacy rows | Helper treats `completed` as terminal; optional one-time backfill to `done`. | Negligible. |
+| R6 | Broadening the next-interaction projection (Phase 2) changes query-indexed `next_interaction_*` on `customer_entities` without an index upsert → grids show fresh values but global search / token filters stay stale. | Medium (search/list consistency) | `customer_entities` next-step fields, search/token index | Emit `query_index.upsert_one` for affected entities in the same path (per `.ai/lessons.md`); integration-assert that an in_progress interaction updates the indexed fields. | Low. |
+| R7 | Next-interaction ordering when in_progress/waiting lack `scheduledAt` (projection orders by `scheduledAt`). | Low | "next step" selection on contacts | Define ordering explicitly (scheduled-first, then `createdAt`); unit-test the NULL-`scheduledAt` case. | Low. |
 
 **Blast radius.** Confined to the `customers` module. No DB migration, no cross-module contract
 change beyond the deprecated `interactionStatusValues` export. **Operational detection.** Existing
@@ -400,6 +411,10 @@ audit + gap analysis) before Phase 1, given the contract-surface touch on `inter
 - **2026-06-18** — Spec drafted (Option A: dictionary-backed interaction statuses). Open Questions
   gate resolved: Q1 single `waiting`; Q2 unknown→open; Q3 complete→`done`; lenient validation per
   the deal-status precedent.
+- **2026-06-18** — Pre-implementation analysis run (see
+  `.ai/specs/analysis/ANALYSIS-2026-06-18-configurable-crm-interaction-statuses.md`): verdict **ready
+  to implement**, no BC blockers, no test breakage. Folded R6 (query-index upsert on projection
+  broadening) and R7 (next-interaction ordering) into Phase 2 and the risk table.
 
 ### Review — 2026-06-18
 - **Reviewer**: Agent
