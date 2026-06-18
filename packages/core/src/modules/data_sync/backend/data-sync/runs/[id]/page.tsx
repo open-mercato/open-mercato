@@ -10,6 +10,7 @@ import { LogList, type LogListEntry } from '@open-mercato/ui/backend/LogList'
 import { Progress } from '@open-mercato/ui/primitives/progress'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
@@ -101,6 +102,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const router = useRouter()
   const runId = resolveRouteId(params?.id) ?? resolvePathnameId(pathname)
   const t = useT()
+  const { runMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: 'data_sync.runDetail',
+  })
 
   const [run, setRun] = React.useState<SyncRunDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -220,32 +224,50 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const handleCancel = React.useCallback(async () => {
     const currentRunId = resolveCurrentRunId()
     if (!currentRunId) return
-    const call = await apiCall(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/cancel`, {
-      method: 'POST',
-    }, { fallback: null })
+    const call = await runMutation({
+      // optimistic-lock-exempt: run lifecycle action endpoint (cancel), not a concurrent record edit
+      operation: () => apiCall(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/cancel`, {
+        method: 'POST',
+      }, { fallback: null }),
+      mutationPayload: { runId: currentRunId },
+      context: {
+        operation: 'update',
+        actionId: 'cancel-sync-run',
+        runId: currentRunId,
+      },
+    })
     if (call.ok) {
       flash(t('data_sync.runs.detail.cancelSuccess'), 'success')
       void loadRun()
     } else {
       flash(t('data_sync.runs.detail.cancelError'), 'error')
     }
-  }, [resolveCurrentRunId, t, loadRun])
+  }, [resolveCurrentRunId, runMutation, t, loadRun])
 
   const handleRetry = React.useCallback(async () => {
     const currentRunId = resolveCurrentRunId()
     if (!currentRunId) return
-    const call = await apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/retry`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fromBeginning: false }),
-    }, { fallback: null })
+    const call = await runMutation({
+      // optimistic-lock-exempt: starts a new retry run (create), not a concurrent record edit
+      operation: () => apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromBeginning: false }),
+      }, { fallback: null }),
+      mutationPayload: { runId: currentRunId, fromBeginning: false },
+      context: {
+        operation: 'create',
+        actionId: 'retry-sync-run',
+        runId: currentRunId,
+      },
+    })
     if (call.ok && call.result) {
       flash(t('data_sync.runs.detail.retrySuccess'), 'success')
       router.push(`/backend/data-sync/runs/${encodeURIComponent(call.result.id)}`)
     } else {
       flash(t('data_sync.runs.detail.retryError'), 'error')
     }
-  }, [resolveCurrentRunId, router, t])
+  }, [resolveCurrentRunId, router, runMutation, t])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('data_sync.runs.detail.title')} /></PageBody></Page>
   if (isNotFound) {
