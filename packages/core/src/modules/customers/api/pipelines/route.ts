@@ -18,7 +18,13 @@ import { withScopedPayload } from '../utils'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+
+const PIPELINE_RESOURCE_KIND = 'customers.pipeline'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.pipelines.view'] },
@@ -84,16 +90,48 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { ctx } = await buildContext(req)
+    const { ctx, organizationId, tenantId } = await buildContext(req)
+    if (!organizationId || !tenantId) {
+      return NextResponse.json({ error: 'Organization and tenant context required' }, { status: 400 })
+    }
     const body = await req.json().catch(() => ({}))
     const { translate } = await resolveTranslations()
     const scoped = withScopedPayload(body, ctx, translate)
+    const input = pipelineCreateSchema.parse(scoped)
+
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId,
+      organizationId,
+      userId: ctx.auth!.sub,
+      resourceKind: PIPELINE_RESOURCE_KIND,
+      resourceId: organizationId,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<PipelineCreateInput, { pipelineId: string }>(
       'customers.pipelines.create',
-      { input: pipelineCreateSchema.parse(scoped), ctx },
+      { input, ctx },
     )
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId,
+        organizationId,
+        userId: ctx.auth!.sub,
+        resourceKind: PIPELINE_RESOURCE_KIND,
+        resourceId: result?.pipelineId ?? organizationId,
+        operation: 'create',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
     const response = NextResponse.json({ id: result?.pipelineId ?? null }, { status: 201 })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(
@@ -121,16 +159,48 @@ export async function POST(req: Request) {
 
 export async function PUT(req: Request) {
   try {
-    const { ctx } = await buildContext(req)
+    const { ctx, organizationId, tenantId } = await buildContext(req)
+    if (!organizationId || !tenantId) {
+      return NextResponse.json({ error: 'Organization and tenant context required' }, { status: 400 })
+    }
     const body = await req.json().catch(() => ({}))
     const { translate } = await resolveTranslations()
     const scoped = withScopedPayload(body, ctx, translate)
+    const input = pipelineUpdateSchema.parse(scoped)
+
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId,
+      organizationId,
+      userId: ctx.auth!.sub,
+      resourceKind: PIPELINE_RESOURCE_KIND,
+      resourceId: input.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { logEntry } = await commandBus.execute<PipelineUpdateInput, void>(
       'customers.pipelines.update',
-      { input: pipelineUpdateSchema.parse(scoped), ctx },
+      { input, ctx },
     )
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId,
+        organizationId,
+        userId: ctx.auth!.sub,
+        resourceKind: PIPELINE_RESOURCE_KIND,
+        resourceId: input.id,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
     const response = NextResponse.json({ ok: true })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(
@@ -158,16 +228,48 @@ export async function PUT(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { ctx } = await buildContext(req)
+    const { ctx, organizationId, tenantId } = await buildContext(req)
+    if (!organizationId || !tenantId) {
+      return NextResponse.json({ error: 'Organization and tenant context required' }, { status: 400 })
+    }
     const body = await req.json().catch(() => ({}))
     const { translate } = await resolveTranslations()
     const scoped = withScopedPayload(body, ctx, translate)
+    const input = pipelineDeleteSchema.parse(scoped)
+
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId,
+      organizationId,
+      userId: ctx.auth!.sub,
+      resourceKind: PIPELINE_RESOURCE_KIND,
+      resourceId: input.id,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     await commandBus.execute<PipelineDeleteInput, void>(
       'customers.pipelines.delete',
-      { input: pipelineDeleteSchema.parse(scoped), ctx },
+      { input, ctx },
     )
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId,
+        organizationId,
+        userId: ctx.auth!.sub,
+        resourceKind: PIPELINE_RESOURCE_KIND,
+        resourceId: input.id,
+        operation: 'delete',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
     return NextResponse.json({ ok: true })
   } catch (err) {
     if (isCrudHttpError(err)) {
