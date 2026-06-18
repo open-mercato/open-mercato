@@ -69,5 +69,14 @@
   "shipping_carriers.create.summary.to": "Nach",
   "shipping_carriers.create.title": "Sendung beim Transporteur erstellen",
   "shipping_carriers.feature.manage": "Versanddienstleister-Vorgaenge verwalten",
-  "shipping_carriers.feature.view": "Sendungen der Versanddienstleister anzeigen"
+  "shipping_carriers.feature.view": "Sendungen der Versanddienstleister anzeigen",
+  "shipping_carriers.status.cancelled": "Storniert",
+  "shipping_carriers.status.delivered": "Zugestellt",
+  "shipping_carriers.status.failed_delivery": "Zustellung fehlgeschlagen",
+  "shipping_carriers.status.in_transit": "Unterwegs",
+  "shipping_carriers.status.label_created": "Etikett erstellt",
+  "shipping_carriers.status.out_for_delivery": "In Zustellung",
+  "shipping_carriers.status.picked_up": "Abgeholt",
+  "shipping_carriers.status.returned": "Zurückgesendet",
+  "shipping_carriers.status.unknown": "Unbekannt"
 }

@@ -69,5 +69,14 @@
   "shipping_carriers.create.summary.to": "Odbiór",
   "shipping_carriers.create.title": "Utwórz przesyłkę u przewoźnika",
   "shipping_carriers.feature.manage": "Zarzadzanie operacjami przewoznikow",
-  "shipping_carriers.feature.view": "Podglad przesylek przewoznikow"
+  "shipping_carriers.feature.view": "Podglad przesylek przewoznikow",
+  "shipping_carriers.status.cancelled": "Anulowano",
+  "shipping_carriers.status.delivered": "Dostarczono",
+  "shipping_carriers.status.failed_delivery": "Nieudana dostawa",
+  "shipping_carriers.status.in_transit": "W transporcie",
+  "shipping_carriers.status.label_created": "Utworzono etykietę",
+  "shipping_carriers.status.out_for_delivery": "W doręczeniu",
+  "shipping_carriers.status.picked_up": "Odebrano",
+  "shipping_carriers.status.returned": "Zwrócono",
+  "shipping_carriers.status.unknown": "Nieznany"
 }
