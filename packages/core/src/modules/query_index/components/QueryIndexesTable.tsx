@@ -160,17 +160,14 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
         const label = jobProgress
           ? t('query_index.table.status.withProgress', { status: statusText, progress: jobProgress })
           : statusText
-        const variant: StatusBadgeVariant = job
-          ? job.status === 'stalled'
-            ? 'error'
-            : job.status === 'reindexing' || job.status === 'purging'
-              ? 'warning'
-              : ok
-                ? 'success'
-                : 'neutral'
-          : ok
-            ? 'success'
-            : 'neutral'
+        let variant: StatusBadgeVariant = 'neutral'
+        if (job) {
+          if (job.status === 'stalled') variant = 'error'
+          else if (job.status === 'reindexing' || job.status === 'purging') variant = 'warning'
+          else variant = ok ? 'success' : 'neutral'
+        } else {
+          variant = ok ? 'success' : 'neutral'
+        }
 
         const lines: string[] = []
 
