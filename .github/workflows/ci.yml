@@ -323,6 +323,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     needs: [prepare, audit, lint]
+    env:
+      # app typecheck (tsc --noEmit on the full Next.js app) peaks at ~4 GB;
+      # raise the heap so it does not OOM on cache-miss runs.
+      NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
