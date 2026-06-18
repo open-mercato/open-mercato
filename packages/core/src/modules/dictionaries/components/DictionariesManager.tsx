@@ -121,16 +121,19 @@ export function DictionariesManager() {
         : []
       const filtered = list.filter((dictionary: DictionarySummary) => dictionary.managerVisibility !== 'hidden')
       setItems(filtered)
-      if (!filtered.find((dict: DictionarySummary) => dict.id === selectedId)) {
-        setSelectedId(filtered.length ? filtered[0].id : null)
-      }
+      setSelectedId((current) => {
+        if (current && filtered.some((dict: DictionarySummary) => dict.id === current)) {
+          return current
+        }
+        return filtered.length ? filtered[0].id : null
+      })
     } catch (err) {
       console.error('Failed to load dictionaries', err)
       flash(t('dictionaries.config.error.load', 'Failed to load dictionaries.'), 'error')
     } finally {
       setLoading(false)
     }
-  }, [selectedId, t])
+  }, [t])
 
   React.useEffect(() => {
     loadDictionaries().catch(() => {})
