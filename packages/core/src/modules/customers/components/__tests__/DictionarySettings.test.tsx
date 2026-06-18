@@ -101,4 +101,18 @@ describe('DictionarySettings', () => {
     )
     expect(apiCallOrThrowMock).not.toHaveBeenCalled()
   })
+
+  it('renders the Interaction statuses management section', async () => {
+    renderWithProviders(<DictionarySettings />)
+
+    // The section title appears as the section <h2> and inside the (mocked) DictionaryTable.
+    expect((await screen.findAllByText('Interaction statuses')).length).toBeGreaterThan(0)
+    await waitFor(() => {
+      expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
+        '/api/customers/dictionaries/interaction-statuses',
+        undefined,
+        expect.any(Object),
+      )
+    })
+  })
 })

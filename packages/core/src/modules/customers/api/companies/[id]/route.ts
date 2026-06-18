@@ -28,6 +28,7 @@ import {
   resolveCompanyCustomFieldRouting,
   mergeCompanyCustomFieldValues,
 } from '../../../lib/customFieldRouting'
+import { isOpenInteractionStatus, TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import {
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
   EXAMPLE_TODO_SOURCE,
@@ -525,7 +526,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const plannedPreviewRows =
     canonicalActiveInteractions.length > 0
       ? canonicalActiveInteractions
-          .filter((interaction) => interaction.status === 'planned' && interaction.interactionType !== 'task')
+          .filter((interaction) => isOpenInteractionStatus(interaction.status) && interaction.interactionType !== 'task')
           .sort((left, right) => {
             const leftTime = new Date(left.scheduledAt ?? left.createdAt).getTime()
             const rightTime = new Date(right.scheduledAt ?? right.createdAt).getTime()
@@ -541,7 +542,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             organizationId: company.organizationId,
             tenantId: company.tenantId,
             deletedAt: null,
-            status: 'planned',
+            status: { $nin: [...TERMINAL_INTERACTION_STATUS_LIST] },
             interactionType: { $ne: 'task' },
             ...emailVisibilityFilter,
           },

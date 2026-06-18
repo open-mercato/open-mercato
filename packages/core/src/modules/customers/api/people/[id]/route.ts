@@ -23,6 +23,7 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '#generated/entities.ids.generated'
 import { mergePersonCustomFieldValues, resolvePersonCustomFieldRouting } from '../../../lib/customFieldRouting'
+import { isOpenInteractionStatus, TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import {
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
   EXAMPLE_TODO_SOURCE,
@@ -557,7 +558,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     const plannedPreviewInteractions = shouldLoadCanonicalInteractions
       ? (() => {
           const sorted = [...canonicalInteractions]
-            .filter((interaction) => interaction.status === 'planned' && interaction.interactionType !== 'task')
+            .filter((interaction) => isOpenInteractionStatus(interaction.status) && interaction.interactionType !== 'task')
             .sort((left, right) => {
               const leftTime = new Date(left.scheduledAt ?? left.createdAt).getTime()
               const rightTime = new Date(right.scheduledAt ?? right.createdAt).getTime()
@@ -579,7 +580,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
               organizationId: person.organizationId,
               tenantId: person.tenantId,
               deletedAt: null,
-              status: 'planned',
+              status: { $nin: [...TERMINAL_INTERACTION_STATUS_LIST] },
               interactionType: { $ne: 'task' },
               ...emailVisibilityFilter,
             },
