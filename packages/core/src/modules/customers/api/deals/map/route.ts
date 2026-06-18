@@ -342,10 +342,27 @@ export async function GET(req: Request) {
           decryptionScope,
         ),
       ])
-      const nameMatchedDealIds = [
+      let nameMatchedDealIds = [
         ...collectRefIds(companyNameLinkRows, 'deal'),
         ...collectRefIds(personNameLinkRows, 'deal'),
       ]
+      if (nameMatchedDealIds.length > 0) {
+        // The deal-field search in `buildDealListFilters` is intersected with the People/Companies
+        // association (and stuck/`?id`) filters — they all land together in `filters.id`. The name
+        // matches above carry NO such constraint, so unioning them raw would let a co-active
+        // People/Companies filter be bypassed (over-broad results). Recover exactly the non-search id
+        // allowlist by rebuilding the deal filters WITHOUT the search term, and intersect the name
+        // matches with it so the active filter is honored: located ∩ nonSearch ∩ (dealField ∪ name).
+        // (The map's query carries no advanced `filter[...]` params, so the consume-mutation in
+        // buildDealListFilters does not affect this second build.)
+        const nonSearchAllowlist = readFilterIdAllowlist(
+          await buildDealListFilters({ ...query, search: undefined }, ctx),
+        )
+        if (nonSearchAllowlist) {
+          const nonSearchLookup = new Set(nonSearchAllowlist)
+          nameMatchedDealIds = nameMatchedDealIds.filter((id) => nonSearchLookup.has(id))
+        }
+      }
       if (nameMatchedDealIds.length > 0) {
         searchAllowlist = Array.from(new Set([...(existingAllowlist ?? []), ...nameMatchedDealIds]))
       }

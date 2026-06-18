@@ -19,8 +19,11 @@ const getAuthMock = jest.fn()
 const queryMock = jest.fn()
 const findWithDecryptionMock = jest.fn()
 const resolveScopeMock = jest.fn()
+// Raw-SQL seam used by buildDealListFilters' People/Companies association resolver
+// (fetchDealIdsMatchingAssociations → em.getConnection().execute). Default: no association rows.
+const executeMock = jest.fn()
 
-const em = { fork: jest.fn() }
+const em = { fork: jest.fn(), getConnection: jest.fn(() => ({ execute: executeMock })) }
 
 const container = {
   resolve: jest.fn((name: string) => {
@@ -142,6 +145,7 @@ describe('customers deals map route', () => {
     })
     findWithDecryptionMock.mockResolvedValue([])
     findMatchingMock.mockResolvedValue(null)
+    executeMock.mockResolvedValue([])
   })
 
   it('returns camelCase located deals with a company-sourced location resolved from decrypted addresses', async () => {
@@ -417,6 +421,32 @@ describe('customers deals map route', () => {
     const located = body.items.find((item: { id: string }) => item.id === locatedDealId)
     expect(located).toBeTruthy()
     expect(located?.companies).toEqual([{ id: companyEntityId, label: 'Volt Energia SA' }])
+  })
+
+  it('does not let a company/person-name search bypass a co-active Companies filter', async () => {
+    mockLinksAndAddresses()
+    // The Companies filter resolves (via the association SQL) to a deal that is NOT the located,
+    // name-matched deal — i.e. the filtered company has no link to the searched company's deal.
+    const acmeDealId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    executeMock.mockResolvedValue([{ id: acmeDealId }])
+    // The company/person-NAME search matches the located company (whose located deal is locatedDealId).
+    findMatchingMock.mockImplementation(async ({ sources }: { sources?: Array<{ entityType?: unknown }> }) => {
+      const entityType = String(sources?.[0]?.entityType ?? '')
+      if (entityType === 'customers:customer_entity') return [companyEntityId]
+      return []
+    })
+
+    const companyFilterId = '12121212-1212-4121-8121-121212121212'
+    const response = await GET(
+      new Request(`http://localhost/api/customers/deals/map?companyId=${companyFilterId}&search=Copperleaf`),
+    )
+    expect(response.status).toBe(200)
+
+    // The name-matched located deal is NOT linked to the filtered company, so it must be excluded —
+    // the union must NOT smuggle it past the active Companies filter (regression for the over-broad
+    // search-by-name finding).
+    const dealQueryCall = queryMock.mock.calls.find((call) => call[0] === 'customers:customer_deal')
+    expect((dealQueryCall?.[1]?.filters?.id?.$in ?? []) as string[]).not.toContain(locatedDealId)
   })
 
   it('does not run the company/person-name search when there is no search term', async () => {
