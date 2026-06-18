@@ -191,20 +191,19 @@ function CreateUserDialog({
                 {roleOptions.map((role) => {
                   const isSelected = selectedRoleIds.includes(role.id)
                   return (
-                    <button
+                    <Button
                       key={role.id}
                       type="button"
+                      size="2xs"
+                      variant={isSelected ? 'secondary' : 'outline'}
+                      aria-pressed={isSelected}
                       onClick={() => setSelectedRoleIds((prev) =>
                         prev.includes(role.id) ? prev.filter((rid) => rid !== role.id) : [...prev, role.id],
                       )}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                        isSelected
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border bg-background text-muted-foreground hover:bg-muted'
-                      }`}
+                      className="rounded-full"
                     >
                       {role.label}
-                    </button>
+                    </Button>
                   )
                 })}
               </div>

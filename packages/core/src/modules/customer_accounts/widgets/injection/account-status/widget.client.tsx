@@ -7,6 +7,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 interface AccountStatusData {
@@ -293,9 +294,9 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
       <div className="space-y-1 text-sm">
         <div className="flex justify-between">
           <span className="text-muted-foreground">{t('common.status', 'Status')}</span>
-          <span className={data.isActive ? 'text-green-600' : 'text-red-600'}>
+          <StatusBadge variant={data.isActive ? 'success' : 'error'} dot>
             {data.isActive ? t('common.active', 'Active') : t('common.inactive', 'Inactive')}
-          </span>
+          </StatusBadge>
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">{t('common.email', 'Email')}</span>
