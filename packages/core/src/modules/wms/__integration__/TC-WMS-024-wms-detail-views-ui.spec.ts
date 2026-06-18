@@ -131,7 +131,10 @@ test.describe('TC-WMS-024: WMS detail views — UI smoke', () => {
 
       await page.goto(`/backend/wms/lot/${encodeURIComponent(lotId)}`)
       await expect(page.getByRole('heading', { level: 1, name: lotNumber })).toBeVisible()
-      await expect(page.getByRole('heading', { name: /Where this lot lives/i })).toBeVisible()
+      await expect(page.getByText(/Loading lot view/i)).toHaveCount(0, { timeout: 30_000 })
+      await expect(page.getByRole('heading', { name: /Where this lot lives/i })).toBeVisible({
+        timeout: 15_000,
+      })
     } finally {
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/lots', lotId)
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/inventory-profiles', profileId)

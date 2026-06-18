@@ -161,7 +161,8 @@ test.describe('TC-WMS-LOTS-001 past-due lots list', () => {
       await page.getByPlaceholder(/search lots/i).fill(lotNumber)
       await expect(page.getByRole('link', { name: lotNumber })).toBeVisible()
       await page.getByPlaceholder(/search lots/i).fill(`missing-${suffix}`)
-      await expect(page.getByText(/no lots found/i)).toBeVisible()
+      await expect(page.getByTestId('search-empty-results')).toBeVisible()
+      await expect(page.getByText(/No results found/i)).toBeVisible()
     } finally {
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/lots', lotId)
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/inventory-profiles', profileId)
