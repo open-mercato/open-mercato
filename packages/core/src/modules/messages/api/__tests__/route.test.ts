@@ -1,18 +1,21 @@
 const resolveMessageContextMock = jest.fn()
 const canUseMessageEmailFeatureMock = jest.fn(async () => true)
-const isCrudCacheEnabledMock = jest.fn(() => false)
 const findWithDecryptionMock = jest.fn()
 const findMessageIdsBySearchTokensMock = jest.fn()
+let mockCrudOptions: Record<string, any> | null = null
+const mockCrudGet = jest.fn(async () => Response.json({ ok: true }))
 
-jest.mock('@open-mercato/cache', () => ({
-  runWithCacheTenant: async <T>(_tenantId: string | null, fn: () => Promise<T> | T) => fn(),
-}))
-
-jest.mock('@open-mercato/shared/lib/crud/cache', () => {
-  const actual = jest.requireActual('@open-mercato/shared/lib/crud/cache')
+jest.mock('@open-mercato/shared/lib/crud/factory', () => {
   return {
-    ...actual,
-    isCrudCacheEnabled: () => isCrudCacheEnabledMock(),
+    makeCrudRoute: jest.fn((opts: Record<string, any>) => {
+      mockCrudOptions = opts
+      return {
+        GET: mockCrudGet,
+        POST: jest.fn(),
+        PUT: jest.fn(),
+        DELETE: jest.fn(),
+      }
+    }),
   }
 })
 
@@ -38,31 +41,32 @@ import { GET, POST } from '@open-mercato/core/modules/messages/api/route'
 const tenantId = '7fb7fe47-ddf6-4f65-b5ae-b08e2df2fdb7'
 const organizationId = '2045013f-8977-4f57-a1cc-9bb7d2f42a0e'
 const userId = '5be8e4d6-14d2-4352-8f55-b95f95fd9205'
-const otherUserId = 'ec52dcf7-e8aa-4f2c-8b0d-32725a2e89e1'
 const messageId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
-
-type CacheMock = {
-  get: jest.Mock
-  set: jest.Mock
-}
-
-function createCacheMock(): CacheMock {
-  const store = new Map<string, unknown>()
-  return {
-    get: jest.fn(async (key: string) => store.get(key) ?? null),
-    set: jest.fn(async (key: string, value: unknown) => {
-      store.set(key, value)
-    }),
-  }
-}
 
 function createQueryBuilder(result: unknown, takeFirstResult?: unknown) {
   const builder: Record<string, jest.Mock> = {}
   const chain = jest.fn(() => builder)
+  const joinBuilder = {
+    onRef: jest.fn(() => joinBuilder),
+    on: jest.fn(() => joinBuilder),
+  }
+  const expressionBuilder = {
+    or: jest.fn((value) => value),
+    exists: jest.fn((value) => value),
+    not: jest.fn((value) => value),
+    selectFrom: jest.fn(() => builder),
+  }
   Object.assign(builder, {
     select: chain,
-    where: chain,
-    leftJoin: chain,
+    where: jest.fn((arg: unknown) => {
+      if (typeof arg === 'function') arg(expressionBuilder)
+      return builder
+    }),
+    whereRef: chain,
+    leftJoin: jest.fn((_table: string, callback?: (jb: typeof joinBuilder) => unknown) => {
+      if (callback) callback(joinBuilder)
+      return builder
+    }),
     orderBy: chain,
     offset: chain,
     limit: chain,
@@ -74,24 +78,20 @@ function createQueryBuilder(result: unknown, takeFirstResult?: unknown) {
 }
 
 function createDbMock() {
-  let messageQueryCount = 0
   const selectFrom = jest.fn((table: string) => {
     if (table === 'messages as m') {
-      messageQueryCount += 1
-      return messageQueryCount === 1
-        ? createQueryBuilder([], { count: '1' })
-        : createQueryBuilder([
-          {
-            id: messageId,
-            sender_user_id: userId,
-            is_draft: false,
-            recipient_status: 'unread',
-            read_at: null,
-          },
-        ])
+      return createQueryBuilder([{ id: messageId }])
+    }
+    if (table === 'message_recipients') {
+      return createQueryBuilder([
+        {
+          id: messageId,
+          recipient_status: 'unread',
+          read_at: null,
+        },
+      ])
     }
     if (table === 'attachments') return createQueryBuilder([])
-    if (table === 'message_recipients') return createQueryBuilder([])
     return createQueryBuilder([])
   })
 
@@ -107,70 +107,9 @@ function createEmMock() {
   }
 }
 
-function mockListContext(options: {
-  cache?: CacheMock
-  em?: ReturnType<typeof createEmMock>
-  scope?: Partial<{ tenantId: string | null, organizationId: string | null, userId: string | null }>
-} = {}) {
-  const em = options.em ?? createEmMock()
-  const cache = options.cache
-  const scopeTenantId = Object.prototype.hasOwnProperty.call(options.scope ?? {}, 'tenantId')
-    ? options.scope?.tenantId
-    : tenantId
-  const scopeOrganizationId = Object.prototype.hasOwnProperty.call(options.scope ?? {}, 'organizationId')
-    ? options.scope?.organizationId
-    : organizationId
-  const scopeUserId = Object.prototype.hasOwnProperty.call(options.scope ?? {}, 'userId')
-    ? options.scope?.userId
-    : userId
-  resolveMessageContextMock.mockResolvedValueOnce({
-    ctx: {
-      auth: { orgId: scopeOrganizationId },
-      container: {
-        resolve: (name: string) => {
-          if (name === 'em') return em
-          if (name === 'cache') return cache
-          return null
-        },
-      },
-    },
-    scope: {
-      tenantId: scopeTenantId,
-      organizationId: scopeOrganizationId,
-      userId: scopeUserId,
-    },
-  })
-  return { em, cache }
-}
-
-function mockMessageRows() {
-  findWithDecryptionMock.mockImplementation(async (_em, entity) => {
-    if (entity?.name === 'Message') {
-      return [
-        {
-          id: messageId,
-          body: 'Message body',
-          type: 'default',
-          visibility: 'internal',
-          sourceEntityType: null,
-          sourceEntityId: null,
-          externalEmail: null,
-          externalName: null,
-          subject: 'Subject',
-          senderUserId: userId,
-          priority: 'normal',
-          actionData: null,
-          actionTaken: null,
-          sentAt: new Date('2026-06-18T06:00:00.000Z'),
-          threadId: messageId,
-        },
-      ]
-    }
-    if (entity?.name === 'User') {
-      return [{ id: userId, name: 'Sender User', email: 'sender@example.com' }]
-    }
-    return []
-  })
+function getCrudOptions() {
+  if (!mockCrudOptions) throw new Error('makeCrudRoute was not called')
+  return mockCrudOptions
 }
 
 describe('messages /api/messages POST', () => {
@@ -178,7 +117,6 @@ describe('messages /api/messages POST', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
-    isCrudCacheEnabledMock.mockReturnValue(false)
     findMessageIdsBySearchTokensMock.mockResolvedValue([])
     commandBus = {
       execute: jest.fn(async () => ({
@@ -261,114 +199,133 @@ describe('messages /api/messages POST', () => {
   })
 })
 
-describe('messages /api/messages GET cache', () => {
+describe('messages /api/messages GET crud route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    isCrudCacheEnabledMock.mockReturnValue(false)
     findMessageIdsBySearchTokensMock.mockResolvedValue([])
-    mockMessageRows()
   })
 
-  it('does not use cache when the CRUD cache flag is off', async () => {
-    const cache = createCacheMock()
-    mockListContext({ cache })
-
+  it('delegates GET to the CRUD factory route', async () => {
     const response = await GET(new Request('http://localhost/api/messages?folder=inbox'))
-    const body = await response.json()
 
     expect(response.status).toBe(200)
-    expect(body.items).toHaveLength(1)
-    expect(cache.get).not.toHaveBeenCalled()
-    expect(cache.set).not.toHaveBeenCalled()
-    expect(findWithDecryptionMock).toHaveBeenCalled()
+    expect(mockCrudGet).toHaveBeenCalledWith(expect.any(Request))
+    const delegatedRequest = mockCrudGet.mock.calls[0][0] as Request
+    const delegatedUrl = new URL(delegatedRequest.url)
+    expect(delegatedUrl.searchParams.get('sortField')).toBe('sentAt')
+    expect(delegatedUrl.searchParams.get('sortDir')).toBe('desc')
   })
 
-  it('serves the second identical GET from cache', async () => {
-    isCrudCacheEnabledMock.mockReturnValue(true)
-    const cache = createCacheMock()
-    mockListContext({ cache })
-    mockListContext({ cache })
+  it('preserves explicit GET sort parameters', async () => {
+    await GET(new Request('http://localhost/api/messages?folder=inbox&sortField=subject&sortDir=asc'))
 
-    const first = await GET(new Request('http://localhost/api/messages?folder=inbox&page=1'))
-    const second = await GET(new Request('http://localhost/api/messages?page=1&folder=inbox'))
-
-    expect(first.status).toBe(200)
-    expect(second.status).toBe(200)
-    expect(await second.json()).toEqual(await first.json())
-    expect(cache.get).toHaveBeenCalledTimes(2)
-    expect(cache.set).toHaveBeenCalledTimes(1)
-    expect(findWithDecryptionMock).toHaveBeenCalledTimes(2)
+    const delegatedRequest = mockCrudGet.mock.calls[0][0] as Request
+    const delegatedUrl = new URL(delegatedRequest.url)
+    expect(delegatedUrl.searchParams.get('sortField')).toBe('subject')
+    expect(delegatedUrl.searchParams.get('sortDir')).toBe('asc')
   })
 
-  it('partitions cache keys by user and organization scope', async () => {
-    isCrudCacheEnabledMock.mockReturnValue(true)
-    const cache = createCacheMock()
-    mockListContext({ cache, scope: { userId, organizationId } })
-    mockListContext({ cache, scope: { userId: otherUserId, organizationId } })
-    mockListContext({ cache, scope: { userId, organizationId: null } })
+  it('uses makeCrudRoute with messages resource configuration', () => {
+    const opts = getCrudOptions()
 
-    await GET(new Request('http://localhost/api/messages?folder=inbox'))
-    await GET(new Request('http://localhost/api/messages?folder=inbox'))
-    await GET(new Request('http://localhost/api/messages?folder=inbox'))
-
-    const keys = cache.set.mock.calls.map(([key]) => key as string)
-    expect(new Set(keys).size).toBe(3)
-    expect(keys[0]).toContain(`user:${userId}`)
-    expect(keys[1]).toContain(`user:${otherUserId}`)
-    expect(keys[2]).toContain('org:null')
+    expect(opts.metadata.GET).toEqual({ requireAuth: true })
+    expect(opts.orm).toEqual(expect.objectContaining({
+      idField: 'id',
+      orgField: null,
+      tenantField: 'tenantId',
+      softDeleteField: 'deletedAt',
+    }))
+    expect(opts.events).toEqual({ module: 'messages', entity: 'message' })
+    expect(opts.indexer).toEqual({ entityType: 'messages:message' })
+    expect(opts.enrichers).toEqual({ entityId: 'messages.message' })
+    expect(opts.list).toEqual(expect.objectContaining({
+      schema: expect.any(Object),
+      entityId: 'messages:message',
+      buildFilters: expect.any(Function),
+      transformItem: expect.any(Function),
+    }))
   })
 
-  it('stores the messages collection tag with the cached payload', async () => {
-    isCrudCacheEnabledMock.mockReturnValue(true)
-    const cache = createCacheMock()
-    mockListContext({ cache })
-
-    await GET(new Request('http://localhost/api/messages?folder=inbox'))
-
-    expect(cache.set).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ items: expect.any(Array) }),
-      expect.objectContaining({
-        ttl: 30_000,
-        tags: expect.arrayContaining([
-          `crud:messages.message:tenant:${tenantId}:org:${organizationId}:collection`,
-        ]),
-      }),
-    )
-  })
-
-  it('returns a cached payload without running the heavy query path', async () => {
-    isCrudCacheEnabledMock.mockReturnValue(true)
-    const cachedPayload = {
-      items: [{ id: messageId, subject: 'Cached subject' }],
-      page: 1,
-      pageSize: 20,
-      total: 1,
-      totalPages: 1,
-    }
-    const cache = {
-      get: jest.fn(async () => cachedPayload),
-      set: jest.fn(),
-    }
-    resolveMessageContextMock.mockResolvedValueOnce({
-      ctx: {
-        auth: { orgId: organizationId },
-        container: {
-          resolve: (name: string) => {
-            if (name === 'cache') return cache
-            if (name === 'em') throw new Error('heavy query path should not run')
-            return null
-          },
+  it('builds the scoped message id filter before the CRUD factory list query', async () => {
+    const em = createEmMock()
+    const opts = getCrudOptions()
+    const ctx = {
+      auth: { tenantId, orgId: organizationId, sub: userId },
+      selectedOrganizationId: organizationId,
+      container: {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          return null
         },
       },
-      scope: { tenantId, organizationId, userId },
+    }
+
+    const filters = await opts.list.buildFilters(
+      { folder: 'inbox', search: 'Subject', page: 1, pageSize: 20 },
+      ctx,
+    )
+
+    expect(filters).toEqual({ id: { $in: [messageId] } })
+    expect(findMessageIdsBySearchTokensMock).toHaveBeenCalledWith({
+      em,
+      query: 'Subject',
+      tenantId,
+      organizationId,
+    })
+    const messageQuery = em.db.selectFrom.mock.results[0]?.value
+    expect(messageQuery.where).toHaveBeenCalledWith('m.tenant_id', '=', tenantId)
+    expect(messageQuery.where).toHaveBeenCalledWith('m.organization_id', '=', organizationId)
+    expect(messageQuery.where).toHaveBeenCalledWith('r.archived_at', 'is', null)
+  })
+
+  it('keeps the existing message list response shape through transform and afterList hooks', async () => {
+    const em = createEmMock()
+    em.find.mockResolvedValueOnce([
+      { messageId, actionRequired: true, actionType: 'approve' },
+    ])
+    findWithDecryptionMock.mockResolvedValueOnce([
+      { id: userId, name: 'Sender User', email: 'sender@example.com' },
+    ])
+    const opts = getCrudOptions()
+    const payload = {
+      items: [
+        opts.list.transformItem({
+          id: messageId,
+          type: 'default',
+          sender_user_id: userId,
+          subject: 'Subject',
+          body: 'Message body',
+          priority: 'normal',
+          is_draft: false,
+          sent_at: new Date('2026-06-18T06:00:00.000Z'),
+          action_data: null,
+          thread_id: messageId,
+        }),
+      ],
+    }
+
+    await opts.hooks.afterList(payload, {
+      auth: { tenantId, orgId: organizationId, sub: userId },
+      selectedOrganizationId: organizationId,
+      container: {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          return null
+        },
+      },
     })
 
-    const response = await GET(new Request('http://localhost/api/messages?folder=inbox'))
-
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual(cachedPayload)
-    expect(cache.set).not.toHaveBeenCalled()
-    expect(findWithDecryptionMock).not.toHaveBeenCalled()
+    expect(payload.items[0]).toEqual(expect.objectContaining({
+      id: messageId,
+      subject: 'Subject',
+      bodyPreview: 'Message body',
+      senderUserId: userId,
+      senderName: 'Sender User',
+      senderEmail: 'sender@example.com',
+      status: 'unread',
+      hasObjects: true,
+      objectCount: 1,
+      hasActions: true,
+    }))
   })
 })
