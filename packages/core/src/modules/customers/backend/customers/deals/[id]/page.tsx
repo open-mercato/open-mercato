@@ -187,6 +187,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     data,
     setData,
     runMutationWithContext,
+    onRefresh: () => { void loadData() },
   })
 
   const { isStageSaving, handleStageChange } = useDealPipeline({

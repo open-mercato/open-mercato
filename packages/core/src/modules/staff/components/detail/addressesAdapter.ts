@@ -107,7 +107,8 @@ export function createStaffAddressAdapter(translator: Translator): AddressDataAd
     },
     update: async ({ id, payload, updatedAt }) => {
       // Send the optimistic-lock header (address's loaded updatedAt) so a stale
-      // edit surfaces the unified conflict (409) instead of silently overwriting.
+      // edit fails with a 409; the shared AddressesSection host surfaces it through
+      // surfaceRecordConflict instead of silently overwriting.
       await withScopedApiRequestHeaders(
         buildOptimisticLockHeader(updatedAt ?? null),
         () => apiCallOrThrow(

@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { flash } from '../FlashMessages'
+import { surfaceRecordConflict } from '../conflicts'
 import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
 import { ErrorMessage } from './ErrorMessage'
 import { LoadingMessage } from './LoadingMessage'
@@ -686,7 +687,7 @@ function NotesSectionImpl<C = unknown>({
         return true
       } catch (err) {
         const message = err instanceof Error ? err.message : label('error')
-        flash(message, 'error')
+        if (!surfaceRecordConflict(err, t)) flash(message, 'error')
         return false
       } finally {
         setIsSubmitting(false)
@@ -733,7 +734,7 @@ function NotesSectionImpl<C = unknown>({
         flash(label('updateSuccess'), 'success')
       } catch (error) {
         const message = error instanceof Error ? error.message : label('updateError')
-        flash(message, 'error')
+        if (!surfaceRecordConflict(error, t)) flash(message, 'error')
         throw error instanceof Error ? error : new Error(message)
       }
     },
@@ -758,13 +759,13 @@ function NotesSectionImpl<C = unknown>({
         flash(label('deleteSuccess', 'Note deleted'), 'success')
       } catch (err) {
         const message = err instanceof Error ? err.message : label('deleteError', 'Failed to delete note')
-        flash(message, 'error')
+        if (!surfaceRecordConflict(err, t)) flash(message, 'error')
       } finally {
         setDeletingNoteId(null)
         popLoading()
       }
     },
-    [confirm, dataAdapter, dataContext, label, popLoading, pushLoading],
+    [confirm, dataAdapter, dataContext, label, popLoading, pushLoading, t],
   )
 
   const handleSubmit = React.useCallback(

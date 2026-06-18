@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '../conflicts'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -232,6 +233,7 @@ function AddressesSectionImpl<C = unknown>({
         })
         flash(label('success', 'Address saved.'), 'success')
       } catch (err) {
+        surfaceRecordConflict(err, t)
         const message =
           err instanceof Error && err.message ? err.message : label('error', 'Failed to save address.')
         const error = new Error(message) as Error & { details?: unknown }
@@ -244,7 +246,7 @@ function AddressesSectionImpl<C = unknown>({
         popLoading()
       }
     },
-    [addresses, dataAdapter, dataContext, label, normalizedEntityId, popLoading, pushLoading],
+    [addresses, dataAdapter, dataContext, label, normalizedEntityId, popLoading, pushLoading, t],
   )
 
   const handleDelete = React.useCallback(
@@ -262,14 +264,14 @@ function AddressesSectionImpl<C = unknown>({
       } catch (err) {
         const message =
           err instanceof Error && err.message ? err.message : label('error', 'Failed to delete address.')
-        flash(message, 'error')
+        if (!surfaceRecordConflict(err, t)) flash(message, 'error')
         throw err
       } finally {
         setIsSubmitting(false)
         popLoading()
       }
     },
-    [addresses, dataAdapter, dataContext, label, normalizedEntityId, popLoading, pushLoading],
+    [addresses, dataAdapter, dataContext, label, normalizedEntityId, popLoading, pushLoading, t],
   )
 
   const displayAddresses = React.useMemo<AddressValue[]>(() => {

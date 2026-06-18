@@ -336,8 +336,8 @@ function resolveCommandOptimisticLockGuardService(
  *      resolved from the request container and awaited for enrichment.
  *
  * Fail-closed delegation (H3): a `record_lock_conflict`/409 from the enterprise
- * service is rethrown (the write must be blocked), but ANY non-conflict error or
- * timeout from a broken/unregistered enterprise guard is swallowed — the request
+ * service is rethrown (the write must be blocked), but ANY non-conflict error
+ * from a broken/unregistered enterprise guard is swallowed — the request
  * degrades to OSS-only protection, never to "skip the guard".
  *
  * Strictly additive: with no enterprise service registered (OSS-only build) this

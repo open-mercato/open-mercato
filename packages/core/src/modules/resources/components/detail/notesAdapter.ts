@@ -42,7 +42,8 @@ export function createResourceNotesAdapter(translator: Translator): NotesDataAda
       if (patch.appearanceIcon !== undefined) payload.appearanceIcon = patch.appearanceIcon
       if (patch.appearanceColor !== undefined) payload.appearanceColor = patch.appearanceColor
       // Send the optimistic-lock header (note's loaded updatedAt) so a stale edit
-      // surfaces the unified conflict (409) instead of silently overwriting.
+      // fails with a 409; the shared NotesSection host surfaces it through
+      // surfaceRecordConflict instead of silently overwriting.
       await withScopedApiRequestHeaders(
         buildOptimisticLockHeader(updatedAt ?? null),
         () => apiCallOrThrow(

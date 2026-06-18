@@ -47,7 +47,7 @@ const RESOURCE_KIND_SHIPMENT = 'sales.shipment'
 async function readOrderUpdatedAtById(
   em: EntityManager,
   orderId: string | null | undefined,
-  tenantId: string | null | undefined,
+  tenantId: string,
   organizationId: string | null | undefined,
 ): Promise<string | null> {
   if (!orderId) return null
@@ -55,7 +55,7 @@ async function readOrderUpdatedAtById(
     SalesOrder,
     {
       id: orderId,
-      ...(tenantId ? { tenantId } : {}),
+      tenantId,
       ...(organizationId ? { organizationId } : {}),
       deletedAt: null,
     },
@@ -85,7 +85,7 @@ const readPaymentParentOrderUpdatedAt: OptimisticLockCurrentReader = async (
     SalesPayment,
     {
       id: resourceId,
-      ...(tenantId ? { tenantId } : {}),
+      tenantId,
       ...(organizationId ? { organizationId } : {}),
       deletedAt: null,
     },
@@ -104,7 +104,7 @@ const readShipmentParentOrderUpdatedAt: OptimisticLockCurrentReader = async (
     SalesShipment,
     {
       id: resourceId,
-      ...(tenantId ? { tenantId } : {}),
+      tenantId,
       ...(organizationId ? { organizationId } : {}),
       deletedAt: null,
     },
