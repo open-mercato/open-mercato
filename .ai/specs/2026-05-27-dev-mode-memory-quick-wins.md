@@ -6,7 +6,7 @@
 **Related work:**
 - PR #2102 — workspace package watcher consolidation (`fix/dev-mode-package-watch-consolidation`); the dominant single intervention. Not yet on `develop`.
 - `.ai/specs/2026-05-13-frontend-client-boundary-ram-reduction.md` — long-running effort to migrate 934 `"use client"` files to server-first. Multi-phase, separate workstream.
-- `.ai/specs/2026-05-13-lazy-auto-spawn-scheduler.md` and `.ai/specs/2026-05-07-lazy-auto-spawn-queue-workers.md` — already implemented; `yarn dev` auto-sets `OM_AUTO_SPAWN_WORKERS_LAZY=true` and `OM_AUTO_SPAWN_SCHEDULER_LAZY=true` in `scripts/dev.mjs:517-526`.
+- `.ai/specs/implemented/2026-05-13-lazy-auto-spawn-scheduler.md` and `.ai/specs/implemented/2026-05-07-lazy-auto-spawn-queue-workers.md` — already implemented; `yarn dev` auto-sets `OM_AUTO_SPAWN_WORKERS_LAZY=true` and `OM_AUTO_SPAWN_SCHEDULER_LAZY=true` in `scripts/dev.mjs:517-526`.
 
 ## Context
 

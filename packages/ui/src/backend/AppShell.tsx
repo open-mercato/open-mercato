@@ -150,6 +150,11 @@ function resolveInjectedMenuLabel(
   return item.label ?? item.id
 }
 
+function shouldBypassLogoOptimization(src?: string | null): boolean {
+  const value = src ?? ''
+  return /^https?:\/\//.test(value) || /^\/api\/attachments\/(?:image|file)\//.test(value)
+}
+
 function mergeSidebarItemsWithInjected(
   items: SidebarItem[],
   injectedItems: InjectionMenuItem[],
@@ -444,6 +449,11 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   const { items: topbarInjectedMenuItems } = useInjectedMenuItems('menu:topbar:actions')
   useEventBridge() // SSE DOM Event Bridge — singleton SSE connection for real-time server events
   const resolvedProductName = productName ?? t('appShell.productName')
+  const resolvedLogo = chromePayload?.brand?.logo?.src ? chromePayload.brand.logo : logo
+  const resolvedBrandName = chromePayload?.brand?.logo?.src
+    ? chromePayload.brand.name ?? resolvedProductName
+    : resolvedProductName
+  const resolvedLogoBypassesOptimization = shouldBypassLogoOptimization(resolvedLogo?.src)
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // When the mobile drawer opens on a settings/profile route, it follows the
   // section sidebar by default. Set to 'main' to force-show the main nav even
@@ -700,8 +710,8 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
               aria-label={t('appShell.goToDashboard')}
             >
-              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={40} height={40} className="rounded-full shrink-0" />
-              {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedProductName}</span>}
+              <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+              {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
             </Link>
           </div>
         )}
@@ -833,8 +843,8 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                 className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
                 aria-label={t('appShell.goToDashboard')}
               >
-                <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={40} height={40} className="rounded-full shrink-0" />
-                {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedProductName}</span>}
+                <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+                {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
               </Link>
             </div>
           ) : null}
@@ -899,8 +909,8 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
               aria-label={t('appShell.goToDashboard')}
             >
-              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={40} height={40} className="rounded-full shrink-0" />
-              {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedProductName}</span>}
+              <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+              {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
             </Link>
           </div>
         )}
@@ -1392,8 +1402,8 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           <aside className="absolute left-0 top-0 flex h-full w-[280px] max-w-[85vw] flex-col bg-background border-r shadow-lg overflow-hidden">
             <div className="shrink-0 flex items-center justify-between gap-2 border-b px-4 py-3">
               <Link href="/backend" className="flex items-center gap-2 min-w-0 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
-                <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={28} height={28} className="rounded shrink-0" />
-                <span className="truncate">{resolvedProductName}</span>
+                <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={28} height={28} className="rounded shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+                <span className="truncate">{resolvedBrandName}</span>
               </Link>
               <IconButton variant="ghost" size="sm" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>
                 <X className="size-4" />

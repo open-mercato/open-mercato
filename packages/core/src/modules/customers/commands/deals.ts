@@ -376,7 +376,7 @@ async function syncDealPeople(
   if (!personIds || !personIds.length) return
   const unique = Array.from(new Set(personIds))
   for (const personId of unique) {
-    const person = await requireCustomerEntity(em, personId, 'person', 'Person not found')
+    const person = await requireCustomerEntity(em, personId, { tenantId: deal.tenantId, organizationId: deal.organizationId }, 'person', 'Person not found')
     ensureSameScope(person, deal.organizationId, deal.tenantId)
     const link = em.create(CustomerDealPersonLink, {
       deal,
@@ -396,7 +396,7 @@ async function syncDealCompanies(
   if (!companyIds || !companyIds.length) return
   const unique = Array.from(new Set(companyIds))
   for (const companyId of unique) {
-    const company = await requireCustomerEntity(em, companyId, 'company', 'Company not found')
+    const company = await requireCustomerEntity(em, companyId, { tenantId: deal.tenantId, organizationId: deal.organizationId }, 'company', 'Company not found')
     ensureSameScope(company, deal.organizationId, deal.tenantId)
     const link = em.create(CustomerDealCompanyLink, {
       deal,

@@ -11,7 +11,7 @@ import {
  * TC-LOCK-OSS-007: deterministic two-session concurrent-edit + stale-DELETE on
  * `sales.order`.
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md +
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md +
  *       .ai/specs/2026-05-28-optimistic-locking-coverage-completion.md
  *
  * Pattern (see __concurrent_edit_pattern.md):

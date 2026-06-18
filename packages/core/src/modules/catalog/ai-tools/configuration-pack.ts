@@ -5,7 +5,7 @@
  * Product-configuration surface: option schemas (variant axes) and unit
  * conversions (UoM factors).
  *
- * Phase 3c of `.ai/specs/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
+ * Phase 3c of `.ai/specs/implemented/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
  * both tools are now API-backed wrappers over the documented CRUD list
  * routes (`GET /api/catalog/option-schemas` and
  * `GET /api/catalog/product-unit-conversions`). Tool names, schemas,

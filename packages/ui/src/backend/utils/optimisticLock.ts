@@ -1,6 +1,6 @@
 /**
  * Client-side helpers for the OSS opt-in optimistic-locking guard
- * (spec: .ai/specs/2026-05-25-oss-optimistic-locking.md).
+ * (spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md).
  *
  * These are deliberately small and dependency-light so they can be wired
  * into any backend page without touching the shared CrudForm / useGuardedMutation

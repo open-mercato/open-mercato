@@ -82,6 +82,7 @@
   "entities.userEntities.records.errors.deleteFailed": "Failed to delete record",
   "entities.userEntities.records.errors.entityIdRequired": "Entity identifier is required",
   "entities.userEntities.records.errors.recordIdRequired": "Record identifier is required",
+  "entities.userEntities.records.errors.systemEntity": "This entity is system-managed. Records are available for custom entities only.",
   "entities.userEntities.records.form.createTitle": "Create record",
   "entities.userEntities.records.form.editTitle": "Edit record",
   "entities.userEntities.records.form.submitCreate": "Create",

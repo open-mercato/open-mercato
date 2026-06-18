@@ -170,7 +170,11 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
       const expiresAt = metadata?.expiresAt ?? null
       if (expiresAt !== null && expiresAt <= now) expired++
     }
-    return { size, expired }
+    // size/expired stay tenant-scoped (derived from this tenant's meta keys);
+    // surface the underlying strategy's process-global bound counters too so
+    // operators reading the DI cacheService can see LRU/sweep activity.
+    const { evictions, sweeps, lastSweepReclaimed } = await base.stats()
+    return { size, expired, evictions, sweeps, lastSweepReclaimed }
   }
 
   const cleanup = base.cleanup
@@ -225,8 +229,12 @@ export function createCacheService(options?: CacheServiceOptions): CacheStrategy
   const parsedEnvTtl = envTtl ? Number.parseInt(envTtl, 10) : undefined
   const defaultTtl = options?.defaultTtl ?? (typeof parsedEnvTtl === 'number' && Number.isFinite(parsedEnvTtl) ? parsedEnvTtl : undefined)
 
-  const baseStrategy = createStrategyForType(strategyType, options, defaultTtl)
-  const resilientStrategy = withDependencyFallback(baseStrategy, strategyType, defaultTtl)
+  const envMaxEntries = process.env.CACHE_MEMORY_MAX_ENTRIES
+  const parsedEnvMaxEntries = envMaxEntries ? Number.parseInt(envMaxEntries, 10) : undefined
+  const maxEntries = options?.maxEntries ?? (typeof parsedEnvMaxEntries === 'number' && Number.isFinite(parsedEnvMaxEntries) ? parsedEnvMaxEntries : undefined)
+
+  const baseStrategy = createStrategyForType(strategyType, options, defaultTtl, maxEntries)
+  const resilientStrategy = withDependencyFallback(baseStrategy, strategyType, defaultTtl, maxEntries)
 
   return createTenantAwareWrapper(resilientStrategy)
 }
@@ -270,7 +278,13 @@ export class CacheService implements CacheStrategy {
     return this.strategy.keys(pattern)
   }
 
-  async stats(): Promise<{ size: number; expired: number }> {
+  async stats(): Promise<{
+    size: number
+    expired: number
+    evictions?: number
+    sweeps?: number
+    lastSweepReclaimed?: number
+  }> {
     return this.strategy.stats()
   }
 
@@ -288,7 +302,7 @@ export class CacheService implements CacheStrategy {
   }
 }
 
-function createStrategyForType(strategyType: CacheStrategyName, options?: CacheServiceOptions, defaultTtl?: number): CacheStrategy {
+function createStrategyForType(strategyType: CacheStrategyName, options?: CacheServiceOptions, defaultTtl?: number, maxEntries?: number): CacheStrategy {
   switch (strategyType) {
     case 'redis':
       return createRedisStrategy(options?.redisUrl, { defaultTtl })
@@ -298,7 +312,7 @@ function createStrategyForType(strategyType: CacheStrategyName, options?: CacheS
       return createJsonFileStrategy(options?.jsonFilePath, { defaultTtl })
     case 'memory':
     default:
-      return createMemoryStrategy({ defaultTtl })
+      return createMemoryStrategy({ defaultTtl, maxEntries })
   }
 }
 
@@ -324,7 +338,7 @@ function describeDependencyFailure(error: CacheDependencyUnavailableError): stri
   return `${error.dependency} failed to load`
 }
 
-function withDependencyFallback(strategy: CacheStrategy, strategyType: CacheStrategyName, defaultTtl?: number): CacheStrategy {
+function withDependencyFallback(strategy: CacheStrategy, strategyType: CacheStrategyName, defaultTtl?: number, maxEntries?: number): CacheStrategy {
   if (strategyType === 'memory') return strategy
 
   let activeStrategy = strategy
@@ -333,7 +347,7 @@ function withDependencyFallback(strategy: CacheStrategy, strategyType: CacheStra
 
   const ensureFallback = (error: CacheDependencyUnavailableError) => {
     if (!fallbackStrategy) {
-      fallbackStrategy = createMemoryStrategy({ defaultTtl })
+      fallbackStrategy = createMemoryStrategy({ defaultTtl, maxEntries })
     }
     if (!warned) {
       const dependencyMessage = error.dependency

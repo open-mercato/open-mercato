@@ -7,6 +7,11 @@ import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { upsertCustomEntitySchema } from '@open-mercato/core/modules/entities/data/validators'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/system-entities'
+import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+
+const CUSTOM_ENTITY_DEFINITION_RESOURCE_KIND = 'entities.entity'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -59,6 +64,7 @@ export async function GET(req: Request) {
       labelField: (c as any).labelField ?? undefined,
       defaultEditor: (c as any).defaultEditor ?? undefined,
       showInSidebar: (c as any).showInSidebar ?? false,
+      updatedAt: c.updatedAt instanceof Date ? c.updatedAt.toISOString() : (c.updatedAt ?? undefined),
     }))
 
   const byId = new Map<string, any>()
@@ -107,8 +113,33 @@ export async function POST(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
 
+  // A registration for a module-declared, table-backed system entity would flip
+  // query-engine classification to doc storage for the whole entity type (#2939's
+  // failure mode via another door) — refuse to create one.
+  if (isOrmBackedSystemEntityId(em, input.entityId)) {
+    return NextResponse.json(
+      { error: 'System entities cannot be registered as custom entities', code: SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, entityId: input.entityId },
+      { status: 400 },
+    )
+  }
+
   const where: any = { entityId: input.entityId, organizationId: auth.orgId ?? null, tenantId: auth.tenantId ?? null }
   let ent = await em.findOne(CustomEntity, where)
+  if (ent) {
+    try {
+      enforceCommandOptimisticLock({
+        resourceKind: CUSTOM_ENTITY_DEFINITION_RESOURCE_KIND,
+        resourceId: ent.id,
+        current: ent.updatedAt ?? null,
+        request: req,
+      })
+    } catch (lockError) {
+      if (isCrudHttpError(lockError)) {
+        return NextResponse.json(lockError.body, { status: lockError.status })
+      }
+      throw lockError
+    }
+  }
   if (!ent) ent = em.create(CustomEntity, { ...where, createdAt: new Date() })
   ent.label = input.label
   ent.description = input.description ?? null
@@ -166,6 +197,7 @@ const entitySummarySchema = z.object({
   labelField: z.string().optional(),
   defaultEditor: z.string().optional(),
   showInSidebar: z.boolean().optional(),
+  updatedAt: z.string().optional(),
   count: z.number(),
 })
 
