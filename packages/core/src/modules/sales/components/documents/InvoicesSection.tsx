@@ -82,7 +82,6 @@ function buildInvoiceLinePayload(line: Record<string, unknown>, fallbackCurrency
     orderLineId: readString(line, 'id') ?? undefined,
     lineNumber: readNumber(line, index + 1, 'lineNumber', 'line_number'),
     kind: readString(line, 'kind') ?? 'product',
-    serviceId: readString(line, 'serviceId', 'service_id') ?? undefined,
     name: readString(line, 'name') ?? undefined,
     sku: readString(line, 'sku') ?? undefined,
     description: readString(line, 'description') ?? undefined,

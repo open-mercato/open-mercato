@@ -12,6 +12,7 @@ The **AI assistant over MCP** gets a batch of correctness fixes: standalone MCP 
 On the product surface, the CRM **deals list is redesigned** (with a follow-up misroute fix), the person v2 detail now shows addresses with decrypted snapshots, DataTable columns and the pagination footer stay usable on mobile, `InjectionSpot` no longer remounts widgets on context-identity changes, an organization sidebar logo lands, and staff/planner picks up single-active-timer and optimistic-lock-recovery fixes. Dev mode keeps shedding bundle weight by lazy-loading the schedule-calendar CSS and markdown preview, and dependency bumps land for undici, dompurify, shell-quote, `@grpc/grpc-js`, joi, webpack-dev-server, and esbuild. Enjoy!
 
 ## ✨ Features
+- ✨ Sales: add backend invoice list/detail pages and order-detail invoice creation.
 - ✨ CLI: one-command Railway deployment. (#2683) *(@WXYZx)*
 - ✨ CRM: deals list redesign. (#2903) *(@haxiorz)*
 - ✨ Manual Dokploy Dev compose deployment workflow. (#2865) *(@MStaniaszek1998)*
