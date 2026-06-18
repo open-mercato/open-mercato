@@ -146,6 +146,12 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     })
     const dictionary = await loadDictionary(context, dictionaryId)
     const entry = await loadEntry(context, dictionary, entryId)
+    enforceCommandOptimisticLock({
+      resourceKind: 'dictionaries.entry',
+      resourceId: entry.id,
+      current: entry.updatedAt ?? null,
+      request: req,
+    })
     const commandBus = (context.container.resolve('commandBus') as CommandBus)
     const { logEntry } = await commandBus.execute('dictionaries.entries.delete', {
       input: { body: { id: entry.id } },

@@ -202,6 +202,13 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
     const dictionary = await loadDictionary(context, dictionaryId)
 
+    enforceCommandOptimisticLock({
+      resourceKind: 'dictionaries.dictionary',
+      resourceId: dictionary.id,
+      current: dictionary.updatedAt ?? null,
+      request: req,
+    })
+
     if (isProtectedCurrencyDictionary(dictionary)) {
       throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.currency_protected', 'The currency dictionary cannot be modified or deleted.') })
     }
