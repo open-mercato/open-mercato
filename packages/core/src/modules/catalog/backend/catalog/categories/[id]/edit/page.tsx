@@ -257,7 +257,6 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
           versionHistory={{ resourceKind: 'catalog.category', resourceId: categoryId ? String(categoryId) : '' }}
           fields={fields}
           groups={groups}
-          injectionSpotId="crud-form:catalog.category"
           entityId={E.catalog.catalog_product_category}
           initialValues={initialValues ?? { id: categoryId, name: '', slug: '', description: '', parentId: '', isActive: true }}
           optimisticLockUpdatedAt={initialValues?.updatedAt}

@@ -570,7 +570,6 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
           )}
           fields={[]}
           groups={groups}
-          injectionSpotId="crud-form:catalog.variant"
           entityId={E.catalog.catalog_product_variant}
           customFieldsetBindings={{ [E.catalog.catalog_product_variant]: { valueKey: 'customFieldsetCode' } }}
           initialValues={initialValues ?? undefined}
