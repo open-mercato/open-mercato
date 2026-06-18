@@ -304,6 +304,7 @@ export default function CreateCatalogProductPage() {
           values,
           setValue,
           errors,
+          requiredFieldIds,
         }: CrudFormGroupComponentProps) => (
           <ProductBuilder
             values={values as ProductFormValues}
@@ -311,6 +312,7 @@ export default function CreateCatalogProductPage() {
             errors={errors}
             priceKinds={priceKinds}
             taxRates={taxRates}
+            requiredFieldIds={requiredFieldIds}
           />
         ),
       },
@@ -827,6 +829,7 @@ type ProductBuilderProps = {
   errors: Record<string, string>;
   priceKinds: PriceKindSummary[];
   taxRates: TaxRateSummary[];
+  requiredFieldIds?: ReadonlySet<string>;
 };
 
 type ProductMetaSectionProps = {
@@ -984,6 +987,7 @@ function ProductBuilder({
   errors,
   priceKinds,
   taxRates,
+  requiredFieldIds,
 }: ProductBuilderProps) {
   const t = useT();
   const steps = PRODUCT_FORM_STEPS;
@@ -1325,10 +1329,10 @@ function ProductBuilder({
 
       {currentStepKey === "general" ? (
         <div className="space-y-6">
-          <div className="space-y-2">
+          <div className="space-y-2" data-crud-field-id="title">
             <Label className="flex items-center gap-1">
               {t("catalog.products.form.title", "Title")}
-              <span className="text-red-600">*</span>
+              <span className="text-status-error-text">*</span>
             </Label>
             <Input
               value={values.title}
@@ -1339,14 +1343,17 @@ function ProductBuilder({
               )}
             />
             {errors.title ? (
-              <p className="text-xs text-red-600">{errors.title}</p>
+              <p className="text-xs text-status-error-text">{errors.title}</p>
             ) : null}
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2" data-crud-field-id="description">
             <div className="flex items-center justify-between">
-              <Label>
+              <Label className="flex items-center gap-1">
                 {t("catalog.products.form.description", "Description")}
+                {requiredFieldIds?.has("description") ? (
+                  <span className="text-status-error-text">*</span>
+                ) : null}
               </Label>
               <Button
                 type="button"
@@ -1389,6 +1396,9 @@ function ProductBuilder({
                 )}
               />
             )}
+            {errors.description ? (
+              <p className="text-xs text-status-error-text">{errors.description}</p>
+            ) : null}
           </div>
 
           <ProductMediaManager

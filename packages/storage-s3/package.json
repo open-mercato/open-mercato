@@ -66,8 +66,8 @@
     }
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1064.0",
-    "@aws-sdk/s3-request-presigner": "^3.1064.0",
+    "@aws-sdk/client-s3": "^3.1068.0",
+    "@aws-sdk/s3-request-presigner": "^3.1068.0",
     "@open-mercato/core": "workspace:*"
   },
   "peerDependencies": {
@@ -77,7 +77,7 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "esbuild": "^0.28.0",
+    "esbuild": "^0.28.1",
     "glob": "^13.0.6",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.11"

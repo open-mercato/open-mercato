@@ -12,7 +12,7 @@
 
 - [ ] All inputs validated with zod in `data/validators.ts`
 - [ ] No `any` types
-- [ ] Auth guards on all endpoints (`requireAuth`, `requireRoles`, `requireFeatures`)
+- [ ] Auth guards on all endpoints (`requireAuth` + `requireFeatures`; never `requireRoles` — role names mutate)
 - [ ] Passwords hashed with bcryptjs (cost >= 10)
 - [ ] No credentials logged or in error messages
 - [ ] `findWithDecryption` used instead of raw `em.find`/`em.findOne`
