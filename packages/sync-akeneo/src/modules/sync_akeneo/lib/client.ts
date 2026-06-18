@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import { dedupeStrings, labelFromLocalizedRecord, safeRecord, type AkeneoAttribute, type AkeneoAttributeOption, type AkeneoCategory, type AkeneoChannel, type AkeneoCredentialShape, type AkeneoFamily, type AkeneoFamilyVariant, type AkeneoLocale, type AkeneoProduct, type AkeneoProductModel } from './shared'
 
 type TokenState = {
@@ -250,9 +251,9 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
   }
 
   async function acquirePasswordGrantToken(): Promise<TokenState> {
-    const response = await fetch(tokenEndpointUrl, {
+    const response = await fetchWithTimeout(tokenEndpointUrl, {
       method: 'POST',
-      signal: AbortSignal.timeout(resolveAkeneoRequestTimeoutMs()),
+      timeoutMs: resolveAkeneoRequestTimeoutMs(),
       headers: {
         accept: 'application/json',
         'content-type': 'application/json',
@@ -289,9 +290,9 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
 
   async function refreshAccessToken(current: TokenState): Promise<TokenState> {
     if (!current.refreshToken) return acquirePasswordGrantToken()
-    const response = await fetch(tokenEndpointUrl, {
+    const response = await fetchWithTimeout(tokenEndpointUrl, {
       method: 'POST',
-      signal: AbortSignal.timeout(resolveAkeneoRequestTimeoutMs()),
+      timeoutMs: resolveAkeneoRequestTimeoutMs(),
       headers: {
         accept: 'application/json',
         'content-type': 'application/json',
@@ -338,9 +339,9 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     const url = resolveAkeneoRequestUrl(pathOrUrl)
     const token = await ensureToken()
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       ...init,
-      signal: init.signal ?? AbortSignal.timeout(resolveAkeneoRequestTimeoutMs()),
+      timeoutMs: resolveAkeneoRequestTimeoutMs(),
       headers: {
         accept: 'application/json',
         authorization: `Bearer ${token}`,
@@ -387,9 +388,9 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     const url = resolveAkeneoRequestUrl(pathOrUrl)
     const token = await ensureToken()
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       ...init,
-      signal: init.signal ?? AbortSignal.timeout(resolveAkeneoRequestTimeoutMs()),
+      timeoutMs: resolveAkeneoRequestTimeoutMs(),
       headers: {
         authorization: `Bearer ${token}`,
         ...init.headers,

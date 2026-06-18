@@ -1,5 +1,12 @@
 // Shared entity/extension/custom-field types used by generators and DI
 
+// Single source of truth: CustomFieldKind is derived from the runtime
+// CUSTOM_FIELD_KINDS list so the type can never drift behind the kinds the admin
+// UI and runtime already accept (e.g. 'date', 'datetime'). Add new kinds in
+// ./entities/kinds.ts only.
+import type { CustomFieldKind } from './entities/kinds'
+export type { CustomFieldKind }
+
 export type EntityId = string // format: '<module>:<entity>' e.g., 'auth:user'
 
 export type EntityExtension = {
@@ -17,18 +24,6 @@ export type EntityExtension = {
   required?: boolean
   description?: string
 }
-
-export type CustomFieldKind =
-  | 'text'
-  | 'multiline'
-  | 'integer'
-  | 'float'
-  | 'boolean'
-  | 'select'
-  | 'currency'
-  | 'relation'
-  | 'attachment'
-  | 'dictionary'
 
 export type CustomFieldDefinition = {
   id?: string // stable id; generated if omitted

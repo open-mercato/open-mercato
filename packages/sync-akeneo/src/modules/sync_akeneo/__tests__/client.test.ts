@@ -1,3 +1,4 @@
+import { FetchTimeoutError } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import { createAkeneoClient, encodeAkeneoPathParam, normalizeAkeneoDateTime, sanitizeAkeneoProductNextUrl, validateAkeneoApiUrl } from '../lib/client'
 
 const validCredentials = {
@@ -222,6 +223,10 @@ describe('akeneo client security', () => {
 })
 
 describe('akeneo client resilience (issue #2976)', () => {
+  // Mirrors DEFAULT_AKENEO_REQUEST_TIMEOUT_MS in client.ts: the per-request
+  // timeout `fetchWithTimeout` schedules when no
+  // OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS override is set (none of these tests set it).
+  const AKENEO_DEFAULT_REQUEST_TIMEOUT_MS = 30_000
   const originalFetch = global.fetch
   const originalSetTimeout = global.setTimeout
   const originalMaxRetries = process.env.OM_INTEGRATION_AKENEO_MAX_RATE_LIMIT_RETRIES
@@ -236,8 +241,15 @@ describe('akeneo client resilience (issue #2976)', () => {
     global.fetch = jest.fn() as typeof fetch
     capturedDelays = []
     // Fire backoff/retry-after sleeps synchronously so the retry loop runs
-    // without real timers while we assert the requested wait durations.
+    // without real timers while we assert the requested wait durations. The
+    // shared `fetchWithTimeout` helper also schedules a per-request timeout timer
+    // (`AKENEO_DEFAULT_REQUEST_TIMEOUT_MS`); delegate that one to the real timer —
+    // the helper clears it in its `finally` before the mocked fetch resolves, so
+    // it never fires and never pollutes the recorded backoff delays.
     global.setTimeout = ((callback: () => void, ms?: number) => {
+      if (ms === AKENEO_DEFAULT_REQUEST_TIMEOUT_MS) {
+        return originalSetTimeout(callback, ms)
+      }
       capturedDelays.push(typeof ms === 'number' ? ms : 0)
       callback()
       return 0 as unknown as ReturnType<typeof setTimeout>
@@ -304,5 +316,15 @@ describe('akeneo client resilience (issue #2976)', () => {
     const requestInit = fetchMock.mock.calls[1][1] as RequestInit
     expect(tokenInit.signal).toBeInstanceOf(AbortSignal)
     expect(requestInit.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('surfaces the shared-helper FetchTimeoutError when an authenticated request times out (issue #3068)', async () => {
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    fetchMock
+      .mockResolvedValueOnce(tokenResponse())
+      .mockRejectedValueOnce(new FetchTimeoutError('https://tenant.cloud.akeneo.com/api/rest/v1/channels', 30_000))
+
+    const client = createAkeneoClient(validCredentials)
+    await expect(client.listChannels()).rejects.toBeInstanceOf(FetchTimeoutError)
   })
 })

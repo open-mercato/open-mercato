@@ -233,6 +233,88 @@ describe('Memory Cache Strategy', () => {
     })
   })
 
+  describe('Amortized expired-entry sweep', () => {
+    it('should reclaim expired entries via the amortized sweep on writes', async () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'))
+      try {
+        const bounded = createMemoryStrategy()
+        for (let i = 0; i < 200; i++) {
+          await bounded.set(`expiring:${i}`, i, { ttl: 50 })
+        }
+        // All 200 entries are now expired but still resident (no sweep yet).
+        await jest.advanceTimersByTimeAsync(100)
+        expect((await bounded.stats()).size).toBe(200)
+
+        // Cross the sweep interval (256 cumulative writes) with fresh entries.
+        for (let i = 0; i < 60; i++) {
+          await bounded.set(`fresh:${i}`, i)
+        }
+        // The expired cohort was reclaimed; only the 60 fresh entries remain.
+        const stats = await bounded.stats()
+        expect(stats.size).toBe(60)
+        // The firing pass reclaimed the whole 200-entry cohort (under budget).
+        expect(stats.sweeps).toBeGreaterThanOrEqual(1)
+        expect(stats.lastSweepReclaimed).toBe(200)
+      } finally {
+        jest.useRealTimers()
+      }
+    })
+
+    it('bounds a single sweep pass instead of scanning the whole store', async () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'))
+      try {
+        // A cohort larger than the per-pass scan budget so one sweep cannot
+        // reclaim all of it. maxEntries default (50k) keeps LRU eviction out
+        // of the picture for this many entries.
+        const cohort = 1_200
+        const bounded = createMemoryStrategy()
+        for (let i = 0; i < cohort; i++) {
+          await bounded.set(`expiring:${i}`, i, { ttl: 50 })
+        }
+        await jest.advanceTimersByTimeAsync(100)
+
+        // Cross the sweep interval again with fresh (non-expiring) entries.
+        for (let i = 0; i < 256; i++) {
+          await bounded.set(`fresh:${i}`, i)
+        }
+
+        const stats = await bounded.stats()
+        // The budget caps the firing pass, so not every expired entry is gone
+        // and the reclaimed count is strictly below the full cohort.
+        expect(stats.lastSweepReclaimed).toBeGreaterThan(0)
+        expect(stats.lastSweepReclaimed).toBeLessThan(cohort)
+        expect(stats.size).toBeGreaterThan(256)
+      } finally {
+        jest.useRealTimers()
+      }
+    })
+  })
+
+  describe('Observability counters', () => {
+    it('counts LRU evictions via stats()', async () => {
+      const bounded = createMemoryStrategy({ maxEntries: 3 })
+      await bounded.set('a', 1)
+      await bounded.set('b', 2)
+      await bounded.set('c', 3)
+      expect((await bounded.stats()).evictions).toBe(0)
+
+      await bounded.set('d', 4) // evicts 'a'
+      await bounded.set('e', 5) // evicts 'b'
+      expect((await bounded.stats()).evictions).toBe(2)
+    })
+
+    it('reports zero counters for an idle bounded strategy', async () => {
+      const bounded = createMemoryStrategy({ maxEntries: 10 })
+      await bounded.set('a', 1)
+      const stats = await bounded.stats()
+      expect(stats.evictions).toBe(0)
+      expect(stats.sweeps).toBe(0)
+      expect(stats.lastSweepReclaimed).toBe(0)
+    })
+  })
+
   describe('Statistics', () => {
     beforeEach(() => {
       jest.useFakeTimers()

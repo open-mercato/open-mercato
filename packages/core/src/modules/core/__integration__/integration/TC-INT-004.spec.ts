@@ -1,7 +1,7 @@
 import { expect, test, type BrowserContext } from '@playwright/test';
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { createUserViaUi } from '@open-mercato/core/modules/core/__integration__/helpers/authUi';
+import { login } from '@open-mercato/core/helpers/integration/auth';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { createUserViaUi } from '@open-mercato/core/helpers/integration/authUi';
 
 /**
  * TC-INT-004: User to Role to Permission to Access Verification
