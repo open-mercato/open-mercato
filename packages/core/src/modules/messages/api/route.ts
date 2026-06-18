@@ -1,13 +1,21 @@
 import { z } from 'zod'
+import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
+import {
+  buildCollectionTags,
+  isCrudCacheEnabled,
+  normalizeTagSegment,
+  resolveCrudCache,
+} from '@open-mercato/shared/lib/crud/cache'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { User } from '../../auth/data/entities'
 import { Message, MessageObject } from '../data/entities'
-import { composeMessageSchema, listMessagesSchema } from '../data/validators'
+import { composeMessageSchema, listMessagesSchema, type ListMessagesInput } from '../data/validators'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
@@ -27,6 +35,8 @@ type MessageCommandExecuteResultWithThreadId = MessageCommandExecuteResult & {
 }
 
 const NO_MATCH_ID = '00000000-0000-0000-0000-000000000000'
+const MESSAGE_LIST_CACHE_TTL_MS = 30_000
+const MESSAGE_LIST_RESOURCE = 'messages.message'
 
 function getDb(em: EntityManager): Kysely<any> {
   return em.getKysely<any>()
@@ -50,6 +60,94 @@ type RecipientCountRow = {
   count: string | number
 }
 
+type MessageListPayload = {
+  items: Array<Record<string, unknown>>
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+}
+
+type MessageRouteContext = Awaited<ReturnType<typeof resolveMessageContext>>
+
+function normalizeCacheFilterValue(value: unknown): unknown {
+  if (value === undefined) return null
+  if (value instanceof Date) return value.toISOString()
+  if (Array.isArray(value)) return value.map(normalizeCacheFilterValue)
+  if (value && typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, entryValue]) => [key, normalizeCacheFilterValue(entryValue)])
+  }
+  return value
+}
+
+function buildMessageListFilterSignature(input: ListMessagesInput): string {
+  const canonical = JSON.stringify(
+    Object.entries(input)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => [key, normalizeCacheFilterValue(value)])
+  )
+  return createHash('sha256').update(canonical).digest('hex').slice(0, 32)
+}
+
+function buildMessagesListCacheKey(scope: MessageRouteContext['scope'], input: ListMessagesInput): string {
+  return [
+    'crud',
+    MESSAGE_LIST_RESOURCE,
+    'GET',
+    '/api/messages',
+    `tenant:${normalizeTagSegment(scope.tenantId ?? null)}`,
+    `org:${normalizeTagSegment(scope.organizationId ?? null)}`,
+    `user:${normalizeTagSegment(scope.userId ?? null)}`,
+    `filters:${buildMessageListFilterSignature(input)}`,
+  ].join('|')
+}
+
+function isMessageListPayload(value: unknown): value is MessageListPayload {
+  if (!value || typeof value !== 'object') return false
+  const payload = value as MessageListPayload
+  return Array.isArray(payload.items)
+    && typeof payload.page === 'number'
+    && typeof payload.pageSize === 'number'
+    && typeof payload.total === 'number'
+    && typeof payload.totalPages === 'number'
+}
+
+async function readMessagesListCache(
+  scope: MessageRouteContext['scope'],
+  key: string,
+  cache: ReturnType<typeof resolveCrudCache>,
+): Promise<MessageListPayload | null> {
+  if (!cache) return null
+  try {
+    const cached = await runWithCacheTenant(scope.tenantId ?? null, () => cache.get(key))
+    return isMessageListPayload(cached) ? cached : null
+  } catch {
+    return null
+  }
+}
+
+async function storeMessagesListCache(
+  scope: MessageRouteContext['scope'],
+  key: string,
+  cache: ReturnType<typeof resolveCrudCache>,
+  payload: MessageListPayload,
+): Promise<void> {
+  if (!cache) return
+  const tags = buildCollectionTags(
+    MESSAGE_LIST_RESOURCE,
+    scope.tenantId ?? null,
+    [scope.organizationId ?? null],
+  )
+  try {
+    await runWithCacheTenant(scope.tenantId ?? null, () => cache.set(key, payload, {
+      ttl: MESSAGE_LIST_CACHE_TTL_MS,
+      tags,
+    }))
+  } catch {}
+}
+
 export const metadata = {
   GET: { requireAuth: true },
   POST: { requireAuth: true, requireFeatures: ['messages.compose'] },
@@ -57,10 +155,20 @@ export const metadata = {
 
 export async function GET(req: Request) {
   const { ctx, scope } = await resolveMessageContext(req)
-  const em = ctx.container.resolve('em') as EntityManager
   const url = new URL(req.url)
   const params = Object.fromEntries(url.searchParams)
   const input = listMessagesSchema.parse(params)
+
+  const cache = isCrudCacheEnabled() ? resolveCrudCache(ctx.container as any) : null
+  const cacheKey = cache ? buildMessagesListCacheKey(scope, input) : null
+  if (cache && cacheKey) {
+    const cachedPayload = await readMessagesListCache(scope, cacheKey, cache)
+    if (cachedPayload) {
+      return Response.json(cachedPayload)
+    }
+  }
+
+  const em = ctx.container.resolve('em') as EntityManager
   const db = getDb(em) as any
 
   const searchIds = input.search
@@ -282,7 +390,7 @@ export async function GET(req: Request) {
     senderMetaById.set(user.id, { name, email: user.email ?? null })
   })
 
-  return Response.json({
+  const payload: MessageListPayload = {
     items: typedRows
       .map((row) => {
         const message = messagesById.get(row.id)
@@ -329,7 +437,13 @@ export async function GET(req: Request) {
     pageSize: input.pageSize,
     total,
     totalPages: Math.ceil(total / input.pageSize),
-  })
+  }
+
+  if (cache && cacheKey) {
+    await storeMessagesListCache(scope, cacheKey, cache, payload)
+  }
+
+  return Response.json(payload)
 }
 
 export async function POST(req: Request) {
