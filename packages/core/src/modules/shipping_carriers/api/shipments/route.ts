@@ -3,7 +3,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { ShippingCarrierService } from '../../lib/shipping-service'
-import { ShipmentIdempotencyConflictError } from '../../lib/shipment-idempotency'
+import { isShipmentIdempotencyConflictError } from '../../lib/shipment-idempotency'
 import { createShipmentSchema } from '../../data/validators'
 import { shippingCarriersTag } from '../openapi'
 
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
       labelUrl: shipment.labelUrl,
     }, { status: 201 })
   } catch (error: unknown) {
-    if (error instanceof ShipmentIdempotencyConflictError) {
+    if (isShipmentIdempotencyConflictError(error)) {
       return NextResponse.json(
         { error: 'Shipment idempotency conflict', code: 'idempotency_conflict' },
         { status: 409 },

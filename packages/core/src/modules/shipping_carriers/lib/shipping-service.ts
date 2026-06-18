@@ -9,6 +9,7 @@ import {
   claimShipmentIdempotency,
   computeShipmentRequestHash,
   findShipmentIdempotencyClaim,
+  isShipmentIdempotencyConflictError,
   releaseShipmentIdempotency,
   resolveShipmentIdempotency,
   ShipmentIdempotencyConflictError,
@@ -168,7 +169,7 @@ export function createShippingCarrierService(deps: {
         // Release the claim only when the carrier was NOT successfully called, so a retry can
         // proceed. If the carrier already created the shipment, keep the claim so a retry does
         // not produce a duplicate upstream shipment.
-        if (claim && !carrierShipmentCreated && input.idempotencyKey && !(error instanceof ShipmentIdempotencyConflictError)) {
+        if (claim && !carrierShipmentCreated && input.idempotencyKey && !isShipmentIdempotencyConflictError(error)) {
           await releaseShipmentIdempotency(em, input.idempotencyKey, input.providerKey, scope).catch(() => {})
         }
         throw error

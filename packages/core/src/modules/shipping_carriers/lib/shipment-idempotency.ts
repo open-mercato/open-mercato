@@ -6,13 +6,27 @@ import { CarrierShipmentIdempotencyKey } from '../data/entities'
 
 type Scope = { organizationId: string; tenantId: string }
 
+// Use Symbol.for so the marker survives module duplication across bundle boundaries — an
+// `instanceof` check returns false when the API route and the service load separate copies of
+// this class in the production build, which would silently downgrade the 409 conflict to a 502.
+const SHIPMENT_IDEMPOTENCY_CONFLICT_MARKER = Symbol.for('@open-mercato/ShipmentIdempotencyConflictError')
+
 export class ShipmentIdempotencyConflictError extends Error {
+  readonly [SHIPMENT_IDEMPOTENCY_CONFLICT_MARKER] = true
   readonly idempotencyKey: string
   constructor(idempotencyKey: string) {
     super(`[internal] Shipment idempotency conflict for key "${idempotencyKey}"`)
     this.name = 'ShipmentIdempotencyConflictError'
     this.idempotencyKey = idempotencyKey
   }
+}
+
+export function isShipmentIdempotencyConflictError(error: unknown): error is ShipmentIdempotencyConflictError {
+  return (
+    !!error &&
+    typeof error === 'object' &&
+    (error as Record<symbol, unknown>)[SHIPMENT_IDEMPOTENCY_CONFLICT_MARKER] === true
+  )
 }
 
 function stableSerialize(value: unknown): string {
