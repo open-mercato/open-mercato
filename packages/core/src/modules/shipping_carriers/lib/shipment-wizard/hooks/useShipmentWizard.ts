@@ -189,10 +189,13 @@ export const useShipmentWizard = (): ShipmentWizard => {
     setIsFetchingRates(false)
   }
 
+  const idempotencyKeyRef = React.useRef<string | null>(null)
+  const idempotencySignatureRef = React.useRef<string | null>(null)
+
   const handleSubmit = async () => {
     if (!selectedProvider || !selectedRate || !orderId) return
     setIsSubmitting(true)
-    const result = await createShipment({
+    const payload = {
       providerKey: selectedProvider,
       orderId,
       origin,
@@ -206,11 +209,30 @@ export const useShipmentWizard = (): ShipmentWizard => {
       ...(receiverContact.email ? { receiverEmail: receiverContact.email } : {}),
       ...(targetPoint ? { targetPoint } : {}),
       ...(c2cSendingMethod ? { c2cSendingMethod } : {}),
-    })
+    }
+    // Reuse one idempotency key per confirmed payload so a double-submit or a
+    // network-timeout retry de-duplicates server-side; regenerate it when the
+    // payload changes so an edited shipment is not rejected as a conflict.
+    const signature = JSON.stringify(payload)
+    if (idempotencyKeyRef.current === null || idempotencySignatureRef.current !== signature) {
+      idempotencyKeyRef.current = crypto.randomUUID()
+      idempotencySignatureRef.current = signature
+    }
+    const result = await createShipment({ ...payload, idempotencyKey: idempotencyKeyRef.current })
     setIsSubmitting(false)
     if (result.ok) {
+      idempotencyKeyRef.current = null
+      idempotencySignatureRef.current = null
       flash(t('shipping_carriers.create.success', 'Shipment created successfully.'), 'success')
       router.push(backHref)
+    } else if (result.code === 'idempotency_conflict') {
+      flash(
+        t(
+          'shipping_carriers.create.error.idempotencyConflict',
+          'This shipment was already submitted. Refresh the page before retrying.',
+        ),
+        'error',
+      )
     } else {
       flash(t('shipping_carriers.create.error.create', result.error), 'error')
     }

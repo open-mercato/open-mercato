@@ -3,6 +3,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { ShippingCarrierService } from '../../lib/shipping-service'
+import { ShipmentIdempotencyConflictError } from '../../lib/shipment-idempotency'
 import { createShipmentSchema } from '../../data/validators'
 import { shippingCarriersTag } from '../openapi'
 
@@ -37,6 +38,12 @@ export async function POST(req: Request) {
       labelUrl: shipment.labelUrl,
     }, { status: 201 })
   } catch (error: unknown) {
+    if (error instanceof ShipmentIdempotencyConflictError) {
+      return NextResponse.json(
+        { error: 'Shipment idempotency conflict', code: 'idempotency_conflict' },
+        { status: 409 },
+      )
+    }
     const message = error instanceof Error ? error.message : 'Failed to create shipment'
     return NextResponse.json({ error: message }, { status: 502 })
   }
@@ -51,6 +58,7 @@ export const openApi = {
       tags: [shippingCarriersTag],
       responses: [
         { status: 201, description: 'Shipment created' },
+        { status: 409, description: 'Idempotency conflict: the idempotency key was reused with a different payload' },
         { status: 422, description: 'Validation failed' },
         { status: 502, description: 'Provider upstream error' },
       ],
