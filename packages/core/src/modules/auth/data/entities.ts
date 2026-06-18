@@ -178,6 +178,8 @@ export class SidebarVariant {
 }
 
 @Entity({ tableName: 'user_roles' })
+@Index({ name: 'user_roles_user_id_idx', properties: ['user'] })
+@Index({ name: 'user_roles_role_id_idx', properties: ['role'] })
 export class UserRole {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

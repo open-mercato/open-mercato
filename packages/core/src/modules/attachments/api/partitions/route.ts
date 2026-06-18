@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Attachment, AttachmentPartition } from '../../data/entities'
 import { ensureDefaultPartitions, DEFAULT_ATTACHMENT_PARTITIONS, sanitizePartitionCode, isPartitionSettingsLocked } from '../../lib/partitions'
 import { resolvePartitionEnvKey } from '../../lib/partitionEnv'
@@ -22,6 +23,24 @@ const deleteSchema = z.object({
 })
 
 const DEFAULT_CODES = new Set(DEFAULT_ATTACHMENT_PARTITIONS.map((entry) => entry.code))
+
+type AuthLike = { sub?: string; tenantId?: string | null; orgId?: string | null; isSuperAdmin?: boolean } | null | undefined
+
+function isSuperAdmin(auth: AuthLike): boolean {
+  return auth?.isSuperAdmin === true
+}
+
+function canManagePartition(auth: AuthLike, entry: AttachmentPartition): boolean {
+  if (!auth?.tenantId) return false
+  if (entry.tenantId && entry.tenantId === auth.tenantId) return true
+  if (entry.tenantId == null && isSuperAdmin(auth)) return true
+  return false
+}
+
+function partitionVisibilityFilter(auth: AuthLike) {
+  if (isSuperAdmin(auth)) return {}
+  return { $or: [{ tenantId: null }, { tenantId: auth?.tenantId ?? null }] }
+}
 
 function serializePartition(entry: AttachmentPartition) {
   return {
@@ -54,12 +73,18 @@ async function resolveEm() {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.sub) {
+  if (!auth?.sub || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const em = await resolveEm()
   await ensureDefaultPartitions(em)
-  const rows = await em.find(AttachmentPartition, {}, { orderBy: { createdAt: 'asc' } })
+  const rows = await findWithDecryption(
+    em,
+    AttachmentPartition,
+    partitionVisibilityFilter(auth),
+    { orderBy: { createdAt: 'asc' } },
+    { tenantId: auth.tenantId, organizationId: auth.orgId ?? null },
+  )
   return NextResponse.json({ items: rows.map((entry) => serializePartition(entry)) })
 }
 
@@ -71,7 +96,7 @@ export async function POST(req: Request) {
     )
   }
   const auth = await getAuthFromRequest(req)
-  if (!auth?.sub) {
+  if (!auth?.sub || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   let json: unknown = null
@@ -90,7 +115,13 @@ export async function POST(req: Request) {
   }
   const em = await resolveEm()
   await ensureDefaultPartitions(em)
-  const exists = await em.findOne(AttachmentPartition, { code })
+  const exists = await findOneWithDecryption(
+    em,
+    AttachmentPartition,
+    { code },
+    undefined,
+    { tenantId: auth.tenantId, organizationId: auth.orgId ?? null },
+  )
   if (exists) {
     return NextResponse.json({ error: 'Partition code already exists.' }, { status: 409 })
   }
@@ -106,6 +137,8 @@ export async function POST(req: Request) {
         ? parsed.data.requiresOcr
         : resolveDefaultAttachmentOcrEnabled(),
     ocrModel: parsed.data.ocrModel?.trim() || null,
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId ?? null,
   })
   await em.persist(entry).flush()
   return NextResponse.json({ item: serializePartition(entry) }, { status: 201 })
@@ -119,7 +152,7 @@ export async function PUT(req: Request) {
     )
   }
   const auth = await getAuthFromRequest(req)
-  if (!auth?.sub) {
+  if (!auth?.sub || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   let json: unknown = null
@@ -133,8 +166,14 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
   }
   const em = await resolveEm()
-  const entry = await em.findOne(AttachmentPartition, { id: parsed.data.id })
-  if (!entry) {
+  const entry = await findOneWithDecryption(
+    em,
+    AttachmentPartition,
+    { id: parsed.data.id },
+    undefined,
+    { tenantId: auth.tenantId, organizationId: auth.orgId ?? null },
+  )
+  if (!entry || !canManagePartition(auth, entry)) {
     return NextResponse.json({ error: 'Partition not found' }, { status: 404 })
   }
   if (sanitizePartitionCode(parsed.data.code) !== entry.code) {
@@ -167,7 +206,7 @@ export async function DELETE(req: Request) {
     )
   }
   const auth = await getAuthFromRequest(req)
-  if (!auth?.sub) {
+  if (!auth?.sub || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const url = new URL(req.url)
@@ -177,14 +216,22 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: 'Partition id is required' }, { status: 400 })
   }
   const em = await resolveEm()
-  const entry = await em.findOne(AttachmentPartition, { id: parsed.data.id })
-  if (!entry) {
+  const entry = await findOneWithDecryption(
+    em,
+    AttachmentPartition,
+    { id: parsed.data.id },
+    undefined,
+    { tenantId: auth.tenantId, organizationId: auth.orgId ?? null },
+  )
+  if (!entry || !canManagePartition(auth, entry)) {
     return NextResponse.json({ error: 'Partition not found' }, { status: 404 })
   }
   if (DEFAULT_CODES.has(entry.code)) {
     return NextResponse.json({ error: 'Default partitions cannot be removed.' }, { status: 400 })
   }
-  const usage = await em.count(Attachment, { partitionCode: entry.code })
+  const usageFilter: Record<string, unknown> = { partitionCode: entry.code }
+  if (entry.tenantId) usageFilter.tenantId = entry.tenantId
+  const usage = await em.count(Attachment, usageFilter)
   if (usage > 0) {
     return NextResponse.json({ error: 'Partition is in use and cannot be removed.' }, { status: 409 })
   }

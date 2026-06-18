@@ -96,6 +96,7 @@ export class ActionLog {
 @Entity({ tableName: 'access_logs' })
 @Index({ name: 'access_logs_tenant_idx', properties: ['tenantId', 'createdAt'] })
 @Index({ name: 'access_logs_actor_idx', properties: ['actorUserId', 'createdAt'] })
+@Index({ name: 'access_logs_created_at_idx', properties: ['createdAt'] })
 export class AccessLog {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

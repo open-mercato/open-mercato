@@ -97,7 +97,7 @@
     "rate-limiter-flexible": "^11.2.0",
     "re2js": "2.8.3",
     "reflect-metadata": "^0.2.2",
-    "sanitize-html": "^2.17.4",
+    "sanitize-html": "^2.17.5",
     "undici": "^8.4.1"
   },
   "devDependencies": {
