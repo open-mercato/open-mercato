@@ -2,6 +2,9 @@ import { createCacheService, CacheService } from '../service'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_JSON_FILE_CACHE_PATH, DEFAULT_SQLITE_CACHE_PATH } from '../defaults'
+import type { CacheStrategy } from '../types'
+import * as memoryStrategyModule from '../strategies/memory'
+import * as sqliteStrategyModule from '../strategies/sqlite'
 
 describe('Cache Service', () => {
   afterEach(() => {
@@ -234,5 +237,65 @@ describe('Cache Service', () => {
       expect(stats.size).toBe(30)
       expect(stats.evictions).toBe(0)
     })
+  })
+})
+
+describe('Cache Service stats() counter gating', () => {
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  const createFakeStrategy = (stats: CacheStrategy['stats']): CacheStrategy => ({
+    get: jest.fn(async () => null),
+    set: jest.fn(async () => {}),
+    has: jest.fn(async () => false),
+    delete: jest.fn(async () => false),
+    deleteByTags: jest.fn(async () => 0),
+    clear: jest.fn(async () => 0),
+    keys: jest.fn(async () => []),
+    stats,
+  })
+
+  it('skips the extra base.stats() call for non-memory backends', async () => {
+    const baseStats = jest.fn(async () => ({ size: 5, expired: 1 }))
+    jest
+      .spyOn(sqliteStrategyModule, 'createSqliteStrategy')
+      .mockReturnValue(createFakeStrategy(baseStats))
+
+    const cache = createCacheService({ strategy: 'sqlite' })
+    const stats = await cache.stats()
+
+    // The cold-path counter harvest is gated to memory-backed strategies, so a
+    // redis/sqlite/jsonfile backend never incurs the extra base.stats() round-trip.
+    expect(baseStats).not.toHaveBeenCalled()
+    expect(stats).toEqual({ size: 0, expired: 0 })
+    expect(stats.evictions).toBeUndefined()
+    expect(stats.sweeps).toBeUndefined()
+    expect(stats.lastSweepReclaimed).toBeUndefined()
+  })
+
+  it('still harvests bound counters via base.stats() for the memory backend', async () => {
+    const baseStats = jest.fn(async () => ({
+      size: 99,
+      expired: 99,
+      evictions: 7,
+      sweeps: 2,
+      lastSweepReclaimed: 3,
+    }))
+    jest
+      .spyOn(memoryStrategyModule, 'createMemoryStrategy')
+      .mockReturnValue(createFakeStrategy(baseStats))
+
+    const cache = createCacheService({ strategy: 'memory' })
+    const stats = await cache.stats()
+
+    // size/expired stay tenant-scoped (computed by the wrapper), while the
+    // process-global counters come from a single base.stats() call.
+    expect(baseStats).toHaveBeenCalledTimes(1)
+    expect(stats.size).toBe(0)
+    expect(stats.expired).toBe(0)
+    expect(stats.evictions).toBe(7)
+    expect(stats.sweeps).toBe(2)
+    expect(stats.lastSweepReclaimed).toBe(3)
   })
 })
