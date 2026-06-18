@@ -13,11 +13,11 @@ import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integratio
  * back via GET. This spec snapshots the order grand total, creates an invoice with the same
  * totals, and verifies the invoice persists them (the totals-verification intent).
  *
- * Scope notes (pre-existing defects tracked separately so this coverage stays green):
- *  - `orderId` is validated on create (unknown order → 400, covered below) but the order
- *    relation is not persisted (`order_id` reads back null), so linkage is not asserted.
- *  - `PUT /api/sales/invoices` (update) currently returns 500, so the update leg is not
- *    exercised; this spec covers create → read → delete, which all work.
+ * Scope notes:
+ *  - `orderId` is validated on create (unknown order → 400, covered below) and the order
+ *    relation is persisted so the order detail UI can show invoice linkage.
+ *  - `PUT /api/sales/invoices` is covered by route metadata/unit coverage elsewhere; this
+ *    integration spec covers create → read → detail → delete.
  */
 
 type JsonRecord = Record<string, unknown>
@@ -49,6 +49,7 @@ test.describe('TC-SALES-032 invoice create/read/delete + totals', () => {
     test.slow()
     const token = await getAuthToken(request, 'admin')
     let orderId: string | null = null
+    let orderLineId: string | null = null
     let invoiceId: string | null = null
 
     try {
@@ -65,6 +66,8 @@ test.describe('TC-SALES-032 invoice create/read/delete + totals', () => {
         data: { orderId, currencyCode: 'USD', quantity: 1, name: `Invoice line ${Date.now()}`, unitPriceNet: 100, unitPriceGross: 100 },
       })
       expect(lineResponse.status()).toBe(201)
+      orderLineId = (await readJson(lineResponse)).id as string
+      expect(orderLineId).toBeTruthy()
 
       const order = listItems(
         await readJson(await apiRequest(request, 'GET', `/api/sales/orders?id=${encodeURIComponent(orderId)}`, { token })),
@@ -74,7 +77,24 @@ test.describe('TC-SALES-032 invoice create/read/delete + totals', () => {
 
       const createResponse = await apiRequest(request, 'POST', '/api/sales/invoices', {
         token,
-        data: { orderId, currencyCode: 'USD', grandTotalNetAmount: 100, grandTotalGrossAmount: 100 },
+        data: {
+          orderId,
+          currencyCode: 'USD',
+          lines: [{
+            orderLineId,
+            lineNumber: 1,
+            kind: 'product',
+            name: 'Invoice line',
+            quantity: 1,
+            currencyCode: 'USD',
+            unitPriceNet: 100,
+            unitPriceGross: 100,
+            totalNetAmount: 100,
+            totalGrossAmount: 100,
+          }],
+          grandTotalNetAmount: 100,
+          grandTotalGrossAmount: 100,
+        },
       })
       expect(createResponse.status(), 'POST /api/sales/invoices should be 201').toBe(201)
       invoiceId = (await readJson(createResponse)).invoiceId as string
@@ -89,11 +109,16 @@ test.describe('TC-SALES-032 invoice create/read/delete + totals', () => {
       expect((created.invoice_number as string).length).toBeGreaterThan(0)
       // The invoice preserves the totals it was created with (matching the order).
       expect(num(created.grand_total_gross_amount)).toBe(orderGross)
-      // Characterization of a known gap (tracked separately): `orderId` is validated on
-      // create (see the unknown-order case below) but the order relation is not persisted,
-      // so `order_id` reads back null. This pins current behavior and will fail — by design —
-      // once the link is persisted, prompting a flip to `expect(created.order_id).toBe(orderId)`.
-      expect(created.order_id).toBeNull()
+      expect(created.order_id).toBe(orderId)
+      expect(created.orderId).toBe(orderId)
+
+      const detail = await readJson(
+        await apiRequest(request, 'GET', `/api/sales/invoices/${encodeURIComponent(invoiceId)}`, { token }),
+      )
+      expect((detail.invoice as JsonRecord).orderId).toBe(orderId)
+      const lines = Array.isArray(detail.lines) ? detail.lines as JsonRecord[] : []
+      expect(lines).toHaveLength(1)
+      expect(lines[0].orderLineId).toBe(orderLineId)
 
       const deleteResponse = await apiRequest(
         request,
