@@ -203,15 +203,42 @@ export function getInjectionRegistryVersion(): number {
   return _injectionRegistryVersion
 }
 
+const injectionRegistryChangeSubscribers = new Set<() => void>()
+let injectionRegistryDomListenerAttached = false
+
+function dispatchInjectionRegistryChangeToSubscribers() {
+  // Snapshot so a subscriber that unsubscribes during fan-out does not skip others.
+  for (const subscriber of Array.from(injectionRegistryChangeSubscribers)) {
+    subscriber()
+  }
+}
+
+/**
+ * Subscribe to injection-registry version changes.
+ *
+ * All subscribers share a single browser-level DOM listener: the first
+ * subscriber attaches the `window` listener and the last one to unsubscribe
+ * detaches it. Registry-change notifications fan out to every subscriber
+ * through an internal callback set so mounting many widget surfaces does not
+ * register one DOM listener per surface (#3320).
+ */
 export function subscribeToInjectionRegistryChanges(listener: () => void): () => void {
   if (typeof window === 'undefined') {
     return () => {}
   }
 
-  const handler = () => listener()
-  window.addEventListener(INJECTION_REGISTRY_CHANGED_EVENT, handler)
+  injectionRegistryChangeSubscribers.add(listener)
+  if (!injectionRegistryDomListenerAttached) {
+    window.addEventListener(INJECTION_REGISTRY_CHANGED_EVENT, dispatchInjectionRegistryChangeToSubscribers)
+    injectionRegistryDomListenerAttached = true
+  }
+
   return () => {
-    window.removeEventListener(INJECTION_REGISTRY_CHANGED_EVENT, handler)
+    injectionRegistryChangeSubscribers.delete(listener)
+    if (injectionRegistryChangeSubscribers.size === 0 && injectionRegistryDomListenerAttached) {
+      window.removeEventListener(INJECTION_REGISTRY_CHANGED_EVENT, dispatchInjectionRegistryChangeToSubscribers)
+      injectionRegistryDomListenerAttached = false
+    }
   }
 }
 
