@@ -1,12 +1,15 @@
 'use client'
 
 import * as React from 'react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@open-mercato/ui/primitives/dialog'
 import {
@@ -409,24 +412,28 @@ export default function PipelineStagesPage() {
                       {stages.map((stage, index) => (
                         <div key={stage.id} className="flex items-center gap-3 px-4 py-3">
                           <div className="flex flex-col gap-1">
-                            <button
+                            <IconButton
                               type="button"
-                              className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+                              variant="ghost"
+                              size="xs"
+                              className="text-muted-foreground hover:text-foreground"
                               onClick={() => moveStage(index, 'up')}
                               disabled={index === 0}
                               aria-label={t('customers.config.pipelineStages.moveUp', 'Move up')}
                             >
-                              ↑
-                            </button>
-                            <button
+                              <ChevronUp className="size-4" />
+                            </IconButton>
+                            <IconButton
                               type="button"
-                              className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+                              variant="ghost"
+                              size="xs"
+                              className="text-muted-foreground hover:text-foreground"
                               onClick={() => moveStage(index, 'down')}
                               disabled={index === stages.length - 1}
                               aria-label={t('customers.config.pipelineStages.moveDown', 'Move down')}
                             >
-                              ↓
-                            </button>
+                              <ChevronDown className="size-4" />
+                            </IconButton>
                           </div>
                           <span className="flex-1 text-sm flex items-center gap-2">
                             {stage.color ? renderDictionaryColor(stage.color) : null}
@@ -476,11 +483,11 @@ export default function PipelineStagesPage() {
                   autoFocus
                 />
               </div>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
+              <label htmlFor="pipeline-is-default" className="flex items-center gap-2 text-sm cursor-pointer">
+                <Checkbox
+                  id="pipeline-is-default"
                   checked={pipelineIsDefault}
-                  onChange={(e) => setPipelineIsDefault(e.target.checked)}
+                  onCheckedChange={(checked) => setPipelineIsDefault(checked === true)}
                 />
                 {t('customers.config.pipelineStages.setAsDefault', 'Set as default pipeline')}
               </label>
