@@ -166,9 +166,11 @@ function resolveFirstRow(
     // Existence probe used by isCustomEntity/hasCustomEntityStorageRows.
     return (config.rows?.custom_entities_storage ?? []).length ? { one: 1 } : undefined
   }
-  // Count subquery / data reads: look for `count` alias in selects.
+  // Count subquery / data reads: look for `count` alias in selects. Kysely's
+  // `AliasedRawBuilderImpl` exposes the alias via a getter named `alias`
+  // (not `name`), and never re-exposes `.as`.
   const hasCount = log.selects.some((s: any) => {
-    try { return String(s?.name ?? s) === 'count' || typeof s?.as === 'function' } catch { return false }
+    try { return String(s?.alias ?? s) === 'count' } catch { return false }
   })
   if (hasCount) return { count: String(table === 'entity_indexes' ? config.indexCount : config.baseCount) }
   if (table === 'entity_indexes') {
@@ -593,7 +595,9 @@ describe('HybridQueryEngine', () => {
     )
 
     const result = await engine.query('customers:customer_entity', {
-      fields: ['id', 'display_name'],
+      // `tenant_id` is requested for output but is not a sort field, so phase 1
+      // (id + sort columns only) should select fewer columns than phase 2 (full row).
+      fields: ['id', 'display_name', 'tenant_id'],
       organizationId: 'org1',
       tenantId: 't1',
       sort: [{ field: 'display_name', dir: SortDir.Asc }],
@@ -602,12 +606,191 @@ describe('HybridQueryEngine', () => {
 
     expect(fallback.query).not.toHaveBeenCalled()
     expect(result.items.map((item: any) => item.display_name)).toEqual(['Charlie', 'Dave'])
-    const dataRead = db._chains
-      .filter((chain: ChainLog) => chain.table === 'customer_entities')
-      .at(-1)
-    expect(dataRead?.orderBys).toEqual([])
-    expect(dataRead?.limit).toBeNull()
-    expect(dataRead?.offset).toBeNull()
+    const customerEntityChains = db._chains.filter((chain: ChainLog) => chain.table === 'customer_entities')
+    // count (optimized path), phase 1 (slim id+sort-column scan), phase 2 (full fetch).
+    expect(customerEntityChains.length).toBe(3)
+    const [phase1Chain, phase2Chain] = customerEntityChains.slice(-2)
+    // Phase 1: no SQL order/limit — the full candidate set is fetched, decrypted,
+    // and sorted in memory.
+    expect(phase1Chain.orderBys).toEqual([])
+    expect(phase1Chain.limit).toBeNull()
+    expect(phase1Chain.selects.length).toBeLessThan(phase2Chain.selects.length)
+    // Phase 2: filtered by `id in [...]`, no SQL order/limit needed since the id
+    // list already bounds it to the page.
+    expect(phase2Chain.orderBys).toEqual([])
+    expect(phase2Chain.limit).toBeNull()
+    expect(phase2Chain.offset).toBeNull()
+    expect(phase2Chain.wheres.some((args: any[]) => args.includes('in'))).toBe(true)
+  })
+
+  test('paginates encrypted-sorted results correctly on page 1 and the tail page', async () => {
+    const db = createFakeKysely({
+      baseTable: 'customer_entities',
+      hasIndexAny: true,
+      baseCount: 5,
+      indexCount: 5,
+      columns: [
+        { table_name: 'customer_entities', column_name: 'id' },
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+        { table_name: 'customer_entities', column_name: 'organization_id' },
+        { table_name: 'customer_entities', column_name: 'deleted_at' },
+        { table_name: 'customer_entities', column_name: 'display_name' },
+      ],
+      rows: {
+        customer_entities: [
+          { id: '3', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-c' },
+          { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-a' },
+          { id: '5', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-e' },
+          { id: '2', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+          { id: '4', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-d' },
+        ],
+      },
+    })
+    const namesById: Record<string, string> = {
+      '1': 'Alice', '2': 'Bob', '3': 'Charlie', '4': 'Dave', '5': 'Eve',
+    }
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(
+      em,
+      fallback as any,
+      () => ({ emitEvent }),
+      undefined,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => ['display_name'],
+        decryptEntityPayload: async (_entityId, payload) => ({
+          display_name: namesById[String(payload.id)],
+        }),
+      }),
+    )
+
+    const page1 = await engine.query('customers:customer_entity', {
+      fields: ['id', 'display_name'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 2 },
+    })
+    expect(page1.items.map((item: any) => item.display_name)).toEqual(['Alice', 'Bob'])
+
+    const page3 = await engine.query('customers:customer_entity', {
+      fields: ['id', 'display_name'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 3, pageSize: 2 },
+    })
+    expect(page3.items.map((item: any) => item.display_name)).toEqual(['Eve'])
+  })
+
+  describe('OM_ENCRYPTED_SORT_MAX_ROWS cap', () => {
+    const originalEnv = process.env.OM_ENCRYPTED_SORT_MAX_ROWS
+
+    afterEach(() => {
+      if (originalEnv === undefined) delete process.env.OM_ENCRYPTED_SORT_MAX_ROWS
+      else process.env.OM_ENCRYPTED_SORT_MAX_ROWS = originalEnv
+    })
+
+    function buildFixture() {
+      const db = createFakeKysely({
+        baseTable: 'customer_entities',
+        hasIndexAny: true,
+        baseCount: 5,
+        indexCount: 5,
+        columns: [
+          { table_name: 'customer_entities', column_name: 'id' },
+          { table_name: 'customer_entities', column_name: 'tenant_id' },
+          { table_name: 'customer_entities', column_name: 'organization_id' },
+          { table_name: 'customer_entities', column_name: 'deleted_at' },
+          { table_name: 'customer_entities', column_name: 'display_name' },
+        ],
+        rows: {
+          customer_entities: [
+            { id: '3', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-c' },
+            { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-a' },
+            { id: '5', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-e' },
+            { id: '2', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+            { id: '4', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-d' },
+          ],
+        },
+      })
+      const namesById: Record<string, string> = {
+        '1': 'Alice', '2': 'Bob', '3': 'Charlie', '4': 'Dave', '5': 'Eve',
+      }
+      const em = buildEm(db)
+      const fallback = { query: jest.fn() }
+      const emitEvent = jest.fn().mockResolvedValue(undefined)
+      const engine = new HybridQueryEngine(
+        em,
+        fallback as any,
+        () => ({ emitEvent }),
+        undefined,
+        () => ({
+          isEnabled: () => true,
+          getEncryptedFieldNames: async () => ['display_name'],
+          decryptEntityPayload: async (_entityId, payload) => ({
+            display_name: namesById[String(payload.id)],
+          }),
+        }),
+      )
+      return { db, engine }
+    }
+
+    test('unset: no limit on the phase-1 scan, no warning', async () => {
+      delete process.env.OM_ENCRYPTED_SORT_MAX_ROWS
+      const { db, engine } = buildFixture()
+      const result = await engine.query('customers:customer_entity', {
+        fields: ['id', 'display_name'],
+        organizationId: 'org1',
+        tenantId: 't1',
+        sort: [{ field: 'display_name', dir: SortDir.Asc }],
+        page: { page: 1, pageSize: 2 },
+      })
+      expect(result.meta?.encryptedSortRowCapWarning).toBeUndefined()
+      const [phase1Chain] = db._chains
+        .filter((chain: ChainLog) => chain.table === 'customer_entities')
+        .slice(-2)
+      expect(phase1Chain.limit).toBeNull()
+    })
+
+    test('set but not exceeded: no warning, identical results to uncapped', async () => {
+      process.env.OM_ENCRYPTED_SORT_MAX_ROWS = '10'
+      const { engine } = buildFixture()
+      const result = await engine.query('customers:customer_entity', {
+        fields: ['id', 'display_name'],
+        organizationId: 'org1',
+        tenantId: 't1',
+        sort: [{ field: 'display_name', dir: SortDir.Asc }],
+        page: { page: 1, pageSize: 2 },
+      })
+      expect(result.meta?.encryptedSortRowCapWarning).toBeUndefined()
+      expect(result.items.map((item: any) => item.display_name)).toEqual(['Alice', 'Bob'])
+    })
+
+    test('set and exceeded: caps + orders the phase-1 scan and attaches a warning', async () => {
+      process.env.OM_ENCRYPTED_SORT_MAX_ROWS = '3'
+      const { db, engine } = buildFixture()
+      const result = await engine.query('customers:customer_entity', {
+        fields: ['id', 'display_name'],
+        organizationId: 'org1',
+        tenantId: 't1',
+        sort: [{ field: 'display_name', dir: SortDir.Asc }],
+        page: { page: 1, pageSize: 2 },
+      })
+      expect(result.meta?.encryptedSortRowCapWarning).toEqual({
+        entity: 'customers:customer_entity',
+        sortFields: ['display_name'],
+        maxRows: 3,
+        totalMatched: 5,
+      })
+      const [phase1Chain] = db._chains
+        .filter((chain: ChainLog) => chain.table === 'customer_entities')
+        .slice(-2)
+      expect(phase1Chain.limit).toBe(3)
+      expect(phase1Chain.orderBys).toEqual([['b.id', 'asc']])
+    })
   })
 
   test('joins entity index aliases for customFieldSources', async () => {
