@@ -212,6 +212,9 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
           }))
         } catch (error) {
           console.error(`[events] Handler error for "${event}" (pattern: "${pattern}"):`, error)
+          if (options?.rethrowHandlerErrors) {
+            throw error
+          }
         }
       }
     }
