@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict } from '@open-mercato/shared/lib/crud/errors'
 import { Notification, type NotificationStatus } from '../data/entities'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
 import type { NotificationPollData } from '@open-mercato/shared/modules/notifications/types'
@@ -448,6 +448,34 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         throw new Error('Action not found')
       }
 
+      // Reject an already-actioned notification before dispatching the command,
+      // so a retry or double-click cannot re-run the side effect.
+      if (notification.status === 'actioned') {
+        throw conflict('Notification action already executed')
+      }
+
+      const actionedAt = new Date()
+
+      // Atomically claim the notification so only one concurrent request can run
+      // the side-effecting command. The conditional UPDATE matches only while the
+      // notification has not been actioned yet; a losing request updates 0 rows.
+      const claimResult = (await getDb(em)
+        .updateTable('notifications' as any)
+        .set({
+          status: 'actioned',
+          actioned_at: actionedAt,
+          action_taken: input.actionId,
+        } as any)
+        .where('id' as any, '=', notification.id)
+        .where('recipient_user_id' as any, '=', ctx.userId as any)
+        .where('tenant_id' as any, '=', ctx.tenantId)
+        .where('status' as any, '!=', 'actioned')
+        .executeTakeFirst()) as { numUpdatedRows?: bigint | number } | undefined
+
+      if (Number(claimResult?.numUpdatedRows ?? 0) === 0) {
+        throw conflict('Notification action already executed')
+      }
+
       let result: unknown = null
 
       if (action.commandId && commandBus && container) {
@@ -483,7 +511,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       }
 
       notification.status = 'actioned'
-      notification.actionedAt = new Date()
+      notification.actionedAt = actionedAt
       notification.actionTaken = input.actionId
       notification.actionResult = result as Record<string, unknown>
 
