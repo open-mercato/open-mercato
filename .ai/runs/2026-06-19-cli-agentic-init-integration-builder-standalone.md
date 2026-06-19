@@ -30,5 +30,5 @@ Make the CLI agentic scaffolder (`mercato agentic:init` → `packages/cli/src/li
 
 ### Phase 1: Fix scaffolder + verify
 
-- [ ] 1.1 Add conditional STANDALONE.md copy for om-integration-builder in agentic-setup.ts
-- [ ] 1.2 Build CLI package and run affected unit + integration tests, typecheck
+- [x] 1.1 Add conditional STANDALONE.md copy for om-integration-builder in agentic-setup.ts — 0699704b4
+- [x] 1.2 Build CLI package and run affected unit + integration tests, typecheck — 0699704b4 (agentic-init.test.ts 12/12, TC-INT-008 passing, cli typecheck clean)
