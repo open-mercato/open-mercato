@@ -47,12 +47,12 @@ SSRF). Vulnerable versions: `<=9.0.0`. Patched: `9.0.1`.
 
 ### Phase 1: Remediate nodemailer
 
-- [ ] 1.1 Bump `nodemailer` to `^9.0.1` in `packages/channel-imap/package.json`
-- [ ] 1.2 Add `nodemailer` resolution (`9.0.1`) to root `package.json`
-- [ ] 1.3 Bump `undici` resolution `7.24.0 → 7.28.0` (second high surfaced by the same audit step)
-- [ ] 1.4 Regenerate `yarn.lock` via `yarn install`
+- [x] 1.1 Bump `nodemailer` to `^9.0.1` in `packages/channel-imap/package.json` — ead3e9e89
+- [x] 1.2 Add `nodemailer` resolution (`9.0.1`) to root `package.json` — ead3e9e89
+- [x] 1.3 Bump `undici` resolution `7.24.0 → 7.28.0` (second high surfaced by the same audit step) — ead3e9e89
+- [x] 1.4 Regenerate `yarn.lock` via `yarn install` — ead3e9e89
 
 ### Phase 2: Verify
 
-- [ ] 2.1 Confirm `yarn npm audit --all --recursive --severity high` exits 0 (no high findings)
-- [ ] 2.2 Build + typecheck channel-imap; run channel-imap unit tests
+- [x] 2.1 Confirm `yarn npm audit --all --recursive --severity high` exits 0 (no high findings) — "No audit suggestions", exit 0
+- [x] 2.2 Build + typecheck channel-imap; run channel-imap unit tests — build ok, typecheck clean, 109/109 tests pass; `yarn install --immutable` clean
