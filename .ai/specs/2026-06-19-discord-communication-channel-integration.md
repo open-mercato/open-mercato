@@ -149,7 +149,7 @@ those conversations, notifications, and (optionally) an AI assistant inside Open
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Transport for inbound messages | Gateway WebSocket worker (not HTTP webhook) | Discord does not POST normal messages to a webhook; bots must connect to the Gateway. Mirrors how `channel-gmail` runs a worker, but socket-driven instead of poll-driven. |
+| Transport for inbound messages | Gateway WebSocket worker (not HTTP webhook) | Discord does not POST normal messages to a webhook; bots must connect to the Gateway. The email providers are poll/push-driven by the hub's own workers; Discord introduces a *provider-owned* long-running worker (a new pattern, allowed because `workers/*.ts` auto-discovers in any module). |
 | Transport for slash commands / buttons | Signed HTTP Interactions endpoint | Discord *does* POST interactions to a configured URL with Ed25519 signing — fits the hub's `api/post/webhook/[provider]` route + `verifyWebhook`. |
 | Outbound | Discord REST API from `sendMessage` | Standard bot send; no socket needed for sending. |
 | Identity model | Bot token per Discord channel (guild/bot), not per-end-user OAuth | A bot posts as itself; end users are external senders resolved to CRM contacts via `resolveContact`. "Login with Discord" identity is out of scope. |
@@ -251,6 +251,12 @@ those conversations, notifications, and (optionally) an AI assistant inside Open
 
 - File: `packages/channel-discord/src/modules/channel_discord/workers/discord-gateway.ts`
   (auto-discovered worker; `metadata = { queue: 'channel_discord_gateway', concurrency: 1 }`).
+  **New pattern note**: this is a *provider-owned* long-running worker, which neither reference
+  package ships — `channel-gmail` and `channel-imap` have no `workers/` directory; the hub itself
+  owns the polling/push workers (`communication_channels/workers/{poll-channel,poll-tick,inbound-processor,gmail-history-sync}.ts`).
+  A worker file under any module's `workers/` is auto-discovered, so a provider package shipping
+  one is allowed by the framework — it is simply novel relative to the email providers, which are
+  poll/push-driven by the hub rather than socket-driven by the provider.
 - On boot / channel-connect, opens one Gateway connection per active `discord` channel
   (`is_active`, not deleted). Performs the Identify handshake with the bot token and the declared
   **gateway intents** (`GUILDS`, `GUILD_MESSAGES`, `MESSAGE_CONTENT`, `GUILD_MESSAGE_REACTIONS`,
