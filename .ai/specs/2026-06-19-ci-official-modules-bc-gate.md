@@ -9,7 +9,7 @@
 - Layer 1: a versioned `contract-surface.snapshot.json` (exported symbol names + generated registries + `package.json` `exports`/`files`/`types`) and a diff test that runs in the existing `verify` job. Removals fail; additions pass.
 - Layer 2: a new `official-modules-bc` CI job — publish PR canary packages to Verdaccio (reuse `scripts/lib/verdaccio.ts` + `scripts/registry/publish.sh`), checkout `official-modules` at a pinned ref, install against the canary registry, run its `typecheck` + `test`.
 - Layer 2b: a new `official-modules-runtime-smoke` CI job — install the same canary modules into the official-modules **sandbox app**, activate them, `generate` + `initialize` (migrate + seed) against a Postgres + Redis service, boot the app, and assert `/api/healthz` plus a few activated-module routes return 200. Mirrors the existing `ephemeral-integration` pattern.
-- A `touches_contract` change-detection output in the existing `prepare` job, true for **any** `packages/*/src/**` change, to path-gate Layers 2 and 2b.
+- A `touches_contract` change-detection output in the existing `prepare` job, true when the diff touches the **framework/extensibility machinery** (the surfaces official modules build on) **OR** Layer 1 detected a contract-surface change **OR** the run is a push to `develop`/`main` (backstop), to path-gate Layers 2 and 2b. It is a *cost filter*, not a correctness gate.
 - A `bcTestRef` field in the committed `official-modules.json`.
 - Rollout: Layer 2 advisory (`continue-on-error`) first, then required with a `bc-break-approved` label opt-out.
 
@@ -39,7 +39,7 @@ The audience is platform maintainers shipping changes to `packages/*`, and third
 | Lightweight snapshot (names + registries + `package.json`), not `api-extractor` | No new heavy dev dependency; reuses the existing snapshot idiom; runs in seconds inside `verify`. Signature-level diffing is a clearly-scoped future phase. |
 | Verdaccio canary install, not `link:`/workspace resolution | Mirrors how third parties actually consume the packages — catches `exports`/`files`/`types` packaging regressions that linking by directory hides. Reuses `ensureVerdaccioPublished`. |
 | Pinned `bcTestRef` in `official-modules.json`, bumped deliberately | Prevents upstream churn from turning into false reds on open-mercato PRs. One source of truth for everything about the official-modules submodule. |
-| Trigger Layer 2 on **any** `packages/*/src/**` change | Maximum safety; the contract surface spans more than the core packages, and the path-gate already skips the ~majority of PRs (docs/CI/scripts/app-only). |
+| Trigger 2/2b on framework/extensibility machinery **OR** Layer 1 surface diff, not on "any `packages/*/src`" | "Any source change" over-fires on internal edits that cannot affect downstream modules (a pure refactor inside one business module's guts). The jobs are *behavioral* tests, so a path filter is inherently a cost/coverage trade-off — we target exactly the surfaces official modules consume (how routes are built, how core is extended) and add Layer 1's semantic diff as a backstop for declared-surface changes anywhere. Residual blind spot (internal behavioral change in a business module an official module extends via events/extensions) is caught by the push-to-`develop` backstop run. |
 | Advisory → required with `bc-break-approved` opt-out | The two-repo flow is not atomic; a hard block on day one would dead-end intentional, protocol-following breaks. Advisory first calibrates flakiness; the label is the auditable escape hatch. |
 
 ### Alternatives Considered
@@ -88,7 +88,18 @@ A new `official-modules-runtime-smoke` job, `needs: prepare`, gated by `touches_
 Scope guardrails: this is a **smoke** probe, not the full official-modules integration suite (that heavier option was explicitly deferred). It checks "boots + serves", not end-to-end module behavior. Health-probe targets are derived from the activated module set, not hand-maintained per module.
 
 ### CI wiring
-- **`prepare` job**: add a `touches_contract` output computed in the existing change-detection step (one extra grep `^packages/.*/src/` over the same `git diff`). For non-PR pushes (develop/main) it is `true` so post-merge runs still execute.
+- **`prepare` job — `touches_contract` output** (computed over the same `git diff` the change-detection step already runs). `true` when **any** of:
+  - **(a) framework/extensibility machinery paths** — the surfaces official modules consume/extend:
+    - `packages/shared/src/lib/crud/**` (route factory `factory.ts`, `api-interceptor.ts`, interceptor/enricher registries, `response-enricher.ts` — *how routes are built and extended*)
+    - `packages/shared/src/modules/**` (`dsl.ts`, `registry.ts`, events/workflows `factory.ts` — *the extension DSL + event definitions*)
+    - `packages/shared/src/lib/{commands,data,di,bootstrap}/**` (command bus, data/query engine, DI container, module bootstrap)
+    - `packages/events/src/**` (event bus)
+    - `packages/cli/src/lib/generators/**` (auto-discovery: how module registries / routes / entities are generated)
+    - `packages/ui/src/**` (primitives modules consume: `CrudForm`, `DataTable`, `apiCall`, `useGuardedMutation`, widget-injection hooks)
+    - `packages/core/src/lib/**` (core framework lib — already singled out by the existing `FULL_SUITE_PATTERN`)
+  - **(b)** Layer 1 detected a non-empty contract-surface diff (any export / registry id / `package.json` export change, in *any* package — semantic backstop for paths not in the list above).
+  - **(c)** the run is a push to `develop`/`main` (post-merge backstop, covers the internal-behavioral-change blind spot).
+  - The path list lives next to the existing `FULL_SUITE_PATTERN` and is meant to be **tuned over time** as new extension points are added; it is a cost heuristic, so erring toward inclusion is cheap (an extra advisory run) and erring toward exclusion is covered by (b)/(c).
 - **New jobs**: both `official-modules-bc` and `official-modules-runtime-smoke` carry `if: needs.prepare.outputs.touches_contract == 'true'`. Phase 2 / 2b `continue-on-error: true`. Phase 3 promotes **Layer 2** to required and adds `&& !contains(github.event.pull_request.labels.*.name, 'bc-break-approved')` (label opt-out applies to `pull_request`; pushes always run). **Layer 2b stays advisory longer** (its own promotion decision after its flake rate is measured) — it is not coupled to Layer 2's promotion.
 
 ## Configuration
@@ -112,7 +123,7 @@ Scope guardrails: this is a **smoke** probe, not the full official-modules integ
 ### Phase 2: Layer 2 — downstream smoke job (advisory)
 1. Add `bcTestRef` to `official-modules.json`, initialized to a known-good ref.
 2. `scripts/registry/inject-canary-resolutions.mjs` — read published `@open-mercato/*` name+version, write exact-version `resolutions` into a target repo's root `package.json`. Unit-test the rewrite.
-3. Add `touches_contract` output to `prepare`'s change-detection step.
+3. Add the `touches_contract` output to `prepare`'s change-detection step — the (a) machinery-path allowlist + (b) Layer 1 surface-diff signal + (c) push-to-`develop`/`main` backstop (see CI wiring). Keep the path allowlist beside the existing `FULL_SUITE_PATTERN`.
 4. Add the `official-modules-bc` job (`continue-on-error: true`): download artifacts → install → Verdaccio publish → checkout `official-modules@bcTestRef` → point at Verdaccio + inject resolutions → install → `typecheck` + `test`.
 5. PR-comment-on-failure step (requires `pull-requests: write` scoped to this job — see Security impact).
 6. Calibrate over a window of real PRs; record false-red rate.
@@ -176,6 +187,13 @@ Scope guardrails: this is a **smoke** probe, not the full official-modules integ
 - **Mitigation**: Advisory in Phase 2; in Phase 3 the `bc-break-approved` label is the auditable opt-out (gated on deprecation protocol + RELEASE_NOTES entry, per `BACKWARD_COMPATIBILITY.md`).
 - **Residual risk**: Relies on reviewer discipline to apply the label only with a real coordinated plan. Acceptable.
 
+#### Trigger false-negative (a real break runs no cross-repo job)
+- **Scenario**: A behavioral change inside a core business module that an official module extends (via events/extensions) touches none of the `touches_contract` machinery paths and produces no Layer 1 surface diff — so Layers 2/2b never run on the PR that introduces it.
+- **Severity**: Medium
+- **Affected area**: Coverage completeness of the gate.
+- **Mitigation**: The push-to-`develop`/`main` backstop runs both jobs post-merge unconditionally, so the break is caught on the merge commit (just not on the PR). The machinery-path allowlist is tunable and erring toward inclusion is cheap.
+- **Residual risk**: Detection can lag from PR-time to merge-time for this narrow class. Acceptable given the jobs are advisory and the backstop bounds the lag to one merge.
+
 #### Runtime smoke cost & flakiness (Layer 2b)
 - **Scenario**: Booting the sandbox with a real DB takes minutes and is more flake-prone (migration timing, port readiness, seed data) than typecheck, slowing CI and producing spurious reds.
 - **Severity**: Medium
@@ -238,3 +256,4 @@ Scope guardrails: this is a **smoke** probe, not the full official-modules integ
 ### [2026-06-19]
 - Initial specification. Open Questions resolved: Layer 1 lightweight (names + registries + `package.json`); pin in `official-modules.json` `bcTestRef`; registry-consumption model verified against `official-modules`; `touches_contract` triggers on any `packages/*/src/**` change.
 - Added **Layer 2b — runtime smoke** (boot + health): activate modules in the official-modules sandbox app, `generate` + `initialize` against ephemeral Postgres+Redis, boot, and probe `/api/healthz` + a few activated-module routes. Advisory; mirrors the existing `ephemeral-integration` job; promotion decided independently of Layer 2. Closes the "compiles + unit-passes but doesn't actually boot with these modules" gap.
+- Redefined **`touches_contract`** from "any `packages/*/src/**` change" to a targeted hybrid: (a) framework/extensibility machinery paths (crud route factory, interceptors/enrichers, DSL, DI, command bus, data engine, event bus, generators, UI primitives, core lib) **OR** (b) a non-empty Layer 1 contract-surface diff **OR** (c) a push to `develop`/`main` backstop. Aligns the trigger with "logic that changes how modules are built/extended" instead of incidental internal edits; documents the residual blind spot + backstop.
