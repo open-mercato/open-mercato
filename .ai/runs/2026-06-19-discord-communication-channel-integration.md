@@ -87,11 +87,11 @@ messages are answered automatically. The spec MUST document how to configure Dis
 
 ### Phase 1: Spec authoring
 
-- [ ] 1.1 Spec skeleton with all MUST sections
-- [ ] 1.2 Architecture + adapter-method mapping
-- [ ] 1.3 Configure / Run / Test Discord runbook
-- [ ] 1.4 AI-bot wiring section
-- [ ] 1.5 Self-review for accuracy + BC/DS compliance
+- [x] 1.1 Spec skeleton with all MUST sections — pending-sha
+- [x] 1.2 Architecture + adapter-method mapping — pending-sha
+- [x] 1.3 Configure / Run / Test Discord runbook — pending-sha
+- [x] 1.4 AI-bot wiring section — pending-sha
+- [x] 1.5 Self-review for accuracy + BC/DS compliance (verified command ids `communication_channels.message.deliver_outbound` / `…ingest_inbound`, channelType string union, dedicated-gmail-route precedent) — pending-sha
 
 ### Phase 2: PR finalization
 
