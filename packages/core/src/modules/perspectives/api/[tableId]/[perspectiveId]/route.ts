@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { deleteUserPerspective } from '@open-mercato/core/modules/perspectives/services/perspectiveService'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { perspectivesTag, perspectivesErrorSchema, perspectivesSuccessSchema } from '../../openapi'
@@ -40,15 +41,23 @@ export async function DELETE(req: Request, ctx: { params: { tableId: string; per
     }
   })()
 
-  await deleteUserPerspective(em, cache, {
-    scope: {
-      userId: auth.sub,
-      tenantId: auth.tenantId ?? null,
-      organizationId: auth.orgId ?? null,
-    },
-    tableId,
-    perspectiveId,
-  })
+  try {
+    await deleteUserPerspective(em, cache, {
+      scope: {
+        userId: auth.sub,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+      },
+      tableId,
+      perspectiveId,
+      request: req,
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    throw err
+  }
 
   return NextResponse.json({ success: true })
 }
@@ -68,6 +77,7 @@ const perspectiveDeleteDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Invalid identifiers supplied', schema: perspectivesErrorSchema },
     { status: 401, description: 'Authentication required', schema: perspectivesErrorSchema },
+    { status: 409, description: 'Optimistic lock conflict', schema: perspectivesErrorSchema },
     { status: 404, description: 'Perspective not found', schema: perspectivesErrorSchema },
   ],
 }

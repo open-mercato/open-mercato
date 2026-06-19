@@ -1179,6 +1179,7 @@ export function DataTable<T>({
           perspectives: [],
           defaultPerspectiveId: null,
           rolePerspectives: [],
+          manageableRolePerspectives: [],
           roles: [],
           canApplyToRoles: false,
         }
@@ -1711,9 +1712,28 @@ export function DataTable<T>({
   }
 
   const perspectiveQueryKey: [string, string | null] = ['table-perspectives', perspectiveTableId]
+  const rolePerspectivesForLocking = React.useMemo(
+    () => perspectiveData?.manageableRolePerspectives ?? perspectiveData?.rolePerspectives ?? [],
+    [perspectiveData],
+  )
   const savePerspectiveMutation = useMutation<PerspectiveSaveResponse, Error, SavePerspectivePayload>({
     mutationFn: async (input) => {
       if (!perspectiveTableId) throw new Error('Missing table id')
+      const roleExpectedUpdatedAtByRoleId: Record<string, string> = {}
+      const roleExpectedUpdatedAtByPerspectiveId: Record<string, string> = {}
+      for (const roleId of input.applyToRoles) {
+        const rolePerspectives = rolePerspectivesForLocking.filter((p) => p.roleId === roleId)
+        const matching = rolePerspectives.find((p) => p.name.trim() === input.name.trim()) ?? null
+        const defaultPerspective = input.setRoleDefault
+          ? rolePerspectives.find((p) => p.isDefault) ?? null
+          : null
+        for (const candidate of [matching, defaultPerspective]) {
+          if (!candidate?.updatedAt) continue
+          roleExpectedUpdatedAtByPerspectiveId[candidate.id] = candidate.updatedAt
+        }
+        const roleFallback = matching ?? defaultPerspective
+        if (roleFallback?.updatedAt) roleExpectedUpdatedAtByRoleId[roleId] = roleFallback.updatedAt
+      }
       const payload = {
         perspectiveId: input.perspectiveId ?? undefined,
         name: input.name,
@@ -1721,6 +1741,12 @@ export function DataTable<T>({
         isDefault: input.isDefault,
         applyToRoles: input.applyToRoles,
         setRoleDefault: input.setRoleDefault,
+        ...(Object.keys(roleExpectedUpdatedAtByRoleId).length > 0
+          ? { roleExpectedUpdatedAtByRoleId }
+          : {}),
+        ...(Object.keys(roleExpectedUpdatedAtByPerspectiveId).length > 0
+          ? { roleExpectedUpdatedAtByPerspectiveId }
+          : {}),
       }
       if (process.env.NODE_ENV !== 'production') {
         // eslint-disable-next-line no-console
@@ -1786,9 +1812,13 @@ export function DataTable<T>({
   const deletePerspectiveMutation = useMutation<void, Error, { perspectiveId: string }>({
     mutationFn: async ({ perspectiveId }) => {
       if (!perspectiveTableId) throw new Error('Missing table id')
-      const call = await apiCall(
-        `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`,
-        { method: 'DELETE' },
+      const existing = perspectiveData?.perspectives.find((p) => p.id === perspectiveId) ?? null
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(existing?.updatedAt ?? null),
+        () => apiCall(
+          `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`,
+          { method: 'DELETE' },
+        ),
       )
       if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
       if (!call.ok) {
@@ -1817,14 +1847,35 @@ export function DataTable<T>({
         initialPerspectiveAppliedRef.current = false
       }
     },
+    onError: (error) => {
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+      }
+      surfaceRecordConflict(error, t)
+    },
   })
 
-  const clearRoleMutation = useMutation<void, Error, { roleId: string }>({
-    mutationFn: async ({ roleId }) => {
+  const clearRoleMutation = useMutation<void, Error, {
+    roleId: string
+    updatedAt?: string | null
+    expectedUpdatedAtByPerspectiveId?: Record<string, string>
+  }>({
+    mutationFn: async ({ roleId, updatedAt, expectedUpdatedAtByPerspectiveId }) => {
       if (!perspectiveTableId) throw new Error('Missing table id')
-      const call = await apiCall(
-        `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`,
-        { method: 'DELETE' },
+      const hasPerRowVersions = expectedUpdatedAtByPerspectiveId
+        && Object.keys(expectedUpdatedAtByPerspectiveId).length > 0
+      const call = await withScopedApiRequestHeaders(
+        hasPerRowVersions ? {} : buildOptimisticLockHeader(updatedAt ?? null),
+        () => apiCall(
+          `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`,
+          hasPerRowVersions
+            ? {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ roleExpectedUpdatedAtByPerspectiveId: expectedUpdatedAtByPerspectiveId }),
+            }
+            : { method: 'DELETE' },
+        ),
       )
       if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
       if (!call.ok) {
@@ -1853,6 +1904,12 @@ export function DataTable<T>({
         }
       }
     },
+    onError: (error) => {
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+      }
+      surfaceRecordConflict(error, t)
+    },
   })
 
   const handlePerspectiveActivate = React.useCallback((item: PerspectiveDto | RolePerspectiveDto, _source?: 'personal' | 'role') => {
@@ -1875,9 +1932,18 @@ export function DataTable<T>({
     await deletePerspectiveMutation.mutateAsync({ perspectiveId })
   }, [deletePerspectiveMutation])
 
-  const handleClearRole = React.useCallback(async (roleId: string) => {
-    await clearRoleMutation.mutateAsync({ roleId })
-  }, [clearRoleMutation])
+  const handleClearRole = React.useCallback(async (perspective: RolePerspectiveDto) => {
+    const expectedUpdatedAtByPerspectiveId = Object.fromEntries(
+      rolePerspectivesForLocking
+        .filter((item) => item.roleId === perspective.roleId && item.updatedAt)
+        .map((item) => [item.id, item.updatedAt as string]),
+    )
+    await clearRoleMutation.mutateAsync({
+      roleId: perspective.roleId,
+      updatedAt: perspective.updatedAt ?? null,
+      expectedUpdatedAtByPerspectiveId,
+    })
+  }, [clearRoleMutation, rolePerspectivesForLocking])
 
   const handleColumnChooserToggle = React.useCallback((key: string) => {
     const column = table.getColumn(key)
