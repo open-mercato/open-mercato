@@ -204,21 +204,29 @@ export function ActivitiesSection({
         return
       }
 
-      // In legacy mode, also fetch legacy activities and merge with canonical
+      // In legacy mode, also fetch legacy activities and merge with canonical.
+      // Legacy pages use known page numbers, so once loadedPages is fixed we can request
+      // every page concurrently instead of awaiting them one at a time.
+      const legacyPayloads = await Promise.all(
+        Array.from({ length: loadedPages }, (_unused, index) => {
+          const legacyParams = new URLSearchParams({
+            entityId,
+            page: String(index + 1),
+            pageSize: '50',
+            sortField: 'occurredAt',
+            sortDir: 'desc',
+          })
+          if (dealId) legacyParams.set('dealId', dealId)
+          return readApiResultOrThrow<{ items?: ActivitySummary[]; totalPages?: number }>(
+            `/api/customers/activities?${legacyParams.toString()}`,
+          ).catch(() => ({ items: [] as ActivitySummary[], totalPages: 1 }))
+        }),
+      )
+
+      // Consume payloads in page order so merge/dedup ordering stays stable.
       const legacyItems: InteractionSummary[] = []
       let legacyTotalPages = 1
-      for (let legacyPage = 1; legacyPage <= loadedPages; legacyPage += 1) {
-        const legacyParams = new URLSearchParams({
-          entityId,
-          page: String(legacyPage),
-          pageSize: '50',
-          sortField: 'occurredAt',
-          sortDir: 'desc',
-        })
-        if (dealId) legacyParams.set('dealId', dealId)
-        const legacyPayload = await readApiResultOrThrow<{ items?: ActivitySummary[]; totalPages?: number }>(
-          `/api/customers/activities?${legacyParams.toString()}`,
-        ).catch(() => ({ items: [] as ActivitySummary[], totalPages: 1 }))
+      for (const legacyPayload of legacyPayloads) {
         legacyItems.push(...(Array.isArray(legacyPayload?.items) ? legacyPayload.items.map(normalizeLegacyActivity) : []))
         legacyTotalPages = typeof legacyPayload?.totalPages === 'number' ? legacyPayload.totalPages : legacyTotalPages
       }

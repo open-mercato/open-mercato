@@ -324,4 +324,57 @@ describe('Customer ActivitiesSection wrapper', () => {
     fireEvent.keyDown(window, { key: '1', metaKey: true })
     expect(document.activeElement).not.toBe(searchInput)
   })
+
+  it('dispatches legacy fallback pages in parallel once the page count is known', async () => {
+    const legacyDispatchedPages: string[] = []
+    let firstLegacyPageResolved = false
+    readApiResultOrThrowMock.mockImplementation((url: string) => {
+      if (url.includes('/api/customers/interactions?')) {
+        return Promise.resolve({ items: [] })
+      }
+      if (url.includes('/api/customers/activities?')) {
+        const page = new URL(url, 'http://localhost').searchParams.get('page') ?? ''
+        legacyDispatchedPages.push(page)
+        // First page-1 fetch resolves so a second page exists ("Load more" appears);
+        // every later legacy fetch hangs so sequential code would block before page 2.
+        if (page === '1' && !firstLegacyPageResolved) {
+          firstLegacyPageResolved = true
+          return Promise.resolve({
+            items: [
+              {
+                id: 'legacy-1',
+                activityType: 'note',
+                subject: 'Legacy note',
+                occurredAt: '2026-06-15T10:00:00.000Z',
+                createdAt: '2026-06-15T10:00:00.000Z',
+              },
+            ],
+            totalPages: 3,
+          })
+        }
+        return new Promise(() => {})
+      }
+      return Promise.resolve({ items: [] })
+    })
+
+    renderWithProviders(
+      <CustomerActivitiesSection
+        entityId="company-123"
+        addActionLabel="Log activity"
+        emptyState={{ title: 'No activities logged yet', actionLabel: 'Log activity' }}
+      />,
+    )
+
+    const loadMore = await screen.findByRole('button', { name: 'Load more' })
+    legacyDispatchedPages.length = 0
+    fireEvent.click(loadMore)
+
+    // After "Load more" the component fetches legacy pages 1 and 2. With a parallel
+    // dispatch both are requested even though page 1 is still pending; sequential code
+    // would await the hanging page-1 fetch and never reach page 2.
+    await waitFor(() => {
+      expect(legacyDispatchedPages).toContain('2')
+    })
+    expect(legacyDispatchedPages).toContain('1')
+  })
 })
