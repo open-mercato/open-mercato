@@ -44,6 +44,11 @@ function registerTestModules() {
           docs: { methods: { GET: { summary: 'List options' } } },
         },
         {
+          path: '/api/business_rules/rules/options',
+          handlers: { GET: handler },
+          docs: { methods: { GET: { summary: 'List business rule options' } } },
+        },
+        {
           path: '/api/docs/openapi',
           handlers: { GET: handler },
           docs: { methods: { GET: { summary: 'OpenAPI docs' } } },
@@ -150,6 +155,7 @@ describe('Business Rules API - /api/business_rules/openmercato-call-options', ()
     ])
     expect(body.endpoints.map((endpoint: any) => endpoint.path)).not.toContain('/api/docs/openapi')
     expect(body.endpoints.map((endpoint: any) => endpoint.path)).not.toContain('/api/business_rules/openmercato-call-options')
+    expect(body.endpoints.map((endpoint: any) => endpoint.path)).not.toContain('/api/business_rules/rules/options')
     expect(body.endpoints.map((endpoint: any) => endpoint.path)).not.toContain('/api/business_rules/rules/{id}')
     expect(body.endpoints.map((endpoint: any) => endpoint.path)).not.toContain('/api/business_rules/deprecated')
 

@@ -31,12 +31,17 @@ function isOpenMercatoCallMethod(value: string): value is OpenMercatoCallMethod 
   return OPENMERCATO_CALL_METHODS.includes(value as OpenMercatoCallMethod)
 }
 
+function hasPathSegment(path: string, segment: string): boolean {
+  return path.split('/').some((part) => part === segment)
+}
+
 function shouldExposeEndpoint(path: string, method: string, operation: Record<string, any>): boolean {
   if (!isOpenMercatoCallMethod(method.toUpperCase())) return false
   if (!path.startsWith('/api/')) return false
   if (path.includes('{')) return false
   if (path.includes('[')) return false
   if (path.startsWith('/api/docs')) return false
+  if (hasPathSegment(path, 'options')) return false
   if (path === '/api/business_rules/openmercato-call-options') return false
   if (operation.deprecated === true) return false
   return true
@@ -129,6 +134,7 @@ async function collectOpenMercatoEndpointOptionsFromApiRouteManifests(
     if (!path.startsWith('/api/')) continue
     if (path.includes('[')) continue
     if (path.startsWith('/api/docs')) continue
+    if (hasPathSegment(path, 'options')) continue
     if (path === '/api/business_rules/openmercato-call-options') continue
 
     let routeDoc: OpenApiRouteDoc | undefined

@@ -1,4 +1,7 @@
-import { dedupeOpenMercatoEndpointOptions } from '../openmercato-call-options'
+import {
+  collectOpenMercatoEndpointOptionsFromDocument,
+  dedupeOpenMercatoEndpointOptions,
+} from '../openmercato-call-options'
 import type { OpenMercatoEndpointOption } from '../openmercato-call-options-types'
 
 describe('OpenMercato call options', () => {
@@ -48,5 +51,29 @@ describe('OpenMercato call options', () => {
         operationId: null,
       },
     ])
+  })
+
+  test('excludes docs, options, path-parameter, and deprecated endpoints from OpenAPI documents', () => {
+    const options = collectOpenMercatoEndpointOptionsFromDocument({
+      paths: {
+        '/api/currencies/currencies': {
+          get: { summary: 'List currencies' },
+        },
+        '/api/currencies/currencies/options': {
+          get: { summary: 'List currency options' },
+        },
+        '/api/docs/openapi': {
+          get: { summary: 'OpenAPI docs' },
+        },
+        '/api/currencies/currencies/{id}': {
+          get: { summary: 'Read currency' },
+        },
+        '/api/currencies/deprecated': {
+          get: { summary: 'Deprecated currencies', deprecated: true },
+        },
+      },
+    })
+
+    expect(options.map((option) => option.id)).toEqual(['GET /api/currencies/currencies'])
   })
 })
