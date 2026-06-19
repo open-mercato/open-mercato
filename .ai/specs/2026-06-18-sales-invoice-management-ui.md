@@ -84,6 +84,14 @@ Returns:
 - `/backend/sales/invoices/[id]`
 - `/backend/sales/documents/[id]?kind=order` invoice tab
 
+## Migration & Backward Compatibility
+
+- The API change is additive: `GET /api/sales/invoices/[id]` is a new detail route, and existing invoice list/create/update/delete routes remain available.
+- Invoice list normalization adds camelCase aliases for UI consumers while preserving existing response fields.
+- New backend invoice pages and page metadata add auto-discovered routes; no existing backend routes, page metadata exports, or route conventions are renamed or removed.
+- No database schema changes or migrations are required.
+- ACL usage stays on the existing `sales.invoices.manage` feature; no new feature IDs are introduced.
+
 ## Integration Coverage
 
 - API route tests cover invoice route exports and the new invoice detail route metadata/OpenAPI export.
@@ -95,7 +103,7 @@ Returns:
 - **Duplicate invoice semantics:** The create command rejects a second invoice for the same order. This protects the UI's one-full-invoice behavior but may need future expansion for partial invoices.
 - **Money/order flow impact:** Invoice creation touches sales totals and source order linkage. Mitigation: reuse existing totals from the order and preserve command-backed writes.
 - **ACL impact:** Invoice pages and detail API require `sales.invoices.manage`, matching existing invoice route behavior.
-- **UI evidence:** The PR should remain draft until a public-safe screenshot or recording is attached, or a public-safe explanation says visual evidence is pending.
+- **UI evidence:** The PR should remain draft until a screenshot or recording is attached, or the PR body clearly says screenshots or recording are pending before review.
 
 ## Final Compliance Report
 
@@ -109,3 +117,4 @@ Returns:
 ## Changelog
 
 - 2026-06-18: Added the invoice management UI spec for sales invoice list/detail pages and order-detail invoice creation.
+- 2026-06-19: Added migration and backward compatibility notes for the upstream contribution review gate.
