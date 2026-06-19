@@ -462,9 +462,8 @@ export function EditActionDialog({
 
     setIsSaving(true)
     const result = await runMutation({
-      // TODO(#2373-D): thread updatedAt — ActionDetail type lives outside this file's edit scope
       operation: () => withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(undefined),
+        buildOptimisticLockHeader(action.updatedAt),
         () => apiCall<{ ok: boolean; error?: string }>(
           `/api/inbox_ops/proposals/${action.proposalId}/actions/${action.id}`,
           { method: 'PATCH', body: JSON.stringify({ payload: finalPayload }) },
