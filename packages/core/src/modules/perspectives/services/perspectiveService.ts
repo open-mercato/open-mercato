@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { Perspective, RolePerspective } from '../data/entities'
 import type {
@@ -247,6 +248,23 @@ export async function saveUserPerspective(
       current: entity.updatedAt ?? null,
       request: options.request ?? null,
     })
+    if (entity.name !== input.name) {
+      const duplicate = await em.findOne(Perspective, {
+        userId: scope.userId,
+        tenantId,
+        organizationId,
+        tableId,
+        name: input.name,
+        id: { $ne: entity.id } as any,
+        deletedAt: null,
+      })
+      if (duplicate) {
+        throw new CrudHttpError(409, {
+          error: 'A view with this name already exists.',
+          code: 'duplicate_name',
+        })
+      }
+    }
   } else {
     entity = await em.findOne(Perspective, {
       userId: scope.userId,
