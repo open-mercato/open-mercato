@@ -1,4 +1,4 @@
-import { readJsonFromLocalStorage, writeJsonToLocalStorage, removeLocalStorageKey } from './safeLocalStorage'
+import { readJsonFromLocalStorage, writeJsonToLocalStorage, removeLocalStorageKey, type JsonSerializable } from './safeLocalStorage'
 
 type VersionedEnvelope<T> = { v: number; data: T }
 
@@ -9,7 +9,7 @@ export function readVersionedPreference<T>(
   fallback: T,
   options?: { legacyIsValid?: (value: unknown) => value is T },
 ): T {
-  const raw = readJsonFromLocalStorage<unknown>(key, null)
+  const raw = readJsonFromLocalStorage<JsonSerializable>(key, null)
   if (raw && typeof raw === 'object' && !Array.isArray(raw) && 'v' in raw && 'data' in raw) {
     const envelope = raw as { v?: unknown; data?: unknown }
     return envelope.v === version && isValid(envelope.data) ? envelope.data : fallback
