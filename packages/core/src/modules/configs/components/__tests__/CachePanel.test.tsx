@@ -4,7 +4,7 @@
 
 import '@testing-library/jest-dom'
 import * as React from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { CachePanel } from '../CachePanel'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -88,6 +88,46 @@ describe('CachePanel', () => {
       expect(screen.getByText('users.list')).toBeInTheDocument()
     })
     expect(screen.getByRole('button', { name: 'Purge all cache' })).toBeInTheDocument()
+  })
+
+  // `ok: false` is a synthetic shape that isolates the raw-`granted` fallback branch.
+  // The real /api/auth/feature-check returns ok:true for a `*`/`configs.*` holder, but the
+  // fallback must still be wildcard-aware so the manage controls are never hidden by an exact check.
+  it.each(['configs.cache.manage', 'configs.*', '*'])(
+    'keeps manage controls visible for the wildcard-equivalent grant %s on the fallback path',
+    async (grant) => {
+      ;(readApiResultOrThrow as jest.Mock)
+        .mockResolvedValueOnce(statsPayload) // stats
+        .mockResolvedValueOnce({ ok: false, granted: [grant] }) // feature check fallback path
+
+      renderWithProviders(<CachePanel />, { dict })
+
+      await waitFor(() => {
+        expect(screen.getByText('users.list')).toBeInTheDocument()
+      })
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Purge all cache' })).toBeInTheDocument()
+      })
+    },
+  )
+
+  it('hides manage controls when only an unrelated grant is present on the fallback path', async () => {
+    ;(readApiResultOrThrow as jest.Mock)
+      .mockResolvedValueOnce(statsPayload) // stats
+      .mockResolvedValueOnce({ ok: false, granted: ['unrelated_module.*'] }) // feature check fallback path
+
+    renderWithProviders(<CachePanel />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByText('users.list')).toBeInTheDocument()
+    })
+    await waitFor(() => {
+      expect(readApiResultOrThrow).toHaveBeenCalledTimes(2)
+    })
+    await act(async () => {})
+
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Purge all cache' })).not.toBeInTheDocument()
   })
 
   it('purges a segment when user confirms', async () => {

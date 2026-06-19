@@ -7,6 +7,9 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { hasFeature } from '@open-mercato/shared/security/features'
+
+const MANAGE_FEATURE = 'configs.cache.manage'
 
 const API_PATH = '/api/configs/cache'
 
@@ -68,7 +71,7 @@ export function CachePanel() {
           {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ features: ['configs.cache.manage'] }),
+            body: JSON.stringify({ features: [MANAGE_FEATURE] }),
           },
           {
             errorMessage: t('configs.cache.loadError', 'Failed to load cache statistics.'),
@@ -79,8 +82,8 @@ export function CachePanel() {
         const granted = Array.isArray(payload?.granted)
           ? (payload.granted as unknown[]).filter((feature) => typeof feature === 'string') as string[]
           : []
-        const hasFeature = payload?.ok === true || granted.includes('configs.cache.manage')
-        setCanManage(hasFeature)
+        const canManageFeature = payload?.ok === true || hasFeature(granted, MANAGE_FEATURE)
+        setCanManage(canManageFeature)
       } catch {
         if (!cancelled) setCanManage(false)
       } finally {
