@@ -11,9 +11,13 @@ import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { plannerAvailabilityDateSpecificReplaceSchema } from '../data/validators'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { PlannerAvailabilityRule } from '../data/entities'
 import { parseAvailabilityRuleWindow } from '../lib/availabilitySchedule'
-import { assertAvailabilityWriteAccess } from './access'
+import { assertAvailabilityWriteAccess, resolveAvailabilityActorId } from './access'
 
 export const metadata = {
   POST: { requireAuth: true },
@@ -93,8 +97,25 @@ export async function POST(req: Request) {
         }
       }
     }
+    const guardInput = {
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      userId: resolveAvailabilityActorId(ctx.auth),
+      resourceKind: 'planner.availability',
+      resourceId: input.subjectId,
+      operation: 'custom' as const,
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    }
+    const guardResult = await validateCrudMutationGuard(ctx.container, { ...guardInput, mutationPayload: input })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const { logEntry } = await commandBus.execute('planner.availability.date-specific.replace', { input, ctx })
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, { ...guardInput, metadata: guardResult.metadata ?? null })
+    }
     const response = NextResponse.json({ ok: true })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(
