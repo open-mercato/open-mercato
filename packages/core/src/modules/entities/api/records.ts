@@ -107,6 +107,8 @@ const listRecordsQuerySchema = z
     pageSize: z.coerce.number().int().min(1).max(100).optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
+    search: z.string().optional(),
+    searchFields: z.string().optional(),
     withDeleted: z.coerce.boolean().optional(),
     format: z.enum(['csv', 'json', 'xml', 'markdown']).optional(),
     exportScope: z.enum(['full']).optional(),
@@ -145,10 +147,15 @@ export async function GET(req: Request) {
   const sortField = url.searchParams.get('sortField') || 'id'
   const sortDir = (url.searchParams.get('sortDir') || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc'
   const withDeleted = parseBooleanWithDefault(url.searchParams.get('withDeleted'), false)
+  const searchTerm = (url.searchParams.get('search') || '').trim()
+  const searchFields = (url.searchParams.get('searchFields') || '')
+    .split(',')
+    .map((field) => field.trim())
+    .filter(Boolean)
 
   const qpEntries: Array<[string, string]> = []
   for (const [key, val] of url.searchParams.entries()) {
-    if (['entityId','page','pageSize','sortField','sortDir','withDeleted','format','exportScope','export_scope','all','full'].includes(key)) continue
+    if (['entityId','page','pageSize','sortField','sortDir','withDeleted','format','exportScope','export_scope','all','full','search','searchFields'].includes(key)) continue
     qpEntries.push([key, val])
   }
 
@@ -246,6 +253,15 @@ export async function GET(req: Request) {
     // even before the first record exists.
     if (isCustomEntity) qopts.forceCustomEntityStorage = true
     for (const [k, v] of qpEntries) buildFilter(k, v, isCustomEntity)
+    // Server-side full-result search: match the term against the requested fields
+    // (defaults to `id`) before pagination so totals/exports stay consistent with
+    // the active search instead of filtering only the current client page (#3229).
+    if (searchTerm) {
+      const fields = searchFields.length ? searchFields : ['id']
+      const pattern = `%${searchTerm}%`
+      const orClauses = fields.map((field) => ({ [field]: { $ilike: pattern } }))
+      ;(filtersObj as any).$or = orClauses
+    }
     const res = await qe.query(entityId as any, qopts)
     const rawItems = res.items || []
     const viewPageItems = rawItems.map(mapRow)

@@ -518,18 +518,21 @@ export class BasicQueryEngine implements QueryEngine {
           group.push(f)
           groups.set(f.orGroup!, group)
         }
-        const resolvedGroupFilters: Array<Array<{ qualified: string; op: string; value: unknown; fieldName: string }>> = []
+        type ResolvedOrClause =
+          | { kind: 'column'; qualified: string; op: NormalizedFilter['op']; value: unknown }
+          | { kind: 'doc'; field: string; op: NormalizedFilter['op']; value: unknown }
+        const resolvedGroupFilters: ResolvedOrClause[][] = []
         for (const [, groupFilters] of groups) {
-          const resolved: Array<{ qualified: string; op: string; value: unknown; fieldName: string }> = []
+          const resolved: ResolvedOrClause[] = []
           for (const filter of groupFilters) {
             const column = await this.resolveBaseColumn(table, String(filter.field))
             if (column) {
-              resolved.push({
-                qualified: qualify(column),
-                op: filter.op,
-                value: filter.value,
-                fieldName: String(filter.field),
-              })
+              resolved.push({ kind: 'column', qualified: qualify(column), op: filter.op, value: filter.value })
+            } else {
+              // Field is not a base column — for custom-entity records it lives in
+              // entity_indexes.doc. Build an EXISTS sub-filter so `$or` searches
+              // across doc fields resolve instead of being silently dropped (#3229).
+              resolved.push({ kind: 'doc', field: String(filter.field), op: filter.op, value: filter.value })
             }
           }
           if (resolved.length > 0) resolvedGroupFilters.push(resolved)
@@ -537,7 +540,18 @@ export class BasicQueryEngine implements QueryEngine {
         if (resolvedGroupFilters.length > 0) {
           q = q.where((eb: any) => eb.or(
             resolvedGroupFilters.map((group) => {
-              const parts = group.map((rf) => this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value))
+              const parts = group.map((rf) => rf.kind === 'column'
+                ? this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value)
+                : this.buildIndexDocOpExpression(eb, {
+                    entity: String(entity),
+                    field: rf.field,
+                    op: rf.op,
+                    value: rf.value,
+                    recordIdColumn,
+                    tenantId: opts.tenantId ?? null,
+                    organizationScope: orgScope,
+                    withDeleted: opts.withDeleted === true,
+                  }))
               return parts.length === 1 ? parts[0] : eb.and(parts)
             })
           ))
@@ -1270,9 +1284,29 @@ export class BasicQueryEngine implements QueryEngine {
       return q
     }
 
+    return q.where((eb: any) => this.buildIndexDocOpExpression(eb, opts))
+  }
+
+  // Builds the entity_indexes EXISTS expression for a single doc-field operator,
+  // shared by the regular doc-filter path (applyIndexDocFilter) and the OR-group
+  // path so `$or` queries over custom-entity doc fields resolve instead of being
+  // silently dropped (#3229).
+  private buildIndexDocOpExpression(
+    eb: any,
+    opts: {
+      entity: string
+      field: string
+      op: NormalizedFilter['op']
+      value: unknown
+      recordIdColumn: string
+      tenantId?: string | null
+      organizationScope?: { ids: string[]; includeNull: boolean } | null
+      withDeleted: boolean
+    }
+  ): any {
     const alias = `ei_${this.searchAliasSeq++}`
     const engine = this
-    return q.where((eb: any) => eb.exists((() => {
+    return eb.exists((() => {
       let sub: AnyBuilder = eb
         .selectFrom(`entity_indexes as ${alias}`)
         .select(sql<number>`1`.as('one'))
@@ -1325,7 +1359,7 @@ export class BasicQueryEngine implements QueryEngine {
           break
       }
       return sub
-    })()))
+    })())
   }
 
   private configureCustomFieldSources(
