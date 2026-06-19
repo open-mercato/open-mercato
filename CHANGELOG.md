@@ -1,4 +1,9 @@
 
+# Unreleased
+
+## ✨ Features
+- ✨ Entities: dictionary custom fields can now opt into multi-value CRUD form rendering backed by existing dictionary entries and custom-field array persistence.
+
 # 0.6.5 (2026-06-15)
 
 ## Highlights

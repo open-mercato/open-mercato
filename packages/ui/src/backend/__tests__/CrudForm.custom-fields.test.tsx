@@ -275,6 +275,73 @@ describe('CrudForm custom field loading', () => {
     expect(container.querySelector('[data-crud-field-id="cf_renewal_quarter"]')?.textContent).toContain('Q3')
   })
 
+  it('submits custom entity values without loaded record metadata', async () => {
+    const handleSubmit = jest.fn().mockResolvedValue(undefined)
+
+    buildFormFieldFromCustomFieldDefMock.mockImplementation((definition: any) => ({
+      id: definition.key,
+      label: definition.label ?? definition.key,
+      type: 'select',
+      multiple: true,
+      listbox: true,
+      options: [
+        { value: 'north', label: 'North' },
+        { value: 'south', label: 'South' },
+      ],
+    }))
+    fetchCustomFieldFormStructureMock.mockResolvedValue({
+      fields: [],
+      definitions: [
+        {
+          entityId: 'user:qa_entity',
+          key: 'regions',
+          label: 'Regions',
+          kind: 'dictionary',
+          multi: true,
+        },
+      ],
+      metadata: {
+        items: [],
+        fieldsetsByEntity: {},
+        entitySettings: {},
+      },
+    })
+
+    renderWithProviders(
+      <CrudForm
+        title="Form"
+        entityId="user:qa_entity"
+        fields={[]}
+        customEntity
+        initialValues={{
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          regions: ['north', 'south'],
+          updatedAt: '2026-06-19T10:00:00.000Z',
+          createdAt: '2026-06-19T09:00:00.000Z',
+        }}
+        onSubmit={handleSubmit}
+      />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+        },
+      },
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('North')).toBeInTheDocument()
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: 'Save' })[0]!)
+    })
+
+    await waitFor(() => {
+      expect(handleSubmit).toHaveBeenCalledTimes(1)
+    })
+    expect(handleSubmit).toHaveBeenCalledWith({ regions: ['north', 'south'] }, expect.any(Object))
+  })
+
   it('opens the field manager without submitting the parent form', async () => {
     const handleSubmit = jest.fn().mockResolvedValue(undefined)
 

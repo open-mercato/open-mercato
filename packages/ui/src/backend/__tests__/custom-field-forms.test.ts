@@ -1,7 +1,12 @@
 import { buildFormFieldsFromCustomFields } from '../utils/customFieldForms'
 import type { CustomFieldDefDto } from '../utils/customFieldFilters'
+import { FieldRegistry } from '../fields/registry'
 
 describe('buildFormFieldsFromCustomFields', () => {
+  beforeAll(() => {
+    FieldRegistry.register('dictionary', { input: () => null })
+  })
+
   it('maps kinds to CrudField and filters by formEditable', () => {
     const defs: CustomFieldDefDto[] = [
       { key: 'blocked', kind: 'boolean', filterable: true, formEditable: true },
@@ -31,6 +36,23 @@ describe('buildFormFieldsFromCustomFields', () => {
       { key: 'notes', kind: 'multiline', filterable: false, formEditable: true },
       // text with editor hint should render richtext
       { key: 'desc', kind: 'text', filterable: false, formEditable: true, editor: 'htmlRichText' },
+      {
+        key: 'region',
+        kind: 'dictionary',
+        dictionaryId: 'dictionary-1',
+        optionsUrl: '/api/dictionaries/dictionary-1/entries',
+        filterable: true,
+        formEditable: true,
+      },
+      {
+        key: 'regions',
+        kind: 'dictionary',
+        dictionaryId: 'dictionary-1',
+        optionsUrl: '/api/dictionaries/dictionary-1/entries',
+        multi: true,
+        filterable: true,
+        formEditable: true,
+      },
       { key: 'hidden', kind: 'text', filterable: true, formEditable: false },
     ]
 
@@ -48,6 +70,13 @@ describe('buildFormFieldsFromCustomFields', () => {
     expect(byId['cf_desc']?.type).toBe('richtext')
     if (byId['cf_desc']?.type === 'richtext') {
       expect(byId['cf_desc'].editor).toBe('html')
+    }
+    expect(byId['cf_region']?.type).toBe('custom')
+    expect(byId['cf_regions']?.type).toBe('select')
+    if (byId['cf_regions']?.type === 'select') {
+      expect(byId['cf_regions'].multiple).toBe(true)
+      expect(byId['cf_regions'].listbox).toBe(true)
+      expect(typeof byId['cf_regions'].loadOptions).toBe('function')
     }
     expect(byId['cf_hidden']).toBeUndefined()
   })
