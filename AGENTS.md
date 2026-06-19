@@ -69,6 +69,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Replacing or wrapping UI components via `widgets/components.ts` (`replace`/`wrapper`/`props`) | `packages/core/AGENTS.md` → Component Replacement + `packages/ui/AGENTS.md` |
 | Adding custom fields/entities, using DSL helpers (`defineLink`, `cf.*`), declaring `ce.ts` | `packages/core/AGENTS.md` → Custom Fields |
 | Adding entity extensions, cross-module data links, `data/extensions.ts` | `packages/core/AGENTS.md` → Extensions |
+| Coupling one module to another (e.g. products-in-deals), choosing the mechanism (events / widget injection + enrichers / FK-id + snapshot / soft-optional `tryResolve`), or depending on an OPTIONAL integration (what happens when it is absent) | `packages/core/AGENTS.md` → Cross-Module Coupling + `module-decoupling` test (`packages/core/src/__tests__/module-decoupling.test.ts`) |
 | Configuring RBAC features in `acl.ts`, declarative guards, permission checks | `packages/core/AGENTS.md` → Access Control |
 | Fixing wildcard ACL handling in feature-gated runtime helpers (menus, notification handlers, mutation guards, command interceptors, AI tools) | `packages/core/AGENTS.md` → Access Control + `packages/shared/AGENTS.md` + `packages/ui/AGENTS.md` + `packages/core/src/modules/auth/AGENTS.md` (portal: `customer_accounts/AGENTS.md`) |
 | Using encrypted queries (`findWithDecryption`), encryption defaults, GDPR fields | `packages/core/AGENTS.md` → Encryption |
