@@ -51,7 +51,11 @@ import {
   ensureCustomerDictionary,
   invalidateCustomerDictionary,
 } from './detail/hooks/useCustomerDictionary'
-import type { CustomerDictionaryKind } from '../lib/dictionaries'
+import {
+  CUSTOMER_DICTIONARIES_MANAGE_HREF,
+  getCustomerDictionaryManageHref,
+  type CustomerDictionaryKind,
+} from '../lib/dictionaries'
 import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
 import { CUSTOMER_PHONE_INVALID_MESSAGE_KEY } from '../data/validators'
 
@@ -116,7 +120,7 @@ type DictionarySelectFieldProps = {
   showActiveAppearance?: boolean
 }
 
-export const CUSTOMER_DICTIONARIES_MANAGE_HREF = '/backend/config/customers'
+export { CUSTOMER_DICTIONARIES_MANAGE_HREF, getCustomerDictionaryManageHref }
 
 const emailValidationSchema = z.string().email()
 const EMAIL_CHECK_DEBOUNCE_MS = 350
@@ -139,7 +143,7 @@ export function DictionarySelectField({
   onChange,
   labels,
   selectClassName,
-  manageHref = CUSTOMER_DICTIONARIES_MANAGE_HREF,
+  manageHref,
   allowInlineCreate = false,
   allowAppearance = false,
   showManage = false,
@@ -235,7 +239,7 @@ export function DictionarySelectField({
       fetchOptions={fetchOptions}
       createOption={createOption}
       labels={labels}
-      manageHref={manageHref}
+      manageHref={manageHref ?? getCustomerDictionaryManageHref(kind)}
       selectClassName={selectClassName}
       allowInlineCreate={allowInlineCreate}
       allowAppearance={allowAppearance}

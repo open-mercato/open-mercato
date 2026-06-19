@@ -13,7 +13,10 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import type { CustomerDictionaryKind } from '../lib/dictionaries'
+import {
+  getCustomerDictionarySettingsSectionId,
+  type CustomerDictionaryKind,
+} from '../lib/dictionaries'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import {
   DictionaryForm,
@@ -359,7 +362,10 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
   }), [dialog, t])
 
   return (
-    <section className="rounded border bg-card text-card-foreground shadow-sm">
+    <section
+      id={getCustomerDictionarySettingsSectionId(kind)}
+      className="scroll-mt-24 rounded border bg-card text-card-foreground shadow-sm"
+    >
       <div className="border-b px-6 py-4 space-y-1">
         <h2 className="text-lg font-medium">{title}</h2>
         <p className="text-sm text-muted-foreground">{description}</p>

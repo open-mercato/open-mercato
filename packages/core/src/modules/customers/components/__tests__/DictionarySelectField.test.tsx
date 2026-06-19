@@ -5,6 +5,7 @@ import { render, screen } from '@testing-library/react'
 import {
   CUSTOMER_DICTIONARIES_MANAGE_HREF,
   DictionarySelectField,
+  getCustomerDictionaryManageHref,
 } from '../formConfig'
 
 jest.mock('@tanstack/react-query', () => ({
@@ -53,7 +54,7 @@ const labels = {
 }
 
 describe('DictionarySelectField', () => {
-  it('links customer dictionaries to the customers configuration page by default', () => {
+  it('links customer dictionaries to their configuration section by default', () => {
     render(
       <DictionarySelectField
         kind="job-titles"
@@ -66,7 +67,27 @@ describe('DictionarySelectField', () => {
 
     expect(screen.getByTestId('manage-link')).toHaveAttribute(
       'href',
+      getCustomerDictionaryManageHref('job-titles'),
+    )
+  })
+
+  it('keeps customer dictionary manage links on the customers configuration page', () => {
+    render(
+      <DictionarySelectField
+        kind="industries"
+        value={undefined}
+        onChange={() => {}}
+        labels={labels}
+        showManage
+      />,
+    )
+
+    expect(screen.getByTestId('manage-link').getAttribute('href')).toContain(
       CUSTOMER_DICTIONARIES_MANAGE_HREF,
+    )
+    expect(screen.getByTestId('manage-link')).toHaveAttribute(
+      'href',
+      getCustomerDictionaryManageHref('industries'),
     )
   })
 
