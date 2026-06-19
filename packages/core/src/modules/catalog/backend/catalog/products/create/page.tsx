@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ZodType } from "zod";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
@@ -14,6 +13,7 @@ import { createCrud } from "@open-mercato/ui/backend/utils/crud";
 import { createCrudFormError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { flash } from "@open-mercato/ui/backend/FlashMessages";
 import { TagsInput } from "@open-mercato/ui/backend/inputs/TagsInput";
+import MarkdownField from "@open-mercato/ui/backend/inputs/MarkdownField";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { Input } from "@open-mercato/ui/primitives/input";
 import { Label } from "@open-mercato/ui/primitives/label";
@@ -107,22 +107,6 @@ type VariantPriceRequest = {
   taxRateId: string | null;
   taxRateValue: number | null;
 };
-
-type UiMarkdownEditorProps = {
-  value?: string;
-  height?: number;
-  onChange?: (value?: string) => void;
-  previewOptions?: { remarkPlugins?: unknown[] };
-};
-
-const MarkdownEditor = dynamic(() => import("@uiw/react-md-editor"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-      Loading editor…
-    </div>
-  ),
-}) as unknown as React.ComponentType<UiMarkdownEditorProps>;
 
 type ProductFormStep = (typeof PRODUCT_FORM_STEPS)[number];
 
@@ -320,6 +304,7 @@ export default function CreateCatalogProductPage() {
           values,
           setValue,
           errors,
+          requiredFieldIds,
         }: CrudFormGroupComponentProps) => (
           <ProductBuilder
             values={values as ProductFormValues}
@@ -327,6 +312,7 @@ export default function CreateCatalogProductPage() {
             errors={errors}
             priceKinds={priceKinds}
             taxRates={taxRates}
+            requiredFieldIds={requiredFieldIds}
           />
         ),
       },
@@ -843,6 +829,7 @@ type ProductBuilderProps = {
   errors: Record<string, string>;
   priceKinds: PriceKindSummary[];
   taxRates: TaxRateSummary[];
+  requiredFieldIds?: ReadonlySet<string>;
 };
 
 type ProductMetaSectionProps = {
@@ -1000,6 +987,7 @@ function ProductBuilder({
   errors,
   priceKinds,
   taxRates,
+  requiredFieldIds,
 }: ProductBuilderProps) {
   const t = useT();
   const steps = PRODUCT_FORM_STEPS;
@@ -1341,10 +1329,10 @@ function ProductBuilder({
 
       {currentStepKey === "general" ? (
         <div className="space-y-6">
-          <div className="space-y-2">
+          <div className="space-y-2" data-crud-field-id="title">
             <Label className="flex items-center gap-1">
               {t("catalog.products.form.title", "Title")}
-              <span className="text-red-600">*</span>
+              <span className="text-status-error-text">*</span>
             </Label>
             <Input
               value={values.title}
@@ -1355,14 +1343,17 @@ function ProductBuilder({
               )}
             />
             {errors.title ? (
-              <p className="text-xs text-red-600">{errors.title}</p>
+              <p className="text-xs text-status-error-text">{errors.title}</p>
             ) : null}
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2" data-crud-field-id="description">
             <div className="flex items-center justify-between">
-              <Label>
+              <Label className="flex items-center gap-1">
                 {t("catalog.products.form.description", "Description")}
+                {requiredFieldIds?.has("description") ? (
+                  <span className="text-status-error-text">*</span>
+                ) : null}
               </Label>
               <Button
                 type="button"
@@ -1388,17 +1379,10 @@ function ProductBuilder({
               </Button>
             </div>
             {values.useMarkdown ? (
-              <div
-                data-color-mode="light"
-                className="overflow-hidden rounded-md border"
-              >
-                <MarkdownEditor
-                  value={values.description}
-                  height={260}
-                  onChange={(val) => setValue("description", val ?? "")}
-                  previewOptions={{ remarkPlugins: [] }}
-                />
-              </div>
+              <MarkdownField
+                value={values.description}
+                onChange={(val) => setValue("description", val ?? "")}
+              />
             ) : (
               <textarea
                 className="min-h-[180px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -1412,6 +1396,9 @@ function ProductBuilder({
                 )}
               />
             )}
+            {errors.description ? (
+              <p className="text-xs text-status-error-text">{errors.description}</p>
+            ) : null}
           </div>
 
           <ProductMediaManager

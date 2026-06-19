@@ -309,6 +309,8 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
         type: 'custom',
         component: ({ value, setValue, setFormValue, values, disabled }) => {
           const currentValue = typeof value === 'string' ? value : ''
+          const selectedOption = teamOptions.find((option) => option.value === currentValue)
+          const optionsKey = teamOptions.map((option) => `${option.value}:${option.label}`).join('\0')
           return (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">
@@ -327,6 +329,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
                 </Button>
               </div>
               <Select
+                key={`team:${currentValue}:${optionsKey}`}
                 value={currentValue}
                 onValueChange={(value) => {
                   const nextValue = value || undefined
@@ -346,7 +349,9 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
                 disabled={disabled}
               >
                 <SelectTrigger data-crud-focus-target="">
-                  <SelectValue placeholder={translate('ui.forms.select.emptyOption', '—')} />
+                  <SelectValue placeholder={translate('ui.forms.select.emptyOption', '—')}>
+                    {selectedOption?.label}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {teamOptions.map((option) => (
@@ -370,7 +375,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
         id: 'description',
         label: translate('staff.teamMembers.form.fields.description', 'Description'),
         type: 'richtext',
-        editor: 'html',
+        editor: 'uiw',
       },
       {
         id: 'roleIds',
@@ -449,9 +454,12 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
     ]
 
     if (!tagsSection) {
+      // The tags field lives in its own card whose group title already reads
+      // "Tags" (see groups below). Leave the field label empty so the heading
+      // is not rendered twice in the team member edit view.
       baseFields.splice(5, 0, {
         id: 'tags',
-        label: translate('staff.teamMembers.form.fields.tags', 'Tags'),
+        label: '',
         type: 'tags',
         placeholder: translate('staff.teamMembers.form.fields.tags.placeholder', 'Add tags'),
       })

@@ -15,6 +15,7 @@ import {
   buildPersonPayload,
   createCompanyDaneFiremyGroups,
   createCompanyEditSchema,
+  createCompanyFormSchema,
   createPersonEditSchema,
   createPersonPersonalDataGroups,
   mapCompanyOverviewToFormValues,
@@ -203,6 +204,32 @@ describe('clearing v2 URL & email edit fields (#2526)', () => {
     expect(payload.websiteUrl).toBeNull()
   })
 
+  it('transmits null when a previously-set company domain is blanked (#2529)', () => {
+    const parsed = createCompanyEditSchema().safeParse({
+      id: COMPANY_ID,
+      displayName: 'Acme',
+      domain: '',
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+
+    const payload = buildCompanyEditPayload(parsed.data as any)
+    expect(payload.domain).toBeNull()
+  })
+
+  it('keeps and lowercases a non-empty company domain on edit (#2529)', () => {
+    const parsed = createCompanyEditSchema().safeParse({
+      id: COMPANY_ID,
+      displayName: 'Acme',
+      domain: 'Acme.COM',
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+
+    const payload = buildCompanyEditPayload(parsed.data as any)
+    expect(payload.domain).toBe('acme.com')
+  })
+
   it('keeps non-empty company website/email/phone values on edit', () => {
     const parsed = createCompanyEditSchema().safeParse({
       id: COMPANY_ID,
@@ -218,5 +245,68 @@ describe('clearing v2 URL & email edit fields (#2526)', () => {
     expect(payload.primaryEmail).toBe('hello@acme.com')
     expect(payload.primaryPhone).toBe('+1 212 555 0202')
     expect(payload.websiteUrl).toBe('https://acme.com')
+  })
+})
+
+describe('clearing v2 company plain-text & revenue edit fields (#3050)', () => {
+  it('transmits null when previously-set legal/brand/size/revenue/description are blanked', () => {
+    const parsed = createCompanyEditSchema().safeParse({
+      id: COMPANY_ID,
+      displayName: 'Acme',
+      legalName: '',
+      brandName: '',
+      sizeBucket: '',
+      annualRevenue: '',
+      description: '',
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+
+    const payload = buildCompanyEditPayload(parsed.data as any)
+    expect(payload.legalName).toBeNull()
+    expect(payload.brandName).toBeNull()
+    expect(payload.sizeBucket).toBeNull()
+    expect(payload.annualRevenue).toBeNull()
+    expect(payload.description).toBeNull()
+  })
+
+  it('keeps non-empty plain-text & revenue values on edit', () => {
+    const parsed = createCompanyEditSchema().safeParse({
+      id: COMPANY_ID,
+      displayName: 'Acme',
+      legalName: 'Acme Corp.',
+      brandName: 'Acme',
+      sizeBucket: '11-50',
+      annualRevenue: '1,500,000',
+      description: 'B2B widgets',
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+
+    const payload = buildCompanyEditPayload(parsed.data as any)
+    expect(payload.legalName).toBe('Acme Corp.')
+    expect(payload.brandName).toBe('Acme')
+    expect(payload.sizeBucket).toBe('11-50')
+    expect(payload.annualRevenue).toBe('1500000')
+    expect(payload.description).toBe('B2B widgets')
+  })
+
+  it('leaves create-mode blanks as omitted (no clear semantics on create)', () => {
+    const parsed = createCompanyFormSchema().safeParse({
+      displayName: 'Acme',
+      legalName: '',
+      brandName: '',
+      sizeBucket: '',
+      annualRevenue: '',
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+
+    const payload = buildCompanyPayload(parsed.data as any)
+    expect('legalName' in payload).toBe(false)
+    expect('brandName' in payload).toBe(false)
+    expect('sizeBucket' in payload).toBe(false)
+    expect('annualRevenue' in payload).toBe(false)
+    expect('description' in payload).toBe(false)
   })
 })

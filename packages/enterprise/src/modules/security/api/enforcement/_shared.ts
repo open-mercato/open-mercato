@@ -8,44 +8,21 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { enforceTenantSelection, resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { EnforcementScope, type MfaEnforcementPolicy } from '../../data/entities'
-import type { MfaEnforcementServiceError, MfaEnforcementService } from '../../services/MfaEnforcementService'
+import type {
+  EnforcementActorContext,
+  MfaEnforcementServiceError,
+  MfaEnforcementService,
+} from '../../services/MfaEnforcementService'
 import { localizeSecurityApiBody, securityApiError } from '../i18n'
 
 type RequestContainer = Awaited<ReturnType<typeof createRequestContainer>>
 type Auth = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
-
-export type EnforcementActorContext = {
-  tenantId: string | null
-  isSuperAdmin: boolean
-}
 
 export type EnforcementRequestContext = {
   auth: Auth
   container: RequestContainer
   commandContext: CommandRuntimeContext
   enforcementService: MfaEnforcementService
-}
-
-export async function resolveEnforcementContext(req: Request): Promise<EnforcementRequestContext | NextResponse> {
-  const auth = await getAuthFromRequest(req)
-  if (!auth?.sub) {
-    return securityApiError(401, 'Unauthorized')
-  }
-
-  const container = await createRequestContainer()
-  return {
-    auth,
-    container,
-    commandContext: {
-      container,
-      auth,
-      organizationScope: null,
-      selectedOrganizationId: auth.orgId ?? null,
-      organizationIds: auth.orgId ? [auth.orgId] : null,
-      request: req,
-    },
-    enforcementService: container.resolve<MfaEnforcementService>('mfaEnforcementService'),
-  }
 }
 
 function normalizeNullableString(value: unknown): string | null {
@@ -120,6 +97,28 @@ export async function assertActorOwnsEnforcementScope(
   const isSuperAdmin = await resolveIsSuperAdmin({ auth: ctx.auth, container: ctx.container })
   if (isSuperAdmin) return
   await assertActorOwnsOrganization(ctx, organizationId)
+}
+
+export async function resolveEnforcementContext(req: Request): Promise<EnforcementRequestContext | NextResponse> {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.sub) {
+    return securityApiError(401, 'Unauthorized')
+  }
+
+  const container = await createRequestContainer()
+  return {
+    auth,
+    container,
+    commandContext: {
+      container,
+      auth,
+      organizationScope: null,
+      selectedOrganizationId: auth.orgId ?? null,
+      organizationIds: auth.orgId ? [auth.orgId] : null,
+      request: req,
+    },
+    enforcementService: container.resolve<MfaEnforcementService>('mfaEnforcementService'),
+  }
 }
 
 export async function mapEnforcementError(error: unknown): Promise<NextResponse> {

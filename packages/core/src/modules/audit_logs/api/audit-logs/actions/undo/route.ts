@@ -65,11 +65,22 @@ export async function POST(req: Request) {
   if (target.actorUserId && target.actorUserId !== auth.sub && !canUndoTenant) {
     return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
   }
-  if (target.tenantId && auth.tenantId && target.tenantId !== auth.tenantId) {
+  // Fail closed on tenant scope: `audit_logs.undo_tenant` only widens scope WITHIN a
+  // tenant, never across tenants, so a tenant-scoped target always requires a caller
+  // bound to that same tenant. A caller whose tenantId is null (tenant-less global
+  // account or unscoped API key) must never undo a tenant-scoped row (issue #2685).
+  if (target.tenantId && target.tenantId !== (auth.tenantId ?? null)) {
     return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
   }
   const scopedOrgId = canUndoTenant ? organizationId ?? null : organizationId ?? auth.orgId ?? null
-  if (target.organizationId && scopedOrgId && target.organizationId !== scopedOrgId) {
+  // Tenant-level undoers may undo across organizations within the tenant, so an
+  // unresolved (null) caller org is allowed and only an explicit mismatch is rejected.
+  // Every other caller must resolve to the target's own organization — a null caller
+  // org must not bypass an org-scoped target (issue #2685).
+  const orgScopeMismatch = canUndoTenant
+    ? Boolean(target.organizationId && scopedOrgId && target.organizationId !== scopedOrgId)
+    : Boolean(target.organizationId && target.organizationId !== scopedOrgId)
+  if (orgScopeMismatch) {
     return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
   }
 

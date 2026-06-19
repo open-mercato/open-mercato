@@ -68,7 +68,7 @@ export function TeamForm(props: TeamFormProps) {
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: t('staff.teams.form.fields.name', 'Name'), type: 'text', required: true },
-    { id: 'description', label: t('staff.teams.form.fields.description', 'Description'), type: 'richtext', editor: 'html' },
+    { id: 'description', label: t('staff.teams.form.fields.description', 'Description'), type: 'richtext', editor: 'uiw' },
     { id: 'isActive', label: t('staff.teams.form.fields.active', 'Active'), type: 'checkbox' },
   ], [t])
 

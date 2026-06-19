@@ -5,11 +5,18 @@ import { parseBooleanToken } from '../boolean'
 import { fetchWithTimeout, resolveTimeoutMs } from '../http/fetchWithTimeout'
 
 const DEFAULT_VAULT_REQUEST_TIMEOUT_MS = 1_000
+const DEFAULT_VAULT_RECOVERY_COOLDOWN_MS = 30_000
 
 function resolveVaultRequestTimeoutMs(): number {
   const raw = process.env.VAULT_REQUEST_TIMEOUT_MS
   const parsed = raw ? Number.parseInt(raw, 10) : undefined
   return resolveTimeoutMs(parsed, DEFAULT_VAULT_REQUEST_TIMEOUT_MS)
+}
+
+function resolveVaultRecoveryCooldownMs(): number {
+  const raw = process.env.VAULT_RECOVERY_COOLDOWN_MS
+  const parsed = raw ? Number.parseInt(raw, 10) : undefined
+  return resolveTimeoutMs(parsed, DEFAULT_VAULT_RECOVERY_COOLDOWN_MS)
 }
 
 export type TenantDek = {
@@ -22,6 +29,7 @@ export interface KmsService {
   getTenantDek(tenantId: string): Promise<TenantDek | null>
   createTenantDek(tenantId: string): Promise<TenantDek | null>
   isHealthy(): boolean
+  invalidateDek?(tenantId: string): void
 }
 
 class FallbackKmsService implements KmsService {
@@ -76,6 +84,11 @@ class FallbackKmsService implements KmsService {
     }
     return null
   }
+
+  invalidateDek(tenantId: string): void {
+    this.primary.invalidateDek?.(tenantId)
+    this.fallback?.invalidateDek?.(tenantId)
+  }
 }
 
 type VaultClientOpts = {
@@ -84,11 +97,16 @@ type VaultClientOpts = {
   mountPath?: string
   ttlMs?: number
   requestTimeoutMs?: number
+  recoveryCooldownMs?: number
 }
 
 type VaultReadResponse = {
   data?: { data?: { key?: string; version?: number }; metadata?: Record<string, unknown> }
 }
+
+// 'conflict' = a check-and-set write lost to a concurrent writer (normal race
+// outcome, Vault still healthy); 'error' = the write genuinely failed.
+type VaultWriteOutcome = 'ok' | 'conflict' | 'error'
 
 function normalizeEnv(value: string | undefined): string {
   if (!value) return ''
@@ -156,7 +174,16 @@ export class HashicorpVaultKmsService implements KmsService {
   private readonly mountPath: string
   private readonly ttlMs: number
   private readonly requestTimeoutMs: number
+  private readonly recoveryCooldownMs: number
   private healthy = true
+  // Sticky terminal failure (missing VAULT_ADDR/VAULT_TOKEN): no amount of
+  // re-probing fixes a misconfiguration, so this never self-heals — only a
+  // restart with corrected config does.
+  private misconfigured = false
+  // Timestamp of the last transient failure (timeout / network blip / 5xx).
+  // Drives the half-open circuit breaker in isHealthy(): after the cooldown the
+  // instance reports healthy again so the next call re-probes Vault.
+  private lastTransientFailureAt: number | null = null
   private readonly debugEnabled: boolean
   private static loggedInit = false
 
@@ -166,9 +193,11 @@ export class HashicorpVaultKmsService implements KmsService {
     this.mountPath = (opts.mountPath || process.env.VAULT_KV_PATH || 'secret/data').replace(/\/+$/, '')
     this.ttlMs = opts.ttlMs ?? 15 * 60 * 1000
     this.requestTimeoutMs = resolveTimeoutMs(opts.requestTimeoutMs, resolveVaultRequestTimeoutMs())
+    this.recoveryCooldownMs = resolveTimeoutMs(opts.recoveryCooldownMs, resolveVaultRecoveryCooldownMs())
     this.debugEnabled = isEncryptionDebugEnabled()
     if (!this.vaultAddr || !this.vaultToken) {
       this.healthy = false
+      this.misconfigured = true
       if (this.debugEnabled) {
         console.warn('⚠️ [encryption][kms] Vault misconfigured (missing VAULT_ADDR or VAULT_TOKEN)')
       }
@@ -182,11 +211,32 @@ export class HashicorpVaultKmsService implements KmsService {
   }
 
   isHealthy(): boolean {
-    return this.healthy
+    // A missing-config failure is terminal — never report healthy again.
+    if (this.misconfigured) return false
+    if (this.healthy) return true
+    // Half-open circuit breaker: once the cooldown since the last transient
+    // failure has elapsed, report healthy so the next read/write re-probes
+    // Vault. A successful probe flips `healthy` back on; a failing one records a
+    // fresh failure timestamp and re-opens the breaker for another cooldown.
+    if (this.lastTransientFailureAt === null) return false
+    return this.now() - this.lastTransientFailureAt >= this.recoveryCooldownMs
   }
 
   private now(): number {
     return Date.now()
+  }
+
+  // Vault responded successfully (or is provably reachable): close the breaker.
+  private markHealthy(): void {
+    this.healthy = true
+    this.lastTransientFailureAt = null
+  }
+
+  // Transient infra failure (timeout / network blip / 5xx): open the breaker and
+  // start the recovery cooldown so a later call can re-probe and self-heal.
+  private markTransientFailure(): void {
+    this.healthy = false
+    this.lastTransientFailureAt = this.now()
   }
 
   private cacheHit(tenantId: string): TenantDek | null {
@@ -202,6 +252,7 @@ export class HashicorpVaultKmsService implements KmsService {
   private async readVault(path: string): Promise<VaultReadResponse | null> {
     if (!this.vaultAddr || !this.vaultToken) {
       this.healthy = false
+      this.misconfigured = true
       return null
     }
     try {
@@ -211,16 +262,21 @@ export class HashicorpVaultKmsService implements KmsService {
         timeoutMs: this.requestTimeoutMs,
       })
       if (!res.ok) {
-        this.healthy = res.status < 500
+        // 5xx = Vault down/erroring (transient). <500 (auth/not-found/etc.) means
+        // Vault is reachable and answered, so keep it healthy — a 404 for a
+        // not-yet-created tenant DEK is the normal read-before-write path.
+        if (res.status >= 500) this.markTransientFailure()
+        else this.markHealthy()
         console.warn('⚠️ [encryption][kms] Vault read failed', { path, status: res.status })
         return null
       }
+      this.markHealthy()
       if (this.debugEnabled) {
         console.info('🔍 [encryption][kms] Vault read ok', { path })
       }
       return (await res.json()) as VaultReadResponse
     } catch (err) {
-      this.healthy = false
+      this.markTransientFailure()
       console.warn('⚠️ [encryption][kms] Vault read error', {
         path,
         error: (err as Error)?.message || String(err),
@@ -230,11 +286,14 @@ export class HashicorpVaultKmsService implements KmsService {
     }
   }
 
-  private async writeVault(path: string, key: string): Promise<boolean> {
+  private async writeVault(path: string, key: string, opts?: { cas?: number }): Promise<VaultWriteOutcome> {
     if (!this.vaultAddr || !this.vaultToken) {
       this.healthy = false
-      return false
+      this.misconfigured = true
+      return 'error'
     }
+    const body: { data: { key: string }; options?: { cas: number } } = { data: { key } }
+    if (typeof opts?.cas === 'number') body.options = { cas: opts.cas }
     try {
       const res = await fetchWithTimeout(`${this.vaultAddr}/v1/${path}`, {
         method: 'POST',
@@ -242,22 +301,32 @@ export class HashicorpVaultKmsService implements KmsService {
           'X-Vault-Token': this.vaultToken,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ data: { key } }),
+        body: JSON.stringify(body),
         timeoutMs: this.requestTimeoutMs,
       })
-      this.healthy = res.ok
-      if (!res.ok) {
-        console.warn('⚠️ [encryption][kms] Vault write failed', { path, status: res.status })
+      if (res.ok) {
+        this.markHealthy()
+        return 'ok'
       }
-      return res.ok
+      // KV v2 returns 400 when a check-and-set write loses to a concurrent
+      // writer (path already at a newer version). That is a normal race outcome,
+      // not an unhealthy Vault — Vault is reachable, so close the breaker.
+      if (typeof opts?.cas === 'number' && res.status === 400) {
+        this.markHealthy()
+        console.warn('⚠️ [encryption][kms] Vault write CAS conflict (concurrent DEK create)', { path, status: res.status })
+        return 'conflict'
+      }
+      this.markTransientFailure()
+      console.warn('⚠️ [encryption][kms] Vault write failed', { path, status: res.status })
+      return 'error'
     } catch (err) {
-      this.healthy = false
+      this.markTransientFailure()
       console.warn('⚠️ [encryption][kms] Vault write error', {
         path,
         error: (err as Error)?.message || String(err),
         timeoutMs: this.requestTimeoutMs,
       })
-      return false
+      return 'error'
     }
   }
 
@@ -287,16 +356,40 @@ export class HashicorpVaultKmsService implements KmsService {
   }
 
   async createTenantDek(tenantId: string): Promise<TenantDek | null> {
-    const key = generateDek()
     const path = this.buildKeyPath(tenantId)
-    const ok = await this.writeVault(path, key)
-    if (ok) {
-      console.info('🔑 [encryption][kms] Stored tenant DEK in Vault', { tenantId, path })
-    } else {
-      console.warn('⚠️ [encryption][kms] Failed to store tenant DEK in Vault', { tenantId, path })
+    // Read-before-write: if a DEK already exists for this tenant (another request
+    // or process created it first), adopt it instead of overwriting the active
+    // key — overwriting orphans every row already encrypted under it (#2746).
+    const existing = await this.readVault(path)
+    const existingKey = existing?.data?.data?.key
+    if (existingKey) {
+      return this.remember({ tenantId, key: existingKey, fetchedAt: this.now() })
     }
-    if (!ok) return null
-    return this.remember({ tenantId, key, fetchedAt: this.now() })
+    // A read failure (timeout / 5xx) flips `healthy` off; don't blind-write a new
+    // key over a possibly-existing one we just couldn't read — let the caller fall back.
+    if (!this.healthy) return null
+    const key = generateDek()
+    const outcome = await this.writeVault(path, key, { cas: 0 })
+    if (outcome === 'ok') {
+      console.info('🔑 [encryption][kms] Stored tenant DEK in Vault', { tenantId, path })
+      return this.remember({ tenantId, key, fetchedAt: this.now() })
+    }
+    if (outcome === 'conflict') {
+      // A concurrent create won the CAS race — adopt the winner's key so both
+      // callers encrypt under the same DEK.
+      const winner = await this.readVault(path)
+      const winnerKey = winner?.data?.data?.key
+      if (winnerKey) {
+        console.info('🔑 [encryption][kms] Adopted concurrently-created tenant DEK', { tenantId, path })
+        return this.remember({ tenantId, key: winnerKey, fetchedAt: this.now() })
+      }
+    }
+    console.warn('⚠️ [encryption][kms] Failed to store tenant DEK in Vault', { tenantId, path })
+    return null
+  }
+
+  invalidateDek(tenantId: string): void {
+    this.cache.delete(tenantId)
   }
 }
 

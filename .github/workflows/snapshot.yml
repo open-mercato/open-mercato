@@ -276,6 +276,7 @@ jobs:
           DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test
           APP_URL=http://localhost:3001
           NEXT_PUBLIC_APP_URL=http://localhost:3001
+          AUTH_SECRET=ci-standalone-test-auth-secret
           JWT_SECRET=ci-standalone-test-jwt-secret
           OM_SECURITY_MFA_SETUP_SECRET=ci-standalone-test-mfa-setup-secret
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key
@@ -364,6 +365,7 @@ jobs:
           DATABASE_URL: postgres://mercato:secret@localhost:5432/mercato_test
           APP_URL: http://localhost:3001
           NEXT_PUBLIC_APP_URL: http://localhost:3001
+          AUTH_SECRET: ci-standalone-test-auth-secret
           JWT_SECRET: ci-standalone-test-jwt-secret
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ci-standalone-test-fallback-key
           OM_SECURITY_MFA_SETUP_SECRET: ci-standalone-test-mfa-setup-secret

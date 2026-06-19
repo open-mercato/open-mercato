@@ -22,6 +22,10 @@ type MapCacheKey = {
 }
 
 const MAP_MISS_TTL_MS = 5 * 60 * 1000
+// Mirror the Vault KMS default DEK TTL so a rotated/revoked tenant key is picked
+// up by long-lived processes without a restart (#2746). The service-level cache
+// previously had no TTL and shadowed the KMS's own 15-minute expiry.
+const DEK_CACHE_TTL_MS = 15 * 60 * 1000
 
 function cacheKey(key: MapCacheKey): string {
   return [
@@ -106,11 +110,13 @@ export class TenantDataEncryptionService {
   private static globalMemoryCache = new Map<string, EncryptionMapRecord>()
   private static globalInflightMaps = new Map<string, Promise<EncryptionMapRecord | null>>()
   private static globalDekCache = new Map<string, TenantDek>()
+  private static globalInflightDeks = new Map<string, Promise<TenantDek | null>>()
   private static globalMissCache = new Map<string, number>()
   private readonly kms: KmsService
   private readonly cache?: CacheStrategy
   private readonly memoryCache = TenantDataEncryptionService.globalMemoryCache
   private readonly dekCache = TenantDataEncryptionService.globalDekCache
+  private readonly inflightDeks = TenantDataEncryptionService.globalInflightDeks
   private readonly inflightMaps = TenantDataEncryptionService.globalInflightMaps
   private readonly missCache = TenantDataEncryptionService.globalMissCache
 
@@ -126,10 +132,15 @@ export class TenantDataEncryptionService {
     return isTenantDataEncryptionEnabled() && this.kms.isHealthy()
   }
 
+  private isDekExpired(dek: TenantDek): boolean {
+    return Date.now() - dek.fetchedAt > DEK_CACHE_TTL_MS
+  }
+
   async getDek(tenantId: string | null | undefined): Promise<TenantDek | null> {
     if (!tenantId) return null
     const cached = this.dekCache.get(tenantId)
-    if (cached) return cached
+    if (cached && !this.isDekExpired(cached)) return cached
+    if (cached) this.dekCache.delete(tenantId)
     const dek = await this.kms.getTenantDek(tenantId)
     if (!dek) {
       debug('🔎 dek.miss', { tenantId })
@@ -144,9 +155,22 @@ export class TenantDataEncryptionService {
     const existing = await this.getDek(tenantId)
     if (existing || !tenantId) return existing ?? null
     if (typeof this.kms.createTenantDek !== 'function') return existing ?? null
-    const created = await this.kms.createTenantDek(tenantId)
-    if (created) this.dekCache.set(tenantId, created)
-    return created ?? null
+    // Dedupe concurrent first-time creation within this process so two callers
+    // can't each generate a distinct DEK and overwrite one another (#2746).
+    // Mirrors the encryption-map inflight dedupe (`globalInflightMaps`).
+    const pending = this.inflightDeks.get(tenantId)
+    if (pending) return pending
+    const creation = (async () => {
+      const created = await this.kms.createTenantDek(tenantId)
+      if (created) this.dekCache.set(tenantId, created)
+      return created ?? null
+    })()
+    this.inflightDeks.set(tenantId, creation)
+    try {
+      return await creation
+    } finally {
+      this.inflightDeks.delete(tenantId)
+    }
   }
 
   async createDek(tenantId: string): Promise<TenantDek | null> {
@@ -244,6 +268,15 @@ export class TenantDataEncryptionService {
     if (this.cache && typeof (this.cache as any).delete === 'function') {
       await (this.cache as any).delete(tag)
     }
+  }
+
+  // Force a flush of a tenant's cached DEK across the service-level cache and the
+  // underlying KMS cache so an operator can pick up a rotated/revoked key without
+  // a process restart (#2746).
+  invalidateDek(tenantId: string): void {
+    this.dekCache.delete(tenantId)
+    this.inflightDeks.delete(tenantId)
+    this.kms.invalidateDek?.(tenantId)
   }
 
   async getEncryptedFieldNames(

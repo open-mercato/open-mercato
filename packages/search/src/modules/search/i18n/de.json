@@ -5,6 +5,7 @@
   "search.api.errors.indexFetchFailed": "Indexdaten konnten nicht abgerufen werden.",
   "search.api.errors.indexUnavailable": "Suchindex ist nicht verfügbar.",
   "search.api.errors.indexerUnavailable": "Such-Indexer ist nicht verfügbar.",
+  "search.api.errors.invalidOllamaBaseUrl": "Ollama-Basis-URL ist nicht erlaubt. Setzen Sie OLLAMA_BASE_URL in der Umgebung oder fügen Sie den Host zu OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST hinzu.",
   "search.api.errors.invalidProvider": "Ungültiger Embedding-Anbieter.",
   "search.api.errors.invalidStrategies": "Ungültige Suchstrategien angegeben.",
   "search.api.errors.lockFailed": "Indexsperre konnte nicht erworben werden.",

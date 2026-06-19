@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
 import { ErrorMessage, RecordNotFoundState } from "@open-mercato/ui/backend/detail";
 import {
@@ -18,6 +17,7 @@ import {
 import { createCrudFormError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { collectCustomFieldValues } from "@open-mercato/ui/backend/utils/customFieldValues";
 import { flash } from "@open-mercato/ui/backend/FlashMessages";
+import MarkdownField from "@open-mercato/ui/backend/inputs/MarkdownField";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { Input } from "@open-mercato/ui/primitives/input";
 import { Label } from "@open-mercato/ui/primitives/label";
@@ -130,20 +130,6 @@ import {
   DialogTitle,
 } from "@open-mercato/ui/primitives/dialog";
 import { SendObjectMessageDialog } from "@open-mercato/ui/backend/messages/SendObjectMessageDialog.tsx";
-
-const MarkdownEditor = dynamic(() => import("@uiw/react-md-editor"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-      <Spinner />
-    </div>
-  ),
-}) as unknown as React.ComponentType<{
-  value?: string;
-  height?: number;
-  onChange?: (value?: string) => void;
-  previewOptions?: { remarkPlugins?: unknown[] };
-}>;
 
 type ProductResponse = {
   items?: Array<Record<string, unknown>>;
@@ -844,11 +830,12 @@ export default function EditCatalogProductPage({
       {
         id: "details",
         column: 1,
-        component: ({ values, setValue, errors }) => (
+        component: ({ values, setValue, errors, requiredFieldIds }) => (
           <ProductDetailsSection
             values={values as ProductFormValues}
             setValue={setValue}
             errors={errors}
+            requiredFieldIds={requiredFieldIds}
             productId={productId ?? ""}
             hasVariants={Boolean(
               (values as ProductFormValues).hasVariants,
@@ -1512,6 +1499,7 @@ function ProductDetailsSection({
   values,
   setValue,
   errors,
+  requiredFieldIds,
   productId,
   hasVariants,
   variantMediaGroups,
@@ -1568,10 +1556,10 @@ function ProductDetailsSection({
 
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
+      <div className="space-y-2" data-crud-field-id="title">
         <Label className="flex items-center gap-1">
           {t("catalog.products.form.title", "Title")}
-          <span className="text-red-600">*</span>
+          <span className="text-status-error-text">*</span>
         </Label>
         <Input
           value={values.title}
@@ -1582,13 +1570,18 @@ function ProductDetailsSection({
           )}
         />
         {errors.title ? (
-          <p className="text-xs text-red-600">{errors.title}</p>
+          <p className="text-xs text-status-error-text">{errors.title}</p>
         ) : null}
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-2" data-crud-field-id="description">
         <div className="flex items-center justify-between">
-          <Label>{t("catalog.products.form.description", "Description")}</Label>
+          <Label className="flex items-center gap-1">
+            {t("catalog.products.form.description", "Description")}
+            {requiredFieldIds?.has("description") ? (
+              <span className="text-status-error-text">*</span>
+            ) : null}
+          </Label>
           <Button
             type="button"
             variant="ghost"
@@ -1610,17 +1603,10 @@ function ProductDetailsSection({
           </Button>
         </div>
         {values.useMarkdown ? (
-          <div
-            data-color-mode="light"
-            className="overflow-hidden rounded-md border"
-          >
-            <MarkdownEditor
-              value={values.description}
-              height={260}
-              onChange={(val) => setValue("description", val ?? "")}
-              previewOptions={{ remarkPlugins: [] }}
-            />
-          </div>
+          <MarkdownField
+            value={values.description}
+            onChange={(val) => setValue("description", val ?? "")}
+          />
         ) : (
           <Textarea
             className="min-h-[180px]"
@@ -1632,6 +1618,9 @@ function ProductDetailsSection({
             )}
           />
         )}
+        {errors.description ? (
+          <p className="text-xs text-status-error-text">{errors.description}</p>
+        ) : null}
       </div>
 
       <ProductMediaManager

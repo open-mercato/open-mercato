@@ -26,13 +26,24 @@ export function normalizeDictionaryIcon(input: unknown): string | null {
 
 export { assertFound } from '@open-mercato/shared/lib/crud/errors'
 
+export type CustomerEntityScope = {
+  tenantId: string
+  organizationId: string
+}
+
 export async function requireCustomerEntity(
   em: EntityManager,
   id: string,
+  scope: CustomerEntityScope,
   kind?: CustomerEntityKind,
   message = 'Customer entity not found'
 ): Promise<CustomerEntity> {
-  const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
+  const entity = await em.findOne(CustomerEntity, {
+    id,
+    deletedAt: null,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
   if (!entity) throw new CrudHttpError(404, { error: message })
   if (kind && entity.kind !== kind) {
     throw new CrudHttpError(400, { error: 'Invalid entity type' })
@@ -43,15 +54,26 @@ export async function requireCustomerEntity(
 export async function requireTimelineParentEntity(
   em: EntityManager,
   id: string,
+  scope: CustomerEntityScope,
 ): Promise<CustomerEntity> {
-  const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
+  const entity = await em.findOne(CustomerEntity, {
+    id,
+    deletedAt: null,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
   if (entity) {
     if (entity.kind !== 'person' && entity.kind !== 'company') {
       throw new CrudHttpError(422, { error: 'entityId must reference a person or company' })
     }
     return entity
   }
-  const deal = await em.findOne(CustomerDeal, { id, deletedAt: null })
+  const deal = await em.findOne(CustomerDeal, {
+    id,
+    deletedAt: null,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
   if (deal) {
     throw new CrudHttpError(422, { error: 'entityId must reference a person or company, not a deal' })
   }
@@ -111,7 +133,7 @@ export async function requireDealInScope(
   organizationId: string
 ): Promise<CustomerDeal | null> {
   if (!dealId) return null
-  const deal = await em.findOne(CustomerDeal, { id: dealId, deletedAt: null })
+  const deal = await em.findOne(CustomerDeal, { id: dealId, deletedAt: null, tenantId, organizationId })
   if (!deal) throw new CrudHttpError(400, { error: 'Deal not found' })
   ensureSameScope(deal, organizationId, tenantId)
   return deal

@@ -1,37 +1,44 @@
 import { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
 import { User, Role, UserRole, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
-import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+// A fixed, valid bcrypt hash (cost 10) of a throwaway value no real password
+// can match. verifyPassword compares against it whenever the user is missing or
+// has no password hash, so a failed login spends the same bcrypt CPU time
+// regardless of whether the account exists — closing the timing side channel
+// for account enumeration (issue #2242).
+const TIMING_EQUALIZER_PASSWORD_HASH = '$2b$10$OcZrhmZpIzJOjkfwUrk7d.Nl0eHNzOvalBcBlt5Ran.4lj8R3HZg6'
 
 export class AuthService {
   constructor(private em: EntityManager) {}
 
   async findUserByEmail(email: string) {
-    const emailHash = computeEmailHash(email)
+    const emailHashes = emailHashLookupValues(email)
     return findOneWithDecryption(this.em, User, {
       deletedAt: null,
       $or: [
         { email },
-        { emailHash },
+        { emailHash: { $in: emailHashes } },
       ],
     } as any)
   }
 
   async findUsersByEmail(email: string) {
-    const emailHash = computeEmailHash(email)
+    const emailHashes = emailHashLookupValues(email)
     return findWithDecryption(this.em, User, {
       deletedAt: null,
       $or: [
         { email },
-        { emailHash },
+        { emailHash: { $in: emailHashes } },
       ],
     } as any)
   }
 
   async findUserByEmailAndTenant(email: string, tenantId: string) {
-    const emailHash = computeEmailHash(email)
+    const emailHashes = emailHashLookupValues(email)
     return findOneWithDecryption(
       this.em,
       User,
@@ -40,7 +47,7 @@ export class AuthService {
         deletedAt: null,
         $or: [
           { email },
-          { emailHash },
+          { emailHash: { $in: emailHashes } },
         ],
       } as any,
       undefined,
@@ -48,9 +55,13 @@ export class AuthService {
     )
   }
 
-  async verifyPassword(user: User, password: string) {
-    if (!user.passwordHash) return false
-    return compare(password, user.passwordHash)
+  async verifyPassword(user: User | null, password: string) {
+    const storedHash = user?.passwordHash ?? null
+    // Always run a bcrypt comparison — against a fixed dummy hash when the user
+    // is absent or has no password — so login latency does not reveal whether
+    // the account exists (timing-based enumeration, issue #2242).
+    const matched = await compare(password, storedHash ?? TIMING_EQUALIZER_PASSWORD_HASH)
+    return storedHash !== null && matched
   }
 
   async updateLastLoginAt(user: User) {
@@ -70,7 +81,16 @@ export class AuthService {
       { populate: ['role'] },
       { tenantId: resolvedTenantId, organizationId: user.organizationId ?? null },
     )
-    return links.map((l) => l.role.name)
+    // A populated `role` can still be null when the link points at a soft-deleted
+    // role (the Role soft-delete filter suppresses hydration), e.g. an admin link
+    // orphaned by a re-seed during interrupted-provisioning recovery. Dropping such
+    // links keeps role resolution from throwing on the login / session-refresh hot
+    // path, mirroring resolveCanonicalStaffAuthContext in lib/sessionIntegrity.ts.
+    return links
+      .map((l) => l.role)
+      .filter((role): role is Role => !!role)
+      .map((role) => role.name)
+      .filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
   }
 
 

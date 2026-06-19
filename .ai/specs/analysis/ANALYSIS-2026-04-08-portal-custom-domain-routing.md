@@ -1,6 +1,6 @@
 # Pre-Implementation Analysis: Portal Custom Domain Routing (rev 4)
 
-**Spec:** `.ai/specs/2026-04-08-portal-custom-domain-routing.md`
+**Spec:** `.ai/specs/implemented/2026-04-08-portal-custom-domain-routing.md`
 **Spec revision audited:** rev 4 (2026-04-30)
 **Analysis date:** 2026-04-30
 **Verdict:** **Needs spec updates first** — 3 critical fixes, then ready for `om-implement-spec`.

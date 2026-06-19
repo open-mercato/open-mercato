@@ -146,3 +146,72 @@ describe('directory organizations GET — cross-tenant ?ids= guard (#2696)', () 
     expect(body.items).toHaveLength(1)
   })
 })
+
+describe('directory organizations GET — manage view exposes updatedAt for optimistic locking (#2989)', () => {
+  const tenantOrgId = '66666666-6666-4666-8666-666666666666'
+  const orgUpdatedAt = new Date('2026-06-01T10:20:30.000Z')
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    emFind.mockResolvedValue([])
+    emFindOne.mockResolvedValue(null)
+    findWithDecryptionMock.mockResolvedValue([])
+  })
+
+  it('includes updatedAt in the super-admin aggregate manage view', async () => {
+    authMock.mockResolvedValue({ sub: superAdminUserId, tenantId: null, orgId: null })
+    resolveIsSuperAdminMock.mockResolvedValue(true)
+    // Aggregate (all-tenants) manage view loads orgs via findWithDecryption.
+    findWithDecryptionMock.mockResolvedValue([
+      {
+        id: foreignOrgId,
+        name: 'Foreign Org',
+        slug: 'foreign-org',
+        parentId: null,
+        isActive: true,
+        updatedAt: orgUpdatedAt,
+        tenant: { id: foreignTenantId },
+      },
+    ])
+    emFind.mockResolvedValue([{ id: foreignTenantId, name: 'Foreign Tenant' }])
+
+    const response = await GET(
+      new Request('http://localhost/api/directory/organizations?view=manage&page=1&pageSize=50'),
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.items).toHaveLength(1)
+    // Without updatedAt the edit form cannot send the optimistic-lock header,
+    // so concurrent edits silently overwrite each other (#2989).
+    expect(body.items[0].updatedAt).toBe(orgUpdatedAt.toISOString())
+  })
+
+  it('includes updatedAt in the single-tenant manage view', async () => {
+    authMock.mockResolvedValue({ sub: superAdminUserId, tenantId: foreignTenantId, orgId: tenantOrgId })
+    resolveIsSuperAdminMock.mockResolvedValue(false)
+    // Single-tenant manage view loads orgs via em.find.
+    emFind.mockResolvedValue([
+      {
+        id: tenantOrgId,
+        name: 'Tenant Org',
+        slug: 'tenant-org',
+        parentId: null,
+        isActive: true,
+        updatedAt: orgUpdatedAt,
+        tenantId: foreignTenantId,
+      },
+    ])
+
+    const response = await GET(
+      new Request(
+        `http://localhost/api/directory/organizations?view=manage&tenantId=${foreignTenantId}&page=1&pageSize=50`,
+      ),
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0].updatedAt).toBe(orgUpdatedAt.toISOString())
+  })
+})

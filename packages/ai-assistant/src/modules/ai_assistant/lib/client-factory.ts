@@ -93,16 +93,10 @@ export async function createMcpClient(options: CreateClientOptions): Promise<Mcp
 
       if (options.stdioArgs) {
         stdioOptions.args = options.stdioArgs
-      } else {
-        // Default args include the API key
-        stdioOptions.args = [
-          'mercato',
-          'ai_assistant',
-          'mcp:serve',
-          '--api-key',
-          apiKeySecret,
-        ]
       }
+      // Otherwise let McpClient.connectStdio apply its default args. The API key
+      // is delivered to the child via the OPEN_MERCATO_API_KEY env var, never on
+      // argv — command-line arguments are world-readable (ps / /proc/<pid>/cmdline).
 
       if (options.cwd) {
         stdioOptions.cwd = options.cwd

@@ -13,7 +13,7 @@ import {
  * TC-LOCK-OSS-026: order payments (SAL-07) + shipments (SAL-08) — ROW-LEVEL
  * optimistic locking.
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md +
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md +
  *       .ai/runs/2026-05-25-oss-optimistic-locking/qa-repro-report.md (Phase 17.6).
  *
  * Unlike sales LINES / ADJUSTMENTS / RETURNS (which are guarded at the COMMAND

@@ -944,7 +944,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
   // OSS opt-in optimistic locking — auto-register a generic reader for every
   // CRUD entity using the factory's own ORM config (Step 13.3 of the spec at
-  // .ai/specs/2026-05-25-oss-optimistic-locking.md). Hand-wired readers
+  // .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md). Hand-wired readers
   // registered earlier via module DI (customers/sales) always win because we
   // use the `IfAbsent` variant. Skipped silently when the route has no
   // resolvable resourceKind or no ORM entity class (e.g. virtual routes).

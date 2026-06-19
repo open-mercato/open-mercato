@@ -7,7 +7,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { MarkdownPreview } from '@open-mercato/ui/backend/markdown/MarkdownContent'
+import { markdownToPlainText } from '@open-mercato/ui/backend/markdown/markdownToPlainText'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow, apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -23,8 +23,6 @@ import { truncate } from 'fs'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 const PAGE_SIZE = 50
-const MARKDOWN_CLASSNAME =
-  'text-sm text-foreground break-words [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
 
 type TeamRoleRow = {
   kind: 'team' | 'role'
@@ -130,11 +128,9 @@ export default function StaffTeamRolesPage() {
           <div className="flex flex-col">
             <span className="font-medium pl-6">{row.original.name}</span>
             {row.original.description ? (
-              <MarkdownPreview
-                className={`${MARKDOWN_CLASSNAME} pl-6 text-xs text-muted-foreground line-clamp-2`}
-              >
-                {row.original.description}
-              </MarkdownPreview>
+              <span className="pl-6 text-xs text-muted-foreground line-clamp-2">
+                {markdownToPlainText(row.original.description)}
+              </span>
             ) : null}
           </div>
         )
@@ -148,9 +144,9 @@ export default function StaffTeamRolesPage() {
         ? <span className="text-xs text-muted-foreground">-</span>
         : row.original.description
           ? (
-            <MarkdownPreview className={MARKDOWN_CLASSNAME}>
-              {row.original.description}
-            </MarkdownPreview>
+            <span className="text-xs text-muted-foreground line-clamp-2">
+              {markdownToPlainText(row.original.description)}
+            </span>
           )
           : <span className="text-xs text-muted-foreground">-</span>,
     },

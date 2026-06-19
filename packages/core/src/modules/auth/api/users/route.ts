@@ -81,6 +81,7 @@ const userListItemSchema = z.object({
   tenantName: z.string().nullable(),
   roles: z.array(z.string()),
   roleIds: z.array(z.string().uuid()).optional(),
+  hasPassword: z.boolean().optional(),
   updatedAt: z.string().nullable().optional(),
 })
 
@@ -439,7 +440,7 @@ export async function GET(req: Request) {
       tenantName: u.tenantId ? tenantMap[String(u.tenantId)] ?? String(u.tenantId) : null,
       roles: roleMap[uid] || [],
       roleIds: roleIdMap[uid] || [],
-      hasPassword: !!u.passwordHash,
+      ...(id ? { hasPassword: !!u.passwordHash } : {}),
       updatedAt: u.updatedAt instanceof Date ? u.updatedAt.toISOString() : null,
       ...(cfByUser[uid] || {}),
     }

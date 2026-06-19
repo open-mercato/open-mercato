@@ -10,11 +10,17 @@ describe('kms timeout handling', () => {
   })
 
   it('marks Vault unhealthy after a timed out write', async () => {
-    const fetchMock = jest.fn((_url: string, init?: RequestInit) =>
-      new Promise((_resolve, reject) => {
+    // createTenantDek now reads-before-write (#2746): the read probe answers fast
+    // with no existing key so the flow reaches the write, which then times out.
+    const fetchMock = jest.fn((_url: string, init?: RequestInit) => {
+      const method = (init?.method || 'GET').toUpperCase()
+      if (method === 'GET') {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ data: { data: {} } }) })
+      }
+      return new Promise((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
-      }),
-    )
+      })
+    })
     ;(globalThis as { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch
 
     const service = new HashicorpVaultKmsService({
@@ -25,7 +31,7 @@ describe('kms timeout handling', () => {
 
     await expect(service.createTenantDek('tenant-1')).resolves.toBeNull()
     expect(service.isHealthy()).toBe(false)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2) // read probe + the timed-out write
   })
 
   it('falls back to derived keys after the primary Vault call times out', async () => {
@@ -118,5 +124,85 @@ describe('kms timeout handling', () => {
 
     expect(typeof dek?.key).toBe('string')
     expect(dek?.key).toBeTruthy()
+  })
+})
+
+describe('kms self-healing circuit breaker (#2661)', () => {
+  const vaultAddr = 'http://vault.test'
+  const vaultToken = 'token'
+
+  afterEach(() => {
+    process.env = { ...originalEnv }
+    jest.restoreAllMocks()
+  })
+
+  it('re-probes Vault and recovers after the cooldown window instead of staying unhealthy forever', async () => {
+    let clock = 1_000_000
+    jest.spyOn(Date, 'now').mockImplementation(() => clock)
+
+    let calls = 0
+    const fetchMock = jest.fn(() => {
+      calls += 1
+      if (calls === 1) {
+        // First read hits a transient 5xx (Vault hiccup) → breaker opens.
+        return Promise.resolve({ ok: false, status: 503, json: async () => ({}) })
+      }
+      // Vault is back: subsequent reads succeed.
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ data: { data: { key: 'recovered-key' } } }) })
+    })
+    ;(globalThis as { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch
+
+    const service = new HashicorpVaultKmsService({ vaultAddr, vaultToken, recoveryCooldownMs: 5_000 })
+
+    // Transient failure flips the instance unhealthy.
+    await expect(service.getTenantDek('tenant-1')).resolves.toBeNull()
+    expect(service.isHealthy()).toBe(false)
+
+    // Still within the cooldown: the breaker stays open.
+    clock += 4_000
+    expect(service.isHealthy()).toBe(false)
+
+    // Past the cooldown: half-open — report healthy so the next call re-probes.
+    clock += 2_000
+    expect(service.isHealthy()).toBe(true)
+
+    // The re-probe succeeds and the breaker fully closes (the never-recover bug).
+    const dek = await service.getTenantDek('tenant-1')
+    expect(dek?.key).toBe('recovered-key')
+    expect(service.isHealthy()).toBe(true)
+  })
+
+  it('treats missing VAULT_ADDR/VAULT_TOKEN as a terminal failure that never self-heals', () => {
+    let clock = 2_000_000
+    jest.spyOn(Date, 'now').mockImplementation(() => clock)
+
+    const service = new HashicorpVaultKmsService({ vaultAddr: '', vaultToken: '', recoveryCooldownMs: 5_000 })
+    expect(service.isHealthy()).toBe(false)
+
+    // No cooldown re-probe should ever revive a misconfigured instance.
+    clock += 10_000_000
+    expect(service.isHealthy()).toBe(false)
+  })
+
+  it('keeps Vault healthy on a 404 read so read-before-write DEK creation can proceed', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(3_000_000)
+
+    const fetchMock = jest.fn((_url: string, init?: RequestInit) => {
+      const method = (init?.method || 'GET').toUpperCase()
+      if (method === 'GET') {
+        // KV v2 returns 404 for a not-yet-created tenant key — Vault is reachable.
+        return Promise.resolve({ ok: false, status: 404, json: async () => ({}) })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+    ;(globalThis as { fetch?: typeof fetch }).fetch = fetchMock as typeof fetch
+
+    const service = new HashicorpVaultKmsService({ vaultAddr, vaultToken })
+
+    const dek = await service.createTenantDek('tenant-2')
+    expect(typeof dek?.key).toBe('string')
+    expect(dek?.key).toBeTruthy()
+    expect(service.isHealthy()).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(2) // 404 read probe + the write
   })
 })

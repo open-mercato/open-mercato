@@ -1,7 +1,12 @@
-import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 @Entity({ tableName: 'api_keys' })
 @Unique({ properties: ['keyPrefix'] })
+@Index({
+  name: 'api_keys_opencode_session_id_uq',
+  expression:
+    'create unique index "api_keys_opencode_session_id_uq" on "api_keys" ("opencode_session_id") where "opencode_session_id" is not null and "deleted_at" is null',
+})
 export class ApiKey {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -41,6 +46,15 @@ export class ApiKey {
   /** Encrypted API key secret for session keys (recoverable for API calls) */
   @Property({ name: 'session_secret_encrypted', type: 'text', nullable: true })
   sessionSecretEncrypted?: string | null
+
+  /**
+   * OpenCode session id bound to this api_key row. Set the first time the
+   * chat dispatcher receives a `done` event after minting a session token,
+   * then asserted on every subsequent resume to prevent cross-user session
+   * continuation (see security fix 2026-05-23).
+   */
+  @Property({ name: 'opencode_session_id', type: 'text', nullable: true })
+  opencodeSessionId?: string | null
 
   @Property({ name: 'last_used_at', type: Date, nullable: true })
   lastUsedAt?: Date | null

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ENTITY_ID_PATTERN } from '@open-mercato/shared/lib/query/engine'
 
 export const queryIndexTag = 'Query Index'
 
@@ -80,7 +81,7 @@ export const queryIndexStatusResponseSchema = z.object({
 })
 
 export const queryIndexReindexRequestSchema = z.object({
-  entityType: z.string().min(1),
+  entityType: z.string().min(1).regex(ENTITY_ID_PATTERN),
   force: z.boolean().optional(),
   batchSize: z.number().int().positive().optional(),
   partitionCount: z.number().int().positive().optional(),

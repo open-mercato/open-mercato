@@ -10,7 +10,7 @@ import { buildExtractionSystemPrompt, buildExtractionUserPrompt } from '../lib/e
 import { REQUIRED_FEATURES_MAP } from '../lib/constants'
 import { fetchCatalogProductsForExtraction } from '../lib/catalogLookup'
 import { enrichOrderPayload } from '../lib/payloadEnrichment'
-import { validatePrices } from '../lib/priceValidator'
+import { validatePrices, type CatalogPricingServiceLike } from '../lib/priceValidator'
 import { extractParticipantsFromThread } from '../lib/emailParser'
 import { runExtractionWithConfiguredProvider } from '../lib/llmProvider'
 import { safeParsePayloadJson } from '../lib/validation'
@@ -216,8 +216,11 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
       }))
       .filter((a) => a.actionType === 'create_order' || a.actionType === 'create_quote')
 
+    const catalogPricingService = tryResolve<CatalogPricingServiceLike>(ctx, 'catalogPricingService')
     const priceDiscrepancies = await validatePrices(em, orderActions, scope,
-      entityClasses.catalogProductPrice ? { catalogProductPriceClass: entityClasses.catalogProductPrice } : undefined,
+      entityClasses.catalogProductPrice && catalogPricingService
+        ? { catalogProductPriceClass: entityClasses.catalogProductPrice, catalogPricingService }
+        : undefined,
     )
 
     // Step 4b: Check for duplicate orders by customerReference

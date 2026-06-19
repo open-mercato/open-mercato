@@ -128,10 +128,23 @@ async function loadAttachmentRow(
   // core package owns the MikroORM metadata and is the only place tests would
   // need to bootstrap for real DB access.
   const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
+  // Tenant isolation is enforced in the SQL WHERE clause, not just the JS
+  // post-filter below: the decryption scope (5th arg) only drives field
+  // decryption, so omitting tenant/org from `where` would let `em.findOne`
+  // return a row from another tenant. Super-admins bypass the scope. Org-scoped
+  // callers also constrain by org; tenant-wide callers (organizationId === null)
+  // may read any org within their tenant.
+  const where: Record<string, unknown> = { id: attachmentId }
+  if (!authContext.isSuperAdmin) {
+    where.tenantId = authContext.tenantId
+    if (authContext.organizationId != null) {
+      where.organizationId = authContext.organizationId
+    }
+  }
   const record = await findOneWithDecryption(
     em,
     Attachment as never,
-    { id: attachmentId } as never,
+    where as never,
     undefined,
     {
       tenantId: authContext.tenantId,
@@ -157,10 +170,18 @@ async function loadAttachmentRow(
 
 function rowBelongsToCaller(row: AttachmentRow, authContext: AiChatRequestContext): boolean {
   if (authContext.isSuperAdmin) return true
-  // Tenant scope: if the record is tenant-scoped, it MUST match the caller tenant.
-  if (row.tenantId && row.tenantId !== authContext.tenantId) return false
-  // Organization scope: if the record is org-scoped, it MUST match the caller org.
-  if (row.organizationId && row.organizationId !== authContext.organizationId) return false
+  // Tenant scope: fail closed. The record MUST carry the caller's tenant.
+  // A null `tenant_id` (a supported "global"/unscoped attachment state) is NOT
+  // accessible through the AI path: it has no `partition.isPublic` gate, so a
+  // truthiness short-circuit here would leak the bytes / extracted text into a
+  // different tenant's LLM context (cross-tenant IDOR, issue #2663). Requiring
+  // strict equality also rejects a non-super-admin caller with a null tenant.
+  if (authContext.tenantId == null || row.tenantId !== authContext.tenantId) return false
+  // Organization scope: when the caller is org-scoped, the record MUST match
+  // that organization (this also rejects null-org rows for an org-scoped
+  // caller). Tenant-wide callers (organizationId === null) may read any org
+  // within their tenant.
+  if (authContext.organizationId != null && row.organizationId !== authContext.organizationId) return false
   return true
 }
 

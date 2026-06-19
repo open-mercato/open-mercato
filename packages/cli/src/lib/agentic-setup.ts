@@ -104,6 +104,13 @@ function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'om-code-review', 'references', 'review-checklist.md'),
   )
   copyFile(srcDir, 'ai/skills/om-integration-builder/SKILL.md', join(targetDir, '.ai', 'skills', 'om-integration-builder', 'SKILL.md'))
+  if (existsSync(join(srcDir, 'ai', 'skills', 'om-integration-builder', 'STANDALONE.md'))) {
+    copyFile(
+      srcDir,
+      'ai/skills/om-integration-builder/STANDALONE.md',
+      join(targetDir, '.ai', 'skills', 'om-integration-builder', 'STANDALONE.md'),
+    )
+  }
   copyFile(
     srcDir,
     'ai/skills/om-integration-builder/references/adapter-contracts.md',
@@ -175,6 +182,22 @@ function generateShared(config: AgenticConfig): void {
     srcDir,
     'ai/skills/om-integration-tests/SKILL.md',
     join(targetDir, '.ai', 'skills', 'om-integration-tests', 'SKILL.md'),
+  )
+
+  copyFile(
+    srcDir,
+    'ai/skills/om-help/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'SKILL.md'),
+  )
+  copyFile(
+    srcDir,
+    'ai/skills/om-help/references/skills-catalog.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'references', 'skills-catalog.md'),
+  )
+  copyFile(
+    srcDir,
+    'ai/skills/om-help/references/workflow-sequences.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'references', 'workflow-sequences.md'),
   )
 
   copyFile(

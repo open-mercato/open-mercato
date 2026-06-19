@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import {Alert, AlertDescription} from '@open-mercato/ui/primitives/alert'
-import {ChevronDown, Info, Plus, Trash2} from 'lucide-react'
+import {ChevronDown, Plus, Trash2} from 'lucide-react'
 import {sanitizeId} from '../lib/graph-utils'
 import {WorkflowDefinition, WorkflowSelector} from './WorkflowSelector'
 import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
@@ -539,7 +539,6 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
         <div className="space-y-4">
           {!isEditable ? (
             <Alert variant="info">
-              <Info className="size-4" />
               <AlertDescription>
                 {t('workflows.nodeEditor.endStepsNotEditable')}
               </AlertDescription>
@@ -548,7 +547,6 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
             <div className="space-y-4">
               {/* Info Alert for START nodes */}
               <Alert variant="info">
-                <Info className="size-4" />
                 <AlertDescription>
                   {t('workflows.nodeEditor.startStepsInfo')}
                 </AlertDescription>
@@ -693,7 +691,6 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     {/* JSON Schema Format Notice */}
                     {isJsonSchemaFormat && (
                       <Alert variant="info" className="mb-3">
-                        <Info className="size-4" />
                         <AlertDescription>
                           {t('workflows.nodeEditor.jsonSchemaFormat')}
                         </AlertDescription>

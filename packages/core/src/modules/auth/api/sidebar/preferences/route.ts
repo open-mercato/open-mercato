@@ -121,16 +121,23 @@ async function findRoleInScope(
   em: EntityManager,
   options: { roleId: string; tenantId: string | null },
 ): Promise<Role | null> {
+  // Scope the DB query so MikroORM only fetches in-scope rows: a role belongs to either
+  // the auth tenant or the global (null tenant) pool. Mirrors loadRolesPayload()'s scoping
+  // so cross-tenant role rows are never loaded or decrypted into memory in the first place.
+  const roleScope: FilterQuery<Role> = options.tenantId
+    ? { id: options.roleId, $or: [{ tenantId: options.tenantId }, { tenantId: null }] }
+    : { id: options.roleId, tenantId: null }
   const role = await findOneWithDecryption(
     em,
     Role,
-    { id: options.roleId },
+    roleScope,
     undefined,
     { tenantId: options.tenantId, organizationId: null },
   )
   if (!role) return null
-  // Cross-tenant guard: a role belongs to either the auth tenant or the global (null tenant) pool.
-  // Reject the lookup otherwise so a multi-tenant deployment can't leak across tenants.
+  // Cross-tenant guard (defense-in-depth): a role belongs to either the auth tenant or the
+  // global (null tenant) pool. Reject the lookup otherwise so a multi-tenant deployment can't
+  // leak across tenants even if the query above is later changed.
   if (role.tenantId && options.tenantId && role.tenantId !== options.tenantId) return null
   if (role.tenantId && !options.tenantId) return null
   return role

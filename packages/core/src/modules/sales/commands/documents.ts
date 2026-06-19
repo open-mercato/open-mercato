@@ -719,11 +719,13 @@ async function resolveAddressSnapshot(
   addressId?: string | null,
 ): Promise<Record<string, unknown> | null> {
   if (!addressId) return null;
-  const address = await em.findOne(CustomerAddress, {
-    id: addressId,
-    organizationId,
-    tenantId,
-  });
+  const address = await findOneWithDecryption(
+    em,
+    CustomerAddress,
+    { id: addressId, organizationId, tenantId },
+    undefined,
+    { tenantId, organizationId },
+  );
   if (!address) return null;
 
   return {
@@ -1075,6 +1077,7 @@ async function applyDocumentUpdate({
     const statusValue = await resolveDictionaryEntryValue(
       em,
       input.statusEntryId,
+      { tenantId },
     );
     if (input.statusEntryId && !statusValue) {
       throw new CrudHttpError(400, {
@@ -3029,7 +3032,7 @@ async function applyOrderLineResults(params: {
   const resolveStatus = async (entryId?: string | null) => {
     if (!entryId) return null;
     if (statusCache.has(entryId)) return statusCache.get(entryId) ?? null;
-    const value = await resolveDictionaryEntryValue(em, entryId);
+    const value = await resolveDictionaryEntryValue(em, entryId, { tenantId: order.tenantId });
     statusCache.set(entryId, value);
     return value;
   };
@@ -3103,7 +3106,7 @@ async function applyQuoteLineResults(params: {
   const resolveStatus = async (entryId?: string | null) => {
     if (!entryId) return null;
     if (statusCache.has(entryId)) return statusCache.get(entryId) ?? null;
-    const value = await resolveDictionaryEntryValue(em, entryId);
+    const value = await resolveDictionaryEntryValue(em, entryId, { tenantId: quote.tenantId });
     statusCache.set(entryId, value);
     return value;
   };
@@ -3170,7 +3173,7 @@ async function replaceQuoteLines(
   const resolveStatus = async (entryId?: string | null) => {
     if (!entryId) return null;
     if (statusCache.has(entryId)) return statusCache.get(entryId) ?? null;
-    const value = await resolveDictionaryEntryValue(em, entryId);
+    const value = await resolveDictionaryEntryValue(em, entryId, { tenantId: quote.tenantId });
     statusCache.set(entryId, value);
     return value;
   };
@@ -3298,7 +3301,7 @@ async function replaceOrderLines(
   const resolveStatus = async (entryId?: string | null) => {
     if (!entryId) return null;
     if (statusCache.has(entryId)) return statusCache.get(entryId) ?? null;
-    const value = await resolveDictionaryEntryValue(em, entryId);
+    const value = await resolveDictionaryEntryValue(em, entryId, { tenantId: order.tenantId });
     statusCache.set(entryId, value);
     return value;
   };
@@ -4449,6 +4452,7 @@ const createQuoteCommand: CommandHandler<
     const quoteStatus = await resolveDictionaryEntryValue(
       em,
       parsed.statusEntryId ?? null,
+      { tenantId: parsed.tenantId },
     );
     const quoteId = randomUUID();
     const quote = em.create(SalesQuote, {
@@ -5413,9 +5417,9 @@ const createOrderCommand: CommandHandler<
     ensureOrderScope(ctx, parsed.organizationId, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const [status, fulfillmentStatus, paymentStatus] = await Promise.all([
-      resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null),
-      resolveDictionaryEntryValue(em, parsed.fulfillmentStatusEntryId ?? null),
-      resolveDictionaryEntryValue(em, parsed.paymentStatusEntryId ?? null),
+      resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId }),
+      resolveDictionaryEntryValue(em, parsed.fulfillmentStatusEntryId ?? null, { tenantId: parsed.tenantId }),
+      resolveDictionaryEntryValue(em, parsed.paymentStatusEntryId ?? null, { tenantId: parsed.tenantId }),
     ]);
     const {
       customerSnapshot: resolvedCustomerSnapshot,
@@ -8362,6 +8366,7 @@ const createInvoiceCommand: CommandHandler<
     const status = await resolveDictionaryEntryValue(
       em,
       parsed.statusEntryId ?? null,
+      { tenantId: parsed.tenantId },
     );
 
     // Validate orderId belongs to same org/tenant
@@ -8573,7 +8578,7 @@ const updateInvoiceCommand: CommandHandler<
     ]);
 
     if (parsed.statusEntryId !== undefined) {
-      invoice.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null);
+      invoice.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: invoice.tenantId });
     }
 
     Object.assign(invoice, changes);
@@ -8847,6 +8852,7 @@ const createCreditMemoCommand: CommandHandler<
     const status = await resolveDictionaryEntryValue(
       em,
       parsed.statusEntryId ?? null,
+      { tenantId: parsed.tenantId },
     );
 
     // Validate orderId belongs to same org/tenant
@@ -9063,7 +9069,7 @@ const updateCreditMemoCommand: CommandHandler<
     ]);
 
     if (parsed.statusEntryId !== undefined) {
-      creditMemo.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null);
+      creditMemo.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: creditMemo.tenantId });
     }
 
     Object.assign(creditMemo, changes);

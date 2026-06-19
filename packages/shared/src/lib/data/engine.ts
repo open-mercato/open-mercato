@@ -13,6 +13,8 @@ import type {
   CrudEntityIdentifiers,
 } from '../crud/types'
 import { CrudHttpError } from '../crud/errors'
+import { resolveRegisteredEntityTableName } from '../query/engine'
+import { getEntityIds } from '../encryption/entityIds'
 import { normalizeCustomFieldValues } from '../custom-fields/normalize'
 import { parseBooleanToken } from '../boolean'
 import { isEventDeclared } from '../../modules/events'
@@ -136,6 +138,41 @@ export interface DataEngine {
   flushOrmEntityChanges(): Promise<void>
 }
 
+export const SYSTEM_ENTITY_RECORDS_BLOCKED_CODE = 'system_entity_records_blocked'
+
+/**
+ * A system entity for doc-storage purposes is an id that modules declare in the
+ * generated entity-id registry AND that resolves to a registered ORM table. Both
+ * conditions matter: `resolveRegisteredEntityTableName` matches class-name candidates
+ * from the entity segment alone, so a runtime-registered custom entity whose name
+ * happens to collide with some ORM class (e.g. `user:todo` vs the example module's
+ * `Todo`) must never be classified as system. When the registry is not populated
+ * (exotic bootstraps, unit harnesses) the check conservatively falls back to the
+ * ORM-table match alone so the #2939 protection never switches off.
+ */
+export function isOrmBackedSystemEntityId(em: EntityManager, entityId: string): boolean {
+  const registry = getEntityIds(false)
+  const moduleIds = Object.values(registry).flatMap((moduleEntities) => Object.values(moduleEntities ?? {}))
+  if (moduleIds.length > 0 && !moduleIds.includes(entityId)) return false
+  return resolveRegisteredEntityTableName(em, entityId) !== null
+}
+
+/**
+ * Doc storage (`custom_entities_storage`) is for custom entities only. A system
+ * entity's records live in its own module tables/APIs — writing doc rows for it
+ * poisons read-path classification (#2939) and must be rejected at the deepest
+ * seam so no caller (API, AI tool, workflow) can do it.
+ */
+export function assertCustomEntityStorageEntityId(em: EntityManager, entityId: string): void {
+  if (isOrmBackedSystemEntityId(em, entityId)) {
+    throw new CrudHttpError(400, {
+      error: 'Records are available for custom entities only',
+      code: SYSTEM_ENTITY_RECORDS_BLOCKED_CODE,
+      entityId,
+    })
+  }
+}
+
 export class DefaultDataEngine implements DataEngine {
   private pendingSideEffects = new Map<string, QueuedCrudSideEffect>()
   constructor(private em: EntityManager, private container: AwilixContainer) {}
@@ -254,6 +291,7 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   async createCustomEntityRecord(opts: Parameters<DataEngine['createCustomEntityRecord']>[0]): Promise<{ id: string }> {
+    assertCustomEntityStorageEntityId(this.em, opts.entityId)
     const db = this.getKysely()
     await this.ensureStorageTableExists()
     const sanitizedValues = await sanitizeCustomFieldHtmlRichTextValuesServer(this.em, {
@@ -345,6 +383,7 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   async updateCustomEntityRecord(opts: Parameters<DataEngine['updateCustomEntityRecord']>[0]): Promise<void> {
+    assertCustomEntityStorageEntityId(this.em, opts.entityId)
     const db = this.getKysely()
     const sanitizedValues = await sanitizeCustomFieldHtmlRichTextValuesServer(this.em, {
       entityId: opts.entityId,
@@ -410,6 +449,7 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   async deleteCustomEntityRecord(opts: Parameters<DataEngine['deleteCustomEntityRecord']>[0]): Promise<void> {
+    assertCustomEntityStorageEntityId(this.em, opts.entityId)
     const db = this.getKysely()
     const id = String(opts.recordId)
     const orgId = opts.organizationId ?? null

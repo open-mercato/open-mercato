@@ -113,10 +113,11 @@ export async function ensureSalesDictionary(params: {
 
 export async function resolveDictionaryEntryValue(
   em: EntityManager,
-  entryId: string | null | undefined
+  entryId: string | null | undefined,
+  scope: { tenantId: string }
 ): Promise<string | null> {
   if (!entryId) return null
-  const entry = await em.findOne(DictionaryEntry, entryId)
+  const entry = await em.findOne(DictionaryEntry, { id: entryId, tenantId: scope.tenantId })
   if (!entry) return null
   return entry.value?.trim() || null
 }

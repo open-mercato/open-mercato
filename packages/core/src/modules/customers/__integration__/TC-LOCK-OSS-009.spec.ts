@@ -16,7 +16,7 @@ import {
  * `/api/customers/todos` route (the surface QA exercises from the People/Deal
  * Tasks tab modal).
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md
  *
  * Closes the round-4 QA gaps for #2055:
  *   - A stale task edit (concurrent edit from another tab) is refused with the

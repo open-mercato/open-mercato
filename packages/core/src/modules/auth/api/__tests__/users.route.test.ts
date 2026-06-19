@@ -177,6 +177,54 @@ describe('GET /api/auth/users', () => {
     expect(mockContainer.resolve).not.toHaveBeenCalled()
   })
 
+  test('omits hasPassword from the bulk list response to avoid invite-state enumeration', async () => {
+    const listedUserId = '423e4567-e89b-12d3-a456-426614174900'
+    mockEm.findAndCount.mockResolvedValueOnce([
+      [
+        {
+          id: listedUserId,
+          email: 'listed@example.com',
+          name: 'Listed User',
+          tenantId,
+          organizationId,
+          passwordHash: '$2a$10$hashedsecretvalue',
+        },
+      ],
+      1,
+    ])
+
+    const response = await GET(makeRequest('/api/auth/users?page=1&pageSize=50'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]).not.toHaveProperty('hasPassword')
+  })
+
+  test('exposes hasPassword only on the id-scoped per-user GET used by the edit view', async () => {
+    const targetUserId = '423e4567-e89b-12d3-a456-426614174901'
+    mockEm.findAndCount.mockResolvedValueOnce([
+      [
+        {
+          id: targetUserId,
+          email: 'edit-target@example.com',
+          name: 'Edit Target',
+          tenantId,
+          organizationId,
+          passwordHash: '$2a$10$hashedsecretvalue',
+        },
+      ],
+      1,
+    ])
+
+    const response = await GET(makeRequest(`/api/auth/users?id=${targetUserId}&page=1&pageSize=1`))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]).toMatchObject({ id: targetUserId, hasPassword: true })
+  })
+
   test('returns an empty collection for non-superadmin users without tenant context', async () => {
     mockGetAuthFromRequest.mockResolvedValueOnce({
       sub: 'user-1',

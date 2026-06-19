@@ -99,7 +99,7 @@ export interface FullTextSearchDriver {
 
   // Batch operations (optional)
   bulkIndex?(docs: FullTextSearchDocument[]): Promise<void>
-  purge?(entityId: EntityId, tenantId: string): Promise<void>
+  purge?(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void>
 
   // Index management (optional)
   clearIndex?(tenantId: string): Promise<void>

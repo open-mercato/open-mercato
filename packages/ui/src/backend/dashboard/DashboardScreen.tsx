@@ -10,7 +10,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { getDashboardWidgets, loadDashboardWidgetModule } from './widgetRegistry'
 import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { GripVertical, Info, Plus, RefreshCw, Settings2, Trash2, X, Loader2 } from 'lucide-react'
+import { GripVertical, Plus, RefreshCw, Settings2, Trash2, X, Loader2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { InjectionSpot } from '../injection/InjectionSpot'
@@ -366,7 +366,6 @@ export function DashboardScreen() {
   if (!hasRegisteredWidgets && layout.length === 0) {
     return (
       <Alert variant="info">
-        <Info className="h-4 w-4" aria-hidden />
         <AlertTitle>{t('dashboard.empty.noWidgets.title', 'No dashboard widgets yet')}</AlertTitle>
         <AlertDescription>
           {t(
