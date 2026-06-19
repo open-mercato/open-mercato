@@ -14,6 +14,11 @@ SSRF). Vulnerable versions: `<=9.0.0`. Patched: `9.0.1`.
   the whole dependency tree (mailparser pins nodemailer exactly: 3.9.9→8.0.10, 3.9.10→9.0.0,
   both vulnerable, so a declared-dep bump alone is insufficient).
 - `yarn.lock` — regenerate so every nodemailer node resolves to the patched version.
+- Root `package.json` — also bump the existing `undici` resolution `7.24.0 → 7.28.0`. Once the
+  nodemailer finding was cleared, the same `yarn npm audit ... --severity high` step (which fails on
+  the first high finding) surfaced a second high: undici GHSA-vmh5-mc38-953g (TLS cert validation
+  bypass, vulnerable `>=7.23.0 <7.28.0`). This is the exact remediation already merged on `main`
+  via #3278/#3355; develop had not received it. Required for the audit step to actually exit 0.
 
 ### Affected dependents (from the audit output)
 
@@ -44,9 +49,10 @@ SSRF). Vulnerable versions: `<=9.0.0`. Patched: `9.0.1`.
 
 - [ ] 1.1 Bump `nodemailer` to `^9.0.1` in `packages/channel-imap/package.json`
 - [ ] 1.2 Add `nodemailer` resolution (`9.0.1`) to root `package.json`
-- [ ] 1.3 Regenerate `yarn.lock` via `yarn install`
+- [ ] 1.3 Bump `undici` resolution `7.24.0 → 7.28.0` (second high surfaced by the same audit step)
+- [ ] 1.4 Regenerate `yarn.lock` via `yarn install`
 
 ### Phase 2: Verify
 
-- [ ] 2.1 Confirm `yarn npm audit --all --recursive --severity high` no longer reports nodemailer
+- [ ] 2.1 Confirm `yarn npm audit --all --recursive --severity high` exits 0 (no high findings)
 - [ ] 2.2 Build + typecheck channel-imap; run channel-imap unit tests
