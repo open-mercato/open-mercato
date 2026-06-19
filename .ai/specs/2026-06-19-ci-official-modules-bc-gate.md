@@ -3,12 +3,13 @@
 ## TLDR
 **Key Points:**
 - Add a CI safety net that detects, *inside an open-mercato PR*, when a change to a `@open-mercato/*` package breaks the contract the separate `open-mercato/official-modules` consumer repo depends on — before the breakage is found downstream.
-- Two complementary layers: **Layer 1** — a fast, repo-local *contract-surface snapshot* test that fails on breaking removals; **Layer 2** — a *downstream smoke job* that builds the official modules against the PR's canary packages via local Verdaccio.
+- Three complementary layers: **Layer 1** — a fast, repo-local *contract-surface snapshot* test that fails on breaking removals; **Layer 2** — a *build + unit* job that installs the official modules against the PR's canary packages via local Verdaccio and runs their `typecheck` + `test`; **Layer 2b** — a *runtime smoke* job that activates the modules in the official-modules sandbox app, boots it against a real DB, and probes that it serves (health + a few module routes).
 
 **Scope:**
 - Layer 1: a versioned `contract-surface.snapshot.json` (exported symbol names + generated registries + `package.json` `exports`/`files`/`types`) and a diff test that runs in the existing `verify` job. Removals fail; additions pass.
 - Layer 2: a new `official-modules-bc` CI job — publish PR canary packages to Verdaccio (reuse `scripts/lib/verdaccio.ts` + `scripts/registry/publish.sh`), checkout `official-modules` at a pinned ref, install against the canary registry, run its `typecheck` + `test`.
-- A `touches_contract` change-detection output in the existing `prepare` job, true for **any** `packages/*/src/**` change, to path-gate Layer 2.
+- Layer 2b: a new `official-modules-runtime-smoke` CI job — install the same canary modules into the official-modules **sandbox app**, activate them, `generate` + `initialize` (migrate + seed) against a Postgres + Redis service, boot the app, and assert `/api/healthz` plus a few activated-module routes return 200. Mirrors the existing `ephemeral-integration` pattern.
+- A `touches_contract` change-detection output in the existing `prepare` job, true for **any** `packages/*/src/**` change, to path-gate Layers 2 and 2b.
 - A `bcTestRef` field in the committed `official-modules.json`.
 - Rollout: Layer 2 advisory (`continue-on-error`) first, then required with a `bc-break-approved` label opt-out.
 
@@ -33,7 +34,8 @@ The audience is platform maintainers shipping changes to `packages/*`, and third
 ### Design Decisions
 | Decision | Rationale |
 |----------|-----------|
-| Two layers (snapshot + downstream smoke) | The snapshot is cheap, deterministic, offline, and blocks instantly on removals; the smoke job is faithful (real install + typecheck + test) and catches semantic/signature/packaging breaks the lightweight snapshot misses. They are complementary, not redundant. |
+| Three tiers (snapshot → build+unit → runtime smoke) | Each tier catches what the cheaper one cannot. Snapshot: instant, offline, blocks on removals. Build+unit (Layer 2): real install + typecheck + their unit tests — catches semantic/signature/packaging breaks. Runtime smoke (Layer 2b): boots the sandbox with modules activated — catches breaks that compile and unit-pass but blow up at registration / DI wiring / migration / request time (the gap between "compiles" and "the app actually runs with these modules"). |
+| Runtime smoke is its own job, advisory, narrowly gated | Booting an app with a real DB is minutes (not seconds) and inherently more flake-prone than typecheck. Isolating it keeps the cheaper tiers fast and lets it stay advisory longer. |
 | Lightweight snapshot (names + registries + `package.json`), not `api-extractor` | No new heavy dev dependency; reuses the existing snapshot idiom; runs in seconds inside `verify`. Signature-level diffing is a clearly-scoped future phase. |
 | Verdaccio canary install, not `link:`/workspace resolution | Mirrors how third parties actually consume the packages — catches `exports`/`files`/`types` packaging regressions that linking by directory hides. Reuses `ensureVerdaccioPublished`. |
 | Pinned `bcTestRef` in `official-modules.json`, bumped deliberately | Prevents upstream churn from turning into false reds on open-mercato PRs. One source of truth for everything about the official-modules submodule. |
@@ -73,9 +75,21 @@ A new `official-modules-bc` job, `needs: prepare`, gated by `touches_contract`:
 8. Run its gates: `yarn typecheck` then `yarn test` (both already filter to `turbo run … --filter='./packages/*'`).
 9. On failure: post a PR comment naming the failing official module package, the first error, and links to `BACKWARD_COMPATIBILITY.md` + the two-PR coordination flow.
 
+### Layer 2b — Runtime smoke (sandbox boot + health) (cross-repo, advisory)
+A new `official-modules-runtime-smoke` job, `needs: prepare`, gated by `touches_contract`. It proves the gap Layer 2 leaves open: *the app actually boots with these modules activated and serves requests.* It mirrors the existing `ephemeral-integration` job (`.github/workflows/ci.yml` line ~448) and reuses the same canary-publish front half as Layer 2:
+1. Steps 1–6 of Layer 2 (checkout, artifacts, install, Verdaccio publish, checkout `official-modules@bcTestRef`, point at Verdaccio + inject canary resolutions).
+2. Provision a **Postgres + Redis** service (GitHub Actions `services:`, matching the env the ephemeral suite uses).
+3. In the official-modules **sandbox app** (`apps/sandbox`): activate the modules under test (the repo's own activation path — `apps/sandbox/src/modules.ts` / `yarn mercato module add`), then `yarn generate`.
+4. `yarn initialize` (DB migrate + seed) against the service DB.
+5. Boot the app (`next build` + start, or `yarn dev`), wait for readiness.
+6. **Probe**: assert `GET /api/healthz` → 200, then hit a small set of activated-module routes (derived from the activation set) and assert they respond (200 / module registered) rather than 404/500.
+7. Tear down (services are ephemeral to the job). On failure, the PR comment (shared with Layer 2) names the failing probe + first server-log error.
+
+Scope guardrails: this is a **smoke** probe, not the full official-modules integration suite (that heavier option was explicitly deferred). It checks "boots + serves", not end-to-end module behavior. Health-probe targets are derived from the activated module set, not hand-maintained per module.
+
 ### CI wiring
 - **`prepare` job**: add a `touches_contract` output computed in the existing change-detection step (one extra grep `^packages/.*/src/` over the same `git diff`). For non-PR pushes (develop/main) it is `true` so post-merge runs still execute.
-- **New job**: `if: needs.prepare.outputs.touches_contract == 'true'`. Phase 2 `continue-on-error: true`. Phase 3 removes that and adds `&& !contains(github.event.pull_request.labels.*.name, 'bc-break-approved')` (label opt-out applies to `pull_request`; pushes always run).
+- **New jobs**: both `official-modules-bc` and `official-modules-runtime-smoke` carry `if: needs.prepare.outputs.touches_contract == 'true'`. Phase 2 / 2b `continue-on-error: true`. Phase 3 promotes **Layer 2** to required and adds `&& !contains(github.event.pull_request.labels.*.name, 'bc-break-approved')` (label opt-out applies to `pull_request`; pushes always run). **Layer 2b stays advisory longer** (its own promotion decision after its flake rate is measured) — it is not coupled to Layer 2's promotion.
 
 ## Configuration
 - `official-modules.json` gains `"bcTestRef": "<tag-or-sha>"` (e.g. a release tag). Bumped by a deliberate, separate PR — the only thing that advances the pin.
@@ -103,6 +117,11 @@ A new `official-modules-bc` job, `needs: prepare`, gated by `touches_contract`:
 5. PR-comment-on-failure step (requires `pull-requests: write` scoped to this job — see Security impact).
 6. Calibrate over a window of real PRs; record false-red rate.
 
+### Phase 2b: Layer 2b — runtime smoke (advisory)
+1. `scripts/official-modules/runtime-smoke.mjs` — given the activated module set, derive the health-probe route list and assert `/api/healthz` + those routes respond. Unit-test the route-derivation against a fixture activation set.
+2. Add the `official-modules-runtime-smoke` job (`continue-on-error: true`): Layer 2 front half → Postgres+Redis `services:` → activate modules in `apps/sandbox` → `yarn generate` → `yarn initialize` → boot → probe. Reuse the env contract from the existing `ephemeral-integration` job (JWT secret, etc.).
+3. Calibrate flake rate over a window of real PRs; record it. Layer 2b promotion (if ever) is decided independently of Layer 2.
+
 ### Phase 3: Promote to required + document
 1. Remove `continue-on-error`; add the `bc-break-approved` label opt-out to the job `if:`.
 2. Create the `bc-break-approved` repo label; document the gate, the label, and the bump-`bcTestRef` procedure in `BACKWARD_COMPATIBILITY.md`.
@@ -117,15 +136,17 @@ A new `official-modules-bc` job, `needs: prepare`, gated by `touches_contract`:
 | `scripts/contract-surface/__tests__/contract-surface.test.ts` | Create | Floor diff + unit tests |
 | `contract-surface.snapshot.json` | Create | Committed baseline (regenerated only via `yarn bc:snapshot`) |
 | `scripts/registry/inject-canary-resolutions.mjs` | Create | Force `@open-mercato/*` → canary in the consumer checkout |
+| `scripts/official-modules/runtime-smoke.mjs` | Create | Derive health-probe routes from the activation set + assert boot/serve (Layer 2b) |
 | `package.json` | Modify | Add `bc:snapshot` script |
 | `official-modules.json` | Modify | Add `bcTestRef` |
-| `.github/workflows/ci.yml` | Modify | `touches_contract` output + `official-modules-bc` job |
+| `.github/workflows/ci.yml` | Modify | `touches_contract` output + `official-modules-bc` job + `official-modules-runtime-smoke` job |
 | `BACKWARD_COMPATIBILITY.md` | Modify (Phase 3) | Document gate + `bc-break-approved` + bump procedure |
 
 ### Testing Strategy
 - **Layer 1**: unit tests for the diff (removal→fail, addition→pass, repoint→fail); determinism of the generator (stable ordering).
 - **Resolution injector**: unit test the `package.json` rewrite against a fixture.
-- **Layer 2 (job)**: validated empirically — the advisory phase IS the test. Acceptance check: a deliberate throwaway PR that removes a public export must redden the advisory job; an additive PR must not. (Manual verification step, recorded on the rollout PR.)
+- **Layer 2b route derivation**: unit test `runtime-smoke.mjs` route-derivation against a fixture activation set.
+- **Layer 2 / 2b (jobs)**: validated empirically — the advisory phase IS the test. Acceptance checks: a deliberate throwaway PR that removes a public export must redden Layer 2; a change that compiles but breaks module registration/migration must redden Layer 2b; an additive PR must redden neither. (Manual verification step, recorded on the rollout PR.)
 
 ## Risks & Impact Review
 
@@ -155,6 +176,13 @@ A new `official-modules-bc` job, `needs: prepare`, gated by `touches_contract`:
 - **Mitigation**: Advisory in Phase 2; in Phase 3 the `bc-break-approved` label is the auditable opt-out (gated on deprecation protocol + RELEASE_NOTES entry, per `BACKWARD_COMPATIBILITY.md`).
 - **Residual risk**: Relies on reviewer discipline to apply the label only with a real coordinated plan. Acceptable.
 
+#### Runtime smoke cost & flakiness (Layer 2b)
+- **Scenario**: Booting the sandbox with a real DB takes minutes and is more flake-prone (migration timing, port readiness, seed data) than typecheck, slowing CI and producing spurious reds.
+- **Severity**: Medium
+- **Affected area**: Layer 2b job latency and reliability.
+- **Mitigation**: Separate, narrowly path-gated job; reuse of the proven `ephemeral-integration` env/boot pattern and `build-artifacts`; readiness wait before probing; smoke-only (no full integration suite). Stays `continue-on-error` (advisory) longer than Layer 2 — its promotion is an independent decision after flake rate is measured.
+- **Residual risk**: Occasional flake; advisory status means it never blocks merge until deliberately promoted. Acceptable.
+
 #### Verdaccio / network flakiness
 - **Scenario**: Registry start or install flakes, producing spurious failures.
 - **Severity**: Low-Medium
@@ -163,7 +191,7 @@ A new `official-modules-bc` job, `needs: prepare`, gated by `touches_contract`:
 - **Residual risk**: Occasional flake post-promotion; re-run. Acceptable.
 
 ### Tenant & Data Isolation Risks
-- None. CI tooling only; no tenant data, no runtime code path, no cross-tenant surface.
+- None of consequence. Layer 2b boots a runtime app, but only against an **ephemeral CI database seeded with synthetic data** — no production or customer data is involved, and the DB is discarded with the job. No cross-tenant surface; nothing persists.
 
 ### Cascading Failures & Side Effects
 - The job is leaf (read-only consumer build); failure blocks only its own PR status. No events, no subscribers, no module coupling.
@@ -209,3 +237,4 @@ A new `official-modules-bc` job, `needs: prepare`, gated by `touches_contract`:
 ## Changelog
 ### [2026-06-19]
 - Initial specification. Open Questions resolved: Layer 1 lightweight (names + registries + `package.json`); pin in `official-modules.json` `bcTestRef`; registry-consumption model verified against `official-modules`; `touches_contract` triggers on any `packages/*/src/**` change.
+- Added **Layer 2b — runtime smoke** (boot + health): activate modules in the official-modules sandbox app, `generate` + `initialize` against ephemeral Postgres+Redis, boot, and probe `/api/healthz` + a few activated-module routes. Advisory; mirrors the existing `ephemeral-integration` job; promotion decided independently of Layer 2. Closes the "compiles + unit-passes but doesn't actually boot with these modules" gap.
