@@ -47,6 +47,8 @@ describe('messages.actions.execute command', () => {
         if (entity === MessageObject) return []
         return []
       }),
+      nativeUpdate: jest.fn(async () => 1),
+      flush: jest.fn(async () => {}),
     }
 
     const terminalLogEntry = {
