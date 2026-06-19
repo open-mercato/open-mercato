@@ -544,6 +544,7 @@
   "wms.backend.inventory.release.dialog.shortcutSave": "to confirm",
   "wms.backend.inventory.release.dialog.submit": "Release reservation",
   "wms.backend.inventory.release.dialog.title": "Release reservation",
+  "wms.backend.inventory.release.errors.balanceIntegrityViolation": "Balance integrity error — run \"mercato wms verify-balances --repair\" to diagnose and fix drift before retrying.",
   "wms.backend.inventory.release.errors.submit": "Failed to release reservation.",
   "wms.backend.inventory.release.flash.success": "Reservation released",
   "wms.backend.inventory.release.form.notes": "Notes",

@@ -544,6 +544,7 @@
   "wms.backend.inventory.release.dialog.shortcutSave": "aby potwierdzić",
   "wms.backend.inventory.release.dialog.submit": "Zwolnij rezerwację",
   "wms.backend.inventory.release.dialog.title": "Zwolnij rezerwację",
+  "wms.backend.inventory.release.errors.balanceIntegrityViolation": "Błąd integralności salda — uruchom \"mercato wms verify-balances --repair\" aby zdiagnozować i naprawić dryf przed ponowieniem.",
   "wms.backend.inventory.release.errors.submit": "Nie udało się zwolnić rezerwacji.",
   "wms.backend.inventory.release.flash.success": "Rezerwacja zwolniona",
   "wms.backend.inventory.release.form.notes": "Notatki",

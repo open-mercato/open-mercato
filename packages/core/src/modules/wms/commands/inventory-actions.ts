@@ -823,7 +823,7 @@ async function emitBalanceDriftIfNeeded(
   }).catch(() => undefined)
 }
 
-function applyClampedNumeric(
+function enforceNonNegativeBalance(
   balance: InventoryBalance,
   field: 'quantityReserved' | 'quantityAllocated',
   nextValue: number,
@@ -832,7 +832,7 @@ function applyClampedNumeric(
 ) {
   if (nextValue < -0.000001) {
     void emitBalanceDriftIfNeeded(balance, field, nextValue, scope, reservationId)
-    nextValue = 0
+    throw new CrudHttpError(409, { error: 'balance_integrity_violation' })
   }
   setNumeric(balance as unknown as Record<string, unknown>, field, nextValue)
 }
@@ -1056,7 +1056,7 @@ const releaseInventoryReservationCommand: CommandHandler<InventoryReservationRel
         )
         if (!balance) continue
         if (allocationState === 'allocated') {
-          applyClampedNumeric(
+          enforceNonNegativeBalance(
             balance,
             'quantityAllocated',
             toNumber(balance.quantityAllocated) - bucket.quantity,
@@ -1064,7 +1064,7 @@ const releaseInventoryReservationCommand: CommandHandler<InventoryReservationRel
             scope,
           )
         } else {
-          applyClampedNumeric(
+          enforceNonNegativeBalance(
             balance,
             'quantityReserved',
             toNumber(balance.quantityReserved) - bucket.quantity,
@@ -1164,10 +1164,11 @@ const allocateInventoryReservationCommand: CommandHandler<InventoryReservationAl
         if (toNumber(balance.quantityReserved) < bucket.quantity - 0.000001) {
           throw new CrudHttpError(409, { error: 'invalid_tracking_state' })
         }
+        // Guard above ensures the subtraction is non-negative within numeric(16,4) precision.
         setNumeric(
           balance as unknown as Record<string, unknown>,
           'quantityReserved',
-          Math.max(0, toNumber(balance.quantityReserved) - bucket.quantity),
+          toNumber(balance.quantityReserved) - bucket.quantity,
         )
         setNumeric(
           balance as unknown as Record<string, unknown>,

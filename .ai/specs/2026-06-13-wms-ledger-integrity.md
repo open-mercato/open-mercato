@@ -50,7 +50,7 @@ Six phased fixes, each shippable as a separate PR.
 - `recomputeBalanceFromMovements()` derives `quantity_on_hand` per bucket from signed movement sums.
 - `verifyBalances()` compares derived vs stored balances and reserved/allocated from active reservation metadata.
 - CLI `mercato wms verify-balances [--tenant] [--org] [--warehouse] [--repair]`.
-- Release command: detect negative post-release values, clamp to 0, emit `wms.inventory.balance_drift` (no hard throw).
+- Release command: detect negative post-release values, emit `wms.inventory.balance_drift` (fire-and-forget), then **throw `409 balance_integrity_violation`** — fail loud, never silently clamp.
 
 ### Phase 3 — Lot Eligibility
 
@@ -73,6 +73,7 @@ Six phased fixes, each shippable as a separate PR.
 
 - Playwright integration specs for idempotency, eligibility, round-trip, concurrency, shortfall, location filter.
 - Jest unit tests for `isLotEligible`, idempotency key builder, reconciliation math.
+- Jest command-level tests for `reserve` (success, insufficient_stock, lot eligibility hold/expired, idempotent replay) and `release` (success, `balance_integrity_violation` on drift, `balance_drift` event emission).
 
 ## Data Models
 
@@ -120,3 +121,9 @@ New query parameter:
 
 ### 2026-06-13
 - Initial ledger integrity specification
+
+### 2026-06-19
+- Phase 2: changed release from clamp-to-zero to `balance_integrity_violation` throw; removed redundant `Math.max(0,…)` in allocate (already guarded)
+- Phase 4: added per-reservation `balance_integrity_violation` isolation in `releaseInventoryForCancelledOrder` (prevents retry storm on cancelled-order automation when balance has drift)
+- Phase 6: added `commands/__tests__/inventory-actions.reserve-release.test.ts` (9 tests: reserve success, insufficient_stock, hold-lot skip, expired-lot skip, idempotent replay; allocate invalid_tracking_state guard; release success, drift throw, drift event emission)
+- UX: added `balance_integrity_violation` specific flash in `ReleaseReservationDialog` with actionable CLI hint; i18n key added to all 4 locales

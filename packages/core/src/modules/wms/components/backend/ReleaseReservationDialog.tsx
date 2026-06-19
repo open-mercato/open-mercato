@@ -210,6 +210,16 @@ export function ReleaseReservationDialog({
               body: JSON.stringify(payload),
             })
             if (!call.ok) {
+              if (call.response.status === 409 && (call.result as { error?: string } | null)?.error === 'balance_integrity_violation') {
+                flash(
+                  t(
+                    'wms.backend.inventory.release.errors.balanceIntegrityViolation',
+                    'Balance integrity error — run "mercato wms verify-balances --repair" to diagnose and fix drift before retrying.',
+                  ),
+                  'error',
+                )
+                return {}
+              }
               await raiseCrudError(
                 call.response,
                 t('wms.backend.inventory.release.errors.submit', 'Failed to release reservation.'),

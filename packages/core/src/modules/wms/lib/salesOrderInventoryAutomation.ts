@@ -41,6 +41,10 @@ function isInsufficientStockError(error: unknown): boolean {
   return error instanceof CrudHttpError && error.status === 409 && error.body?.error === 'insufficient_stock'
 }
 
+function isBalanceIntegrityViolationError(error: unknown): boolean {
+  return error instanceof CrudHttpError && error.status === 409 && error.body?.error === 'balance_integrity_violation'
+}
+
 type SalesOrderRow = {
   id?: string
   order_number?: string | null
@@ -355,18 +359,32 @@ export async function releaseInventoryForCancelledOrder(
   const activeReservations = await loadActiveReservations(em, payload.orderId, scope)
 
   for (const reservation of activeReservations) {
-    await commandBus.execute('wms.inventory.release', {
-      input: {
+    try {
+      await commandBus.execute('wms.inventory.release', {
+        input: {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          reservationId: reservation.id,
+          reason: 'sales.order.cancelled',
+          metadata: {
+            automation: 'sales.order.cancelled',
+            orderId: payload.orderId,
+          },
+        },
+        ctx: commandCtx,
+      })
+    } catch (error) {
+      if (!isBalanceIntegrityViolationError(error)) throw error
+      void emitWmsEvent('wms.inventory.balance_drift', {
+        id: reservation.id,
+        balanceId: reservation.id,
+        reservationId: reservation.id,
+        field: 'quantityReserved',
+        attemptedValue: null,
+        clampedValue: null,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
-        reservationId: reservation.id,
-        reason: 'sales.order.cancelled',
-        metadata: {
-          automation: 'sales.order.cancelled',
-          orderId: payload.orderId,
-        },
-      },
-      ctx: commandCtx,
-    })
+      }).catch(() => undefined)
+    }
   }
 }
