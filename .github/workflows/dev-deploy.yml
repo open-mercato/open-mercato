@@ -20,28 +20,136 @@ jobs:
         with:
           ref: develop
 
-      - name: Trigger Dokploy compose deploy
+      - name: Trigger and monitor Dokploy compose deploy
         env:
           DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY_DEV_DEPLOY }}
           DOKPLOY_DEV_COMPOSE_ID: ${{ secrets.DOKPLOY_DEV_COMPOSE_ID }}
           DOKPLOY_BASE_URL: ${{ secrets.DOKPLOY_URL }}
         run: |
+          set -euo pipefail
+
           if [ -z "$DOKPLOY_API_KEY" ] || [ -z "$DOKPLOY_DEV_COMPOSE_ID" ] || [ -z "$DOKPLOY_BASE_URL" ]; then
             echo "::error::Missing DOKPLOY_API_KEY, DOKPLOY_DEV_COMPOSE_ID, or DOKPLOY_BASE_URL secret"
             exit 1
           fi
 
+          command -v jq >/dev/null 2>&1 || {
+            echo "::error::Missing required command: jq"
+            exit 1
+          }
+
+          base_url="${DOKPLOY_BASE_URL%/}"
+          deploy_started_epoch="$(date +%s)"
+          deploy_started_seconds="${SECONDS}"
+          deployment_id=""
+          deployment_status="triggered"
+          deployment_log_path=""
+
+          append_summary() {
+            local elapsed_seconds=$((SECONDS - deploy_started_seconds))
+            {
+              echo "### Dokploy dev deploy"
+              echo "- Status: \`${deployment_status:-unknown}\`"
+              echo "- Duration: \`${elapsed_seconds}s\`"
+              if [ -n "${deployment_id}" ]; then
+                echo "- Deployment id: \`${deployment_id}\`"
+              fi
+              if [ -n "${deployment_log_path}" ]; then
+                echo "- Log path: \`${deployment_log_path}\`"
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
           http_status=$(curl -sS -o response.json -w "%{http_code}" \
-            -X POST "${DOKPLOY_BASE_URL%/}/api/compose.deploy" \
+            -X POST "${base_url}/api/compose.deploy" \
             -H "accept: application/json" \
             -H "x-api-key: ${DOKPLOY_API_KEY}" \
             -H "Content-Type: application/json" \
-            -d "{\"composeId\":\"${DOKPLOY_DEV_COMPOSE_ID}\"}")
+            -d "{\"composeId\":\"${DOKPLOY_DEV_COMPOSE_ID}\"}" || printf '000')
+          http_status="${http_status: -3}"
 
           echo "Dokploy responded with HTTP ${http_status}"
           cat response.json
 
           if [ "$http_status" -lt 200 ] || [ "$http_status" -ge 300 ]; then
             echo "::error::Dokploy deploy request failed (HTTP ${http_status})"
+            deployment_status="request-failed"
+            append_summary
             exit 1
           fi
+
+          deployment_id="$(jq -r '(.deploymentId // .id // .data.deploymentId // .data.id // empty) | tostring' response.json)"
+          deployment_status="$(jq -r '(.status // .state // .data.status // .data.state // "triggered") | tostring' response.json)"
+
+          timeout_seconds="${DOKPLOY_DEPLOY_TIMEOUT_SECONDS:-1800}"
+          poll_interval_seconds="${DOKPLOY_DEPLOY_POLL_INTERVAL_SECONDS:-10}"
+          deadline=$((SECONDS + timeout_seconds))
+
+          while ((SECONDS < deadline)); do
+            list_status=$(curl -sS -o deployments.json -w "%{http_code}" \
+              -X GET "${base_url}/api/deployment.allByCompose?composeId=${DOKPLOY_DEV_COMPOSE_ID}" \
+              -H "accept: application/json" \
+              -H "x-api-key: ${DOKPLOY_API_KEY}" || printf '000')
+            list_status="${list_status: -3}"
+
+            if [ "$list_status" -lt 200 ] || [ "$list_status" -ge 300 ]; then
+              echo "::warning::Unable to read Dokploy deployment status (HTTP ${list_status}); retrying."
+              sleep "${poll_interval_seconds}"
+              continue
+            fi
+
+            latest_deployment="$(jq -c --arg deployment_id "${deployment_id}" --argjson started_epoch "${deploy_started_epoch}" '
+              def rows:
+                if type == "array" then .
+                elif (.data? | type) == "array" then .data
+                elif (.deployments? | type) == "array" then .deployments
+                else []
+                end;
+              def deployment_key:
+                (.id // .deploymentId // .deployment_id // "") | tostring;
+              def created_epoch:
+                (.createdAt // .created_at // .created // .startedAt // .started_at // "" | tostring) as $raw
+                | if ($raw | test("^[0-9]+$")) then ($raw | tonumber)
+                  elif $raw == "" then 0
+                  else ($raw | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601? // 0)
+                  end;
+              rows
+              | map(select(
+                  (($deployment_id | length) > 0 and deployment_key == $deployment_id)
+                  or (created_epoch >= ($started_epoch - 30))
+                ))
+              | sort_by(created_epoch)
+              | last // empty
+            ' deployments.json)"
+
+            if [ -z "${latest_deployment}" ]; then
+              echo "Waiting for Dokploy deployment record..."
+              sleep "${poll_interval_seconds}"
+              continue
+            fi
+
+            deployment_id="$(jq -r '(.id // .deploymentId // .deployment_id // empty) | tostring' <<<"${latest_deployment}")"
+            deployment_status="$(jq -r '(.status // .state // .deploymentStatus // .deployment_status // "unknown") | tostring | ascii_downcase' <<<"${latest_deployment}")"
+            deployment_log_path="$(jq -r '(.logPath // .log_path // .logsPath // .logs_path // empty) | tostring' <<<"${latest_deployment}")"
+
+            echo "Dokploy deployment ${deployment_id:-unknown} status: ${deployment_status}"
+
+            case "${deployment_status}" in
+              done | success | succeeded | completed)
+                append_summary
+                exit 0
+                ;;
+              error | failed | failure | cancelled | canceled | timedout | timed-out | timeout)
+                echo "::error::Dokploy deployment failed with status ${deployment_status}"
+                append_summary
+                exit 1
+                ;;
+            esac
+
+            sleep "${poll_interval_seconds}"
+          done
+
+          deployment_status="timed-out"
+          echo "::error::Timed out waiting for Dokploy deployment to finish after ${timeout_seconds}s"
+          append_summary
+          exit 1
