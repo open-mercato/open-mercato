@@ -5,7 +5,9 @@ import type { UseQueryResult } from '@tanstack/react-query'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { MessageActionsProps, MessageContentProps } from '@open-mercato/shared/modules/messages/types'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import type {
   ActionResult,
   MessageAction,
@@ -85,10 +87,16 @@ export function useMessageDetailsActions({
   const handleDelete = React.useCallback(async () => {
     setUpdatingState(true)
     try {
-      const call = await apiCall<{ ok?: boolean }>(`/api/messages/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-      })
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(detail?.updatedAt),
+        () => apiCall<{ ok?: boolean }>(`/api/messages/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+        }),
+      )
       if (!call.ok) {
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) {
+          return
+        }
         throw new Error(toErrorMessage(call.result) ?? t('messages.errors.deleteFailed', 'Failed to delete message.'))
       }
       flash(t('messages.flash.deleted', 'Message deleted.'), 'success')
@@ -103,7 +111,7 @@ export function useMessageDetailsActions({
     } finally {
       setUpdatingState(false)
     }
-  }, [id, onDeleted, t])
+  }, [detail?.updatedAt, id, onDeleted, t])
 
   const runConversationAction = React.useCallback(async (
     action: ConversationActionKind,
@@ -194,16 +202,22 @@ export function useMessageDetailsActions({
   const executeAction = React.useCallback(async (action: MessageAction, payload?: Record<string, unknown>) => {
     setExecutingActionId(action.id)
     try {
-      const call = await apiCall<ActionResult>(
-        `/api/messages/${encodeURIComponent(id)}/actions/${encodeURIComponent(action.id)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload ?? {}),
-        },
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(detail?.updatedAt),
+        () => apiCall<ActionResult>(
+          `/api/messages/${encodeURIComponent(id)}/actions/${encodeURIComponent(action.id)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload ?? {}),
+          },
+        ),
       )
 
       if (!call.ok) {
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) {
+          return
+        }
         throw new Error(
           toErrorMessage(call.result)
           ?? t('messages.errors.actionFailed', 'Failed to execute action.'),
@@ -233,7 +247,7 @@ export function useMessageDetailsActions({
     } finally {
       setExecutingActionId(null)
     }
-  }, [detailQuery, id, t])
+  }, [detail?.updatedAt, detailQuery, id, t])
 
   const handleExecuteAction = React.useCallback(async (action: MessageAction, payload?: Record<string, unknown>) => {
     if (executingActionId || detail?.actionTaken) return

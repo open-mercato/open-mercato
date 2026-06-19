@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { attachOperationMetadataHeader, type OperationLogEntryLike } from '../../../../lib/operationMetadata'
 import { resolveMessageContext } from '../../../../lib/routeHelpers'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
@@ -57,6 +58,9 @@ export async function POST(
     })
     return response
   } catch (error) {
+    if (isCrudHttpError(error)) {
+      return Response.json(error.body, { status: error.status })
+    }
     if (error instanceof Error) {
       if (error.message === 'Message not found') {
         return Response.json({ error: 'Message not found' }, { status: 404 })
@@ -95,7 +99,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Action executed', schema: actionResultResponseSchema },
         { status: 403, description: 'Access denied' },
         { status: 404, description: 'Action not found' },
-        { status: 409, description: 'Action already taken' },
+        { status: 409, description: 'Action already taken, or the message was modified concurrently (optimistic lock conflict)' },
         { status: 410, description: 'Action expired' },
       ],
     },
