@@ -29395,10 +29395,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"undici@npm:7.24.0":
-  version: 7.24.0
-  resolution: "undici@npm:7.24.0"
-  checksum: 10/663f08fe940e6cea3633748c82a77e975ab61d7e1d3fd9951a13213c4ddbc5c8196f741b57b52d0df9d08a34092b6aa31eeaff8cd545a0a23cacd0523c21a398
+"undici@npm:7.28.0":
+  version: 7.28.0
+  resolution: "undici@npm:7.28.0"
+  checksum: 10/154423b280d623278a61decb437f8a7e581fb18b8c95556ef956b32a58cd668eadbb812d28e20678cb2dc545a566f35a3afc0962307ca801da30f4741117986d
   languageName: node
   linkType: hard
 
