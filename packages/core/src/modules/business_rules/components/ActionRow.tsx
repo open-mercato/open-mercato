@@ -5,6 +5,7 @@ import { X, ChevronUp, ChevronDown } from 'lucide-react'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs'
 import {
   Select,
   SelectContent,
@@ -81,6 +82,11 @@ export function ActionRow({
       ? `${String(action.config.method).toUpperCase()} ${action.config.endpoint}`
       : undefined
     const apiKeyValue = action.config?.apiKeyId || undefined
+    const endpointOptions = options.endpoints.map<ComboboxOption>((option) => ({
+      value: option.id,
+      label: option.label,
+      description: option.summary || option.operationId || null,
+    }))
     const bodyValue = action.config?.body == null
       ? ''
       : typeof action.config.body === 'string'
@@ -127,22 +133,16 @@ export function ActionRow({
           <label className="text-xs font-medium text-foreground col-span-1">
             {t('business_rules.components.actionRow.config.endpoint')} <span className="text-status-error-text">{t('business_rules.components.actionRow.actionType.required')}</span>
           </label>
-          <Select
-            value={endpointValue}
-            onValueChange={handleEndpointChange}
-            disabled={options.loading || !!options.error || options.endpoints.length === 0}
-          >
-            <SelectTrigger size="sm" className="col-span-3">
-              <SelectValue placeholder={t('business_rules.components.actionRow.config.endpoint.placeholder')} />
-            </SelectTrigger>
-            <SelectContent>
-              {options.endpoints.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="col-span-3">
+            <ComboboxInput
+              value={endpointValue ?? ''}
+              onChange={handleEndpointChange}
+              suggestions={endpointOptions}
+              placeholder={t('business_rules.components.actionRow.config.endpoint.placeholder')}
+              disabled={options.loading || !!options.error || options.endpoints.length === 0}
+              allowCustomValues={false}
+            />
+          </div>
         </div>
 
         <div className="grid grid-cols-4 gap-2 items-center">

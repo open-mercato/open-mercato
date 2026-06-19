@@ -42,8 +42,33 @@ function shouldExposeEndpoint(path: string, method: string, operation: Record<st
   return true
 }
 
+export function dedupeOpenMercatoEndpointOptions(
+  options: OpenMercatoEndpointOption[],
+): OpenMercatoEndpointOption[] {
+  const deduped = new Map<string, OpenMercatoEndpointOption>()
+
+  for (const option of options) {
+    const existing = deduped.get(option.id)
+    if (!existing) {
+      deduped.set(option.id, option)
+      continue
+    }
+
+    if ((!existing.summary && option.summary) || (!existing.operationId && option.operationId)) {
+      deduped.set(option.id, {
+        ...existing,
+        label: option.label,
+        summary: option.summary ?? existing.summary,
+        operationId: option.operationId ?? existing.operationId,
+      })
+    }
+  }
+
+  return Array.from(deduped.values())
+}
+
 function sortEndpointOptions(options: OpenMercatoEndpointOption[]): OpenMercatoEndpointOption[] {
-  return options.sort((a, b) => {
+  return dedupeOpenMercatoEndpointOptions(options).sort((a, b) => {
     const pathCompare = a.path.localeCompare(b.path)
     if (pathCompare !== 0) return pathCompare
     return (METHOD_ORDER.get(a.method) ?? 99) - (METHOD_ORDER.get(b.method) ?? 99)
