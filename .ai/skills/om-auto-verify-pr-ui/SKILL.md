@@ -1,5 +1,5 @@
 ---
-name: om-verify-pr-ui
+name: om-auto-verify-pr-ui
 description: Manually QA a GitHub PR's UI by number without merging it. Checks the PR out in an isolated worktree, boots it locally against the ephemeral integration environment, derives a UI QA scenario from the diff, drives it with Playwright while capturing screenshots, and posts the screenshots plus a pass/fail verification report as a PR comment to help QA reviewers. When the PR diff defines no integration test, also posts a follow-up comment with a ready-to-implement integration-test scenario (recommending /om-integration-tests). Use when the user says "verify PR <n> in the UI", "QA PR <n>", "run the UI for PR <n>", "screenshot PR <n>", or "self-QA PR <n>".
 ---
 
@@ -66,7 +66,7 @@ the user via `AskUserQuestion` before continuing. Otherwise claim it:
 ```bash
 gh pr edit {prNumber} --add-assignee "$CURRENT_USER"
 # add the in-progress label via the GraphQL label flow used in step 7
-gh pr comment {prNumber} --body "🤖 \`verify-pr-ui\` started by @${CURRENT_USER} at $(date -u +%Y-%m-%dT%H:%M:%SZ). UI QA verification in progress; other auto-skills will skip this PR until the lock is released."
+gh pr comment {prNumber} --body "🤖 \`auto-verify-pr-ui\` started by @${CURRENT_USER} at $(date -u +%Y-%m-%dT%H:%M:%SZ). UI QA verification in progress; other auto-skills will skip this PR until the lock is released."
 ```
 
 The lock MUST be released in step 9 even on failure — wrap teardown in a
@@ -130,7 +130,7 @@ if [ "$GIT_DIR" != "$GIT_COMMON_DIR" ]; then
   git fetch origin "pull/{prNumber}/head"
   git checkout -B "verify/pr-{prNumber}" FETCH_HEAD
 else
-  WORKTREE_DIR="$REPO_ROOT/.ai/tmp/verify-pr-ui/pr-{prNumber}-$(date +%Y%m%d-%H%M%S)"
+  WORKTREE_DIR="$REPO_ROOT/.ai/tmp/auto-verify-pr-ui/pr-{prNumber}-$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$(dirname "$WORKTREE_DIR")"
   git fetch origin "pull/{prNumber}/head"
   git worktree add --detach "$WORKTREE_DIR" "$(git rev-parse FETCH_HEAD)"
@@ -211,11 +211,11 @@ PW_CAPTURE_SCREENSHOTS=1 BASE_URL="$BASE_URL" \
   npx playwright test --config .ai/qa/tests/playwright.config.ts <throwaway-spec> --retries=0
 ```
 
-  Write the throwaway spec under `.ai/tmp/verify-pr-ui/` (NOT under a module's
+  Write the throwaway spec under `.ai/tmp/auto-verify-pr-ui/` (NOT under a module's
   `__integration__/` — that would alter discovered tests). Use the shared login
   helper / `DEFAULT_CREDENTIALS` from `@open-mercato/core/helpers/integration` so
   auth matches the integration harness. Save PNGs to a known folder, e.g.
-  `.ai/tmp/verify-pr-ui/pr-{prNumber}/step-NN-<slug>.png`, and use
+  `.ai/tmp/auto-verify-pr-ui/pr-{prNumber}/step-NN-<slug>.png`, and use
   `page.screenshot({ path, fullPage: true })` at each checkpoint.
 
 Record, per scenario step: the action, the expected outcome, the observed
@@ -250,7 +250,7 @@ Post one comment via `gh pr comment {prNumber} --body-file ...` so multi-line
 formatting and image markdown survive:
 
 ```markdown
-## 🖼️ `verify-pr-ui` — UI QA evidence
+## 🖼️ `auto-verify-pr-ui` — UI QA evidence
 
 **Overall verdict:** {✅ PASS | ❌ FAIL | ⚠️ PARTIAL — environment-limited}
 **Environment:** ephemeral integration env at `{base_url}` · role `{admin@acme.com}`
@@ -341,7 +341,7 @@ if [ "$CREATED_WORKTREE" = "1" ]; then git worktree remove --force "$WORKTREE_DI
 git worktree prune
 # release the lock
 # remove the in-progress label via the GraphQL flow
-gh pr comment {prNumber} --body "🤖 \`verify-pr-ui\` completed: {PASS|FAIL|PARTIAL}. Evidence posted above. Lock released."
+gh pr comment {prNumber} --body "🤖 \`auto-verify-pr-ui\` completed: {PASS|FAIL|PARTIAL}. Evidence posted above. Lock released."
 ```
 
 Always release the `in-progress` lock and remove this run's assignee claim if it
@@ -352,7 +352,7 @@ was added solely for the lock, even when the run failed.
 Print a concise summary to the user:
 
 ```text
-verify-pr-ui: PR #{prNumber} — {title}
+auto-verify-pr-ui: PR #{prNumber} — {title}
 Verdict: {PASS | FAIL | PARTIAL (env-limited)}
 Env: ephemeral @ {base_url} (started by this run: {yes|no})
 Evidence comment: {url}

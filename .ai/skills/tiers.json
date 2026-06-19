@@ -44,7 +44,7 @@
         "om-sync-merged-pr-issues",
         "om-auto-update-changelog",
         "om-auto-qa-scenarios",
-        "om-verify-pr-ui"
+        "om-auto-verify-pr-ui"
       ]
     },
     "security": {

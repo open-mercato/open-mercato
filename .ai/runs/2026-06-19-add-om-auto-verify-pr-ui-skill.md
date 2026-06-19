@@ -1,12 +1,12 @@
-# Execution plan — add `om-verify-pr-ui` skill
+# Execution plan — add `om-auto-verify-pr-ui` skill
 
-**Slug:** add-om-verify-pr-ui-skill
+**Slug:** add-om-auto-verify-pr-ui-skill
 **Date:** 2026-06-19
-**Branch:** feat/add-om-verify-pr-ui-skill
+**Branch:** feat/add-om-auto-verify-pr-ui-skill
 
 ## Goal
 
-Add a new automation skill `om-verify-pr-ui` that, given a PR number, checks the
+Add a new automation skill `om-auto-verify-pr-ui` that, given a PR number, checks the
 PR out in an isolated worktree, boots it locally against the ephemeral
 integration environment, derives a UI QA scenario from the diff, drives it with
 Playwright while capturing screenshots, posts the screenshots + a verification
@@ -16,7 +16,7 @@ integration-test scenario (recommending `/om-integration-tests`).
 
 ## Scope
 
-- New skill folder `.ai/skills/om-verify-pr-ui/SKILL.md` (instructions only; no
+- New skill folder `.ai/skills/om-auto-verify-pr-ui/SKILL.md` (instructions only; no
   bundled scripts needed — it reuses existing repo commands).
 - Register the skill in `.ai/skills/tiers.json` under the `automation` tier.
 - Add the skill row to the `automation` table in `.ai/skills/README.md`.
@@ -67,7 +67,7 @@ integration-test scenario (recommending `/om-integration-tests`).
 
 ### Phase 1: Author the skill
 
-- [x] 1.1 Write `.ai/skills/om-verify-pr-ui/SKILL.md`
+- [x] 1.1 Write `.ai/skills/om-auto-verify-pr-ui/SKILL.md`
 - [x] 1.2 Register in `tiers.json`, `README.md`, and `AGENTS.md` router
 
 ### Phase 2: Validate & ship
