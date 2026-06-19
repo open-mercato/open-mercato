@@ -20,7 +20,10 @@ describe('TaskForm field model — interaction-mode gating', () => {
   it('renders the dictionary-backed status select on the canonical path', () => {
     const fields = buildTaskFormFields({ useCanonicalInteractions: true, statusOptions, t })
     const status = fields.find((field) => field.id === 'status')
-    expect(status).toMatchObject({ type: 'select', options: statusOptions })
+    // Canonical status uses a custom renderer (TaskStatusSelect) so each option can surface its
+    // dictionary appearance (icon + color); CrudForm's generic `select` only renders label text.
+    expect(status).toMatchObject({ id: 'status', type: 'custom' })
+    expect(typeof (status as { component?: unknown }).component).toBe('function')
     expect(fieldIds(true)).not.toContain('is_done')
     expect(statusGroupFields(true)).toEqual(['priority', 'status'])
   })

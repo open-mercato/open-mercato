@@ -1,8 +1,26 @@
 "use client"
 
 import * as React from 'react'
-import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import {
+  CrudForm,
+  type CrudCustomFieldRenderProps,
+  type CrudField,
+  type CrudFormGroup,
+} from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectItemLeading,
+  SelectTrigger,
+  SelectTriggerLeading,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import {
+  renderDictionaryColor,
+  renderDictionaryIcon,
+} from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -45,10 +63,15 @@ export function TaskForm({
   const scopeVersion = useOrganizationScopeVersion()
   const statusDictionary = useCustomerDictionary('interaction-statuses', scopeVersion)
 
-  const statusOptions = React.useMemo(() => {
+  const statusOptions = React.useMemo<TaskStatusOption[]>(() => {
     const entries = statusDictionary.data?.entries ?? []
     if (entries.length > 0) {
-      return entries.map((entry) => ({ value: entry.value, label: entry.label }))
+      return entries.map((entry) => ({
+        value: entry.value,
+        label: entry.label,
+        color: entry.color ?? null,
+        icon: entry.icon ?? null,
+      }))
     }
     // Fallback to the canonical seeded set until the dictionary loads (or for existing
     // tenants whose interaction-statuses dictionary has not been backfilled yet).
@@ -131,7 +154,50 @@ export function TaskForm({
 
 type TaskFormTranslator = (key: string, fallback?: string) => string
 
-type TaskStatusOption = { value: string; label: string }
+type TaskStatusOption = { value: string; label: string; color?: string | null; icon?: string | null }
+
+type TaskStatusSelectProps = CrudCustomFieldRenderProps & {
+  options: TaskStatusOption[]
+  placeholder: string
+}
+
+// Dictionary-backed status picker that surfaces each status's icon + color (the dictionary
+// "appearance") next to its label, both in the dropdown rows and the trigger. CrudForm's generic
+// `select` renders label-only text, so the canonical status field uses this custom renderer instead.
+function TaskStatusSelect({ id, value, setValue, disabled, options, placeholder }: TaskStatusSelectProps) {
+  const stringValue = typeof value === 'string' ? value : ''
+  const activeOption = options.find((option) => option.value === stringValue) ?? null
+  return (
+    <Select
+      value={stringValue}
+      onValueChange={(next) => setValue(next || undefined)}
+      disabled={disabled}
+    >
+      <SelectTrigger id={id} data-crud-focus-target="">
+        {activeOption && (activeOption.icon || activeOption.color) ? (
+          <SelectTriggerLeading>
+            {renderDictionaryIcon(activeOption.icon, 'h-4 w-4')}
+            {renderDictionaryColor(activeOption.color, 'h-3.5 w-3.5 rounded-full')}
+          </SelectTriggerLeading>
+        ) : null}
+        <SelectValue placeholder={placeholder}>{activeOption?.label}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            {option.icon || option.color ? (
+              <SelectItemLeading>
+                {renderDictionaryIcon(option.icon, 'h-4 w-4')}
+                {renderDictionaryColor(option.color, 'h-3.5 w-3.5 rounded-full')}
+              </SelectItemLeading>
+            ) : null}
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
 
 export function buildTaskFormFields(options: {
   useCanonicalInteractions: boolean
@@ -145,8 +211,14 @@ export function buildTaskFormFields(options: {
     ? {
         id: 'status',
         label: t('customers.people.detail.tasks.fields.status', 'Status'),
-        type: 'select',
-        options: statusOptions,
+        type: 'custom',
+        component: (props) => (
+          <TaskStatusSelect
+            {...props}
+            options={statusOptions}
+            placeholder={t('customers.people.detail.tasks.fields.statusPlaceholder', 'Select a status')}
+          />
+        ),
       }
     : {
         id: 'is_done',

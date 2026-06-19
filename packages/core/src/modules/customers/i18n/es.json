@@ -1904,6 +1904,7 @@
   "customers.people.detail.tasks.fields.scheduledAt": "Programada para",
   "customers.people.detail.tasks.fields.scheduledAtPlaceholder": "Elige una fecha y hora",
   "customers.people.detail.tasks.fields.status": "Status",
+  "customers.people.detail.tasks.fields.statusPlaceholder": "Selecciona un estado",
   "customers.people.detail.tasks.fields.title": "Título",
   "customers.people.detail.tasks.fields.titlePlaceholder": "Título de la tarea",
   "customers.people.detail.tasks.form.customFields": "Atributos de tarea",

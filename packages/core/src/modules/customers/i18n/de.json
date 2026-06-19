@@ -1904,6 +1904,7 @@
   "customers.people.detail.tasks.fields.scheduledAt": "Geplant für",
   "customers.people.detail.tasks.fields.scheduledAtPlaceholder": "Datum und Uhrzeit auswählen",
   "customers.people.detail.tasks.fields.status": "Status",
+  "customers.people.detail.tasks.fields.statusPlaceholder": "Status auswählen",
   "customers.people.detail.tasks.fields.title": "Titel",
   "customers.people.detail.tasks.fields.titlePlaceholder": "Aufgabentitel",
   "customers.people.detail.tasks.form.customFields": "Aufgabenattribute",
