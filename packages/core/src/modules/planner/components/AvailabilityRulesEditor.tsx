@@ -29,6 +29,7 @@ import {
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
 import { deleteAvailabilityRuleSet } from '@open-mercato/core/modules/planner/lib/deleteAvailabilityRuleSet'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
@@ -106,6 +107,30 @@ function withOptimisticLockForRule<T>(rule: AvailabilityRule, mutation: () => Pr
 
 function withOptimisticLockForRuleSet<T>(ruleSet: AvailabilityRuleSet | null | undefined, mutation: () => Promise<T>): Promise<T> {
   return withScopedApiRequestHeaders(buildOptimisticLockHeader(ruleSet?.updatedAt ?? ruleSet?.updated_at ?? null), mutation)
+}
+
+/**
+ * The date-specific replace endpoint mutates a subject/date aggregate that has
+ * no single parent row, so its lock version is the latest `updated_at` of the
+ * one-off rules being replaced (mirrors the command-side derivation). Returns
+ * null when no existing rules back the date so the header is omitted (additive).
+ */
+function resolveDateSpecificLockToken(rules: AvailabilityRule[]): string | null {
+  let latestMs = Number.NEGATIVE_INFINITY
+  let latestIso: string | null = null
+  for (const rule of rules) {
+    const raw = rule.updatedAt ?? rule.updated_at ?? null
+    if (!raw) continue
+    const ms = Date.parse(raw)
+    if (!Number.isFinite(ms) || ms <= latestMs) continue
+    latestMs = ms
+    latestIso = raw
+  }
+  return latestIso
+}
+
+function withOptimisticLockForDateSpecific<T>(rules: AvailabilityRule[], mutation: () => Promise<T>): Promise<T> {
+  return withScopedApiRequestHeaders(buildOptimisticLockHeader(resolveDateSpecificLockToken(rules)), mutation)
 }
 
 const DAY_LABELS = [
@@ -1299,11 +1324,11 @@ export function AvailabilityRulesEditor({
           unavailabilityReasonEntryId: editorUnavailable ? reasonEntryId : null,
           unavailabilityReasonValue: editorUnavailable ? reasonValue : null,
         }
-        await apiCallOrThrow('/api/planner/availability-date-specific', {
+        await withOptimisticLockForDateSpecific(editorRules, () => apiCallOrThrow('/api/planner/availability-date-specific', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
-        }, { errorMessage: listLabels.saveDateError })
+        }, { errorMessage: listLabels.saveDateError }))
       } else {
         const rulesToDelete = editorRules
         const uniqueRulesById = new Map(rulesToDelete.map((rule) => [rule.id, rule]))
@@ -1338,6 +1363,7 @@ export function AvailabilityRulesEditor({
       await refreshAvailability()
       await refreshRuleSetRules()
     } catch (error) {
+      if (surfaceRecordConflict(error, t)) return
       const message = error instanceof Error ? error.message : listLabels.saveDateError
       flash(message, 'error')
     }
@@ -1364,6 +1390,7 @@ export function AvailabilityRulesEditor({
     usingRuleSet,
     canManageUnavailability,
     isReadOnly,
+    t,
   ])
 
   const handleSlotClick = React.useCallback((slot: ScheduleSlot) => {
