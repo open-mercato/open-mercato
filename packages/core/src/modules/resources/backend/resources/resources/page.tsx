@@ -15,6 +15,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { FilterDef, FilterOption, FilterValues } from '@open-mercato/ui/backend/FilterOverlay'
 import type { TagOption } from '@open-mercato/ui/backend/detail'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -22,6 +23,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Pencil } from 'lucide-react'
 
 const PAGE_SIZE = 20
+const RESOURCE_LIST_MUTATION_CONTEXT_ID = 'resources.resources.list'
 
 type ResourceRow = {
   id: string
@@ -65,6 +67,13 @@ type ResourceTypesResponse = {
   items: Array<Record<string, unknown>>
 }
 
+type ResourceListMutationContext = {
+  formId: string
+  resourceKind: string
+  resourceId?: string
+  retryLastMutation: () => Promise<boolean>
+}
+
 export default function ResourcesResourcesPage() {
   const [rows, setRows] = React.useState<ResourceRow[]>([])
   const [page, setPage] = React.useState(1)
@@ -86,6 +95,27 @@ export default function ResourcesResourcesPage() {
   const selectedResourceTypeId = typeof filterValues.resourceTypeId === 'string'
     ? filterValues.resourceTypeId
     : resourceTypeFilter
+  const { runMutation, retryLastMutation } = useGuardedMutation<ResourceListMutationContext>({
+    contextId: RESOURCE_LIST_MUTATION_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const runResourceMutation = React.useCallback(
+    async <T,>(
+      operation: () => Promise<T>,
+      mutationPayload: Record<string, unknown>,
+      resourceId?: string,
+    ): Promise<T> => runMutation({
+      operation,
+      mutationPayload,
+      context: {
+        formId: RESOURCE_LIST_MUTATION_CONTEXT_ID,
+        resourceKind: 'resources.resource',
+        resourceId,
+        retryLastMutation,
+      },
+    }),
+    [retryLastMutation, runMutation],
+  )
 
   React.useEffect(() => {
     setPage(1)
@@ -352,11 +382,15 @@ export default function ResourcesResourcesPage() {
     if (!confirmed) return
     try {
       const headers = buildOptimisticLockHeader(row.updatedAt)
-      await withScopedApiRequestHeaders(headers, () => (
-        deleteCrud('resources/resources', row.id, {
-          errorMessage: t('resources.resources.list.error.delete', 'Failed to delete resource.'),
-        })
-      ))
+      await runResourceMutation(
+        () => withScopedApiRequestHeaders(headers, () => (
+          deleteCrud('resources/resources', row.id, {
+            errorMessage: t('resources.resources.list.error.delete', 'Failed to delete resource.'),
+          })
+        )),
+        { operation: 'deleteResource', id: row.id, updatedAt: row.updatedAt ?? null },
+        row.id,
+      )
       flash(t('resources.resources.list.flash.deleted', 'Resource deleted.'), 'success')
       setPage(1)
       router.refresh()
@@ -364,7 +398,7 @@ export default function ResourcesResourcesPage() {
       const message = error instanceof Error ? error.message : t('resources.resources.list.error.delete', 'Failed to delete resource.')
       flash(message, 'error')
     }
-  }, [confirm, router, t])
+  }, [confirm, router, runResourceMutation, t])
 
   const columns = React.useMemo<ColumnDef<ResourceTableRow>[]>(() => [
     {
