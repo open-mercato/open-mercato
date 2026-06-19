@@ -193,6 +193,7 @@
     "socket.io-parser": "4.2.6",
     "tar": "7.5.16",
     "undici": "7.24.0",
+    "nodemailer": "9.0.1",
     "brace-expansion": "5.0.5",
     "handlebars": "4.7.9",
     "path-to-regexp": "0.1.13",
