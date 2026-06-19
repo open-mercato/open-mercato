@@ -95,4 +95,5 @@ messages are answered automatically. The spec MUST document how to configure Dis
 
 ### Phase 2: PR finalization
 
-- [ ] 2.1 Open PR, labels, auto-review pass, summary comment
+- [x] 2.1 Open PR (#3387), labels, auto-review pass, summary comment
+- [x] Post-review fix: corrected the false "channel-gmail runs a provider worker" claim — gmail/imap ship no `workers/`; the hub owns poll/push workers; Discord's gateway worker is a novel provider-owned pattern (auto-discovered) — fb995cb04
