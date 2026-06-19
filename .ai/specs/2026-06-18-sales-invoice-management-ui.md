@@ -113,8 +113,10 @@ Returns:
 - New API route exports `openApi`.
 - Invoice delete actions send optimistic-lock headers from `updatedAt`.
 - Tests added for command/API behavior and invoice integration flow.
+- QA follow-up covers localized invoice status labels, consistent money/date display, readable invoice identifiers, source-order link propagation, duplicate invoice prevention, and non-blocking backend feedback UI.
 
 ## Changelog
 
 - 2026-06-18: Added the invoice management UI spec for sales invoice list/detail pages and order-detail invoice creation.
 - 2026-06-19: Added migration and backward compatibility notes for the upstream contribution review gate.
+- 2026-06-19: Added QA follow-up notes for invoice display polish, source-order navigation, and backend feedback prompt behavior.

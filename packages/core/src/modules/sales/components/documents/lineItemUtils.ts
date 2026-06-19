@@ -10,6 +10,13 @@ export function normalizeNumber(value: unknown, fallback = 0): number {
 }
 
 export function formatMoney(value: number, currency: string | null | undefined): string {
-  if (!currency) return value.toFixed(2)
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value)
+  const normalizedCurrency = currency?.trim().toUpperCase()
+  if (!normalizedCurrency) return value.toFixed(2)
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: normalizedCurrency,
+    currencyDisplay: 'code',
+  })
+    .format(value)
+    .replace(/[\u00a0\u202f]/g, ' ')
 }

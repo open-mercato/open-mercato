@@ -15,7 +15,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { formatMoney, normalizeNumber } from './lineItemUtils'
+import { normalizeNumber } from './lineItemUtils'
+import { formatInvoiceDate, formatInvoiceMoney, formatInvoiceStatus } from './invoiceDisplay'
 
 type InvoiceHeader = {
   id: string
@@ -57,13 +58,6 @@ type InvoiceLine = {
 type InvoiceDetailResponse = {
   invoice?: InvoiceHeader
   lines?: InvoiceLine[]
-}
-
-function formatDisplayDate(value: string | null | undefined): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
 }
 
 function amount(value: string | number | null | undefined): number {
@@ -112,6 +106,7 @@ export function InvoiceDetailPage({ id }: { id: string }) {
     const confirmed = await confirm({
       title: t('sales.invoices.delete.confirmTitle', 'Delete invoice {invoiceNumber}?', { invoiceNumber: invoice.invoiceNumber }),
       description: t('sales.invoices.delete.confirmDescription', 'This action cannot be undone.'),
+      confirmText: t('sales.invoices.delete.action', 'Delete invoice'),
       variant: 'destructive',
     })
     if (!confirmed) return
@@ -180,10 +175,12 @@ export function InvoiceDetailPage({ id }: { id: string }) {
                 </Link>
               </Button>
             </div>
-            <div className="flex items-center gap-3">
-              <FileText className="h-6 w-6 text-muted-foreground" aria-hidden />
-              <h1 className="truncate text-2xl font-semibold">{invoice.invoiceNumber}</h1>
-              {invoice.status ? <Badge variant="secondary">{invoice.status}</Badge> : null}
+            <div className="flex items-start gap-3">
+              <FileText className="mt-0.5 h-6 w-6 shrink-0 text-muted-foreground" aria-hidden />
+              <div className="min-w-0">
+                <h1 className="break-all text-2xl font-semibold leading-tight">{invoice.invoiceNumber}</h1>
+                {invoice.status ? <Badge className="mt-2" variant="secondary">{formatInvoiceStatus(invoice.status, t)}</Badge> : null}
+              </div>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -204,19 +201,19 @@ export function InvoiceDetailPage({ id }: { id: string }) {
         <div className="grid gap-3 md:grid-cols-4">
           <div className="rounded-md border p-4">
             <div className="text-xs font-medium text-muted-foreground">{t('sales.invoices.table.issueDate', 'Issue date')}</div>
-            <div className="mt-1 text-sm font-medium">{formatDisplayDate(invoice.issueDate) || t('sales.invoices.notSet', 'Not set')}</div>
+            <div className="mt-1 text-sm font-medium">{formatInvoiceDate(invoice.issueDate) || t('sales.invoices.notSet', 'Not set')}</div>
           </div>
           <div className="rounded-md border p-4">
             <div className="text-xs font-medium text-muted-foreground">{t('sales.invoices.table.dueDateHeader', 'Due date')}</div>
-            <div className="mt-1 text-sm font-medium">{formatDisplayDate(invoice.dueDate) || t('sales.invoices.notSet', 'Not set')}</div>
+            <div className="mt-1 text-sm font-medium">{formatInvoiceDate(invoice.dueDate) || t('sales.invoices.notSet', 'Not set')}</div>
           </div>
           <div className="rounded-md border p-4">
             <div className="text-xs font-medium text-muted-foreground">{t('sales.invoices.table.total', 'Total')}</div>
-            <div className="mt-1 text-sm font-medium">{formatMoney(amount(invoice.grandTotalGrossAmount), currency)}</div>
+            <div className="mt-1 text-sm font-medium">{formatInvoiceMoney(amount(invoice.grandTotalGrossAmount), currency)}</div>
           </div>
           <div className="rounded-md border p-4">
             <div className="text-xs font-medium text-muted-foreground">{t('sales.invoices.table.outstanding', 'Outstanding')}</div>
-            <div className="mt-1 text-sm font-medium">{formatMoney(amount(invoice.outstandingAmount), currency)}</div>
+            <div className="mt-1 text-sm font-medium">{formatInvoiceMoney(amount(invoice.outstandingAmount), currency)}</div>
           </div>
         </div>
 
@@ -235,17 +232,17 @@ export function InvoiceDetailPage({ id }: { id: string }) {
                   <div key={line.id} className="grid grid-cols-[64px_minmax(0,1fr)_120px_140px_140px] items-center gap-3 px-4 py-3">
                     <div className="text-sm text-muted-foreground">{line.lineNumber}</div>
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">{line.name ?? line.sku ?? line.id}</div>
-                      {line.description ? <div className="mt-1 truncate text-xs text-muted-foreground">{line.description}</div> : null}
+                      <div className="break-words text-sm font-medium">{line.name ?? line.sku ?? line.id}</div>
+                      {line.description ? <div className="mt-1 break-words text-xs text-muted-foreground">{line.description}</div> : null}
                     </div>
                     <div className="whitespace-nowrap text-right text-sm">
                       {amount(line.quantity)} {line.quantityUnit ?? ''}
                     </div>
                     <div className="whitespace-nowrap text-right text-sm">
-                      {formatMoney(amount(line.unitPriceGross || line.unitPriceNet), currency)}
+                      {formatInvoiceMoney(amount(line.unitPriceGross || line.unitPriceNet), currency)}
                     </div>
                     <div className="whitespace-nowrap text-right text-sm font-medium">
-                      {formatMoney(amount(line.totalGrossAmount || line.totalNetAmount), currency)}
+                      {formatInvoiceMoney(amount(line.totalGrossAmount || line.totalNetAmount), currency)}
                     </div>
                   </div>
                 ))}
@@ -263,27 +260,27 @@ export function InvoiceDetailPage({ id }: { id: string }) {
           <div className="space-y-2 text-sm">
             <div className="flex items-center justify-between gap-4">
               <span className="text-muted-foreground">{t('sales.invoices.detail.totals.subtotalNet', 'Subtotal net')}</span>
-              <span>{formatMoney(amount(invoice.subtotalNetAmount), currency)}</span>
+              <span>{formatInvoiceMoney(amount(invoice.subtotalNetAmount), currency)}</span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <span className="text-muted-foreground">{t('sales.invoices.detail.totals.tax', 'Tax')}</span>
-              <span>{formatMoney(amount(invoice.taxTotalAmount), currency)}</span>
+              <span>{formatInvoiceMoney(amount(invoice.taxTotalAmount), currency)}</span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <span className="text-muted-foreground">{t('sales.invoices.detail.totals.discount', 'Discount')}</span>
-              <span>{formatMoney(amount(invoice.discountTotalAmount), currency)}</span>
+              <span>{formatInvoiceMoney(amount(invoice.discountTotalAmount), currency)}</span>
             </div>
             <div className="flex items-center justify-between gap-4 border-t pt-2 font-semibold">
               <span>{t('sales.invoices.detail.totals.grandTotal', 'Grand total')}</span>
-              <span>{formatMoney(amount(invoice.grandTotalGrossAmount), currency)}</span>
+              <span>{formatInvoiceMoney(amount(invoice.grandTotalGrossAmount), currency)}</span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <span className="text-muted-foreground">{t('sales.invoices.detail.totals.paid', 'Paid')}</span>
-              <span>{formatMoney(amount(invoice.paidTotalAmount), currency)}</span>
+              <span>{formatInvoiceMoney(amount(invoice.paidTotalAmount), currency)}</span>
             </div>
             <div className="flex items-center justify-between gap-4 font-semibold">
               <span>{t('sales.invoices.detail.totals.outstanding', 'Outstanding')}</span>
-              <span>{formatMoney(amount(invoice.outstandingAmount), currency)}</span>
+              <span>{formatInvoiceMoney(amount(invoice.outstandingAmount), currency)}</span>
             </div>
           </div>
         </div>

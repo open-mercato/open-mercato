@@ -11,7 +11,8 @@ import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { formatMoney, normalizeNumber } from './lineItemUtils'
+import { normalizeNumber } from './lineItemUtils'
+import { formatInvoiceDate, formatInvoiceMoney, formatInvoiceStatus } from './invoiceDisplay'
 
 type InvoiceRow = {
   id: string
@@ -50,13 +51,6 @@ function readNumber(map: Record<string, unknown>, fallback: number, ...keys: str
 
 function readRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
-}
-
-function formatDisplayDate(value: string | null | undefined): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
 }
 
 function normalizeInvoice(item: Record<string, unknown>): InvoiceRow | null {
@@ -279,24 +273,24 @@ export function SalesDocumentInvoicesSection({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
-                    <span className="truncate text-sm font-medium">{invoice.invoiceNumber}</span>
-                    {invoice.status ? <Badge variant="secondary">{invoice.status}</Badge> : null}
+                    <span className="break-all text-sm font-medium">{invoice.invoiceNumber}</span>
+                    {invoice.status ? <Badge variant="secondary">{formatInvoiceStatus(invoice.status, t)}</Badge> : null}
                     <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
                   </div>
                   {invoice.dueDate ? (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {t('sales.invoices.table.dueDate', 'Due')}: {formatDisplayDate(invoice.dueDate)}
+                      {t('sales.invoices.table.dueDate', 'Due')}: {formatInvoiceDate(invoice.dueDate)}
                     </p>
                   ) : null}
                 </div>
                 <div className="whitespace-nowrap text-right text-sm text-muted-foreground">
-                  {formatDisplayDate(invoice.issueDate) || t('sales.invoices.notSet', 'Not set')}
+                  {formatInvoiceDate(invoice.issueDate) || t('sales.invoices.notSet', 'Not set')}
                 </div>
                 <div className="whitespace-nowrap text-right text-sm font-medium">
-                  {formatMoney(invoice.grandTotalGrossAmount, invoice.currencyCode ?? currencyCode ?? null)}
+                  {formatInvoiceMoney(invoice.grandTotalGrossAmount, invoice.currencyCode ?? currencyCode ?? null)}
                 </div>
                 <div className="whitespace-nowrap text-right text-sm font-medium">
-                  {formatMoney(invoice.outstandingAmount, invoice.currencyCode ?? currencyCode ?? null)}
+                  {formatInvoiceMoney(invoice.outstandingAmount, invoice.currencyCode ?? currencyCode ?? null)}
                 </div>
               </Link>
             ))}

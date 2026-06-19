@@ -19,7 +19,8 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
-import { formatMoney, normalizeNumber } from './lineItemUtils'
+import { normalizeNumber } from './lineItemUtils'
+import { formatInvoiceDate, formatInvoiceMoney, formatInvoiceStatus } from './invoiceDisplay'
 
 type InvoiceRow = {
   id: string
@@ -57,13 +58,6 @@ function readNumber(map: Record<string, unknown>, ...keys: string[]): number {
     if (Number.isFinite(normalized)) return normalized
   }
   return 0
-}
-
-function formatDisplayDate(value: string | null | undefined): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
 }
 
 function normalizeInvoice(item: Record<string, unknown>): InvoiceRow | null {
@@ -140,6 +134,7 @@ export function SalesInvoicesTable() {
     const confirmed = await confirm({
       title: t('sales.invoices.delete.confirmTitle', 'Delete invoice {invoiceNumber}?', { invoiceNumber: row.invoiceNumber }),
       description: t('sales.invoices.delete.confirmDescription', 'This action cannot be undone.'),
+      confirmText: t('sales.invoices.delete.action', 'Delete invoice'),
       variant: 'destructive',
     })
     if (!confirmed) return
@@ -175,11 +170,21 @@ export function SalesInvoicesTable() {
       id: 'invoiceNumber',
       accessorKey: 'invoiceNumber',
       header: t('sales.invoices.table.invoice', 'Invoice'),
+      size: 260,
+      meta: { truncate: false, maxWidth: '280px' },
       cell: ({ row }) => (
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
-            <span className="truncate text-sm font-medium">{row.original.invoiceNumber}</span>
+        <div className="min-w-[15rem] max-w-[18rem]">
+          <div className="flex items-start gap-2">
+            <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+            <div className="min-w-0">
+              <span className="block break-all text-sm font-medium leading-snug">{row.original.invoiceNumber}</span>
+              <div className="mt-1 flex flex-wrap items-center gap-2 2xl:hidden">
+                {row.original.status ? <Badge className="md:hidden" variant="secondary">{formatInvoiceStatus(row.original.status, t)}</Badge> : null}
+                <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">
+                  {formatInvoiceMoney(row.original.grandTotalGrossAmount, row.original.currencyCode)}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       ),
@@ -188,7 +193,7 @@ export function SalesInvoicesTable() {
       id: 'status',
       accessorKey: 'status',
       header: t('sales.invoices.table.status', 'Status'),
-      cell: ({ row }) => row.original.status ? <Badge variant="secondary">{row.original.status}</Badge> : <span className="text-sm text-muted-foreground">-</span>,
+      cell: ({ row }) => row.original.status ? <Badge variant="secondary">{formatInvoiceStatus(row.original.status, t)}</Badge> : <span className="text-sm text-muted-foreground">-</span>,
     },
     {
       id: 'orderId',
@@ -197,7 +202,11 @@ export function SalesInvoicesTable() {
       enableSorting: false,
       cell: ({ row }) =>
         row.original.orderId ? (
-          <Link className="text-sm text-primary hover:underline" href={`/backend/sales/orders/${row.original.orderId}?kind=order`}>
+          <Link
+            className="text-sm text-primary hover:underline"
+            href={`/backend/sales/orders/${row.original.orderId}?kind=order`}
+            onClick={(event) => event.stopPropagation()}
+          >
             {t('sales.invoices.table.openOrder', 'Open order')}
           </Link>
         ) : (
@@ -208,25 +217,25 @@ export function SalesInvoicesTable() {
       id: 'issueDate',
       accessorKey: 'issueDate',
       header: t('sales.invoices.table.issueDate', 'Issue date'),
-      cell: ({ row }) => <span className="text-sm text-muted-foreground">{formatDisplayDate(row.original.issueDate) || '-'}</span>,
+      cell: ({ row }) => <span className="text-sm text-muted-foreground">{formatInvoiceDate(row.original.issueDate) || '-'}</span>,
     },
     {
       id: 'dueDate',
       accessorKey: 'dueDate',
       header: t('sales.invoices.table.dueDateHeader', 'Due date'),
-      cell: ({ row }) => <span className="text-sm text-muted-foreground">{formatDisplayDate(row.original.dueDate) || '-'}</span>,
+      cell: ({ row }) => <span className="text-sm text-muted-foreground">{formatInvoiceDate(row.original.dueDate) || '-'}</span>,
     },
     {
       id: 'grandTotalGrossAmount',
       accessorKey: 'grandTotalGrossAmount',
       header: t('sales.invoices.table.total', 'Total'),
-      cell: ({ row }) => <span className="text-sm font-medium">{formatMoney(row.original.grandTotalGrossAmount, row.original.currencyCode)}</span>,
+      cell: ({ row }) => <span className="whitespace-nowrap text-sm font-medium">{formatInvoiceMoney(row.original.grandTotalGrossAmount, row.original.currencyCode)}</span>,
     },
     {
       id: 'outstandingAmount',
       accessorKey: 'outstandingAmount',
       header: t('sales.invoices.table.outstanding', 'Outstanding'),
-      cell: ({ row }) => <span className="text-sm font-medium">{formatMoney(row.original.outstandingAmount, row.original.currencyCode)}</span>,
+      cell: ({ row }) => <span className="whitespace-nowrap text-sm font-medium">{formatInvoiceMoney(row.original.outstandingAmount, row.original.currencyCode)}</span>,
     },
   ], [t])
 
