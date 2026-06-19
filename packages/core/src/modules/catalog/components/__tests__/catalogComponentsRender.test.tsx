@@ -44,6 +44,9 @@ import { ProductCategorizeSection } from '../products/ProductCategorizeSection'
 import { ProductMediaManager } from '../products/ProductMediaManager'
 import ProductsDataTable from '../products/ProductsDataTable'
 import { VariantBuilder } from '../products/VariantBuilder'
+import { ServiceForm, buildServicePayload, createServiceInitialValues, normalizeServiceDefaultPriceAmount, normalizeServiceMediaItem } from '../services/ServiceForm'
+import { ServiceWorkRequirements } from '../services/ServiceWorkRequirements'
+import { formatServiceDefaultPrice } from '../services/ServicesDataTable'
 import type { VariantFormValues } from '../products/variantForm'
 import type { ProductFormValues } from '../products/productForm'
 
@@ -95,11 +98,48 @@ jest.mock('@open-mercato/ui/backend/ValueIcons', () => ({
   BooleanIcon: ({ value }: { value?: boolean }) => <span>{value ? 'Yes' : 'No'}</span>,
 }))
 
+jest.mock('@open-mercato/ui/backend/CrudForm', () => {
+  return {
+    CrudForm: ({ title, fields = [], groups = [], initialValues = {} }: any) => {
+      const fieldsById = new Map(fields.map((field: any) => [field.id, field]))
+      return (
+        <form aria-label={title}>
+          {groups.map((group: any) => (
+            <section key={group.id}>
+              <h2>{group.title}</h2>
+              {(group.fields ?? []).map((fieldId: string) => {
+                const field: any = fieldsById.get(fieldId)
+                if (!field) return null
+                const component = field.type === 'custom'
+                  ? field.component({
+                      id: field.id,
+                      value: initialValues[field.id],
+                      values: initialValues,
+                      setValue: jest.fn(),
+                      setFormValue: jest.fn(),
+                    })
+                  : null
+                return (
+                  <div key={field.id} data-testid={`crud-field-${field.id}`}>
+                    {field.label?.trim?.() ? <label>{field.label}</label> : null}
+                    {component}
+                  </div>
+                )
+              })}
+            </section>
+          ))}
+        </form>
+      )
+    },
+  }
+})
+
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: jest.fn(),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/serverErrors', () => ({
+  createCrudFormError: (message: string, fieldErrors?: Record<string, string>) => Object.assign(new Error(message), { fieldErrors }),
   raiseCrudError: jest.fn(),
 }))
 
@@ -154,15 +194,41 @@ jest.mock('@open-mercato/ui/backend/utils/customFieldColumns', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect', () => ({
-  DictionaryEntrySelect: ({ value, onChange }: { value?: string | null; onChange?: (value: string | null) => void }) => (
+  DictionaryEntrySelect: ({
+    value,
+    onChange,
+    fetchOptions,
+  }: {
+    value?: string | null
+    onChange?: (value: string | null) => void
+    fetchOptions?: () => Promise<Array<{ value: string; label: string }>>
+  }) => {
+    const React2 = require('react') as typeof import('react')
+    const [options, setOptions] = React2.useState<Array<{ value: string; label: string }>>([])
+    React2.useEffect(() => {
+      fetchOptions?.().then(setOptions).catch(() => setOptions([]))
+    }, [fetchOptions])
+    return (
     <select value={value ?? ''} onChange={(event) => onChange?.(event.target.value || null)}>
       <option value="">Select</option>
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>{option.label}</option>
+      ))}
     </select>
-  ),
+    )
+  },
 }))
 
 jest.mock('@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary', () => ({
-  useCurrencyDictionary: () => ({ data: { entries: [] }, refetch: jest.fn().mockResolvedValue({ entries: [] }) }),
+  useCurrencyDictionary: () => ({
+    data: {
+      entries: [
+        { value: 'GBP', label: 'Pound Sterling', color: null, icon: null },
+        { value: 'PLN', label: 'Polish Zloty', color: null, icon: null },
+      ],
+    },
+    refetch: jest.fn().mockResolvedValue({ entries: [] }),
+  }),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
@@ -356,6 +422,165 @@ describe('catalog module components', () => {
     )
     expect(screen.getByText(/Media/)).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /main\.jpg/i })).toBeInTheDocument()
+  })
+
+  it('renders ServiceForm without duplicate media/work headings and normalizes trailing-zero price scale', async () => {
+    render(
+      <ServiceForm
+        title="Edit service"
+        submitLabel="Save"
+        initialValues={createServiceInitialValues({
+          title: 'Regression service',
+          defaultPriceAmount: '6767.0000',
+          defaultPriceCurrencyCode: 'USD',
+        })}
+        onSubmit={jest.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('Media')).toHaveLength(1)
+    expect(screen.getAllByText('Work requirements')).toHaveLength(1)
+    expect(screen.getByDisplayValue('6767.00')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('option', { name: 'USD' })).toBeInTheDocument())
+  })
+
+  it('starts new services without a hidden default currency selection', () => {
+    expect(createServiceInitialValues().defaultPriceCurrencyCode).toBe('')
+    const t = (_key: string, fallback?: string) => fallback ?? _key
+    expect(() => buildServicePayload(createServiceInitialValues({
+      title: 'Needs currency',
+      defaultPriceAmount: '10',
+      defaultPriceCurrencyCode: '',
+    }), t)).toThrow(/price and currency/)
+  })
+
+  it('formats service default prices as money labels instead of raw storage scale', () => {
+    const formatted = formatServiceDefaultPrice('6767.0000', 'USD')
+    expect(formatted).not.toContain('0000')
+    expect(formatted).toBe('USD 6,767.00')
+    expect(formatServiceDefaultPrice('495.0000', 'GBP', '—', 'en')).toBe('GBP 495.00')
+    expect(normalizeServiceDefaultPriceAmount('6767.1200')).toBe('6767.12')
+    expect(normalizeServiceDefaultPriceAmount('6767.1234')).toBe('6767.1234')
+  })
+
+  it('does not invent a zero-byte service media size when the API omits size metadata', () => {
+    const item = normalizeServiceMediaItem({
+      id: 'att-1',
+      fileName: 'scope.png',
+      url: 'https://cdn.local/scope.png',
+    })
+    expect(item).toEqual(expect.objectContaining({
+      id: 'att-1',
+      fileName: 'scope.png',
+    }))
+    expect(item?.fileSize).toBeUndefined()
+  })
+
+  it('allows integer and decimal work requirement allocation values', () => {
+    const handleChange = jest.fn()
+    render(
+      <ServiceWorkRequirements
+        value={[
+          {
+            targetType: 'generic',
+            targetId: null,
+            labelSnapshot: 'Solution Consultant',
+            allocationMode: 'ratio',
+            allocationValue: '1',
+            sortOrder: 0,
+          },
+          {
+            targetType: 'generic',
+            targetId: null,
+            labelSnapshot: 'Project Manager',
+            allocationMode: 'fixed_hours',
+            allocationValue: '10',
+            sortOrder: 1,
+          },
+          {
+            targetType: 'generic',
+            targetId: null,
+            labelSnapshot: 'Implementation Specialist',
+            allocationMode: 'ratio',
+            allocationValue: '0.2',
+            sortOrder: 2,
+          },
+        ]}
+        onChange={handleChange}
+      />,
+    )
+
+    const valueInput = screen.getByDisplayValue('10') as HTMLInputElement
+    expect(valueInput.type).toBe('text')
+    fireEvent.change(valueInput, { target: { value: '4' } })
+    expect(handleChange).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ labelSnapshot: 'Project Manager', allocationValue: '4' }),
+    ]))
+  })
+
+  it('uses human labels for work requirement references from snake_case API fields', async () => {
+    const handleChange = jest.fn()
+    const memberId = 'f818c729-3cac-4e19-9655-cd605abe6079'
+    mockApiCall.mockImplementation((url: string) => Promise.resolve({
+      ok: true,
+      result: {
+        items: url.startsWith('/api/staff/team-members')
+          ? [{ id: memberId, display_name: 'Filip Kubala' }]
+          : [],
+      },
+    }))
+
+    render(
+      <ServiceWorkRequirements
+        value={[{
+          targetType: 'staff_member',
+          targetId: null,
+          labelSnapshot: '',
+          allocationMode: 'ratio',
+          allocationValue: '0.3',
+          sortOrder: 0,
+        }]}
+        onChange={handleChange}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Filip Kubala' })).toBeInTheDocument())
+    expect(screen.queryByRole('option', { name: memberId })).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Reference'), { target: { value: memberId } })
+    expect(handleChange).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ targetId: memberId, labelSnapshot: 'Filip Kubala' }),
+    ]))
+  })
+
+  it('maps valid integer work requirements and rejects invalid values before submit', () => {
+    const t = (_key: string, fallback?: string) => fallback ?? _key
+    const valid = buildServicePayload(createServiceInitialValues({
+      title: 'Valid service',
+      defaultPriceAmount: '',
+      defaultPriceCurrencyCode: 'USD',
+      workRequirements: [{
+        targetType: 'generic',
+        targetId: null,
+        labelSnapshot: 'Project Manager',
+        allocationMode: 'fixed_hours',
+        allocationValue: '4',
+      }],
+    }), t)
+    expect(valid.workRequirements).toEqual([
+      expect.objectContaining({ labelSnapshot: 'Project Manager', allocationValue: 4 }),
+    ])
+
+    expect(() => buildServicePayload(createServiceInitialValues({
+      title: 'Invalid service',
+      workRequirements: [{
+        targetType: 'generic',
+        targetId: null,
+        labelSnapshot: 'Project Manager',
+        allocationMode: 'fixed_hours',
+        allocationValue: '',
+      }],
+    }), t)).toThrow(/positive value/)
   })
 
   it('renders ProductsDataTable rows', async () => {

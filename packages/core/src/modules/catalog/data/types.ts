@@ -53,3 +53,18 @@ export type CatalogPricingScope = {
 export const CATALOG_PRICE_DISPLAY_MODES = ['including-tax', 'excluding-tax'] as const
 
 export type CatalogPriceDisplayMode = (typeof CATALOG_PRICE_DISPLAY_MODES)[number]
+
+export const CATALOG_SERVICE_WORK_TARGET_TYPES = [
+  'staff_team',
+  'staff_role',
+  'staff_member',
+  'resource',
+  'resource_type',
+  'generic',
+] as const
+
+export type CatalogServiceWorkTargetType = (typeof CATALOG_SERVICE_WORK_TARGET_TYPES)[number]
+
+export const CATALOG_SERVICE_WORK_ALLOCATION_MODES = ['ratio', 'fixed_hours'] as const
+
+export type CatalogServiceWorkAllocationMode = (typeof CATALOG_SERVICE_WORK_ALLOCATION_MODES)[number]
