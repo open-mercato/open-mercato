@@ -21,6 +21,7 @@ This skill reuses the worktree/branch/commit/label discipline of `.ai/skills/om-
 - `--slug <kebab-case>` (optional) — override the slug used in the spec filename and branch. Default: derived from the brief.
 - `--enterprise` (optional) — write the spec under `.ai/specs/enterprise/` instead of `.ai/specs/` (commercial scope). Default: OSS scope (`.ai/specs/`).
 - `--priority <low|medium|high|extreme>` (optional) — priority label for the tracking issue. Default: unset (treated as `priority-medium`).
+- `--risk <low|medium|high>` (optional) — risk label for the tracking issue, describing the expected blast radius of the eventual change. Default: unset (treated as `risk-medium`).
 - `--no-issue` (optional) — write the spec and open the spec PR, but skip issue creation. Use when the user only wants the spec on record.
 - `--force` (optional) — bypass the claim-conflict check when a previous run left a branch or spec file behind.
 
@@ -164,6 +165,7 @@ Label rules for the issue:
 - Always add the `feature` category label (or `refactor` / `bug` when the brief is clearly one of those).
 - Add `enterprise` when `--enterprise` was passed.
 - Add a priority label only when `--priority` was passed (`priority-low` / `priority-medium` / `priority-high` / `priority-extreme`); otherwise leave priority unset (treated as `priority-medium`).
+- Add a risk label only when `--risk` was passed (`risk-low` / `risk-medium` / `risk-high`); otherwise leave risk unset (treated as `risk-medium`). The PR that fixes the issue inherits this risk label when present (see `om-auto-fix-github` / `om-auto-verify-and-fix-github`).
 - Do NOT add pipeline labels (`review`, `qa`, `merge-queue`, …) to the issue — those are PR-only.
 
 ### 6. Cross-link the artifacts

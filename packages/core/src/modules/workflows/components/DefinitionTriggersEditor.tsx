@@ -26,7 +26,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { EventPatternInput } from '@open-mercato/ui/backend/inputs/EventPatternInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Plus, Trash2, Edit2, Zap, Info, X } from 'lucide-react'
+import { Plus, Trash2, Edit2, Zap, X } from 'lucide-react'
 import type { WorkflowDefinitionTrigger } from '../data/entities'
 
 interface DefinitionTriggersEditorProps {
@@ -302,7 +302,6 @@ export function DefinitionTriggersEditor({
 
         {value.length === 0 ? (
           <Alert variant="info">
-            <Info className="w-4 h-4" />
             <AlertTitle>{t('workflows.triggers.empty.title', 'No triggers configured')}</AlertTitle>
             <AlertDescription>
               {t('workflows.triggers.empty.description', 'Click "Add Trigger" to create an event trigger that automatically starts this workflow.')}

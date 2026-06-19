@@ -1,26 +1,28 @@
 import { after, NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { SearchIndexer } from '@open-mercato/search'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import {
-  AppOriginConfigurationError,
-  AppOriginRejectedError,
-  getSecurityEmailBaseUrl,
-} from '@open-mercato/shared/lib/url'
 import { onboardingVerifySchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
+import type { OnboardingRequest } from '@open-mercato/onboarding/modules/onboarding/data/entities'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboarding/lib/ready-email'
+import {
+  redirectToLogin,
+  redirectToPreparing,
+  redirectWithStatus,
+} from '@open-mercato/onboarding/modules/onboarding/lib/verify-redirects'
+import { resolveVerifyRedirectBaseUrl } from '@open-mercato/onboarding/modules/onboarding/lib/verify-base-url'
+import {
+  resolveProvisioningIds,
+  runDeferredProvisioning,
+} from '@open-mercato/onboarding/modules/onboarding/lib/deferred-provisioning'
 import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-app'
 import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { computeConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
 import { resolveConsentClientIp } from '@open-mercato/onboarding/modules/onboarding/lib/consentClientIp'
-import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
-import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
-import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
-import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
-import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import { runBestEffortProvisioningStep } from '@open-mercato/onboarding/modules/onboarding/lib/provisioning'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
+import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -30,68 +32,7 @@ export const metadata = {
   },
 }
 
-function resolveTrustedBaseUrl(req: Request): string {
-  try {
-    return getSecurityEmailBaseUrl(req)
-  } catch (error) {
-    if (error instanceof AppOriginRejectedError || error instanceof AppOriginConfigurationError) {
-      console.error('[onboarding.verify] rejected request origin for redirect base', {
-        requestUrl: req.url,
-        reason: error.message,
-      })
-      return new URL(req.url).origin
-    }
-    throw error
-  }
-}
-
-function clearAuthCookies(response: NextResponse) {
-  response.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
-  response.cookies.set('session_token', '', { path: '/', maxAge: 0 })
-  response.cookies.set('om_login_tenant', '', { path: '/', maxAge: 0 })
-}
-
-function redirectWithStatus(baseUrl: string, status: string) {
-  const response = NextResponse.redirect(`${baseUrl}/onboarding?status=${encodeURIComponent(status)}`)
-  clearAuthCookies(response)
-  return response
-}
-
-function redirectToPreparing(baseUrl: string, tenantId: string | null) {
-  const tenantParam = tenantId ? `?tenant=${encodeURIComponent(tenantId)}` : ''
-  const response = NextResponse.redirect(`${baseUrl}/onboarding/preparing${tenantParam}`)
-  clearAuthCookies(response)
-  if (tenantId) {
-    response.cookies.set('om_login_tenant', tenantId, {
-      httpOnly: false,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 14,
-    })
-  }
-  return response
-}
-
-function redirectToLogin(baseUrl: string, tenantId: string | null) {
-  const tenantParam = tenantId ? `?tenant=${encodeURIComponent(tenantId)}` : ''
-  const response = NextResponse.redirect(`${baseUrl}/login${tenantParam}`)
-  clearAuthCookies(response)
-  if (tenantId) {
-    response.cookies.set('om_login_tenant', tenantId, {
-      httpOnly: false,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 14,
-    })
-  }
-  return response
-}
-
-const VECTOR_REINDEX_ENQUEUE_TIMEOUT_MS = 5_000
 const SEED_DEFAULTS_TIMEOUT_MS = 15_000
-const SEED_EXAMPLES_TIMEOUT_MS = 15_000
 
 function createTimeoutPromise(label: string, timeoutMs: number): Promise<never> {
   return new Promise((_, reject) => {
@@ -122,191 +63,59 @@ async function runModuleSetupHook(args: {
       durationMs: Math.max(0, Date.now() - startedAt),
     })
   } catch (error) {
-    console.error('[onboarding.verify] module hook failed', {
-      moduleId: args.moduleId,
-      phase: args.phase,
-      durationMs: Math.max(0, Date.now() - startedAt),
-      timeoutMs: args.timeoutMs,
-      error,
-    })
+    if (isUniqueViolation(error)) {
+      // A concurrent verify (or a re-verify after the request was already
+      // provisioned) re-runs seedDefaults against rows that exist. seed hooks
+      // are not fully idempotent, so the collision is expected and harmless —
+      // the workspace already exists. Log at info so real failures stand out.
+      console.info('[onboarding.verify] module hook skipped (already seeded)', {
+        moduleId: args.moduleId,
+        phase: args.phase,
+        durationMs: Math.max(0, Date.now() - startedAt),
+      })
+    } else {
+      console.error('[onboarding.verify] module hook failed', {
+        moduleId: args.moduleId,
+        phase: args.phase,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        timeoutMs: args.timeoutMs,
+        error,
+      })
+    }
     throw error
   }
 }
 
-async function markWorkspaceReady(args: {
-  requestId: string
+async function completeProvisionedRequest(args: {
+  service: OnboardingService
+  request: OnboardingRequest
 }) {
-  const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
-  const service = new OnboardingService(em)
-  const request = await service.findById(args.requestId)
-  if (!request || request.preparationCompletedAt) return
-  await service.markPreparationCompleted(request, new Date())
-}
-
-async function enqueueVectorReindex(args: {
-  container: { resolve: <T = unknown>(name: string) => T }
-  tenantId: string
-  organizationId: string
-}) {
-  let searchIndexer: SearchIndexer | null = null
-  try {
-    searchIndexer = args.container.resolve<SearchIndexer>('searchIndexer')
-  } catch {
-    searchIndexer = null
-  }
-  if (!searchIndexer) return
-
-  await Promise.race([
-    searchIndexer.reindexAllToVector({
-      tenantId: args.tenantId,
-      organizationId: args.organizationId,
-      purgeFirst: true,
-      useQueue: true,
-    }),
-    createTimeoutPromise('vector reindex enqueue', VECTOR_REINDEX_ENQUEUE_TIMEOUT_MS),
-  ])
-}
-
-async function rebuildTenantQueryIndexes(args: {
-  em: EntityManager
-  tenantId: string
-  organizationId: string
-}) {
-  const coverageRefreshKeys = new Set<string>()
-  try {
-    const allEntities = getEntityIds()
-    const entityIds = flattenSystemEntityIds(allEntities)
-    for (const entityType of entityIds) {
-      try {
-        await purgeIndexScope(args.em, { entityType, tenantId: args.tenantId })
-      } catch (error) {
-        console.error('[onboarding.verify] failed to purge query index scope', {
-          entityType,
-          tenantId: args.tenantId,
-          error,
-        })
-      }
-      try {
-        await reindexEntity(args.em, {
-          entityType,
-          tenantId: args.tenantId,
-          force: true,
-          emitVectorizeEvents: false,
-          vectorService: null,
-        })
-      } catch (error) {
-        console.error('[onboarding.verify] failed to reindex entity', {
-          entityType,
-          tenantId: args.tenantId,
-          error,
-        })
-      }
-      coverageRefreshKeys.add(`${entityType}|${args.tenantId}|__null__`)
-      coverageRefreshKeys.add(`${entityType}|${args.tenantId}|${args.organizationId}`)
-    }
-  } catch (error) {
-    console.error('[onboarding.verify] failed to rebuild query indexes', { tenantId: args.tenantId, error })
-  }
-
-  if (!coverageRefreshKeys.size) return
-
-  for (const entry of coverageRefreshKeys) {
-    const [entityType, tenantKey, orgKey] = entry.split('|')
-    const orgScope = orgKey === '__null__' ? null : orgKey
-    try {
-      await refreshCoverageSnapshot(
-        args.em,
-        {
-          entityType,
-          tenantId: tenantKey,
-          organizationId: orgScope,
-          withDeleted: false,
-        },
-      )
-    } catch (error) {
-      console.error('[onboarding.verify] failed to refresh coverage snapshot', {
-        entityType,
-        tenantId: tenantKey,
-        organizationId: orgScope,
-        error,
-      })
-    }
-  }
-}
-
-async function runDeferredProvisioning(args: {
-  requestId: string
-  tenantId: string
-  organizationId: string
-}) {
-  const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
-  const modules = getModules()
-
-  for (const mod of modules) {
-    if (!mod.setup?.seedExamples) continue
-    try {
-      await runModuleSetupHook({
-        moduleId: mod.id,
-        phase: 'seedExamples',
-        timeoutMs: SEED_EXAMPLES_TIMEOUT_MS,
-        run: () => mod.setup!.seedExamples!({
-          em,
-          tenantId: args.tenantId,
-          organizationId: args.organizationId,
-          container,
-        }),
-      })
-    } catch (error) {
-      console.error('[onboarding.verify] deferred seedExamples failed', {
-        moduleId: mod.id,
-        tenantId: args.tenantId,
-        organizationId: args.organizationId,
-        error,
-      })
-    }
-  }
-
-  await markWorkspaceReady({
-    requestId: args.requestId,
-  })
-
-  await sendWorkspaceReadyEmail({
-    requestId: args.requestId,
-    tenantId: args.tenantId,
-  }).catch((error) => {
-    console.error('[onboarding.verify] ready email failed', {
-      requestId: args.requestId,
-      tenantId: args.tenantId,
-      organizationId: args.organizationId,
-      error,
-    })
-    throw error
-  })
-
-  await rebuildTenantQueryIndexes({
-    em,
-    tenantId: args.tenantId,
-    organizationId: args.organizationId,
-  })
-
-  await enqueueVectorReindex({
-    container,
-    tenantId: args.tenantId,
-    organizationId: args.organizationId,
-  }).catch((error) => {
-    console.warn('[onboarding.verify] vector reindex enqueue did not complete promptly', {
-      tenantId: args.tenantId,
-      organizationId: args.organizationId,
-      reason: error instanceof Error ? error.message : String(error),
+  const ids = resolveProvisioningIds(args.request)
+  if (!ids) return null
+  await args.service.markCompleted(args.request, ids)
+  after(async () => {
+    await runDeferredProvisioning({
+      requestId: args.request.id,
+      tenantId: ids.tenantId,
+      organizationId: ids.organizationId,
     })
   })
+  return ids
 }
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
-  const baseUrl = resolveTrustedBaseUrl(req)
+  const baseUrlResult = resolveVerifyRedirectBaseUrl(req)
+  if (!baseUrlResult.ok) {
+    if (baseUrlResult.redirectOrigin) {
+      return redirectWithStatus(baseUrlResult.redirectOrigin, baseUrlResult.status)
+    }
+    return NextResponse.json(
+      { ok: false, error: baseUrlResult.message },
+      { status: baseUrlResult.httpStatus },
+    )
+  }
+  const baseUrl = baseUrlResult.baseUrl
   const token = url.searchParams.get('token') ?? ''
   const parsed = onboardingVerifySchema.safeParse({ token })
   if (!parsed.success) {
@@ -348,9 +157,13 @@ export async function GET(req: Request) {
   const processingStartedAt = request.processingStartedAt?.getTime() ?? 0
   const processingFresh = request.status === 'processing' && processingStartedAt > Date.now() - lockWindowMs
   if (processingFresh) {
+    const recovered = await completeProvisionedRequest({ service, request })
+    if (recovered) return redirectToPreparing(baseUrl, recovered.tenantId)
     return redirectToPreparing(baseUrl, request.tenantId ?? null)
   }
   if (request.status === 'processing' && !processingFresh) {
+    const recovered = await completeProvisionedRequest({ service, request })
+    if (recovered) return redirectToPreparing(baseUrl, recovered.tenantId)
     await service.resetProcessing(request)
   }
   if (request.status !== 'pending') {
@@ -362,11 +175,16 @@ export async function GET(req: Request) {
     // Re-read on a fresh fork — the request EM's identity map still holds the stale
     // pre-claim copy — and route off the winner's committed state instead of re-running
     // provisioning, which would throw USER_EXISTS and could strand the request (#2742).
-    const current = await new OnboardingService(em.fork()).findById(request.id)
+    const currentService = new OnboardingService(em.fork())
+    const current = await currentService.findById(request.id)
     if (current?.status === 'completed' && current.tenantId) {
       return current.preparationCompletedAt
         ? redirectToLogin(baseUrl, current.tenantId)
         : redirectToPreparing(baseUrl, current.tenantId)
+    }
+    if (current?.status === 'processing') {
+      const recovered = await completeProvisionedRequest({ service: currentService, request: current })
+      if (recovered) return redirectToPreparing(baseUrl, recovered.tenantId)
     }
     return redirectToPreparing(baseUrl, current?.tenantId ?? request.tenantId ?? null)
   }
@@ -425,43 +243,55 @@ export async function GET(req: Request) {
         ipAddress: clientIp,
         source: 'onboarding',
       })
-      // Wrap the request-em consent write in a transaction so it commits
-      // all-or-nothing. setupInitialTenant already manages its own internal
-      // transactions, and the seedDefaults hooks below resolve container
-      // services that fork their own EM (and may enqueue work), so neither can
-      // join this transaction — only the direct request-em writes are wrapped.
-      await em.transactional(async (txEm) => {
-        txEm.create(UserConsent, {
-          userId: resolvedUserId,
-          tenantId: resolvedTenantId,
-          organizationId: resolvedOrganizationId,
-          consentType: 'marketing_email',
-          isGranted: true,
-          grantedAt: now,
-          source: 'onboarding',
-          ipAddress: clientIp,
-          integrityHash,
-          createdAt: now,
-        })
-      })
+      // Persist the marketing consent on an isolated EM fork wrapped in a
+      // transaction so it commits all-or-nothing AND a failure here can neither
+      // abort provisioning nor poison the request EM's unit of work before
+      // markCompleted runs. Recording the consent is best-effort: the workspace
+      // is already provisioned, and a lost consent record fails safe (treated as
+      // not granted) and is logged for follow-up rather than stranding the user.
+      await runBestEffortProvisioningStep('marketing-consent', () =>
+        em.fork().transactional(async (txEm) => {
+          txEm.create(UserConsent, {
+            userId: resolvedUserId,
+            tenantId: resolvedTenantId,
+            organizationId: resolvedOrganizationId,
+            consentType: 'marketing_email',
+            isGranted: true,
+            grantedAt: now,
+            source: 'onboarding',
+            ipAddress: clientIp,
+            integrityHash,
+            createdAt: now,
+          })
+        }),
+      )
     }
 
-    // Call module seedDefaults + seedExamples hooks
+    // Call module seedDefaults hooks. Each hook is best-effort and runs on its
+    // own isolated EM fork: a single module's throw or 15s timeout must not
+    // strand the freshly provisioned workspace — the tenant/org/user already
+    // exist and the request must still reach markCompleted so the user can sign
+    // in. A per-module fork also keeps a failed module's unflushed unit of work
+    // from leaking into (or aborting) the next module's flush. Failures are
+    // logged for follow-up (deferred seedExamples is already non-fatal in the
+    // same way).
     const modules = getModules()
     for (const mod of modules) {
-      if (mod.setup?.seedDefaults) {
-        await runModuleSetupHook({
+      if (!mod.setup?.seedDefaults) continue
+      const seedEm = em.fork()
+      await runBestEffortProvisioningStep(`seedDefaults:${mod.id}`, () =>
+        runModuleSetupHook({
           moduleId: mod.id,
           phase: 'seedDefaults',
           timeoutMs: SEED_DEFAULTS_TIMEOUT_MS,
           run: () => mod.setup!.seedDefaults!({
-            em,
+            em: seedEm,
             tenantId: resolvedTenantId,
             organizationId: resolvedOrganizationId,
             container,
           }),
-        })
-      }
+        }),
+      )
     }
     await service.markCompleted(request, {
       tenantId: resolvedTenantId,

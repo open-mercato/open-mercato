@@ -2,6 +2,7 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import { resolvePartitionRoot } from '../storage'
+import { resolveContainedPath } from '../pathContainment'
 import type { StorageDriver, StoreFilePayload, StoredFile, ReadFileResult } from './types'
 
 function sanitizeFileName(fileName: string): string {
@@ -67,13 +68,7 @@ export class LocalStorageDriver implements StorageDriver {
   }
 
   private resolveAbsolutePath(partitionCode: string, storagePath: string): string {
-    let safeRelative = storagePath.replace(/^\/*/, '')
-    let prev: string
-    do {
-      prev = safeRelative
-      safeRelative = safeRelative.replace(/\.\.(\/|\\)/g, '')
-    } while (safeRelative !== prev)
     const root = resolvePartitionRoot(partitionCode)
-    return path.join(root, safeRelative)
+    return resolveContainedPath(root, storagePath)
   }
 }

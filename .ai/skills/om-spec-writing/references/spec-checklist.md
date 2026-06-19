@@ -38,6 +38,7 @@ Append to changelog:
 - [ ] Module/package placement is correct for monorepo conventions.
 - [ ] DI usage is specified for service wiring (Awilix).
 - [ ] Event/subscriber/worker boundaries are clear and non-circular.
+- [ ] Every cross-module touchpoint names its sanctioned mechanism (event for write side-effects; widget injection + response enricher for read/UI; FK-id + snapshot for data; soft-optional resolve in `try/catch` for service use), which module owns the glue (the optional consumer), and the module-absent behavior — graceful degradation, never a hard `requires` on an optional peer. Verify with `packages/core/src/__tests__/module-decoupling.test.ts`.
 
 ## 3. Data Integrity & Security
 - [ ] Entities/records include required tenancy/lifecycle columns where applicable.

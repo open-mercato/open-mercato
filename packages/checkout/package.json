@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/checkout",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -76,7 +76,7 @@
     "@types/jest": "^30.0.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "esbuild": "^0.28.0",
+    "esbuild": "^0.28.1",
     "glob": "^13.0.6",
     "jest": "^30.4.2",
     "react": "19.2.7",

@@ -16,6 +16,7 @@ import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/custo
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
+import { markdownToPlainText } from '@open-mercato/ui/backend/markdown/markdownToPlainText'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -416,7 +417,7 @@ export default function ProductsDataTable({
               <span className="text-xs text-muted-foreground">/{row.original.handle}</span>
             ) : null}
             {row.original.description ? (
-              <span className="text-xs text-muted-foreground">{row.original.description}</span>
+              <span className="text-xs text-muted-foreground">{markdownToPlainText(row.original.description)}</span>
             ) : null}
           </div>
         ),

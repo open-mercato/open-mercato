@@ -5,7 +5,7 @@
  * the existing customers query engine + encryption helpers. Mutation tools
  * are deferred to Step 5.13+ under the pending-action contract.
  *
- * Phase 3a of `.ai/specs/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
+ * Phase 3a of `.ai/specs/implemented/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
  * `customers.list_people` is now an API-backed wrapper over
  * `GET /api/customers/people`. The `companyId` AI input has no inclusion
  * equivalent on the route (the route exposes `excludeLinkedCompanyId` only)

@@ -70,10 +70,22 @@ export async function POST(req: Request) {
   if (log.actorUserId && log.actorUserId !== auth.sub && !canRedoTenant) {
     return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
   }
-  if (log.tenantId && auth.tenantId && log.tenantId !== auth.tenantId) {
+  // Fail closed on tenant scope: `audit_logs.redo_tenant` only widens scope WITHIN a
+  // tenant, never across tenants, so a tenant-scoped target always requires a caller
+  // bound to that same tenant. A caller whose tenantId is null (tenant-less global
+  // account or unscoped API key) must never redo a tenant-scoped row. Mirrors the
+  // hardened undo route (issue #2685, ported in #2931).
+  if (log.tenantId && log.tenantId !== (auth.tenantId ?? null)) {
     return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
   }
-  if (log.organizationId && scopedOrgId && log.organizationId !== scopedOrgId) {
+  // Tenant-level redoers may redo across organizations within the tenant, so an
+  // unresolved (null) caller org is allowed and only an explicit mismatch is rejected.
+  // Every other caller must resolve to the target's own organization — a null caller
+  // org must not bypass an org-scoped target (issue #2685, ported in #2931).
+  const orgScopeMismatch = canRedoTenant
+    ? Boolean(log.organizationId && scopedOrgId && log.organizationId !== scopedOrgId)
+    : Boolean(log.organizationId && log.organizationId !== scopedOrgId)
+  if (orgScopeMismatch) {
     return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
   }
 

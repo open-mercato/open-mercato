@@ -1,6 +1,6 @@
 # Pre-Implementation Analysis: Organization-Scope Fail-Open Authorization Hardening
 
-> Target spec: `.ai/specs/2026-05-29-org-scope-fail-open-authorization-hardening.md`
+> Target spec: `.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md`
 > Analysis date: 2026-05-29 · Analysis only — no code or spec modified.
 
 ## Executive Summary

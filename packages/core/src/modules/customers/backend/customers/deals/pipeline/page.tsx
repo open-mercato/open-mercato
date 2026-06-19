@@ -2542,6 +2542,7 @@ export default function DealsKanbanPage(): React.ReactElement {
   return (
     <Page>
       <PageBody>
+        <ViewTabsRow active="kanban" className="mb-4" />
         <div className="flex flex-col gap-2">
           <Breadcrumb>
             <BreadcrumbList>
@@ -2709,8 +2710,6 @@ export default function DealsKanbanPage(): React.ReactElement {
             </div>
           ) : null}
         </div>
-
-        <ViewTabsRow active="kanban" className="mt-4" />
 
         <FilterBarRow
           leadingChips={leadingChipsNode}

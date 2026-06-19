@@ -28,7 +28,7 @@ import {
  *
  * `null` always means "remove from the registry"; a definition replaces.
  *
- * @see ../../../../../../.ai/specs/2026-04-30-ai-overrides-and-module-disable.md
+ * @see ../../../../../../.ai/specs/implemented/2026-04-30-ai-overrides-and-module-disable.md
  */
 import type { AiAgentDefinition, AiAgentExtension } from './ai-agent-definition'
 import type { AiToolDefinition } from './types'

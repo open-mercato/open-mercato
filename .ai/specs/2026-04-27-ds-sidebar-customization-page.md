@@ -2,7 +2,7 @@
 
 ## TLDR
 
-Refactor the sidebar customization UI from an in-place sidebar takeover (toggled by an internal `customizing` boolean and a `?customize=1` URL hack) into a regular auto-discovered settings page that renders its own content like every other entry in the settings menu. The customization editor becomes a self-contained component owned by the page, the AppShell stops hijacking the sidebar, and the entry appears in the settings nav through standard page-metadata auto-discovery instead of a hardcoded inject. Companion to [`2026-04-26-ds-sidebar-restyle.md`](2026-04-26-ds-sidebar-restyle.md). No new BC contract surfaces are introduced; the `?customize=1` URL trigger and the hardcoded "Customization" settings section added during the restyle PR are both reverted because they were unreleased internals.
+Refactor the sidebar customization UI from an in-place sidebar takeover (toggled by an internal `customizing` boolean and a `?customize=1` URL hack) into a regular auto-discovered settings page that renders its own content like every other entry in the settings menu. The customization editor becomes a self-contained component owned by the page, the AppShell stops hijacking the sidebar, and the entry appears in the settings nav through standard page-metadata auto-discovery instead of a hardcoded inject. Companion to [`2026-04-26-ds-sidebar-restyle.md`](implemented/2026-04-26-ds-sidebar-restyle.md). No new BC contract surfaces are introduced; the `?customize=1` URL trigger and the hardcoded "Customization" settings section added during the restyle PR are both reverted because they were unreleased internals.
 
 ## Overview
 
@@ -18,7 +18,7 @@ The current implementation of "Customize sidebar" couples the editor to the AppS
 
 1. AppShell owns all customization state (`customizing`, `customDraft`, `originalNavRef`, `availableRoleTargets`, `selectedRoleIds`, `canApplyToRoles`, `customizationError`, `loadingPreferences`, `savingPreferences`) plus the callbacks (`startCustomization`, `cancelCustomization`, `resetCustomization`, `saveCustomization`, `updateDraft`).
 2. When `customizing === true`, AppShell's `renderSidebar` swaps the entire sidebar tree for an inline `customizationEditor` JSX block. The main page content underneath is unaffected, but the user loses the live-rendered nav while editing.
-3. The entry point in the [restyle PR](2026-04-26-ds-sidebar-restyle.md) had to be hand-wired:
+3. The entry point in the [restyle PR](implemented/2026-04-26-ds-sidebar-restyle.md) had to be hand-wired:
    - A `?customize=1` query-param effect in AppShell that calls `startCustomization()` and clears the param.
    - A hardcoded "Customization" section appended at render time inside `renderSectionSidebar`'s settings branch.
    - A defensive duplicate in `SettingsPageWrapper` for downstream apps using the wrapper directly.
