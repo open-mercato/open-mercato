@@ -7,6 +7,9 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Switch } from '@open-mercato/ui/primitives/switch'
+import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
+import { Alert } from '@open-mercato/ui/primitives/alert'
+import { TimeInput } from '@open-mercato/ui/backend/inputs/TimeInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 interface FetchConfig {
@@ -19,6 +22,12 @@ interface FetchConfig {
   lastSyncMessage: string | null
   lastSyncCount: number | null
   updatedAt?: string | null
+}
+
+const STATUS_BADGE_VARIANT: Record<string, StatusBadgeVariant> = {
+  success: 'success',
+  error: 'error',
+  partial: 'warning',
 }
 
 export default function CurrencyFetchingConfig() {
@@ -169,7 +178,7 @@ export default function CurrencyFetchingConfig() {
         if (count === 0) {
           flash(t('currencies.fetch.sync_no_rates'), 'warning')
         } else {
-          flash(`${t('currencies.fetch.sync_success')}: ${count} rates fetched`, 'success')
+          flash(t('currencies.fetch.sync_success', { count }), 'success')
         }
         await loadConfigs()
       }
@@ -185,23 +194,17 @@ export default function CurrencyFetchingConfig() {
   }, [loadConfigs])
 
   function formatLastSync(date: string | null): string {
-    if (!date) return 'Never'
+    if (!date) return t('currencies.fetch.last_sync_never')
     return new Date(date).toLocaleString()
   }
 
   function getStatusBadge(status: string | null) {
     if (!status) return null
 
-    const styles: Record<string, string> = {
-      success: 'bg-green-100 text-green-800 px-2 py-1 rounded text-xs',
-      error: 'bg-red-100 text-red-800 px-2 py-1 rounded text-xs',
-      partial: 'bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs',
-    }
-
     return (
-      <span className={styles[status] || styles.error}>
+      <StatusBadge variant={STATUS_BADGE_VARIANT[status] ?? 'neutral'}>
         {status}
-      </span>
+      </StatusBadge>
     )
   }
 
@@ -276,11 +279,9 @@ export default function CurrencyFetchingConfig() {
                     <label className="text-xs text-muted-foreground whitespace-nowrap">
                       {t('currencies.fetch.sync_time')}:
                     </label>
-                    <input
-                      type="time"
+                    <TimeInput
                       value={config.syncTime || '09:00'}
-                      onChange={(e) => updateSyncTime(config.id, e.target.value, config.updatedAt)}
-                      className="rounded border bg-background px-2 py-1.5 text-sm"
+                      onChange={(time) => updateSyncTime(config.id, time, config.updatedAt)}
                     />
                   </div>
 
@@ -295,6 +296,7 @@ export default function CurrencyFetchingConfig() {
                   </div>
 
                   <Button
+                    type="button"
                     onClick={() => fetchNow(config.provider)}
                     disabled={fetching === config.provider}
                     size="default"
@@ -313,14 +315,14 @@ export default function CurrencyFetchingConfig() {
 
                 {config.lastSyncCount !== null && (
                   <div className="text-xs text-muted-foreground mt-2">
-                    {t('currencies.fetch.last_sync_count')}: <span className="font-medium">{config.lastSyncCount}</span> rates
+                    {t('currencies.fetch.last_sync_count')}: <span className="font-medium">{config.lastSyncCount}</span>
                   </div>
                 )}
 
                 {config.lastSyncMessage && config.lastSyncStatus === 'error' && (
-                  <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 mt-2">
+                  <Alert status="error" style="lighter" size="xs" className="mt-2">
                     {config.lastSyncMessage}
-                  </div>
+                  </Alert>
                 )}
               </>
             )}
@@ -333,6 +335,7 @@ export default function CurrencyFetchingConfig() {
               {t('currencies.fetch.no_providers')}
             </p>
             <Button
+              type="button"
               onClick={() => initializeMissingProviders(availableProviders)}
             >
               {t('currencies.fetch.initialize_providers')}
