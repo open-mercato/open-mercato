@@ -214,6 +214,7 @@ export default function SyncRunsDashboardPage() {
       params.set('pageSize', '20')
       if (filterValues.status) params.set('status', filterValues.status as string)
       if (filterValues.direction) params.set('direction', filterValues.direction as string)
+      if (search.trim()) params.set('search', search.trim())
       const fallback: ResponsePayload = { items: [], total: 0, page, totalPages: 1 }
       const call = await apiCall<ResponsePayload>(
         `/api/data_sync/runs?${params.toString()}`,
@@ -235,7 +236,7 @@ export default function SyncRunsDashboardPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [page, filterValues, reloadToken, scopeVersion, t])
+  }, [page, filterValues, search, reloadToken, scopeVersion, t])
 
   React.useEffect(() => {
     let cancelled = false
@@ -1012,6 +1013,7 @@ export default function SyncRunsDashboardPage() {
           onFiltersClear={handleFiltersClear}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
+          searchPlaceholder={t('data_sync.dashboard.searchPlaceholder')}
           perspective={{ tableId: 'data_sync.runs' }}
           onRowClick={(row) => {
             router.push(`/backend/data-sync/runs/${encodeURIComponent(row.id)}`)
