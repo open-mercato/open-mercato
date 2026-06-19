@@ -32,7 +32,7 @@ services:
       context: .
       args:
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
-    image: open-mercato/app:${DEPLOY_ENV:-local}
+    image: ${APP_IMAGE:-open-mercato/app:${DEPLOY_ENV:-local}}
     user: "0"
     command:
       - /bin/sh
