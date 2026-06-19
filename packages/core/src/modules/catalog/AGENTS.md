@@ -2,13 +2,32 @@
 
 Use the catalog module for products, categories, pricing, variants, and offers.
 
-## MUST Rules
+## Always
 
-1. **MUST NOT reimplement pricing logic** — use `selectBestPrice` and the resolver pipeline from `lib/pricing.ts`
+1. **MUST use `selectBestPrice` and the resolver pipeline from `lib/pricing.ts`** for pricing logic.
 2. **MUST use the DI token `catalogPricingService`** when resolving prices — ensures overrides take effect
 3. **MUST register custom pricing resolvers** with explicit priority (`registerCatalogPricingResolver(resolver, { priority })`)
 4. **MUST declare widget injections** in `widgets/injection/` and map via `injection-table.ts`
 5. **MUST follow the standard event pattern** in `events.ts` for all CRUD and lifecycle events
+
+## Ask First
+
+- Ask before changing price-layer precedence, resolver priority semantics, event IDs, or released widget spot IDs.
+- Ask before deleting or changing option schemas that existing variants may reference.
+
+## Never
+
+- Never reimplement catalog pricing inline.
+- Never delete option schemas while variants reference them.
+- Never bypass `prepareMutation` for catalog AI tools that mutate products, prices, or media.
+
+## Validation Commands
+
+```bash
+yarn db:generate
+yarn generate
+yarn workspace @open-mercato/core build
+```
 
 ## When You Need Pricing Logic
 
@@ -25,6 +44,16 @@ registerCatalogPricingResolver(myResolver, { priority: 10 })
 ```
 
 The default pipeline emits `catalog.pricing.resolve.before|after` events.
+
+### Price selection order
+
+When multiple price rows match the same context, `selectBestPrice` resolves ties in this order:
+
+1. **Score** (descending) — `custom` > `promotion` > `tier` > `regular`, plus additional points for variant, offer, channel, user, group, and customer scoping. See `scorePrice` for the full rubric.
+2. **`startsAt`** (descending) — when scores tie, the row with the more recent `startsAt` wins.
+3. **`minQuantity`** — direction depends on whether the tied rows share the same resolved kind:
+    - **Same kind** (e.g. tier vs tier): **descending** — the row with the larger `minQuantity` wins. This implements the standard volume-discount semantic: for `qty=50` with tiers `minQty=10` ($9) and `minQty=50` ($8), the `minQty=50` row applies (issue #1706).
+    - **Different kinds** (e.g. promotion vs tier): **ascending** — the row with the smaller `minQuantity` wins. The `+1 for minQuantity > 1` bonus in `scorePrice` can pull a lower-base kind up to the same total as a higher-base kind (e.g. tier `minQty=3` = 3+1 vs promotion `minQty=1` = 4). Ascending across kinds preserves the kind precedence in those collisions.
 
 ## Data Model Constraints
 

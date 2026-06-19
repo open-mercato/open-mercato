@@ -2,7 +2,7 @@ import { createNotificationService } from '../lib/notificationService'
 import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from '../lib/events'
 import type { Notification } from '../data/entities'
 import { getRecipientUserIdsForFeature } from '../lib/notificationRecipients'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 jest.mock('../lib/notificationRecipients', () => ({
   getRecipientUserIdsForRole: jest.fn(),
@@ -10,6 +10,7 @@ jest.mock('../lib/notificationRecipients', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn(),
   findWithDecryption: jest.fn(),
 }))
 
@@ -186,7 +187,7 @@ describe('notification service', () => {
       readAt: null,
     } as Notification
 
-    em.findOneOrFail.mockResolvedValue(notification)
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(notification)
 
     const result = await service.markAsRead(notification.id, baseCtx)
 
@@ -201,6 +202,21 @@ describe('notification service', () => {
         tenantId: baseCtx.tenantId,
       })
     )
+  })
+
+  it('maps scoped notification misses to a 404 error', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const service = createNotificationService({ em, eventBus })
+
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
+
+    await expect(service.markAsRead('missing-note', baseCtx)).rejects.toMatchObject({
+      status: 404,
+      body: { error: 'Notification not found' },
+    })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
   })
 
   it('marks all as read, scopes by org, and emits events per notification', async () => {
@@ -327,7 +343,7 @@ describe('notification service', () => {
       },
     } as Notification
 
-    em.findOneOrFail.mockResolvedValue(notification)
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(notification)
 
     const result = await service.executeAction(
       notification.id,

@@ -16,7 +16,8 @@ import {
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
@@ -219,11 +220,15 @@ export function AdjustmentKindSettings() {
           ? JSON.stringify(payload)
           : JSON.stringify({ id: dialog.entry.id, ...payload })
 
-      const call = await apiCall('/api/sales/adjustment-kinds', {
-        method,
-        headers: { 'content-type': 'application/json' },
-        body,
-      })
+      const lockHeader =
+        dialog.mode === 'edit' ? buildOptimisticLockHeader(dialog.entry.updatedAt) : {}
+      const call = await withScopedApiRequestHeaders(lockHeader, () =>
+        apiCall('/api/sales/adjustment-kinds', {
+          method,
+          headers: { 'content-type': 'application/json' },
+          body,
+        })
+      )
       if (!call.ok) {
         await raiseCrudError(call.response, labels.saveError)
       }
@@ -248,11 +253,15 @@ export function AdjustmentKindSettings() {
       })
       if (!confirmed) return
       try {
-        const call = await apiCall('/api/sales/adjustment-kinds', {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: entry.id }),
-        })
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(entry.updatedAt),
+          () =>
+            apiCall('/api/sales/adjustment-kinds', {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id: entry.id }),
+            })
+        )
         if (!call.ok) {
           await raiseCrudError(call.response, labels.deleteError)
         }

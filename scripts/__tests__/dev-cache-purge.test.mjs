@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import {
   GREENFIELD_PURGE_TARGETS,
@@ -21,15 +22,23 @@ function createTempRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'dev-cache-purge-'))
 }
 
-test('purgeAppBuildCaches: targets cover both .mercato/next and the legacy .next', () => {
+test('purgeAppBuildCaches: targets route manifests/lock and the legacy .next', () => {
   const segmentsList = GREENFIELD_PURGE_TARGETS.map((segments) => segments.join('/'))
   assert.deepEqual(segmentsList, [
-    'apps/mercato/.mercato/next',
+    'apps/mercato/.mercato/next/dev/lock',
+    'apps/mercato/.mercato/next/dev/build-manifest.json',
+    'apps/mercato/.mercato/next/dev/fallback-build-manifest.json',
+    'apps/mercato/.mercato/next/dev/prerender-manifest.json',
+    'apps/mercato/.mercato/next/dev/routes-manifest.json',
+    'apps/mercato/.mercato/next/dev/server/app-paths-manifest.json',
+    'apps/mercato/.mercato/next/dev/server/middleware-build-manifest.js',
+    'apps/mercato/.mercato/next/dev/server/middleware-manifest.json',
+    'apps/mercato/.mercato/next/dev/server/pages-manifest.json',
     'apps/mercato/.next',
   ])
 })
 
-test('purgeAppBuildCaches: removes stale Turbopack cache and dev/server manifests under .mercato/next', () => {
+test('purgeAppBuildCaches: removes stale route manifests while preserving Turbopack cache', () => {
   const rootDir = createTempRoot()
   const turbopackCache = path.join(rootDir, 'apps', 'mercato', '.mercato', 'next', 'dev', 'cache', 'turbopack')
   const stalePathsManifest = path.join(rootDir, 'apps', 'mercato', '.mercato', 'next', 'dev', 'server', 'app-paths-manifest.json')
@@ -41,11 +50,12 @@ test('purgeAppBuildCaches: removes stale Turbopack cache and dev/server manifest
   const logger = makeLogger()
   const result = purgeAppBuildCaches({ rootDir, logger })
 
-  assert.equal(fs.existsSync(turbopackCache), false)
+  assert.equal(fs.existsSync(turbopackCache), true)
+  assert.equal(fs.existsSync(path.join(turbopackCache, 'index.bin')), true)
   assert.equal(fs.existsSync(stalePathsManifest), false)
-  assert.equal(fs.existsSync(path.join(rootDir, 'apps', 'mercato', '.mercato', 'next')), false)
-  assert.deepEqual(result.removed, ['apps/mercato/.mercato/next'])
-  assert.ok(logger.messages.some((line) => line.includes('removed apps/mercato/.mercato/next')))
+  assert.equal(fs.existsSync(path.join(rootDir, 'apps', 'mercato', '.mercato', 'next')), true)
+  assert.deepEqual(result.removed, ['apps/mercato/.mercato/next/dev/server/app-paths-manifest.json'])
+  assert.ok(logger.messages.some((line) => line.includes('removed apps/mercato/.mercato/next/dev/server/app-paths-manifest.json')))
 
   fs.rmSync(rootDir, { recursive: true, force: true })
 })
@@ -66,31 +76,40 @@ test('purgeAppBuildCaches: removes legacy apps/mercato/.next as well', () => {
   fs.rmSync(rootDir, { recursive: true, force: true })
 })
 
-test('purgeAppBuildCaches: logs a single "no stale build directories" line when nothing exists', () => {
+test('purgeAppBuildCaches: logs a single "no stale manifest files" line when nothing exists', () => {
   const rootDir = createTempRoot()
   const logger = makeLogger()
   const result = purgeAppBuildCaches({ rootDir, logger })
 
   assert.deepEqual(result.removed, [])
   assert.equal(logger.messages.length, 1)
-  assert.match(logger.messages[0], /no stale Next\/Turbopack build directories to purge/)
+  assert.match(logger.messages[0], /no stale Next\/Turbopack manifest files to purge/)
 
   fs.rmSync(rootDir, { recursive: true, force: true })
 })
 
-test('purgeAppBuildCaches: removes both configured and legacy directories in one call when both exist', () => {
+test('purgeAppBuildCaches: removes configured manifests and legacy directory in one call when both exist', () => {
   const rootDir = createTempRoot()
-  fs.mkdirSync(path.join(rootDir, 'apps', 'mercato', '.mercato', 'next', 'dev'), { recursive: true })
+  const turbopackCache = path.join(rootDir, 'apps', 'mercato', '.mercato', 'next', 'dev', 'cache', 'turbopack')
+  const buildManifest = path.join(rootDir, 'apps', 'mercato', '.mercato', 'next', 'dev', 'build-manifest.json')
+  const routesManifest = path.join(rootDir, 'apps', 'mercato', '.mercato', 'next', 'dev', 'routes-manifest.json')
+  fs.mkdirSync(turbopackCache, { recursive: true })
+  fs.writeFileSync(path.join(turbopackCache, 'index.bin'), 'keep')
+  fs.writeFileSync(buildManifest, '{}')
+  fs.writeFileSync(routesManifest, '{}')
   fs.mkdirSync(path.join(rootDir, 'apps', 'mercato', '.next', 'cache'), { recursive: true })
 
   const logger = makeLogger()
   const result = purgeAppBuildCaches({ rootDir, logger })
 
   assert.deepEqual(result.removed, [
-    'apps/mercato/.mercato/next',
+    'apps/mercato/.mercato/next/dev/build-manifest.json',
+    'apps/mercato/.mercato/next/dev/routes-manifest.json',
     'apps/mercato/.next',
   ])
-  assert.equal(fs.existsSync(path.join(rootDir, 'apps', 'mercato', '.mercato', 'next')), false)
+  assert.equal(fs.existsSync(path.join(turbopackCache, 'index.bin')), true)
+  assert.equal(fs.existsSync(buildManifest), false)
+  assert.equal(fs.existsSync(routesManifest), false)
   assert.equal(fs.existsSync(path.join(rootDir, 'apps', 'mercato', '.next')), false)
 
   fs.rmSync(rootDir, { recursive: true, force: true })
@@ -112,4 +131,112 @@ test('runGreenfieldDev and runClassicGreenfieldDev: source invokes purgeAppBuild
   }
 
   assert.match(devMjs, /from '\.\/dev-cache-purge\.mjs'/)
+})
+
+test('greenfield dev scripts never purge app build caches after launching runtime warmup', async () => {
+  const here = path.dirname(new URL(import.meta.url).pathname)
+  const rootDevMjs = fs.readFileSync(path.resolve(here, '..', 'dev.mjs'), 'utf8')
+  const templateDevMjs = fs.readFileSync(
+    path.resolve(here, '..', '..', 'packages', 'create-app', 'template', 'scripts', 'dev.mjs'),
+    'utf8',
+  )
+
+  for (const [label, source] of [
+    ['root dev.mjs', rootDevMjs],
+    ['template dev.mjs', templateDevMjs],
+  ]) {
+    const purgeCalls = Array.from(source.matchAll(/purgeAppBuildCaches\(\)/g)).map((match) => match.index ?? -1)
+    assert.equal(purgeCalls.length, 2, `${label} should purge only for modern and classic greenfield startup`)
+
+    for (const fnName of ['runGreenfieldDev', 'runClassicGreenfieldDev']) {
+      const fnMatch = source.match(new RegExp(`async function ${fnName}\\([^)]*\\) \\{([\\s\\S]*?)\\n\\}`))
+      assert.ok(fnMatch, `expected to find ${fnName}() in ${label}`)
+      const body = fnMatch[1]
+      const purgeIdx = body.indexOf('purgeAppBuildCaches(')
+      const watchIdx = body.indexOf('startPackageWatch(')
+      const appDevIdx = body.indexOf('launchMonorepoAppDev(')
+      assert.notEqual(purgeIdx, -1, `${fnName} in ${label} must call purgeAppBuildCaches()`)
+      assert.notEqual(watchIdx, -1, `${fnName} in ${label} must start package watch`)
+      assert.notEqual(appDevIdx, -1, `${fnName} in ${label} must launch app runtime`)
+      assert.ok(purgeIdx < watchIdx, `${fnName} in ${label} must purge before package watch`)
+      assert.ok(purgeIdx < appDevIdx, `${fnName} in ${label} must purge before runtime warmup can start`)
+    }
+  }
+})
+
+test('runtime warmup scripts do not remove Next or Turbopack caches between warmup requests', async () => {
+  const here = path.dirname(new URL(import.meta.url).pathname)
+  const runtimeSources = [
+    path.resolve(here, '..', '..', 'apps', 'mercato', 'scripts', 'dev.mjs'),
+    path.resolve(here, '..', '..', 'packages', 'create-app', 'template', 'scripts', 'dev-runtime.mjs'),
+  ]
+
+  for (const runtimePath of runtimeSources) {
+    const source = fs.readFileSync(runtimePath, 'utf8')
+    assert.doesNotMatch(source, /purgeAppBuildCaches/, `${runtimePath} must not invoke greenfield cache purge`)
+    assert.doesNotMatch(source, /rmSync\([^)]*(?:\.mercato|next|turbopack)/s, `${runtimePath} must not remove Next caches during warmup`)
+    assert.doesNotMatch(source, /cache clean --all/, `${runtimePath} must not clean caches during warmup`)
+  }
+})
+
+test('dev wrappers own shutdown notice and suppress duplicate runtime notices', async () => {
+  const here = path.dirname(new URL(import.meta.url).pathname)
+  const wrapperSources = [
+    path.resolve(here, '..', 'dev.mjs'),
+    path.resolve(here, '..', '..', 'packages', 'create-app', 'template', 'scripts', 'dev.mjs'),
+  ]
+  const runtimeSources = [
+    path.resolve(here, '..', '..', 'apps', 'mercato', 'scripts', 'dev.mjs'),
+    path.resolve(here, '..', '..', 'packages', 'create-app', 'template', 'scripts', 'dev-runtime.mjs'),
+  ]
+
+  for (const wrapperPath of wrapperSources) {
+    const source = fs.readFileSync(wrapperPath, 'utf8')
+    assert.match(source, /function announceShutdown\(\)/, `${wrapperPath} must announce shutdown`)
+    assert.match(source, /Shutting down services\.\.\./, `${wrapperPath} must print shutdown notice`)
+    assert.match(source, /OM_DEV_SHUTDOWN_NOTICE_OWNER: 'parent'/, `${wrapperPath} must suppress child duplicate notices`)
+  }
+
+  for (const runtimePath of runtimeSources) {
+    const source = fs.readFileSync(runtimePath, 'utf8')
+    assert.match(source, /shutdownNoticeOwnedByParent/, `${runtimePath} must honor parent shutdown notice ownership`)
+    assert.match(source, /if \(!shutdownNoticeOwnedByParent\)/, `${runtimePath} must only print direct-runtime shutdown notices`)
+    assert.match(source, /Shutting down services\.\.\./, `${runtimePath} must print direct-runtime shutdown notice`)
+  }
+})
+
+test('ephemeral dev owns warmup marker and shutdown notice', async () => {
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  const source = fs.readFileSync(path.resolve(here, '..', 'dev-ephemeral.ts'), 'utf8')
+
+  assert.match(source, /OM_DEV_WARMUP_READY_FILE: warmupReadyFilePath/)
+  assert.match(source, /function announceShutdown\(\): void/)
+  assert.match(source, /Shutting down services\.\.\./)
+
+  // Shutdown + signal coordination is delegated to the dedicated controller.
+  assert.match(source, /createEphemeralShutdownController\(/)
+  assert.match(source, /shutdownController\.installSignalHandlers\(\)/)
+
+  // Issue #2745: signal handlers must be installed before the ephemeral
+  // PostgreSQL container is created, so an interrupt during initialization
+  // still removes the container instead of leaking it.
+  const installIdx = source.indexOf('shutdownController.installSignalHandlers()')
+  const startContainerIdx = source.indexOf('await startEphemeralPostgres()')
+  assert.notEqual(installIdx, -1, 'main() must install signal handlers')
+  assert.notEqual(startContainerIdx, -1, 'main() must start the ephemeral container')
+  assert.ok(
+    installIdx < startContainerIdx,
+    'signal handlers must be installed before the ephemeral container is created (#2745)',
+  )
+
+  // Issue #2745: the dev child exit handler must be registered before readiness
+  // is awaited, so a signal-forwarded kill during that window still cleans up.
+  const exitHandlerIdx = source.indexOf("devCommand.on('exit'")
+  const readinessIdx = source.indexOf('waitForDevServerReady(loopbackUrl)')
+  assert.notEqual(exitHandlerIdx, -1, 'startDevServer must handle the dev child exit')
+  assert.notEqual(readinessIdx, -1, 'startDevServer must wait for readiness')
+  assert.ok(
+    exitHandlerIdx < readinessIdx,
+    'the dev child exit handler must be registered before waiting for readiness (#2745)',
+  )
 })

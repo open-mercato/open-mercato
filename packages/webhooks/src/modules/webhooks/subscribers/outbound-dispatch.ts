@@ -21,6 +21,16 @@ function shouldSkipOutboundDispatch(eventId: string): boolean {
   return declaredEvent?.excludeFromTriggers === true
 }
 
+function forkOutboundEntityManager(em: EntityManager): EntityManager {
+  const fork = (em as unknown as { fork?: (options?: Record<string, unknown>) => EntityManager }).fork
+  if (typeof fork !== 'function') return em
+  return fork.call(em, { clear: true, useContext: false })
+}
+
+function integrationScopeKey(tenantId: string, organizationId: string): string {
+  return `${tenantId}:${organizationId}`
+}
+
 export default async function handler(
   payload: Record<string, unknown>,
   ctx: (SubscriberContext & { eventId?: string }) | { container?: { resolve: <T = unknown>(name: string) => T }; eventId?: string; eventName?: string; resolve?: <T = unknown>(name: string) => T },
@@ -57,7 +67,7 @@ export default async function handler(
       ...(organizationId ? { organizationId } : {}),
     },
     {},
-    { tenantId, organizationId: organizationId ?? '' },
+    { tenantId, organizationId: organizationId ?? null },
   )
 
   if (!webhooks.length) return
@@ -68,46 +78,65 @@ export default async function handler(
 
   if (!matchingWebhooks.length) return
 
-  for (const webhook of matchingWebhooks) {
-    const integrationEnabled = await isWebhookIntegrationEnabled(em, {
-      tenantId: webhook.tenantId,
-      organizationId: webhook.organizationId,
-    })
+  const integrationEnabledByScope = new Map<string, Promise<boolean>>()
 
-    if (!integrationEnabled) continue
-
-    let createdDeliveryId: string | null = null
-    try {
-      const delivery = await createWebhookDelivery({
-        em,
-        webhook,
-        eventId,
-        payload,
+  const resolveIntegrationEnabled = (webhook: WebhookEntity): Promise<boolean> => {
+    const key = integrationScopeKey(webhook.tenantId, webhook.organizationId)
+    let pending = integrationEnabledByScope.get(key)
+    if (!pending) {
+      pending = isWebhookIntegrationEnabled(em, {
+        tenantId: webhook.tenantId,
+        organizationId: webhook.organizationId,
       })
-      createdDeliveryId = delivery.id
-
-      await enqueueWebhookDelivery({
-        deliveryId: delivery.id,
-        tenantId: delivery.tenantId,
-        organizationId: delivery.organizationId,
-      })
-    } catch (error) {
-      if (createdDeliveryId) {
-        const failedDelivery = await findOneWithDecryption(em, WebhookDeliveryEntity, { id: createdDeliveryId, tenantId: webhook.tenantId, organizationId: webhook.organizationId }, undefined, { tenantId: webhook.tenantId, organizationId: webhook.organizationId })
-        if (failedDelivery) {
-          failedDelivery.status = 'failed'
-          failedDelivery.errorMessage = error instanceof Error ? `Queue enqueue failed: ${error.message}` : 'Queue enqueue failed'
-          failedDelivery.nextRetryAt = null
-          await em.flush()
-        }
-      }
-      console.error('[webhooks] Failed to enqueue outbound delivery', {
-        webhookId: webhook.id,
-        eventId,
-        tenantId,
-        organizationId: organizationId ?? webhook.organizationId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      integrationEnabledByScope.set(key, pending)
     }
+    return pending
   }
+
+  await Promise.all(
+    matchingWebhooks.map(async (webhook) => {
+      if (!(await resolveIntegrationEnabled(webhook))) return
+
+      const webhookEm = forkOutboundEntityManager(em)
+      let createdDeliveryId: string | null = null
+      try {
+        const delivery = await createWebhookDelivery({
+          em: webhookEm,
+          webhook,
+          eventId,
+          payload,
+        })
+        createdDeliveryId = delivery.id
+
+        await enqueueWebhookDelivery({
+          deliveryId: delivery.id,
+          tenantId: delivery.tenantId,
+          organizationId: delivery.organizationId,
+        })
+      } catch (error) {
+        if (createdDeliveryId) {
+          const failedDelivery = await findOneWithDecryption(
+            webhookEm,
+            WebhookDeliveryEntity,
+            { id: createdDeliveryId, tenantId: webhook.tenantId, organizationId: webhook.organizationId },
+            undefined,
+            { tenantId: webhook.tenantId, organizationId: webhook.organizationId },
+          )
+          if (failedDelivery) {
+            failedDelivery.status = 'failed'
+            failedDelivery.errorMessage = error instanceof Error ? `Queue enqueue failed: ${error.message}` : 'Queue enqueue failed'
+            failedDelivery.nextRetryAt = null
+            await webhookEm.flush()
+          }
+        }
+        console.error('[webhooks] Failed to enqueue outbound delivery', {
+          webhookId: webhook.id,
+          eventId,
+          tenantId,
+          organizationId: organizationId ?? webhook.organizationId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }),
+  )
 }

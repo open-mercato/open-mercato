@@ -5,6 +5,7 @@ import { Button } from '../../primitives/button'
 import { Progress } from '../../primitives/progress'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useProgress } from './useProgress'
+import { useAutoHideCompletedJobs } from './useAutoHideCompletedJobs'
 import type { ProgressJobDto } from './useProgressPoll'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '../utils/apiCall'
@@ -12,10 +13,17 @@ import { apiCall } from '../utils/apiCall'
 export type ProgressTopBarProps = {
   className?: string
   t: TranslateFn
+  /**
+   * How long (ms) to keep successfully completed jobs visible before auto-hiding.
+   * Set to `false` or `0` to disable auto-hide. Defaults to 10 000 ms.
+   * Failed and cancelled jobs are never auto-hidden.
+   */
+  completedAutoHideMs?: number | false
 }
 
-export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
+export function ProgressTopBar({ className, t, completedAutoHideMs }: ProgressTopBarProps) {
   const { activeJobs, recentlyCompleted, refresh } = useProgress()
+  const visibleCompleted = useAutoHideCompletedJobs(recentlyCompleted, completedAutoHideMs)
   const [expanded, setExpanded] = React.useState(false)
 
   React.useEffect(() => {
@@ -28,7 +36,7 @@ export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
   }, [expanded])
 
   const hasActiveJobs = activeJobs.length > 0
-  const hasRecentJobs = recentlyCompleted.length > 0
+  const hasRecentJobs = visibleCompleted.length > 0
 
   if (!hasActiveJobs && !hasRecentJobs) return null
 
@@ -60,7 +68,7 @@ export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
             <>
               <CheckCircle className="h-4 w-4 text-status-success-icon" />
               <span className="text-muted-foreground">
-                {t('progress.recentlyCompleted', '{count} operations completed', { count: recentlyCompleted.length })}
+                {t('progress.recentlyCompleted', '{count} operations completed', { count: visibleCompleted.length })}
               </span>
             </>
           )}
@@ -77,7 +85,7 @@ export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
           {activeJobs.map((job) => (
             <ProgressJobCard key={job.id} job={job} t={t} onCancel={refresh} />
           ))}
-          {recentlyCompleted.map((job) => (
+          {visibleCompleted.map((job) => (
             <ProgressJobCard key={job.id} job={job} t={t} />
           ))}
         </div>

@@ -149,8 +149,10 @@ export function scheduledJobFields(
     loadQueueOptions: (query?: string) => Promise<ComboboxOption[]>
     loadCommandOptions: (query?: string) => Promise<ComboboxOption[]>
     loadTimezoneOptions: (query?: string) => Promise<ComboboxOption[]>
-  }
+  },
+  options?: { lockScope?: boolean }
 ): CrudField[] {
+  const lockScope = options?.lockScope ?? false
   return [
     {
       id: 'name',
@@ -168,6 +170,14 @@ export function scheduledJobFields(
       type: 'select',
       label: t('scheduler.form.scope_type', 'Scope'),
       required: true,
+      // Scope is derived from the creator's auth context at create time and is
+      // immutable afterwards (the update schema/command never persist it). Lock
+      // the field on edit so it does not deceptively accept input that is then
+      // silently dropped on save.
+      disabled: lockScope,
+      description: lockScope
+        ? t('scheduler.form.scope_type.locked_description', 'Scope is set when the schedule is created and cannot be changed afterwards.')
+        : undefined,
       options: [
         { value: 'system', label: t('scheduler.scope.system', 'System') },
         { value: 'organization', label: t('scheduler.scope.organization', 'Organization') },

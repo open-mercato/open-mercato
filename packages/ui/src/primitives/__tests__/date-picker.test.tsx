@@ -177,6 +177,71 @@ describe('DatePicker primitive', () => {
       expect(dayCellButton.className).not.toMatch(/focus-visible:ring-2/)
     }
   })
+
+  it('toggles the month/year grid when the caption label is clicked', async () => {
+    renderWithI18n(<DatePicker value={new Date(2026, 5, 9)} onChange={() => {}} footer="none" />)
+    await openPopover()
+    // Day grid is visible initially.
+    expect(screen.getByRole('grid')).toBeInTheDocument()
+    const captionLabel = screen.getByRole('button', {
+      name: /June 2026 – open month and year navigation/,
+    })
+    await act(async () => {
+      fireEvent.click(captionLabel)
+    })
+    // Month grid replaces the day grid; all 12 short month labels are shown.
+    expect(screen.queryByRole('grid')).not.toBeInTheDocument()
+    for (const label of ['Jan', 'Feb', 'Mar', 'Dec']) {
+      expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
+    }
+  })
+
+  it('jumps to the chosen month and returns to day selection from the grid', async () => {
+    renderWithI18n(<DatePicker value={new Date(2026, 5, 9)} onChange={() => {}} footer="none" />)
+    await openPopover()
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: /June 2026 – open month and year navigation/ }),
+      )
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Jan' }))
+    })
+    // Back to the day view, now showing the selected month.
+    expect(screen.getByRole('grid')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /January 2026 – open month and year navigation/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('navigates years inside the month grid without leaving it', async () => {
+    renderWithI18n(<DatePicker value={new Date(2026, 5, 9)} onChange={() => {}} footer="none" />)
+    await openPopover()
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: /June 2026 – open month and year navigation/ }),
+      )
+    })
+    expect(screen.getByRole('button', { name: /2026 – back to day selection/ })).toBeInTheDocument()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Go to next year: 2027' }))
+    })
+    expect(screen.getByRole('button', { name: /2027 – back to day selection/ })).toBeInTheDocument()
+    // Still in the grid, no day grid yet.
+    expect(screen.queryByRole('grid')).not.toBeInTheDocument()
+  })
+
+  it('opens on the month of the selected value, not the current month (regression)', async () => {
+    // A value far from any plausible "today" so the assertion stays deterministic.
+    // react-day-picker v10 derives the initial month from `month`/`defaultMonth`
+    // (falling back to today) and ignores `selected`, so DatePicker must pass
+    // `defaultMonth` or the selected day is never rendered.
+    renderWithI18n(<DatePicker value={new Date(2020, 0, 15)} onChange={() => {}} footer="none" />)
+    await openPopover()
+    const selectedCell = document.querySelector('td[data-selected="true"]')
+    expect(selectedCell).not.toBeNull()
+    expect((selectedCell as HTMLElement).className).toMatch(/!bg-primary/)
+  })
 })
 
 describe('DatePicker backwards-compat shims', () => {

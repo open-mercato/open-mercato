@@ -23,11 +23,23 @@ Undo support is currently available for directory tenants/organizations, auth us
 
 ![Operation drawer highlighting changed fields and snapshots](/screenshots/open-mercato-operation-details.png)
 
+### Banner auto-dismiss timeout
+
+The Undo banner auto-dismisses **10 seconds** after the action is recorded. The timer pauses while an undo request is in flight so a slow API does not collapse the banner mid-click. Override the default by setting `NEXT_PUBLIC_OM_UNDO_BANNER_TIMEOUT_MS` (in milliseconds) at build time:
+
+```env
+# .env (or .env.local)
+NEXT_PUBLIC_OM_UNDO_BANNER_TIMEOUT_MS=15000
+```
+
+Non-numeric, zero, or negative values fall back to the 10s default. The variable is read at build time because it is a `NEXT_PUBLIC_*` env, so you must rebuild the app after changing it.
+
 ## Retention
 
 Access log retention is automatic and environment-configurable:
 
 - **Core resources** (`auth.user`, `auth.role`) are retained for **7 days** by default. Override with `AUDIT_LOGS_CORE_RETENTION_DAYS`.
 - **All other resources** rotate after **8 hours** by default. Override with `AUDIT_LOGS_NON_CORE_RETENTION_HOURS`.
+- **Rotation frequency** is throttled to at most one sweep per **60 seconds** per process. Override with `AUDIT_LOGS_ROTATE_INTERVAL_MS`; setting it to `0` runs the sweep after every write.
 
 Configure these in your `.env` file to keep the volume of access logs under control while preserving critical trails for longer investigations.

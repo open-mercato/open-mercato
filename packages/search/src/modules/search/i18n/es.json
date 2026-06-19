@@ -5,6 +5,7 @@
   "search.api.errors.indexFetchFailed": "Error al obtener los datos del índice.",
   "search.api.errors.indexUnavailable": "El índice de búsqueda no está disponible.",
   "search.api.errors.indexerUnavailable": "El indexador de búsqueda no está disponible.",
+  "search.api.errors.invalidOllamaBaseUrl": "La URL base de Ollama no está permitida. Establezca OLLAMA_BASE_URL en el entorno o añada el host a OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST.",
   "search.api.errors.invalidProvider": "Proveedor de embeddings no válido.",
   "search.api.errors.invalidStrategies": "Estrategias de búsqueda no válidas.",
   "search.api.errors.lockFailed": "Error al adquirir el bloqueo del índice.",

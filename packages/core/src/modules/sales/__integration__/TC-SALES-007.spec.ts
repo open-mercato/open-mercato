@@ -8,8 +8,13 @@ import { addCustomLine, addShipment, createSalesDocument } from '@open-mercato/c
  */
 test.describe('TC-SALES-007: Shipment Recording', () => {
   test('should create shipment from order UI', async ({ page }) => {
+    // Heavy multi-hop UI flow (login + createSalesDocument + line + shipment)
+    // routinely exceeds Playwright's 20s default on a loaded ephemeral shard;
+    // opt into the sanctioned per-test budget (see TC-SALES-005). Global bump
+    // is disallowed.
+    test.slow();
     await login(page, 'admin');
-    await createSalesDocument(page, { kind: 'order' });
+    await createSalesDocument(page, { kind: 'order', preferApi: true });
     await addCustomLine(page, {
       name: `QA TC-SALES-007 ${Date.now()}`,
       quantity: 1,

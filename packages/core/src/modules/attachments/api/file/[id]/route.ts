@@ -7,7 +7,7 @@ import {
   AttachmentPartition,
 } from "@open-mercato/core/modules/attachments/data/entities";
 import type { EntityManager } from "@mikro-orm/postgresql";
-import { checkAttachmentAccess } from "@open-mercato/core/modules/attachments/lib/access";
+import { checkAttachmentAccess, isSuperAdminAuth } from "@open-mercato/core/modules/attachments/lib/access";
 import { z } from "zod";
 import { attachmentsTag, attachmentErrorSchema } from "../../openapi";
 import {
@@ -38,7 +38,12 @@ export async function GET(
     (resolve("storageDriverFactory") as StorageDriverFactory | null) ??
     new StorageDriverFactory(em);
 
-  const attachment = await em.findOne(Attachment, { id });
+  const findFilter: Record<string, unknown> = { id };
+  if (auth && !isSuperAdminAuth(auth)) {
+    if (auth.tenantId) findFilter.tenantId = auth.tenantId;
+    if (auth.orgId) findFilter.organizationId = auth.orgId;
+  }
+  const attachment = await em.findOne(Attachment, findFilter);
   if (!attachment) {
     return NextResponse.json(
       { error: "Attachment not found" },

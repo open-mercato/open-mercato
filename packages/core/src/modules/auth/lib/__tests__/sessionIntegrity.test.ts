@@ -35,12 +35,15 @@ function mockFindOneByEntity(store: MockStore & { session?: SessionLookupResult 
   })
 }
 
-type SessionLookupResult = { id: string; deletedAt: Date | null; expiresAt: Date } | null
+type SessionLookupResult =
+  | { id: string; deletedAt: Date | null; expiresAt: Date; user?: { id: string } | string }
+  | null
 
 const validSession: SessionLookupResult = {
   id: sessionId,
   deletedAt: null,
   expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+  user: { id: userId },
 }
 
 describe('isAuthContextValid', () => {
@@ -224,6 +227,7 @@ describe('isAuthContextValid', () => {
       id: sessionId,
       deletedAt: null,
       expiresAt: new Date(Date.now() - 1000),
+      user: { id: userId },
     }
     findOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
       const entity = args[1]
@@ -236,12 +240,135 @@ describe('isAuthContextValid', () => {
     ).resolves.toBe(false)
   })
 
+  it('binds the session lookup to the token subject', async () => {
+    mockFindOneByEntity({ session: validSession, user: { id: userId, tenantId, organizationId } })
+
+    await expect(
+      isAuthContextValid(em, { sub: userId, sid: sessionId, tenantId, orgId: organizationId, roles: [] }),
+    ).resolves.toBe(true)
+
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      em,
+      Session,
+      { id: sessionId, user: userId, deletedAt: null },
+    )
+  })
+
+  it('rejects a live session that belongs to a different subject', async () => {
+    const otherUserId = '99999999-9999-4999-8999-999999999999'
+    const foreignSession: SessionLookupResult = {
+      id: sessionId,
+      deletedAt: null,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      user: { id: otherUserId },
+    }
+    mockFindOneByEntity({ session: foreignSession, user: { id: userId, tenantId, organizationId } })
+
+    await expect(
+      isAuthContextValid(em, { sub: userId, sid: sessionId, tenantId, orgId: organizationId, roles: [] }),
+    ).resolves.toBe(false)
+  })
+
+  it('rejects a session whose user relation carries no resolvable id', async () => {
+    const unboundSession = {
+      id: sessionId,
+      deletedAt: null,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    } as unknown as SessionLookupResult
+    mockFindOneByEntity({ session: unboundSession, user: { id: userId, tenantId, organizationId } })
+
+    await expect(
+      isAuthContextValid(em, { sub: userId, sid: sessionId, tenantId, orgId: organizationId, roles: [] }),
+    ).resolves.toBe(false)
+  })
+
   it('rejects tokens whose sid is not a valid uuid', async () => {
     await expect(
       isAuthContextValid(em, { sub: userId, sid: 'not-a-uuid', tenantId, orgId: organizationId, roles: [] }),
     ).resolves.toBe(false)
 
     expect(findOneWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('issues the session and user lookups concurrently', async () => {
+    const callOrder: string[] = []
+    let releaseSession: (() => void) | undefined
+    const sessionGate = new Promise<void>((resolve) => {
+      releaseSession = resolve
+    })
+    findOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
+      const entity = args[1]
+      if (entity === Session) {
+        callOrder.push('session')
+        await sessionGate
+        return validSession
+      }
+      if (entity === User) {
+        callOrder.push('user')
+        return { id: userId, tenantId, organizationId }
+      }
+      return null
+    })
+
+    const pending = resolveCanonicalStaffAuthContext(em, {
+      sub: userId,
+      sid: sessionId,
+      tenantId,
+      orgId: organizationId,
+      roles: [],
+    })
+
+    // Both lookups are issued before the (still pending) session lookup resolves.
+    expect(callOrder).toEqual(['session', 'user'])
+
+    releaseSession?.()
+    await expect(pending).resolves.toMatchObject({ sub: userId })
+  })
+
+  it('issues the role-link and user-acl lookups concurrently', async () => {
+    const callOrder: string[] = []
+    let releaseLinks: ((value: unknown[]) => void) | undefined
+    const linksGate = new Promise<unknown[]>((resolve) => {
+      releaseLinks = resolve
+    })
+    findOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
+      const entity = args[1]
+      if (entity === Session) return validSession
+      if (entity === User) return { id: userId, tenantId, organizationId }
+      if (entity === UserAcl) {
+        callOrder.push('userAcl')
+        return null
+      }
+      if (entity === RoleAcl) {
+        callOrder.push('roleAcl')
+        return null
+      }
+      return null
+    })
+    findWithDecryption.mockImplementation(async () => {
+      callOrder.push('links')
+      return linksGate
+    })
+
+    const pending = resolveCanonicalStaffAuthContext(em, {
+      sub: userId,
+      sid: sessionId,
+      tenantId,
+      orgId: organizationId,
+      roles: [],
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    // The user-acl lookup runs alongside the (still pending) role-link lookup, and
+    // the role-acl lookup is deferred until the role links resolve.
+    expect(callOrder).toContain('userAcl')
+    expect(callOrder).not.toContain('roleAcl')
+
+    releaseLinks?.([{ role: { id: adminRoleId, name: 'admin' } }])
+    await pending
+
+    expect(callOrder).toContain('roleAcl')
   })
 
   it('skips user integrity lookup for api key auth', async () => {

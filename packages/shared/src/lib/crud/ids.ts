@@ -2,7 +2,7 @@ import type { Where } from '@open-mercato/shared/lib/query/types'
 
 export const MAX_IDS_PER_REQUEST = 200
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID_REGEX.test(value)
@@ -23,16 +23,20 @@ function readExistingIds(filter: unknown): string[] | null {
   if (typeof filter === 'string') {
     return isUuid(filter) ? [filter] : null
   }
+  if (Array.isArray(filter)) {
+    return normalizeIdList(
+      filter.filter((value): value is string => typeof value === 'string'),
+    )
+  }
   if (!filter || typeof filter !== 'object') return null
 
   const operators = filter as Record<string, unknown>
   if (isUuid(operators.$eq)) return [operators.$eq]
 
   if (Array.isArray(operators.$in)) {
-    const parsed = normalizeIdList(
+    return normalizeIdList(
       operators.$in.filter((value): value is string => typeof value === 'string'),
     )
-    return parsed
   }
 
   return null
@@ -51,14 +55,22 @@ export function mergeIdFilter<Fields extends Record<string, unknown>>(
 ): Where<Fields> {
   if (parsedIds.length === 0) return existingFilters
 
-  const allowed = new Set(parsedIds)
   const existingFilter = (existingFilters as Record<string, unknown>).id
   const existingIds = readExistingIds(existingFilter)
 
   if (!existingIds) {
-    return { ...existingFilters, id: { $in: parsedIds } }
+    // No existing narrowing — safe to install the user-supplied `$in`.
+    if (existingFilter === undefined || existingFilter === null) {
+      return { ...existingFilters, id: { $in: parsedIds } }
+    }
+    // Existing `id` filter is in a shape we do not recognise. Fail closed:
+    // preserve the existing filter instead of widening to `parsedIds`. Adding
+    // a new recognised shape to `readExistingIds` is preferable to silently
+    // dropping a narrowing that another caller put in place.
+    return existingFilters
   }
 
+  const allowed = new Set(parsedIds)
   const intersection = existingIds.filter((id) => allowed.has(id))
   return {
     ...existingFilters,

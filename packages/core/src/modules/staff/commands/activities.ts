@@ -23,6 +23,7 @@ import {
 } from '../data/validators'
 import { staffTeamMemberActivityCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireTeamMember } from './shared'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { E } from '#generated/entities.ids.generated'
 import {
   loadCustomFieldSnapshot,
@@ -191,6 +192,61 @@ const createActivityCommand: CommandHandler<
       em.remove(existing)
       await em.flush()
     }
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<ActivitySnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for activity create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const member = await requireTeamMember(em, after.activity.memberId, 'Team member not found')
+    let activity = await em.findOne(StaffTeamMemberActivity, { id: after.activity.id })
+    if (!activity) {
+      activity = em.create(StaffTeamMemberActivity, {
+        id: after.activity.id,
+        organizationId: after.activity.organizationId,
+        tenantId: after.activity.tenantId,
+        member,
+        activityType: after.activity.activityType,
+        subject: after.activity.subject,
+        body: after.activity.body,
+        occurredAt: after.activity.occurredAt ?? null,
+        authorUserId: after.activity.authorUserId,
+        appearanceIcon: after.activity.appearanceIcon,
+        appearanceColor: after.activity.appearanceColor,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(activity)
+    } else {
+      activity.member = member
+      activity.activityType = after.activity.activityType
+      activity.subject = after.activity.subject
+      activity.body = after.activity.body
+      activity.occurredAt = after.activity.occurredAt ?? null
+      activity.authorUserId = after.activity.authorUserId
+      activity.appearanceIcon = after.activity.appearanceIcon
+      activity.appearanceColor = after.activity.appearanceColor
+    }
+    await em.flush()
+
+    await setActivityCustomFields(ctx, activity.id, activity.organizationId, activity.tenantId, after.custom ?? {})
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: activity,
+      identifiers: {
+        id: activity.id,
+        organizationId: activity.organizationId,
+        tenantId: activity.tenantId,
+      },
+      events: staffTeamMemberActivityCrudEvents,
+      indexer: activityCrudIndexer,
+    })
+
+    return { activityId: activity.id, authorUserId: activity.authorUserId ?? null }
   },
 }
 

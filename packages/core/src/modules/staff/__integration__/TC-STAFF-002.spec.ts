@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { deleteStaffEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/staffFixtures';
+import { createStaffTeamFixture, deleteStaffEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/staffFixtures';
 
 /**
  * TC-STAFF-002: Staff Team CRUD via API
@@ -51,6 +51,42 @@ test.describe('TC-STAFF-002: Staff Team CRUD via API', () => {
       expect(deleteResponse.status(), 'DELETE /api/staff/teams should return 200').toBe(200);
       teamId = null;
     } finally {
+      await deleteStaffEntityIfExists(request, token, '/api/staff/teams', teamId);
+    }
+  });
+
+  test('should reject deletion of a team that has assigned members (409)', async ({ request }) => {
+    let token: string | null = null;
+    let teamId: string | null = null;
+    let memberId: string | null = null;
+
+    try {
+      token = await getAuthToken(request, 'admin');
+
+      teamId = await createStaffTeamFixture(request, token);
+
+      const memberResponse = await apiRequest(request, 'POST', '/api/staff/team-members', {
+        token,
+        data: { teamId, displayName: `QA TC-STAFF-002-409 ${Date.now()}` },
+      });
+      expect(memberResponse.status(), 'POST /api/staff/team-members should return 201').toBe(201);
+      const memberBody = (await memberResponse.json()) as { id?: string };
+      memberId = memberBody.id ?? null;
+
+      const deleteResponse = await apiRequest(
+        request,
+        'DELETE',
+        `/api/staff/teams?id=${encodeURIComponent(teamId)}`,
+        { token },
+      );
+      expect(
+        deleteResponse.status(),
+        'DELETE /api/staff/teams with assigned members should return 409',
+      ).toBe(409);
+      const deleteBody = (await deleteResponse.json()) as { error?: string };
+      expect(deleteBody.error, 'Error body should mention assigned members').toMatch(/assigned member/i);
+    } finally {
+      await deleteStaffEntityIfExists(request, token, '/api/staff/team-members', memberId);
       await deleteStaffEntityIfExists(request, token, '/api/staff/teams', teamId);
     }
   });

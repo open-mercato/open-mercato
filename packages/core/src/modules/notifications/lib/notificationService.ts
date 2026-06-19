@@ -1,10 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { Notification, type NotificationStatus } from '../data/entities'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
 import type { NotificationPollData } from '@open-mercato/shared/modules/notifications/types'
 import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from './events'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   buildNotificationEntity,
   emitNotificationCreated,
@@ -74,6 +75,31 @@ function applyNotificationContent(
   notification.actionTaken = null
   notification.actionResult = null
   notification.createdAt = new Date()
+}
+
+async function findScopedNotificationOrThrow(
+  em: EntityManager,
+  notificationId: string,
+  ctx: NotificationServiceContext,
+): Promise<Notification> {
+  const notification = await findOneWithDecryption(
+    em,
+    Notification,
+    {
+      id: notificationId,
+      recipientUserId: ctx.userId,
+      tenantId: ctx.tenantId,
+    },
+    undefined,
+    {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId ?? null,
+    },
+  )
+  if (!notification) {
+    throw new CrudHttpError(404, { error: 'Notification not found' })
+  }
+  return notification
 }
 
 async function emitNotificationSseEvents(
@@ -286,11 +312,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
     async markAsRead(notificationId, ctx) {
       const em = rootEm.fork()
-      const notification = await em.findOneOrFail(Notification, {
-        id: notificationId,
-        recipientUserId: ctx.userId,
-        tenantId: ctx.tenantId,
-      })
+      const notification = await findScopedNotificationOrThrow(em, notificationId, ctx)
 
       if (notification.status === 'unread') {
         notification.status = 'read'
@@ -370,11 +392,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
     async dismiss(notificationId, ctx) {
       const em = rootEm.fork()
-      const notification = await em.findOneOrFail(Notification, {
-        id: notificationId,
-        recipientUserId: ctx.userId,
-        tenantId: ctx.tenantId,
-      })
+      const notification = await findScopedNotificationOrThrow(em, notificationId, ctx)
 
       notification.status = 'dismissed'
       notification.dismissedAt = new Date()
@@ -391,11 +409,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
     async restoreDismissed(notificationId, status, ctx) {
       const em = rootEm.fork()
-      const notification = await em.findOneOrFail(Notification, {
-        id: notificationId,
-        recipientUserId: ctx.userId,
-        tenantId: ctx.tenantId,
-      })
+      const notification = await findScopedNotificationOrThrow(em, notificationId, ctx)
 
       if (notification.status !== 'dismissed') {
         return notification
@@ -425,11 +439,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
     async executeAction(notificationId, input, ctx) {
       const em = rootEm.fork()
-      const notification = await em.findOneOrFail(Notification, {
-        id: notificationId,
-        recipientUserId: ctx.userId,
-        tenantId: ctx.tenantId,
-      })
+      const notification = await findScopedNotificationOrThrow(em, notificationId, ctx)
 
       const actionData = notification.actionData
       const action = actionData?.actions?.find((a) => a.id === input.actionId)

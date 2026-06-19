@@ -30,6 +30,13 @@ export type NotificationHandlerContext = {
   userId?: string
   features: string[]
   currentPath: string
+  /**
+   * Optional translator, present when the dispatch happens inside a React tree
+   * with an active `I18nProvider` (the poll/SSE notification hooks). Handlers
+   * that emit user-facing copy (e.g. a toast action label) MUST localize via
+   * this when available and fall back to an English literal only when absent.
+   */
+  t?: (key: string, fallback?: string) => string
   toast: (options: NotificationHandlerToastOptions) => void
   popup: (options: NotificationHandlerPopupOptions) => void
   emitEvent: (eventName: string, detail?: unknown) => void

@@ -19,6 +19,7 @@ type DictionarySelectControlProps = {
   selectClassName?: string
   disabled?: boolean
   priorityValues?: string[]
+  seedOptions?: Array<{ value: string; label: string; color?: string | null; icon?: string | null }>
 }
 
 export function DictionarySelectControl({
@@ -29,6 +30,7 @@ export function DictionarySelectControl({
   selectClassName,
   disabled = false,
   priorityValues,
+  seedOptions,
 }: DictionarySelectControlProps) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -191,6 +193,13 @@ export function DictionarySelectControl({
       allowAppearance
       allowInlineCreate={effectiveAllowInlineCreate}
       selectClassName={selectClassName}
+      seedOptions={seedOptions?.map((option) => ({
+        value: option.value,
+        label: option.label,
+        color: option.color ?? null,
+        icon: option.icon ?? null,
+      }))}
+      sortOptions="none"
       disabled={disabled}
       manageHref="/backend/config/dictionaries"
     />

@@ -8,12 +8,15 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { useWebhookFeatureAccess } from './useWebhookFeatureAccess'
 
 type Row = {
@@ -107,10 +110,11 @@ export default function WebhooksListPage() {
     try {
       const call = await apiCall<{ error?: string }>(
         `/api/webhooks/${encodeURIComponent(row.id)}`,
-        { method: 'DELETE' },
+        { method: 'DELETE', headers: buildOptimisticLockHeader(row.updatedAt) },
         { fallback: null },
       )
       if (!call.ok) {
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
         const errorPayload = call.result as { error?: string } | undefined
         const message = typeof errorPayload?.error === 'string' ? errorPayload.error : t('webhooks.list.deleteError')
         flash(message, 'error')
@@ -276,6 +280,13 @@ export default function WebhooksListPage() {
 
             return <RowActions items={items} />
           }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('webhooks.list.title')}
+              createHref={access.canManage ? '/backend/webhooks/create' : undefined}
+              createLabel={access.canManage ? t('webhooks.nav.create') : undefined}
+            />
+          )}
           pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
         />

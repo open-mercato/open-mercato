@@ -302,6 +302,43 @@ export async function executeWorkflow(
           )
         }
 
+        // Parallel execution: while the instance is FORKED, drive the branches.
+        if (currentInstance.status === 'FORKED') {
+          const { advanceBranches } = await import('./parallel-handler')
+          const branchResult = await advanceBranches(trx, container, currentInstance, definition, {
+            userId: context?.userId,
+          })
+
+          if (branchResult.outcome === 'joined') {
+            // Instance resumed at the post-join step; continue single-token.
+            continue
+          }
+
+          if (branchResult.outcome === 'failed') {
+            errors.push(branchResult.error || 'Parallel branch failed')
+            await completeWorkflow(trx, container, instanceId, 'FAILED', {
+              error: branchResult.error || 'Parallel branch failed',
+            })
+            return {
+              status: 'FAILED',
+              currentStep: currentInstance.currentStepId,
+              context: currentInstance.context,
+              events,
+              errors,
+              executionTime: Date.now() - startTime,
+            }
+          }
+
+          // 'waiting' — all branches paused for external resume (task/signal/timer/async).
+          return {
+            status: 'RUNNING',
+            currentStep: currentInstance.currentStepId,
+            context: currentInstance.context,
+            events,
+            executionTime: Date.now() - startTime,
+          }
+        }
+
         const currentStep = definition.definition.steps.find(
           (s: any) => s.stepId === currentInstance.currentStepId
         )
@@ -325,7 +362,7 @@ export async function executeWorkflow(
         if (
           currentStep?.stepType === 'USER_TASK' ||
           currentStep?.stepType === 'WAIT_FOR_SIGNAL' ||
-          currentStep?.stepType === 'TIMER'
+          currentStep?.stepType === 'WAIT_FOR_TIMER'
         ) {
           return {
             status: 'RUNNING',
@@ -396,6 +433,14 @@ export async function executeWorkflow(
             console.error(`[WORKFLOW] Transition rejected (instance: ${currentInstance.id}, workflow: ${currentInstance.workflowId}, step: ${currentInstance.currentStepId} → ${selectedTransition.toStepId}): ${rejectionMessage}`)
             errors.push(rejectionMessage)
 
+            await completeWorkflow(trx, container, instanceId, 'FAILED', {
+              error: rejectionMessage,
+            })
+            events.push({
+              eventType: 'WORKFLOW_FAILED',
+              occurredAt: new Date(),
+            })
+
             return {
               status: 'FAILED',
               currentStep: currentInstance.currentStepId,
@@ -462,6 +507,15 @@ export async function executeWorkflow(
               transitionId: selectedTransition.transitionId,
               error: errorMessage,
             },
+          })
+
+          await completeWorkflow(trx, container, instanceId, 'FAILED', {
+            error: errorMessage,
+            details: error instanceof WorkflowExecutionError ? error.details : undefined,
+          })
+          events.push({
+            eventType: 'WORKFLOW_FAILED',
+            occurredAt: new Date(),
           })
 
           return {
@@ -643,10 +697,25 @@ export async function completeWorkflow(
 export async function resumeWorkflowAfterActivities(
   em: EntityManager,
   container: AwilixContainer,
-  instanceId: string
+  instanceId: string,
+  branchInstanceId?: string | null
 ): Promise<void> {
   const transactionalEm = em as EntityManager & {
     transactional?: <TResult>(callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
+  }
+
+  // Branch-scoped async resume: the instance is FORKED and the branch (not the
+  // instance) is WAITING_FOR_ACTIVITIES. Resume just that branch, then let the
+  // interleaved loop continue. Missing branchInstanceId → legacy instance path.
+  if (branchInstanceId) {
+    const { resumeBranchAfterActivities } = await import('./parallel-handler')
+    const branchResume = typeof transactionalEm.transactional === 'function'
+      ? await transactionalEm.transactional((trx) => resumeBranchAfterActivities(trx, container, instanceId, branchInstanceId))
+      : await resumeBranchAfterActivities(em, container, instanceId, branchInstanceId)
+    if (branchResume.continueExecution) {
+      await executeWorkflow(em, container, instanceId)
+    }
+    return
   }
 
   const runResume = async (trx: EntityManager): Promise<{ continueExecution: boolean }> => {

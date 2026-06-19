@@ -57,3 +57,42 @@ export function filterActivePersonCompanyLinks<T extends { deletedAt?: Date | st
   if (!Array.isArray(links)) return []
   return links.filter((entry) => entry?.deletedAt == null)
 }
+
+export type CustomerLinkTenantScope = {
+  tenantId?: string | null
+  organizationId?: string | null
+}
+
+/**
+ * Bound a person↔company link lookup to the caller's tenant/organization.
+ * `customer_person_company_links` carries `tenant_id`/`organization_id`
+ * directly, so each scope column is added to the WHERE clause when present.
+ * The people/companies list routes use this when resolving `excludeLinked*`
+ * params so the lookup is bounded by tenant instead of scanning the whole link
+ * table — `findWithDecryption` forwards the WHERE verbatim and treats the
+ * tenant/org scope as decryption-only (#2736).
+ */
+export function withCustomerPersonCompanyLinkScope<T extends Record<string, unknown>>(
+  where: T,
+  scope: CustomerLinkTenantScope,
+): T & { tenantId?: string; organizationId?: string } {
+  const scoped: T & { tenantId?: string; organizationId?: string } = { ...where }
+  if (scope.tenantId) scoped.tenantId = scope.tenantId
+  if (scope.organizationId) scoped.organizationId = scope.organizationId
+  return scoped
+}
+
+/**
+ * Build a tenant/organization-scoped WHERE for deal↔person and deal↔company
+ * link lookups. Those link tables carry no tenant columns, so the scope is
+ * applied through the tenant-owned `deal` aggregate (#2736).
+ */
+export function withScopedCustomerDealLinkWhere(
+  dealId: string,
+  scope: CustomerLinkTenantScope,
+): { deal: { id: string; tenantId?: string; organizationId?: string } } {
+  const deal: { id: string; tenantId?: string; organizationId?: string } = { id: dealId }
+  if (scope.tenantId) deal.tenantId = scope.tenantId
+  if (scope.organizationId) deal.organizationId = scope.organizationId
+  return { deal }
+}

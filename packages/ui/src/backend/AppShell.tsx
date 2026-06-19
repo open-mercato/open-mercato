@@ -24,6 +24,8 @@ import { QueryProvider } from '../theme/QueryProvider'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
 import { LastOperationBanner } from './operations/LastOperationBanner'
+import { RecordConflictBanner } from './conflicts/RecordConflictBanner'
+import { dismissRecordConflict } from './conflicts/store'
 import { ProgressTopBar } from './progress/ProgressTopBar'
 import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
@@ -66,6 +68,7 @@ export type AppShellProps = {
   productName?: string
   logo?: ShellLogo
   email?: string
+  canManageUpgradeActions?: boolean
   groups: {
     id?: string
     name: string
@@ -110,6 +113,11 @@ export type AppShellProps = {
   profileSectionTitle?: string
   profilePathPrefixes?: string[]
   mobileSidebarSlot?: React.ReactNode
+  /**
+   * How long (ms) to keep successfully completed progress operations visible
+   * before auto-hiding. Pass `false` or `0` to disable. Defaults to 10 000 ms.
+   */
+  progressCompletedAutoHideMs?: number | false
 }
 
 type Breadcrumb = Array<{ label: string; href?: string }>
@@ -140,6 +148,11 @@ function resolveInjectedMenuLabel(
   if (item.labelKey) return t(item.labelKey, item.id)
   if (item.label && item.label.includes('.')) return t(item.label, item.id)
   return item.label ?? item.id
+}
+
+function shouldBypassLogoOptimization(src?: string | null): boolean {
+  const value = src ?? ''
+  return /^https?:\/\//.test(value) || /^\/api\/attachments\/(?:image|file)\//.test(value)
 }
 
 function mergeSidebarItemsWithInjected(
@@ -416,7 +429,7 @@ export function AppShell(props: AppShellProps) {
   )
 }
 
-function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot }: AppShellProps) {
+function AppShellBody({ productName, logo, email, canManageUpgradeActions = false, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot, progressCompletedAutoHideMs }: AppShellProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const t = useT()
@@ -436,11 +449,23 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
   const { items: topbarInjectedMenuItems } = useInjectedMenuItems('menu:topbar:actions')
   useEventBridge() // SSE DOM Event Bridge — singleton SSE connection for real-time server events
   const resolvedProductName = productName ?? t('appShell.productName')
+  const resolvedLogo = chromePayload?.brand?.logo?.src ? chromePayload.brand.logo : logo
+  const resolvedBrandName = chromePayload?.brand?.logo?.src
+    ? chromePayload.brand.name ?? resolvedProductName
+    : resolvedProductName
+  const resolvedLogoBypassesOptimization = shouldBypassLogoOptimization(resolvedLogo?.src)
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // When the mobile drawer opens on a settings/profile route, it follows the
   // section sidebar by default. Set to 'main' to force-show the main nav even
   // when the route is in a section context. Reset on close.
   const [mobileDrawerView, setMobileDrawerView] = React.useState<'auto' | 'main'>('auto')
+  // Clear the persistent record-conflict bar when the route changes. The
+  // conflict is scoped to the record the user was editing, so navigating to an
+  // unrelated page should dismiss it instead of carrying a stale "Record
+  // changed" bar across modules.
+  React.useEffect(() => {
+    dismissRecordConflict()
+  }, [pathname])
   React.useEffect(() => {
     if (!mobileOpen) setMobileDrawerView('auto')
   }, [mobileOpen])
@@ -685,8 +710,8 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
               aria-label={t('appShell.goToDashboard')}
             >
-              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={40} height={40} className="rounded-full shrink-0" />
-              {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedProductName}</span>}
+              <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+              {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
             </Link>
           </div>
         )}
@@ -808,7 +833,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
   }
 
   function renderSidebar(compact: boolean, hideHeader?: boolean, forceMainOnly?: boolean) {
-    if (!isChromeReady && isChromeLoading && resolvedGroups.length === 0) {
+    if (!isChromeReady && isChromeLoading) {
       return (
         <div className="flex flex-col min-h-full gap-3" data-testid="backend-chrome-loading">
           {!hideHeader ? (
@@ -818,8 +843,8 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
                 className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
                 aria-label={t('appShell.goToDashboard')}
               >
-                <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={40} height={40} className="rounded-full shrink-0" />
-                {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedProductName}</span>}
+                <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+                {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
               </Link>
             </div>
           ) : null}
@@ -884,8 +909,8 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
               aria-label={t('appShell.goToDashboard')}
             >
-              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={40} height={40} className="rounded-full shrink-0" />
-              {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedProductName}</span>}
+              <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+              {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
             </Link>
           </div>
         )}
@@ -1336,13 +1361,14 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
             )}
           </div>
         </header>
-        <ProgressTopBar t={t} className="sticky top-0 z-sticky" />
+        <ProgressTopBar t={t} className="sticky top-0 z-sticky" completedAutoHideMs={progressCompletedAutoHideMs} />
         <main className="flex-1 p-4 lg:p-6 mx-auto w-full max-w-screen-2xl">
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
           <PartialIndexBanner />
-          <UpgradeActionBanner />
+          {canManageUpgradeActions ? <UpgradeActionBanner /> : null}
           <LastOperationBanner />
+          <RecordConflictBanner />
           <InjectionSpot spotId={BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID} context={injectionContext} />
           <InjectionSpot
             spotId={LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID}
@@ -1376,8 +1402,8 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
           <aside className="absolute left-0 top-0 flex h-full w-[280px] max-w-[85vw] flex-col bg-background border-r shadow-lg overflow-hidden">
             <div className="shrink-0 flex items-center justify-between gap-2 border-b px-4 py-3">
               <Link href="/backend" className="flex items-center gap-2 min-w-0 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
-                <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={28} height={28} className="rounded shrink-0" />
-                <span className="truncate">{resolvedProductName}</span>
+                <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={28} height={28} className="rounded shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+                <span className="truncate">{resolvedBrandName}</span>
               </Link>
               <IconButton variant="ghost" size="sm" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>
                 <X className="size-4" />

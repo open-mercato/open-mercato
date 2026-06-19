@@ -4,7 +4,7 @@
 // - overrides: optional unified per-app override surface — replace or
 //   disable any contract a module presents: AI, routes, events, workers,
 //   widgets, notifications, interceptors, setup, ACL, DI, encryption, etc.
-//   See `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` and
+//   See `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md` and
 //   `apps/docs/docs/framework/modules/overrides.mdx`.
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { ModuleOverrides } from '@open-mercato/shared/modules/overrides'
@@ -95,6 +95,10 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'data_sync', from: '@open-mercato/core' },
   { id: 'sync_excel', from: '@open-mercato/core' },
   { id: 'messages', from: '@open-mercato/core' },
+  // Communication channels hub (SPEC-045d) — bridges external chat/email channels
+  // (Slack, WhatsApp, Email) to the unified Messages inbox. Provider packages
+  // (channel-slack, channel-whatsapp, future email providers) register adapters here.
+  { id: 'communication_channels', from: '@open-mercato/core' },
   { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
   { id: 'translations', from: '@open-mercato/core' },
   { id: 'scheduler', from: '@open-mercato/scheduler' },
@@ -103,6 +107,11 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'subscriptions', from: '@open-mercato/core' },
   { id: 'checkout', from: '@open-mercato/checkout' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
+  // Per-user email channels for the Communications Hub (SPEC-045d / email
+  // integration spec). Each provider package registers its `ChannelAdapter`
+  // at import time via `setup.ts`; the hub picks them up by `providerKey`.
+  { id: 'channel_imap', from: '@open-mercato/channel-imap' },
+  { id: 'channel_gmail', from: '@open-mercato/channel-gmail' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   // { id: 'shipping_carriers', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },

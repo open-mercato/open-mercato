@@ -8,6 +8,10 @@ import { addCustomLine, createSalesDocument } from '@open-mercato/core/modules/c
  */
 test.describe('TC-SALES-002: Quote To Order Conversion', () => {
   test('should convert quote into order from actions menu', async ({ page }) => {
+    // Heavy multi-hop UI flow (login + createSalesDocument + line) routinely
+    // exceeds Playwright's 20s default on a loaded ephemeral shard; opt into the
+    // sanctioned per-test budget (see TC-SALES-005). Global bump is disallowed.
+    test.slow();
     await login(page, 'admin');
     await createSalesDocument(page, { kind: 'quote' });
     await addCustomLine(page, {

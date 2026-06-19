@@ -4,6 +4,7 @@ import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { createMemoryStrategy } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
 import * as enabledModulesRegistry from '@open-mercato/shared/security/enabledModulesRegistry'
+import { buildOrgScopeUserCacheTag, buildOrgScopeTenantCacheTag } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 // Minimal mock of MikroORM EntityManager surface used by RbacService
 type MockEm = {
@@ -153,6 +154,145 @@ describe('RbacService', () => {
 
       const acl = await service.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
       expect(acl.isSuperAdmin).toBe(true)
+    })
+  })
+
+  describe('getGrantedFeatures', () => {
+    it('returns the raw user grants when a per-user ACL exists', async () => {
+      const uacl: Partial<UserAcl> = {
+        isSuperAdmin: false,
+        featuresJson: ['entities.records.view', 'example.*'],
+        organizationsJson: null,
+      }
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl && where?.user === baseUser.id && where?.tenantId === baseUser.tenantId) return uacl
+        return null
+      })
+
+      const grants = await service.getGrantedFeatures(baseUser.id!, { tenantId: null, organizationId: null })
+      expect(grants.sort()).toEqual(['entities.records.view', 'example.*'])
+    })
+
+    it('returns the union of role-aggregated grants when no per-user ACL', async () => {
+      const roleA: Partial<Role> = { id: 'role-a' }
+      const roleB: Partial<Role> = { id: 'role-b' }
+      const links: Array<Partial<UserRole>> = [{ role: roleA as any }, { role: roleB as any }]
+      const racls: Array<Partial<RoleAcl>> = [
+        { role: roleA as any, tenantId: 'tenant-1', featuresJson: ['entities.*'], organizationsJson: null },
+        { role: roleB as any, tenantId: 'tenant-1', featuresJson: ['example.todos.view'], organizationsJson: null },
+      ]
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl) return null
+        return null
+      })
+      em.find.mockImplementation(async (entity: any, where: any) => {
+        if (entity === UserRole && where?.user === baseUser.id) return links
+        if (entity === RoleAcl && where?.tenantId === 'tenant-1') return racls
+        return []
+      })
+
+      const grants = await service.getGrantedFeatures(baseUser.id!, { tenantId: null, organizationId: null })
+      expect(grants.sort()).toEqual(['entities.*', 'example.todos.view'])
+    })
+
+    it('returns ["*"] for a global super-admin user so wildcard-aware consumers match every feature', async () => {
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl && where?.user === baseUser.id && where?.isSuperAdmin === true) {
+          return { isSuperAdmin: true }
+        }
+        return null
+      })
+
+      const grants = await service.getGrantedFeatures(baseUser.id!, { tenantId: null, organizationId: null })
+      expect(grants).toEqual(['*'])
+    })
+
+    it('returns an empty array when the user has no ACL in scope', async () => {
+      em.findOne.mockImplementation(async (entity: any) => {
+        if (entity === User) return null
+        return null
+      })
+
+      const grants = await service.getGrantedFeatures('missing', { tenantId: null, organizationId: null })
+      expect(grants).toEqual([])
+    })
+  })
+
+  describe('tenantHasFeature', () => {
+    it('returns false without a tenant id', async () => {
+      const ok = await service.tenantHasFeature(null, 'data_sync.run')
+
+      expect(ok).toBe(false)
+      expect(em.find).not.toHaveBeenCalled()
+    })
+
+    it('matches role ACL grants with wildcard semantics for scheduler feature checks', async () => {
+      const roleAcls: Array<Partial<RoleAcl>> = [
+        { tenantId: 'tenant-1', isSuperAdmin: false, featuresJson: ['data_sync.*'], organizationsJson: null },
+      ]
+
+      em.find.mockImplementation(async (entity: any, where: any) => {
+        if (entity === RoleAcl && where?.tenantId === 'tenant-1') return roleAcls
+        return []
+      })
+
+      const ok = await service.tenantHasFeature('tenant-1', 'data_sync.run', { organizationId: 'org-1' })
+
+      expect(ok).toBe(true)
+      expect(em.find).toHaveBeenCalledWith(RoleAcl, { tenantId: 'tenant-1', deletedAt: null }, {})
+    })
+
+    it('returns true when an in-scope role ACL is marked super admin', async () => {
+      const roleAcls: Array<Partial<RoleAcl>> = [
+        { tenantId: 'tenant-1', isSuperAdmin: true, featuresJson: [], organizationsJson: ['org-1'] },
+      ]
+
+      em.find.mockImplementation(async (entity: any, where: any) => {
+        if (entity === RoleAcl && where?.tenantId === 'tenant-1') return roleAcls
+        return []
+      })
+
+      const ok = await service.tenantHasFeature('tenant-1', 'data_sync.run', { organizationId: 'org-1' })
+
+      expect(ok).toBe(true)
+    })
+
+    it('honors organization restrictions on role ACLs', async () => {
+      const roleAcls: Array<Partial<RoleAcl>> = [
+        { tenantId: 'tenant-1', isSuperAdmin: false, featuresJson: ['data_sync.*'], organizationsJson: ['org-1'] },
+      ]
+
+      em.find.mockImplementation(async (entity: any, where: any) => {
+        if (entity === RoleAcl && where?.tenantId === 'tenant-1') return roleAcls
+        return []
+      })
+
+      const ok = await service.tenantHasFeature('tenant-1', 'data_sync.run', { organizationId: 'org-2' })
+
+      expect(ok).toBe(false)
+    })
+
+    it('drops grants from disabled modules before evaluating tenant features', async () => {
+      jest
+        .spyOn(enabledModulesRegistry, 'filterGrantsByEnabledModules')
+        .mockImplementation((granted) => granted.filter((feature) => !feature.startsWith('data_sync.')))
+
+      const roleAcls: Array<Partial<RoleAcl>> = [
+        { tenantId: 'tenant-1', isSuperAdmin: false, featuresJson: ['data_sync.*'], organizationsJson: null },
+      ]
+
+      em.find.mockImplementation(async (entity: any, where: any) => {
+        if (entity === RoleAcl && where?.tenantId === 'tenant-1') return roleAcls
+        return []
+      })
+
+      const ok = await service.tenantHasFeature('tenant-1', 'data_sync.run')
+
+      expect(ok).toBe(false)
+      expect(enabledModulesRegistry.filterGrantsByEnabledModules).toHaveBeenCalledWith(['data_sync.*'])
     })
   })
 
@@ -499,6 +639,33 @@ describe('RbacService', () => {
       await service.loadAcl(user2.id, { tenantId: 'tenant-1', organizationId: null })
 
       expect(em.findOne).toHaveBeenCalledTimes(initialCalls + callsForScopes(1) * 2) // Both users queried again (first load per user)
+    })
+
+    // Issue #2259 — the resolved OrganizationScope (directory) cache derives its
+    // accessible-org set from the same ACL/role grants the RBAC cache holds.
+    // RBAC invalidation must therefore also drop the matching org-scope entries,
+    // so the cross-request scope TTL can be enabled without serving stale scope
+    // after a membership change.
+    it('invalidateUserCache also drops org-scope:user entries', async () => {
+      const key = 'org-scope:user-1:tenant-1:none:none'
+      const scope = { selectedId: null, filterIds: null, allowedIds: null, tenantId: 'tenant-1' }
+      await cache.set(key, scope, { ttl: 60_000, tags: [buildOrgScopeUserCacheTag('user-1')] })
+      expect(await cache.get(key)).not.toBeNull()
+
+      await service.invalidateUserCache('user-1')
+
+      expect(await cache.get(key)).toBeNull()
+    })
+
+    it('invalidateTenantCache also drops org-scope:tenant entries', async () => {
+      const key = 'org-scope:user-9:tenant-1:none:none'
+      const scope = { selectedId: null, filterIds: null, allowedIds: null, tenantId: 'tenant-1' }
+      await cache.set(key, scope, { ttl: 60_000, tags: [buildOrgScopeTenantCacheTag('tenant-1')] })
+      expect(await cache.get(key)).not.toBeNull()
+
+      await service.invalidateTenantCache('tenant-1')
+
+      expect(await cache.get(key)).toBeNull()
     })
 
     it('should not affect other tenants when invalidating specific tenant cache', async () => {

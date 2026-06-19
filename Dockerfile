@@ -106,7 +106,7 @@ COPY --from=builder /app/apps/mercato/tsconfig.json ./apps/mercato/
 COPY --from=builder /app/apps/mercato/postcss.config.mjs ./apps/mercato/
 
 # Copy generated files and other runtime necessities
-COPY --from=builder /app/apps/mercato/.mercato ./apps/mercato/.mercato
+COPY --from=builder /app/apps/mercato/.mercato/generated ./apps/mercato/.mercato/generated
 COPY --from=builder /app/apps/mercato/src ./apps/mercato/src
 COPY --from=builder /app/apps/mercato/types ./apps/mercato/types
 
@@ -124,7 +124,7 @@ RUN mkdir -p /app/apps/mercato/storage
 
 # Create non-root user and grant passwordless sudo for chown only
 RUN adduser -D -u 1001 omuser \
- && chown -R omuser:omuser /app \
+ && chown -R omuser:omuser /app/apps/mercato/storage \
  && echo "omuser ALL=(root) NOPASSWD: /bin/chown" > /etc/sudoers.d/omuser \
  && chmod 0440 /etc/sudoers.d/omuser
 

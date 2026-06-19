@@ -109,7 +109,7 @@ const checkoutContentSchema = z.object({
   customAmountMax: positiveMoneySchema.optional().nullable(),
   customAmountCurrencyCode: currencyCodeSchema.optional().nullable(),
   priceListItems: z.array(priceListItemSchema).optional().nullable(),
-  gatewayProviderKey: requiredTrimmedString('checkout.validation.gatewayProviderKey.required'),
+  gatewayProviderKey: optionalTrimmedString,
   gatewaySettings: gatewaySettingsSchema,
   customFieldsetCode: optionalFieldsetCodeSchema,
   collectCustomerDetails: z.boolean().default(true),
@@ -174,7 +174,16 @@ function validatePricingConsistency<T extends z.infer<typeof checkoutContentSche
   }
 }
 
-export const createTemplateSchema = checkoutContentSchema.superRefine(validatePricingConsistency)
+export const createTemplateSchema = checkoutContentSchema.superRefine((value, ctx) => {
+  validatePricingConsistency(value, ctx)
+  if (!value.gatewayProviderKey) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'checkout.validation.gatewayProviderKey.required',
+      path: ['gatewayProviderKey'],
+    })
+  }
+})
 
 function applyPartialPricingConsistency(value: Record<string, unknown>, ctx: z.RefinementCtx) {
   if (!value.pricingMode) return
@@ -195,6 +204,13 @@ export const updateTemplateSchema = checkoutContentSchema.partial().extend({
   customerFieldsSchema: z.array(customerFieldDefinitionSchema).optional(),
 }).superRefine((value, ctx) => {
   applyPartialPricingConsistency(value, ctx)
+  if (Object.prototype.hasOwnProperty.call(value, 'gatewayProviderKey') && !value.gatewayProviderKey) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'checkout.validation.gatewayProviderKey.required',
+      path: ['gatewayProviderKey'],
+    })
+  }
 })
 
 export const createLinkSchema = createTemplateSchema.safeExtend({

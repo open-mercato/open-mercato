@@ -37,9 +37,18 @@ function buildMockChildProcessModule(routeAutoExit: MockChildSpawnRouter) {
     if (autoExit) {
       queueMicrotask(() => {
         if (child.exitCode !== null || child.signalCode !== null) return
-        child.exitCode = autoExit.code
-        child.signalCode = autoExit.signal ?? null
-        child.emit('exit', child.exitCode, child.signalCode)
+        if (pathIncludes(spawnargs[1] ?? '', 'next/dist/bin/next') && spawnargs.includes('dev')) {
+          child.stdout.emit('data', '✓ Ready in 1ms\n')
+        }
+        queueMicrotask(() => {
+          child.exitCode = autoExit.code
+          child.signalCode = autoExit.signal ?? null
+          child.emit('exit', child.exitCode, child.signalCode)
+        })
+      })
+    } else if (pathIncludes(spawnargs[1] ?? '', 'next/dist/bin/next') && spawnargs.includes('dev')) {
+      queueMicrotask(() => {
+        child.stdout.emit('data', '✓ Ready in 1ms\n')
       })
     }
 
@@ -632,6 +641,9 @@ describe('server dev managed process exits', () => {
   const originalAutoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS
   const originalLazy = process.env.OM_AUTO_SPAWN_WORKERS_LAZY
   const originalLazyScheduler = process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
+  const originalGenerateWatchMode = process.env.OM_DEV_GENERATE_WATCH_MODE
+  const originalSingleDelivery = process.env.OM_EVENTS_SINGLE_DELIVERY
+  const originalExternalWorker = process.env.OM_EVENTS_EXTERNAL_WORKER
 
   beforeEach(() => {
     jest.restoreAllMocks()
@@ -640,6 +652,18 @@ describe('server dev managed process exits', () => {
     process.env.AUTO_SPAWN_WORKERS = 'true'
     delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
     delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
+    // These tests toggle AUTO_SPAWN_WORKERS to exercise scheduler/Next exits, not
+    // the events single-delivery guard. Acknowledge an external events worker so
+    // the (default-on) guard stays quiet, and start each test from a clean
+    // single-delivery env since the guard rewrites it in place.
+    delete process.env.OM_EVENTS_SINGLE_DELIVERY
+    process.env.OM_EVENTS_EXTERNAL_WORKER = 'true'
+    // These tests stub the resolver to an empty object; the in-process
+    // generate watcher's default checksum function would error on the
+    // missing methods. Force the legacy out-of-process mode so the
+    // managed-exit assertions only exercise the worker/scheduler/Next
+    // spawn surface.
+    process.env.OM_DEV_GENERATE_WATCH_MODE = 'legacy'
   })
 
   afterEach(() => {
@@ -651,6 +675,8 @@ describe('server dev managed process exits', () => {
     jest.dontMock('../lib/queue-worker-supervisor')
     jest.dontMock('../lib/scheduler-supervisor')
     jest.resetModules()
+    if (originalGenerateWatchMode === undefined) delete process.env.OM_DEV_GENERATE_WATCH_MODE
+    else process.env.OM_DEV_GENERATE_WATCH_MODE = originalGenerateWatchMode
     delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
     delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
   })
@@ -662,6 +688,10 @@ describe('server dev managed process exits', () => {
     else process.env.OM_AUTO_SPAWN_WORKERS_LAZY = originalLazy
     if (originalLazyScheduler === undefined) delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
     else process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY = originalLazyScheduler
+    if (originalSingleDelivery === undefined) delete process.env.OM_EVENTS_SINGLE_DELIVERY
+    else process.env.OM_EVENTS_SINGLE_DELIVERY = originalSingleDelivery
+    if (originalExternalWorker === undefined) delete process.env.OM_EVENTS_EXTERNAL_WORKER
+    else process.env.OM_EVENTS_EXTERNAL_WORKER = originalExternalWorker
   })
 
   it('skips scheduler auto-start when the module is not enabled', async () => {
@@ -891,6 +921,8 @@ describe('server start managed process exits', () => {
   const originalAutoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS
   const originalLazy = process.env.OM_AUTO_SPAWN_WORKERS_LAZY
   const originalLazyScheduler = process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
+  const originalSingleDelivery = process.env.OM_EVENTS_SINGLE_DELIVERY
+  const originalExternalWorker = process.env.OM_EVENTS_EXTERNAL_WORKER
 
   beforeEach(() => {
     jest.restoreAllMocks()
@@ -899,6 +931,11 @@ describe('server start managed process exits', () => {
     process.env.AUTO_SPAWN_WORKERS = 'true'
     delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
     delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
+    // Not exercising the events single-delivery guard here — acknowledge an
+    // external worker so the default-on guard stays quiet, and reset the
+    // guard-rewritten single-delivery env between tests.
+    delete process.env.OM_EVENTS_SINGLE_DELIVERY
+    process.env.OM_EVENTS_EXTERNAL_WORKER = 'true'
   })
 
   afterEach(() => {
@@ -920,6 +957,10 @@ describe('server start managed process exits', () => {
     else process.env.OM_AUTO_SPAWN_WORKERS_LAZY = originalLazy
     if (originalLazyScheduler === undefined) delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
     else process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY = originalLazyScheduler
+    if (originalSingleDelivery === undefined) delete process.env.OM_EVENTS_SINGLE_DELIVERY
+    else process.env.OM_EVENTS_SINGLE_DELIVERY = originalSingleDelivery
+    if (originalExternalWorker === undefined) delete process.env.OM_EVENTS_EXTERNAL_WORKER
+    else process.env.OM_EVENTS_EXTERNAL_WORKER = originalExternalWorker
   })
 
   it('skips scheduler auto-start when the module is not enabled', async () => {
@@ -1040,6 +1081,7 @@ describe('server start managed process exits', () => {
         envChangeCallback = onChange
         return jest.fn()
       }),
+      watchDevRuntimeFiles: jest.fn(() => jest.fn()),
     }))
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),

@@ -2,6 +2,31 @@
 
 Check `.ai/specs/` and `.ai/specs/enterprise/` before modifying any module. Create or update specs when the change is non-trivial.
 
+## Always
+
+- Check both OSS and enterprise spec directories before modifying a module.
+- Create a new spec for a new module, significant feature, or architecture change touching multiple files.
+- Update an existing spec when changing APIs, data models, workflows, permissions, or cross-module behavior.
+- Keep specs implementation-accurate and update the changelog after implementation.
+- Use the root Task Router to identify all related guides for review.
+
+## Ask First
+
+- Ask before moving a spec to `implemented/` if deployment/completion evidence is incomplete.
+- Ask before renaming legacy spec files or changing the spec directory taxonomy.
+
+## Never
+
+- Never introduce new `SPEC-*` or `SPEC-ENT-*` filename prefixes.
+- Never leave stale endpoints, entities, or assumptions in an updated spec.
+- Never put enterprise-only scope in the OSS specs directory.
+
+## Validation Commands
+
+```bash
+find .ai/specs .ai/specs/enterprise -maxdepth 2 -name '*.md' -print
+```
+
 ## Spec Separation
 
 - `.ai/specs/` contains Open Source edition specifications.
@@ -22,7 +47,7 @@ Move a spec to `implemented/` when all phases are complete and the feature is de
 ## Detailed Guidance
 
 For detailed spec writing and review, use the spec-writing skill:
-- `.ai/skills/spec-writing/SKILL.md`
+- `.ai/skills/om-spec-writing/SKILL.md`
 
 ## Create/Update Triggers
 
@@ -61,7 +86,7 @@ Examples:
 - Update changelog with exact date and concise summary.
 - Re-run review checklist and final compliance gate before approval.
 
-## MUST Rules (Condensed)
+## Spec Content Checklist
 
 - Every non-trivial spec includes: TLDR, Overview, Problem Statement, Proposed Solution, Architecture, Data Models, API Contracts, Risks & Impact Review, Final Compliance Report, Changelog.
 - Risks must document concrete failure scenarios, severity, affected area, mitigation, and residual risk.

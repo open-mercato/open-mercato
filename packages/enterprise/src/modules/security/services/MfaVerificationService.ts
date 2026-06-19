@@ -24,6 +24,10 @@ type ChallengeCreationResult = {
   availableMethods: AvailableMethod[]
 }
 
+export type MfaVerificationAuthScope = {
+  userId: string
+}
+
 export class MfaVerificationServiceError extends Error {
   constructor(
     message: string,
@@ -81,12 +85,34 @@ export class MfaVerificationService {
     }
   }
 
+  /**
+   * @deprecated Since 0.6 — pass an {@link MfaVerificationAuthScope} bound to the
+   *   authenticated user (`auth.sub`). The no-scope overload now treats the caller as
+   *   unknown and rejects every challenge lookup with 404; it will be removed in a
+   *   future release.
+   */
   async prepareChallenge(
     challengeId: string,
     methodType: string,
     context?: MfaProviderRuntimeContext,
+  ): Promise<{ clientData?: Record<string, unknown> }>
+  async prepareChallenge(
+    challengeId: string,
+    methodType: string,
+    context: MfaProviderRuntimeContext | undefined,
+    scope: MfaVerificationAuthScope,
+  ): Promise<{ clientData?: Record<string, unknown> }>
+  async prepareChallenge(
+    challengeId: string,
+    methodType: string,
+    context?: MfaProviderRuntimeContext,
+    scope?: MfaVerificationAuthScope,
   ): Promise<{ clientData?: Record<string, unknown> }> {
-    const challenge = await this.getValidChallenge(challengeId)
+    if (!scope) {
+      throw new MfaVerificationServiceError('MFA challenge not found', 404)
+    }
+    const challenge = await this.getValidChallenge(challengeId, scope)
+    await this.assertMethodAllowedByPolicy(challenge.userId, methodType)
     const provider = this.mfaProviderRegistry.get(methodType)
     if (!provider) {
       throw new MfaVerificationServiceError(`MFA provider '${methodType}' is not registered`, 400)
@@ -108,23 +134,44 @@ export class MfaVerificationService {
     return result
   }
 
+  /**
+   * @deprecated Since 0.6 — pass an {@link MfaVerificationAuthScope} bound to the
+   *   authenticated user (`auth.sub`). The no-scope overload now treats the caller as
+   *   unknown and rejects every challenge lookup with 404; it will be removed in a
+   *   future release.
+   */
   async verifyChallenge(
     challengeId: string,
     methodType: string,
     payload: unknown,
     runtimeContext?: MfaProviderRuntimeContext,
+  ): Promise<boolean>
+  async verifyChallenge(
+    challengeId: string,
+    methodType: string,
+    payload: unknown,
+    runtimeContext: MfaProviderRuntimeContext | undefined,
+    scope: MfaVerificationAuthScope,
+  ): Promise<boolean>
+  async verifyChallenge(
+    challengeId: string,
+    methodType: string,
+    payload: unknown,
+    runtimeContext?: MfaProviderRuntimeContext,
+    scope?: MfaVerificationAuthScope,
   ): Promise<boolean> {
-    const challenge = await this.getValidChallenge(challengeId)
+    if (!scope) {
+      throw new MfaVerificationServiceError('MFA challenge not found', 404)
+    }
+    const challenge = await this.getValidChallenge(challengeId, scope)
     if (challenge.attempts >= this.securityConfig.mfa.maxAttempts) {
       return false
     }
 
+    await this.assertMethodAllowedByPolicy(challenge.userId, methodType)
+
     if (challenge.methodType && challenge.methodType !== methodType) {
-      challenge.attempts += 1
-      if (challenge.attempts >= this.securityConfig.mfa.maxAttempts) {
-        challenge.expiresAt = new Date()
-      }
-      await this.em.flush()
+      await this.registerFailedAttempt(challenge)
       return false
     }
 
@@ -160,11 +207,7 @@ export class MfaVerificationService {
       return true
     }
 
-    challenge.attempts += 1
-    if (challenge.attempts >= this.securityConfig.mfa.maxAttempts) {
-      challenge.expiresAt = new Date()
-    }
-    await this.em.flush()
+    await this.registerFailedAttempt(challenge)
     return false
   }
 
@@ -172,8 +215,14 @@ export class MfaVerificationService {
     return this.mfaService.verifyRecoveryCode(userId, code)
   }
 
-  private async getValidChallenge(challengeId: string): Promise<MfaChallenge> {
-    const challenge = await this.em.findOne(MfaChallenge, { id: challengeId })
+  private async getValidChallenge(
+    challengeId: string,
+    scope: MfaVerificationAuthScope,
+  ): Promise<MfaChallenge> {
+    const challenge = await this.em.findOne(MfaChallenge, {
+      id: challengeId,
+      userId: scope.userId,
+    })
     if (!challenge) {
       throw new MfaVerificationServiceError('MFA challenge not found', 404)
     }
@@ -184,6 +233,34 @@ export class MfaVerificationService {
       throw new MfaVerificationServiceError('MFA challenge expired', 400)
     }
     return challenge
+  }
+
+  private async assertMethodAllowedByPolicy(userId: string, methodType: string): Promise<void> {
+    const policy = await this.mfaEnforcementService.getEffectivePolicyForUser(userId)
+    if (!policy?.isEnforced || !policy.allowedMethods?.length) {
+      return
+    }
+    if (!policy.allowedMethods.includes(methodType)) {
+      throw new MfaVerificationServiceError(`MFA method '${methodType}' is not allowed by the enforcement policy`, 403)
+    }
+  }
+
+  private async registerFailedAttempt(challenge: MfaChallenge): Promise<void> {
+    const maxAttempts = this.securityConfig.mfa.maxAttempts
+    const rows = await this.em.getConnection().execute<Array<{ attempts: number }>>(
+      'UPDATE mfa_challenges SET attempts = attempts + 1 WHERE id = ? AND verified_at IS NULL AND attempts < ? RETURNING attempts',
+      [challenge.id, maxAttempts],
+    )
+    const updatedAttempts = rows.length > 0 ? Number(rows[0].attempts) : maxAttempts
+    challenge.attempts = updatedAttempts
+    if (updatedAttempts >= maxAttempts) {
+      const now = new Date()
+      await this.em.getConnection().execute(
+        'UPDATE mfa_challenges SET expires_at = ? WHERE id = ?',
+        [now, challenge.id],
+      )
+      challenge.expiresAt = now
+    }
   }
 
   private async getActiveMethods(userId: string): Promise<UserMfaMethod[]> {

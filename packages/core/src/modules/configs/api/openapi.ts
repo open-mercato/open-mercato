@@ -65,9 +65,19 @@ export const purgeCacheResponseSchema = z.object({
   cleared: z.boolean().describe('Whether cache was successfully cleared'),
 })
 
+const cacheSegmentInfoSchema = z.object({
+  segment: z.string().describe('Sanitized segment identifier'),
+  resource: z.string().nullable().describe('Resource the segment maps to, when resolvable'),
+  method: z.string().nullable().describe('HTTP method the segment maps to, when resolvable'),
+  path: z.string().nullable().describe('Request path the segment maps to, when resolvable'),
+  keyCount: z.number().int().describe('Number of cache keys in the segment'),
+  keys: z.array(z.string()).describe('Cache keys contained in the segment'),
+})
+
 export const cacheStatsResponseSchema = z.object({
-  total: z.number().int().describe('Total cache entries'),
-  segments: z.record(z.string(), z.number().int()).describe('Cache entries per segment'),
+  generatedAt: z.string().describe('Snapshot generation timestamp (ISO-8601)'),
+  totalKeys: z.number().int().describe('Total cache keys across all segments'),
+  segments: z.array(cacheSegmentInfoSchema).describe('Per-segment cache breakdown'),
 })
 
 export const cachePurgeRequestSchema = z.object({

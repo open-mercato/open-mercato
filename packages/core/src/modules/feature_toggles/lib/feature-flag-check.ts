@@ -62,6 +62,13 @@ const getCacheTags = (identifier: string, tenantId: string) => {
 
 export class FeatureTogglesService {
   private cacheTtlMs: number = 1 * 60 * 1000 // 1 minute
+  // Resolution cache can be disabled via env (e.g. integration tests that flip
+  // overrides rapidly between cases). The 1-minute TTL is a production
+  // optimization; under fast flag churn it can serve a stale value across
+  // override set/clear despite invalidation, so tests opt out for determinism.
+  private readonly cacheDisabled: boolean =
+    process.env.OM_FEATURE_TOGGLES_CACHE_DISABLED === '1' ||
+    process.env.OM_FEATURE_TOGGLES_CACHE_DISABLED === 'true'
   constructor(
     private readonly cache: CacheService,
     private readonly em: EntityManager
@@ -72,6 +79,7 @@ export class FeatureTogglesService {
     tenantId: string,
     result: ToggleResolutionResult,
   ) {
+    if (this.cacheDisabled) return
     const key = getIsEnabledCacheKey(identifier, tenantId)
     await runWithCacheTenant(
       tenantId,
@@ -82,10 +90,12 @@ export class FeatureTogglesService {
   private async resolveToggle(identifier: string, tenantId: string): Promise<ToggleResolutionResult> {
     const key = getIsEnabledCacheKey(identifier, tenantId)
 
-    const cached = await runWithCacheTenant(tenantId, () => this.cache.get(key))
-    if (cached) {
-      const parsed = toCachedResolution(cached)
-      if (parsed) return parsed
+    if (!this.cacheDisabled) {
+      const cached = await runWithCacheTenant(tenantId, () => this.cache.get(key))
+      if (cached) {
+        const parsed = toCachedResolution(cached)
+        if (parsed) return parsed
+      }
     }
 
     let toggle: FeatureToggle | null = null

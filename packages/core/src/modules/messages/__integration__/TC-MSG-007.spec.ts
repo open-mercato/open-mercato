@@ -47,7 +47,7 @@ test.describe('TC-MSG-007: Search And Filter Inbox', () => {
       await expect(overlay).toBeVisible();
 
       const actionsFilterBlock = overlay.locator('div.space-y-2').filter({
-        has: page.locator('div.text-sm.font-medium', { hasText: /^Has actions$/i }),
+        has: page.locator('div.text-sm.font-medium', { hasText: /^Has action requests$/i }),
       }).first();
       // Radix Select: click trigger, then click option from portal
       await actionsFilterBlock.locator('[role="combobox"]').first().click();

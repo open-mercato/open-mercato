@@ -2,6 +2,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -13,6 +14,7 @@ import {
   type CategoryUpdateInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { rebuildCategoryHierarchyForOrganization } from '../lib/categoryHierarchy'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -120,6 +122,27 @@ function normalizeSlug(slug?: string | null): string | null {
   return trimmed.length ? trimmed : null
 }
 
+function categorySeedFromSnapshot(snapshot: CategorySnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    name: snapshot.name,
+    slug: snapshot.slug,
+    description: snapshot.description,
+    parentId: snapshot.parentId,
+    rootId: snapshot.rootId,
+    treePath: snapshot.treePath,
+    depth: snapshot.depth,
+    ancestorIds: snapshot.ancestorIds,
+    childIds: snapshot.childIds,
+    descendantIds: snapshot.descendantIds,
+    isActive: snapshot.isActive,
+    createdAt: new Date(snapshot.createdAt),
+    updatedAt: new Date(snapshot.updatedAt),
+  }
+}
+
 const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: string }> = {
   id: 'catalog.categories.create',
   async execute(input, ctx) {
@@ -160,8 +183,16 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
       updatedAt: now,
     })
     em.persist(record)
-    await em.flush()
-    await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+    await withAtomicFlush(
+      em,
+      [
+        () => em.flush(),
+        async () => {
+          await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+        },
+      ],
+      { transaction: true }
+    )
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.catalog.catalog_product_category,
@@ -215,8 +246,16 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
     ensureOrganizationScope(ctx, record.organizationId)
     record.deletedAt = new Date()
     record.isActive = false
-    await em.flush()
-    await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+    await withAtomicFlush(
+      em,
+      [
+        () => em.flush(),
+        async () => {
+          await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+        },
+      ],
+      { transaction: true }
+    )
     const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
     if (Object.keys(resetValues).length) {
       await setCustomFieldsIfAny({
@@ -229,6 +268,26 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
       })
     }
   },
+  redo: makeCreateRedo<CatalogProductCategory, CategorySnapshot, CategoryCreateInput, { categoryId: string }>({
+    entityClass: CatalogProductCategory,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: categorySeedFromSnapshot,
+    buildResult: (entity) => ({ categoryId: entity.id }),
+    events: categoryCrudEvents,
+    afterRestore: async ({ em, ctx, entity, snapshot }) => {
+      await rebuildCategoryHierarchyForOrganization(em, entity.organizationId, entity.tenantId)
+      if (snapshot.custom && Object.keys(snapshot.custom).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.catalog.catalog_product_category,
+          recordId: entity.id,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+          values: snapshot.custom,
+        })
+      }
+    },
+  }),
 }
 
 const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: string }> = {
@@ -288,8 +347,16 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
       record.isActive = parsed.isActive
     }
 
-    await em.flush()
-    await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+    await withAtomicFlush(
+      em,
+      [
+        () => em.flush(),
+        async () => {
+          await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+        },
+      ],
+      { transaction: true }
+    )
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.catalog.catalog_product_category,
@@ -377,8 +444,16 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
       record.isActive = before.isActive
       record.deletedAt = null
     }
-    await em.flush()
-    await rebuildCategoryHierarchyForOrganization(em, before.organizationId, before.tenantId)
+    await withAtomicFlush(
+      em,
+      [
+        () => em.flush(),
+        async () => {
+          await rebuildCategoryHierarchyForOrganization(em, before.organizationId, before.tenantId)
+        },
+      ],
+      { transaction: true }
+    )
     const resetValues = buildCustomFieldResetMap(payload?.after?.custom ?? undefined, before.custom ?? undefined)
     if (Object.keys(resetValues).length) {
       await setCustomFieldsIfAny({
@@ -417,8 +492,16 @@ const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: strin
 
     record.deletedAt = new Date()
     record.isActive = false
-    await em.flush()
-    await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+    await withAtomicFlush(
+      em,
+      [
+        () => em.flush(),
+        async () => {
+          await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+        },
+      ],
+      { transaction: true }
+    )
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
@@ -504,8 +587,16 @@ const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: strin
       record.childIds = before.childIds
       record.descendantIds = before.descendantIds
     }
-    await em.flush()
-    await rebuildCategoryHierarchyForOrganization(em, before.organizationId, before.tenantId)
+    await withAtomicFlush(
+      em,
+      [
+        () => em.flush(),
+        async () => {
+          await rebuildCategoryHierarchyForOrganization(em, before.organizationId, before.tenantId)
+        },
+      ],
+      { transaction: true }
+    )
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),

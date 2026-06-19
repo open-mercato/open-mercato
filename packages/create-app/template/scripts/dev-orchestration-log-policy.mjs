@@ -66,6 +66,17 @@ export function isIgnorableTurboShutdownLine(line) {
     || /^command (interrupted|cancelled|canceled)/i.test(plain)
 }
 
+export function isIgnorableConsolidatedWatchLine(line) {
+  if (typeof line !== 'string') return false
+  const plain = normalize(line)
+  if (!plain.startsWith('[watch]')) return false
+  return /^\[watch\] consolidated watcher: /.test(plain)
+    || /^\[watch\] [^:]+: rebuilding\.\.\.$/.test(plain)
+    || /^\[watch\] [^:]+: rebuild complete$/.test(plain)
+    || /^\[watch\] [^:]+: no source files found, skipping rebuild$/.test(plain)
+    || /^\[watch\] no workspace packages with a `watch` script /.test(plain)
+}
+
 const FAILURE_NOISE_PREDICATES = [
   isIgnorableBoxDrawingLine,
   isIgnorableEnvInjectionLine,
@@ -89,6 +100,7 @@ const TURBO_NOISE_PREDICATES = [
   isIgnorableTurboCacheCancellationLine,
   isIgnorableTurboShutdownLine,
   isIgnorableBoxDrawingLine,
+  isIgnorableConsolidatedWatchLine,
 ]
 
 export function isIgnorableTurboLine(line) {

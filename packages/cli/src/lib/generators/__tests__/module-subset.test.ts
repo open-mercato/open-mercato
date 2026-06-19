@@ -768,6 +768,148 @@ export function GET() {
     )
   })
 
+  it('emits imports for third-party scoped npm packages registered via src/modules.ts', async () => {
+    // Simulate a third-party module package published at @dainamite/cpq
+    // (see issue #1998). The generator must accept @<vendor>/<package> specifiers
+    // and emit imports that point at the package's modules/<id> subtree.
+    const pkgModuleBase = path.join(
+      tmpDir,
+      'packages',
+      'thirdparty',
+      'src',
+      'modules',
+      'cpq',
+    )
+    touchFile(
+      path.join(pkgModuleBase, 'subscribers', 'on-event.ts'),
+      `export const metadata = { event: 'cpq.quote.created' }\nexport default async function handler() {}\n`,
+    )
+
+    const baseResolver = createMockResolver(tmpDir, [
+      { id: 'cpq', from: '@dainamite/cpq' },
+    ])
+    const resolver: PackageResolver = {
+      ...baseResolver,
+      getModulePaths: (entry: ModuleEntry) => ({
+        appBase: path.join(tmpDir, 'app', 'src', 'modules', entry.id),
+        pkgBase: pkgModuleBase,
+      }),
+      getModuleImportBase: (entry: ModuleEntry) => ({
+        appBase: `@/modules/${entry.id}`,
+        pkgBase: `@dainamite/cpq/modules/${entry.id}`,
+      }),
+    }
+
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+    expect(result.errors).toEqual([])
+
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain('id: "cpq"')
+    expect(output).toContain('@dainamite/cpq/modules/cpq/subscribers/on-event')
+  })
+
+  it('emits imports for bare (unscoped) third-party npm packages', async () => {
+    const pkgModuleBase = path.join(
+      tmpDir,
+      'packages',
+      'thirdparty-bare',
+      'src',
+      'modules',
+      'foo',
+    )
+    touchFile(
+      path.join(pkgModuleBase, 'subscribers', 'on-event.ts'),
+      `export const metadata = { event: 'foo.thing.created' }\nexport default async function handler() {}\n`,
+    )
+
+    const baseResolver = createMockResolver(tmpDir, [
+      { id: 'foo', from: 'acme-modules' },
+    ])
+    const resolver: PackageResolver = {
+      ...baseResolver,
+      getModulePaths: (entry: ModuleEntry) => ({
+        appBase: path.join(tmpDir, 'app', 'src', 'modules', entry.id),
+        pkgBase: pkgModuleBase,
+      }),
+      getModuleImportBase: (entry: ModuleEntry) => ({
+        appBase: `@/modules/${entry.id}`,
+        pkgBase: `acme-modules/modules/${entry.id}`,
+      }),
+    }
+
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+    expect(result.errors).toEqual([])
+
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain('id: "foo"')
+    expect(output).toContain('acme-modules/modules/foo/subscribers/on-event')
+  })
+
+  it('fails fast when a third-party module entry points at a package without the expected OM module shape', async () => {
+    // No files scaffolded — the package directory does not exist, so the
+    // entry is almost certainly not an Open Mercato module.
+    const enabled: ModuleEntry[] = [{ id: 'cpq', from: '@dainamite/cpq' }]
+    const baseResolver = createMockResolver(tmpDir, enabled)
+    const resolver: PackageResolver = {
+      ...baseResolver,
+      getModulePaths: (entry: ModuleEntry) => ({
+        appBase: path.join(tmpDir, 'app', 'src', 'modules', entry.id),
+        pkgBase: path.join(
+          tmpDir,
+          'node_modules',
+          '@dainamite',
+          'cpq',
+          'dist',
+          'modules',
+          entry.id,
+        ),
+      }),
+      getModuleImportBase: (entry: ModuleEntry) => ({
+        appBase: `@/modules/${entry.id}`,
+        pkgBase: `@dainamite/cpq/modules/${entry.id}`,
+      }),
+    }
+
+    await expect(generateModuleRegistry({ resolver, quiet: true })).rejects.toThrow(
+      /no Open Mercato module shape was found/,
+    )
+  })
+
+  it('rejects third-party specifiers with path-traversal segments', async () => {
+    const pkgModuleBase = path.join(
+      tmpDir,
+      'packages',
+      'thirdparty-traversal',
+      'src',
+      'modules',
+      'evil',
+    )
+    touchFile(
+      path.join(pkgModuleBase, 'subscribers', 'on-event.ts'),
+      `export const metadata = { event: 'evil.x' }\nexport default async function handler() {}\n`,
+    )
+
+    const baseResolver = createMockResolver(tmpDir, [
+      { id: 'evil', from: '@vendor/pkg' },
+    ])
+    const resolver: PackageResolver = {
+      ...baseResolver,
+      getModulePaths: (entry: ModuleEntry) => ({
+        appBase: path.join(tmpDir, 'app', 'src', 'modules', entry.id),
+        pkgBase: pkgModuleBase,
+      }),
+      // Inject a malicious specifier with a ".." segment.
+      getModuleImportBase: (entry: ModuleEntry) => ({
+        appBase: `@/modules/${entry.id}`,
+        pkgBase: `@vendor/pkg/../escape/modules/${entry.id}`,
+      }),
+    }
+
+    await expect(generateModuleRegistry({ resolver, quiet: true })).rejects.toThrow(
+      /Unsafe generated module specifier/,
+    )
+  })
+
   it('mixed subset: core module + app module, then remove core module', async () => {
     scaffoldModule(tmpDir, 'core_mod', 'pkg', [
       'backend/page.tsx',

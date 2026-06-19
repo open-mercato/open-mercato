@@ -7,6 +7,7 @@ import { Checkbox } from '../primitives/checkbox'
 import { Spinner } from '../primitives/spinner'
 import { useConfirmDialog } from './confirm-dialog'
 import { flash } from './FlashMessages'
+import { surfaceRecordConflict } from './conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type {
   PerspectiveDto,
@@ -133,7 +134,8 @@ export function PerspectiveSidebar({
           perspectiveId: targetId,
         })
         flash(t('ui.perspectives.autosave.success', 'View saved'), 'success')
-      } catch {
+      } catch (err: unknown) {
+        if (surfaceRecordConflict(err, t)) return
         flash(t('ui.perspectives.autosave.error', 'Failed to save view'), 'error')
       }
     }, 400)
@@ -199,6 +201,7 @@ export function PerspectiveSidebar({
       await onSave({ name: name.trim(), isDefault, applyToRoles: [], setRoleDefault: false, perspectiveId: null })
       resetMode()
     } catch (err: unknown) {
+      if (surfaceRecordConflict(err, t)) return
       setError(err instanceof Error ? err.message : 'Failed to save view')
     }
   }
@@ -237,6 +240,7 @@ export function PerspectiveSidebar({
       })
       setRenamingId(null)
     } catch (err: unknown) {
+      if (surfaceRecordConflict(err, t)) return
       setError(err instanceof Error ? err.message : 'Failed to rename view')
     }
   }
@@ -282,6 +286,7 @@ export function PerspectiveSidebar({
         const msg = errMessage.toLowerCase()
         const isDuplicate = msg.includes('duplicate key') || msg.includes('unique constraint')
         if (!isDuplicate) {
+          if (surfaceRecordConflict(err, t)) return
           setError(errMessage || 'Failed to clone view')
           return
         }
@@ -289,6 +294,7 @@ export function PerspectiveSidebar({
         counter += 1
       }
     }
+    if (surfaceRecordConflict(lastErr, t)) return
     setError(lastErr instanceof Error ? lastErr.message : 'Failed to clone view')
   }
 
@@ -333,6 +339,7 @@ export function PerspectiveSidebar({
       setSharedIds((prev) => new Set([...prev, mode.perspectiveId]))
       resetMode()
     } catch (err: unknown) {
+      if (surfaceRecordConflict(err, t)) return
       setError(err instanceof Error ? err.message : 'Failed to share view')
     }
   }

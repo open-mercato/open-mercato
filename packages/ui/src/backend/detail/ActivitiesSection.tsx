@@ -395,6 +395,7 @@ function ActivityForm({
           allowInlineCreate
           appearanceLabels={appearanceLabels}
           selectClassName="w-full"
+          sortOptions="none"
           manageHref={manageHref}
         />
       ),

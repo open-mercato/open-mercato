@@ -1,6 +1,7 @@
 import {
   isTerminalMessageAction,
   resolveActionCommandInput,
+  resolveActionHref,
   type ResolvedMessageAction,
 } from '../actions'
 import type { Message } from '../../data/entities'
@@ -117,5 +118,68 @@ describe('isTerminalMessageAction', () => {
 
   it('defaults href actions to non-terminal', () => {
     expect(isTerminalMessageAction({ href: '/backend/sales/orders/1' })).toBe(false)
+  })
+})
+
+describe('resolveActionHref', () => {
+  const resolutionContext = {
+    tenantId: 'aaaaaaaa-aaaa-aaaa-8aaa-aaaaaaaaaaaa',
+    organizationId: 'bbbbbbbb-bbbb-bbbb-8bbb-bbbbbbbbbbbb',
+    userId: 'user-1',
+  }
+
+  it('returns null when the action has no href', () => {
+    const action = createAction({ commandId: undefined, href: undefined })
+    expect(resolveActionHref(action, createMessage(), resolutionContext)).toBeNull()
+  })
+
+  it('resolves relative hrefs and substitutes template values', () => {
+    const action = createAction({
+      commandId: undefined,
+      href: '/backend/messages/{messageId}',
+    })
+    expect(resolveActionHref(action, createMessage(), resolutionContext)).toBe(
+      '/backend/messages/message-1',
+    )
+  })
+
+  it('keeps safe absolute http(s) and mailto hrefs', () => {
+    expect(
+      resolveActionHref(
+        createAction({ commandId: undefined, href: 'https://example.com/orders/1' }),
+        createMessage(),
+        resolutionContext,
+      ),
+    ).toBe('https://example.com/orders/1')
+    expect(
+      resolveActionHref(
+        createAction({ commandId: undefined, href: 'mailto:support@example.com' }),
+        createMessage(),
+        resolutionContext,
+      ),
+    ).toBe('mailto:support@example.com')
+  })
+
+  it.each([
+    'javascript:alert(document.cookie)',
+    'JavaScript:alert(1)',
+    '  javascript:alert(1)',
+    'java\tscript:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'vbscript:msgbox(1)',
+    '//evil.example.com/steal',
+  ])('rejects unsafe href %s', (href) => {
+    const action = createAction({ commandId: undefined, href })
+    expect(resolveActionHref(action, createMessage(), resolutionContext)).toBeNull()
+  })
+
+  it('url-encodes substituted template values so they cannot break out of the path', () => {
+    const action = createAction({
+      commandId: undefined,
+      href: '/backend/search/{messageId}',
+    })
+    const message = createMessage({ id: '../../evil?x=1#y' } as Partial<Message>)
+    const resolved = resolveActionHref(action, message, resolutionContext)
+    expect(resolved).toBe('/backend/search/..%2F..%2Fevil%3Fx%3D1%23y')
   })
 })

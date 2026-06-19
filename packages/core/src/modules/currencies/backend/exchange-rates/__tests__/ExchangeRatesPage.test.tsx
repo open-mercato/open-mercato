@@ -61,6 +61,7 @@ jest.mock('@open-mercato/ui/backend/ValueIcons', () => ({
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
+  withScopedApiRequestHeaders: (_headers: unknown, run: () => unknown) => run(),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({

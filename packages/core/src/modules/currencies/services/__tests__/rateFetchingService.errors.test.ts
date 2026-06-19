@@ -193,26 +193,25 @@ describe('RateFetchingService - Error Handling', () => {
 
     it('stores rates with correct scope information', async () => {
       // Setup
+      const customScope = { tenantId: 'tenant-abc', organizationId: 'org-xyz' }
       const currencies = [
-        createTestCurrency({ code: 'USD' }),
-        createTestCurrency({ code: 'EUR' }),
+        createTestCurrency({ code: 'USD', tenantId: customScope.tenantId, organizationId: customScope.organizationId }),
+        createTestCurrency({ code: 'EUR', tenantId: customScope.tenantId, organizationId: customScope.organizationId }),
       ]
-      
+
       const { em } = createMockEntityManager({ currencies })
       service = new RateFetchingService(em)
-      
+
       const provider = createMockProvider({
         source: 'TEST',
         rates: [createTestRate({ fromCurrencyCode: 'USD', toCurrencyCode: 'EUR' })],
       })
-      
+
       service.registerProvider(provider)
-      
-      const customScope = { tenantId: 'tenant-abc', organizationId: 'org-xyz' }
-      
+
       // Execute
       await service.fetchRatesForDate(TEST_DATE, customScope)
-      
+
       // Assert - verify transactional was called (rates stored with scope)
       expect(em.transactional).toHaveBeenCalled()
     })

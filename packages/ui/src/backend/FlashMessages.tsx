@@ -11,6 +11,30 @@ const flashKindToAlertStatus: Record<FlashKind, AlertStatus> = {
   info: 'information',
 }
 
+function normalizeFlashKind(value: string | null | undefined): FlashKind {
+  if (value && Object.prototype.hasOwnProperty.call(flashKindToAlertStatus, value)) {
+    return value as FlashKind
+  }
+  return 'success'
+}
+
+// A URL-supplied flash is only trustworthy when the navigation that carried it
+// originated from the same origin (an in-app POST->GET redirect or client-side
+// navigation). Cross-origin links — the phishing/content-spoofing vector — must
+// not be allowed to render attacker-controlled copy inside an authoritative banner.
+function isSameOriginFlashNavigation(): boolean {
+  if (typeof window === 'undefined') return false
+  const referrer = document.referrer
+  // No referrer (direct load, bookmark, or referrer stripped) is ambiguous, not a
+  // cross-origin redirect we can attribute to an attacker page; allow it.
+  if (!referrer) return true
+  try {
+    return new URL(referrer).origin === window.location.origin
+  } catch {
+    return false
+  }
+}
+
 // Programmatic API to show a flash message without navigation.
 // Consumers can import { flash } and call flash('text', 'error').
 export function flash(message: string, type: FlashKind = 'info') {
@@ -125,12 +149,17 @@ function FlashMessagesInner() {
     if (typeof window === 'undefined') return
     const url = new URL(window.location.href)
     const message = url.searchParams.get('flash')
-    const type = (url.searchParams.get('type') as FlashKind | null) || 'success'
+    const type = normalizeFlashKind(url.searchParams.get('type'))
     if (message) {
-      showFlash(message, type)
+      // Always strip the params so a spoofed link does not linger in history,
+      // but only render the banner for same-origin navigations.
+      const trusted = isSameOriginFlashNavigation()
       url.searchParams.delete('flash')
       url.searchParams.delete('type')
       window.history.replaceState({}, '', url.toString())
+      if (trusted) {
+        showFlash(message, type)
+      }
     }
   }, [locationKey, showFlash])
 

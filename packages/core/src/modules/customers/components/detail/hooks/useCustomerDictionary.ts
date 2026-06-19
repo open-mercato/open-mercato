@@ -72,6 +72,7 @@ export const customerDictionaryQueryOptions = (kind: CustomerDictionaryKind, sco
       .filter((entry): entry is CustomerDictionaryEntry => entry !== null)
     const normalized = normalizeDictionaryEntries(
       parsed.map(({ value, label, color, icon }) => ({ value, label, color, icon })),
+      { sort: false },
     )
     return {
       entries: normalized,

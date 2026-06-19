@@ -135,4 +135,105 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
     )
     expect(mockLogs.markRedone).toHaveBeenCalledWith('log-undo')
   })
+
+  it('uses tenant-level latest-undone scope for logs without organization id', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    const log = {
+      id: 'log-tenant',
+      commandId: 'directory.organizations.create',
+      actionLabel: 'Create organization',
+      resourceKind: 'directory.organization',
+      resourceId: 'org-created',
+      executionState: 'undone',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      commandPayload: { __redoInput: {} },
+      contextJson: null,
+    }
+    mockLogs.findById.mockResolvedValue(log)
+    mockLogs.latestUndoneForActor.mockResolvedValue(log)
+
+    const res = await POST(makeRequest({ logId: 'log-tenant' }))
+
+    expect(res.status).toBe(200)
+    expect(mockLogs.latestUndoneForActor).toHaveBeenCalledWith('user-1', {
+      tenantId: 'tenant-1',
+      organizationId: null,
+    })
+  })
+
+  // Regression for issue #2931 — a caller with a null tenantId (tenant-less global
+  // account or unscoped API key) must NOT redo a tenant-scoped row. The old guard
+  // (`log.tenantId && auth.tenantId && ...`) short-circuited to "allow" whenever
+  // auth.tenantId was null, mirroring the pre-#2685 undo defect.
+  it('rejects a tenant-less caller redoing a tenant-scoped row', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: null,
+      orgId: null,
+    })
+    const log = {
+      id: 'log-1',
+      commandId: 'demo.command',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'auth.user',
+      resourceId: 'user-42',
+      executionState: 'undone',
+      commandPayload: { __redoInput: {} },
+      contextJson: null,
+    }
+    mockLogs.findById.mockResolvedValue(log)
+    mockLogs.latestUndoneForActor.mockResolvedValue(log)
+
+    const res = await POST(makeRequest({ logId: 'log-1' }))
+    expect(res.status).toBe(400)
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+  })
+
+  // Regression for issue #2931 — a regular caller (no audit_logs.redo_tenant) whose
+  // organization scope resolves to null must NOT redo an org-scoped row. The old org
+  // guard (`log.organizationId && scopedOrgId && ...`) skipped rejection when
+  // scopedOrgId was null; only tenant-level redoers may legitimately leave org null.
+  it('rejects a regular caller with null org scope redoing an org-scoped row', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: null,
+    })
+    ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({
+      organizationId: null,
+      scope: { allowedIds: null },
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+
+    const log = {
+      id: 'log-2',
+      commandId: 'demo.command',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'auth.user',
+      resourceId: 'user-42',
+      executionState: 'undone',
+      commandPayload: { __redoInput: {} },
+      contextJson: null,
+    }
+    mockLogs.findById.mockResolvedValue(log)
+    mockLogs.latestUndoneForActor.mockResolvedValue(log)
+
+    const res = await POST(makeRequest({ logId: 'log-2' }))
+    expect(res.status).toBe(400)
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+  })
 })

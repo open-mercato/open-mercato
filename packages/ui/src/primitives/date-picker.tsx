@@ -230,6 +230,7 @@ export function DatePicker({
         <Calendar
           mode="single"
           selected={selectedDate ?? undefined}
+          defaultMonth={selectedDate ?? undefined}
           onSelect={handleDaySelect}
           locale={locale}
           disabled={disabledMatcher}

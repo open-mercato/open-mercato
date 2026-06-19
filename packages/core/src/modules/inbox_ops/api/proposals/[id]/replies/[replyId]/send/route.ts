@@ -58,6 +58,15 @@ export async function POST(req: Request) {
       )
     }
 
+    const existingMetadata =
+      action.metadata && typeof action.metadata === 'object' ? action.metadata : {}
+    if ((existingMetadata as Record<string, unknown>).replySentAt) {
+      return NextResponse.json(
+        { error: 'Reply has already been sent for this action' },
+        { status: 409 },
+      )
+    }
+
     const email = await findOneWithDecryption(
       ctx.em,
       InboxEmail,
@@ -131,7 +140,7 @@ export async function POST(req: Request) {
     )
 
     action.metadata = {
-      ...(action.metadata && typeof action.metadata === 'object' ? action.metadata : {}),
+      ...existingMetadata,
       replySentAt: new Date().toISOString(),
       sentMessageId,
       ...(messagesResult ? { messageRecordId: messagesResult.messageId } : {}),

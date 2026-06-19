@@ -445,15 +445,15 @@ export function createSyncEngine(deps: EngineDeps) {
           processedCount += processedBatchCount
           totalCount = batch.totalEstimate ?? totalCount
 
-          await syncRunService.updateCounts(
+          await syncRunService.commitBatchProgress(
             run.id,
             {
               ...delta,
               batchesCompleted: 1,
             },
+            batch.cursor,
             scope,
           )
-          await syncRunService.updateCursor(run.id, batch.cursor, scope)
 
           await updateProgress(run.progressJobId, processedCount, totalCount, scope)
           await refreshCoverageSnapshots(batch.refreshCoverageEntityTypes, scope)
@@ -587,7 +587,7 @@ export function createSyncEngine(deps: EngineDeps) {
           const delta = applyExportCounters(batch)
           processedCount += delta.processedCount
 
-          await syncRunService.updateCounts(
+          await syncRunService.commitBatchProgress(
             run.id,
             {
               createdCount: 0,
@@ -596,10 +596,9 @@ export function createSyncEngine(deps: EngineDeps) {
               failedCount: delta.failedCount,
               batchesCompleted: 1,
             },
+            batch.cursor,
             scope,
           )
-
-          await syncRunService.updateCursor(run.id, batch.cursor, scope)
           await updateProgress(run.progressJobId, processedCount, null, scope)
 
           await writeOperationalLog({

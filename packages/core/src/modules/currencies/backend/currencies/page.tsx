@@ -4,6 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { ColumnDef } from '@tanstack/react-table'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -11,7 +12,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Plus, Star } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -99,11 +101,14 @@ export default function CurrenciesPage() {
   const handleSetBase = React.useCallback(
     async (row: CurrencyRow) => {
       try {
-        const call = await apiCall('/api/currencies/currencies', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: row.id, isBase: true }),
-        })
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(row.updatedAt),
+          () => apiCall('/api/currencies/currencies', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: row.id, isBase: true }),
+          }),
+        )
 
         if (!call.ok) {
           flash(t('currencies.flash.baseSetError'), 'error')
@@ -128,11 +133,14 @@ export default function CurrenciesPage() {
       if (!confirmed) return
 
       try {
-        const call = await apiCall(`/api/currencies/currencies`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: row.id, organizationId: row.organizationId, tenantId: row.tenantId }),
-        })
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(row.updatedAt),
+          () => apiCall(`/api/currencies/currencies`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: row.id, organizationId: row.organizationId, tenantId: row.tenantId }),
+          }),
+        )
 
         if (!call.ok) {
           flash(t('currencies.flash.deleteError'), 'error')
@@ -284,6 +292,13 @@ export default function CurrenciesPage() {
                     ]
                   : []),
               ]}
+            />
+          )}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('currencies.list.title')}
+              createHref="/backend/currencies/create"
+              createLabel={t('currencies.list.actions.create')}
             />
           )}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}

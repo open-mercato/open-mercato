@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { Perspective, RolePerspective } from '../data/entities'
 import type {
   PerspectiveSettings,
@@ -216,7 +217,12 @@ export async function loadPerspectivesState(
 export async function saveUserPerspective(
   em: EntityManager,
   cache: CacheStrategy | null | undefined,
-  options: { scope: PerspectiveScope; tableId: string; input: PerspectiveSaveInput },
+  options: {
+    scope: PerspectiveScope
+    tableId: string
+    input: PerspectiveSaveInput
+    request?: Request | Headers | null
+  },
 ): Promise<ResolvedPerspective> {
   const { scope, tableId, input } = options
   const tenantId = scope.tenantId ?? null
@@ -235,6 +241,12 @@ export async function saveUserPerspective(
     if (!entity) {
       throw Object.assign(new Error('Perspective not found'), { code: 'NOT_FOUND' })
     }
+    enforceCommandOptimisticLock({
+      resourceKind: 'perspectives.perspective',
+      resourceId: entity.id,
+      current: entity.updatedAt ?? null,
+      request: options.request ?? null,
+    })
   } else {
     entity = await em.findOne(Perspective, {
       userId: scope.userId,
@@ -339,15 +351,23 @@ export async function saveRolePerspectives(
 
   const results: ResolvedRolePerspective[] = []
 
-  for (const roleId of input.roleIds) {
-    let record = await em.findOne(RolePerspective, {
-      roleId,
+  // Prefetch every matching role perspective in a single query, then index by role id
+  // so the loop resolves create/update without a lookup per role.
+  const recordByRole = new Map<string, RolePerspective>()
+  if (input.roleIds.length) {
+    const existingRecords = await em.find(RolePerspective, {
+      roleId: { $in: input.roleIds },
       tableId,
       tenantId,
       organizationId,
       name: input.name,
       deletedAt: null,
     })
+    for (const existing of existingRecords) recordByRole.set(existing.roleId, existing)
+  }
+
+  for (const roleId of input.roleIds) {
+    let record = recordByRole.get(roleId) ?? null
     if (!record) {
       record = em.create(RolePerspective, {
         roleId,
@@ -361,6 +381,7 @@ export async function saveRolePerspectives(
         updatedAt: now,
       })
       em.persist(record)
+      recordByRole.set(roleId, record)
     } else {
       record.settingsJson = input.settings
       record.updatedAt = now

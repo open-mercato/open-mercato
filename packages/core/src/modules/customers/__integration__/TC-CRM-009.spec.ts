@@ -3,6 +3,60 @@ import { createCompanyFixture, createDealFixture, createPipelineFixture, createP
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
+async function expectPipelineFixtureVisible(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  pipelineId: string,
+  pipelineName: string,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const res = await apiRequest(
+          request,
+          'GET',
+          `/api/customers/pipelines?page=1&pageSize=100&search=${encodeURIComponent(pipelineName)}`,
+          { token },
+        );
+        const body = (await res.json().catch(() => null)) as
+          | { items?: Array<{ id?: string; name?: string }>; result?: { items?: Array<{ id?: string; name?: string }> } }
+          | null;
+        const items = Array.isArray(body?.items)
+          ? body.items
+          : Array.isArray(body?.result?.items)
+            ? body.result.items
+            : [];
+        return items.some((item) => item.id === pipelineId && item.name === pipelineName);
+      },
+      {
+        message: `pipeline fixture ${pipelineName} should be visible through the list API`,
+        timeout: 15_000,
+      },
+    )
+    .toBe(true);
+}
+
+async function selectPipelineFilter(page: import('@playwright/test').Page, pipelineName: string): Promise<void> {
+  const pipelineChip = page.getByRole('button', { name: /^Pipeline:/ });
+  await expect(pipelineChip).toBeVisible({ timeout: 15_000 });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await pipelineChip.click();
+    const pipelinePopover = page.getByRole('dialog').last();
+    const option = pipelinePopover.getByRole('radio', { name: pipelineName, exact: true });
+    if (await option.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await option.click();
+      await pipelinePopover.getByRole('button', { name: 'Apply', exact: true }).click();
+      return;
+    }
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(500);
+  }
+  await pipelineChip.click();
+  const pipelinePopover = page.getByRole('dialog').last();
+  await pipelinePopover.getByRole('radio', { name: pipelineName, exact: true }).click();
+  await pipelinePopover.getByRole('button', { name: 'Apply', exact: true }).click();
+}
+
 /**
  * TC-CRM-009: Update Deal Pipeline Stage
  * Source: .ai/qa/scenarios/TC-CRM-009-deal-pipeline-update.md
@@ -45,21 +99,24 @@ test.describe('TC-CRM-009: Update Deal Pipeline Stage', () => {
         data: { id: dealId, pipelineId, pipelineStageId: winStageId },
       });
       expect(updateResponse.status(), `PUT /api/customers/deals returned ${updateResponse.status()}`).toBeLessThan(400);
+      await expectPipelineFixtureVisible(request, token, pipelineId, pipelineName);
 
       await login(page, 'admin');
-      await page.goto('/backend/customers/deals/pipeline');
-      // Pipeline picker is a Radix Select inside <label>Pipeline ...</label>.
-      // The page also has a "Sort by" Select — scope by the wrapping label so
-      // .first() doesn't accidentally pick Sort while the pipelines query loads.
-      const pipelineCombobox = page
-        .locator('label')
-        .filter({ has: page.getByText('Pipeline', { exact: true }) })
-        .getByRole('combobox');
-      await expect(pipelineCombobox).toBeVisible({ timeout: 10_000 });
-      await pipelineCombobox.click();
-      await page.getByRole('option', { name: pipelineName, exact: true }).click();
-      const winLane = page.locator('main').locator('div').filter({ has: page.getByText(/^Win$/) }).first();
-      await expect(winLane).toContainText(dealTitle);
+      await page.goto('/backend/customers/deals/pipeline', { waitUntil: 'commit' });
+      // SPEC-048 kanban redesign: the pipeline selector is now a chip+popover, not a
+      // <label>Pipeline<Select/></label>. The chip button is rendered with
+      // aria-label="Pipeline: <value>" (PipelineFilterPopover → ChipButton); selecting a
+      // pipeline is a two-step interaction (open chip → click radio row → click Apply).
+      await selectPipelineFilter(page, pipelineName);
+      // After filtering to the test pipeline, the deal (already moved to Win via API) should
+      // render inside the Win lane. Lane wrapper is an unlabelled flex container — we locate
+      // it as the outermost <div> containing both the stage label and the deal title.
+      const winLane = page
+        .locator('main div')
+        .filter({ has: page.getByText(/^Win$/) })
+        .filter({ has: page.getByText(dealTitle, { exact: true }) })
+        .first();
+      await expect(winLane).toBeVisible({ timeout: 10_000 });
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);

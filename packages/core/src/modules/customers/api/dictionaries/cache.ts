@@ -8,6 +8,7 @@ type CacheKeyOptions = {
   organizationId: string | null
   mappedKind: string
   readableOrganizationIds: string[]
+  sortMode?: string
 }
 
 type CacheTagOptions = {
@@ -20,7 +21,8 @@ type CacheTagOptions = {
 export function createDictionaryCacheKey(options: CacheKeyOptions): string {
   const scope = options.readableOrganizationIds.join('|')
   const organizationPart = options.organizationId ?? 'all'
-  return `${CACHE_PREFIX}:${options.tenantId}:${options.mappedKind}:org=${organizationPart}:scope=${scope}`
+  const sortPart = options.sortMode ? `:sort=${options.sortMode}` : ''
+  return `${CACHE_PREFIX}:${options.tenantId}:${options.mappedKind}:org=${organizationPart}:scope=${scope}${sortPart}`
 }
 
 export function createDictionaryCacheTags(options: CacheTagOptions): string[] {

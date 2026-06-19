@@ -6,11 +6,13 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Building2, Hash, Users, BarChart3, StickyNote } from 'lucide-react'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { AttachmentsSection, ErrorMessage, LoadingMessage, type SectionAction } from '@open-mercato/ui/backend/detail'
+import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -54,6 +56,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   const [data, setData] = React.useState<CompanyOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
 
   // Tab state
   const initialTab = React.useMemo(() => {
@@ -113,7 +116,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   const initialLoadDoneRef = React.useRef(false)
   const loadData = React.useCallback(async () => {
     if (!id) {
-      setError(t('customers.companies.detail.error.notFound', 'Company not found.'))
+      setIsNotFound(true)
       setIsLoading(false)
       return
     }
@@ -121,6 +124,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       setIsLoading(true)
     }
     setError(null)
+    setIsNotFound(false)
     try {
       const payload = await readApiResultOrThrow<CompanyOverview>(
         `/api/customers/companies/${encodeURIComponent(id)}`,
@@ -129,8 +133,12 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       )
       setData(payload as CompanyOverview)
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
-      setError(message)
+      if ((err as { status?: number }).status === 404) {
+        setIsNotFound(true)
+      } else {
+        const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
+        setError(message)
+      }
       if (!initialLoadDoneRef.current) setData(null)
     } finally {
       setIsLoading(false)
@@ -198,6 +206,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     // moment instead of "today" (#1807 prefill).
     const editPayload = {
       id: activity.id,
+      updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt as string : typeof raw.updated_at === 'string' ? raw.updated_at as string : null,
       interactionType: typeof activity.interactionType === 'string' ? activity.interactionType : undefined,
       title: typeof activity.title === 'string' ? activity.title : null,
       body: typeof activity.body === 'string' ? activity.body : null,
@@ -317,10 +326,28 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       variant: 'destructive',
     })
     if (!approved) return
-    await runMutationWithContext(
-      () => deleteCrud('customers/companies', { id: companyId }),
-      { id: companyId, operation: 'deleteCompany' },
-    )
+    try {
+      await runMutationWithContext(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader((data?.company as { updatedAt?: string } | undefined)?.updatedAt),
+          () => deleteCrud('customers/companies', { id: companyId }),
+        ),
+        { id: companyId, operation: 'deleteCompany' },
+      )
+    } catch (err) {
+      // The guarded mutation already routes a 409 to the unified conflict bar;
+      // surface any other server error (e.g. "Cannot delete company: linked
+      // deals…") as a flash instead of letting it crash the page.
+      if (!surfaceRecordConflict(err, t)) {
+        flash(
+          err instanceof Error && err.message.trim().length > 0
+            ? err.message
+            : t('customers.companies.detail.deleteError', 'Failed to delete company.'),
+          'error',
+        )
+      }
+      return
+    }
     flash(t('customers.companies.list.deleteSuccess', 'Company deleted.'), 'success')
     router.push('/backend/customers/companies')
   }, [confirm, data?.company?.id, router, runMutationWithContext, t])
@@ -373,12 +400,26 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('customers.companies.detail.error.notFound', 'Company not found.')}
+            backHref="/backend/customers/companies"
+            backLabel={t('customers.companies.detail.actions.backToList', 'Back to companies')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !data?.company?.id) {
     return (
       <Page>
         <PageBody>
           <ErrorMessage
-            label={error || t('customers.companies.detail.error.notFound', 'Company not found.')}
+            label={error ?? t('customers.companies.detail.error.load', 'Failed to load company.')}
             action={(
               <Button asChild variant="outline">
                 <Link href="/backend/customers/companies">
@@ -437,6 +478,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                   initialValues={initialValues}
                   onSubmit={handleFormSubmit}
                   onDelete={handleDelete}
+                  optimisticLockUpdatedAt={(data?.company as { updatedAt?: string } | undefined)?.updatedAt}
                   hideFooterActions
                   collapsibleGroups={{ pageType: 'company-v2', chevronPosition: 'right' }}
                   sortableGroups={{ pageType: 'company-v2' }}

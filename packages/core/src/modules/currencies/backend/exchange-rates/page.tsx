@@ -4,13 +4,16 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { ColumnDef } from '@tanstack/react-table'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Plus } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -108,11 +111,14 @@ export default function ExchangeRatesPage() {
       if (!confirmed) return
 
       try {
-        const call = await apiCall(`/api/currencies/exchange-rates`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: row.id, organizationId: row.organizationId, tenantId: row.tenantId }),
-        })
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(row.updatedAt),
+          () => apiCall(`/api/currencies/exchange-rates`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: row.id, organizationId: row.organizationId, tenantId: row.tenantId }),
+          }),
+        )
 
         if (!call.ok) {
           flash(t('exchangeRates.flash.deleteError'), 'error')
@@ -171,13 +177,9 @@ export default function ExchangeRatesPage() {
           const type = row.original.type
           if (!type) return '—'
           return (
-            <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${
-              type === 'buy' 
-                ? 'bg-green-100 text-green-800' 
-                : 'bg-blue-100 text-blue-800'
-            }`}>
+            <Badge variant={type === 'buy' ? 'success' : 'info'}>
               {type === 'buy' ? t('exchangeRates.list.type.buy') : t('exchangeRates.list.type.sell')}
-            </span>
+            </Badge>
           )
         },
       },
@@ -294,6 +296,13 @@ export default function ExchangeRatesPage() {
                   onSelect: () => handleDelete(row),
                 },
               ]}
+            />
+          )}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('exchangeRates.list.title')}
+              createHref="/backend/exchange-rates/create"
+              createLabel={t('exchangeRates.list.actions.create')}
             />
           )}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}

@@ -1,3 +1,4 @@
+import { createHmac } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { clearPaymentGatewayDescriptors, registerPaymentGatewayDescriptor } from '@open-mercato/shared/modules/payment_gateways/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -157,6 +158,32 @@ describe('checkout utils', () => {
     expect(buildConsentProof(link, { terms: true, privacyPolicy: false })).not.toHaveProperty('privacyPolicy')
   })
 
+  it('derives consent markdownHash from the server secret so it is tamper-evident', () => {
+    const link = createLink({
+      legalDocuments: {
+        terms: { title: 'Terms', markdown: 'terms body', required: true },
+      },
+    })
+
+    process.env.AUTH_SECRET = 'consent-secret-a'
+    const proofWithSecretA = buildConsentProof(link, { terms: true, privacyPolicy: false }) as {
+      terms: { markdownHash: string }
+    }
+    const hashWithSecretA = proofWithSecretA.terms.markdownHash
+
+    const forgedHashFromPublicConstant = createHmac('sha256', 'terms').update('terms body').digest('hex')
+    expect(hashWithSecretA).not.toBe(forgedHashFromPublicConstant)
+
+    const forgedHashFromPlainSha = createHmac('sha256', 'terms').update('terms\nterms body').digest('hex')
+    expect(hashWithSecretA).not.toBe(forgedHashFromPlainSha)
+
+    process.env.AUTH_SECRET = 'consent-secret-b'
+    const proofWithSecretB = buildConsentProof(link, { terms: true, privacyPolicy: false }) as {
+      terms: { markdownHash: string }
+    }
+    expect(proofWithSecretB.terms.markdownHash).not.toBe(hashWithSecretA)
+  })
+
   it('verifies password access tokens only for the matching slug', () => {
     const token = signCheckoutAccessToken('launch-offer', {
       linkId: 'link_1',
@@ -206,6 +233,91 @@ describe('checkout utils', () => {
       linkId: 'link_1',
       sessionVersion: '2026-03-20T10:00:00.000Z',
     })).toBe(true)
+  })
+
+  // #2675 — the checkout access cookie used to embed the link's bcrypt
+  // passwordHash verbatim as `sessionVersion`. The payload segment is only
+  // signed, not encrypted, so anyone with the cookie could base64url-decode
+  // it and run an offline crack against the hash. The fix derives a
+  // non-reversible HMAC of the input before embedding it.
+  describe('access cookie payload does not expose the raw sessionVersion (#2675)', () => {
+    const bcryptHash = '$2b$10$abcdefghijklmnopqrstuv1234567890ABCDEFGHIJKLMNOPQRSTUVwxyz12'
+    const BCRYPT_PREFIX_RE = /^\$2[abxy]\$/
+
+    function decodePayloadSegment(token: string): { sessionVersion?: string | null } {
+      const [encoded] = token.split('.')
+      const json = Buffer.from(encoded, 'base64url').toString('utf-8')
+      return JSON.parse(json) as { sessionVersion?: string | null }
+    }
+
+    it('never embeds a bcrypt-shaped sessionVersion in the payload', () => {
+      const token = signCheckoutAccessToken('launch-offer', {
+        linkId: 'link_1',
+        sessionVersion: bcryptHash,
+      })
+
+      const payload = decodePayloadSegment(token)
+      expect(payload.sessionVersion).toBeTruthy()
+      expect(payload.sessionVersion).not.toBe(bcryptHash)
+      expect(payload.sessionVersion ?? '').not.toMatch(BCRYPT_PREFIX_RE)
+    })
+
+    it('verifies a cookie signed with the same passwordHash', () => {
+      const token = signCheckoutAccessToken('launch-offer', {
+        linkId: 'link_1',
+        sessionVersion: bcryptHash,
+      })
+
+      expect(verifyCheckoutAccessToken(token, 'launch-offer', {
+        linkId: 'link_1',
+        sessionVersion: bcryptHash,
+      })).toBe(true)
+    })
+
+    it('rotates the cookie when the passwordHash changes (old token rejected against new hash)', () => {
+      const token = signCheckoutAccessToken('launch-offer', {
+        linkId: 'link_1',
+        sessionVersion: bcryptHash,
+      })
+
+      const rotatedHash = '$2b$10$ZZZZZZZZZZZZZZZZZZZZZuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuQ'
+      expect(verifyCheckoutAccessToken(token, 'launch-offer', {
+        linkId: 'link_1',
+        sessionVersion: rotatedHash,
+      })).toBe(false)
+    })
+
+    it('handles a null sessionVersion defensively without revealing input', () => {
+      const token = signCheckoutAccessToken('launch-offer', {
+        linkId: 'link_1',
+        sessionVersion: null,
+      })
+
+      const payload = decodePayloadSegment(token)
+      expect(payload.sessionVersion).toBeNull()
+      // A caller that does not enforce a sessionVersion still accepts the cookie
+      // (the signature + slug + linkId + exp are the floor of authenticity).
+      expect(verifyCheckoutAccessToken(token, 'launch-offer', {
+        linkId: 'link_1',
+      })).toBe(true)
+    })
+
+    it('produces a different cookie payload for two different bcrypt hashes (rotation semantics intact)', () => {
+      const tokenA = signCheckoutAccessToken('launch-offer', {
+        linkId: 'link_1',
+        sessionVersion: bcryptHash,
+      })
+      const tokenB = signCheckoutAccessToken('launch-offer', {
+        linkId: 'link_1',
+        sessionVersion: '$2b$10$differentdifferentdifferentdifferentdifferentdifferent',
+      })
+
+      const decodedA = decodePayloadSegment(tokenA).sessionVersion
+      const decodedB = decodePayloadSegment(tokenB).sessionVersion
+      expect(decodedA).toBeTruthy()
+      expect(decodedB).toBeTruthy()
+      expect(decodedA).not.toBe(decodedB)
+    })
   })
 
   it('releases the link lock when a reserved transaction reaches a terminal status', () => {

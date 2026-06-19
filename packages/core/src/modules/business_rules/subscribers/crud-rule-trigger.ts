@@ -11,7 +11,7 @@
  */
 
 import type { EntityManager } from '@mikro-orm/core'
-import { executeRules } from '../lib/rule-engine'
+import { executeRules, resolveBusinessRuleDiscoveryCache } from '../lib/rule-engine'
 
 export const metadata = {
   event: '*',
@@ -64,6 +64,7 @@ export default async function handle(
   if (!tenantId || !organizationId) return
 
   const em = ctx.resolve<EntityManager>('em')
+  const cache = resolveBusinessRuleDiscoveryCache(ctx.resolve)
 
   try {
     await executeRules(em, {
@@ -72,7 +73,7 @@ export default async function handle(
       data,
       tenantId,
       organizationId,
-    })
+    }, { cache })
   } catch (error) {
     console.error(`[business_rules] Rule execution failed for event ${eventName}:`, error)
   }

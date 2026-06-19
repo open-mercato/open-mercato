@@ -11,7 +11,7 @@
 
 ## Tasks
 
-> Authoritative status table. `Status` is `todo` or `done`. The first row whose `Status` is not `done` is the resume point for `auto-continue-pr`. Step ids are immutable once committed.
+> Authoritative status table. `Status` is `todo` or `done`. The first row whose `Status` is not `done` is the resume point for `om-auto-continue-pr`. Step ids are immutable once committed.
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
@@ -186,5 +186,5 @@ New `AiAgentRuntimeOverride` entity + migration, repository with tenant guards, 
 
 - Unit tests scoped to each phase (the spec already lists the named test files per phase).
 - Integration tests under `packages/ai-assistant/src/modules/ai_assistant/__integration__/` for `TC-AI-AGENT-LOOP-{001..006}` and the existing `TC-AI-AGENT-SETTINGS-005` extension.
-- Per-checkpoint validation per `auto-create-pr-loop` (typecheck + scoped unit tests + i18n when strings change + generate when module structure changes).
-- Final gate: full validation gate + `yarn test:integration` + `yarn test:create-app:integration` + `ds-guardian` pass.
+- Per-checkpoint validation per `om-auto-create-pr-loop` (typecheck + scoped unit tests + i18n when strings change + generate when module structure changes).
+- Final gate: full validation gate + `yarn test:integration` + `yarn test:create-app:integration` + `om-ds-guardian` pass.

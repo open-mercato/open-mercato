@@ -6,7 +6,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -19,6 +20,7 @@ import type { SectionAction } from '@open-mercato/core/modules/customers/compone
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { formatAddressString, type AddressValue } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { ShipmentDialog } from './ShipmentDialog'
+import { handleSectionMutationError, readRowUpdatedAt, rowOptimisticVersion } from './optimisticLock'
 import { extractCustomFieldValues } from './customFieldHelpers'
 import type { OrderLine, ShipmentRow, ShipmentItem } from './shipmentTypes'
 
@@ -267,6 +269,7 @@ export function SalesShipmentsSection({
           const customValues = extractCustomFieldValues(item as Record<string, unknown>)
           return {
             id,
+            updatedAt: readRowUpdatedAt(item),
             shipmentNumber:
               typeof (item as any).shipment_number === 'string'
                 ? (item as any).shipment_number
@@ -397,20 +400,27 @@ export function SalesShipmentsSection({
       })
       if (!confirmed) return
       try {
-        const result = await deleteCrud('sales/shipments', {
-          body: {
-            id: shipment.id,
-            orderId,
-            organizationId: resolvedOrganizationId,
-            tenantId: resolvedTenantId,
-          },
-          errorMessage: t('sales.documents.shipments.errorDelete', 'Failed to delete shipment.'),
-        })
+        const result = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(rowOptimisticVersion(shipment)),
+          () =>
+            deleteCrud('sales/shipments', {
+              body: {
+                id: shipment.id,
+                orderId,
+                organizationId: resolvedOrganizationId,
+                tenantId: resolvedTenantId,
+              },
+              errorMessage: t('sales.documents.shipments.errorDelete', 'Failed to delete shipment.'),
+            })
+        )
         if (result.ok) {
           await loadShipments()
           emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
         }
       } catch (err) {
+        if (handleSectionMutationError(err, t, () => void loadShipments())) {
+          return
+        }
         console.error('sales.shipments.delete', err)
         flash(t('sales.documents.shipments.errorDelete', 'Failed to delete shipment.'), 'error')
       }

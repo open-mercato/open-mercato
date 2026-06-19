@@ -13,16 +13,20 @@ export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
 }
 
+const MAX_DEFINITIONS_PER_BATCH = 1000
+
 const batchSchema = z
   .object({
     entityId: z.string().regex(/^[a-z0-9_]+:[a-z0-9_]+$/),
-    definitions: z.array(
-      upsertCustomFieldDefSchema
-        .omit({ entityId: true })
-        .extend({
-          configJson: z.any().optional(),
-        })
-    ),
+    definitions: z
+      .array(
+        upsertCustomFieldDefSchema
+          .omit({ entityId: true })
+          .extend({
+            configJson: z.any().optional(),
+          })
+      )
+      .max(MAX_DEFINITIONS_PER_BATCH),
   })
   .extend(customFieldEntityConfigSchema.shape)
 
@@ -65,6 +69,20 @@ export async function POST(req: Request) {
 
   await em.begin()
   try {
+    // Prefetch every existing definition for this entity in a single query, then index
+    // by key so the per-definition loop resolves create/update without round trips.
+    const defByKey = new Map<string, any>()
+    const keys = definitions.map((d) => d.key)
+    if (keys.length > 0) {
+      const existingDefs = await em.find(CustomFieldDef, {
+        entityId,
+        key: { $in: keys },
+        organizationId: auth.orgId ?? null,
+        tenantId: auth.tenantId ?? null,
+      })
+      for (const existing of existingDefs) defByKey.set(existing.key, existing)
+    }
+
     for (const [idx, d] of definitions.entries()) {
       const where: any = {
         entityId,
@@ -72,8 +90,11 @@ export async function POST(req: Request) {
         organizationId: auth.orgId ?? null,
         tenantId: auth.tenantId ?? null,
       }
-      let def = await em.findOne(CustomFieldDef, where)
-      if (!def) def = em.create(CustomFieldDef, { ...where, createdAt: new Date() })
+      let def = defByKey.get(d.key)
+      if (!def) {
+        def = em.create(CustomFieldDef, { ...where, createdAt: new Date() })
+        defByKey.set(d.key, def)
+      }
       def.kind = d.kind
 
       const inCfg = (d as any).configJson ?? {}

@@ -8,6 +8,11 @@ import { addCustomLine, createSalesDocument, updateLineQuantity } from '@open-me
  */
 test.describe('TC-SALES-004: Order Line Management', () => {
   test('should create and update order line in UI', async ({ page }) => {
+    // Heavy multi-hop UI flow (login + createSalesDocument + line update)
+    // routinely exceeds Playwright's 20s default on a loaded ephemeral shard;
+    // opt into the sanctioned per-test budget (see TC-SALES-005). Global bump
+    // is disallowed.
+    test.slow();
     const lineName = `QA TC-SALES-004 ${Date.now()}`;
 
     await login(page, 'admin');

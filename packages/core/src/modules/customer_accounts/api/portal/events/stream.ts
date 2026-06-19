@@ -31,6 +31,7 @@ type PortalSseConnection = {
 function normalizeAudience(data: Record<string, unknown>): {
   tenantId: string | null
   organizationScopes: string[]
+  recipientUserScopes: string[]
 } {
   const tenantId = typeof data.tenantId === 'string' ? data.tenantId : null
   const organizationScopes = new Set<string>()
@@ -44,7 +45,24 @@ function normalizeAudience(data: Record<string, unknown>): {
       }
     }
   }
-  return { tenantId, organizationScopes: Array.from(organizationScopes) }
+
+  const recipientUserScopes = new Set<string>()
+  if (typeof data.recipientUserId === 'string' && data.recipientUserId.trim().length > 0) {
+    recipientUserScopes.add(data.recipientUserId.trim())
+  }
+  if (Array.isArray(data.recipientUserIds)) {
+    for (const userId of data.recipientUserIds) {
+      if (typeof userId === 'string' && userId.trim().length > 0) {
+        recipientUserScopes.add(userId.trim())
+      }
+    }
+  }
+
+  return {
+    tenantId,
+    organizationScopes: Array.from(organizationScopes),
+    recipientUserScopes: Array.from(recipientUserScopes),
+  }
 }
 
 function matchesAudience(conn: PortalSseConnection, audience: ReturnType<typeof normalizeAudience>): boolean {
@@ -52,6 +70,9 @@ function matchesAudience(conn: PortalSseConnection, audience: ReturnType<typeof 
   if (conn.tenantId !== audience.tenantId) return false
   if (audience.organizationScopes.length > 0) {
     if (!audience.organizationScopes.includes(conn.organizationId)) return false
+  }
+  if (audience.recipientUserScopes.length > 0 && !audience.recipientUserScopes.includes(conn.customerUserId)) {
+    return false
   }
   return true
 }
@@ -152,6 +173,12 @@ export async function GET(req: Request): Promise<Response> {
       }
       portalConnections.add(connection)
 
+      // Flush an initial comment so the runtime sends the response headers and
+      // first body byte immediately, firing the browser EventSource `open`
+      // event without waiting for the first heartbeat (30s) or matching event.
+      // Comment lines (`:` prefix) are ignored by EventSource message parsing.
+      controller.enqueue(encoder.encode(': connected\n\n'))
+
       heartbeatTimer = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(':heartbeat\n\n'))
@@ -194,7 +221,7 @@ export async function GET(req: Request): Promise<Response> {
 
 const methodDoc: OpenApiMethodDoc = {
   summary: 'Subscribe to portal events via SSE (Portal Event Bridge)',
-  description: 'Long-lived SSE connection that receives server-side events marked with portalBroadcast: true. Events are filtered by the customer\'s tenant and organization.',
+  description: 'Long-lived SSE connection that receives server-side events marked with portalBroadcast: true. Events are filtered by the customer\'s tenant, organization, and recipient user audience.',
   tags: ['Customer Portal'],
   responses: [
     {

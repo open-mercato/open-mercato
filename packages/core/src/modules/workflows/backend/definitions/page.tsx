@@ -18,11 +18,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { Trash2 } from 'lucide-react'
 
 type WorkflowDefinitionSource = 'code' | 'code_override' | 'user'
@@ -86,7 +89,7 @@ export default function WorkflowDefinitionsListPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
-  const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string } | null>(null)
+  const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string; updatedAt: string | null } | null>(null)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['workflow-definitions', 'list', filterValues, page],
@@ -121,22 +124,31 @@ export default function WorkflowDefinitionsListPage() {
     },
   })
 
-  const handleDelete = (id: string, workflowName: string) => {
-    setDeleteTarget({ id, name: workflowName })
+  const handleDelete = (id: string, workflowName: string, updatedAt: string | null) => {
+    setDeleteTarget({ id, name: workflowName, updatedAt })
   }
 
   const confirmDelete = async () => {
     if (!deleteTarget) return
 
-    const result = await apiCall(`/api/workflows/definitions/${deleteTarget.id}`, {
-      method: 'DELETE',
-    })
+    const result = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(deleteTarget.updatedAt),
+      () => apiCall(`/api/workflows/definitions/${deleteTarget.id}`, {
+        method: 'DELETE',
+      }),
+    )
 
     if (result.ok) {
       flash(t('workflows.messages.deleted'), 'success')
       queryClient.invalidateQueries({ queryKey: ['workflow-definitions'] })
     } else {
-      flash(t('workflows.messages.deleteFailed'), 'error')
+      const conflictError = Object.assign(new Error(t('workflows.messages.deleteFailed')), {
+        status: result.status,
+        ...(result.result && typeof result.result === 'object' ? result.result : {}),
+      })
+      if (!surfaceRecordConflict(conflictError, t)) {
+        flash(t('workflows.messages.deleteFailed'), 'error')
+      }
     }
     setDeleteTarget(null)
   }
@@ -255,12 +267,12 @@ export default function WorkflowDefinitionsListPage() {
             )}
           </div>
           {row.original.description && (
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-muted-foreground">
               {row.original.description}
             </div>
           )}
           {row.original.metadata?.category && (
-            <div className="text-xs text-gray-400 mt-0.5">
+            <div className="text-xs text-muted-foreground mt-0.5">
               {row.original.metadata.category}
             </div>
           )}
@@ -287,8 +299,8 @@ export default function WorkflowDefinitionsListPage() {
           onClick={() => handleToggleEnabled(row.original.id, row.original.enabled)}
           className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium cursor-pointer ${
             row.original.enabled
-              ? 'bg-green-100 text-green-800 hover:bg-green-200'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              ? 'bg-status-success-bg text-status-success-text hover:bg-status-success-border'
+              : 'bg-status-neutral-bg text-status-neutral-text hover:bg-status-neutral-border'
           }`}
           title={t('workflows.actions.toggleEnabled')}
         >
@@ -301,7 +313,7 @@ export default function WorkflowDefinitionsListPage() {
       header: t('workflows.fields.tags'),
       cell: ({ row }) => {
         const tags = row.original.metadata?.tags || []
-        if (tags.length === 0) return <span className="text-gray-400">-</span>
+        if (tags.length === 0) return <span className="text-muted-foreground">-</span>
         return (
           <div className="flex flex-wrap gap-1">
             {tags.slice(0, 2).map((tag, idx) => (
@@ -322,7 +334,7 @@ export default function WorkflowDefinitionsListPage() {
       accessorKey: 'createdAt',
       cell: ({ row }) => {
         const date = new Date(row.original.createdAt)
-        return <span className="text-sm text-gray-600">{date.toLocaleDateString()}</span>
+        return <span className="text-sm text-muted-foreground">{date.toLocaleDateString()}</span>
       },
     },
     {
@@ -354,7 +366,7 @@ export default function WorkflowDefinitionsListPage() {
           ...(!isCodeOnly ? [{
             id: 'delete',
             label: t('common.delete'),
-            onSelect: () => handleDelete(row.original.id, row.original.workflowName),
+            onSelect: () => handleDelete(row.original.id, row.original.workflowName, row.original.updatedAt),
             destructive: true,
           }] : []),
         ]
@@ -410,6 +422,13 @@ export default function WorkflowDefinitionsListPage() {
           perspective={{
             tableId: 'workflows.definitions.list',
           }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('workflows.list.title')}
+              createHref="/backend/definitions/create"
+              createLabel={t('workflows.actions.create')}
+            />
+          )}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
         />
         <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>

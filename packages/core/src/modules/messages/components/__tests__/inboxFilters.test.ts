@@ -7,7 +7,7 @@ import {
 const identityT = (_key: string, fallback?: string) => fallback ?? _key
 
 describe('buildMessagesInboxFilters', () => {
-  it('exposes "Has objects" / "Has attachments" / "Has actions" labels so users understand the Yes/No semantics', () => {
+  it('exposes "Has related records" / "Has attachments" / "Has action requests" labels so users understand the Yes/No semantics', () => {
     const filters = buildMessagesInboxFilters({
       t: identityT,
       typeOptions: [],
@@ -19,9 +19,26 @@ describe('buildMessagesInboxFilters', () => {
     const hasAttachments = filters.find((f) => f.id === 'hasAttachments')
     const hasActions = filters.find((f) => f.id === 'hasActions')
 
-    expect(hasObjects?.label).toBe('Has objects')
+    expect(hasObjects?.label).toBe('Has related records')
     expect(hasAttachments?.label).toBe('Has attachments')
-    expect(hasActions?.label).toBe('Has actions')
+    expect(hasActions?.label).toBe('Has action requests')
+  })
+
+  it('exposes tooltip text for hasObjects and hasActions filters', () => {
+    const filters = buildMessagesInboxFilters({
+      t: identityT,
+      typeOptions: [],
+      senderOptions: [],
+      loadSenderOptions: async () => [],
+    })
+
+    const hasObjects = filters.find((f) => f.id === 'hasObjects')
+    const hasAttachments = filters.find((f) => f.id === 'hasAttachments')
+    const hasActions = filters.find((f) => f.id === 'hasActions')
+
+    expect(hasObjects?.tooltip).toBe('Shows messages that have Open Mercato records attached — such as orders, quotes, or customers.')
+    expect(hasAttachments?.tooltip).toBeUndefined()
+    expect(hasActions?.tooltip).toBe('Shows messages where one or more attached records require a response (approval, rejection, or review).')
   })
 
   it('produces a sender filter that defers to loadOptions instead of a static "All" placeholder', () => {

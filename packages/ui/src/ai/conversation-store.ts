@@ -15,6 +15,8 @@ export interface AiServerConversation {
   updatedAt: string
   lastMessageAt: string | null
   importedFromLocalAt: string | null
+  /** `true` when the authenticated caller created the conversation; `false` for shared participants; `null` when unknown. */
+  isOwner: boolean | null
 }
 
 export interface AiServerMessage {
@@ -28,6 +30,7 @@ export interface AiServerMessage {
   model: string | null
   metadata: Record<string, unknown> | null
   createdAt: string
+  senderUserId: string | null
 }
 
 export interface AiServerConversationListResponse {
@@ -46,6 +49,21 @@ export interface AiServerImportResponse {
   importedMessageCount: number
   skippedMessageCount: number
 }
+
+/**
+ * Discriminated result of {@link loadAiServerTranscript}. Callers must
+ * distinguish 404 (the conversation does not exist for the current scope —
+ * e.g. it belonged to a previous tenant/org) from other failures (network
+ * down, server error) because the recovery strategies are opposite:
+ *  - `notFound: true`  → drop the local cache, optionally surface a
+ *                         not-found callback. NEVER import local messages
+ *                         onto the new scope.
+ *  - `notFound: false` → preserve local state and retry later.
+ */
+export type LoadTranscriptResult =
+  | { ok: true; data: AiServerTranscriptResponse }
+  | { ok: false; notFound: true }
+  | { ok: false; notFound: false }
 
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
@@ -144,13 +162,14 @@ export async function updateAiServerConversation(
 export async function loadAiServerTranscript(
   conversationId: string,
   options: { limit?: number } = {},
-): Promise<AiServerTranscriptResponse | null> {
+): Promise<LoadTranscriptResult> {
   const params = new URLSearchParams()
   params.set('limit', String(options.limit ?? 100))
   const result = await requestJson<AiServerTranscriptResponse>(
     `${CONVERSATIONS_ENDPOINT}/${encodeURIComponent(conversationId)}?${params.toString()}`,
   )
-  return result.ok ? result.data : null
+  if (result.ok) return { ok: true, data: result.data }
+  return { ok: false, notFound: result.status === 404 }
 }
 
 export async function importAiLocalConversation(input: {
@@ -242,5 +261,6 @@ export function serverMessageToChatMessage(message: AiServerMessage): AiChatMess
       })
       .filter((file): file is NonNullable<AiChatMessage['files']>[number] => file !== null),
     uiParts,
+    senderUserId: message.senderUserId ?? null,
   }
 }

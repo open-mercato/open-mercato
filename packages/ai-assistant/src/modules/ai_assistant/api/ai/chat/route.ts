@@ -650,6 +650,9 @@ export async function POST(req: NextRequest): Promise<Response> {
         attachmentIds: bodyResult.data.attachmentIds,
       })
     } catch (error) {
+      if (error instanceof Error && error.name === 'AiChatConversationOrgNotFoundError') {
+        return jsonError(400, error.message, 'organization_not_found')
+      }
       console.error('[AI Chat Agent] Failed to persist user message:', error)
     }
 

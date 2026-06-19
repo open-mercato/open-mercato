@@ -88,6 +88,9 @@ describe('catalog.products.update', () => {
       flush: jest.fn().mockImplementation(async () => {
         events.push('flush')
       }),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
       fork: jest.fn(),
     }
     em.fork.mockReturnValue(em)
@@ -195,6 +198,9 @@ describe('catalog.products.update', () => {
       remove: jest.fn(),
       persist: jest.fn(),
       flush: jest.fn(),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
       fork: jest.fn(),
     }
     em.fork.mockReturnValue(em)
@@ -305,6 +311,9 @@ describe('catalog.products.update', () => {
       remove: jest.fn(),
       persist: jest.fn(),
       flush: jest.fn(),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
       fork: jest.fn(),
     }
     em.fork.mockReturnValue(em)

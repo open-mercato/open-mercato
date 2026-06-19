@@ -6,6 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { currencyCreateSchema, currencyUpdateSchema } from '../../data/validators'
 import {
   createCurrenciesCrudOpenApi,
@@ -148,9 +149,9 @@ export async function GET(req: Request) {
   if (code) filter.code = code
   if (search) {
     filter.$or = [
-      { code: { $ilike: `%${search}%` } },
-      { name: { $ilike: `%${search}%` } },
-      { symbol: { $ilike: `%${search}%` } },
+      { code: { $ilike: `%${escapeLikePattern(search)}%` } },
+      { name: { $ilike: `%${escapeLikePattern(search)}%` } },
+      { symbol: { $ilike: `%${escapeLikePattern(search)}%` } },
     ]
   }
   if (isBase === 'true') filter.isBase = true
@@ -172,10 +173,9 @@ export async function GET(req: Request) {
     orderBy.code = 'ASC'
   }
 
-  const [all, total] = await em.findAndCount(Currency, filter, { orderBy })
-  const start = (page - 1) * pageSize
-  const paged = all.slice(start, start + pageSize)
-  const items = paged.map(toRow)
+  const offset = (page - 1) * pageSize
+  const [rows, total] = await em.findAndCount(Currency, filter, { orderBy, limit: pageSize, offset })
+  const items = rows.map(toRow)
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return NextResponse.json({ items, total, page, pageSize, totalPages })

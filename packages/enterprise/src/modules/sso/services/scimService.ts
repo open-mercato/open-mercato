@@ -342,28 +342,29 @@ export class ScimService {
   }
 
   private async deactivateUser(userId: string, scope: ScimScope): Promise<void> {
-    let deactivation = await this.em.findOne(SsoUserDeactivation, {
-      userId, ssoConfigId: scope.ssoConfigId,
+    await this.em.transactional(async (txEm) => {
+      let deactivation = await txEm.findOne(SsoUserDeactivation, {
+        userId, ssoConfigId: scope.ssoConfigId,
+      })
+
+      if (deactivation) {
+        deactivation.deactivatedAt = new Date()
+        deactivation.reactivatedAt = null
+      } else {
+        deactivation = txEm.create(SsoUserDeactivation, {
+          tenantId: scope.tenantId ?? null,
+          organizationId: scope.organizationId,
+          userId,
+          ssoConfigId: scope.ssoConfigId,
+          deactivatedAt: new Date(),
+        } as RequiredEntityData<SsoUserDeactivation>)
+        txEm.persist(deactivation)
+      }
+
+      // Revoke all active sessions atomically with the deactivation upsert
+      const sessionWhere: FilterQuery<Session> = { user: userId }
+      await txEm.nativeDelete(Session, sessionWhere)
     })
-
-    if (deactivation) {
-      deactivation.deactivatedAt = new Date()
-      deactivation.reactivatedAt = null
-    } else {
-      deactivation = this.em.create(SsoUserDeactivation, {
-        tenantId: scope.tenantId ?? null,
-        organizationId: scope.organizationId,
-        userId,
-        ssoConfigId: scope.ssoConfigId,
-        deactivatedAt: new Date(),
-      } as RequiredEntityData<SsoUserDeactivation>)
-      this.em.persist(deactivation)
-    }
-    await this.em.flush()
-
-    // Revoke all active sessions
-    const sessionWhere: FilterQuery<Session> = { user: userId }
-    await this.em.nativeDelete(Session, sessionWhere)
   }
 
   private async reactivateUser(userId: string, scope: ScimScope): Promise<void> {

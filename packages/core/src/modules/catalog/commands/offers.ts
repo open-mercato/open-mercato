@@ -14,6 +14,7 @@ import {
 } from '../data/validators'
 import {
   cloneJson,
+  commandActorScope,
   ensureOrganizationScope,
   ensureSameScope,
   ensureTenantScope,
@@ -23,6 +24,7 @@ import {
   requireProduct,
 } from './shared'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { E } from '#generated/entities.ids.generated'
 
 type OfferSnapshot = {
@@ -91,6 +93,24 @@ async function loadOfferSnapshot(em: EntityManager, id: string): Promise<OfferSn
   }
 }
 
+function offerSeedFromSnapshot(snapshot: OfferSnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    product: snapshot.productId,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    channelId: snapshot.channelId,
+    title: snapshot.title,
+    description: snapshot.description ?? null,
+    defaultMediaId: snapshot.defaultMediaId ?? null,
+    defaultMediaUrl: snapshot.defaultMediaUrl ?? null,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    isActive: snapshot.isActive,
+    createdAt: new Date(snapshot.createdAt),
+    updatedAt: new Date(snapshot.updatedAt),
+  }
+}
+
 const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> = {
   id: 'catalog.offers.create',
   async execute(rawInput, ctx) {
@@ -98,7 +118,10 @@ const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> 
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const product = await requireProduct(em, parsed.productId)
+    const product = await requireProduct(em, parsed.productId, {
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+    })
     if (
       product.organizationId !== parsed.organizationId ||
       product.tenantId !== parsed.tenantId
@@ -200,6 +223,31 @@ const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> 
       })
     }
   },
+  redo: makeCreateRedo<CatalogOffer, OfferSnapshot, OfferCreateInput, { offerId: string }>({
+    entityClass: CatalogOffer,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: offerSeedFromSnapshot,
+    buildResult: (entity) => ({ offerId: entity.id }),
+    afterRestore: async ({ ctx, entity, snapshot }) => {
+      if (snapshot.custom && Object.keys(snapshot.custom).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.catalog.catalog_offer,
+          recordId: entity.id,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+          values: snapshot.custom,
+        })
+      }
+      await emitCatalogQueryIndexEvent(ctx, {
+        entityType: E.catalog.catalog_offer,
+        recordId: entity.id,
+        organizationId: entity.organizationId,
+        tenantId: entity.tenantId,
+        action: 'created',
+      })
+    },
+  }),
 }
 
 const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> = {
@@ -224,10 +272,16 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
     ensureOrganizationScope(ctx, record.organizationId)
     let productEntity =
       typeof record.product === 'string'
-        ? await requireProduct(em, record.product)
+        ? await requireProduct(em, record.product, {
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+          })
         : record.product
     if (parsed.productId && parsed.productId !== record.product.id) {
-      const nextProduct = await requireProduct(em, parsed.productId)
+      const nextProduct = await requireProduct(em, parsed.productId, {
+        tenantId: record.tenantId,
+        organizationId: record.organizationId,
+      })
       ensureSameScope(nextProduct, record.organizationId, record.tenantId)
       productEntity = nextProduct
     }
@@ -322,9 +376,15 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await requireOffer(em, before.id).catch(() => null)
+    const record = await requireOffer(em, before.id, {
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+    }).catch(() => null)
     if (!record) {
-      const product = await requireProduct(em, before.productId)
+      const product = await requireProduct(em, before.productId, {
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+      })
       ensureSameScope(product, before.organizationId, before.tenantId)
       const restored = em.create(CatalogOffer, {
         id: before.id,
@@ -384,7 +444,7 @@ const deleteOfferCommand: CommandHandler<{ id?: string }, { offerId: string }> =
   async execute(input, ctx) {
     const parsed = { id: requireId(input, 'Offer id is required.') }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await requireOffer(em, parsed.id)
+    const record = await requireOffer(em, parsed.id, commandActorScope(ctx))
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     const baseEm = ctx.container.resolve('em') as EntityManager
@@ -436,7 +496,10 @@ const deleteOfferCommand: CommandHandler<{ id?: string }, { offerId: string }> =
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const existing = await em.findOne(CatalogOffer, { id: before.id })
     if (existing) return
-    const product = await requireProduct(em, before.productId)
+    const product = await requireProduct(em, before.productId, {
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+    })
     ensureSameScope(product, before.organizationId, before.tenantId)
     const restored = em.create(CatalogOffer, {
       id: before.id,

@@ -259,4 +259,91 @@ describe('sales.quotes.convert_to_order', () => {
     expect(createdOrderIds).toEqual(['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'])
     expect(lockOptions).toContainEqual({ lockMode: LockMode.PESSIMISTIC_WRITE })
   })
+
+  test('reuses ctx.transactionalEm and does not open its own transaction (issue #2114)', async () => {
+    const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>(
+      'sales.quotes.convert_to_order',
+    )
+    expect(handler).toBeTruthy()
+
+    const quote = {
+      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      organizationId: '22222222-2222-4222-8222-222222222222',
+      tenantId: '33333333-3333-4333-8333-333333333333',
+      createdAt: new Date('2026-04-12T08:00:00.000Z'),
+      quoteNumber: 'SQ-TX',
+      statusEntryId: null,
+      status: 'confirmed',
+      currencyCode: 'USD',
+      subtotalNetAmount: '10',
+      subtotalGrossAmount: '10',
+      discountTotalAmount: '0',
+      taxTotalAmount: '0',
+      grandTotalNetAmount: '10',
+      grandTotalGrossAmount: '10',
+      lineItemCount: 0,
+      validFrom: null,
+      validUntil: null,
+      deletedAt: null,
+    }
+
+    // The EM passed in via ctx.transactionalEm is the one that must perform every
+    // write; it deliberately has NO `transactional` method so a nested
+    // transaction would throw, proving the conversion runs in-line.
+    const lockOptions: unknown[] = []
+    const providedEm = {
+      findOne: jest.fn(async () => null),
+      find: jest.fn(async () => []),
+      create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+      persist: jest.fn(),
+      nativeDelete: jest.fn(async () => 0),
+      remove: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    // A container EM whose fork must never be called when a transactional EM is supplied.
+    const containerEm = { fork: jest.fn() }
+
+    mockedFindOneWithDecryption.mockImplementation(async (em, entity, _where, options) => {
+      expect(em).toBe(providedEm)
+      if (entity === SalesQuote) {
+        lockOptions.push(readLockOption(options))
+        return quote
+      }
+      if (entity === SalesOrder) return null
+      return null
+    })
+    mockedFindWithDecryption.mockImplementation(async (em) => {
+      expect(em).toBe(providedEm)
+      return []
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.PROXY })
+    container.register({
+      em: asValue(containerEm),
+      salesDocumentNumberGenerator: asValue({
+        generate: jest.fn(async () => ({ number: 'SO-TX-1' })),
+      }),
+    })
+
+    const ctx: CommandRuntimeContext = {
+      container,
+      auth: null,
+      organizationScope: null,
+      selectedOrganizationId: quote.organizationId,
+      organizationIds: [quote.organizationId],
+      transactionalEm: providedEm as unknown as CommandRuntimeContext['transactionalEm'],
+    }
+
+    const result = await handler!.execute(
+      { quoteId: quote.id, orderId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' },
+      ctx,
+    )
+
+    expect(result.orderId).toBe('dddddddd-dddd-4ddd-8ddd-dddddddddddd')
+    expect(containerEm.fork).not.toHaveBeenCalled()
+    expect(providedEm.persist).toHaveBeenCalled()
+    expect(providedEm.remove).toHaveBeenCalledWith(quote)
+    expect(providedEm.flush).toHaveBeenCalled()
+    expect(lockOptions).toContainEqual({ lockMode: LockMode.PESSIMISTIC_WRITE })
+  })
 })

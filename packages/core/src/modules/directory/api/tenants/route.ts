@@ -136,27 +136,6 @@ export async function GET(req: Request) {
     orderBy.name = 'ASC'
   }
 
-  const all = await em.find(Tenant, where, { orderBy })
-  const recordIds = all.map((tenant) => String(tenant.id))
-
-  const tenantIdByRecord: Record<string, string | null> = {}
-  const organizationIdByRecord: Record<string, string | null> = {}
-  for (const rid of recordIds) {
-    tenantIdByRecord[rid] = null
-    organizationIdByRecord[rid] = null
-  }
-
-  const cfValues = recordIds.length
-    ? await loadCustomFieldValues({
-        em,
-        entityId: E.directory.tenant,
-        recordIds,
-        tenantIdByRecord,
-        organizationIdByRecord,
-        tenantFallbacks: auth.tenantId ? [auth.tenantId] : [],
-      })
-    : {}
-
   const rawQuery = Array.from(url.searchParams.keys()).reduce<Record<string, unknown>>((acc, key) => {
     const values = url.searchParams.getAll(key)
     if (!values.length) return acc
@@ -175,29 +154,64 @@ export async function GET(req: Request) {
     return [normalizedKey, condition] as const
   })
 
-  const filtered = cfFilterEntries.length
-    ? all.filter((tenant) => {
-        const rid = String(tenant.id)
-        const payload = cfValues[rid] ?? {}
-        return cfFilterEntries.every(([key, expected]) => {
-          const value = payload[`cf_${key}`]
-          if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
-            const maybeIn = (expected as { $in?: unknown[] }).$in
-            if (Array.isArray(maybeIn)) {
-              if (value === undefined || value === null) return false
-              if (Array.isArray(value)) return value.some((val) => maybeIn.includes(val))
-              return maybeIn.includes(value)
-            }
-          }
-          return matchesValue(value, expected)
-        })
-      })
-    : all
+  const loadCfValues = (tenants: Tenant[]): Promise<Record<string, Record<string, unknown>>> => {
+    const recordIds = tenants.map((tenant) => String(tenant.id))
+    if (!recordIds.length) return Promise.resolve({})
+    const tenantIdByRecord: Record<string, string | null> = {}
+    const organizationIdByRecord: Record<string, string | null> = {}
+    for (const rid of recordIds) {
+      tenantIdByRecord[rid] = null
+      organizationIdByRecord[rid] = null
+    }
+    return loadCustomFieldValues({
+      em,
+      entityId: E.directory.tenant,
+      recordIds,
+      tenantIdByRecord,
+      organizationIdByRecord,
+      tenantFallbacks: auth.tenantId ? [auth.tenantId] : [],
+    })
+  }
 
-  const total = filtered.length
   const start = (page - 1) * pageSize
-  const paged = filtered.slice(start, start + pageSize)
-  const items = paged.map((tenant) => {
+
+  let pageTenants: Tenant[]
+  let total: number
+  let cfValues: Record<string, Record<string, unknown>>
+
+  if (cfFilterEntries.length) {
+    // Custom-field filters are matched in JS against separately-loaded values,
+    // so the full result set must be fetched before filtering and paging.
+    const all = await em.find(Tenant, where, { orderBy })
+    cfValues = await loadCfValues(all)
+    const filtered = all.filter((tenant) => {
+      const rid = String(tenant.id)
+      const payload = cfValues[rid] ?? {}
+      return cfFilterEntries.every(([key, expected]) => {
+        const value = payload[`cf_${key}`]
+        if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
+          const maybeIn = (expected as { $in?: unknown[] }).$in
+          if (Array.isArray(maybeIn)) {
+            if (value === undefined || value === null) return false
+            if (Array.isArray(value)) return value.some((val) => maybeIn.includes(val))
+            return maybeIn.includes(value)
+          }
+        }
+        return matchesValue(value, expected)
+      })
+    })
+    total = filtered.length
+    pageTenants = filtered.slice(start, start + pageSize)
+  } else {
+    // No JS-side filtering applies, so pagination is pushed to the database
+    // instead of fetching the whole table and slicing in memory.
+    const [rows, count] = await em.findAndCount(Tenant, where, { orderBy, limit: pageSize, offset: start })
+    total = count
+    pageTenants = rows
+    cfValues = await loadCfValues(rows)
+  }
+
+  const items = pageTenants.map((tenant) => {
     const rid = String(tenant.id)
     const cf = cfValues[rid] ?? {}
     return toRow(tenant, cf)

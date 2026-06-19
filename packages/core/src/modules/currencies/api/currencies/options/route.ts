@@ -1,14 +1,31 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import {
+  buildCollectionTags,
+  isCrudCacheEnabled,
+  resolveCrudCache,
+} from '@open-mercato/shared/lib/crud/cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { Currency } from '../../../data/entities'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['currencies.view'] },
+}
+
+const CURRENCY_OPTIONS_RESOURCE = 'currencies.currency'
+const CURRENCY_OPTIONS_TTL_MS = 5 * 60_000
+
+function buildOptionsCacheKey(params: {
+  orgId: string | null
+  includeInactive: boolean
+  limit: number
+}): string {
+  return `currencies:options:org=${params.orgId ?? 'null'}:active=${params.includeInactive ? 'all' : 'active'}:limit=${params.limit}`
 }
 
 const optionsQuerySchema = z.object({
@@ -47,15 +64,35 @@ export async function GET(req: Request) {
 
   const { q, query, search, includeInactive, limit } = parsed.data
   const searchTerm = (q ?? query ?? search ?? '').trim()
-  const filter: any = {
-    tenantId: auth.tenantId,
-    deletedAt: null,
-  }
-  if (auth.orgId) {
-    filter.organizationId = auth.orgId
+  const tenantId = auth.tenantId
+  const orgId = auth.orgId ?? null
+  const includeInactiveFlag = includeInactive === 'true'
+
+  // Only the unfiltered bootstrap call (no ILIKE search term) is the hot path
+  // worth caching; search variants would multiply key cardinality with little
+  // hit-rate benefit, so they always read straight through.
+  const cache =
+    isCrudCacheEnabled() && !searchTerm ? resolveCrudCache(container) : null
+  const cacheKey = cache
+    ? buildOptionsCacheKey({ orgId, includeInactive: includeInactiveFlag, limit })
+    : null
+
+  if (cache && cacheKey) {
+    const cached = await runWithCacheTenant(tenantId, () => cache.get(cacheKey))
+    if (cached) {
+      return NextResponse.json(cached)
+    }
   }
 
-  if (includeInactive !== 'true') {
+  const filter: any = {
+    tenantId,
+    deletedAt: null,
+  }
+  if (orgId) {
+    filter.organizationId = orgId
+  }
+
+  if (!includeInactiveFlag) {
     filter.isActive = true
   }
 
@@ -77,7 +114,20 @@ export async function GET(req: Request) {
     label: `${currency.code} - ${currency.name}`,
   }))
 
-  return NextResponse.json({ items })
+  const payload = { items }
+
+  if (cache && cacheKey) {
+    try {
+      await runWithCacheTenant(tenantId, () =>
+        cache.set(cacheKey, payload, {
+          ttl: CURRENCY_OPTIONS_TTL_MS,
+          tags: buildCollectionTags(CURRENCY_OPTIONS_RESOURCE, tenantId, [orgId]),
+        }),
+      )
+    } catch {}
+  }
+
+  return NextResponse.json(payload)
 }
 
 const optionsResponseSchema = z.object({

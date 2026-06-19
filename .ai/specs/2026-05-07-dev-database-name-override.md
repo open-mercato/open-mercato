@@ -5,7 +5,7 @@
 | **Status** | Draft |
 | **Author** | Codex |
 | **Created** | 2026-05-07 |
-| **Related** | [SPEC-067-2026-03-17-cli-standalone-app-support.md](./SPEC-067-2026-03-17-cli-standalone-app-support.md), [BACKWARD_COMPATIBILITY.md](../../BACKWARD_COMPATIBILITY.md), [packages/create-app/AGENTS.md](../../packages/create-app/AGENTS.md), [packages/cli/AGENTS.md](../../packages/cli/AGENTS.md) |
+| **Related** | [SPEC-067-2026-03-17-cli-standalone-app-support.md](./implemented/SPEC-067-2026-03-17-cli-standalone-app-support.md), [BACKWARD_COMPATIBILITY.md](../../BACKWARD_COMPATIBILITY.md), [packages/create-app/AGENTS.md](../../packages/create-app/AGENTS.md), [packages/cli/AGENTS.md](../../packages/cli/AGENTS.md) |
 
 ## TLDR
 **Key Points:**
@@ -350,7 +350,7 @@ The implementation must read [BACKWARD_COMPATIBILITY.md](../../BACKWARD_COMPATIB
 - `AGENTS.md` (root)
 - `packages/cli/AGENTS.md`
 - `packages/create-app/AGENTS.md`
-- `.ai/skills/spec-writing/SKILL.md`
+- `.ai/skills/om-spec-writing/SKILL.md`
 - `BACKWARD_COMPATIBILITY.md`
 
 ### Compliance Matrix

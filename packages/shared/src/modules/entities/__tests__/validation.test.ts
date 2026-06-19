@@ -1,7 +1,10 @@
 /** @jest-environment node */
 import {
+  MAX_CUSTOM_FIELD_KEYS_PER_RECORD,
   MAX_CUSTOM_FIELD_REGEX_PATTERN_LENGTH,
   MAX_CUSTOM_FIELD_REGEX_INPUT_LENGTH,
+  TOO_MANY_CUSTOM_FIELDS_ERROR,
+  UNKNOWN_CUSTOM_FIELD_ERROR,
   validateValuesAgainstDefs,
 } from '../validation'
 
@@ -50,6 +53,43 @@ describe('validateValuesAgainstDefs', () => {
     expect(r.ok).toBe(false)
     expect(r.fieldErrors['cf_status']).toBe('must be open')
     r = validateValuesAgainstDefs({ code: 'ok', status: 'open' }, defs as any)
+    expect(r.ok).toBe(true)
+  })
+
+  it('applies value rules per-element for multi-value (array) fields', () => {
+    const defs = [
+      { key: 'labels', kind: 'text', configJson: { validation: [ { rule: 'regex', param: '^[a-z0-9_-]+$', message: 'Labels must be slug-like' } ] } },
+    ]
+
+    // Multiple slug-like labels must pass — the regex is checked per element,
+    // not against the comma-joined string representation (issue #2650).
+    let r = validateValuesAgainstDefs({ labels: ['frontend', 'backend', 'ops'] }, defs as any)
+    expect(r.ok).toBe(true)
+    expect(Object.keys(r.fieldErrors).length).toBe(0)
+
+    // A single slug-like label still passes.
+    r = validateValuesAgainstDefs({ labels: ['frontend'] }, defs as any)
+    expect(r.ok).toBe(true)
+
+    // Any non-conforming element fails the whole field.
+    r = validateValuesAgainstDefs({ labels: ['frontend', 'Not Valid!'] }, defs as any)
+    expect(r.ok).toBe(false)
+    expect(r.fieldErrors['cf_labels']).toBe('Labels must be slug-like')
+
+    // An empty array is treated as empty (no value rules apply).
+    r = validateValuesAgainstDefs({ labels: [] }, defs as any)
+    expect(r.ok).toBe(true)
+  })
+
+  it('enforces required on multi-value fields by array emptiness, not per-element', () => {
+    const defs = [
+      { key: 'labels', kind: 'text', configJson: { validation: [ { rule: 'required', message: 'labels required' } ] } },
+    ]
+    let r = validateValuesAgainstDefs({ labels: [] }, defs as any)
+    expect(r.ok).toBe(false)
+    expect(r.fieldErrors['cf_labels']).toBe('labels required')
+
+    r = validateValuesAgainstDefs({ labels: ['frontend', 'backend'] }, defs as any)
     expect(r.ok).toBe(true)
   })
 
@@ -120,6 +160,45 @@ describe('validateValuesAgainstDefs', () => {
 
     expect(result.ok).toBe(false)
     expect(result.fieldErrors['cf_body']).toBe('body too large')
+  })
+
+  it('rejects values for undeclared keys only when rejectUndeclaredKeys is set', () => {
+    const defs = [{ key: 'priority', kind: 'integer', configJson: {} }]
+    const strict = validateValuesAgainstDefs({ priority: 1, undeclared: 'x' }, defs as any, {
+      rejectUndeclaredKeys: true,
+    })
+
+    expect(strict.ok).toBe(false)
+    expect(strict.fieldErrors.cf_undeclared).toBe(UNKNOWN_CUSTOM_FIELD_ERROR)
+  })
+
+  it('persists undeclared keys by default (trusted command writes)', () => {
+    const defs = [{ key: 'priority', kind: 'integer', configJson: {} }]
+    const result = validateValuesAgainstDefs({ priority: 1, undeclared: 'x' }, defs as any)
+
+    expect(result.ok).toBe(true)
+  })
+
+  it('ignores undefined keys even in strict mode', () => {
+    const defs = [{ key: 'priority', kind: 'integer', configJson: {} }]
+    const result = validateValuesAgainstDefs({ priority: 1, undeclared: undefined }, defs as any, {
+      rejectUndeclaredKeys: true,
+    })
+
+    expect(result.ok).toBe(true)
+  })
+
+  it('rejects payloads with too many custom field keys', () => {
+    const values: Record<string, number> = {}
+    for (let index = 0; index < MAX_CUSTOM_FIELD_KEYS_PER_RECORD + 1; index++) {
+      values[`field_${index}`] = index
+    }
+
+    const defs = Object.keys(values).map((key) => ({ key, kind: 'integer', configJson: {} }))
+    const result = validateValuesAgainstDefs(values, defs as any)
+
+    expect(result.ok).toBe(false)
+    expect(result.fieldErrors._customFields).toBe(TOO_MANY_CUSTOM_FIELDS_ERROR)
   })
 
   it('fails closed before testing oversized regex patterns', () => {

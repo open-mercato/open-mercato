@@ -8,6 +8,7 @@ import { buildChanges } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { FeatureTogglesService } from '../lib/feature-flag-check'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 type OverrideSnapshot = {
   id: string | null
@@ -52,14 +53,15 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
   async execute(rawInput, ctx) {
     const input = processedChangeOverrideStateSchema.parse(rawInput)
     const em = ctx.container.resolve('em') as EntityManager
+    const toggle = await em.findOne(FeatureToggle, { id: input.toggleId, deletedAt: null })
+    if (!toggle) {
+      throw new CrudHttpError(404, { error: 'Feature toggle not found' })
+    }
     if (!input.isOverride) {
       await em.nativeDelete(FeatureToggleOverride, { toggle: input.toggleId, tenantId: input.tenantId })
       await em.flush()
-      const toggle = await em.findOne(FeatureToggle, { id: input.toggleId })
-      if (toggle) {
-        const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
-        await featureTogglesService.invalidateIsEnabledCacheByKey(toggle.identifier, input.tenantId)
-      }
+      const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+      await featureTogglesService.invalidateIsEnabledCacheByKey(toggle.identifier, input.tenantId)
       return { overrideToggleId: null }
     }
 
@@ -73,7 +75,7 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
     }
 
     override = await em.create(FeatureToggleOverride, {
-      toggle: input.toggleId,
+      toggle,
       tenantId: input.tenantId,
       value: input.overrideValue
     })

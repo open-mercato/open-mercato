@@ -1,26 +1,8 @@
 import type { NextConfig } from "next";
-import fs from "node:fs";
 import path from "node:path";
 import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
-const appPackageJsonPath = new URL('./package.json', import.meta.url)
-const appPackageJson = JSON.parse(fs.readFileSync(appPackageJsonPath, 'utf8')) as {
-  dependencies?: Record<string, string>
-}
-const officialModulesPackagesDir = path.resolve(process.cwd(), '..', '..', 'external', 'official-modules', 'packages')
-const officialModulesPackages = fs.existsSync(officialModulesPackagesDir)
-  ? fs
-      .readdirSync(officialModulesPackagesDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(officialModulesPackagesDir, entry.name, 'package.json')))
-      .map((entry) => `@open-mercato/${entry.name}`)
-  : []
-const transpiledWorkspacePackages = [
-  ...Object.keys(appPackageJson.dependencies ?? {}).filter(
-    (packageName) => packageName.startsWith('@open-mercato/') && packageName !== '@open-mercato/cli',
-  ),
-  ...officialModulesPackages,
-]
 const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
 
 const contentSecurityPolicy = [
@@ -39,10 +21,18 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
-  //transpilePackages: isDevelopment ? transpiledWorkspacePackages : undefined,
   experimental: {
     serverMinification: false,
     turbopackMinify: false,
+    // Tell Turbopack/Webpack to treat these packages as having modularized
+    // exports — only the named exports actually used in source are
+    // evaluated. Big win in dev mode for barrel-heavy libraries.
+    //   - lucide-react: 398 import sites, full barrel ~1000 icons.
+    //   - recharts: 12 import sites; pairs with the next/dynamic split in
+    //     packages/ui/src/backend/charts/*Impl.tsx.
+    //   - date-fns: already uses deep imports everywhere; listing it here
+    //     is defense-in-depth and harmless.
+    optimizePackageImports: ['lucide-react', 'recharts', 'date-fns'],
     ...(isDevelopment
       ? {
           preloadEntriesOnStart: false,

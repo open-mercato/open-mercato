@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexOkSchema, queryIndexReindexRequestSchema } from './openapi'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
+import { isValidEntityIdShape } from '@open-mercato/shared/lib/query/engine'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['query_index.reindex'] },
@@ -15,6 +16,9 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({})) as any
   const entityType = String(body?.entityType || '')
   if (!entityType) return NextResponse.json({ error: 'Missing entityType' }, { status: 400 })
+  if (!isValidEntityIdShape(entityType)) {
+    return NextResponse.json({ error: 'Invalid entityType' }, { status: 400 })
+  }
   const force = Boolean(body?.force)
   const batchSize = Number.isFinite(body?.batchSize) ? Math.max(1, Math.trunc(body.batchSize)) : undefined
   const partitionCountInput = Number(body?.partitionCount)
@@ -77,7 +81,7 @@ export async function POST(req: Request) {
         return bus.emitEvent(
           'query_index.reindex',
           payload,
-          { persistent: true },
+          { persistent: true, deliverInline: false },
         )
       }),
     )

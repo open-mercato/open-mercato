@@ -10,12 +10,31 @@ type ConsentHashInput = {
   source: string | null | undefined
 }
 
+const DEV_ONLY_SECRET = 'om-consent-integrity-dev-only-secret'
+let missingSecretWarned = false
+
 function getSecret(): string {
-  const secret = process.env.CONSENT_INTEGRITY_SECRET || process.env.NEXTAUTH_SECRET
+  const secret = process.env.CONSENT_INTEGRITY_SECRET
+    || process.env.AUTH_SECRET
+    || process.env.NEXTAUTH_SECRET
+    || process.env.JWT_SECRET
   if (!secret) {
-    console.warn('[consentIntegrity] CONSENT_INTEGRITY_SECRET and NEXTAUTH_SECRET are not set — integrity hashes are insecure')
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        '[consentIntegrity] No CONSENT_INTEGRITY_SECRET/AUTH_SECRET/NEXTAUTH_SECRET/JWT_SECRET set. ' +
+        'Refusing to compute or verify consent integrity hashes in production without a real secret.',
+      )
+    }
+    if (!missingSecretWarned) {
+      missingSecretWarned = true
+      console.warn(
+        '[consentIntegrity] No CONSENT_INTEGRITY_SECRET/AUTH_SECRET/NEXTAUTH_SECRET/JWT_SECRET set — ' +
+        'using insecure dev-only default. Set a secret before deploying to production.',
+      )
+    }
+    return DEV_ONLY_SECRET
   }
-  return secret || 'om-consent-integrity-default-key'
+  return secret
 }
 
 function normalizeDate(date: Date | string | null | undefined): string {

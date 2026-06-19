@@ -87,3 +87,29 @@ describe('webhookCreateSchema — URL safety', () => {
     expect(webhookCreateSchema.safeParse(baseInput({ url: 'https://user:pass@localhost/webhooks' })).success).toBe(false)
   })
 })
+
+describe('webhookCreateSchema — reserved custom headers', () => {
+  it('rejects custom headers that shadow Standard Webhooks signature headers', () => {
+    const result = webhookCreateSchema.safeParse(baseInput({ customHeaders: { 'webhook-signature': 'forged' } }))
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues[0].message).toMatch(/reserved/i)
+    }
+  })
+
+  it('rejects reserved header names case-insensitively', () => {
+    expect(webhookCreateSchema.safeParse(baseInput({ customHeaders: { 'Webhook-Id': 'constant' } })).success).toBe(false)
+    expect(webhookCreateSchema.safeParse(baseInput({ customHeaders: { 'WEBHOOK-TIMESTAMP': '0' } })).success).toBe(false)
+    expect(webhookCreateSchema.safeParse(baseInput({ customHeaders: { 'Content-Type': 'text/plain' } })).success).toBe(false)
+  })
+
+  it('rejects reserved headers on update', () => {
+    const result = webhookUpdateSchema.safeParse({ customHeaders: { 'webhook-signature': 'forged' } })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts non-reserved custom headers', () => {
+    expect(webhookCreateSchema.safeParse(baseInput({ customHeaders: { 'x-api-key': 'value', authorization: 'Bearer token' } })).success).toBe(true)
+    expect(webhookUpdateSchema.safeParse({ customHeaders: { 'x-api-key': 'value' } }).success).toBe(true)
+  })
+})

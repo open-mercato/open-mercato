@@ -102,9 +102,9 @@ test.describe('TC-PLAN-003: Weekly & Date-specific availability replace APIs', (
         displayName: `QA DateSpec ${stamp}`,
       })
 
-      // Set date-specific availability for two dates
-      const targetDate1 = '2026-06-15'
-      const targetDate2 = '2026-06-16'
+      // Set date-specific availability for two dates (relative to now so the test never expires)
+      const targetDate1 = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10)
+      const targetDate2 = new Date(Date.now() + 31 * 86_400_000).toISOString().slice(0, 10)
 
       const dateSpecResponse = await apiRequest(
         request,
