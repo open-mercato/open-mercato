@@ -184,7 +184,24 @@ export async function buildProductFilters(
     tenantId: ctx.auth?.tenantId ?? null,
   };
   const term = sanitizeSearchTerm(query.search);
-  if (term) {
+  const channelFilterIds = parseIdList(query.channelIds);
+  const categoryFilterIds = parseIdList(query.categoryIds);
+  const tagFilterIds = parseIdList(query.tagIds);
+  const customFieldset =
+    typeof query.customFieldset === "string" &&
+    query.customFieldset.trim().length
+      ? query.customFieldset.trim()
+      : null;
+  const tenantId = ctx.auth?.tenantId ?? null;
+
+  // These prequeries are independent — each only feeds the final product-id
+  // intersection, none depends on another's result — so dispatch them together
+  // instead of awaiting one after another (#3179). A task returns null when its
+  // filter is inactive (intersection skipped) or the matched product-id list
+  // (possibly empty) when active, preserving the "active filter with no matches
+  // => empty result" behavior.
+  const searchTask = async (): Promise<string[] | null> => {
+    if (!term) return null;
     const like = `%${escapeLikePattern(term)}%`;
     const searchMatches = await findWithDecryption(
       em,
@@ -203,14 +220,13 @@ export async function buildProductFilters(
       { fields: ["id"] },
       scope,
     );
-    const productIds = searchMatches
+    return searchMatches
       .map((product) => product.id)
       .filter((id): id is string => typeof id === "string" && id.length > 0);
-    intersectProductIds(productIds);
-  }
+  };
 
-  const channelFilterIds = parseIdList(query.channelIds);
-  if (channelFilterIds.length) {
+  const channelTask = async (): Promise<string[] | null> => {
+    if (!channelFilterIds.length) return null;
     const offerRows = await findWithDecryption(
       em,
       CatalogOffer,
@@ -222,18 +238,17 @@ export async function buildProductFilters(
       { fields: ["id", "product"] },
       scope,
     );
-    const productIds = offerRows
+    return offerRows
       .map((offer) =>
         typeof offer.product === "string"
           ? offer.product
           : (offer.product?.id ?? null),
       )
       .filter((id): id is string => !!id);
-    intersectProductIds(productIds);
-  }
+  };
 
-  const categoryFilterIds = parseIdList(query.categoryIds);
-  if (categoryFilterIds.length) {
+  const categoryTask = async (): Promise<string[] | null> => {
+    if (!categoryFilterIds.length) return null;
     const assignments = await findWithDecryption(
       em,
       CatalogProductCategoryAssignment,
@@ -241,18 +256,17 @@ export async function buildProductFilters(
       { fields: ["id", "product"] },
       scope,
     );
-    const productIds = assignments
+    return assignments
       .map((assignment) =>
         typeof assignment.product === "string"
           ? assignment.product
           : (assignment.product?.id ?? null),
       )
       .filter((id): id is string => !!id);
-    intersectProductIds(productIds);
-  }
+  };
 
-  const tagFilterIds = parseIdList(query.tagIds);
-  if (tagFilterIds.length) {
+  const tagTask = async (): Promise<string[] | null> => {
+    if (!tagFilterIds.length) return null;
     const assignments = await findWithDecryption(
       em,
       CatalogProductTagAssignment,
@@ -260,36 +274,49 @@ export async function buildProductFilters(
       { fields: ["id", "product"] },
       scope,
     );
-    const productIds = assignments
+    return assignments
       .map((assignment) =>
         typeof assignment.product === "string"
           ? assignment.product
           : (assignment.product?.id ?? null),
       )
       .filter((id): id is string => !!id);
-    intersectProductIds(productIds);
+  };
+
+  const customFieldTask = async (): Promise<Record<string, unknown>> => {
+    try {
+      const scopedEm = ctx.container.resolve("em") as EntityManager;
+      return await buildCustomFieldFiltersFromQuery({
+        entityIds: [E.catalog.catalog_product],
+        query,
+        em: scopedEm,
+        tenantId,
+        fieldset: customFieldset ?? undefined,
+      });
+    } catch (err) {
+      // Custom field filter parsing may fail for non-existent or misconfigured fields.
+      // Fall back to base filters to avoid blocking the product listing.
+      if (process.env.NODE_ENV === 'development') console.warn('[catalog:products] custom field filter error', err);
+      return {};
+    }
+  };
+
+  const [searchIds, channelIds, categoryIds, tagIds, cfFilters] =
+    await Promise.all([
+      searchTask(),
+      channelTask(),
+      categoryTask(),
+      tagTask(),
+      customFieldTask(),
+    ]);
+
+  // Apply intersections in the original order; intersection is commutative, so
+  // the result is identical to the previous sequential pass. An empty array is
+  // still intersected (active filter that matched nothing); null is skipped.
+  for (const productIds of [searchIds, channelIds, categoryIds, tagIds]) {
+    if (productIds) intersectProductIds(productIds);
   }
-  const customFieldset =
-    typeof query.customFieldset === "string" &&
-    query.customFieldset.trim().length
-      ? query.customFieldset.trim()
-      : null;
-  const tenantId = ctx.auth?.tenantId ?? null;
-  try {
-    const scopedEm = ctx.container.resolve("em") as EntityManager;
-    const cfFilters = await buildCustomFieldFiltersFromQuery({
-      entityIds: [E.catalog.catalog_product],
-      query,
-      em: scopedEm,
-      tenantId,
-      fieldset: customFieldset ?? undefined,
-    });
-    Object.assign(filters, cfFilters);
-  } catch (err) {
-    // Custom field filter parsing may fail for non-existent or misconfigured fields.
-    // Fall back to base filters to avoid blocking the product listing.
-    if (process.env.NODE_ENV === 'development') console.warn('[catalog:products] custom field filter error', err);
-  }
+  Object.assign(filters, cfFilters);
   applyRestrictedProducts();
   return filters;
 }
