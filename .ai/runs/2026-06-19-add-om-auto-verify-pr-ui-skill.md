@@ -2,7 +2,7 @@
 
 **Slug:** add-om-auto-verify-pr-ui-skill
 **Date:** 2026-06-19
-**Branch:** feat/add-om-auto-verify-pr-ui-skill
+**Branch:** feat/add-om-verify-pr-ui-skill
 
 ## Goal
 
@@ -73,3 +73,4 @@ integration-test scenario (recommending `/om-integration-tests`).
 ### Phase 2: Validate & ship
 
 - [x] 2.1 Validate tiers.json (JSON parse), re-read diff, open PR against develop with labels
+- [x] Post-review rename: `om-verify-pr-ui` → `om-auto-verify-pr-ui` (folder, frontmatter name, short-form lock/comment ids, plan file, tiers.json/README/AGENTS refs) — 4b00bf8f4
