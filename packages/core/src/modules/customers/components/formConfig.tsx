@@ -116,6 +116,8 @@ type DictionarySelectFieldProps = {
   showActiveAppearance?: boolean
 }
 
+export const CUSTOMER_DICTIONARIES_MANAGE_HREF = '/backend/config/customers'
+
 const emailValidationSchema = z.string().email()
 const EMAIL_CHECK_DEBOUNCE_MS = 350
 
@@ -137,7 +139,7 @@ export function DictionarySelectField({
   onChange,
   labels,
   selectClassName,
-  manageHref,
+  manageHref = CUSTOMER_DICTIONARIES_MANAGE_HREF,
   allowInlineCreate = false,
   allowAppearance = false,
   showManage = false,
