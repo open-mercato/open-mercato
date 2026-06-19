@@ -76,6 +76,19 @@ export default async function handler(payload, ctx) { /* ... */ }
 - When `QUEUE_STRATEGY=local`, persistent events process from `.mercato/queue/` (or `QUEUE_BASE_DIR`)
 - Ephemeral subscribers always run in-process regardless of queue strategy
 
+### Persistent delivery: single-delivery (`OM_EVENTS_SINGLE_DELIVERY`, default ON)
+
+Single-delivery is the default. A persistent emit is delivered on exactly one path:
+
+- the bus skips inline delivery of **persistent-marked** subscribers on a persistent emit (ephemeral subscribers still run inline — read-your-writes paths like `query_index.upsert_one` are `persistent: false` and are unaffected);
+- the events worker dispatches **persistent** subscribers via `matchEventPattern`, so wildcard (`event: '*'`) persistent subscribers (workflow triggers, business-rules CRUD trigger, webhook outbound dispatch) are reached.
+
+This avoids the legacy dual-dispatch (set `OM_EVENTS_SINGLE_DELIVERY=false` to opt back in) where persistent emits ran inline **and** in the worker — double-running exact-match persistent subscribers (duplicate notifications/emails) and never reaching wildcard persistent subscribers in the worker. Both halves read the same env var and MUST agree within a process.
+
+**Worker guard (silent-loss protection).** With single-delivery on, persistent subscribers run ONLY in the worker. The server bootstrap (`mercato server`/`start`) reconciles the flag against worker availability: if a process auto-spawns no events worker (`AUTO_SPAWN_WORKERS=off`) and `OM_EVENTS_EXTERNAL_WORKER` is not set, it logs a loud warning and falls back to inline dual-dispatch so persistent side effects are never silently dropped. Run an events worker out-of-process and set `OM_EVENTS_EXTERNAL_WORKER=true` to keep single-delivery without auto-spawn. Transient worker downtime is not a concern — the durable queue holds jobs until a worker returns; the guard only catches the "no worker at all" misconfiguration. Reconcile logic: `reconcileSingleDelivery` in `@open-mercato/events/single-delivery` (mirrored for the CLI in `packages/cli/src/lib/events-single-delivery.ts`).
+
+**Enqueue-only emits.** Pass `{ persistent: true, deliverInline: false }` to hand a heavy persistent job (e.g. a full query-index rebuild) to the durable queue without ANY inline delivery, independent of the single-delivery flag. Only use it when every subscriber to the event is `persistent: true`. This is the "Ask First: changing persistent delivery semantics" surface — coordinate before altering these defaults.
+
 ## Queue Integration
 
 | Queue strategy | Ephemeral events | Persistent events |

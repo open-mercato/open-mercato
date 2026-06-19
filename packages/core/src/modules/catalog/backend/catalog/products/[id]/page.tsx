@@ -834,11 +834,12 @@ export default function EditCatalogProductPage({
       {
         id: "details",
         column: 1,
-        component: ({ values, setValue, errors }) => (
+        component: ({ values, setValue, errors, requiredFieldIds }) => (
           <ProductDetailsSection
             values={values as ProductFormValues}
             setValue={setValue}
             errors={errors}
+            requiredFieldIds={requiredFieldIds}
             productId={productId ?? ""}
             hasVariants={Boolean(
               (values as ProductFormValues).hasVariants,
@@ -1541,6 +1542,7 @@ function ProductDetailsSection({
   values,
   setValue,
   errors,
+  requiredFieldIds,
   productId,
   hasVariants,
   variantMediaGroups,
@@ -1597,10 +1599,10 @@ function ProductDetailsSection({
 
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
+      <div className="space-y-2" data-crud-field-id="title">
         <Label className="flex items-center gap-1">
           {t("catalog.products.form.title", "Title")}
-          <span className="text-red-600">*</span>
+          <span className="text-status-error-text">*</span>
         </Label>
         <Input
           value={values.title}
@@ -1611,13 +1613,18 @@ function ProductDetailsSection({
           )}
         />
         {errors.title ? (
-          <p className="text-xs text-red-600">{errors.title}</p>
+          <p className="text-xs text-status-error-text">{errors.title}</p>
         ) : null}
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-2" data-crud-field-id="description">
         <div className="flex items-center justify-between">
-          <Label>{t("catalog.products.form.description", "Description")}</Label>
+          <Label className="flex items-center gap-1">
+            {t("catalog.products.form.description", "Description")}
+            {requiredFieldIds?.has("description") ? (
+              <span className="text-status-error-text">*</span>
+            ) : null}
+          </Label>
           <Button
             type="button"
             variant="ghost"
@@ -1654,6 +1661,9 @@ function ProductDetailsSection({
             )}
           />
         )}
+        {errors.description ? (
+          <p className="text-xs text-status-error-text">{errors.description}</p>
+        ) : null}
       </div>
 
       <ProductMediaManager

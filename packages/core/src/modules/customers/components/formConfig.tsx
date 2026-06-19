@@ -1464,12 +1464,29 @@ export function buildCompanyPayload(
 
 // URL/email/phone fields are clearable on edit: blanking a previously-set value transmits null,
 // so the edit-form value types widen to `string | null` to match the edit-schema output. See #2526.
-export type CompanyEditFormValues = Omit<CompanyFormValues, 'addresses' | 'primaryEmail' | 'primaryPhone' | 'websiteUrl' | 'domain'> & {
+export type CompanyEditFormValues = Omit<
+  CompanyFormValues,
+  | 'addresses'
+  | 'primaryEmail'
+  | 'primaryPhone'
+  | 'websiteUrl'
+  | 'domain'
+  | 'legalName'
+  | 'brandName'
+  | 'sizeBucket'
+  | 'annualRevenue'
+  | 'description'
+> & {
   id: string
   primaryEmail?: string | null
   primaryPhone?: string | null
   websiteUrl?: string | null
   domain?: string | null
+  legalName?: string | null
+  brandName?: string | null
+  sizeBucket?: string | null
+  annualRevenue?: string | null
+  description?: string | null
 }
 
 export type PersonEditFormValues = Omit<PersonFormValues, 'addresses' | 'primaryEmail' | 'primaryPhone'> & {
@@ -1530,6 +1547,18 @@ const clearableDomainField = () =>
     .transform((val) => (val === '' ? null : val))
     .optional()
 
+// Plain optional string fields that map to nullable columns (legal name, brand name,
+// company size, annual revenue, description). On edit a blanked value must transmit null
+// so it actually clears — create-mode keeps the '' → undefined transform. See #3050.
+const clearableTextField = () =>
+  z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(''))
+    .transform((val) => (val === '' ? null : val))
+    .optional()
+
 const clearablePhoneField = () =>
   z
     .string()
@@ -1548,6 +1577,11 @@ export const createCompanyEditSchema = () =>
     primaryPhone: clearablePhoneField(),
     websiteUrl: clearableUrlField(),
     domain: clearableDomainField(),
+    legalName: clearableTextField(),
+    brandName: clearableTextField(),
+    sizeBucket: clearableTextField(),
+    annualRevenue: clearableTextField(),
+    description: clearableTextField(),
   })
 
 export const createPersonEditSchema = () =>
@@ -1859,6 +1893,21 @@ export function buildCompanyEditPayload(values: CompanyEditFormValues, organizat
   assignClearable(payload, 'primaryPhone', values.primaryPhone)
   assignClearable(payload, 'websiteUrl', values.websiteUrl)
   assignClearable(payload, 'domain', typeof values.domain === 'string' ? values.domain.toLowerCase() : values.domain)
+
+  // Plain nullable string fields that must transmit null when blanked on edit (#3050).
+  assignClearable(payload, 'legalName', values.legalName)
+  assignClearable(payload, 'brandName', values.brandName)
+  assignClearable(payload, 'sizeBucket', values.sizeBucket)
+  assignClearable(payload, 'description', values.description)
+
+  // Annual revenue maps to a nullable numeric column: a blanked value must clear it.
+  // Non-empty values are already validated/normalized by buildCompanyPayload; an omitted
+  // (undefined) value stays a no-op like the other clearable fields. (#3050)
+  const annualRevenueRaw = values.annualRevenue
+  const annualRevenueBlank =
+    annualRevenueRaw === null ||
+    (typeof annualRevenueRaw === 'string' && annualRevenueRaw.trim().length === 0)
+  if (annualRevenueBlank) payload.annualRevenue = null
 
   return payload
 }
