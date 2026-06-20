@@ -16,7 +16,7 @@ import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRe
 import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownContent'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
-import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent } from '@open-mercato/ui/primitives/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
@@ -1967,15 +1967,15 @@ export function PayPage({
   if (loadError || !payload) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16">
-        <ErrorNotice
-          title={t('checkout.payPage.errors.loadTitle', 'Unable to load payment link')}
-          message={loadError ?? t('checkout.payPage.errors.loadMessage', "We couldn't load this payment page. Please try again.")}
-          action={(
+        <Alert variant="destructive">
+          <AlertTitle>{t('checkout.payPage.errors.loadTitle', 'Unable to load payment link')}</AlertTitle>
+          <AlertDescription>{loadError ?? t('checkout.payPage.errors.loadMessage', "We couldn't load this payment page. Please try again.")}</AlertDescription>
+          <div className="mt-2">
             <Button type="button" variant="outline" onClick={() => { void loadPayload() }}>
               {t('checkout.payPage.actions.retry', 'Retry')}
             </Button>
-          )}
-        />
+          </div>
+        </Alert>
       </div>
     )
   }

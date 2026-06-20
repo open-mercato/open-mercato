@@ -9,7 +9,7 @@ import { invalidateCustomFieldDefs } from '@open-mercato/ui/backend/utils/custom
 import { upsertCustomEntitySchema, upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
 import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import Link from 'next/link'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { loadGeneratedFieldRegistrations } from '@open-mercato/ui/backend/fields/registry'
@@ -522,7 +522,10 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       <Page>
         <PageBody>
           <div className="p-6">
-            <ErrorNotice title="Invalid entity" message="The requested entity ID is missing or invalid." />
+            <Alert variant="destructive">
+              <AlertTitle>Invalid entity</AlertTitle>
+              <AlertDescription>The requested entity ID is missing or invalid.</AlertDescription>
+            </Alert>
           </div>
         </PageBody>
       </Page>
