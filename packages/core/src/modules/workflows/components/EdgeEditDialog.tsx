@@ -160,7 +160,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
         maxIntervalMs: 10000,
       },
     }
-    setActivities([...activities, newActivity])
+    setActivities(prev => [...prev, newActivity])
     // Auto-expand the new activity
     const newExpanded = new Set(expandedActivities)
     newExpanded.add(activities.length)
@@ -173,7 +173,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
       variant: 'destructive',
     })
     if (confirmed) {
-      setActivities(activities.filter((_, i) => i !== index))
+      setActivities(prev => prev.filter((_, i) => i !== index))
       // Remove from expanded set
       const newExpanded = new Set(expandedActivities)
       newExpanded.delete(index)
@@ -235,25 +235,25 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
     if (ruleSelectorMode === 'pre') {
       if (!preConditions.find(c => c.ruleId === ruleId)) {
-        setPreConditions([...preConditions, { ruleId, required: true }])
+        setPreConditions(prev => [...prev, { ruleId, required: true }])
       }
     } else {
       if (!postConditions.find(c => c.ruleId === ruleId)) {
-        setPostConditions([...postConditions, { ruleId, required: true }])
+        setPostConditions(prev => [...prev, { ruleId, required: true }])
       }
     }
     closeRuleSelector()
   }
 
   const removePreCondition = (index: number) => {
-    setPreConditions(preConditions.filter((_, i) => i !== index))
+    setPreConditions(prev => prev.filter((_, i) => i !== index))
     const newExpanded = new Set(expandedPreConditions)
     newExpanded.delete(index)
     setExpandedPreConditions(newExpanded)
   }
 
   const removePostCondition = (index: number) => {
-    setPostConditions(postConditions.filter((_, i) => i !== index))
+    setPostConditions(prev => prev.filter((_, i) => i !== index))
     const newExpanded = new Set(expandedPostConditions)
     newExpanded.delete(index)
     setExpandedPostConditions(newExpanded)

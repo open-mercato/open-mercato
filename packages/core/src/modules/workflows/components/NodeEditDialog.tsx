@@ -287,7 +287,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       required: false,
       placeholder: '',
     }
-    setFormFields([...formFields, newField])
+    setFormFields(prev => [...prev, newField])
     // Auto-expand the new field
     const newExpanded = new Set(expandedFields)
     newExpanded.add(formFields.length)
@@ -300,7 +300,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       variant: 'destructive',
     })
     if (confirmed) {
-      setFormFields(formFields.filter((_, i) => i !== index))
+      setFormFields(prev => prev.filter((_, i) => i !== index))
       const newExpanded = new Set(expandedFields)
       newExpanded.delete(index)
       setExpandedFields(newExpanded)
@@ -1269,7 +1269,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       <Button
                         type="button"
                         size="sm"
-                        onClick={() => setInputMappings([...inputMappings, { key: '', value: '' }])}
+                        onClick={() => setInputMappings(prev => [...prev, { key: '', value: '' }])}
                       >
                         <Plus className="size-3 mr-1" />
                         {t('workflows.form.addMapping')}
@@ -1316,7 +1316,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                               size="sm"
                               variant="ghost"
                               onClick={() => {
-                                setInputMappings(inputMappings.filter((_, i) => i !== index))
+                                setInputMappings(prev => prev.filter((_, i) => i !== index))
                               }}
                               className="mt-1"
                             >
@@ -1342,7 +1342,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                       <Button
                         type="button"
                         size="sm"
-                        onClick={() => setOutputMappings([...outputMappings, { key: '', value: '' }])}
+                        onClick={() => setOutputMappings(prev => [...prev, { key: '', value: '' }])}
                       >
                         <Plus className="size-3 mr-1" />
                         {t('workflows.form.addMapping')}
@@ -1389,7 +1389,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                               size="sm"
                               variant="ghost"
                               onClick={() => {
-                                setOutputMappings(outputMappings.filter((_, i) => i !== index))
+                                setOutputMappings(prev => prev.filter((_, i) => i !== index))
                               }}
                               className="mt-1"
                             >

@@ -213,36 +213,37 @@ export default function CheckoutDemoPage() {
 
   // Cart management functions
   const addToCart = (product: Product) => {
-    const existing = cart.find(item => item.id === product.id)
-    if (existing) {
-      setCart(cart.map(item =>
-        item.id === product.id
-          ? { ...item, quantity: item.quantity + 1 }
-          : item
-      ))
-    } else {
-      setCart([...cart, {
+    setCart(prev => {
+      const existing = prev.find(item => item.id === product.id)
+      if (existing) {
+        return prev.map(item =>
+          item.id === product.id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        )
+      }
+      return [...prev, {
         id: product.id,
         name: product.title,
         // Use resolved pricing from catalog pricing service (in USD)
         price: product.pricing?.unit_price_gross || product.pricing?.unit_price_net || 99.99,
         quantity: 1,
-      }])
-    }
+      }]
+    })
   }
 
   const updateQuantity = (productId: string, quantity: number) => {
     if (quantity <= 0) {
-      setCart(cart.filter(item => item.id !== productId))
+      setCart(prev => prev.filter(item => item.id !== productId))
     } else {
-      setCart(cart.map(item =>
+      setCart(prev => prev.map(item =>
         item.id === productId ? { ...item, quantity } : item
       ))
     }
   }
 
   const removeFromCart = (productId: string) => {
-    setCart(cart.filter(item => item.id !== productId))
+    setCart(prev => prev.filter(item => item.id !== productId))
   }
 
   // Convert prices to selected currency (cart items are in USD by default)
