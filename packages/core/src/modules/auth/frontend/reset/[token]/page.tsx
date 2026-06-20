@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@open
 import { Button } from '@open-mercato/ui/primitives/button'
 import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -14,11 +14,16 @@ export default function ResetWithTokenPage({ params }: { params: { token: string
   const t = useT()
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [clientReady, setClientReady] = useState(false)
   const passwordPolicy = getPasswordPolicy()
   const passwordRequirements = formatPasswordRequirements(passwordPolicy, t)
   const passwordDescription = passwordRequirements
     ? t('auth.password.requirements.help', 'Password requirements: {requirements}', { requirements: passwordRequirements })
     : ''
+
+  useEffect(() => {
+    setClientReady(true)
+  }, [])
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -65,7 +70,7 @@ export default function ResetWithTokenPage({ params }: { params: { token: string
           <CardDescription>{t('auth.reset.subtitle', 'Choose a strong password for your account.')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-3" onSubmit={onSubmit}>
+          <form className="grid gap-3" onSubmit={onSubmit} data-auth-ready={clientReady ? '1' : '0'}>
             {error && <div className="text-sm text-status-error-text">{error}</div>}
             <div className="grid gap-1">
               <Label htmlFor="password">{t('auth.reset.form.password', 'New password')}</Label>

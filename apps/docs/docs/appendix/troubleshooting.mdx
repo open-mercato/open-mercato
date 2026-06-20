@@ -63,10 +63,15 @@ In lazy mode the runtime starts lightweight supervisors. The worker supervisor w
 
 For production deployments, prefer `AUTO_SPAWN_WORKERS=false` plus separately managed worker processes — lazy mode targets memory-sensitive dev and small unified deployments.
 
-The monorepo package watcher also defaults to low-memory one-shot rebuilds. It watches package source files without keeping a persistent esbuild graph for every package after the initial build. To restore the previous faster-but-heavier incremental watcher for a session, run:
+The monorepo package watcher also defaults to low-memory one-shot rebuilds. Two near-identical env vars tune different layers of that path, so it pays to keep them straight:
+
+- `OM_WATCH_PACKAGES_MODE` (dispatch-level) picks which watcher implementation `yarn dev` runs. Default is the consolidated single-process watcher (`scripts/watch-packages.mjs`). Set `OM_WATCH_PACKAGES_MODE=legacy` to fall back to the Turbo per-package fan-out (`yarn watch:packages:legacy`) when debugging the new path or pinning the old behavior.
+- `OM_PACKAGE_WATCH_MODE` (per-package mode, only meaningful under the legacy Turbo fan-out) chooses between the low-memory one-shot mode (default) and the older `persistent` esbuild-context mode that keeps the incremental graph in memory for faster rebuilds at the cost of ~1 GB of idle RSS.
+
+To restore the previous faster-but-heavier incremental watcher for a session, combine both:
 
 ```bash
-OM_PACKAGE_WATCH_MODE=persistent yarn dev
+OM_WATCH_PACKAGES_MODE=legacy OM_PACKAGE_WATCH_MODE=persistent yarn dev
 ```
 
 ## PostgreSQL auth errors on local setup

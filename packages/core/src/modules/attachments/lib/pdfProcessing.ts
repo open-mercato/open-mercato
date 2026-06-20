@@ -34,7 +34,6 @@ type PdfDocumentProxyLike = {
   numPages: number
   canvasFactory: PdfCanvasFactoryLike
   getPage: (pageNumber: number) => Promise<PdfPageProxyLike>
-  destroy: () => Promise<void>
 }
 
 export type PdfPageOcrInput = {
@@ -146,6 +145,6 @@ export async function preparePdfPagesForOcr(filePath: string): Promise<PdfOcrPre
       pages,
     }
   } finally {
-    await pdfDocument.destroy()
+    await loadingTask.destroy()
   }
 }

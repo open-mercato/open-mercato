@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   workflowDefinitionFormSchema,
@@ -18,6 +19,7 @@ import { StepsEditor } from '../../../components/StepsEditor'
 import { TransitionsEditor } from '../../../components/TransitionsEditor'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Zap } from 'lucide-react'
+import { formatWorkflowValidationError } from '../../../lib/format-validation-error'
 
 export default function CreateWorkflowDefinitionPage() {
   const router = useRouter()
@@ -33,8 +35,8 @@ export default function CreateWorkflowDefinitionPage() {
     })
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || t('workflows.errors.createFailed'))
+      const errorBody = await readJsonSafe<{ error?: string; details?: Array<{ path?: Array<string | number>; message?: string }> }>(response, null)
+      throw new Error(formatWorkflowValidationError(errorBody, t('workflows.errors.createFailed')))
     }
 
     router.push('/backend/definitions')
@@ -51,8 +53,7 @@ export default function CreateWorkflowDefinitionPage() {
   return (
     <Page>
       <PageBody>
-        <Alert variant="info" className="mb-6">
-          <Zap className="w-4 h-4" />
+        <Alert variant="info" icon={<Zap aria-hidden="true" />} className="mb-6">
           <AlertTitle>{t('workflows.create.eventTriggersTitle')}</AlertTitle>
           <AlertDescription>
             {t('workflows.create.eventTriggersDescription')}

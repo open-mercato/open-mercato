@@ -11,7 +11,7 @@ Use tenant data encryption to protect sensitive columns with per-tenant DEKs, ke
 - `TENANT_DATA_ENCRYPTION_DEBUG` – `yes` to log map evaluation, Vault calls, cache hits, and fallback selection.
 - `VAULT_ADDR`, `VAULT_TOKEN` – required for HashiCorp Vault KMS. Example: `https://vault.example.com`.
 - `VAULT_KV_PATH` – KV v2 mount for tenant keys (default `secret/data`).
-- Fallback (dev / when Vault is down): set `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` (preferred) or `TENANT_DATA_ENCRYPTION_KEY`. If none are set, `AUTH_SECRET`/`NEXTAUTH_SECRET` is used in dev; production falls back to noop KMS.
+- Fallback (dev / when Vault is down): set `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` (preferred) or legacy `TENANT_DATA_ENCRYPTION_KEY`. `AUTH_SECRET` and `NEXTAUTH_SECRET` are not used for data encryption. The built-in dev fallback is disabled unless `ALLOW_DERIVED_KMS_FALLBACK=true`; production without a dedicated fallback secret falls back to noop KMS.
 
 Note: changing encryption maps or toggling the **Encrypted** flag on a custom field only applies to data written after the change; previously stored values stay as they were unless you re-save or migrate them.
 
@@ -130,7 +130,7 @@ The `--confirm <tenantUuid>` flag is a required safety gate — it must exactly 
 
 - Turn on `TENANT_DATA_ENCRYPTION_DEBUG=yes` to see KMS cache hits/misses, Vault calls, and which fields were encrypted.
 - Debug logs also call out Vault health and the selected KMS path (Vault vs derived vs noop) so you can verify `VAULT_ADDR`, `VAULT_TOKEN`, and `VAULT_KV_PATH` without exposing the token value.
-- If Vault is unreachable, the runtime logs a warning and falls back to the derived-key KMS when a fallback secret is present; otherwise it becomes a noop KMS (data stays plaintext).
+- If Vault is unreachable, the runtime logs a warning and falls back to the derived-key KMS when a dedicated fallback secret is present; otherwise it becomes a noop KMS (data stays plaintext). Integration credentials fail closed instead of saving under a noop or auth-derived key.
 - Use **Configuration → System status** to confirm the active values of the encryption env vars in the running instance.
 
 ## Running without Vault

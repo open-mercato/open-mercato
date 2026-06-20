@@ -45,18 +45,18 @@ export async function getOverrides(
     tenant: Tenant,
     query: GetOverridesQuery
 ): Promise<GetOverridesResult> {
-    const filters: FilterQuery<FeatureToggle>[] = []
+    const filters: FilterQuery<FeatureToggle> = { deletedAt: null }
     if (query.category) {
-        filters.push({ category: { $ilike: `%${escapeLikePattern(query.category)}%` } })
+        filters.category = { $ilike: `%${escapeLikePattern(query.category)}%` }
     }
     if (query.name) {
-        filters.push({ name: { $ilike: `%${escapeLikePattern(query.name)}%` } })
+        filters.name = { $ilike: `%${escapeLikePattern(query.name)}%` }
     }
     if (query.identifier) {
-        filters.push({ identifier: { $ilike: `%${escapeLikePattern(query.identifier)}%` } })
+        filters.identifier = { $ilike: `%${escapeLikePattern(query.identifier)}%` }
     }
 
-    const globalToggles = await em.find(FeatureToggle, filters.length > 0 ? filters : {})
+    const globalToggles = await em.find(FeatureToggle, filters)
 
     const overrides = await em.find(FeatureToggleOverride, {
         tenantId: tenant.id,

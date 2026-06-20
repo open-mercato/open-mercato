@@ -7,6 +7,8 @@ import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { SearchX } from 'lucide-react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
@@ -96,9 +98,12 @@ export default function PortalResetPasswordPage({ params }: Props) {
   if (tenant.error) {
     return (
       <div className="mx-auto w-full max-w-md py-12">
-        <Alert variant="destructive">
-          <AlertDescription>{t('portal.org.invalid', 'Organization not found.')}</AlertDescription>
-        </Alert>
+        <EmptyState
+          variant="subtle"
+          size="lg"
+          icon={<SearchX className="h-6 w-6" aria-hidden />}
+          title={t('portal.org.invalid', 'Organization not found.')}
+        />
       </div>
     )
   }

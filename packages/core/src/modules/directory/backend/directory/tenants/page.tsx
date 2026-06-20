@@ -5,11 +5,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -125,9 +127,12 @@ export default function DirectoryTenantsPage() {
     if (!confirmed) return
 
     try {
-      const call = await apiCall(
-        `/api/directory/tenants?id=${encodeURIComponent(tenant.id)}`,
-        { method: 'DELETE' },
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(tenant.updatedAt),
+        () => apiCall(
+          `/api/directory/tenants?id=${encodeURIComponent(tenant.id)}`,
+          { method: 'DELETE' },
+        ),
       )
       if (!call.ok) {
         await raiseCrudError(call.response, t('directory.tenants.list.error.delete', 'Failed to delete tenant'))
@@ -174,6 +179,13 @@ export default function DirectoryTenantsPage() {
                 ]}
               />
             ) : null
+          )}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('directory.tenants.list.title', 'Tenants')}
+              createHref="/backend/directory/tenants/create"
+              createLabel={t('directory.tenants.list.actions.create', 'Create')}
+            />
           )}
           pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}

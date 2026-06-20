@@ -1,8 +1,14 @@
 import type { McpToolContext } from '../types'
 import { getApiEndpoints } from '../api-endpoint-index'
+import { fetchWithTimeout } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import {
   authorizeCodeModeApiRequest,
+  CODE_MODE_MAX_API_CALLS,
+  CODE_MODE_MAX_MUTATION_CALLS,
   CODE_MODE_REQUIRED_FEATURES,
+  createApiRequestFn,
+  isUnsafeApiRequestPath,
+  isUnsafeHttpMethod,
   matchApiEndpointPath,
 } from '../codemode-tools'
 
@@ -11,7 +17,46 @@ jest.mock('../api-endpoint-index', () => ({
   getRawOpenApiSpec: jest.fn(),
 }))
 
+jest.mock('@open-mercato/shared/lib/http/fetchWithTimeout', () => ({
+  fetchWithTimeout: jest.fn(),
+  resolveTimeoutMs: jest.fn(() => 30000),
+}))
+
 const mockedGetApiEndpoints = jest.mocked(getApiEndpoints)
+const mockedFetchWithTimeout = jest.mocked(fetchWithTimeout)
+
+function okResponse() {
+  return {
+    ok: true,
+    status: 200,
+    text: jest.fn().mockResolvedValue('{}'),
+  } as unknown as Response
+}
+
+/**
+ * Replicate the execute() handler's per-run counters so the regression test
+ * exercises the same accounting that gates real api.request() calls.
+ */
+function createCountingOnCall() {
+  let apiCallCount = 0
+  let mutationCallCount = 0
+  const onCall = (normalizedMethod: string) => {
+    apiCallCount++
+    if (apiCallCount > CODE_MODE_MAX_API_CALLS) {
+      throw new Error(`API call limit exceeded (max ${CODE_MODE_MAX_API_CALLS})`)
+    }
+    if (isUnsafeHttpMethod(normalizedMethod)) {
+      mutationCallCount++
+      if (mutationCallCount > CODE_MODE_MAX_MUTATION_CALLS) {
+        throw new Error(`Mutation API call limit exceeded (max ${CODE_MODE_MAX_MUTATION_CALLS})`)
+      }
+    }
+  }
+  return {
+    onCall,
+    counts: () => ({ apiCallCount, mutationCallCount }),
+  }
+}
 
 type MockRbacService = {
   hasAllFeatures: jest.Mock<boolean, [string[], string[]]>
@@ -240,5 +285,195 @@ describe('authorizeCodeModeApiRequest', () => {
         deprecated: false,
       },
     })
+  })
+})
+
+describe('path traversal hardening (issue #2667)', () => {
+  describe('isUnsafeApiRequestPath', () => {
+    it.each([
+      '/api/foo/../admin',
+      '/api/foo/..',
+      '/api/foo/./admin',
+      '/api/.',
+      '/api/foo/%2e%2e/admin',
+      '/api/foo/%2E%2E/admin',
+      '/api/foo/%2e./admin',
+      '/api/foo/.%2e/admin',
+      '/api/foo/%2e/admin',
+      '/api/foo\\admin',
+      '/api/foo%2fadmin',
+      '/api/foo%2Fadmin',
+      '/api/foo%5cadmin',
+      'foo/../admin',
+      '/api/foo/../admin?expand=1',
+      // Raw ASCII tab/newline/CR are stripped by the WHATWG URL parser before
+      // the fetch, so `.<ctrl>.` collapses to `..` on the wire.
+      '/api/foo/.\t./admin',
+      '/api/foo/.\n./admin',
+      '/api/foo/.\r./admin',
+      '/api/foo/\t../admin',
+    ])('flags %s as unsafe', (path) => {
+      expect(isUnsafeApiRequestPath(path)).toBe(true)
+    })
+
+    it.each([
+      '/api/customers/companies',
+      '/api/customers/companies/company-1',
+      'customers/companies/company-1?expand=1',
+      '/api/catalog/products/1.2.3',
+      '/api/customers/companies/00000000-0000-0000-0000-000000000000',
+    ])('treats %s as safe', (path) => {
+      expect(isUnsafeApiRequestPath(path)).toBe(false)
+    })
+  })
+
+  it('denies a traversal path even when a parameterized endpoint would match', async () => {
+    mockedGetApiEndpoints.mockReset()
+    // A documented read the user is authorized for. The un-normalized segment
+    // matcher would have accepted '/api/foo/..' against '/api/foo/{id}', then
+    // the wire fetch would collapse it to '/api/admin'. The guard blocks it.
+    mockedGetApiEndpoints.mockResolvedValue([
+      {
+        id: 'get_foo',
+        operationId: 'get_foo',
+        method: 'GET',
+        path: '/api/foo/{id}',
+        summary: '',
+        description: '',
+        tags: [],
+        requiredFeatures: [],
+        parameters: [],
+        requestBodySchema: null,
+        deprecated: false,
+      },
+    ])
+
+    const result = await authorizeCodeModeApiRequest(createContext(), 'GET', '/api/foo/..')
+
+    expect(result).toEqual({
+      allowed: false,
+      statusCode: 403,
+      error: 'Code Mode rejected unsafe API path: GET /api/foo/..',
+    })
+  })
+
+  it('never issues the wire request for a traversal path', async () => {
+    mockedGetApiEndpoints.mockReset()
+    mockedFetchWithTimeout.mockReset()
+    mockedFetchWithTimeout.mockResolvedValue(okResponse())
+    mockedGetApiEndpoints.mockResolvedValue([
+      {
+        id: 'create_company',
+        operationId: 'create_company',
+        method: 'POST',
+        path: '/api/customers/companies',
+        summary: '',
+        description: '',
+        tags: [],
+        requiredFeatures: ['customers.companies.create'],
+        parameters: [],
+        requestBodySchema: null,
+        deprecated: false,
+      },
+    ])
+
+    const apiRequest = createApiRequestFn(
+      createContext({ userFeatures: ['ai_assistant.view', 'customers.companies.create'] }),
+      () => {}
+    )
+
+    const result = (await apiRequest({
+      method: 'POST',
+      path: '/api/customers/companies/../admin',
+      body: {},
+    })) as { success: boolean; statusCode: number }
+
+    expect(result.success).toBe(false)
+    expect(result.statusCode).toBe(403)
+    expect(mockedFetchWithTimeout).not.toHaveBeenCalled()
+  })
+})
+
+describe('mutation call cap (issue #2724)', () => {
+  beforeEach(() => {
+    mockedGetApiEndpoints.mockReset()
+    mockedFetchWithTimeout.mockReset()
+    mockedFetchWithTimeout.mockResolvedValue(okResponse())
+    // Documented, feature-authorized POST endpoint so RBAC always allows the call.
+    mockedGetApiEndpoints.mockResolvedValue([
+      {
+        id: 'create_company',
+        operationId: 'create_company',
+        method: 'POST',
+        path: '/api/customers/companies',
+        summary: '',
+        description: '',
+        tags: [],
+        requiredFeatures: ['customers.companies.create'],
+        parameters: [],
+        requestBodySchema: null,
+        deprecated: false,
+      },
+    ])
+  })
+
+  function authorizedContext(): McpToolContext {
+    return createContext({
+      userFeatures: ['ai_assistant.view', 'customers.companies.create'],
+    })
+  }
+
+  it('counts a dynamically-built POST method against the mutation cap', async () => {
+    const { onCall, counts } = createCountingOnCall()
+    const apiRequest = createApiRequestFn(authorizedContext(), onCall)
+
+    // The method string is built at runtime — the old static regex never saw it.
+    const dynamicMethod = 'PO' + 'ST'
+    await apiRequest({ method: dynamicMethod, path: '/api/customers/companies', body: {} })
+
+    expect(counts()).toEqual({ apiCallCount: 1, mutationCallCount: 1 })
+  })
+
+  it('refuses once the dynamically-built mutation cap is exceeded', async () => {
+    const { onCall } = createCountingOnCall()
+    const apiRequest = createApiRequestFn(authorizedContext(), onCall)
+
+    const dynamicMethod = ['P', 'O', 'S', 'T'].join('')
+    for (let index = 0; index < CODE_MODE_MAX_MUTATION_CALLS; index++) {
+      await apiRequest({ method: dynamicMethod, path: '/api/customers/companies', body: {} })
+    }
+
+    await expect(
+      apiRequest({ method: dynamicMethod, path: '/api/customers/companies', body: {} })
+    ).rejects.toThrow(`Mutation API call limit exceeded (max ${CODE_MODE_MAX_MUTATION_CALLS})`)
+
+    // Authorized mutations actually hit fetch up to the cap; the cap throws before fetch on the overflow call.
+    expect(mockedFetchWithTimeout).toHaveBeenCalledTimes(CODE_MODE_MAX_MUTATION_CALLS)
+  })
+
+  it('does not charge GET reads against the mutation cap', async () => {
+    mockedGetApiEndpoints.mockResolvedValue([
+      {
+        id: 'list_companies',
+        operationId: 'list_companies',
+        method: 'GET',
+        path: '/api/customers/companies',
+        summary: '',
+        description: '',
+        tags: [],
+        requiredFeatures: [],
+        parameters: [],
+        requestBodySchema: null,
+        deprecated: false,
+      },
+    ])
+    const { onCall, counts } = createCountingOnCall()
+    const apiRequest = createApiRequestFn(createContext(), onCall)
+
+    for (let index = 0; index < CODE_MODE_MAX_MUTATION_CALLS + 5; index++) {
+      await apiRequest({ method: 'get', path: '/api/customers/companies' })
+    }
+
+    expect(counts()).toEqual({ apiCallCount: CODE_MODE_MAX_MUTATION_CALLS + 5, mutationCallCount: 0 })
   })
 })

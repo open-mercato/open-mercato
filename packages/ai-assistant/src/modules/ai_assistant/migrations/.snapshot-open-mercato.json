@@ -856,6 +856,22 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
         "last_read_at": {
           "name": "last_read_at",
           "type": "timestamptz(6)",
@@ -971,6 +987,15 @@
           "primary": false,
           "unique": false,
           "expression": "create unique index \"ai_chat_conv_participants_tenant_org_conv_user_uq\" on \"ai_chat_conversation_participants\" (\"tenant_id\", \"organization_id\", \"conversation_id\", \"user_id\") where \"organization_id\" is not null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "ai_chat_conv_participants_active_conv_user_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"ai_chat_conv_participants_active_conv_user_idx\" on \"ai_chat_conversation_participants\" (\"tenant_id\", \"organization_id\", \"conversation_id\", \"user_id\") where \"deleted_at\" is null"
         },
         {
           "columnNames": [

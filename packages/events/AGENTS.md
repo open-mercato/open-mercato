@@ -2,14 +2,32 @@
 
 Use `@open-mercato/events` for all event-driven communication between modules. MUST NOT use direct module-to-module function calls for side effects.
 
-## MUST Rules
+## Always
 
 1. **MUST declare events in the emitting module's `events.ts`** — use `createModuleEvents()` with `as const` for type safety
 2. **MUST run `yarn generate`** after creating or modifying `events.ts` files
-3. **MUST NOT emit undeclared events** — undeclared events trigger TypeScript errors and runtime warnings
-4. **MUST export `metadata`** from every subscriber with `{ event, persistent?, id? }`
-5. **MUST keep subscribers focused** — one side effect per subscriber file
-6. **MUST make persistent subscribers idempotent** — they may be retried on failure
+3. **MUST export `metadata`** from every subscriber with `{ event, persistent?, id? }`
+4. **MUST keep subscribers focused** — one side effect per subscriber file
+5. **MUST make persistent subscribers idempotent** — they may be retried on failure
+
+## Ask First
+
+- Ask before renaming event IDs, changing persistent delivery semantics, or altering SSE audience filtering.
+- Ask before increasing SSE payload size limits or heartbeat/deduplication behavior.
+
+## Never
+
+- Never use direct module-to-module function calls for side effects.
+- Never emit undeclared events — undeclared events trigger TypeScript errors and runtime warnings.
+- Never rely on payload-provided tenant or organization scope when trusted scope is available.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/events test
+yarn workspace @open-mercato/events build
+```
 
 ## Event Declaration
 
@@ -57,6 +75,19 @@ export default async function handler(payload, ctx) { /* ... */ }
 - When `QUEUE_STRATEGY=async`, persistent events dispatch through the queue package (BullMQ)
 - When `QUEUE_STRATEGY=local`, persistent events process from `.mercato/queue/` (or `QUEUE_BASE_DIR`)
 - Ephemeral subscribers always run in-process regardless of queue strategy
+
+### Persistent delivery: single-delivery (`OM_EVENTS_SINGLE_DELIVERY`, default ON)
+
+Single-delivery is the default. A persistent emit is delivered on exactly one path:
+
+- the bus skips inline delivery of **persistent-marked** subscribers on a persistent emit (ephemeral subscribers still run inline — read-your-writes paths like `query_index.upsert_one` are `persistent: false` and are unaffected);
+- the events worker dispatches **persistent** subscribers via `matchEventPattern`, so wildcard (`event: '*'`) persistent subscribers (workflow triggers, business-rules CRUD trigger, webhook outbound dispatch) are reached.
+
+This avoids the legacy dual-dispatch (set `OM_EVENTS_SINGLE_DELIVERY=false` to opt back in) where persistent emits ran inline **and** in the worker — double-running exact-match persistent subscribers (duplicate notifications/emails) and never reaching wildcard persistent subscribers in the worker. Both halves read the same env var and MUST agree within a process.
+
+**Worker guard (silent-loss protection).** With single-delivery on, persistent subscribers run ONLY in the worker. The server bootstrap (`mercato server`/`start`) reconciles the flag against worker availability: if a process auto-spawns no events worker (`AUTO_SPAWN_WORKERS=off`) and `OM_EVENTS_EXTERNAL_WORKER` is not set, it logs a loud warning and falls back to inline dual-dispatch so persistent side effects are never silently dropped. Run an events worker out-of-process and set `OM_EVENTS_EXTERNAL_WORKER=true` to keep single-delivery without auto-spawn. Transient worker downtime is not a concern — the durable queue holds jobs until a worker returns; the guard only catches the "no worker at all" misconfiguration. Reconcile logic: `reconcileSingleDelivery` in `@open-mercato/events/single-delivery` (mirrored for the CLI in `packages/cli/src/lib/events-single-delivery.ts`).
+
+**Enqueue-only emits.** Pass `{ persistent: true, deliverInline: false }` to hand a heavy persistent job (e.g. a full query-index rebuild) to the durable queue without ANY inline delivery, independent of the single-delivery flag. Only use it when every subscriber to the event is `persistent: true`. This is the "Ask First: changing persistent delivery semantics" surface — coordinate before altering these defaults.
 
 ## Queue Integration
 
@@ -136,7 +167,7 @@ useAppEvent('mymod.entity.created', (event) => {
 }, [])
 ```
 
-### Key Rules
+### Browser Delivery Rules
 
 - Events are server-filtered by audience before SSE send:
   - Tenant: `tenantId` must match

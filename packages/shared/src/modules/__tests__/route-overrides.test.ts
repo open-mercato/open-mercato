@@ -12,7 +12,7 @@
  *   - `registerApiRouteManifests` consults the override composer.
  *   - Stale override keys emit a warning so operators notice.
  *
- * Spec: `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`.
+ * Spec: `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md`.
  */
 import {
   applyApiOverridesToManifests,

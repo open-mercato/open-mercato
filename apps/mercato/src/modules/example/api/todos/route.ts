@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { Todo } from '../../data/entities'
 
 const ENTITY_ID = 'example:todo' as const
@@ -32,6 +33,7 @@ const querySchema = z
     id: z.string().uuid().optional(),
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
+    ids: z.string().optional(),
     sortField: z.string().optional().default('id'),
     sortDir: z.enum(['asc', 'desc']).optional().default('asc'),
     title: z.string().optional(),
@@ -96,8 +98,15 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
       const filters: Where<BaseFields> = {}
       const F = filters as Record<string, WhereValue>
       // Base fields
+      if (q.ids) {
+        const ids = q.ids
+          .split(',')
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0)
+        if (ids.length > 0) F.id = { $in: ids }
+      }
       if (q.id) F.id = q.id
-      if (q.title) F.title = { $ilike: `%${q.title}%` }
+      if (q.title) F.title = { $ilike: `%${escapeLikePattern(q.title)}%` }
       if (q.isDone !== undefined) F.is_done = q.isDone as any
       if (q.organizationId) F.organization_id = q.organizationId
       if (q.createdFrom || q.createdTo) {

@@ -92,3 +92,39 @@ export async function listInboxProposals(
   const body = await readJsonSafe<{ items?: Array<Record<string, unknown>>; total?: number }>(response);
   return { items: body?.items ?? [], total: body?.total ?? 0 };
 }
+
+export type InboxProposalActionDetail = {
+  id: string;
+  actionType: string;
+  status: string;
+  payload: Record<string, unknown>;
+  description?: string;
+  createdEntityId?: string | null;
+  createdEntityType?: string | null;
+};
+
+export type InboxProposalDetail = {
+  id: string;
+  status: string;
+  category?: string | null;
+  workingLanguage?: string | null;
+  isActive?: boolean;
+  actions: InboxProposalActionDetail[];
+};
+
+export async function fetchProposalDetail(
+  request: APIRequestContext,
+  token: string,
+  proposalId: string,
+): Promise<InboxProposalDetail | null> {
+  const response = await apiRequest(request, 'GET', `/api/inbox_ops/proposals/${proposalId}`, { token });
+  if (!response.ok()) return null;
+  const body = await readJsonSafe<{ proposal?: InboxProposalDetail }>(response);
+  return body?.proposal ?? null;
+}
+
+export function findPendingAction(
+  actions: InboxProposalActionDetail[],
+): InboxProposalActionDetail | null {
+  return actions.find((action) => action.status === 'pending') ?? actions[0] ?? null;
+}

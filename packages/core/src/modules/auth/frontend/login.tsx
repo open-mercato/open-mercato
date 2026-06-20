@@ -111,6 +111,7 @@ export default function LoginPage() {
   const [authOverride, setAuthOverride] = useState<AuthOverride | null>(null)
   const [authOverridePending, setAuthOverridePending] = useState(false)
   const [clientReady, setClientReady] = useState(false)
+  const [activeAuthenticatedUser, setActiveAuthenticatedUser] = useState(false)
   const [email, setEmail] = useState('')
   const [tenantId, setTenantId] = useState<string | null>(null)
   const [tenantName, setTenantName] = useState<string | null>(null)
@@ -128,6 +129,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     let cancelled = false
+    const hasAclChallenge = requiredFeatures.length > 0 || requiredRoles.length > 0
     void (async () => {
       try {
         const res = await apiCall<{ userId?: string }>('/api/auth/feature-check', {
@@ -139,6 +141,13 @@ export default function LoginPage() {
         if (cancelled) return
         const activeUserId = typeof res.result?.userId === 'string' ? res.result.userId : ''
         if (!activeUserId) return
+        setActiveAuthenticatedUser(true)
+        // When a feature/role challenge is present in the URL, the user already
+        // failed an ACL check while authenticated. Auto-redirecting back to
+        // `redirect` would re-trigger the same 403 and re-bounce here,
+        // producing an infinite loop (see GH #2070). Stay on the login page so
+        // the access-denied banner is visible.
+        if (hasAclChallenge) return
         const rawRedirect = searchParams.get('redirect') || ''
         let destination = '/backend'
         if (rawRedirect) {
@@ -161,7 +170,7 @@ export default function LoginPage() {
       }
     })()
     return () => { cancelled = true }
-  }, [router, searchParams])
+  }, [router, searchParams, requiredFeatures.length, requiredRoles.length])
 
   useEffect(() => {
     const tenantParam = (searchParams.get('tenant') || '').trim()
@@ -364,6 +373,15 @@ export default function LoginPage() {
                   </AlertDescription>
                 </Alert>
               )}
+              {activeAuthenticatedUser && (translatedRoles.length || translatedFeatures.length) ? (
+                <div className="flex justify-center" data-testid="login-return-dashboard">
+                  <Button asChild type="button" variant="outline" size="sm">
+                    <Link href="/backend">
+                      {translate('auth.accessDenied.dashboard', 'Go to Dashboard')}
+                    </Link>
+                  </Button>
+                </div>
+              ) : null}
               {showTenantInvalid ? (
                 <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-xs text-red-700">
                   <div className="font-medium">{translate('auth.login.errors.tenantInvalid', 'Tenant not found. Clear the tenant selection and try again.')}</div>
@@ -377,7 +395,7 @@ export default function LoginPage() {
                   <div className="font-medium">
                     {tenantLoading
                       ? translate('auth.login.tenantLoading', 'Loading tenant details...')
-                      : translate('auth.login.tenantBanner', "You're logging in to {tenant} tenant.", {
+                      : translate('auth.login.tenantBanner', "You're logging in to {tenant}.", {
                           tenant: tenantName || tenantId,
                         })}
                   </div>

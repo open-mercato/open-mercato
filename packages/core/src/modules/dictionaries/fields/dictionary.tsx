@@ -5,6 +5,7 @@ import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudFo
 import { FieldRegistry } from '@open-mercato/ui/backend/fields/registry'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import {
   Select,
   SelectContent,
@@ -50,7 +51,7 @@ function DictionaryDefaultSelector({
         {t('dictionaries.customFields.defaultValue', 'Default value')}
       </label>
       <Select
-        value={defaultValue || undefined}
+        value={defaultValue ?? ''}
         onValueChange={(next) => onChange(next ?? '')}
       >
         <SelectTrigger size="sm">
@@ -70,7 +71,7 @@ function DictionaryDefaultSelector({
         </p>
       ) : null}
       {isStale ? (
-        <p className="text-xs text-amber-600">
+        <p className="text-xs text-status-warning-text">
           {t('dictionaries.customFields.defaultValueStale', 'Default entry not found — it may have been deleted or renamed.')}
         </p>
       ) : null}
@@ -83,6 +84,7 @@ function DictionaryFieldDefEditor({ def, onChange }: { def: { configJson?: Dicti
   const [items, setItems] = React.useState<DictionarySummary[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const inlineCreateId = React.useId()
   const selectedId = typeof def?.configJson?.dictionaryId === 'string' ? def?.configJson?.dictionaryId : ''
   const inlineCreate = def?.configJson?.dictionaryInlineCreate !== false
 
@@ -137,7 +139,7 @@ function DictionaryFieldDefEditor({ def, onChange }: { def: { configJson?: Dicti
           {t('dictionaries.customFields.dictionaryLabel', 'Dictionary source')}
         </label>
         <Select
-          value={selectedId || undefined}
+          value={selectedId ?? ''}
           onValueChange={(next) => onChange({ dictionaryId: next || undefined })}
         >
           <SelectTrigger size="sm">
@@ -157,7 +159,7 @@ function DictionaryFieldDefEditor({ def, onChange }: { def: { configJson?: Dicti
             {t('dictionaries.customFields.loading', 'Loading dictionaries…')}
           </p>
         ) : null}
-        {error ? <p className="text-xs text-red-600">{error}</p> : null}
+        {error ? <p className="text-xs text-status-error-text">{error}</p> : null}
         {!loading && !error && items.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             {t('dictionaries.customFields.empty', 'No dictionaries available yet. Create one first.')}
@@ -172,15 +174,20 @@ function DictionaryFieldDefEditor({ def, onChange }: { def: { configJson?: Dicti
           </a>
         </div>
       ) : null}
-      <label className="inline-flex items-center gap-2 text-xs">
-        <input
-          type="checkbox"
+      <div className="inline-flex items-center gap-2 text-xs">
+        <Checkbox
+          id={inlineCreateId}
           checked={inlineCreate}
-          onChange={(event) => onChange({ dictionaryInlineCreate: event.target.checked })}
+          onCheckedChange={(checked) => onChange({ dictionaryInlineCreate: checked === true })}
           disabled={!selectedId}
         />
-        {t('dictionaries.customFields.allowInlineCreate', 'Allow inline creation inside forms')}
-      </label>
+        <label
+          htmlFor={inlineCreateId}
+          className={selectedId ? 'cursor-pointer select-none' : 'cursor-not-allowed opacity-60'}
+        >
+          {t('dictionaries.customFields.allowInlineCreate', 'Allow inline creation inside forms')}
+        </label>
+      </div>
       {selectedId ? (
         <DictionaryDefaultSelector
           dictionaryId={selectedId}

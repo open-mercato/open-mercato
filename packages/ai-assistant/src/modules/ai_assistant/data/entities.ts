@@ -790,6 +790,11 @@ export class AiChatConversation {
     'create unique index "ai_chat_conv_participants_tenant_conv_user_null_org_uq" on "ai_chat_conversation_participants" ("tenant_id", "conversation_id", "user_id") where "organization_id" is null',
 })
 @Index({
+  name: 'ai_chat_conv_participants_active_conv_user_idx',
+  expression:
+    'create index "ai_chat_conv_participants_active_conv_user_idx" on "ai_chat_conversation_participants" ("tenant_id", "organization_id", "conversation_id", "user_id") where "deleted_at" is null',
+})
+@Index({
   name: 'ai_chat_conv_participants_tenant_org_user_conv_idx',
   properties: ['tenantId', 'organizationId', 'userId', 'conversationId'],
 })
@@ -800,6 +805,7 @@ export class AiChatConversationParticipant {
     | 'organizationId'
     | 'role'
     | 'lastReadAt'
+    | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -821,6 +827,9 @@ export class AiChatConversationParticipant {
 
   @Property({ name: 'last_read_at', type: Date, nullable: true })
   lastReadAt?: Date | null
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

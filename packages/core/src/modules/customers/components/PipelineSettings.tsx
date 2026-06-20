@@ -13,7 +13,8 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -40,6 +41,7 @@ type Pipeline = {
   isDefault: boolean
   organizationId: string
   tenantId: string
+  updatedAt?: string | null
 }
 
 type PipelineStage = {
@@ -49,6 +51,7 @@ type PipelineStage = {
   order: number
   color: string | null
   icon: string | null
+  updatedAt?: string | null
 }
 
 type PipelineDialogState =
@@ -66,6 +69,7 @@ function normalizePipeline(raw: Record<string, unknown>): Pipeline {
     isDefault: raw.isDefault === true || raw.is_default === true,
     organizationId: typeof raw.organizationId === 'string' ? raw.organizationId : (typeof raw.organization_id === 'string' ? raw.organization_id : ''),
     tenantId: typeof raw.tenantId === 'string' ? raw.tenantId : (typeof raw.tenant_id === 'string' ? raw.tenant_id : ''),
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : (typeof raw.updated_at === 'string' ? raw.updated_at : null),
   }
 }
 
@@ -77,6 +81,7 @@ function normalizeStage(raw: Record<string, unknown>): PipelineStage {
     order: typeof raw.order === 'number' ? raw.order : 0,
     color: typeof raw.color === 'string' && raw.color.trim().length ? raw.color.trim() : null,
     icon: typeof raw.icon === 'string' && raw.icon.trim().length ? raw.icon.trim() : null,
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : (typeof raw.updated_at === 'string' ? raw.updated_at : null),
   }
 }
 
@@ -171,11 +176,15 @@ export default function PipelineSettings(): React.ReactElement {
         }
         flash(t('customers.pipelines.flash.created', 'Pipeline created'), 'success')
       } else if (pipelineDialog?.mode === 'edit') {
-        const res = await apiCall('/api/customers/pipelines', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: pipelineDialog.entry.id, name: pipelineForm.name.trim(), isDefault: pipelineForm.isDefault }),
-        })
+        const res = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(pipelineDialog.entry.updatedAt),
+          () =>
+            apiCall('/api/customers/pipelines', {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id: pipelineDialog.entry.id, name: pipelineForm.name.trim(), isDefault: pipelineForm.isDefault }),
+            }),
+        )
         if (!res.ok) {
           await raiseCrudError(res.response, t('customers.pipelines.errors.updateFailed', 'Failed to update pipeline'))
           return
@@ -197,11 +206,15 @@ export default function PipelineSettings(): React.ReactElement {
       variant: 'destructive',
     })
     if (!confirmed) return
-    const res = await apiCall('/api/customers/pipelines', {
-      method: 'DELETE',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: pipeline.id }),
-    })
+    const res = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(pipeline.updatedAt),
+      () =>
+        apiCall('/api/customers/pipelines', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: pipeline.id }),
+        }),
+    )
     if (!res.ok) {
       const body = (res.result ?? {}) as Record<string, unknown>
       const msg = typeof body.error === 'string' ? body.error : t('customers.pipelines.errors.deleteFailed', 'Failed to delete pipeline')
@@ -248,11 +261,15 @@ export default function PipelineSettings(): React.ReactElement {
         flash(t('customers.pipelines.flash.stageCreated', 'Stage created'), 'success')
         await loadStages(stageDialog.pipelineId)
       } else if (stageDialog?.mode === 'edit') {
-        const res = await apiCall('/api/customers/pipeline-stages', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: stageDialog.entry.id, label: stageForm.label.trim(), ...appearance }),
-        })
+        const res = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(stageDialog.entry.updatedAt),
+          () =>
+            apiCall('/api/customers/pipeline-stages', {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id: stageDialog.entry.id, label: stageForm.label.trim(), ...appearance }),
+            }),
+        )
         if (!res.ok) {
           await raiseCrudError(res.response, t('customers.pipelines.errors.stageUpdateFailed', 'Failed to update stage'))
           return
@@ -274,11 +291,15 @@ export default function PipelineSettings(): React.ReactElement {
       variant: 'destructive',
     })
     if (!confirmed) return
-    const res = await apiCall('/api/customers/pipeline-stages', {
-      method: 'DELETE',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: stage.id }),
-    })
+    const res = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(stage.updatedAt),
+      () =>
+        apiCall('/api/customers/pipeline-stages', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: stage.id }),
+        }),
+    )
     if (!res.ok) {
       const body = (res.result ?? {}) as Record<string, unknown>
       const msg = typeof body.error === 'string' ? body.error : t('customers.pipelines.errors.stageDeleteFailed', 'Failed to delete stage')

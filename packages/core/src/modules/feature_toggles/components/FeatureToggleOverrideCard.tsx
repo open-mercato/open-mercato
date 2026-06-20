@@ -2,7 +2,9 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@open-mercato/ui/primitives/card'
 import { DataLoader, ErrorNotice } from "@open-mercato/ui";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiCall } from "@open-mercato/ui/backend/utils/apiCall";
+import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
+import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
+import { surfaceRecordConflict } from "@open-mercato/ui/backend/conflicts";
 import { raiseCrudError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { CrudForm } from "@open-mercato/ui/backend/CrudForm";
@@ -28,22 +30,30 @@ export function FeatureToggleOverrideCard({ toggleId }: { toggleId: string }) {
 
     const mutation = useMutation({
         mutationFn: async (input: { toggleId: string; isOverride: boolean; overrideValue?: any; tenantId: string }) => {
-            const call = await apiCall<{ ok: boolean }>(
-                `/api/feature_toggles/overrides`,
-                {
-                    method: 'PUT',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({
-                        toggleId: input.toggleId,
-                        isOverride: input.isOverride,
-                        overrideValue: input.overrideValue,
-                    }),
-                },
+            const call = await withScopedApiRequestHeaders(
+                buildOptimisticLockHeader(overrideData?.updatedAt ?? null),
+                () => apiCall<{ ok: boolean }>(
+                    `/api/feature_toggles/overrides`,
+                    {
+                        method: 'PUT',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({
+                            toggleId: input.toggleId,
+                            isOverride: input.isOverride,
+                            overrideValue: input.overrideValue,
+                        }),
+                    },
+                ),
             )
             if (!call.ok) {
                 await raiseCrudError(call.response, t('feature_toggles.overrides.error.update', 'Failed to update override'))
             }
             return call.result
+        },
+        onError: (err: unknown) => {
+            // Route an optimistic-lock 409 to the unified conflict bar; other errors
+            // already surfaced via raiseCrudError inside mutationFn.
+            surfaceRecordConflict(err, t)
         },
         onSettled: async () => {
             await queryClient.invalidateQueries({ queryKey: ['feature_toggle_override', toggleId] })

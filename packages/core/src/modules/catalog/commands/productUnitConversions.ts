@@ -40,6 +40,7 @@ import {
   getErrorConstraint,
   getErrorMessage,
 } from "./shared";
+import { makeCreateRedo } from "@open-mercato/shared/lib/commands/redo";
 import { toUnitLookupKey } from "../lib/unitCodes";
 import { resolveCanonicalUnitCode } from "../lib/unitResolution";
 
@@ -167,6 +168,24 @@ async function loadConversionSnapshot(
   };
 }
 
+function conversionSeedFromSnapshot(
+  snapshot: ProductUnitConversionSnapshot,
+): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    product: snapshot.productId,
+    unitCode: snapshot.unitCode,
+    toBaseFactor: snapshot.toBaseFactor,
+    sortOrder: snapshot.sortOrder,
+    isActive: snapshot.isActive,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    createdAt: new Date(snapshot.createdAt),
+    updatedAt: new Date(snapshot.updatedAt),
+  };
+}
+
 function applyConversionSnapshot(
   em: EntityManager,
   record: CatalogProductUnitConversion,
@@ -247,6 +266,7 @@ const createProductUnitConversionCommand: CommandHandler<
     const product = await requireProduct(
       em,
       parsed.productId,
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
       translate("catalog.errors.productNotFound", "Catalog product not found"),
     );
     ensureSameScope(product, parsed.organizationId, parsed.tenantId);
@@ -340,6 +360,19 @@ const createProductUnitConversionCommand: CommandHandler<
       conversion: record,
     });
   },
+  redo: makeCreateRedo<
+    CatalogProductUnitConversion,
+    ProductUnitConversionSnapshot,
+    ProductUnitConversionCreateInput,
+    { conversionId: string }
+  >({
+    entityClass: CatalogProductUnitConversion,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: conversionSeedFromSnapshot,
+    buildResult: (entity) => ({ conversionId: entity.id }),
+    events: conversionCrudEvents,
+    indexer: conversionCrudIndexer,
+  }),
 };
 
 const updateProductUnitConversionCommand: CommandHandler<
@@ -373,7 +406,12 @@ const updateProductUnitConversionCommand: CommandHandler<
       });
     const product =
       typeof record.product === "string"
-        ? await requireProduct(em, record.product, translate("catalog.errors.productNotFound", "Catalog product not found"))
+        ? await requireProduct(
+            em,
+            record.product,
+            { tenantId: record.tenantId, organizationId: record.organizationId },
+            translate("catalog.errors.productNotFound", "Catalog product not found"),
+          )
         : record.product;
     ensureTenantScope(ctx, record.tenantId);
     ensureOrganizationScope(ctx, record.organizationId);

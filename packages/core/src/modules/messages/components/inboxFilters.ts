@@ -46,7 +46,8 @@ export function buildMessagesInboxFilters({
     },
     {
       id: 'hasObjects',
-      label: t('messages.filters.hasObjects', 'Has objects'),
+      label: t('messages.filters.hasObjects', 'Has related records'),
+      tooltip: t('messages.filters.hasObjectsTooltip', 'Shows messages that have Open Mercato records attached — such as orders, quotes, or customers.'),
       type: 'select',
       options: [
         { value: '', label: t('messages.filters.all', 'All') },
@@ -66,7 +67,8 @@ export function buildMessagesInboxFilters({
     },
     {
       id: 'hasActions',
-      label: t('messages.filters.hasActions', 'Has actions'),
+      label: t('messages.filters.hasActions', 'Has action requests'),
+      tooltip: t('messages.filters.hasActionsTooltip', 'Shows messages where one or more attached records require a response (approval, rejection, or review).'),
       type: 'select',
       options: [
         { value: '', label: t('messages.filters.all', 'All') },

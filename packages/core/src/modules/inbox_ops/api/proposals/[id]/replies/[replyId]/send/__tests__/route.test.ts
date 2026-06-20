@@ -220,6 +220,55 @@ describe('POST /api/inbox_ops/proposals/[id]/replies/[replyId]/send', () => {
     expect(payload.error).toContain('must be accepted first')
   })
 
+  it('returns 409 when the reply was already sent (replySentAt set)', async () => {
+    const proposal = {
+      id: 'proposal-1',
+      inboxEmailId: 'email-1',
+      isActive: true,
+    } as unknown as InboxProposal
+
+    const action = {
+      id: 'reply-1',
+      proposalId: 'proposal-1',
+      actionType: 'draft_reply',
+      status: 'executed',
+      payload: { to: 'customer@example.com', subject: 'Re: Order inquiry', body: 'Thank you.' },
+      metadata: { replySentAt: '2026-06-07T10:00:00.000Z', sentMessageId: 'sent-msg-prev' },
+    } as unknown as InboxProposalAction
+
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce(proposal)
+      .mockResolvedValueOnce(action)
+
+    const response = await POST(makeRequest())
+    const payload = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(payload.error).toContain('already been sent')
+    expect(mockResendSend).not.toHaveBeenCalled()
+    expect(mockEm.flush).not.toHaveBeenCalled()
+  })
+
+  it('marks replySentAt after a successful send so a replay is rejected', async () => {
+    const { action } = setupHappyPath()
+
+    const first = await POST(makeRequest())
+    expect(first.status).toBe(200)
+    expect((action.metadata as Record<string, unknown>).replySentAt).toBeTruthy()
+
+    mockResendSend.mockClear()
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce({ id: 'proposal-1', inboxEmailId: 'email-1', isActive: true } as unknown as InboxProposal)
+      .mockResolvedValueOnce(action)
+
+    const second = await POST(makeRequest())
+    const secondPayload = await second.json()
+
+    expect(second.status).toBe(409)
+    expect(secondPayload.error).toContain('already been sent')
+    expect(mockResendSend).not.toHaveBeenCalled()
+  })
+
   it('returns 502 when Resend fails', async () => {
     setupHappyPath()
     mockResendSend.mockResolvedValueOnce({

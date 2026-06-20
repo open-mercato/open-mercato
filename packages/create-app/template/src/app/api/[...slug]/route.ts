@@ -21,9 +21,21 @@ import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@o
 bootstrap()
 registerApiRouteManifests(apiRoutes)
 
+const warnedDeprecatedRequireRoles = new Set<string>()
+
+function warnDeprecatedRequireRoles(pathname: string, method: HttpMethod): void {
+  const warnKey = `${method} ${pathname}`
+  if (warnedDeprecatedRequireRoles.has(warnKey)) return
+  warnedDeprecatedRequireRoles.add(warnKey)
+  console.warn(
+    '[api] Ignoring deprecated `requireRoles` guard — role names are mutable and spoofable, so they no longer authorize requests. Migrate to `requireFeatures` with immutable acl.ts feature IDs.',
+    { path: pathname, method },
+  )
+}
+
 type MethodMetadata = {
   requireAuth?: boolean
-  /** @deprecated Use `requireFeatures` instead — role names are mutable and can be spoofed */
+  /** @deprecated Ignored at runtime — role names are mutable and can be spoofed. Use `requireFeatures` instead. */
   requireRoles?: string[]
   requireFeatures?: string[]
   rateLimit?: RateLimitConfig
@@ -127,7 +139,7 @@ function normalizeLoadedMetadata(
   return { [method]: metadata }
 }
 
-async function checkAuthorization(
+export async function checkAuthorization(
   methodMetadata: MethodMetadata | null,
   auth: AuthContext,
   req: NextRequest
@@ -138,14 +150,14 @@ async function checkAuthorization(
     return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
-  const requiredRoles = methodMetadata?.requireRoles ?? []
   const requiredFeatures = methodMetadata?.requireFeatures ?? []
 
-  if (
-    requiredRoles.length &&
-    (!auth || !Array.isArray(auth.roles) || !requiredRoles.some((role) => auth.roles!.includes(role)))
-  ) {
-    return NextResponse.json({ error: t('api.errors.forbidden', 'Forbidden'), requiredRoles }, { status: 403 })
+  // `requireRoles` is deprecated and intentionally NOT enforced: role names are
+  // tenant-mutable and spoofable, so honoring them would let a tenant admin create
+  // or rename a role to satisfy the guard. Authorization decisions must use
+  // immutable feature IDs via `requireFeatures`. We warn so operators migrate.
+  if (methodMetadata?.requireRoles?.length) {
+    warnDeprecatedRequireRoles(req.nextUrl.pathname, req.method.toUpperCase() as HttpMethod)
   }
 
   let container: Awaited<ReturnType<typeof createRequestContainer>> | null = null
@@ -155,24 +167,31 @@ async function checkAuthorization(
   }
 
   if (auth && requiresAuthentication) {
-    const rawTenantCandidate = await extractTenantCandidate(req)
-    if (rawTenantCandidate !== undefined) {
+    // HTTP parameter pollution hardening (issue #2665): a request can carry `tenantId`
+    // more than once — repeated `?tenantId=` query params, or in both the query string
+    // and the body. The dispatcher and downstream handlers may disagree on which
+    // occurrence wins (here historically `getAll().last`, handlers use `get()` first),
+    // so the authorization gate must validate EVERY distinct candidate. If any one
+    // targets a tenant the actor may not select, the request is rejected — making this
+    // decision binding regardless of how a handler later parses the same request.
+    const rawTenantCandidates = await extractTenantCandidates(req)
+    const actorTenant = normalizeTenantId(auth.tenantId ?? null) ?? null
+    const enforcedCandidates = new Set<string | null>()
+    for (const rawTenantCandidate of rawTenantCandidates) {
       const tenantCandidate = sanitizeTenantCandidate(rawTenantCandidate)
-      if (tenantCandidate !== undefined) {
-        const normalizedCandidate = normalizeTenantId(tenantCandidate) ?? null
-        const actorTenant = normalizeTenantId(auth.tenantId ?? null) ?? null
-        const tenantDiffers = normalizedCandidate !== actorTenant
-        if (tenantDiffers) {
-          try {
-            const guardContainer = await ensureContainer()
-            await enforceTenantSelection({ auth, container: guardContainer }, tenantCandidate)
-          } catch (error) {
-            if (isCrudHttpError(error)) {
-              return NextResponse.json(error.body ?? { error: t('api.errors.forbidden', 'Forbidden') }, { status: error.status })
-            }
-            throw error
-          }
+      if (tenantCandidate === undefined) continue
+      const normalizedCandidate = normalizeTenantId(tenantCandidate) ?? null
+      if (normalizedCandidate === actorTenant) continue
+      if (enforcedCandidates.has(normalizedCandidate)) continue
+      enforcedCandidates.add(normalizedCandidate)
+      try {
+        const guardContainer = await ensureContainer()
+        await enforceTenantSelection({ auth, container: guardContainer }, tenantCandidate)
+      } catch (error) {
+        if (isCrudHttpError(error)) {
+          return NextResponse.json(error.body ?? { error: t('api.errors.forbidden', 'Forbidden') }, { status: error.status })
         }
+        throw error
       }
     }
   }
@@ -236,17 +255,12 @@ function sanitizeTenantCandidate(candidate: unknown): unknown {
   return candidate
 }
 
-async function extractTenantCandidate(req: NextRequest): Promise<unknown> {
-  const tenantParams = req.nextUrl?.searchParams?.getAll?.('tenantId') ?? []
-  if (tenantParams.length > 0) {
-    return tenantParams[tenantParams.length - 1]
-  }
-
+function bodyCarriesTenantId(req: NextRequest): boolean {
   const method = (req.method || 'GET').toUpperCase()
-  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
-    return undefined
-  }
+  return method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS'
+}
 
+async function extractBodyTenantCandidate(req: NextRequest): Promise<unknown> {
   const rawContentType = req.headers.get('content-type')
   if (!rawContentType) return undefined
   const contentType = rawContentType.split(';')[0].trim().toLowerCase()
@@ -261,7 +275,7 @@ async function extractTenantCandidate(req: NextRequest): Promise<unknown> {
       const form = await req.clone().formData()
       if (form.has('tenantId')) {
         const value = form.get('tenantId')
-        if (value instanceof File) return value.name
+        if (value instanceof File) return undefined
         return value
       }
     }
@@ -270,6 +284,35 @@ async function extractTenantCandidate(req: NextRequest): Promise<unknown> {
   }
 
   return undefined
+}
+
+export async function extractTenantCandidate(req: NextRequest): Promise<unknown> {
+  const tenantParams = req.nextUrl?.searchParams?.getAll?.('tenantId') ?? []
+  if (tenantParams.length > 0) {
+    return tenantParams[tenantParams.length - 1]
+  }
+
+  if (!bodyCarriesTenantId(req)) {
+    return undefined
+  }
+
+  return extractBodyTenantCandidate(req)
+}
+
+// Returns every `tenantId` candidate the request carries — each repeated `?tenantId=`
+// query param plus any body-level value. The dispatcher enforces tenant selection
+// against all of them so a downstream handler that reads a different occurrence
+// (e.g. `searchParams.get()` first vs. `getAll()` last) cannot be tricked into using a
+// candidate that was never authorized (issue #2665).
+export async function extractTenantCandidates(req: NextRequest): Promise<unknown[]> {
+  const candidates: unknown[] = [...(req.nextUrl?.searchParams?.getAll?.('tenantId') ?? [])]
+
+  if (bodyCarriesTenantId(req)) {
+    const bodyCandidate = await extractBodyTenantCandidate(req)
+    if (bodyCandidate !== undefined) candidates.push(bodyCandidate)
+  }
+
+  return candidates
 }
 
 async function handleRequest(

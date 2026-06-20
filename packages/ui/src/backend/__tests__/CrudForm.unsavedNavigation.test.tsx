@@ -3,6 +3,9 @@ jest.setTimeout(15000)
 
 const pushMock = jest.fn()
 const confirmDialogMock = jest.fn()
+const triggerEventMock = jest.fn()
+let mockInjectionSpotDataChange: (() => unknown) | null = null
+let mockInjectionSpotDataChangeCalled = false
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
@@ -10,7 +13,6 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 jest.mock('remark-gfm', () => ({ __esModule: true, default: {} }))
-jest.mock('@uiw/react-md-editor', () => ({ __esModule: true, default: () => null }))
 jest.mock('../confirm-dialog', () => ({
   useConfirmDialog: () => ({
     confirm: confirmDialogMock,
@@ -19,9 +21,17 @@ jest.mock('../confirm-dialog', () => ({
 }))
 jest.mock('../injection/InjectionSpot', () => ({
   __esModule: true,
-  InjectionSpot: () => null,
+  InjectionSpot: ({ onDataChange }: { onDataChange?: (next: unknown) => void }) => {
+    const React = require('react') as typeof import('react')
+    React.useEffect(() => {
+      if (!mockInjectionSpotDataChange || mockInjectionSpotDataChangeCalled) return
+      mockInjectionSpotDataChangeCalled = true
+      onDataChange?.(mockInjectionSpotDataChange())
+    }, [onDataChange])
+    return null
+  },
   useInjectionWidgets: () => ({ widgets: [], loading: false, error: null }),
-  useInjectionSpotEvents: () => ({ triggerEvent: jest.fn() }),
+  useInjectionSpotEvents: () => ({ triggerEvent: triggerEventMock }),
 }))
 jest.mock('../injection/useInjectionDataWidgets', () => ({
   __esModule: true,
@@ -40,6 +50,10 @@ describe('CrudForm unsaved navigation guard', () => {
     pushMock.mockReset()
     confirmDialogMock.mockReset()
     confirmDialogMock.mockResolvedValue(true)
+    triggerEventMock.mockReset()
+    triggerEventMock.mockImplementation(async (_event: string, data: Record<string, unknown>) => ({ ok: true, data }))
+    mockInjectionSpotDataChange = null
+    mockInjectionSpotDataChangeCalled = false
     window.history.replaceState({}, '', '/current')
   })
 
@@ -264,5 +278,39 @@ describe('CrudForm unsaved navigation guard', () => {
     expect(event.defaultPrevented).toBe(false)
 
     anchor.remove()
+  })
+
+  it('does not prompt when initialization normalizes empty values without user edits', async () => {
+    mockInjectionSpotDataChange = () => ({ name: undefined, tags: [], meta: { note: null } })
+
+    renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={fields}
+        initialValues={{ name: '', tags: [], meta: { note: '' } }}
+        injectionSpotId="customers.person"
+        onSubmit={() => {}}
+      />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.confirmUnsavedChanges': 'You have unsaved changes. Are you sure you want to leave?',
+        },
+      },
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      window.history.pushState({}, '', '/backend/customers/people')
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(confirmDialogMock).not.toHaveBeenCalled()
+    expect(window.location.pathname).toBe('/backend/customers/people')
   })
 })

@@ -1,5 +1,6 @@
 import { Collection, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, OneToMany, OneToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import type { DictionaryEntrySortMode } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 
 export type CustomerEntityKind = 'person' | 'company'
 export type CustomerAddressFormat = 'line_first' | 'street_first'
@@ -541,8 +542,23 @@ export class CustomerActivity {
   name: 'customer_interactions_type_idx',
   properties: ['tenantId', 'organizationId', 'interactionType'],
 })
+@Index({
+  name: 'customer_interactions_external_msg_idx',
+  expression:
+    `create index "customer_interactions_external_msg_idx" on "customer_interactions" ("external_message_id") where "external_message_id" is not null`,
+})
+@Index({
+  name: 'customer_interactions_email_dedupe_uq',
+  expression:
+    `create unique index "customer_interactions_email_dedupe_uq" on "customer_interactions" ("entity_id", "external_message_id") where "external_message_id" is not null and "deleted_at" is null`,
+})
+@Index({
+  name: 'customer_interactions_email_visibility_idx',
+  expression:
+    `create index "customer_interactions_email_visibility_idx" on "customer_interactions" ("entity_id", "interaction_type", "visibility", "author_user_id") where "interaction_type" = 'email' and "deleted_at" is null`,
+})
 export class CustomerInteraction {
-  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility' | 'linkedEntities' | 'guestPermissions'
+  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility' | 'linkedEntities' | 'guestPermissions' | 'externalMessageId' | 'channelProviderKey'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -561,6 +577,24 @@ export class CustomerInteraction {
 
   @Property({ name: 'body', type: 'text', nullable: true })
   body?: string | null
+
+  /**
+   * UUID pointing at `communication_channels.message_channel_link.id`.
+   * Set only for rows where `interactionType === 'email'`.
+   *
+   * The cross-module link is declared in `data/extensions.ts` rather than as
+   * a raw FK (root AGENTS.md: no direct ORM relationships between modules).
+   */
+  @Property({ name: 'external_message_id', type: 'uuid', nullable: true })
+  externalMessageId?: string | null
+
+  /**
+   * Denormalized provider key from `MessageChannelLink.providerKey`. Common
+   * values today: 'gmail', 'imap'. Stored as open text so future
+   * providers (e.g. 'slack', 'whatsapp') can register without a schema change.
+   */
+  @Property({ name: 'channel_provider_key', type: 'text', nullable: true })
+  channelProviderKey?: string | null
 
   @Property({ name: 'status', type: 'text', default: 'planned' })
   status: string = 'planned'
@@ -613,6 +647,18 @@ export class CustomerInteraction {
   @Property({ name: 'reminder_minutes', type: 'int', nullable: true })
   reminderMinutes?: number | null
 
+  /**
+   * Visibility flag, shared across interaction types but with a per-type
+   * value space:
+   *   - Email rows (interactionType='email'): 'private' | 'shared'.
+   *     Filtered by `lib/visibilityFilter.ts` so private emails are only
+   *     visible only to the channel-owner author (v1 strict owner-only; no admin bypass).
+   *   - Activity rows (call/meeting/task): 'team' | 'public'. Surfaced via
+   *     the ScheduleActivityDialog footer.
+   * Stored as plain text to keep the column reusable for future visibility
+   * vocabularies; the application enforces the per-type vocabulary at the
+   * boundary (API routes, subscribers).
+   */
   @Property({ name: 'visibility', type: 'text', nullable: true })
   visibility?: string | null
 
@@ -750,7 +796,7 @@ export class CustomerAddress {
 @Entity({ tableName: 'customer_settings' })
 @Unique({ name: 'customer_settings_scope_unique', properties: ['organizationId', 'tenantId'] })
 export class CustomerSettings {
-  [OptionalProps]?: 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'addressFormat' | 'stuckThresholdDays' | 'dictionarySortModes'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -763,6 +809,12 @@ export class CustomerSettings {
 
   @Property({ name: 'address_format', type: 'text', default: 'line_first' })
   addressFormat: CustomerAddressFormat = 'line_first'
+
+  @Property({ name: 'stuck_threshold_days', type: 'int', default: 14 })
+  stuckThresholdDays: number = 14
+
+  @Property({ name: 'dictionary_sort_modes', type: 'jsonb', nullable: true })
+  dictionarySortModes?: Record<string, DictionaryEntrySortMode> | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

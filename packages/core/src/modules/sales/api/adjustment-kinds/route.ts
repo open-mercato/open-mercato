@@ -116,6 +116,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: null,
   },
+  indexer: { entityType: E.dictionaries.dictionary_entry },
   list: {
     schema: listSchema,
     entityId: E.dictionaries.dictionary_entry,

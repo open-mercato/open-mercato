@@ -8,6 +8,11 @@ import { addCustomLine, addPayment, createSalesDocument } from '@open-mercato/co
  */
 test.describe('TC-SALES-010: Payment Recording', () => {
   test('should record payment from order payments UI', async ({ page }) => {
+    // Heavy multi-hop UI flow (login + createSalesDocument + line + payment)
+    // routinely exceeds Playwright's 20s default on a loaded ephemeral shard;
+    // opt into the sanctioned per-test budget (see TC-SALES-005). Global bump
+    // is disallowed.
+    test.slow();
     const amount = 42.37;
     await login(page, 'admin');
     await createSalesDocument(page, { kind: 'order' });

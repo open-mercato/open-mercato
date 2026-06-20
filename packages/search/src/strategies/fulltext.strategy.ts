@@ -34,9 +34,17 @@ export class FullTextSearchStrategy implements SearchStrategy {
   }
 
   async search(query: string, options: SearchOptions): Promise<SearchResult[]> {
+    if (Array.isArray(options.organizationIds)) {
+      const organizationIds = options.organizationIds
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter((value) => value.length > 0)
+      if (!options.organizationId && organizationIds.length === 0) return []
+    }
+
     const hits = await this.driver.search(query, {
       tenantId: options.tenantId,
       organizationId: options.organizationId,
+      organizationIds: options.organizationIds,
       entityTypes: options.entityTypes,
       limit: options.limit,
       offset: options.offset,
@@ -67,11 +75,11 @@ export class FullTextSearchStrategy implements SearchStrategy {
     return this.driver.bulkIndex(docs)
   }
 
-  async purge(entityId: EntityId, tenantId: string): Promise<void> {
+  async purge(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void> {
     if (!this.driver.purge) {
       return
     }
-    return this.driver.purge(entityId, tenantId)
+    return this.driver.purge(entityId, tenantId, organizationId)
   }
 
   // Additional methods exposed for enrichment and admin purposes
@@ -133,6 +141,7 @@ export class FullTextSearchStrategy implements SearchStrategy {
       recordId: hit.recordId,
       score: hit.score,
       source: this.id,
+      organizationId: hit.organizationId ?? null,
       presenter: hit.presenter,
       url: hit.url,
       links: hit.links,

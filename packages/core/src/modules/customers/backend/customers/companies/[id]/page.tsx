@@ -8,11 +8,13 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
 import {
@@ -69,6 +71,7 @@ type CompanyOverview = {
     nextInteractionIcon?: string | null
     nextInteractionColor?: string | null
     organizationId?: string | null
+    updatedAt?: string | null
   }
   profile: {
     id: string
@@ -114,6 +117,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   const [data, setData] = React.useState<CompanyOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<SectionKey>(initialTab)
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
@@ -279,7 +283,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
 
   React.useEffect(() => {
     if (!id) {
-      setError(t('customers.companies.detail.error.notFound', 'Company not found.'))
+      setIsNotFound(true)
       setIsLoading(false)
       return
     }
@@ -301,8 +305,12 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         setData(payload as CompanyOverview)
       } catch (err) {
         if (cancelled) return
-        const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
-        setError(message)
+        if ((err as { status?: number }).status === 404) {
+          setIsNotFound(true)
+        } else {
+          const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
+          setError(message)
+        }
         setData(null)
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -318,19 +326,31 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     async (patch: Record<string, unknown>, apply: (prev: CompanyOverview) => CompanyOverview) => {
       if (!data) return
       const payload = { id: data.company.id, ...patch }
-      await runMutationWithContext(
-        () => apiCallOrThrow(
-          '/api/customers/companies',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          },
-          { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+      const result = await runMutationWithContext(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader((data?.company as { updatedAt?: string } | undefined)?.updatedAt),
+          () => apiCallOrThrow<{ ok?: boolean; updatedAt?: string | null }>(
+            '/api/customers/companies',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+          ),
         ),
         payload,
       )
-      setData((prev) => (prev ? apply(prev) : prev))
+      // Refresh the optimistic-lock token so the next sequential inline edit does
+      // not send a stale updatedAt and falsely 409 (#2055, default-ON locking).
+      const nextUpdatedAt = result?.result?.updatedAt ?? null
+      setData((prev) => {
+        if (!prev) return prev
+        const applied = apply(prev)
+        return nextUpdatedAt
+          ? { ...applied, company: { ...applied.company, updatedAt: nextUpdatedAt } }
+          : applied
+      })
     },
     [data, runMutationWithContext, t],
   )
@@ -411,19 +431,24 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         id: data.company.id,
         customFields: customPayload,
       }
+      let customFieldsUpdatedAt: string | null = null
       try {
-        await runMutationWithContext(
-          () => apiCallOrThrow(
-            '/api/customers/companies',
-            {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload),
-            },
-            { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+        const result = await runMutationWithContext(
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader((data?.company as { updatedAt?: string } | undefined)?.updatedAt),
+            () => apiCallOrThrow<{ ok?: boolean; updatedAt?: string | null }>(
+              '/api/customers/companies',
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+            ),
           ),
           payload,
         )
+        customFieldsUpdatedAt = result?.result?.updatedAt ?? null
       } catch (err) {
         const { message: helperMessage, fieldErrors } = mapCrudServerErrorToFormErrors(err)
         const message = helperMessage ?? t('customers.companies.detail.inline.error', 'Unable to update company.')
@@ -442,6 +467,9 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         if (!prev) return prev
         return {
           ...prev,
+          company: customFieldsUpdatedAt
+            ? { ...prev.company, updatedAt: customFieldsUpdatedAt }
+            : prev.company,
           customFields: {
             ...prev.customFields,
             ...normalized,
@@ -487,13 +515,16 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     setIsDeleting(true)
     try {
       await runMutationWithContext(
-        () => apiCallOrThrow(
-          `/api/customers/companies?id=${encodeURIComponent(currentCompanyId)}`,
-          {
-            method: 'DELETE',
-            headers: { 'content-type': 'application/json' },
-          },
-          { errorMessage: t('customers.companies.list.deleteError', 'Failed to delete company.') },
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader((data?.company as { updatedAt?: string } | undefined)?.updatedAt),
+          () => apiCallOrThrow(
+            `/api/customers/companies?id=${encodeURIComponent(currentCompanyId)}`,
+            {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+            },
+            { errorMessage: t('customers.companies.list.deleteError', 'Failed to delete company.') },
+          ),
         ),
         { id: currentCompanyId },
       )
@@ -548,18 +579,34 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('customers.companies.detail.error.notFound', 'Company not found.')}
+            backHref="/backend/customers/companies"
+            backLabel={t('customers.companies.detail.actions.backToList', 'Back to companies')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !data?.company?.id) {
     return (
       <Page>
         <PageBody>
-            <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <p>{error || t('customers.companies.detail.error.notFound', 'Company not found.')}</p>
-            <Button asChild variant="outline">
-              <Link href="/backend/customers/companies">
-                {t('customers.companies.detail.actions.backToList', 'Back to companies')}
-              </Link>
-            </Button>
-          </div>
+          <ErrorMessage
+            label={error ?? t('customers.companies.detail.error.notFound', 'Company not found.')}
+            action={
+              <Button asChild variant="outline" size="sm">
+                <Link href="/backend/customers/companies">
+                  {t('customers.companies.detail.actions.backToList', 'Back to companies')}
+                </Link>
+              </Button>
+            }
+          />
         </PageBody>
       </Page>
     )

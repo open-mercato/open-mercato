@@ -258,6 +258,41 @@ To hide the coding-tools menu from the splash:
 OM_ENABLE_CODING_FLOW_FROM_SPLASH=false yarn dev
 ```
 
+### In-process watcher and workers (memory optimization)
+
+To keep idle memory low, `yarn dev` now runs two things **in-process** inside the `mercato server dev` runtime instead of as separate long-running Node processes:
+
+- **Structural regeneration watcher** — the watcher that re-runs `mercato generate` when module files change is hosted by the dev server itself. Collapsing this dedicated sidecar saves ~190 MB of resident memory.
+- **Queue workers** — background queue workers are auto-spawned inside the dev process so jobs (indexing, bulk operations, notifications) are processed without a second runtime.
+
+This is the right default for most local development. If you need **higher throughput** — for example a heavy import/reindex, or to profile worker behavior in isolation — opt back into separate parallel processes with these flags.
+
+Run the generate watcher as a standalone sidecar process again:
+
+```bash
+OM_DEV_GENERATE_WATCH_MODE=legacy yarn dev
+```
+
+Stop the dev runtime from hosting workers, then run dedicated worker processes alongside it (each process runs its own event loop, so several in parallel scale throughput):
+
+```bash
+# In the dev runtime: do not auto-spawn in-process workers
+AUTO_SPAWN_WORKERS=false yarn dev
+
+# In separate terminals: dedicated worker processes, tuned per queue
+yarn mercato <module> worker <queue-name> --concurrency=5
+```
+
+Tune `--concurrency` per the queue guidelines (I/O-bound 5–10, CPU-bound 1–2, DB-heavy 3–5; never exceed 20). For production-grade parallelism across machines, set `QUEUE_STRATEGY=async` to use the Redis-backed BullMQ strategy.
+
+To poll for jobs lazily instead of holding eager in-process workers (lower idle cost, slightly higher pickup latency):
+
+```bash
+OM_AUTO_SPAWN_WORKERS_LAZY=true yarn dev
+# optional: tune the poll interval (ms, default 1000)
+OM_AUTO_SPAWN_WORKERS_LAZY_POLL_MS=500 yarn dev
+```
+
 ## Docker Management
 
 **Stop services:**

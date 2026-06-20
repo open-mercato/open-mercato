@@ -1,7 +1,9 @@
 /** @type {import('jest').Config} */
+const base = require('./jest.config.base.cjs')
 const isGitHubActions = process.env.GITHUB_ACTIONS === 'true'
 
 module.exports = {
+  ...base,
   testEnvironment: 'node',
   watchman: false,
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],

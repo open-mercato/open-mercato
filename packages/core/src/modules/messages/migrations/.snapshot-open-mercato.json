@@ -270,6 +270,15 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "external_name": {
           "name": "external_name",
           "type": "text",
@@ -364,6 +373,15 @@
           "constraint": false,
           "primary": false,
           "unique": false
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "messages_idempotency_key_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"messages_idempotency_key_uq\" on \"messages\" (\"tenant_id\", \"idempotency_key\") where \"idempotency_key\" is not null"
         },
         {
           "keyName": "messages_pkey",

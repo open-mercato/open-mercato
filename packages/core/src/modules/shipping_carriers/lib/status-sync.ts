@@ -2,11 +2,30 @@ import type { UnifiedShipmentStatus } from './adapter'
 import type { CarrierShipment } from '../data/entities'
 import type { ShippingEventId } from '../events'
 
+// Use Symbol.for so the marker survives module duplication across bundle
+// boundaries — production builds can split this class into separate chunks,
+// which breaks `instanceof` (see isCrudHttpError in
+// @open-mercato/shared/lib/crud/errors for the same pattern).
+const SHIPMENT_CANCEL_NOT_ALLOWED_MARKER = Symbol.for('@open-mercato/shipping_carriers/ShipmentCancelNotAllowedError')
+
 export class ShipmentCancelNotAllowedError extends Error {
+  readonly [SHIPMENT_CANCEL_NOT_ALLOWED_MARKER] = true
+
   constructor(status: string) {
     super(`Shipment cannot be cancelled in its current status: ${status}`)
     this.name = 'ShipmentCancelNotAllowedError'
   }
+}
+
+/**
+ * Type-safe check that works across module/bundle boundaries. Prefer this over
+ * `instanceof ShipmentCancelNotAllowedError` in route handlers, where the thrown
+ * error may originate from a different bundle than the one performing the check.
+ */
+export function isShipmentCancelNotAllowedError(error: unknown): error is ShipmentCancelNotAllowedError {
+  return !!error
+    && typeof error === 'object'
+    && (error as Record<symbol, unknown>)[SHIPMENT_CANCEL_NOT_ALLOWED_MARKER] === true
 }
 
 const VALID_SHIPPING_TRANSITIONS: Record<string, UnifiedShipmentStatus[]> = {

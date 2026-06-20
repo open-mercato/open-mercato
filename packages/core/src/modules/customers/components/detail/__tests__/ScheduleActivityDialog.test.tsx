@@ -19,7 +19,7 @@ function createScheduleState(overrides: Record<string, unknown> = {}) {
     setActivityType: jest.fn(),
     title: 'Quarterly review',
     setTitle: jest.fn(),
-    date: '2026-08-03',
+    date: new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10),
     setDate: jest.fn(),
     startTime: '13:45',
     setStartTime: jest.fn(),
@@ -140,6 +140,7 @@ jest.mock('../schedule', () => ({
     call: new Set(['duration']),
     task: new Set(['duration']),
     email: new Set(['duration']),
+    note: new Set(['description']),
   },
   getFieldLabel: (_activityType: string, _fieldId: string, _t: unknown, _labelKey: string, fallback: string) => fallback,
   DateTimeFields: () => null,
@@ -235,5 +236,48 @@ describe('ScheduleActivityDialog', () => {
     expect(apiCallOrThrowMock).not.toHaveBeenCalled()
     expect(screen.getByText(expectedMessage)).toBeInTheDocument()
     expect(flashMock).toHaveBeenCalledWith(expectedMessage, 'error')
+  })
+
+  it('renders without crashing when editing a note activity (regression #2388)', () => {
+    mockScheduleState = createScheduleState({
+      activityType: 'note' as const,
+      title: 'My note',
+    })
+
+    expect(() =>
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="deal-1"
+          entityType="deal"
+          editData={{
+            id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            interactionType: 'note',
+            title: 'My note',
+          }}
+        />,
+      ),
+    ).not.toThrow()
+
+    expect(screen.getByText('Update activity')).toBeInTheDocument()
+  })
+
+  it('shows Save note button when creating a new note activity', () => {
+    mockScheduleState = createScheduleState({
+      activityType: 'note' as const,
+      title: '',
+    })
+
+    renderWithProviders(
+      <ScheduleActivityDialog
+        open
+        onClose={() => undefined}
+        entityId="deal-1"
+        entityType="deal"
+      />,
+    )
+
+    expect(screen.getByText('Save note')).toBeInTheDocument()
   })
 })

@@ -1,0 +1,387 @@
+---
+title: Communications Hub
+description: Architecture, OAuth setup, environment variables, deploy runbook, and provider package contract for the Communications Hub and the IMAP / Gmail channel providers.
+---
+
+# Communications Hub
+
+The Communications Hub (`communication_channels`) bridges external chat and email channels (Slack, WhatsApp, Gmail, IMAP+SMTP) into the **Messages** module. Each provider ships as a separate workspace package implementing the `ChannelAdapter` contract; the hub itself stays adapter-agnostic.
+
+Two email providers ship today:
+
+- `@open-mercato/channel-imap` — credential-based IMAP polling + SMTP send
+- `@open-mercato/channel-gmail` — Gmail OAuth2 + History API polling + `gmail.users.messages.send`
+
+For the end-user perspective see the [Communication Channels user guide](../../user-guide/communication-channels.mdx).
+
+## Overview
+
+- **Hub**: `packages/core/src/modules/communication_channels/`
+- **Providers**: `packages/channel-{imap,gmail}/`
+- **Module entry**: enable with `{ id: 'communication_channels', from: '@open-mercato/core' }` plus one entry per provider you want active in `apps/mercato/src/modules.ts`.
+- **Specs**: [`.ai/specs/implemented/SPEC-045d-communication-notification-hubs.md`](#) (hub contract) and [`.ai/specs/2026-05-21-email-integration-foundation.md`](#) (email providers + per-user surfaces).
+
+## Architecture
+
+```
+              ┌──────────────────────────────────────────────┐
+              │  Communications Hub (communication_channels) │
+              │                                              │
+   ┌──────────┤  ChannelAdapter registry (process-wide)      │──────────┐
+   │          │  CommunicationChannel + ExternalConversation │          │
+   │          │  ExternalMessage + MessageChannelLink        │          │
+   │          │  ChannelThreadMapping + MessageReaction      │          │
+   │          └──────────────────────────────────────────────┘          │
+   ▼                                                                    ▼
+┌──────────┐  ┌──────────┐                                         ┌────────┐
+│ channel- │  │ channel- │   …  (future: channel-slack,            │ Messages │
+│  imap    │  │  gmail   │       channel-whatsapp, etc.)           │ module   │
+│  (basic  │  │  (OAuth) │                                         └────────┘
+│   auth)  │  │          │
+└──────────┘  └──────────┘
+```
+
+Each provider exports a `ChannelAdapter` from `@open-mercato/core/modules/communication_channels/lib/adapter`. The hub's registry validates capability/method consistency at registration time (so an adapter that declares `capabilities.deleteMessage: true` without implementing `deleteMessage()` throws on boot).
+
+### Per-user channels
+
+Phase 0 of the email integration spec added additive columns to `CommunicationChannel`:
+
+| Column | Purpose |
+|---|---|
+| `user_id` (uuid, nullable) | Owns this channel (NULL = tenant-shared) |
+| `is_primary` (boolean) | True for the user's default outbound channel; enforced by a partial unique index |
+| `poll_interval_seconds` (int, nullable) | Per-channel override of the platform default poll cadence |
+| `last_polled_at` (timestamptz, nullable) | Stamped by the poll worker on every tick |
+| `status` (text) | `connected` / `requires_reauth` / `disconnected` / `error` |
+| `last_error` (text, nullable) | Classified error string for diagnostics |
+
+Plus an additive column on `integration_credentials`:
+
+| Column | Purpose |
+|---|---|
+| `user_id` (uuid, nullable) | Identifies per-user credential rows so tenant-shared and per-user blobs can coexist |
+
+Cross-module references use `EntityExtension` declarations in `data/extensions.ts` (no direct ORM relationships across module boundaries).
+
+### Send path
+
+```
+Compose (Messages)
+     │
+     ▼
+messages.message.sent event
+     │
+     ▼
+subscribers/outbound-bridge.ts  (re-fetches the Message by ID — no payload coupling)
+     │
+     ▼
+deliver-outbound-message command
+     │
+     ▼
+ChannelAdapter.sendMessage   ── refreshCredentials() if access token near expiry
+     │
+     ▼
+ExternalMessage + MessageChannelLink rows written
+```
+
+### Receive path
+
+```
+@open-mercato/scheduler "poll-channel" cron (5 minutes by default)
+     │
+     ▼
+poll-channel worker (per channel)
+     │
+     ▼
+ChannelAdapter.fetchHistory   ── reads previous cursor from channelState
+     │
+     ▼
+ingest-inbound-message command
+     │
+     ▼
+ExternalMessage written + Message materialised into the unified inbox
+     │
+     ▼
+communication_channels.message.received event + notification
+```
+
+### Mutation guards
+
+Phase 4 of the email integration spec added two hub-side guards (`packages/core/src/modules/communication_channels/lib/mutation-guards.ts`):
+
+- `guardChannelDelete` — blocks delete when unread inbound messages remain on the channel. `force: true` bypasses, for admin offboarding workflows.
+- `guardOutboundCreate` — maps `status='requires_reauth'` / `'disconnected'` to a 422 with `fieldErrors.channelId`. Wired into `POST /api/communication_channels/send-as-user`.
+
+## Credential refresh contract
+
+OAuth providers (Gmail) need their tenant-level OAuth client config — `clientId` and `clientSecret` — every time a per-user access token is refreshed. The hub resolves this once before delegating to the adapter via the **`RefreshCredentialsInput.oauthClient`** field:
+
+```ts
+export interface RefreshCredentialsInput {
+  channelId: string
+  /** Per-user credential blob (accessToken, refreshToken, expiresAt, …) */
+  credentials: Record<string, unknown>
+  scope: TenantScope
+  /**
+   * Tenant-level OAuth client config resolved by the hub from
+   * `integration_credentials.scope = oauth_<providerKey>`.
+   *
+   * - OAuth providers (Gmail): MUST read clientId / clientSecret from this field.
+   * - Static-credential providers (IMAP, WhatsApp): ignore.
+   */
+  oauthClient?: OAuthClientConfig
+}
+
+export interface OAuthClientConfig {
+  clientId: string
+  clientSecret?: string
+  /** OAuth directory/tenant id for providers that require one (provider-specific). */
+  tenantId?: string
+  /** Optional pre-resolved scopes list. */
+  scopes?: string[]
+}
+```
+
+The hub's `refreshCredentialsIfNeeded` helper resolves `oauth_<providerKey>` via `IntegrationCredentialsService.resolve(...)` and passes the result through. Provider adapters that implement OAuth refresh MUST read `clientId` / `clientSecret` from `input.oauthClient` — see `packages/channel-gmail/.../lib/adapter.ts:refreshCredentials` for the reference implementation.
+
+:::warning Legacy `credentials._client` path is deprecated
+Prior to the wiring spec ([`.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`](#)), adapters read OAuth client config from `credentials._client` — a field no production code path ever populated, which caused token refresh to fail silently after ~1 hour. The Gmail adapter still recognizes `_client` for one minor release with a one-time deprecation warning per process. Remove any test fixtures or callers that rely on `_client` and pass `oauthClient` instead.
+:::
+
+When the helper cannot resolve the OAuth client (missing `oauth_<provider>` integration credential row, or `credentialsService` not registered), `oauthClient` is left `undefined`. Adapters then fall through to the legacy `_client` path; if neither field is present, refresh fails with a clear error and the channel flips to `status='requires_reauth'` so the operator-visible notification fires.
+
+## Inbound reliability & threading (Spec B)
+
+Shipped 2026-05-27. See [`.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`](#) for the full design rationale.
+
+### Layered thread matching
+
+Outbound delivery now injects a per-thread HMAC token (`om_<base64url>_<base64url>`) into both:
+1. The synthetic `<om_TOKEN@open-mercato.invalid>` Message-ID appended to the `References` header (RFC 6761 reserved TLD — guaranteed to round-trip through compliant MTAs).
+2. A hidden `<span>` (HTML emails) and a bracketed marker (plain-text) at the bottom of the body. Survives mail clients that strip `References` headers.
+
+Inbound ingestion runs a five-strategy matcher in priority order before falling back to a new thread:
+
+| Strategy | Confidence | When it fires |
+|---|---|---|
+| `token-references` | high | Reply preserves the `om_*` Message-ID in `References` / `In-Reply-To`. Most common. |
+| `token-body` | high | Reply quoted our outbound body; the hidden footer survived. |
+| `jwz-headers` | medium | Standard JWZ algorithm against `In-Reply-To` / `References` pointing at our outbound `Message-Id`. Pre-token outbounds. |
+| `subject-participants` | low | Normalized subject match (`Re:`, `Fwd:`, `[EXTERNAL]` stripped) + participant set overlap. Last-ditch. |
+| (none) | — | New thread. |
+
+`MessageChannelLink.channelMetadata.threadMatchStrategy` + `threadMatchConfidence` are persisted on every inbound for observability.
+
+### Zero-history IMAP bootstrap
+
+A freshly-connected IMAP channel fetches **zero** historical messages — `fetchHistory` records `UIDVALIDITY` + `UIDNEXT` and returns immediately. From the next tick onward, the worker does `UID FETCH previousUidNext:*` capped at `OM_CHANNEL_IMAP_HARD_CAP_PER_POLL` (default 200). When more remain, `hasMore: true` triggers immediate re-enqueue without waiting for the next scheduler tick. `UIDVALIDITY` mismatch (mailbox rename / recreate) re-bootstraps rather than re-syncing the whole inbox.
+
+This eliminates the "we can't scan a new user's 1M-message inbox on connect" failure mode by construction. Backlog import is opt-in via the operator-triggered flow below.
+
+### Per-message commit + dead-letter
+
+`poll-channel.ts` advances the channel cursor (`channel_state.uidNext`) per successfully-ingested message. A transient ingest failure (DB blip, network reset) aborts the loop without advancing — the next tick re-fetches the same UIDs and idempotency on `(channel_id, external_message_id)` skips already-ingested messages. A permanent failure (malformed MIME, schema violation) writes the raw payload to `channel_ingest_dead_letters` (encrypted) and advances the cursor anyway so the bad blob never re-stalls the channel.
+
+### Auto-recovery sweep
+
+`poll-tick.ts` enumerates two pools: (a) `status='connected'` channels due for normal polling, (b) `status='error'` channels whose `lastFailureAt` is older than `OM_CHANNEL_AUTO_RECOVER_MINUTES`. A successful poll in pool (b) flips `status` back to `connected` automatically — operators no longer have to manually reconnect after a transient outage.
+
+### Operator-triggered backlog import
+
+The `POST /api/communication_channels/channels/<id>/import-history` route (gated by the `communication_channels.channel.import_history` ACL feature) creates a `ProgressJob` and enqueues a `channel-import-history` worker job (concurrency 1) that calls `adapter.importHistory({ sinceDays, contactEmails?, maxMessages, cursor })` in a pagination loop:
+
+| Field | Range | Purpose |
+|---|---|---|
+| `sinceDays` | `1..365` | Server-side `SEARCH SINCE` window. |
+| `contactEmails` | optional, up to 1000 | Server-side `OR FROM …` filter, chunked to ≤30 senders per SEARCH to keep the IMAP tag buffer bounded. |
+| `maxMessages` | `1..5000` | Hard cap across all pages. Worker stops paging as soon as the cap is hit. |
+
+A 429 is returned if another import is in-flight for the same channel (active-jobs scan, plus the worker's `concurrency: 1` is the second line of defence). Progress streams to the existing `ProgressTopBar` via `ProgressService.updateProgress(...)`. Adapter contract is **additive optional** — adapters that don't implement `importHistory()` get a 400 envelope back from the route (backlog import is IMAP-only; the Gmail adapter does not implement `importHistory`).
+
+The UI lives on `/backend/profile/communication-channels` as a per-row "Import history" button → modal dialog (`Cmd/Ctrl+Enter` submits, `Escape` cancels). On success the dialog calls `router.refresh()` instead of `window.location.reload()` — preserves scroll position and avoids the flash that a full reload causes.
+
+## Provider push delivery (Spec C)
+
+Shipped 2026-05-27. See [`.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`](#) for the full design rationale.
+
+Spec B established the polling foundation: 60-second cadence for IMAP and Gmail alike. Spec C **replaces** the 60s polling cadence for Gmail with native push delivery, dropping inbound latency from ≤60s to 5–15s typical while leaving 30-minute polling as a belt-and-suspenders fallback.
+
+### Adapter contract (additive)
+
+Three optional methods on `ChannelAdapter`:
+
+- **`registerPush(input): Promise<PushRegistration>`** — Gmail: calls `users.watch` with the operator-configured Pub/Sub topic.
+- **`unregisterPush(input): Promise<void>`** — Counterpart for disconnect / reauth. Gmail: `users.stop`. Idempotent on 404.
+- **`applyPushNotification(input): Promise<HistoryPage>`** — Turns a verified inbound notification into the same `HistoryPage` shape `fetchHistory` returns. Gmail: walks `history.list`, delegating to `fetchHistory` so the pagination + cursor-recovery logic stays in one place.
+
+Adapters that don't implement these methods (IMAP, chat providers) stay on Spec B's polling.
+
+### Gmail Pub/Sub flow
+
+1. Operator one-time setup: create a Pub/Sub topic, grant `gmail-api-push@system.gserviceaccount.com` publisher, attach a push subscription to the topic pointing at `https://<your-host>/api/communication_channels/webhooks/gmail` with a service-account identity. Set `OM_GMAIL_PUBSUB_TOPIC`, `OM_GMAIL_PUBSUB_AUDIENCE`, `OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL`.
+2. On channel connect (or via the operator "Re-register push" route), the hub calls `adapter.registerPush(...)`, which invokes `gmail.users.watch`. The returned `historyId` + `watchExpirationMs` are persisted to `channelState`.
+3. Gmail publishes `{ emailAddress, historyId }` to the topic on every mailbox change (rate-capped at 1/s/user).
+4. Pub/Sub POSTs the envelope to the webhook with a Google-signed JWT. `lib/gmail-pubsub-jwt.ts` verifies the RS256 signature, `aud` claim, and `email` claim.
+5. The webhook enqueues a `communication-channels-gmail-history-sync` job per matching channel (we look up across all tenants by `emailAddress` and dispatch per-tenant — same `emailAddress` connected to multiple tenants is supported).
+6. `gmail-history-sync` worker calls `adapter.applyPushNotification(...)` (which walks `history.list` from the stored cursor) and feeds each new message through `ingest-inbound-message`. Cursor advances per-message commit (Spec B contract).
+
+### Renewal cron
+
+- **Gmail watch** expires after ~7 days. Daily 04:00 UTC cron (`gmail-renew-watch` queue, registered per-org in `setup.ts`) finds channels within `OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS` (default 24h) of expiry and triggers `pushRegister(...)` again.
+
+### Polling fallback
+
+`pollIntervalSeconds` automatically flips from 60 to **1800** (30 min) when `pushStatus='active'` is persisted by `registerPush`. If push fails (e.g. the Gmail Pub/Sub topic is misconfigured) the channel keeps polling at 60s, so no message is ever lost. The `pushStatus='failed'` channel surfaces in the operator UI with a "Re-register push" button calling `POST /api/communication_channels/channels/<id>/push/register`.
+
+## OAuth setup
+
+### Gmail (`@open-mercato/channel-gmail`)
+
+#### 1. Create a Google Cloud project
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/), create or select a project for your tenant.
+2. Enable the **Gmail API** under APIs & Services → Library.
+3. Configure the **OAuth consent screen**:
+   - User type: *Internal* if your tenant is a Workspace org; *External* if you ship to consumers.
+   - Scopes: add `https://www.googleapis.com/auth/gmail.modify` (or the narrower `gmail.send` + `gmail.readonly` combo if you prefer), plus `userinfo.email` and `userinfo.profile`.
+   - Test users: while in *Testing* status add every user you intend to onboard.
+
+#### 2. Create the OAuth Client ID
+
+1. APIs & Services → **Credentials** → **Create credentials** → **OAuth client ID**.
+2. Application type: *Web application*.
+3. Authorized redirect URIs: add
+   `https://<your-host>/api/communication_channels/oauth/gmail/callback`
+   for every environment you run (production, staging, local dev).
+4. Copy the **Client ID** and **Client Secret**.
+
+#### 3. Register the client in Open Mercato
+
+In **Backend → Integrations → Gmail** add the client ID and secret. Scopes leave blank for defaults, or override with a comma-separated list matching what you configured in the consent screen.
+
+The credentials are stored encrypted on `IntegrationCredentials` and resolved at runtime when a user clicks **Connect Gmail**. Users never see the client secret.
+
+#### 4. Move to *In production*
+
+When you're ready to onboard more than 100 users, submit the OAuth app for verification. The hub keeps working without verification while you're under that limit and inside Workspace test-user lists.
+
+### IMAP + SMTP (`@open-mercato/channel-imap`)
+
+No tenant setup required. The integrations admin page lets you toggle the provider on or off; individual users provide their own host/port/credentials when they connect.
+
+## Environment variables
+
+The hub reads a small set of env vars; sensible defaults exist for all of them.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OM_HUB_OAUTH_STATE_KEY` | derived from `AUTH_SECRET` | AES-256-GCM key used to encrypt the OAuth state cookie. **Rotate this on a schedule** — see runbook below. |
+| `OM_HUB_OAUTH_STATE_TTL_SECONDS` | `300` (5 minutes) | TTL on the state cookie. OAuth callbacks older than this are rejected. |
+| `OM_HUB_POLL_DEFAULT_SECONDS` | `300` (5 minutes) | Default poll cadence applied to channels that don't set `poll_interval_seconds`. |
+| `OM_HUB_POLL_CONCURRENCY` | `10` | Max parallel poll-channel worker jobs per process. Bound by your DB connection pool. |
+| `OM_HUB_OUTBOUND_RETRY_MAX` | `5` | Outbound delivery retries before marking the Message `delivery_failed`. |
+| `OM_HUB_POLL_SCHEDULER_TICK_SECONDS` | `60` | Interval between `poll-tick` scheduler runs that enumerate due channels and fan out to per-channel `poll` jobs. Lower-bounded at 10 s. |
+| `OM_CHANNEL_IMAP_HARD_CAP_PER_POLL` | `200` | Maximum number of IMAP UIDs fetched per `fetchHistory` page. When more remain, the adapter sets `hasMore: true` and the hub re-enqueues immediately. Tune lower if a single page's wall-clock budget is too tight; never set above ~500 (DB transaction size). |
+| `OM_CHANNEL_AUTO_RECOVER_MINUTES` | `30` | Spec B § B5 auto-recovery sweep window. `poll-tick` re-enqueues `status='error'` channels whose `lastFailureAt` is older than this. Set `0` in tests to force immediate retry. |
+| `OM_THREAD_TOKEN_SECRET` | derived from `KMS_MASTER_KEY` via HKDF | HMAC key used by Spec B's `lib/thread-token.ts` to mint per-thread `om_*` tokens injected into outbound `References` headers + a hidden body footer. Rotating invalidates all existing tokens (older threads fall back to JWZ + subject-participants strategies — no data loss). |
+| `OM_GMAIL_PUBSUB_TOPIC` | (none — required for Gmail push) | Fully-qualified Pub/Sub topic, e.g. `projects/openmercato-prod/topics/gmail-inbound`. Passed to `gmail.users.watch`. |
+| `OM_GMAIL_PUBSUB_AUDIENCE` | (none — required for Gmail push) | Expected `aud` claim in the Pub/Sub-signed JWT. Set this to the webhook URL or a stable identifier configured on the Pub/Sub push subscription. |
+| `OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL` | (none — required for Gmail push) | Expected `email` claim in the Pub/Sub JWT. Typically the service account configured on the push subscription (NOT `gmail-api-push@system.gserviceaccount.com` — that's the publisher into the topic). |
+| `OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS` | `24` | Renewal lead time for `gmail.users.watch`. Lower means we renew earlier; higher means we cut closer to the 7-day expiration. |
+
+## Deploy runbook
+
+### Initial deploy
+
+1. **Provision the Postgres schema** — `yarn db:migrate` runs the hub's migration plus the per-user-columns migration (`Migration20260526154135_communication_channels`).
+2. **Sync the ACL grants** — `yarn mercato auth sync-role-acls` so the new `communication_channels.*` features (including `communication_channels.connect_user_channel`) are granted to the appropriate roles.
+3. **Run the structural cache purge** — `yarn mercato configs cache structural --all-tenants`. Mandatory after any `modules.ts` change that adds a provider (slices 3e/3f enable `channel_imap` and `channel_gmail`).
+4. **Configure the OAuth apps** — follow the per-provider setup sections above and register the client IDs/secrets via the **Integrations** admin UI.
+5. **Optional: set `OM_HUB_OAUTH_STATE_KEY`** — derived from `AUTH_SECRET` by default; set explicitly if you want to rotate independently.
+
+### Routine ops
+
+| Task | When | How |
+|---|---|---|
+| Rotate the OAuth state-cookie key | Every 90 days (recommended), or after any suspected compromise | Set `OM_HUB_OAUTH_STATE_KEY` to a new random 32-byte base64 value and roll the deploy. In-flight OAuth flows fail with `state expired` and the user retries — that's expected and safe. |
+| Bump a tenant's OAuth client secret | After a provider rotates its credentials | Update the secret in **Backend → Integrations → \<Provider\>** for the tenant. No restart required; the next refresh-token call picks it up. |
+| Force a poll outside the 5-minute cadence | User reports "I sent mail and don't see it" | Click **Refresh** on the channel row in the user's profile page, or call `POST /api/communication_channels/channels/<id>/test-send` for end-to-end. |
+| Purge a disconnected user's channels | When a user leaves the org | The `auth.user.deleted` cascade subscriber handles it automatically (see [Phase 4 implementation status](#) in the email integration spec). Manually: hit the disconnect command for each channel. |
+
+### Adding a new provider
+
+The hub deliberately stays adapter-agnostic. To add a third email provider (e.g. Yahoo, ProtonMail Bridge variant), follow the same shape as the two shipping packages:
+
+1. `mkdir packages/channel-<provider>` and copy the build/watch/jest/tsconfig templates from `packages/channel-imap`.
+2. Implement `ChannelAdapter` in `src/modules/channel_<provider>/lib/adapter.ts`.
+3. Register the adapter in `src/modules/channel_<provider>/setup.ts` via `registerChannelAdapter(getAdapter())`.
+4. Add `{ id: 'channel_<provider>', from: '@open-mercato/channel-<provider>' }` to `apps/mercato/src/modules.ts`.
+5. Run `yarn generate && yarn build:packages && yarn test`, then `yarn mercato configs cache structural --all-tenants`.
+
+The hub's webhook router, OAuth router, send-as-user route, and admin UI auto-discover the new provider by `providerKey`; no hub changes required.
+
+## Security posture
+
+- **Credentials at rest**: encrypted by the integrations module via `TenantDataEncryptionService` (AES-256-GCM, per-tenant DEKs). The adapter receives plaintext only inside the request scope; no SQL probe leaks plaintext.
+- **OAuth state cookie**: 5-minute TTL, AES-256-GCM, HKDF-derived from `OM_HUB_OAUTH_STATE_KEY`, bound to the initiating user's id. Catches replays + replay-across-users.
+- **OAuth PKCE**: S256 challenge generated with `crypto.randomBytes(64)`. The verifier is persisted only in the state cookie — never logged or stored server-side.
+- **HTML sanitization**: every channel payload renders through `packages/core/src/modules/communication_channels/lib/sanitize-channel-html.ts` before `dangerouslySetInnerHTML`. Allowlist tuned for email + chat; strips `<script>`, `<iframe>`, event handlers, and `javascript:` / non-image `data:` URLs.
+- **Webhook auth**: provider webhook routes verify provider signatures via the adapter's `verifyWebhook`. Routes that find no adapter for the `providerKey` return 404, never 5xx.
+- **RBAC**: the hub declares `communication_channels.view` / `.manage` / `.react` / `.assign` / `.connect_user_channel` / `.admin`. Page metadata uses `requireFeatures` (never `requireRoles`).
+
+## Integration tests
+
+Each slice ships its own module-local integration specs under `__integration__/`:
+
+| Test | Location | What it covers |
+|---|---|---|
+| `TC-045D-001..006` | hub | Hub schema + adapter contract + entity extensions |
+| `TC-CHANNEL-EMAIL-HUB-001..003` | hub | Per-user channel API contract + profile page |
+| `TC-CHANNEL-EMAIL-001..003` | channel-imap | IMAP provider registration + webhook no-op + profile page |
+| `TC-CHANNEL-EMAIL-006..008` | channel-gmail | Gmail OAuth router + webhook no-op + profile page |
+| `TC-CHANNEL-EMAIL-014..020` | hub | Phase 4 cross-provider scenarios: primary swap, admin RBAC, tenant OAuth override, disconnect, send-as-user guard, user-deleted cascade, rich-content widget |
+
+Run with:
+
+```bash
+yarn test:integration                        # full suite
+OM_INTEGRATION_MODULES=communication_channels,channel-imap,channel-gmail \
+  yarn test:integration                      # email-foundation slice only
+```
+
+## Provider package contract
+
+A `ChannelAdapter` is the only thing a provider package must expose. The complete contract lives at `packages/core/src/modules/communication_channels/lib/adapter.ts`. Methods are split into required core, optional extensions, and OAuth helpers — providers only implement the methods that match their declared capabilities (the registry validates consistency on registration).
+
+### Required (every adapter)
+
+- `sendMessage(input)` — outbound delivery, returns `{ externalMessageId, status, … }`
+- `verifyWebhook(input)` — signature verification on inbound POSTs; polling-only providers return `eventType: 'other'`
+- `getStatus(input)` — best-effort delivery status for a previously-sent message
+- `convertOutbound(input)` — hub-canonical body → provider-native shape
+- `normalizeInbound(raw)` — provider-native payload → `NormalizedInboundMessage`
+- `capabilities` — declares feature support; validated against implemented methods
+
+### Optional extensions
+
+- `fetchHistory(input)` — required for polling-based providers (`realtimePush: false`)
+- `validateCredentials(input)` — credential-based providers (IMAP)
+- `buildOAuthAuthorizeUrl(input)` / `exchangeOAuthCode(input)` / `refreshCredentials(input)` — OAuth providers
+- `deleteMessage(input)` — when `capabilities.deleteMessage: true`
+- `sendReaction(input)` / `removeReaction(input)` / `normalizeInboundReaction(raw)` — when `capabilities.reactions: true`
+- `editMessage(input)` — when `capabilities.editMessage: true`
+- `resolveContact(input)` — best-effort CRM contact resolution; returns `null` when no hint is available
+- `listSenders(input)` — adapter-driven sender enumeration (Slack channels, WhatsApp templates, etc.)
+
+See the three shipping providers for end-to-end examples:
+
+- IMAP: `packages/channel-imap/src/modules/channel_imap/lib/adapter.ts`
+- Gmail: `packages/channel-gmail/src/modules/channel_gmail/lib/adapter.ts`
+
+## Related
+
+- [Messages module](messages.mdx) — the unified inbox surface
+- [Integrations + Data Sync](integrations-data-sync.mdx) — the credentials + admin UI layer this hub builds on
+- [User guide: Communication Channels](../../user-guide/communication-channels.mdx)
+- [User guide: Inbox Ops](../../user-guide/inbox-ops.mdx) — the *other* email surface (shared mailbox, AI extraction)

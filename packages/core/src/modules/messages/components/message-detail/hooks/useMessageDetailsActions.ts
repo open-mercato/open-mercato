@@ -13,7 +13,7 @@ import type {
   MessageDetail,
   PendingActionConfirmation,
 } from '../types'
-import { parseObjectActionId, toErrorMessage } from '../utils'
+import { isSafeNavigationHref, parseObjectActionId, toErrorMessage } from '../utils'
 
 type RequestAndRefreshOptions = {
   skipDetailAutoMarkRead?: boolean
@@ -25,11 +25,11 @@ type UseMessageDetailsActionsInput = {
   id: string
   t: TranslateFn
   detail: MessageDetail | null
-  detailQuery: UseQueryResult<MessageDetail, Error>
+  detailQuery: UseQueryResult<MessageDetail | null, Error>
   attachments: MessageAttachment[] | undefined
   isArchived: boolean
   onDeleted: () => void
-  refreshDetailWithoutAutoMarkRead: () => Promise<MessageDetail>
+  refreshDetailWithoutAutoMarkRead: () => Promise<MessageDetail | null>
 }
 
 export function useMessageDetailsActions({
@@ -213,7 +213,11 @@ export function useMessageDetailsActions({
       flash(t('messages.flash.actionSuccess', 'Action completed.'), 'success')
 
       const redirectTarget = call.result?.result?.redirect
-      if (typeof redirectTarget === 'string' && redirectTarget.trim().length > 0) {
+      if (
+        typeof redirectTarget === 'string'
+        && redirectTarget.trim().length > 0
+        && isSafeNavigationHref(redirectTarget)
+      ) {
         window.location.href = redirectTarget
         return
       }

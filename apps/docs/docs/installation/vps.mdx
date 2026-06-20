@@ -62,6 +62,7 @@ JWT_SECRET=your-strong-jwt-secret
 # Application
 APP_URL=https://your-domain.com
 NODE_ENV=production
+# NODE_OPTIONS=--max-old-space-size=3072  # default; raise for larger hosts — see Troubleshooting
 
 # Cache
 CACHE_REDIS_URL=redis://redis:6379
@@ -213,6 +214,28 @@ grep DATABASE_URL apps/mercato/.env
 ```bash
 docker system df            # check usage
 docker system prune -a      # clean unused resources (does not touch named volumes)
+```
+
+**App container keeps restarting (OOM killed):**
+
+Check the effective V8 heap limit inside the running container:
+
+```bash
+docker compose -f docker-compose.fullapp.yml exec app node \
+  -e "const s=require('v8').getHeapStatistics(); \
+      console.log(Math.round(s.heap_size_limit/1024/1024)+' MB heap limit')"
+```
+
+If the value is below 1 GB, raise `NODE_OPTIONS` in `apps/mercato/.env` then restart:
+
+| Host RAM | `NODE_OPTIONS` value |
+|----------|---------------------|
+| 4 GB | `--max-old-space-size=3072` *(default)* |
+| 8 GB | `--max-old-space-size=5120` |
+| 16 GB+ | `--max-old-space-size=8192` |
+
+```bash
+docker compose -f docker-compose.fullapp.yml up -d
 ```
 
 **Full reset (deletes all data):**

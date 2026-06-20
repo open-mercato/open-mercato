@@ -286,10 +286,10 @@ Two codemod scripts for bulk migration:
 
 ```bash
 # Migrate hardcoded colors in a module
-bash .ai/skills/ds-guardian/scripts/ds-migrate-colors.sh packages/core/src/modules/MODULE_NAME/
+bash .ai/skills/om-ds-guardian/scripts/ds-migrate-colors.sh packages/core/src/modules/MODULE_NAME/
 
 # Migrate arbitrary text sizes in a module
-bash .ai/skills/ds-guardian/scripts/ds-migrate-typography.sh packages/core/src/modules/MODULE_NAME/
+bash .ai/skills/om-ds-guardian/scripts/ds-migrate-typography.sh packages/core/src/modules/MODULE_NAME/
 
 # Review the diff
 git diff packages/core/src/modules/MODULE_NAME/

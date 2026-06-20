@@ -1,6 +1,6 @@
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveFeatureCheckContext, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
@@ -10,7 +10,7 @@ export async function buildContext(
     ctx: CommandRuntimeContext
     auth: NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
     organizationId: string | null
-    scope: { allowedIds: string[] | null }
+    scope: OrganizationScope
 }> {
     const container = await createRequestContainer()
     const auth = await getAuthFromRequest(req)

@@ -72,6 +72,19 @@ describe('SSE event stream — abort listener hygiene', () => {
     try { await (res.body as ReadableStream).cancel() } catch {}
   })
 
+  it('flushes an initial connected comment so EventSource opens immediately', async () => {
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    expect(res.status).toBe(200)
+
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    const { value, done } = await reader.read()
+    expect(done).toBe(false)
+    expect(new TextDecoder().decode(value)).toBe(': connected\n\n')
+
+    try { await reader.cancel() } catch {}
+  })
+
   it('does not retain listeners across many reconnects', async () => {
     for (let i = 0; i < 20; i += 1) {
       const { req, controller, addSpy, removeSpy } = makeTrackedRequest()

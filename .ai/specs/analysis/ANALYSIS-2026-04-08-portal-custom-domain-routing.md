@@ -1,9 +1,9 @@
 # Pre-Implementation Analysis: Portal Custom Domain Routing (rev 4)
 
-**Spec:** `.ai/specs/2026-04-08-portal-custom-domain-routing.md`
+**Spec:** `.ai/specs/implemented/2026-04-08-portal-custom-domain-routing.md`
 **Spec revision audited:** rev 4 (2026-04-30)
 **Analysis date:** 2026-04-30
-**Verdict:** **Needs spec updates first** — 3 critical fixes, then ready for `implement-spec`.
+**Verdict:** **Needs spec updates first** — 3 critical fixes, then ready for `om-implement-spec`.
 
 ## Executive Summary
 
@@ -194,6 +194,6 @@ The spec's own Final Compliance Report (rev 4) claims all rules pass. Most are c
 
 ## Recommendation
 
-**Needs spec updates first.** Apply the 3 critical fixes (cookie name, login flow, indexer opt-out) and the 6 important gaps to the spec, then this is implementable end-to-end via `implement-spec`. Estimated rev-4.1 work: ~30–60 minutes of spec edits, no code changes.
+**Needs spec updates first.** Apply the 3 critical fixes (cookie name, login flow, indexer opt-out) and the 6 important gaps to the spec, then this is implementable end-to-end via `om-implement-spec`. Estimated rev-4.1 work: ~30–60 minutes of spec edits, no code changes.
 
 After fixes, the spec is genuinely high-quality and addresses concerns that most v1 custom-domain implementations defer (zero-downtime swap, proxied DNS fallback, IDN normalization, host-only cookies, two-tier cache with SWR + warm-up, distinct DNS vs TLS failure UX, multi-org switcher, DS-token compliance). The remaining items are real but small.

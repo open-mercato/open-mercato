@@ -87,6 +87,7 @@ export function AddressFormatSettings() {
       setPending(next)
       setError(null)
       try {
+        // optimistic-lock-exempt: single-row tenant address-format preference toggle — no per-record version / concurrent record edit
         const call = await apiCall<Record<string, unknown>>(
           '/api/customers/settings/address-format',
           {

@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Switch } from '@open-mercato/ui/primitives/switch'
@@ -17,6 +18,7 @@ interface FetchConfig {
   lastSyncStatus: string | null
   lastSyncMessage: string | null
   lastSyncCount: number | null
+  updatedAt?: string | null
 }
 
 export default function CurrencyFetchingConfig() {
@@ -92,16 +94,20 @@ export default function CurrencyFetchingConfig() {
     }
   }, [availableProviders, initializeMissingProviders, t])
 
-  const toggleEnabled = useCallback(async (configId: string, currentValue: boolean) => {
+  const toggleEnabled = useCallback(async (configId: string, currentValue: boolean, updatedAt?: string | null) => {
     try {
-      const { result } = await apiCall('/api/currencies/fetch-configs', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: configId,
-          isEnabled: !currentValue,
-        }),
-      })
+      const { result } = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(updatedAt),
+        () =>
+          apiCall('/api/currencies/fetch-configs', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: configId,
+              isEnabled: !currentValue,
+            }),
+          }),
+      )
 
       if (result?.config) {
         setConfigs((prev) =>
@@ -119,16 +125,20 @@ export default function CurrencyFetchingConfig() {
     }
   }, [t])
 
-  const updateSyncTime = useCallback(async (configId: string, syncTime: string) => {
+  const updateSyncTime = useCallback(async (configId: string, syncTime: string, updatedAt?: string | null) => {
     try {
-      const { result } = await apiCall('/api/currencies/fetch-configs', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: configId,
-          syncTime: syncTime || null,
-        }),
-      })
+      const { result } = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(updatedAt),
+        () =>
+          apiCall('/api/currencies/fetch-configs', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: configId,
+              syncTime: syncTime || null,
+            }),
+          }),
+      )
 
       if (result?.config) {
         setConfigs((prev) =>
@@ -255,7 +265,7 @@ export default function CurrencyFetchingConfig() {
 
               <Switch
                 checked={config.isEnabled}
-                onCheckedChange={() => toggleEnabled(config.id, config.isEnabled)}
+                onCheckedChange={() => toggleEnabled(config.id, config.isEnabled, config.updatedAt)}
               />
             </div>
 
@@ -269,7 +279,7 @@ export default function CurrencyFetchingConfig() {
                     <input
                       type="time"
                       value={config.syncTime || '09:00'}
-                      onChange={(e) => updateSyncTime(config.id, e.target.value)}
+                      onChange={(e) => updateSyncTime(config.id, e.target.value, config.updatedAt)}
                       className="rounded border bg-background px-2 py-1.5 text-sm"
                     />
                   </div>

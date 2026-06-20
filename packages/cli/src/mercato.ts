@@ -15,15 +15,31 @@ import {
   resolveLazyRestart,
 } from './lib/auto-spawn-workers'
 import { startLazyWorkerSupervisor } from './lib/queue-worker-supervisor'
+import { applyEventsSingleDeliveryGuard } from './lib/events-single-delivery'
+import { createPerJobWorkerHandler } from './lib/worker-job-handler'
+import {
+  planWorkerConcurrency,
+  resolveWorkerConnectionBudget,
+  type WorkerConcurrencyPlan,
+} from './lib/worker-connection-budget'
 import {
   resolveAutoSpawnSchedulerMode,
   resolveLazySchedulerPollMs,
   resolveLazySchedulerRestart,
 } from './lib/auto-spawn-scheduler'
 import { startLazySchedulerSupervisor } from './lib/scheduler-supervisor'
+import {
+  startInProcessGenerateWatcher,
+  type GenerateWatcherHandle,
+} from './lib/in-process-generate-watcher'
+import {
+  resolveGenerateWatcherMode,
+  type GenerateWatcherMode,
+} from './lib/in-process-generate-watcher-mode'
 import { parseModuleInstallArgs } from './lib/module-install-args'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
+import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
@@ -75,7 +91,7 @@ const TURBOPACK_CORRUPTION_PATTERNS = [
   'TurbopackInternalError',
 ]
 
-const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'db', 'server', 'test'])
+const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'deploy', 'db', 'server', 'test'])
 
 function collectNestedErrors(error: unknown, seen = new Set<unknown>()): ErrorWithCause[] {
   if (!error || seen.has(error)) {
@@ -246,10 +262,13 @@ function removeTurbopackDevCache(appDir: string): void {
   fs.rmSync(path.join(appDir, '.mercato', 'next', 'dev'), { recursive: true, force: true })
 }
 
-async function ensureEnvLoaded() {
+async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boolean } = {}) {
   if (envLoaded) return
   envLoaded = true
-  const quietDotenv = process.env.DOTENV_CONFIG_QUIET === '1' || process.env.DOTENV_CONFIG_QUIET === 'true'
+  const quietDotenv =
+    options.quiet === true ||
+    process.env.DOTENV_CONFIG_QUIET === '1' ||
+    process.env.DOTENV_CONFIG_QUIET === 'true'
 
   // Try to find and load .env from the app directory
   // First, try to find the app directory via resolver
@@ -260,7 +279,11 @@ async function ensureEnvLoaded() {
 
     // Load .env from app directory if it exists
     const envPath = path.join(appDir, '.env')
-    if (!fs.existsSync(envPath) && process.env.NODE_ENV !== 'production') {
+    if (
+      options.createIfMissing !== false &&
+      !fs.existsSync(envPath) &&
+      process.env.NODE_ENV !== 'production'
+    ) {
       const examplePath = path.join(appDir, '.env.example')
       if (fs.existsSync(examplePath)) {
         fs.copyFileSync(examplePath, envPath)
@@ -333,6 +356,122 @@ type DevServerRestartResult = {
 
 type DevServerExitResult = ManagedProcessExitResult | DevServerRestartResult
 
+function resolveDevRuntimeBaseUrl(environment: NodeJS.ProcessEnv = process.env): string {
+  const configured =
+    environment.APP_URL
+    ?? environment.NEXT_PUBLIC_APP_URL
+    ?? environment.NEXTAUTH_URL
+  if (configured?.trim()) {
+    return configured.trim().replace(/\/+$/, '')
+  }
+  return `http://localhost:${environment.PORT?.trim() || '3000'}`
+}
+
+function writeDevSplashChildState(state: Record<string, unknown>): void {
+  if (process.env.OM_DEV_SPLASH_RUNTIME_WRAPPER === '1') return
+  const stateFile = process.env.OM_DEV_SPLASH_CHILD_STATE_FILE
+  if (!stateFile?.trim()) return
+
+  try {
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true })
+    fs.writeFileSync(stateFile, `${JSON.stringify({
+      mode: process.env.OM_DEV_SPLASH_MODE || 'dev',
+      failed: false,
+      failureLines: [],
+      failureCommand: null,
+      ...state,
+    }, null, 2)}\n`)
+  } catch {
+    // Splash state is best-effort; terminal logs remain authoritative.
+  }
+}
+
+function writeDevSplashRuntimeStarting(detail = 'Starting Next.js dev server'): void {
+  writeDevSplashChildState({
+    phase: 'Preparing app runtime',
+    detail,
+    ready: false,
+    readyUrl: null,
+    loginUrl: null,
+    progressLabel: 'Launching app runtime',
+    activity: detail,
+  })
+}
+
+function resolveSplashProgressFallback(): { current: number; total: number } {
+  const current = Number.parseInt(process.env.OM_DEV_SPLASH_STAGE_CURRENT ?? '', 10)
+  const total = Number.parseInt(process.env.OM_DEV_SPLASH_STAGE_TOTAL ?? '', 10)
+  if (Number.isFinite(current) && Number.isFinite(total) && total > 0) {
+    return { current, total }
+  }
+  if (process.env.OM_DEV_SPLASH_MODE === 'greenfield' || process.env.OM_DEV_SPLASH_MODE === 'setup') {
+    return { current: 5, total: 5 }
+  }
+  return { current: 3, total: 3 }
+}
+
+function writeDevSplashRuntimeRestarting(reason: string): void {
+  const progress = resolveSplashProgressFallback()
+  writeDevSplashChildState({
+    phase: 'App runtime is restarting',
+    detail: `Reason: ${reason}`,
+    ready: false,
+    readyUrl: null,
+    loginUrl: null,
+    progressCurrent: progress.current,
+    progressTotal: progress.total,
+    progressLabel: 'Restarting app runtime',
+    activity: `App runtime restart: ${reason}`,
+  })
+}
+
+function writeDevSplashRuntimeReady(reason?: string): void {
+  const readyUrl = resolveDevRuntimeBaseUrl()
+  const progress = resolveSplashProgressFallback()
+  writeDevSplashChildState({
+    phase: 'App is ready',
+    detail: reason ? `Restart completed after ${reason}` : 'Next.js dev server is ready',
+    ready: true,
+    readyUrl,
+    loginUrl: `${readyUrl}/login`,
+    progressCurrent: progress.current,
+    progressTotal: progress.total,
+    progressPercent: 100,
+    progressLabel: 'App is ready',
+    activity: reason ? `Restart completed after ${reason}` : 'App runtime is ready',
+  })
+}
+
+function resolveDevWarmupReadyTimeoutMs(environment: NodeJS.ProcessEnv = process.env): number {
+  const parsed = Number.parseInt(environment.OM_DEV_WARMUP_READY_TIMEOUT_MS ?? '', 10)
+  if (Number.isFinite(parsed) && parsed >= 0) return parsed
+  return 300_000
+}
+
+async function waitForDevWarmupReadyFile(
+  filePath: string | undefined,
+  options: {
+    timeoutMs?: number
+    signal?: AbortSignal
+  } = {},
+): Promise<'ready' | 'timeout' | 'aborted'> {
+  const normalized = filePath?.trim()
+  if (!normalized) return 'ready'
+  const timeoutMs = options.timeoutMs ?? resolveDevWarmupReadyTimeoutMs()
+  const startedAt = Date.now()
+
+  while (true) {
+    if (options.signal?.aborted) return 'aborted'
+    try {
+      if (fs.existsSync(normalized)) return 'ready'
+    } catch {
+      // Keep polling; the runtime wrapper owns this best-effort marker.
+    }
+    if (timeoutMs >= 0 && Date.now() - startedAt >= timeoutMs) return 'timeout'
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+}
+
 type ModuleCommandLookupResult =
   | {
       status: 'ok'
@@ -390,6 +529,46 @@ function formatQueueWorkerLabel(queueNames: string[]): string {
   const sorted = [...queueNames].sort((a, b) => a.localeCompare(b))
   const preview = sorted.length > 4 ? `${sorted.slice(0, 4).join(', ')}, +${sorted.length - 4} more` : sorted.join(', ')
   return `Queue worker (${preview})`
+}
+
+/**
+ * Fit the requested per-queue worker concurrency to the worker process's DB
+ * connection budget and log the resolved plan. Since each job runs in its own
+ * request container (one pooled connection per in-flight job), the sum of worker
+ * concurrency is the worker's peak connection demand — it MUST stay within the
+ * pool so background jobs cannot starve the request/onboarding path that shares
+ * the same database.
+ */
+async function resolveWorkerBudgetPlan(
+  requestedByQueue: { queue: string; concurrency: number }[],
+): Promise<WorkerConcurrencyPlan> {
+  const { resolvePoolConfig } = await import('@open-mercato/shared/lib/db/mikro')
+  const poolMax = resolvePoolConfig(process.env).poolMax
+  const budget = resolveWorkerConnectionBudget(process.env, poolMax)
+  const plan = planWorkerConcurrency(requestedByQueue, budget)
+
+  console.log(
+    `[worker] DB connection budget: ${plan.budget} (pool max ${poolMax}); ` +
+      `requested Σconcurrency ${plan.totalRequested}, effective ${plan.totalEffective}`,
+  )
+  if (plan.clamped) {
+    const perQueue = plan.entries
+      .map((entry) => `${entry.queue}=${entry.effective}/${entry.requested}`)
+      .join(', ')
+    console.warn(
+      `[worker] Worker concurrency clamped to fit the DB connection budget (${plan.budget}): ${perQueue}. ` +
+        `Raise DB_POOL_MAX or set OM_WORKERS_DB_CONNECTION_BUDGET to change this. ` +
+        `Keep web_pool_max + worker_pool_max + overhead <= Postgres max_connections.`,
+    )
+  }
+  if (plan.belowQueueFloor) {
+    console.warn(
+      `[worker] DB connection budget (${plan.budget}) is smaller than the number of queues ` +
+        `(${requestedByQueue.length}); every queue runs at concurrency 1 and total demand ` +
+        `(${plan.totalEffective}) still exceeds the budget. Raise DB_POOL_MAX.`,
+    )
+  }
+  return plan
 }
 
 function lookupModuleCommand(
@@ -556,6 +735,57 @@ async function runPostGenerateStructuralCachePurge(quiet: boolean): Promise<void
   }
 }
 
+/**
+ * Generator suite invoked by both `mercato generate all` and the in-process
+ * generate watcher embedded in `mercato server dev`. Hoisted to module scope
+ * so the watcher embedded in the server lifecycle can reuse the same closure
+ * without re-importing the closure-scoped version inside `buildBaseModules`.
+ */
+async function runGeneratorSuite(quiet: boolean): Promise<void> {
+  const { createResolver } = await import('./lib/resolver')
+  const {
+    generateEntityIds,
+    generateModuleRegistry,
+    generateModuleRegistryApp,
+    generateModuleRegistryCli,
+    generateModuleEntities,
+    generateModuleDi,
+    generateModulePackageSources,
+    generateOpenApi,
+  } = await import('./lib/generators')
+  const resolver = createResolver()
+  await generateEntityIds({ resolver, quiet })
+  await generateModuleRegistry({ resolver, quiet })
+  await generateModuleRegistryApp({ resolver, quiet })
+  await generateModuleRegistryCli({ resolver, quiet })
+  await generateModuleEntities({ resolver, quiet })
+  await generateModuleDi({ resolver, quiet })
+  await generateModulePackageSources({ resolver, quiet })
+  await generateOpenApi({ resolver, quiet })
+}
+
+/**
+ * Builds the structural-fingerprint function used by the in-process generate
+ * watcher. Walks the same module roots the legacy `mercato generate watch`
+ * CLI command tracked, so the polling semantics are byte-for-byte identical.
+ */
+function createGenerateWatchChecksumFn(): () => Promise<string> {
+  return async () => {
+    const { createResolver } = await import('./lib/resolver')
+    const { calculateGenerateWatchStructureChecksum } = await import('./lib/generate-watch-structure')
+    const resolver = createResolver()
+    const moduleRoots = []
+    for (const entry of resolver.loadEnabledModules()) {
+      const roots = resolver.getModulePaths(entry)
+      moduleRoots.push({ appBase: roots.appBase, pkgBase: roots.pkgBase })
+    }
+    return calculateGenerateWatchStructureChecksum({
+      modulesFile: path.join(resolver.getAppDir(), 'src', 'modules.ts'),
+      moduleRoots,
+    })
+  }
+}
+
 // Build all CLI modules (registered + built-in)
 async function buildAllModules(): Promise<Module[]> {
   const modules = getCliModules()
@@ -576,9 +806,9 @@ async function buildAllModules(): Promise<Module[]> {
 }
 
 export async function run(argv = process.argv) {
-  await ensureEnvLoaded()
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
+  await ensureEnvLoaded({ createIfMissing: first !== 'deploy', quiet: first === 'deploy' })
   
   // Handle init command directly
   if (first === 'init') {
@@ -850,6 +1080,11 @@ export async function run(argv = process.argv) {
         '--email', email,
         '--password', password,
         '--roles', roles,
+        // `mercato init` is the dev/demo bootstrap flow — it explicitly wants
+        // the derived admin@/employee@ demo accounts. Standalone callers of
+        // `mercato auth setup` must opt in themselves; without this flag the
+        // setup command no longer seeds those accounts by default.
+        '--include-demo-users',
       ]
       if (skipPasswordPolicy) {
         setupArgs.push('--skip-password-policy')
@@ -1047,8 +1282,8 @@ export async function run(argv = process.argv) {
 
       if (!subcommand || subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
         console.log('Usage: yarn mercato module <add|enable|eject> ...')
-        console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--eject]')
-        console.log('  yarn mercato module enable <packageName> [--module <moduleId>] [--eject]')
+        console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--eject] [--allow-third-party]')
+        console.log('  yarn mercato module enable <packageName> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module eject <moduleId>')
         return 0
       }
@@ -1056,14 +1291,14 @@ export async function run(argv = process.argv) {
       if (subcommand === 'add') {
         const { createResolver } = await import('./lib/resolver')
         const { addOfficialModule } = await import('./lib/module-install')
-        const { packageSpec, eject, moduleId } = parseModuleInstallArgs(commandArgs)
+        const { packageSpec, eject, moduleId, allowThirdParty } = parseModuleInstallArgs(commandArgs)
 
         if (!packageSpec) {
-          console.error('Usage: yarn mercato module add <packageSpec> [--module <moduleId>] [--eject]')
+          console.error('Usage: yarn mercato module add <packageSpec> [--module <moduleId>] [--eject] [--allow-third-party]')
           return 1
         }
 
-        const result = await addOfficialModule(createResolver(), packageSpec, eject, moduleId ?? undefined)
+        const result = await addOfficialModule(createResolver(), packageSpec, eject, moduleId ?? undefined, allowThirdParty)
         console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
         console.log('Next steps:')
         console.log('  1. Review generated files if needed: .mercato/generated/')
@@ -1074,14 +1309,14 @@ export async function run(argv = process.argv) {
       if (subcommand === 'enable') {
         const packageName = commandArgs.find((arg) => !arg.startsWith('-'))
         if (!packageName) {
-          console.error('Usage: yarn mercato module enable <packageName> [--module <moduleId>] [--eject]')
+          console.error('Usage: yarn mercato module enable <packageName> [--module <moduleId>] [--eject] [--allow-third-party]')
           return 1
         }
 
         const { createResolver } = await import('./lib/resolver')
         const { enableOfficialModule } = await import('./lib/module-install')
-        const { moduleId, eject } = parseModuleInstallArgs(commandArgs)
-        const result = await enableOfficialModule(createResolver(), packageName, moduleId ?? undefined, eject)
+        const { moduleId, eject, allowThirdParty } = parseModuleInstallArgs(commandArgs)
+        const result = await enableOfficialModule(createResolver(), packageName, moduleId ?? undefined, eject, allowThirdParty)
         console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
         console.log('Next steps:')
         console.log('  1. Review generated files if needed: .mercato/generated/')
@@ -1286,6 +1521,19 @@ export async function run(argv = process.argv) {
     } catch { /* @/cli may not exist in standalone apps — safe to ignore */ }
   }
   const all = modules.slice()
+
+  all.push({
+    id: 'deploy',
+    cli: [
+      {
+        command: 'railway',
+        run: async (args: string[]) => {
+          const { runRailwayDeploy } = await import('./lib/deploy/railway/index')
+          await runRailwayDeploy(args)
+        },
+      },
+    ],
+  } as Module)
   
   // Built-in CLI module: queue
   all.push({
@@ -1323,13 +1571,31 @@ export async function run(argv = process.argv) {
             }
 
             const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-            const container = await createRequestContainer()
+
+            // Fit Σconcurrency to the worker's DB connection budget before
+            // starting any worker, so the per-job containers (one connection each)
+            // can never over-subscribe the pool the request path shares.
+            const requestedByQueue = discoveredQueues.map((queue) => {
+              const queueWorkers = allWorkers.filter((w) => w.queue === queue)
+              return {
+                queue,
+                concurrency: concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1),
+              }
+            })
+            const budgetPlan = await resolveWorkerBudgetPlan(requestedByQueue)
+            const effectiveByQueue = new Map(
+              budgetPlan.entries.map((entry) => [entry.queue, entry.effective]),
+            )
+
             console.log(`[worker] Starting workers for all queues: ${discoveredQueues.join(', ')}`)
 
             // Start all queue workers in background mode
             const workerPromises = discoveredQueues.map(async (queue) => {
               const queueWorkers = allWorkers.filter((w) => w.queue === queue)
-              const concurrency = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+              const concurrency =
+                effectiveByQueue.get(queue) ??
+                concurrencyOverride ??
+                Math.max(...queueWorkers.map((w) => w.concurrency), 1)
 
               console.log(`[worker] Starting "${queue}" with ${queueWorkers.length} handler(s), concurrency: ${concurrency}`)
 
@@ -1339,11 +1605,7 @@ export async function run(argv = process.argv) {
                 connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
                 background: true,
-                handler: async (job, ctx) => {
-                  for (const worker of queueWorkers) {
-                    await worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) })
-                  }
-                },
+                handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
             })
 
@@ -1360,8 +1622,11 @@ export async function run(argv = process.argv) {
             if (queueWorkers.length > 0) {
               // Use discovered workers
               const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-              const container = await createRequestContainer()
-              const concurrency = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+              const requested = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+              // Bound a single-queue run to the connection budget too, so it can
+              // never check out more pooled connections than the worker pool holds.
+              const budgetPlan = await resolveWorkerBudgetPlan([{ queue: queueName!, concurrency: requested }])
+              const concurrency = budgetPlan.entries[0]?.effective ?? requested
 
               console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
 
@@ -1370,11 +1635,7 @@ export async function run(argv = process.argv) {
                 queueName: queueName!,
                 connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
-                handler: async (job, ctx) => {
-                  for (const worker of queueWorkers) {
-                    await worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) })
-                  }
-                },
+                handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
             } else {
               console.error(`No workers found for queue "${queueName}"`)
@@ -1475,30 +1736,6 @@ export async function run(argv = process.argv) {
       },
     ],
   } as any)
-  
-  const runGeneratorSuite = async (quiet: boolean) => {
-    const { createResolver } = await import('./lib/resolver')
-    const {
-      generateEntityIds,
-      generateModuleRegistry,
-      generateModuleRegistryApp,
-      generateModuleRegistryCli,
-      generateModuleEntities,
-      generateModuleDi,
-      generateModulePackageSources,
-      generateOpenApi,
-    } = await import('./lib/generators')
-    const resolver = createResolver()
-
-    await generateEntityIds({ resolver, quiet })
-    await generateModuleRegistry({ resolver, quiet })
-    await generateModuleRegistryApp({ resolver, quiet })
-    await generateModuleRegistryCli({ resolver, quiet })
-    await generateModuleEntities({ resolver, quiet })
-    await generateModuleDi({ resolver, quiet })
-    await generateModulePackageSources({ resolver, quiet })
-    await generateOpenApi({ resolver, quiet })
-  }
 
   // Built-in CLI module: generate
   all.push({
@@ -1518,75 +1755,46 @@ export async function run(argv = process.argv) {
       {
         command: 'watch',
         run: async (args: string[]) => {
-          const { createResolver } = await import('./lib/resolver')
-          const { calculateStructureChecksum } = await import('./lib/utils')
           const quiet = args.includes('--quiet') || args.includes('-q')
           const skipInitial = args.includes('--skip-initial')
           const intervalArg = args.find((arg) => arg.startsWith('--interval='))
           const parsedInterval = intervalArg ? Number.parseInt(intervalArg.split('=')[1] ?? '', 10) : NaN
           const intervalMs = Number.isFinite(parsedInterval) && parsedInterval >= 250 ? parsedInterval : 1000
-          let previousChecksum = ''
-          let running = false
-          let pending = false
 
-          const getTrackedPaths = () => {
-            const resolver = createResolver()
-            const tracked = new Set<string>([
-              path.join(resolver.getAppDir(), 'src', 'modules.ts'),
-              path.join(resolver.getAppDir(), 'src', 'modules'),
-            ])
-            for (const entry of resolver.loadEnabledModules()) {
-              const roots = resolver.getModulePaths(entry)
-              tracked.add(roots.appBase)
-              tracked.add(roots.pkgBase)
-            }
-            return Array.from(tracked)
-          }
-
-          const runWatchGeneration = async (reason: string) => {
-            if (running) {
-              pending = true
-              return
-            }
-            running = true
-            try {
-              if (!quiet) {
-                console.log(`[generate:watch] Regenerating (${reason})...`)
-              }
+          const watcher = startInProcessGenerateWatcher({
+            pollMs: intervalMs,
+            skipInitial,
+            quiet,
+            computeStructureChecksum: createGenerateWatchChecksumFn(),
+            runGenerators: async () => {
               await runGeneratorSuite(true)
               await runPostGenerateStructuralCachePurge(true)
-              if (!quiet) {
-                console.log('[generate:watch] Generators completed.')
-              }
-            } catch (error) {
-              console.error('[generate:watch] Generation failed:', error instanceof Error ? error.message : error)
-            } finally {
-              running = false
-              if (pending) {
-                pending = false
-                await runWatchGeneration('queued change')
-              }
-            }
+            },
+          })
+
+          const shutdownSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
+          let shuttingDown = false
+          const handleSignal = () => {
+            if (shuttingDown) return
+            shuttingDown = true
+            void watcher.close()
+          }
+          for (const signal of shutdownSignals) {
+            process.once(signal, handleSignal)
           }
 
-          if (!skipInitial) {
-            await runWatchGeneration('initial')
-          }
-          previousChecksum = calculateStructureChecksum(getTrackedPaths())
-          if (!quiet) {
-            if (skipInitial) {
-              console.log('[generate:watch] Skipping initial regeneration and watching the current generated state.')
+          // The watcher's polling timer is `unref()`-ed so the event loop
+          // would otherwise exit immediately for a standalone CLI invocation.
+          // `keepAlive` holds the loop open until a shutdown signal calls
+          // `watcher.close()`, which resolves `watcher.done`.
+          const keepAlive = setInterval(() => {}, 1 << 30)
+          try {
+            await watcher.done
+          } finally {
+            clearInterval(keepAlive)
+            for (const signal of shutdownSignals) {
+              process.removeListener(signal, handleSignal)
             }
-            console.log(`[generate:watch] Watching structural module files every ${intervalMs}ms`)
-          }
-
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            await new Promise((resolve) => setTimeout(resolve, intervalMs))
-            const nextChecksum = calculateStructureChecksum(getTrackedPaths())
-            if (nextChecksum === previousChecksum) continue
-            previousChecksum = nextChecksum
-            await runWatchGeneration('structure change')
           }
         },
       },
@@ -1683,9 +1891,12 @@ export async function run(argv = process.argv) {
           let processes: ChildProcess[] = []
           let didRetryCorruptedTurbopackCache = false
           let stopping = false
-          let envChangePromiseResolve: ((result: DevServerRestartResult) => void) | null = null
+          let devRestartPromiseResolve: ((result: DevServerRestartResult) => void) | null = null
           let activeLazySupervisor: ReturnType<typeof startLazyWorkerSupervisor> | null = null
           let activeLazySchedulerSupervisor: ReturnType<typeof startLazySchedulerSupervisor> | null = null
+          let activeGenerateWatcher: GenerateWatcherHandle | null = null
+          let lastRestartReason: string | null = null
+          const generateWatcherMode: GenerateWatcherMode = resolveGenerateWatcherMode(process.env)
           const envReloader = createDevEnvReloader(appDir, process.env, initialProcessEnvironmentEntries)
 
           function cleanup() {
@@ -1700,6 +1911,9 @@ export async function run(argv = process.argv) {
             }
             if (activeLazySchedulerSupervisor) {
               void activeLazySchedulerSupervisor.close().catch(() => undefined)
+            }
+            if (activeGenerateWatcher) {
+              void activeGenerateWatcher.close().catch(() => undefined)
             }
           }
 
@@ -1731,6 +1945,14 @@ export async function run(argv = process.argv) {
               }
               activeLazySchedulerSupervisor = null
             }
+            if (activeGenerateWatcher) {
+              try {
+                await activeGenerateWatcher.close()
+              } catch {
+                // In-process generate watcher close errors must never block dev shutdown.
+              }
+              activeGenerateWatcher = null
+            }
             // Safety net: remove Next.js dev lock file in case the child didn't clean up
             const lockFile = path.join(appDir, '.mercato', 'next', 'dev', 'lock')
             try {
@@ -1761,20 +1983,31 @@ export async function run(argv = process.argv) {
           const mercatoBin = resolveInstalledBinary(nodeModulesBases, '@open-mercato/cli/bin/mercato')
 
           const stopEnvWatcher = watchDevEnvFiles(appDir, (filePath) => {
-            envChangePromiseResolve?.({
+            devRestartPromiseResolve?.({
               label: 'Environment file change',
               restart: true,
               filePath,
             })
           })
-
-          const waitForEnvChange = (): Promise<DevServerRestartResult> =>
+          const waitForDevRestart = (): Promise<DevServerRestartResult> =>
             new Promise((resolve) => {
-              envChangePromiseResolve = resolve
+              devRestartPromiseResolve = resolve
             })
 
-          const startNextDev = (runtimeEnv: NodeJS.ProcessEnv): Promise<ManagedProcessExitResult> =>
-            new Promise((resolve) => {
+          const startNextDev = (runtimeEnv: NodeJS.ProcessEnv): {
+            exitPromise: Promise<ManagedProcessExitResult>
+            readyPromise: Promise<void>
+          } => {
+            let readyResolve: () => void = () => undefined
+            const readyPromise = new Promise<void>((resolve) => {
+              readyResolve = resolve
+            })
+            const exitPromise = new Promise<ManagedProcessExitResult>((resolve) => {
+              writeDevSplashRuntimeStarting(
+                lastRestartReason
+                  ? `Restarting Next.js dev server. Reason: ${lastRestartReason}`
+                  : 'Starting Next.js dev server',
+              )
               const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
                 stdio: ['inherit', 'pipe', 'pipe'],
                 env: runtimeEnv,
@@ -1783,10 +2016,17 @@ export async function run(argv = process.argv) {
               processes.push(nextProcess)
 
               let combinedOutput = ''
+              let reportedReady = false
               const appendOutput = (chunk: string) => {
                 combinedOutput += chunk
                 if (combinedOutput.length > 32_768) {
                   combinedOutput = combinedOutput.slice(-32_768)
+                }
+                if (!reportedReady && /\bready in\b/i.test(chunk)) {
+                  reportedReady = true
+                  writeDevSplashRuntimeReady(lastRestartReason ?? undefined)
+                  lastRestartReason = null
+                  readyResolve()
                 }
               }
 
@@ -1804,9 +2044,13 @@ export async function run(argv = process.argv) {
               nextProcess.on('exit', async (code, signal) => {
                 if (!didRetryCorruptedTurbopackCache && isTurbopackCacheCorruption(combinedOutput)) {
                   didRetryCorruptedTurbopackCache = true
+                  lastRestartReason = 'corrupted Turbopack dev cache'
+                  writeDevSplashRuntimeRestarting(lastRestartReason)
                   console.log('[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...')
                   removeTurbopackDevCache(appDir)
-                  return resolve(await startNextDev(runtimeEnv))
+                  const restarted = startNextDev(runtimeEnv)
+                  restarted.readyPromise.then(readyResolve)
+                  return resolve(await restarted.exitPromise)
                 }
                 resolve({
                   label: 'Next.js dev server',
@@ -1815,78 +2059,145 @@ export async function run(argv = process.argv) {
                 })
               })
             })
+            return { exitPromise, readyPromise }
+          }
 
           try {
             while (!stopping) {
               envReloader.reload()
               const runtimeEnv = buildServerProcessEnvironment(process.env)
               const autoSpawnWorkersMode = resolveAutoSpawnWorkersMode(process.env)
+              // Guard the default-on events single-delivery: if this process runs
+              // no events worker, fall back to safe inline dual-dispatch so
+              // persistent side effects are never silently dropped. Mutates both
+              // process.env (in-process bus) and runtimeEnv (spawned workers) so
+              // they agree.
+              applyEventsSingleDeliveryGuard({ processEnv: process.env, runtimeEnv, autoSpawnWorkersMode })
               const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
               const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
               const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
+              const nextRuntime = startNextDev(runtimeEnv)
+              const restartPromise = waitForDevRestart()
+              const backgroundStartAbort = new AbortController()
+              const cancelBackgroundStart = () => backgroundStartAbort.abort()
+              nextRuntime.exitPromise.finally(cancelBackgroundStart)
+              restartPromise.then(cancelBackgroundStart)
+              let backgroundExitResolve: (result: ManagedProcessExitResult) => void = () => undefined
+              const backgroundExitPromise = new Promise<ManagedProcessExitResult>((resolve) => {
+                backgroundExitResolve = resolve
+              })
               const managedExitPromises: Promise<DevServerExitResult>[] = [
-                startNextDev(runtimeEnv),
-                waitForEnvChange(),
+                nextRuntime.exitPromise,
+                restartPromise,
+                backgroundExitPromise,
               ]
 
-              // Start workers if enabled
-              if (autoSpawnWorkersMode !== 'off') {
-                const discoveredWorkers = getRegisteredCliWorkers()
-                const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
-                if (discoveredWorkerQueues.length === 0) {
-                  console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
-                } else if (autoSpawnWorkersMode === 'lazy') {
-                  console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched).`)
-                  activeLazySupervisor = startLazyWorkerSupervisor({
-                    mercatoBin,
-                    appDir,
-                    runtimeEnv,
-                    workers: discoveredWorkers,
-                    pollMs: resolveLazyPollMs(process.env),
-                    restartOnUnexpectedExit: resolveLazyRestart(process.env),
-                  })
-                } else {
-                  console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')
-                  const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
-                    stdio: 'inherit',
-                    env: runtimeEnv,
-                    cwd: appDir,
-                  })
-                  processes.push(workerProcess)
-                  managedExitPromises.push(waitForManagedProcessExit(workerProcess, formatQueueWorkerLabel(discoveredWorkerQueues)))
+              const startBackgroundServices = async () => {
+                if (stopping || backgroundStartAbort.signal.aborted) return
+
+                // Keep first-route compilation responsive: greenfield setup can
+                // leave vector/fulltext jobs ready. When the dev wrapper is
+                // active, wait for its /login + /backend warmup marker before
+                // workers and scheduler begin consuming CPU and database I/O.
+                const warmupReady = await waitForDevWarmupReadyFile(process.env.OM_DEV_WARMUP_READY_FILE, {
+                  timeoutMs: resolveDevWarmupReadyTimeoutMs(process.env),
+                  signal: backgroundStartAbort.signal,
+                })
+                if (warmupReady === 'aborted' || stopping || backgroundStartAbort.signal.aborted) return
+                if (warmupReady === 'timeout') {
+                  console.warn('[server] Timed out waiting for dev warmup marker; starting background services anyway.')
+                }
+
+                if (autoSpawnWorkersMode !== 'off') {
+                  const discoveredWorkers = getRegisteredCliWorkers()
+                  const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
+                  if (discoveredWorkerQueues.length === 0) {
+                    console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
+                  } else if (autoSpawnWorkersMode === 'lazy') {
+                    console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched).`)
+                    activeLazySupervisor = startLazyWorkerSupervisor({
+                      mercatoBin,
+                      appDir,
+                      runtimeEnv,
+                      workers: discoveredWorkers,
+                      pollMs: resolveLazyPollMs(process.env),
+                      restartOnUnexpectedExit: resolveLazyRestart(process.env),
+                    })
+                  } else {
+                    console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')
+                    const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
+                      stdio: 'inherit',
+                      env: runtimeEnv,
+                      cwd: appDir,
+                    })
+                    processes.push(workerProcess)
+                    waitForManagedProcessExit(workerProcess, formatQueueWorkerLabel(discoveredWorkerQueues)).then(backgroundExitResolve)
+                  }
+                }
+
+                if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
+                  if (schedulerCommand.status !== 'ok') {
+                    console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand(schedulerCommand)}`)
+                  } else if (autoSpawnSchedulerMode === 'lazy') {
+                    console.log('[server] Lazy scheduler auto-spawn enabled - scheduler will start when an enabled schedule exists.')
+                    activeLazySchedulerSupervisor = startLazySchedulerSupervisor({
+                      mercatoBin,
+                      appDir,
+                      runtimeEnv,
+                      pollMs: resolveLazySchedulerPollMs(process.env),
+                      restartOnUnexpectedExit: resolveLazySchedulerRestart(process.env),
+                    })
+                  } else {
+                    console.log('[server] Eager scheduler auto-spawn enabled - starting scheduler polling engine...')
+                    const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
+                      stdio: 'inherit',
+                      env: runtimeEnv,
+                      cwd: appDir,
+                    })
+                    processes.push(schedulerProcess)
+                    waitForManagedProcessExit(schedulerProcess, 'Scheduler polling engine').then(backgroundExitResolve)
+                  }
                 }
               }
+              nextRuntime.readyPromise.then(() => {
+                void startBackgroundServices()
+              })
 
-              if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
-                if (schedulerCommand.status !== 'ok') {
-                  console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand(schedulerCommand)}`)
-                } else if (autoSpawnSchedulerMode === 'lazy') {
-                  console.log('[server] Lazy scheduler auto-spawn enabled - scheduler will start when an enabled schedule exists.')
-                  activeLazySchedulerSupervisor = startLazySchedulerSupervisor({
-                    mercatoBin,
-                    appDir,
-                    runtimeEnv,
-                    pollMs: resolveLazySchedulerPollMs(process.env),
-                    restartOnUnexpectedExit: resolveLazySchedulerRestart(process.env),
-                  })
-                } else {
-                  console.log('[server] Eager scheduler auto-spawn enabled - starting scheduler polling engine...')
-                  const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
-                    stdio: 'inherit',
-                    env: runtimeEnv,
-                    cwd: appDir,
-                  })
-                  processes.push(schedulerProcess)
-                  managedExitPromises.push(waitForManagedProcessExit(schedulerProcess, 'Scheduler polling engine'))
-                }
+              if (generateWatcherMode === 'in-process') {
+                // Run the structural regeneration watcher inside this process
+                // instead of spawning a dedicated `mercato generate watch --skip-initial`
+                // sidecar. Saves ~190 MB of resident RSS on a typical dev box
+                // (measured against the legacy sidecar). Opt back into the
+                // sidecar with `OM_DEV_GENERATE_WATCH_MODE=legacy` if needed.
+                console.log('[server] In-process generate watcher enabled — structural changes will regenerate without a sidecar process.')
+                activeGenerateWatcher = startInProcessGenerateWatcher({
+                  // `--skip-initial` equivalent: `yarn dev` always runs an
+                  // initial `mercato generate` before reaching the server
+                  // command, so the watcher must not re-run generators at
+                  // boot time. Otherwise dev startup pays a generator pass
+                  // twice in a row.
+                  skipInitial: true,
+                  quiet: false,
+                  computeStructureChecksum: createGenerateWatchChecksumFn(),
+                  runGenerators: async () => {
+                    await runGeneratorSuite(true)
+                    await runPostGenerateStructuralCachePurge(true)
+                  },
+                })
+              } else {
+                console.log('[server] Legacy out-of-process generate watcher selected via OM_DEV_GENERATE_WATCH_MODE=legacy — expect the dev orchestrator to spawn `mercato generate watch --skip-initial`.')
               }
 
               const firstExit = await Promise.race(managedExitPromises)
+              if (isDevServerRestartResult(firstExit)) {
+                lastRestartReason = `${firstExit.label.toLowerCase()} (${path.basename(firstExit.filePath)})`
+                writeDevSplashRuntimeRestarting(lastRestartReason)
+              }
               await cleanupAndWait()
-              envChangePromiseResolve = null
+              devRestartPromiseResolve = null
 
               if (isDevServerRestartResult(firstExit)) {
-                console.log(`[server] Detected environment file change (${path.basename(firstExit.filePath)}). Restarting app runtime...`)
+                console.log(`[server] Detected ${firstExit.label.toLowerCase()} (${path.basename(firstExit.filePath)}). Restarting app runtime...`)
                 continue
               }
 
@@ -1915,6 +2226,13 @@ export async function run(argv = process.argv) {
           const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
           const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
           const runtimeEnv = buildServerProcessEnvironment(process.env)
+          // Guard the default-on events single-delivery (see the dev `server`
+          // command): fall back to safe inline dual-dispatch when this process
+          // runs no events worker, keeping process.env and runtimeEnv in sync.
+          applyEventsSingleDeliveryGuard({ processEnv: process.env, runtimeEnv, autoSpawnWorkersMode })
+          // Throws on single-instance strategies under a multi-instance topology,
+          // aborting before the start lock is acquired or any process is spawned.
+          assertSingleInstanceStrategies(runtimeEnv)
           const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
           const serverStartLock = acquireServerStartLock(appDir, {
             port: runtimeEnv.PORT ?? process.env.PORT ?? null,
@@ -2146,11 +2464,16 @@ export async function run(argv = process.argv) {
 
   console.log('')
   const started = Date.now()
-  console.log(`🚀 Running ${modName}:${cmdName} ${rest.join(' ')}`)
+  const loggedArgs = modName === 'deploy' && cmdName === 'railway'
+    ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
+    : rest
+  console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
   try {
     await cmd.run(rest)
-    const ms = Date.now() - started
-    console.log(`⏱️ Done in ${ms}ms`)
+    if (modName !== 'deploy' || cmdName !== 'railway') {
+      const ms = Date.now() - started
+      console.log(`⏱️ Done in ${ms}ms`)
+    }
     return 0
   } catch (e: any) {
     console.error(`💥 Failed: ${formatCliFailureMessage(modName, cmdName, e)}`)

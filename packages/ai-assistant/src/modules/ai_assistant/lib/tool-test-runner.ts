@@ -14,9 +14,6 @@
  *   - Tools without an explicit fixture entry are skipped with reason
  *     `'no fixture'` rather than failing.
  */
-import path from 'node:path'
-import fs from 'node:fs'
-import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { AwilixContainer } from 'awilix'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { McpToolContext, AiToolDefinition } from './types'
@@ -24,6 +21,11 @@ import type { AiAgentDefinition, AiAgentMutationPolicy } from './ai-agent-defini
 import { getFixture, type ToolFixture } from './tool-test-fixtures'
 import { prepareMutation } from './prepare-mutation'
 import { executePendingActionConfirm } from './pending-action-executor'
+import {
+  findGeneratedFile,
+  compileAndImportGenerated,
+  ensureApiRouteManifestsRegistered,
+} from './generated-registry-loader'
 
 export type ToolTestStatus = 'pass' | 'fail' | 'skip'
 
@@ -63,143 +65,15 @@ function isToolDefinition(value: unknown): value is AiToolDefinition {
   )
 }
 
-/**
- * Locate `apps/mercato/.mercato/generated/ai-tools.generated.ts` without
- * hardcoding the workspace layout. Searches upward from this file's
- * compiled location; in the monorepo dist this is
- * `packages/ai-assistant/dist/...` so we walk up until we hit a directory
- * containing `apps/mercato/.mercato/generated`.
- */
-function findGeneratedAiToolsPath(): string | null {
-  const here = (() => {
-    try {
-      return fileURLToPath(import.meta.url)
-    } catch {
-      return null
-    }
-  })()
-  if (!here) return null
-  let cursor = path.dirname(here)
-  for (let i = 0; i < 12; i++) {
-    const candidate = path.join(cursor, 'apps', 'mercato', '.mercato', 'generated', 'ai-tools.generated.ts')
-    if (fs.existsSync(candidate)) return candidate
-    const next = path.dirname(cursor)
-    if (next === cursor) break
-    cursor = next
-  }
-  // Fallback: cwd-based lookup (when CLI is invoked from apps/mercato).
-  const fromCwd = path.resolve(process.cwd(), 'apps', 'mercato', '.mercato', 'generated', 'ai-tools.generated.ts')
-  if (fs.existsSync(fromCwd)) return fromCwd
-  const fromCwdDirect = path.resolve(process.cwd(), '.mercato', 'generated', 'ai-tools.generated.ts')
-  if (fs.existsSync(fromCwdDirect)) return fromCwdDirect
-  return null
-}
-
-/**
- * Compile-and-import `ai-tools.generated.ts` on the fly. Mirrors the approach
- * used by `loadBootstrapData` in `@open-mercato/shared/lib/bootstrap/dynamicLoader`:
- * resolves the `@/` alias to the app root, marks every other package import as
- * external, and emits a sibling `.mjs` we can `import()` from Node. Cached on
- * mtime so repeat runs in the same process don't recompile.
- */
-async function compileAndImportGenerated(tsPath: string): Promise<RawAiToolsModule> {
-  const jsPath = tsPath.replace(/\.ts$/, '.mjs')
-  // appRoot is two directories up from `.mercato/generated/<file>.ts`.
-  const appRoot = path.dirname(path.dirname(path.dirname(tsPath)))
-  const tsExists = fs.existsSync(tsPath)
-  if (!tsExists) {
-    throw new Error(`Generated file not found: ${tsPath}`)
-  }
-  const jsExists = fs.existsSync(jsPath)
-  const needsCompile =
-    !jsExists || fs.statSync(tsPath).mtimeMs > fs.statSync(jsPath).mtimeMs
-  if (needsCompile) {
-    const esbuild = await import('esbuild')
-    // Transpile-only: don't bundle. Generated registry files only declare an
-    // array literal whose entries are static `import("…")` arrow functions —
-    // we want those `import()` strings to stay as runtime imports so Node
-    // resolves them lazily through the workspace's normal module resolution.
-    // Eagerly bundling them pulls Next.js / route handler internals into the
-    // .mjs and breaks at runtime (e.g. `next/server` package-exports map).
-    const tsSource = fs.readFileSync(tsPath, 'utf-8')
-    // Rewrite `@/...` aliases to absolute paths so Node can resolve them.
-    const aliasRewritten = tsSource.replace(
-      /from\s+["']@\/([^"']+)["']/g,
-      (_match, p1: string) => {
-        const target = path.join(appRoot, p1)
-        const candidate = fs.existsSync(target)
-          ? target
-          : fs.existsSync(target + '.ts')
-            ? target + '.ts'
-            : target
-        return `from ${JSON.stringify(pathToFileURL(candidate).href)}`
-      },
-    ).replace(
-      /import\s*\(\s*["']@\/([^"']+)["']\s*\)/g,
-      (_match, p1: string) => {
-        const target = path.join(appRoot, p1)
-        const candidate = fs.existsSync(target)
-          ? target
-          : fs.existsSync(target + '.ts')
-            ? target + '.ts'
-            : target
-        return `import(${JSON.stringify(pathToFileURL(candidate).href)})`
-      },
-    )
-    const result = await esbuild.transform(aliasRewritten, {
-      loader: 'ts',
-      format: 'esm',
-      target: 'node18',
-      sourcemap: false,
-      sourcefile: tsPath,
-    })
-    fs.writeFileSync(jsPath, result.code)
-  }
-  return (await import(pathToFileURL(jsPath).href)) as RawAiToolsModule
-}
-
-/**
- * Compile-and-import `api-routes.generated.ts` and register its manifest with
- * the shared registry. Many tool handlers delegate to `aiApiOperationRunner`
- * which fails closed when no manifest is registered. Idempotent: registering
- * the same array twice is safe.
- */
-async function ensureApiRouteManifestsRegistered(generatedDir: string): Promise<void> {
-  const tsPath = path.join(generatedDir, 'api-routes.generated.ts')
-  if (!fs.existsSync(tsPath)) return
-  try {
-    const mod = (await compileAndImportGenerated(tsPath)) as Record<string, unknown>
-    const apiRoutes = (mod as { apiRoutes?: unknown }).apiRoutes
-    if (!Array.isArray(apiRoutes)) {
-      console.warn('[tool-test-runner] api-routes.generated.mjs returned no apiRoutes array')
-      return
-    }
-    const registry = await import('@open-mercato/shared/modules/registry')
-    registry.registerApiRouteManifests(
-      apiRoutes as Parameters<typeof registry.registerApiRouteManifests>[0],
-    )
-    if (process.env.OM_TOOL_TEST_DEBUG === '1') {
-      console.log(
-        `[tool-test-runner] Registered ${apiRoutes.length} api-route manifests; getApiRouteManifests().length=${registry.getApiRouteManifests().length}`,
-      )
-    }
-  } catch (error) {
-    console.warn(
-      '[tool-test-runner] Could not register api-routes manifest:',
-      error instanceof Error ? error.message : error,
-    )
-  }
-}
-
 async function loadGeneratedTools(): Promise<{ moduleId: string; tools: AiToolDefinition[] }[]> {
-  const tsPath = findGeneratedAiToolsPath()
+  const tsPath = findGeneratedFile('ai-tools.generated.ts')
   if (!tsPath) {
     throw new Error(
       'Could not locate apps/<app>/.mercato/generated/ai-tools.generated.ts. Run `yarn generate` first.',
     )
   }
-  await ensureApiRouteManifestsRegistered(path.dirname(tsPath))
-  const mod = await compileAndImportGenerated(tsPath)
+  await ensureApiRouteManifestsRegistered()
+  const mod = (await compileAndImportGenerated(tsPath)) as RawAiToolsModule
   const entries = mod.aiToolConfigEntriesRaw ?? mod.aiToolConfigEntries ?? []
   const result: { moduleId: string; tools: AiToolDefinition[] }[] = []
   for (const entry of entries) {
@@ -212,14 +86,18 @@ async function loadGeneratedTools(): Promise<{ moduleId: string; tools: AiToolDe
   return result
 }
 
-async function pickDefaultTenant(
+export async function pickDefaultTenant(
   container: AwilixContainer,
 ): Promise<{ tenantId: string; organizationId: string | null; userId: string | null } | null> {
   try {
     const em = container.resolve<{
-      getConnection: () => { execute: (sql: string) => Promise<unknown[]> }
+      getConnection: () => {
+        execute: (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>
+      }
     }>('em') as unknown as {
-      getConnection: () => { execute: (sql: string) => Promise<Record<string, unknown>[]> }
+      getConnection: () => {
+        execute: (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>
+      }
     }
     const conn = em.getConnection()
     const tenantRows = await conn.execute(
@@ -230,16 +108,17 @@ async function pickDefaultTenant(
         ? String((tenantRows[0] as Record<string, unknown>).id)
         : null
     if (!tenantId) return null
-    const escaped = tenantId.replace(/'/g, "''")
     const orgRows = await conn.execute(
-      `SELECT id FROM organizations WHERE tenant_id = '${escaped}' AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
+      `SELECT id FROM organizations WHERE tenant_id = ? AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
+      [tenantId],
     )
     const organizationId =
       Array.isArray(orgRows) && orgRows[0]
         ? String((orgRows[0] as Record<string, unknown>).id)
         : null
     const userRows = await conn.execute(
-      `SELECT id FROM users WHERE tenant_id = '${escaped}' AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
+      `SELECT id FROM users WHERE tenant_id = ? AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
+      [tenantId],
     )
     const userId =
       Array.isArray(userRows) && userRows[0]

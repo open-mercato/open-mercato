@@ -88,7 +88,7 @@ CACHE_TTL=300000
 
 ### Production (Redis)
 
-Shared across instances, persistent, requires Redis server.
+Shared across instances, persistent, requires Redis server. Recommended for multi-server deployments and latency-sensitive request paths that perform several cache writes per request.
 
 ```bash
 CACHE_STRATEGY=redis
@@ -98,7 +98,7 @@ CACHE_TTL=600000
 
 ### Production (SQLite)
 
-Persistent, file-based, good for single instance deployments.
+Persistent, file-based, good for single instance deployments. The cache database is tuned with WAL and `synchronous=NORMAL`; cache entries can be regenerated if the process crashes before SQLite fully persists a recent write.
 
 ```bash
 CACHE_STRATEGY=sqlite

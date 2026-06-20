@@ -38,6 +38,9 @@ export type DealFormBaseValues = {
   companyIds?: string[]
 }
 
+type PipelineOption = { id: string; name: string; isDefault: boolean }
+type PipelineStageOption = { id: string; label: string; order: number }
+
 export type DealFormSubmitPayload = {
   base: DealFormBaseValues
   custom: Record<string, unknown>
@@ -64,6 +67,8 @@ export type DealFormProps = {
   showAssociationsGroup?: boolean
   showVersionHistory?: boolean
   showCancelAction?: boolean
+  initialPipelineOptions?: PipelineOption[]
+  initialPipelineStageOptions?: PipelineStageOption[]
 }
 
 type EntityOption = {
@@ -92,6 +97,84 @@ type EntityMultiSelectProps = {
 
 const DEAL_ENTITY_IDS = [E.customers.customer_deal]
 const CURRENCY_PRIORITY = ['EUR', 'USD', 'GBP', 'PLN'] as const
+const PIPELINE_OPTIONS_TTL_MS = 60_000
+const PIPELINE_STAGE_OPTIONS_TTL_MS = 30_000
+
+type MetadataCacheEntry<T> = {
+  expiresAt: number
+  promise: Promise<T>
+}
+
+let pipelineOptionsCache: MetadataCacheEntry<PipelineOption[]> | null = null
+const pipelineStageOptionsCache = new Map<string, MetadataCacheEntry<PipelineStageOption[]>>()
+
+function isFreshCacheEntry<T>(entry: MetadataCacheEntry<T> | null | undefined): entry is MetadataCacheEntry<T> {
+  return Boolean(entry && entry.expiresAt > Date.now())
+}
+
+function normalizePipelineOptions(options: PipelineOption[] | undefined): PipelineOption[] {
+  const byId = new Map<string, PipelineOption>()
+  for (const option of options ?? []) {
+    if (!option.id) continue
+    byId.set(option.id, {
+      id: option.id,
+      name: option.name,
+      isDefault: option.isDefault === true,
+    })
+  }
+  return Array.from(byId.values())
+}
+
+function mergePipelineOptions(seed: PipelineOption[], loaded: PipelineOption[]): PipelineOption[] {
+  const byId = new Map<string, PipelineOption>()
+  for (const option of seed) byId.set(option.id, option)
+  for (const option of loaded) byId.set(option.id, option)
+  return Array.from(byId.values())
+}
+
+function normalizePipelineStageOptions(options: PipelineStageOption[] | undefined): PipelineStageOption[] {
+  return [...(options ?? [])]
+    .filter((option) => option.id)
+    .sort((left, right) => left.order - right.order)
+}
+
+async function fetchPipelineOptions(): Promise<PipelineOption[]> {
+  if (isFreshCacheEntry(pipelineOptionsCache)) return pipelineOptionsCache.promise
+  const entry: MetadataCacheEntry<PipelineOption[]> = {
+    expiresAt: Date.now() + PIPELINE_OPTIONS_TTL_MS,
+    promise: apiCall<{ items: PipelineOption[] }>('/api/customers/pipelines')
+      .then((call) => (call.ok && call.result?.items ? normalizePipelineOptions(call.result.items) : [])),
+  }
+  pipelineOptionsCache = entry
+  try {
+    return await entry.promise
+  } catch (error) {
+    if (pipelineOptionsCache === entry) pipelineOptionsCache = null
+    throw error
+  }
+}
+
+async function fetchPipelineStageOptions(pipelineId: string): Promise<PipelineStageOption[]> {
+  const cached = pipelineStageOptionsCache.get(pipelineId)
+  if (isFreshCacheEntry(cached)) return cached.promise
+  const entry: MetadataCacheEntry<PipelineStageOption[]> = {
+    expiresAt: Date.now() + PIPELINE_STAGE_OPTIONS_TTL_MS,
+    promise: apiCall<{ items: PipelineStageOption[] }>(`/api/customers/pipeline-stages?pipelineId=${encodeURIComponent(pipelineId)}`)
+      .then((call) => (call.ok && call.result?.items ? normalizePipelineStageOptions(call.result.items) : [])),
+  }
+  pipelineStageOptionsCache.set(pipelineId, entry)
+  try {
+    return await entry.promise
+  } catch (error) {
+    if (pipelineStageOptionsCache.get(pipelineId) === entry) pipelineStageOptionsCache.delete(pipelineId)
+    throw error
+  }
+}
+
+export function resetDealPipelineMetadataCacheForTests() {
+  pipelineOptionsCache = null
+  pipelineStageOptionsCache.clear()
+}
 
 const schema = z.object({
   title: z
@@ -176,6 +259,8 @@ const schema = z.object({
   personIds: z.array(z.string().trim().min(1)).optional(),
   companyIds: z.array(z.string().trim().min(1)).optional(),
 }).passthrough()
+
+export const dealFormSchema = schema
 
 import { toDateInputValue as toDateInputValueOrNull } from '@open-mercato/shared/lib/date/format'
 
@@ -645,6 +730,8 @@ export function DealForm({
   showAssociationsGroup = true,
   showVersionHistory = true,
   showCancelAction = true,
+  initialPipelineOptions,
+  initialPipelineStageOptions,
 }: DealFormProps) {
   const t = useT()
   const [pending, setPending] = React.useState(false)
@@ -731,25 +818,36 @@ export function DealForm({
   const disabled = pending || isSubmitting
   const canDelete = mode === 'edit' && typeof onDelete === 'function'
 
-  type PipelineOption = { id: string; name: string; isDefault: boolean }
-  type PipelineStageOption = { id: string; label: string; order: number }
+  const mountedRef = React.useRef(false)
+  const seedPipelineOptions = React.useMemo(
+    () => normalizePipelineOptions(initialPipelineOptions),
+    [initialPipelineOptions],
+  )
+  const seedPipelineStageOptions = React.useMemo(
+    () => Array.isArray(initialPipelineStageOptions) ? normalizePipelineStageOptions(initialPipelineStageOptions) : null,
+    [initialPipelineStageOptions],
+  )
 
-  const [pipelines, setPipelines] = React.useState<PipelineOption[]>([])
-  const [pipelineStages, setPipelineStages] = React.useState<PipelineStageOption[]>([])
+  const [pipelines, setPipelines] = React.useState<PipelineOption[]>(() => seedPipelineOptions)
+  const [pipelineStages, setPipelineStages] = React.useState<PipelineStageOption[]>(() => seedPipelineStageOptions ?? [])
+
+  React.useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const loadStagesForPipeline = React.useCallback(async (pipelineId: string) => {
     if (!pipelineId) {
-      setPipelineStages([])
+      if (mountedRef.current) setPipelineStages([])
       return
     }
     try {
-      const call = await apiCall<{ items: PipelineStageOption[] }>(`/api/customers/pipeline-stages?pipelineId=${encodeURIComponent(pipelineId)}`)
-      if (call.ok && call.result?.items) {
-        const sorted = [...call.result.items].sort((a, b) => a.order - b.order)
-        setPipelineStages(sorted)
-      }
+      const stages = await fetchPipelineStageOptions(pipelineId)
+      if (mountedRef.current) setPipelineStages(stages)
     } catch {
-      setPipelineStages([])
+      if (mountedRef.current) setPipelineStages([])
     }
   }, [])
 
@@ -757,24 +855,30 @@ export function DealForm({
     let cancelled = false
     ;(async () => {
       try {
-        const call = await apiCall<{ items: PipelineOption[] }>('/api/customers/pipelines')
-        if (cancelled) return
-        if (call.ok && call.result?.items) {
-          setPipelines(call.result.items)
-        }
+        const loaded = await fetchPipelineOptions()
+        if (cancelled || !mountedRef.current) return
+        setPipelines(mergePipelineOptions(seedPipelineOptions, loaded))
       } catch {
-        // ignore
+        if (!cancelled && mountedRef.current && seedPipelineOptions.length > 0) {
+          setPipelines(seedPipelineOptions)
+        }
       }
     })().catch(() => {})
     return () => { cancelled = true }
-  }, [])
+  }, [seedPipelineOptions])
 
   React.useEffect(() => {
     const pid = initialValues?.pipelineId
     if (typeof pid === 'string' && pid.length) {
+      if (seedPipelineStageOptions) {
+        setPipelineStages(seedPipelineStageOptions)
+        return
+      }
       loadStagesForPipeline(pid).catch(() => {})
+    } else {
+      setPipelineStages([])
     }
-  }, [initialValues?.pipelineId, loadStagesForPipeline])
+  }, [initialValues?.pipelineId, loadStagesForPipeline, seedPipelineStageOptions])
 
   const baseFields = React.useMemo<CrudField[]>(() => [
     {
@@ -803,11 +907,12 @@ export function DealForm({
       label: t('customers.people.detail.deals.fields.pipeline', 'Pipeline'),
       type: 'custom',
       layout: 'half',
-      component: ({ value, setValue }) => (
+      component: ({ value, setValue, setFormValue }) => (
         <Select
           value={typeof value === 'string' && value ? value : undefined}
           onValueChange={(next) => {
             setValue(next ?? '')
+            setFormValue?.('pipelineStageId', '')
             loadStagesForPipeline(next ?? '').catch(() => {})
           }}
           disabled={disabled}
@@ -867,6 +972,7 @@ export function DealForm({
             allowInlineCreate={false}
             allowAppearance={false}
             selectClassName="w-full"
+            sortOptions="none"
             disabled={disabled}
             showLabelInput={false}
           />

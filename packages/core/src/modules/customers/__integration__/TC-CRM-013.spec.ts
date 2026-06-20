@@ -9,6 +9,11 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  */
 test.describe('TC-CRM-013: Pipeline View Navigation', () => {
   test('should display pipeline columns, show deal card info, open detail, and return to list view', async ({ page, request }) => {
+    // Heavy multi-navigation flow (login → kanban load → pipeline popover → deal
+    // detail → back to filtered list) routinely exceeds Playwright's 20s default
+    // on a loaded CI shard; opt into the sanctioned 3× budget instead of bumping
+    // the global timeout. Previously flaked at ~20.1s, passed at ~11s on retry.
+    test.slow();
     let token: string | null = null;
     let companyId: string | null = null;
     let dealId: string | null = null;
@@ -37,31 +42,41 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
 
       await login(page, 'admin');
       await page.goto('/backend/customers/deals/pipeline');
-      await expect(page.getByRole('heading', { name: 'Sales Pipeline' })).toBeVisible();
+      // SPEC-048 renamed the page heading from "Sales Pipeline" to "Deals"
+      // (customers.deals.kanban.pageTitle); the breadcrumb still says "Deals" too.
+      await expect(page.getByRole('heading', { name: 'Deals', level: 1 })).toBeVisible();
 
-      // Pipeline picker is a Radix Select inside <label>Pipeline ...</label>.
-      // The page also has a "Sort by" Select — scope by the wrapping label so
-      // .first() doesn't accidentally pick Sort while the pipelines query loads.
-      const pipelineCombobox = page
-        .locator('label')
-        .filter({ has: page.getByText('Pipeline', { exact: true }) })
-        .getByRole('combobox');
-      await expect(pipelineCombobox).toBeVisible({ timeout: 10_000 });
-      await pipelineCombobox.click();
-      await page.getByRole('option', { name: pipelineName, exact: true }).click({ force: true });
-      await expect(pipelineCombobox).toContainText(pipelineName);
+      // SPEC-048 kanban redesign: pipeline selector is a chip+popover. See TC-CRM-009 for
+      // the matching interaction. The chip's accessible name follows the pattern
+      // "Pipeline: <value>" (PipelineFilterPopover → ChipButton).
+      const pipelineChip = page.getByRole('button', { name: /^Pipeline:/ });
+      await expect(pipelineChip).toBeVisible({ timeout: 10_000 });
+      await pipelineChip.click();
+      // Pipeline rows are `<Button role="radio">` (PipelineFilterPopover.tsx). Use radio
+      // role, not button — Playwright reads the explicit `role` attribute over the native one.
+      const pipelinePopover = page.getByRole('dialog').last();
+      await pipelinePopover.getByRole('radio', { name: pipelineName, exact: true }).click();
+      await pipelinePopover.getByRole('button', { name: 'Apply', exact: true }).click();
 
       await expect(page.getByText('Opportunity', { exact: true })).toBeVisible();
       await expect(page.getByText('Win', { exact: true })).toBeVisible();
 
-      const dealCard = page
-        .locator('div')
-        .filter({ has: page.getByText(dealTitle, { exact: true }) })
-        .first();
+      // SPEC-049 (UX review item 1) removed `role="article"` from DealCard so dnd-kit's
+      // own `role="button"` can win and the card stays operable via keyboard. The card
+      // now identifies itself via `aria-label="Deal: {title}"` + `aria-roledescription`.
+      // Locate it by aria-label so the test doesn't depend on the (variable) role.
+      const dealCard = page.locator(`[aria-label="Deal: ${dealTitle}"]`);
       await expect(dealCard).toBeVisible();
-      await expect(page.getByText('$', { exact: false }).first()).toBeVisible();
+      // SPEC-048: DealCard.tsx renders value as decimal-formatted amount + separate
+      // currency-code span (e.g. "5,000  USD") — no '$' glyph appears on the kanban card.
+      // Scope to the deal card so we don't accidentally match a currency code elsewhere
+      // on the page (e.g. lane-total breakdown).
+      await expect(dealCard.getByText('USD', { exact: true })).toBeVisible();
 
-      await page.locator(`a[href="/backend/customers/deals/${dealId}"]`).click();
+      // Open the card's kebab menu and choose "Open deal". The menu items are
+      // rendered via React portal, so the menuitem lookup is page-scoped, not card-scoped.
+      await dealCard.getByRole('button', { name: 'Deal actions' }).click();
+      await page.getByRole('menuitem', { name: 'Open deal', exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/backend/customers/deals/${dealId}$`));
       await expect(page.getByText(dealTitle, { exact: true }).first()).toBeVisible();
 

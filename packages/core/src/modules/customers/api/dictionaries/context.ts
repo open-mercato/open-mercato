@@ -9,7 +9,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CacheStrategy } from '@open-mercato/cache'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
-const BUILTIN_DICTIONARY_ROUTE_KINDS = [
+export const BUILTIN_DICTIONARY_ROUTE_KINDS = [
   'statuses',
   'sources',
   'lifecycle-stages',

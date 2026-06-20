@@ -5,6 +5,10 @@ export type CacheEntry = {
   value: CacheValue
   tags: string[]
   expiresAt: number | null
+  /**
+   * Wall-clock creation time. Informational/diagnostic only — LRU recency and
+   * eviction rely purely on Map insertion order, not on this field.
+   */
   createdAt: number
 }
 
@@ -77,7 +81,18 @@ export type CacheStrategy = {
   stats(): Promise<{
     size: number // Total number of entries
     expired: number // Number of expired entries
+    // Optional process-global counters surfaced by bounded strategies (memory)
+    // so operators can tell whether the LRU cap / sweep is actively protecting
+    // the process. Strategies that do not track them omit these fields.
+    evictions?: number // Entries dropped by LRU eviction since process start
+    sweeps?: number // Amortized expired-entry sweep passes run since process start
+    lastSweepReclaimed?: number // Entries reclaimed by the most recent sweep pass
   }>
+
+  /**
+   * Verify the configured backend is reachable without activating a fallback.
+   */
+  healthcheck?(): Promise<void>
 
   /**
    * Clean up expired entries (optional, some strategies may auto-cleanup)
@@ -97,4 +112,12 @@ export type CacheServiceOptions = {
   sqlitePath?: string
   jsonFilePath?: string
   defaultTtl?: number
+  /**
+   * Upper bound on retained entries for the in-memory strategy (including the
+   * memory fallback used when a native dependency is unavailable). Bounds
+   * memory for process-wide instances via LRU eviction. Falls back to
+   * `CACHE_MEMORY_MAX_ENTRIES` then a built-in default; a non-positive value
+   * disables the cap.
+   */
+  maxEntries?: number
 }

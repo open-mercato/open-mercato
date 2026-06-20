@@ -99,6 +99,9 @@ describe('catalog.products.delete', () => {
       nativeDelete: jest.fn().mockResolvedValue(undefined),
       remove: jest.fn(),
       flush: jest.fn().mockResolvedValue(undefined),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
       fork: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
     }

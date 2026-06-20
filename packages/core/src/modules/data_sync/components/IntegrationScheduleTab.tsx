@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from 'react'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -54,6 +56,7 @@ type SyncScheduleRecord = {
   fullSync: boolean
   isEnabled: boolean
   lastRunAt: string | null
+  updatedAt?: string | null
 }
 
 type SyncSchedulesResponse = {
@@ -68,6 +71,7 @@ type SyncScheduleEditorState = {
   fullSync: boolean
   isEnabled: boolean
   lastRunAt: string | null
+  updatedAt?: string | null
 }
 
 type IntegrationScheduleTabProps = {
@@ -94,6 +98,7 @@ function buildDefaultScheduleState(entityType: string): SyncScheduleEditorState 
     fullSync: normalized !== 'products',
     isEnabled: true,
     lastRunAt: null,
+    updatedAt: null,
   }
 }
 
@@ -127,6 +132,7 @@ function buildScheduleEditors(
             fullSync: record.fullSync,
             isEnabled: record.isEnabled,
             lastRunAt: record.lastRunAt,
+            updatedAt: record.updatedAt ?? null,
           }
           : buildDefaultScheduleState(entityType),
       ])
@@ -214,6 +220,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
     setRunningKey(scheduleKey)
     try {
       const scheduleState = schedules[scheduleKey] ?? buildDefaultScheduleState(entityType)
+      // optimistic-lock-exempt: starts a new sync run (create), not a concurrent record edit
       const call = await apiCall<{ id: string }>('/api/data_sync/run', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -243,23 +250,39 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
     const scheduleState = schedules[scheduleKey] ?? buildDefaultScheduleState(entityType)
     setSavingKey(scheduleKey)
     try {
-      const call = await apiCall<SyncScheduleRecord>('/api/data_sync/schedules', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          integrationId: props.integrationId,
-          entityType,
-          direction,
-          scheduleType: scheduleState.scheduleType,
-          scheduleValue: scheduleState.scheduleValue,
-          timezone: scheduleState.timezone,
-          fullSync: scheduleState.fullSync,
-          isEnabled: scheduleState.isEnabled,
-        }),
-      }, { fallback: null })
+      // Keyed upsert (POST). When the server resolves an existing row the save
+      // version-checks against this schedule's loaded `updatedAt`; for a brand
+      // new row the header is empty so the create path is unaffected.
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(scheduleState.updatedAt),
+        () => apiCall<SyncScheduleRecord>('/api/data_sync/schedules', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            integrationId: props.integrationId,
+            entityType,
+            direction,
+            scheduleType: scheduleState.scheduleType,
+            scheduleValue: scheduleState.scheduleValue,
+            timezone: scheduleState.timezone,
+            fullSync: scheduleState.fullSync,
+            isEnabled: scheduleState.isEnabled,
+          }),
+        }, { fallback: null }),
+      )
 
       if (!call.ok || !call.result) {
-        throw new Error((call.result as { error?: string } | null)?.error ?? 'Failed to save schedule')
+        const conflictError = Object.assign(
+          new Error((call.result as { error?: string } | null)?.error ?? 'Failed to save schedule'),
+          {
+            status: call.status,
+            ...(call.result && typeof call.result === 'object' ? call.result : {}),
+          },
+        )
+        if (surfaceRecordConflict(conflictError, t)) {
+          return
+        }
+        throw conflictError
       }
 
       updateScheduleEditor(scheduleKey, {
@@ -270,6 +293,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
         fullSync: call.result.fullSync,
         isEnabled: call.result.isEnabled,
         lastRunAt: call.result.lastRunAt,
+        updatedAt: call.result.updatedAt ?? null,
       }, entityType)
       flash(t('data_sync.dashboard.schedule.success', 'Recurring schedule saved'), 'success')
     } catch (error) {
@@ -289,9 +313,12 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
 
     setDeletingKey(scheduleKey)
     try {
-      const call = await apiCall(`/api/data_sync/schedules/${encodeURIComponent(scheduleState.id)}`, {
-        method: 'DELETE',
-      }, { fallback: null })
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(scheduleState.updatedAt),
+        () => apiCall(`/api/data_sync/schedules/${encodeURIComponent(scheduleState.id as string)}`, {
+          method: 'DELETE',
+        }, { fallback: null }),
+      )
 
       if (!call.ok) {
         throw new Error((call.result as { error?: string } | null)?.error ?? 'Failed to delete schedule')

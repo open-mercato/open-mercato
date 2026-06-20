@@ -4,8 +4,10 @@ import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { handleSectionMutationError, readRowUpdatedAt, rowOptimisticVersion } from './optimisticLock'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -19,6 +21,7 @@ import { Plus } from 'lucide-react'
 
 type PaymentRow = {
   id: string
+  updatedAt: string | null
   paymentReference: string | null
   paymentMethodId: string | null
   paymentMethodName: string | null
@@ -108,6 +111,7 @@ export function SalesDocumentPaymentsSection({
               : {}
           const record: PaymentRow = {
             id: item.id,
+            updatedAt: readRowUpdatedAt(item),
             paymentReference: typeof item.payment_reference === 'string' ? item.payment_reference : null,
             paymentMethodId: typeof item.payment_method_id === 'string' ? item.payment_method_id : null,
             paymentMethodName:
@@ -183,6 +187,7 @@ export function SalesDocumentPaymentsSection({
     (record: PaymentRow) => {
       setEditingPayment({
         id: record.id,
+        updatedAt: record.updatedAt ?? null,
         amount: record.amount ?? '',
         paymentMethodId: record.paymentMethodId ?? '',
         paymentReference: record.paymentReference ?? '',
@@ -210,15 +215,19 @@ export function SalesDocumentPaymentsSection({
   const handleDelete = React.useCallback(
     async (row: PaymentRow) => {
       try {
-        const result = await deleteCrud<{ orderTotals?: PaymentTotals | null }>('sales/payments', {
-          body: {
-            id: row.id,
-            orderId,
-            organizationId: resolvedOrganizationId ?? undefined,
-            tenantId: resolvedTenantId ?? undefined,
-          },
-          errorMessage: t('sales.documents.payments.errorDelete', 'Failed to delete payment.'),
-        })
+        const result = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(rowOptimisticVersion(row)),
+          () =>
+            deleteCrud<{ orderTotals?: PaymentTotals | null }>('sales/payments', {
+              body: {
+                id: row.id,
+                orderId,
+                organizationId: resolvedOrganizationId ?? undefined,
+                tenantId: resolvedTenantId ?? undefined,
+              },
+              errorMessage: t('sales.documents.payments.errorDelete', 'Failed to delete payment.'),
+            })
+        )
         if (result.ok) {
           onTotalsChange?.()
           flash(t('sales.documents.payments.deleted', 'Payment deleted.'), 'success')
@@ -226,6 +235,9 @@ export function SalesDocumentPaymentsSection({
           emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
         }
       } catch (err) {
+        if (handleSectionMutationError(err, t, () => void loadPayments())) {
+          return
+        }
         console.error('sales.payments.delete', err)
         flash(t('sales.documents.payments.errorDelete', 'Failed to delete payment.'), 'error')
       }

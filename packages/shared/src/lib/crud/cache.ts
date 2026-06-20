@@ -110,8 +110,22 @@ export function pickFirstIdentifier(...values: Array<unknown>): string | null {
   return null
 }
 
+const IRREGULAR_PLURALS: Record<string, string> = {
+  people: 'person',
+  children: 'child',
+  mice: 'mouse',
+  men: 'man',
+  women: 'woman',
+  geese: 'goose',
+  feet: 'foot',
+  teeth: 'tooth',
+  oxen: 'ox',
+}
+
 function singularizeSegment(segment: string): string {
   const lower = segment.toLowerCase()
+  const irregular = IRREGULAR_PLURALS[lower]
+  if (irregular) return irregular
   if (lower.endsWith('ies') && lower.length > 3) return lower.slice(0, -3) + 'y'
   if (lower.endsWith('ses') && lower.length > 3) return lower.slice(0, -2)
   if (

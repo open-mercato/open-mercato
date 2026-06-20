@@ -11,7 +11,7 @@ import {
   writeThumbnailCache,
 } from '@open-mercato/core/modules/attachments/lib/thumbnailCache'
 import { canRenderInlineAttachment } from '@open-mercato/core/modules/attachments/lib/security'
-import { checkAttachmentAccess } from '@open-mercato/core/modules/attachments/lib/access'
+import { checkAttachmentAccess, isSuperAdminAuth } from '@open-mercato/core/modules/attachments/lib/access'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { attachmentsTag, imageQuerySchema, attachmentErrorSchema } from '../../../openapi'
 import {
@@ -53,9 +53,12 @@ export async function GET(
   const storageDriverFactory =
     (resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
 
-  const attachment = await em.findOne(Attachment, {
-    id,
-  })
+  const findFilter: Record<string, unknown> = { id }
+  if (auth && !isSuperAdminAuth(auth)) {
+    if (auth.tenantId) findFilter.tenantId = auth.tenantId
+    if (auth.orgId) findFilter.organizationId = auth.orgId
+  }
+  const attachment = await em.findOne(Attachment, findFilter)
   if (!attachment) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }

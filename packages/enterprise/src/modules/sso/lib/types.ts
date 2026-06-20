@@ -35,7 +35,7 @@ export interface SsoProtocolProvider {
 export interface SsoIdentityPayload {
   subject: string
   email: string
-  emailVerified: boolean
+  emailVerified?: boolean
   name?: string
   groups?: string[]
 }

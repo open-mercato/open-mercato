@@ -223,6 +223,7 @@ export function ActivityForm({
           allowInlineCreate
           appearanceLabels={dictionaryAppearanceLabels}
           selectClassName="w-full"
+          sortOptions="none"
           manageHref="/backend/config/customers"
         />
       ),

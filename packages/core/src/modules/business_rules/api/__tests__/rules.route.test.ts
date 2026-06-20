@@ -1,11 +1,13 @@
 /** @jest-environment node */
 
 import { describe, test, expect, beforeEach, jest } from '@jest/globals'
-import { createAuthMock, createMockContainer, createMockEntityManager } from './test-helpers'
+import { createAuthMock, createMockCache, createMockContainer, createMockEntityManager } from './test-helpers'
+import * as ruleEngine from '../../lib/rule-engine'
 
 const mockGetAuthFromRequest = createAuthMock()
 const mockEm = createMockEntityManager()
-const mockContainer = createMockContainer(mockEm)
+const mockCache = createMockCache()
+const mockContainer = createMockContainer(mockEm, mockCache)
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
@@ -57,6 +59,7 @@ describe('Business Rules API - /api/business_rules/rules', () => {
   const validOrgId = '223e4567-e89b-12d3-a456-426614174000'
 
   beforeEach(() => {
+    mockCache.clearAll()
     jest.clearAllMocks()
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
@@ -65,6 +68,28 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       orgId: validOrgId,
     })
   })
+
+  async function primeRuleDiscoveryCache() {
+    mockEm.find.mockResolvedValueOnce([])
+    await ruleEngine.findApplicableRules(mockEm as any, {
+      entityType: 'WorkOrder',
+      eventType: 'created',
+      tenantId: validTenantId,
+      organizationId: validOrgId,
+    }, { cache: mockCache })
+    expect(mockEm.find).toHaveBeenCalledTimes(1)
+  }
+
+  async function expectRuleDiscoveryCacheInvalidated() {
+    mockEm.find.mockResolvedValueOnce([])
+    await ruleEngine.findApplicableRules(mockEm as any, {
+      entityType: 'WorkOrder',
+      eventType: 'created',
+      tenantId: validTenantId,
+      organizationId: validOrgId,
+    }, { cache: mockCache })
+    expect(mockEm.find).toHaveBeenCalledTimes(2)
+  }
 
   describe('Metadata', () => {
     test('should have correct RBAC requirements', () => {
@@ -306,6 +331,34 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       )
     })
 
+    test('should invalidate rule discovery cache after successful create', async () => {
+      await primeRuleDiscoveryCache()
+
+      const newRule = {
+        ruleId: 'RULE-CACHE-CREATE',
+        ruleName: 'Cache Create Rule',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+      }
+
+      mockEm.create.mockReturnValue({
+        id: '623e4567-e89b-12d3-a456-426614174008',
+        ...newRule,
+        tenantId: validTenantId,
+        organizationId: validOrgId,
+      })
+      mockEm.flush.mockResolvedValue(undefined)
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(201)
+      await expectRuleDiscoveryCacheInvalidated()
+    })
+
     test('should return 500 with sanitized JSON error when flush fails', async () => {
       const newRule = {
         ruleId: 'RULE-DB-FAIL',
@@ -489,6 +542,37 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       expect(existingRule.enabled).toBe(false)
       expect(mockEm.flush).toHaveBeenCalled()
     })
+
+    test('should invalidate rule discovery cache after successful update', async () => {
+      await primeRuleDiscoveryCache()
+
+      const existingRule = {
+        id: '123e4567-e89b-12d3-a456-426614174001',
+        ruleId: 'RULE-001',
+        ruleName: 'Original Name',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        tenantId: validTenantId,
+        organizationId: validOrgId,
+        deletedAt: null,
+      }
+
+      mockEm.findOne.mockResolvedValue(existingRule)
+      mockEm.assign.mockImplementation((target: any, data: any) => Object.assign(target, data))
+      mockEm.flush.mockResolvedValue(undefined)
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({
+          id: '123e4567-e89b-12d3-a456-426614174001',
+          ruleName: 'Updated Name',
+        }),
+      })
+      const response = await PUT(request)
+
+      expect(response.status).toBe(200)
+      await expectRuleDiscoveryCacheInvalidated()
+    })
   })
 
   describe('DELETE - Delete rule', () => {
@@ -527,6 +611,29 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       expect(body.ok).toBe(true)
       expect(existingRule.deletedAt).toBeInstanceOf(Date)
       expect(mockEm.flush).toHaveBeenCalled()
+    })
+
+    test('should invalidate rule discovery cache after successful delete', async () => {
+      await primeRuleDiscoveryCache()
+
+      const existingRule = {
+        id: '123e4567-e89b-12d3-a456-426614174001',
+        ruleId: 'RULE-001',
+        tenantId: validTenantId,
+        organizationId: validOrgId,
+        deletedAt: null,
+      }
+
+      mockEm.findOne.mockResolvedValue(existingRule)
+      mockEm.flush.mockResolvedValue(undefined)
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules?id=rule-1', {
+        method: 'DELETE',
+      })
+      const response = await DELETE(request)
+
+      expect(response.status).toBe(200)
+      await expectRuleDiscoveryCacheInvalidated()
     })
 
     test('should return 404 if rule not found', async () => {

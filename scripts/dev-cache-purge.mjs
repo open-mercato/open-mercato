@@ -1,12 +1,21 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-// Greenfield must not inherit the prior run's compiler state. Wiping the
-// configured Next.js distDir (`apps/mercato/.mercato/next`) plus the legacy
-// `apps/mercato/.next` location guarantees Turbopack rebuilds the route table
-// and middleware manifest from scratch on the next launch. See issue #1950.
+// Greenfield must not inherit stale route manifests, but wiping the whole
+// configured Next.js distDir also discards Turbopack's reusable compiler cache
+// and makes first /login warmup much slower. Remove manifests/locks that encode
+// route shape while preserving `.mercato/next/dev/cache/turbopack`. See issue
+// #1950.
 export const GREENFIELD_PURGE_TARGETS = Object.freeze([
-  Object.freeze(['apps', 'mercato', '.mercato', 'next']),
+  Object.freeze(['apps', 'mercato', '.mercato', 'next', 'dev', 'lock']),
+  Object.freeze(['apps', 'mercato', '.mercato', 'next', 'dev', 'build-manifest.json']),
+  Object.freeze(['apps', 'mercato', '.mercato', 'next', 'dev', 'fallback-build-manifest.json']),
+  Object.freeze(['apps', 'mercato', '.mercato', 'next', 'dev', 'prerender-manifest.json']),
+  Object.freeze(['apps', 'mercato', '.mercato', 'next', 'dev', 'routes-manifest.json']),
+  Object.freeze(['apps', 'mercato', '.mercato', 'next', 'dev', 'server', 'app-paths-manifest.json']),
+  Object.freeze(['apps', 'mercato', '.mercato', 'next', 'dev', 'server', 'middleware-build-manifest.js']),
+  Object.freeze(['apps', 'mercato', '.mercato', 'next', 'dev', 'server', 'middleware-manifest.json']),
+  Object.freeze(['apps', 'mercato', '.mercato', 'next', 'dev', 'server', 'pages-manifest.json']),
   Object.freeze(['apps', 'mercato', '.next']),
 ])
 
@@ -24,7 +33,7 @@ export function purgeAppBuildCaches({
     removed.push(segments.join('/'))
   }
   if (removed.length === 0) {
-    logger.log('🧹 [dev:greenfield] no stale Next/Turbopack build directories to purge')
+    logger.log('🧹 [dev:greenfield] no stale Next/Turbopack manifest files to purge')
   } else {
     for (const relPath of removed) {
       logger.log(`🧹 [dev:greenfield] removed ${relPath}`)

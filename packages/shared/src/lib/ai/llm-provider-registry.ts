@@ -4,7 +4,7 @@
  * "first configured" resolver used by the routing layer.
  *
  * @see ./llm-provider.ts
- * @see .ai/specs/2026-04-14-llm-provider-ports-and-adapters.md
+ * @see .ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md
  */
 
 import type { EnvLookup, LlmProvider } from './llm-provider'

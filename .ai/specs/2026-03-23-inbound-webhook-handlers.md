@@ -936,7 +936,7 @@ The existing `WebhookEndpointAdapter` interface from SPEC-057 Phase 3 is superse
 | Handler causes infinite event loop (handler emits event → triggers outbound webhook → external system sends webhook back) | High | Built-in loop detection: tag emitted events with `_inboundIngestionId`, skip outbound dispatch for tagged events. Rate limiting provides secondary protection |
 | Large payload DoS | Medium | Request body size limit (1MB default, configurable per source) |
 | Source verifier is slow/hangs | Medium | Verification timeout (5s default); async dispatch means receiver returns quickly |
-| Credential DEK unavailable (KMS outage) | Medium | Fallback key chain: KMS → `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` → `AUTH_SECRET`. Webhook verification fails gracefully with 500 if no key available |
+| Credential DEK unavailable (KMS outage) | Medium | Fallback key chain: KMS -> dedicated `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`; auth/session secrets are not data-encryption fallbacks. Webhook verification fails gracefully with 500 if no key available |
 | Env-to-encrypted migration fails (inbox_ops) | Medium | Migration is idempotent — retries on next tenant setup. Env vars remain readable as fallback during transition. CLI command for manual re-run |
 | Inbox_ops old URL removal breaks external Resend config | High | Old URL kept as redirect for ≥1 minor version. Resend dashboard config updated in docs. Admin notification when old URL is hit |
 | Handler results JSON grows unbounded | Low | Cap `handlerResults` array to 50 entries per ingestion. Truncate error messages to 1KB |

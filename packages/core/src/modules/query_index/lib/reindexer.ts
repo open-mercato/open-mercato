@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
-import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
 import { upsertIndexBatch, type AnyRow } from './batch'
@@ -39,6 +39,33 @@ const DEFAULT_BATCH_SIZE = 500
 const deriveOrgFromId = new Set<string>(['directory:organization'])
 const COVERAGE_REFRESH_THROTTLE_MS = 5 * 60 * 1000
 const lastCoverageReset = new Map<string, number>()
+
+const REINDEX_DECRYPT_DEBUG_KEYS = ['display_name', 'first_name', 'last_name', 'brand_name', 'legal_name', 'primary_email', 'primary_phone'] as const
+
+export type ReindexDecryptDebugPayload = {
+  entityType: string
+  tenantId: string | null
+  organizationId: string | null
+  keys: string[]
+}
+
+export function buildReindexDecryptDebugPayload(
+  entityType: string,
+  doc: Record<string, unknown>,
+  scope: { organizationId: string | null; tenantId: string | null },
+): ReindexDecryptDebugPayload {
+  const presentKeys: string[] = []
+  for (const key of REINDEX_DECRYPT_DEBUG_KEYS) {
+    const value = doc[key]
+    if (key in doc && value != null && value !== '') presentKeys.push(key)
+  }
+  return {
+    entityType,
+    tenantId: scope.tenantId ?? null,
+    organizationId: scope.organizationId ?? null,
+    keys: presentKeys,
+  }
+}
 
 async function cleanupLegacyJobScopes(
   db: Kysely<any>,
@@ -118,8 +145,18 @@ export async function reindexEntity(
   const resetCoverage = options?.resetCoverage ?? (!usingPartitions || partitionIndex === 0)
 
   const db = (em as any).getKysely() as Kysely<any>
-  const table = resolveEntityTableName(em, entityType)
-  if (entityType === 'query_index:search_token' || table === 'search_tokens') {
+  // Resolve the source table strictly via registered MikroORM metadata. We must
+  // never fall back to a pluralized guess derived from the caller-supplied id
+  // here: doing so would let a principal with `query_index.reindex` point the
+  // reindexer at arbitrary tables (e.g. `auth_users`, `users`) and read their
+  // rows into the index, bypassing tenant scoping and entity-level encryption.
+  const table = resolveRegisteredEntityTableName(em, entityType)
+  if (!table || entityType === 'query_index:search_token' || table === 'search_tokens') {
+    if (!table) {
+      console.warn('[HybridQueryEngine] Refusing to reindex unregistered entity type', {
+        entityType,
+      })
+    }
     return {
       processed: 0,
       total: 0,
@@ -377,18 +414,7 @@ export async function reindexEntity(
           dekKeyCache,
         )
         if (isSearchDebugEnabled()) {
-          const keysOfInterest = ['display_name', 'first_name', 'last_name', 'brand_name', 'legal_name', 'primary_email', 'primary_phone']
-          const snapshot: Record<string, unknown> = {}
-          for (const key of keysOfInterest) {
-            if (key in result) snapshot[key] = (result as Record<string, unknown>)[key]
-          }
-          console.info('[reindex:decrypt]', {
-            entityType: targetEntity,
-            tenantId: scope.tenantId ?? null,
-            organizationId: scope.organizationId ?? null,
-            keys: Object.keys(snapshot),
-            sample: snapshot,
-          })
+          console.info('[reindex:decrypt]', buildReindexDecryptDebugPayload(targetEntity, result as Record<string, unknown>, scope))
         }
         return result
       }

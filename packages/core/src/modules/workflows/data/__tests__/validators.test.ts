@@ -176,6 +176,90 @@ describe('Workflows Validators', () => {
       expect(result.retryPolicy?.maxAttempts).toBe(3)
       expect(result.retryPolicy?.backoffMs).toBe(1000)
     })
+
+    describe('WAIT_FOR_TIMER step config', () => {
+      const baseTimerStep = {
+        stepId: 'wait-for-timer',
+        stepName: 'Pause',
+        stepType: 'WAIT_FOR_TIMER' as const,
+      }
+      const futureUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+
+      test('accepts ISO 8601 duration', () => {
+        expect(() =>
+          workflowStepSchema.parse({ ...baseTimerStep, config: { duration: 'PT5M' } })
+        ).not.toThrow()
+      })
+
+      test('accepts simple-format duration', () => {
+        expect(() =>
+          workflowStepSchema.parse({ ...baseTimerStep, config: { duration: '5m' } })
+        ).not.toThrow()
+      })
+
+      test('accepts variable-interpolated duration', () => {
+        expect(() =>
+          workflowStepSchema.parse({ ...baseTimerStep, config: { duration: '{{context.delay}}' } })
+        ).not.toThrow()
+      })
+
+      test('accepts ISO datetime as "until"', () => {
+        const futureUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        expect(() =>
+          workflowStepSchema.parse({ ...baseTimerStep, config: { until: futureUntil } })
+        ).not.toThrow()
+      })
+
+      test('rejects garbage duration', () => {
+        expect(() =>
+          workflowStepSchema.parse({ ...baseTimerStep, config: { duration: 'not-a-duration' } })
+        ).toThrow(/Invalid duration/i)
+      })
+
+      test('rejects garbage until', () => {
+        expect(() =>
+          workflowStepSchema.parse({ ...baseTimerStep, config: { until: 'not-a-date' } })
+        ).toThrow(/Invalid.*until/i)
+      })
+
+      test('rejects past datetime as "until"', () => {
+        expect(() =>
+          workflowStepSchema.parse({ ...baseTimerStep, config: { until: '2020-01-01T00:00:00.000Z' } })
+        ).toThrow(/future/i)
+      })
+
+      test('accepts templated past-looking until (resolved at runtime)', () => {
+        expect(() =>
+          workflowStepSchema.parse({ ...baseTimerStep, config: { until: '{{context.deadline}}' } })
+        ).not.toThrow()
+      })
+
+      test('requires duration or until', () => {
+        expect(() =>
+          workflowStepSchema.parse({ ...baseTimerStep, config: {} })
+        ).toThrow(/requires.*duration.*or.*until/i)
+      })
+
+      test('rejects both duration and until', () => {
+        expect(() =>
+          workflowStepSchema.parse({
+            ...baseTimerStep,
+            config: { duration: 'PT5M', until: futureUntil },
+          })
+        ).toThrow(/not both/i)
+      })
+
+      test('does not affect non-WAIT_FOR_TIMER steps', () => {
+        expect(() =>
+          workflowStepSchema.parse({
+            stepId: 'do-something',
+            stepName: 'Automated',
+            stepType: 'AUTOMATED' as const,
+            config: { foo: 'not-a-duration' },
+          })
+        ).not.toThrow()
+      })
+    })
   })
 
   describe('workflowTransitionSchema', () => {
@@ -288,6 +372,68 @@ describe('Workflows Validators', () => {
 
       const result = activityDefinitionSchema.parse(withCompensation)
       expect(result.compensation).toBeDefined()
+    })
+
+    describe('WAIT activity config', () => {
+      const baseWait = {
+        activityId: 'pause-briefly',
+        activityName: 'Pause briefly',
+        activityType: 'WAIT' as const,
+      }
+      const futureUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+
+      test('accepts ISO 8601 duration', () => {
+        expect(() =>
+          activityDefinitionSchema.parse({ ...baseWait, config: { duration: 'PT5M' } })
+        ).not.toThrow()
+      })
+
+      test('accepts variable-interpolated duration', () => {
+        expect(() =>
+          activityDefinitionSchema.parse({ ...baseWait, config: { duration: '{{context.delay}}' } })
+        ).not.toThrow()
+      })
+
+      test('rejects garbage duration', () => {
+        expect(() =>
+          activityDefinitionSchema.parse({ ...baseWait, config: { duration: 'not-a-duration' } })
+        ).toThrow(/Invalid duration/i)
+      })
+
+      test('requires duration or until', () => {
+        expect(() =>
+          activityDefinitionSchema.parse({ ...baseWait, config: {} })
+        ).toThrow(/requires.*duration.*or.*until/i)
+      })
+
+      test('rejects both duration and until', () => {
+        expect(() =>
+          activityDefinitionSchema.parse({
+            ...baseWait,
+            config: { duration: 'PT5M', until: futureUntil },
+          })
+        ).toThrow(/not both/i)
+      })
+
+      test('rejects past datetime as "until"', () => {
+        expect(() =>
+          activityDefinitionSchema.parse({
+            ...baseWait,
+            config: { until: '2020-01-01T00:00:00.000Z' },
+          })
+        ).toThrow(/future/i)
+      })
+
+      test('does not affect non-WAIT activities', () => {
+        expect(() =>
+          activityDefinitionSchema.parse({
+            activityId: 'send-email-2',
+            activityName: 'Send Email',
+            activityType: 'SEND_EMAIL' as const,
+            config: { to: 'a@b.c' },
+          })
+        ).not.toThrow()
+      })
     })
   })
 

@@ -7,10 +7,12 @@ jest.mock('../../lib/rule-engine', () => ({
     totalExecutionTime: 0,
     errors: [],
   })),
+  resolveBusinessRuleDiscoveryCache: jest.fn(() => null),
 }))
 
-import { executeRules } from '../../lib/rule-engine'
+import { executeRules, resolveBusinessRuleDiscoveryCache } from '../../lib/rule-engine'
 const executeRulesMock = executeRules as jest.MockedFunction<typeof executeRules>
+const resolveBusinessRuleDiscoveryCacheMock = resolveBusinessRuleDiscoveryCache as jest.MockedFunction<typeof resolveBusinessRuleDiscoveryCache>
 
 describe('business_rules crud-rule-trigger subscriber', () => {
   const mockEm = {} as any
@@ -53,7 +55,8 @@ describe('business_rules crud-rule-trigger subscriber', () => {
       data: { id: 'person-1' },
       tenantId: 't1',
       organizationId: 'o1',
-    })
+    }, { cache: null })
+    expect(resolveBusinessRuleDiscoveryCacheMock).toHaveBeenCalled()
   })
 
   it('does not trust payload tenant scope over subscriber context scope', async () => {
@@ -65,7 +68,7 @@ describe('business_rules crud-rule-trigger subscriber', () => {
       data: { tenantId: 'spoofed-tenant', organizationId: 'spoofed-org', id: 'person-1' },
       tenantId: 'trusted-tenant',
       organizationId: 'trusted-org',
-    }))
+    }), { cache: null })
   })
 
   it('skips excluded internal events', async () => {

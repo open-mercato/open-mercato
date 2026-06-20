@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { DataMapping } from '@open-mercato/core/modules/data_sync/lib/adapter'
 import type { ExternalIdMappingService } from '@open-mercato/core/modules/data_sync/lib/id-mapping'
@@ -2426,53 +2427,59 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     }
 
     const desiredKeys = new Set(desired.keys())
-    for (const entry of desired.values()) {
-      const existingRelation = existing.find((relation) => {
-        const childVariantId = typeof relation.childVariant === 'string' ? relation.childVariant : relation.childVariant?.id ?? null
-        const childProductId = typeof relation.childProduct === 'string' ? relation.childProduct : relation.childProduct?.id ?? null
-        return relation.relationType === entry.relationType
-          && childVariantId === entry.childVariantId
-          && childProductId === entry.childProductId
-      })
-      if (existingRelation) {
-        existingRelation.minQuantity = entry.minQuantity
-        existingRelation.metadata = {
-          source: 'akeneo',
-          associationType: entry.associationType,
+    // Apply the create/update upserts and the stale-relation removals as a
+    // single atomic unit so a product's relation set is never left partially
+    // synced. `existing` is an in-memory array (already fetched above), so the
+    // `.find()` lookups inside the phase do not run new `em` queries.
+    await withAtomicFlush(em, [
+      () => {
+        for (const entry of desired.values()) {
+          const existingRelation = existing.find((relation) => {
+            const childVariantId = typeof relation.childVariant === 'string' ? relation.childVariant : relation.childVariant?.id ?? null
+            const childProductId = typeof relation.childProduct === 'string' ? relation.childProduct : relation.childProduct?.id ?? null
+            return relation.relationType === entry.relationType
+              && childVariantId === entry.childVariantId
+              && childProductId === entry.childProductId
+          })
+          if (existingRelation) {
+            existingRelation.minQuantity = entry.minQuantity
+            existingRelation.metadata = {
+              source: 'akeneo',
+              associationType: entry.associationType,
+            }
+            continue
+          }
+          const relation = em.create(CatalogProductVariantRelation, {
+            parentVariant: em.getReference(CatalogProductVariant, params.localVariantId),
+            childVariant: entry.childVariantId ? em.getReference(CatalogProductVariant, entry.childVariantId) : null,
+            childProduct: entry.childProductId ? em.getReference(CatalogProduct, entry.childProductId) : null,
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            relationType: entry.relationType,
+            isRequired: false,
+            minQuantity: entry.minQuantity,
+            maxQuantity: null,
+            position: 0,
+            metadata: {
+              source: 'akeneo',
+              associationType: entry.associationType,
+            },
+          })
+          em.persist(relation)
         }
-        await em.flush()
-        continue
-      }
-      const relation = em.create(CatalogProductVariantRelation, {
-        parentVariant: em.getReference(CatalogProductVariant, params.localVariantId),
-        childVariant: entry.childVariantId ? em.getReference(CatalogProductVariant, entry.childVariantId) : null,
-        childProduct: entry.childProductId ? em.getReference(CatalogProduct, entry.childProductId) : null,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        relationType: entry.relationType,
-        isRequired: false,
-        minQuantity: entry.minQuantity,
-        maxQuantity: null,
-        position: 0,
-        metadata: {
-          source: 'akeneo',
-          associationType: entry.associationType,
-        },
-      })
-      em.persist(relation)
-      await em.flush()
-    }
 
-    for (const relation of existing) {
-      const metadata = safeRecord(relation.metadata)
-      if (metadata?.source !== 'akeneo') continue
-      const childVariantId = typeof relation.childVariant === 'string' ? relation.childVariant : relation.childVariant?.id ?? null
-      const childProductId = typeof relation.childProduct === 'string' ? relation.childProduct : relation.childProduct?.id ?? null
-      const key = `${relation.relationType}:${childVariantId ?? childProductId}`
-      if (!desiredKeys.has(key)) {
-        await em.remove(relation).flush()
-      }
-    }
+        for (const relation of existing) {
+          const metadata = safeRecord(relation.metadata)
+          if (metadata?.source !== 'akeneo') continue
+          const childVariantId = typeof relation.childVariant === 'string' ? relation.childVariant : relation.childVariant?.id ?? null
+          const childProductId = typeof relation.childProduct === 'string' ? relation.childProduct : relation.childProduct?.id ?? null
+          const key = `${relation.relationType}:${childVariantId ?? childProductId}`
+          if (!desiredKeys.has(key)) {
+            em.remove(relation)
+          }
+        }
+      },
+    ], { transaction: true })
   }
 
   async function upsertProduct(product: AkeneoProduct, mapping: AkeneoDataMapping): Promise<Array<{ externalId: string; action: 'create' | 'update' | 'skip'; data: Record<string, unknown> }>> {

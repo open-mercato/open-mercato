@@ -26,6 +26,8 @@ import {
   loadCustomFieldSnapshot,
   buildCustomFieldResetMap,
 } from "@open-mercato/shared/lib/commands/customFieldSnapshots";
+import { withAtomicFlush } from "@open-mercato/shared/lib/commands/flush";
+import { resolveRedoSnapshot, restoreCreatedRow } from "@open-mercato/shared/lib/commands/redo";
 import { E } from "#generated/entities.ids.generated";
 import { slugifyTagLabel } from "@open-mercato/shared/lib/utils";
 import { parseObjectLike } from "@open-mercato/shared/lib/json/parseObjectLike";
@@ -950,15 +952,15 @@ type VariantCleanupSnapshot = {
   custom: Record<string, unknown> | null;
 };
 
-async function deleteProductVariantsAndRelatedData(opts: {
-  em: EntityManager;
-  product: CatalogProduct;
-  dataEngine: DataEngine;
-  ctx: CommandRuntimeContext;
-}): Promise<void> {
-  const { em, product, dataEngine, ctx } = opts;
+async function collectProductVariantCleanup(
+  em: EntityManager,
+  product: CatalogProduct,
+): Promise<{
+  variants: CatalogProductVariant[];
+  cleanupEntries: VariantCleanupSnapshot[];
+}> {
   const variants = await em.find(CatalogProductVariant, { product });
-  if (!variants.length) return;
+  if (!variants.length) return { variants: [], cleanupEntries: [] };
   const cleanupEntries: VariantCleanupSnapshot[] = await Promise.all(
     variants.map(async (variant) => {
       const custom = await loadCustomFieldSnapshot(em, {
@@ -975,6 +977,14 @@ async function deleteProductVariantsAndRelatedData(opts: {
       };
     }),
   );
+  return { variants, cleanupEntries };
+}
+
+async function removeProductVariants(
+  em: EntityManager,
+  variants: CatalogProductVariant[],
+): Promise<void> {
+  if (!variants.length) return;
   const variantIds = variants.map((variant) => variant.id);
   if (variantIds.length) {
     await em.nativeDelete(CatalogProductPrice, {
@@ -984,7 +994,14 @@ async function deleteProductVariantsAndRelatedData(opts: {
   for (const variant of variants) {
     em.remove(variant);
   }
-  await em.flush();
+}
+
+async function emitProductVariantCleanupSideEffects(opts: {
+  dataEngine: DataEngine;
+  ctx: CommandRuntimeContext;
+  cleanupEntries: VariantCleanupSnapshot[];
+}): Promise<void> {
+  const { dataEngine, ctx, cleanupEntries } = opts;
   for (const cleanup of cleanupEntries) {
     if (!cleanup.custom) continue;
     const resetValues = buildCustomFieldResetMap(cleanup.custom, undefined);
@@ -1151,6 +1168,45 @@ async function loadProductSnapshot(
   };
 }
 
+function productSeedFromSnapshot(
+  snapshot: ProductSnapshot,
+): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    title: snapshot.title,
+    subtitle: snapshot.subtitle ?? null,
+    description: snapshot.description ?? null,
+    sku: snapshot.sku ?? null,
+    handle: snapshot.handle ?? null,
+    taxRateId: snapshot.taxRateId ?? null,
+    taxRate: snapshot.taxRate ?? null,
+    productType: snapshot.productType ?? "simple",
+    statusEntryId: snapshot.statusEntryId ?? null,
+    primaryCurrencyCode: snapshot.primaryCurrencyCode ?? null,
+    defaultUnit: snapshot.defaultUnit ?? null,
+    defaultSalesUnit: snapshot.defaultSalesUnit ?? null,
+    defaultSalesUnitQuantity: snapshot.defaultSalesUnitQuantity ?? "1",
+    uomRoundingScale: snapshot.uomRoundingScale,
+    uomRoundingMode: snapshot.uomRoundingMode,
+    unitPriceEnabled: snapshot.unitPriceEnabled,
+    unitPriceReferenceUnit: snapshot.unitPriceReferenceUnit ?? null,
+    unitPriceBaseQuantity: snapshot.unitPriceBaseQuantity ?? null,
+    defaultMediaId: snapshot.defaultMediaId ?? null,
+    defaultMediaUrl: snapshot.defaultMediaUrl ?? null,
+    weightValue: snapshot.weightValue ?? null,
+    weightUnit: snapshot.weightUnit ?? null,
+    dimensions: snapshot.dimensions ? cloneJson(snapshot.dimensions) : null,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    customFieldsetCode: snapshot.customFieldsetCode ?? null,
+    isConfigurable: snapshot.isConfigurable,
+    isActive: snapshot.isActive,
+    createdAt: new Date(snapshot.createdAt),
+    updatedAt: new Date(snapshot.updatedAt),
+  };
+}
+
 function applyProductSnapshot(
   em: EntityManager,
   record: CatalogProduct,
@@ -1288,6 +1344,7 @@ const createProductCommand: CommandHandler<
       optionSchemaTemplate = await requireOptionSchemaTemplate(
         em,
         parsed.optionSchemaId,
+        { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
         translate("catalog.errors.optionSchemaNotFound", "Option schema not found"),
       );
       ensureSameScope(
@@ -1306,15 +1363,16 @@ const createProductCommand: CommandHandler<
     }
     em.persist(record);
     try {
-      await em.flush();
-    } catch (error) {
-      await rethrowProductUniqueConstraint(error);
-    }
-    await syncOffers(em, record, parsed.offers);
-    await syncCategoryAssignments(em, record, parsed.categoryIds);
-    await syncProductTags(em, record, parsed.tags);
-    try {
-      await em.flush();
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          () => syncOffers(em, record, parsed.offers),
+          () => syncCategoryAssignments(em, record, parsed.categoryIds),
+          () => syncProductTags(em, record, parsed.tags),
+        ],
+        { transaction: true },
+      );
     } catch (error) {
       await rethrowProductUniqueConstraint(error);
     }
@@ -1390,6 +1448,53 @@ const createProductCommand: CommandHandler<
       action: "deleted",
       product: record,
     });
+  },
+  redo: async ({ ctx, logEntry }) => {
+    const after = resolveRedoSnapshot<ProductSnapshot>(logEntry);
+    if (!after) {
+      throw new CrudHttpError(400, {
+        error: "[internal] redo snapshot unavailable for product create",
+      });
+    }
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const record = await restoreCreatedRow(
+      em,
+      CatalogProduct,
+      after.id,
+      () => productSeedFromSnapshot(after),
+    );
+    applyProductSnapshot(em, record, after);
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          () => restoreOffersFromSnapshot(em, record, after.offers),
+          () => syncCategoryAssignments(em, record, after.categoryIds),
+          () => syncProductTags(em, record, after.tags),
+        ],
+        { transaction: true },
+      );
+    } catch (error) {
+      await rethrowProductUniqueConstraint(error);
+    }
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    if (after.custom && Object.keys(after.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: E.catalog.catalog_product,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: after.custom,
+      });
+    }
+    await emitProductCrudChange({
+      dataEngine,
+      action: "created",
+      product: record,
+    });
+    return { productId: record.id };
   },
 };
 
@@ -1591,6 +1696,7 @@ const updateProductCommand: CommandHandler<
         const optionTemplate = await requireOptionSchemaTemplate(
           lookupEm,
           parsed.optionSchemaId,
+          { tenantId, organizationId },
           translate("catalog.errors.optionSchemaNotFound", "Option schema not found"),
         );
         ensureSameScope(optionTemplate, organizationId, tenantId);
@@ -1612,15 +1718,16 @@ const updateProductCommand: CommandHandler<
       record.isConfigurable = parsed.isConfigurable;
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive;
     try {
-      await em.flush();
-    } catch (error) {
-      await rethrowProductUniqueConstraint(error);
-    }
-    await syncOffers(em, record, parsed.offers);
-    await syncCategoryAssignments(em, record, parsed.categoryIds);
-    await syncProductTags(em, record, parsed.tags);
-    try {
-      await em.flush();
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          () => syncOffers(em, record, parsed.offers),
+          () => syncCategoryAssignments(em, record, parsed.categoryIds),
+          () => syncProductTags(em, record, parsed.tags),
+        ],
+        { transaction: true },
+      );
     } catch (error) {
       await rethrowProductUniqueConstraint(error);
     }
@@ -1730,16 +1837,16 @@ const updateProductCommand: CommandHandler<
     ensureTenantScope(ctx, before.tenantId);
     ensureOrganizationScope(ctx, before.organizationId);
     applyProductSnapshot(em, record, before);
-    await em.flush();
-
-    const relationEm = em.fork();
-    const relationRecord = await findOneWithDecryption(relationEm, CatalogProduct, { id: before.id });
-    if (relationRecord) {
-      await restoreOffersFromSnapshot(relationEm, relationRecord, before.offers);
-      await syncCategoryAssignments(relationEm, relationRecord, before.categoryIds);
-      await syncProductTags(relationEm, relationRecord, before.tags);
-      await relationEm.flush();
-    }
+    await withAtomicFlush(
+      em,
+      [
+        () => em.flush(),
+        () => restoreOffersFromSnapshot(em, record, before.offers),
+        () => syncCategoryAssignments(em, record, before.categoryIds),
+        () => syncProductTags(em, record, before.tags),
+      ],
+      { transaction: true },
+    );
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     const resetValues = buildCustomFieldResetMap(
       before.custom ?? undefined,
@@ -1801,23 +1908,38 @@ const deleteProductCommand: CommandHandler<
     ensureTenantScope(ctx, record.tenantId);
     ensureOrganizationScope(ctx, record.organizationId);
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
-    await deleteProductVariantsAndRelatedData({
-      em,
-      product: record,
-      dataEngine,
-      ctx,
-    });
-    await em.nativeDelete(CatalogProductPrice, { product: record.id });
-    const templateToRemove = await resolveOptionSchemaTemplateForRemoval(
+    const { variants, cleanupEntries } = await collectProductVariantCleanup(
       em,
       record,
     );
-    if (templateToRemove) {
-      record.optionSchemaTemplate = null;
-      em.remove(templateToRemove);
-    }
-    em.remove(record);
-    await em.flush();
+    await withAtomicFlush(
+      em,
+      [
+        () => removeProductVariants(em, variants),
+        async () => {
+          await em.nativeDelete(CatalogProductPrice, { product: record.id });
+        },
+        async () => {
+          const templateToRemove = await resolveOptionSchemaTemplateForRemoval(
+            em,
+            record,
+          );
+          if (templateToRemove) {
+            record.optionSchemaTemplate = null;
+            em.remove(templateToRemove);
+          }
+        },
+        () => {
+          em.remove(record);
+        },
+      ],
+      { transaction: true },
+    );
+    await emitProductVariantCleanupSideEffects({
+      dataEngine,
+      ctx,
+      cleanupEntries,
+    });
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined);
       if (Object.keys(resetValues).length) {
@@ -1906,16 +2028,16 @@ const deleteProductCommand: CommandHandler<
     ensureTenantScope(ctx, before.tenantId);
     ensureOrganizationScope(ctx, before.organizationId);
     applyProductSnapshot(em, record, before);
-    await em.flush();
-
-    const relationEm = em.fork();
-    const relationRecord = await findOneWithDecryption(relationEm, CatalogProduct, { id: before.id });
-    if (relationRecord) {
-      await restoreOffersFromSnapshot(relationEm, relationRecord, before.offers);
-      await syncCategoryAssignments(relationEm, relationRecord, before.categoryIds);
-      await syncProductTags(relationEm, relationRecord, before.tags);
-      await relationEm.flush();
-    }
+    await withAtomicFlush(
+      em,
+      [
+        () => em.flush(),
+        () => restoreOffersFromSnapshot(em, record, before.offers),
+        () => syncCategoryAssignments(em, record, before.categoryIds),
+        () => syncProductTags(em, record, before.tags),
+      ],
+      { transaction: true },
+    );
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({

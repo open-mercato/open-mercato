@@ -26,6 +26,17 @@ export type VectorStrategyConfig = {
   defaultLimit?: number
 }
 
+function normalizeOrganizationIds(options: SearchOptions): string[] | null {
+  const single = typeof options.organizationId === 'string' ? options.organizationId.trim() : ''
+  if (single) return [single]
+  if (!Array.isArray(options.organizationIds)) return null
+  return Array.from(new Set(
+    options.organizationIds
+      .map((value) => (typeof value === 'string' ? value.trim() : ''))
+      .filter((value) => value.length > 0),
+  ))
+}
+
 /**
  * VectorSearchStrategy provides semantic search using embeddings.
  * It wraps the existing vector module infrastructure.
@@ -62,6 +73,9 @@ export class VectorSearchStrategy implements SearchStrategy {
   }
 
   async search(query: string, options: SearchOptions): Promise<SearchResult[]> {
+    const organizationIds = normalizeOrganizationIds(options)
+    if (organizationIds && organizationIds.length === 0) return []
+
     await this.ensureReady()
     const embedding = await this.embeddingService.createEmbedding(query)
 
@@ -71,15 +85,18 @@ export class VectorSearchStrategy implements SearchStrategy {
     const filter: {
       tenantId: string
       organizationId?: string | null
+      organizationIds?: string[] | null
       entityIds?: EntityId[]
     } = {
       tenantId: options.tenantId,
       entityIds: options.entityTypes as EntityId[],
     }
 
-    // Only add organizationId filter if it's a real org ID
-    if (options.organizationId) {
-      filter.organizationId = options.organizationId
+    if (organizationIds) {
+      filter.organizationIds = organizationIds
+      if (organizationIds.length === 1) {
+        filter.organizationId = organizationIds[0]
+      }
     }
 
     const results = await this.vectorDriver.query({
@@ -93,6 +110,7 @@ export class VectorSearchStrategy implements SearchStrategy {
       recordId: hit.recordId,
       score: hit.score,
       source: this.id,
+      organizationId: hit.organizationId ?? null,
       presenter: hit.presenter ?? undefined,
       url: hit.primaryLinkHref ?? hit.url ?? undefined,
       links: hit.links?.map((link) => ({
@@ -139,10 +157,10 @@ export class VectorSearchStrategy implements SearchStrategy {
     await this.vectorDriver.delete(entityId, recordId, tenantId)
   }
 
-  async purge(entityId: EntityId, tenantId: string): Promise<void> {
+  async purge(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void> {
     await this.ensureReady()
     if (this.vectorDriver.purge) {
-      await this.vectorDriver.purge(entityId, tenantId)
+      await this.vectorDriver.purge(entityId, tenantId, organizationId)
     }
   }
 

@@ -110,6 +110,7 @@
   "data_sync.runs.detail.logs.message": "Mensaje",
   "data_sync.runs.detail.logs.time": "Hora",
   "data_sync.runs.detail.noLogs": "Sin entradas de registro",
+  "data_sync.runs.detail.notFound": "Ejecución de sincronización no encontrada.",
   "data_sync.runs.detail.progress": "Progreso",
   "data_sync.runs.detail.progress.batches": "{count} lotes",
   "data_sync.runs.detail.progress.eta": "Quedan {eta}",

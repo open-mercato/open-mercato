@@ -37,6 +37,8 @@ import {
 } from '../../../lib/interactionCompatibility'
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
 import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
+import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
+import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -47,6 +49,7 @@ import {
   withActiveCustomerPersonCompanyLinkFilter,
 } from '../../../lib/personCompanyLinkTable'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.companies.view'] },
@@ -373,10 +376,13 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const interactionFlags = await resolveCustomerInteractionFeatureFlags(container, scope?.tenantId ?? auth.tenantId)
   const interactionMode = interactionFlags.unified ? 'canonical' : 'legacy'
 
+  const tenantScope = resolveCustomerDetailTenantScope(parse.data.id, 'company', auth)
+  if (!tenantScope.allowed) return notFound('Company not found')
+
   const company = await findOneWithDecryption(
     em,
     CustomerEntity,
-    { id: parse.data.id, kind: 'company', deletedAt: null },
+    tenantScope.where,
     { populate: ['companyProfile'] },
     {
       tenantId: auth.tenantId ?? null,
@@ -385,12 +391,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   )
   if (!company) return notFound('Company not found')
 
-  if (auth.tenantId && company.tenantId !== auth.tenantId) return notFound('Company not found')
-  const allowedOrgIds = new Set<string>()
-  if (scope?.filterIds?.length) scope.filterIds.forEach((id) => allowedOrgIds.add(id))
-  else if (auth.orgId) allowedOrgIds.add(auth.orgId)
-
-  if (allowedOrgIds.size && company.organizationId && !allowedOrgIds.has(company.organizationId)) {
+  if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: company.organizationId })) {
     return forbidden('Access denied')
   }
 
@@ -398,6 +399,20 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     tenantId: company.tenantId ?? auth.tenantId ?? null,
     organizationId: company.organizationId ?? scope?.selectedId ?? auth.orgId ?? null,
   }
+
+  // Per-user email privacy (CRM email integration): exclude private email
+  // interactions owned by other users from every read path that returns
+  // customer_interactions. Non-email rows, shared emails, and legacy
+  // null-visibility rows pass through. v1 is strict owner-only: there is NO
+  // admin bypass — the filter ignores caller features, and
+  // `customers.email.view_private` is reserved (inert) for v2 oversight.
+  // Mirrors the people detail route. API-key callers resolve to null
+  // (no author match — shared/non-email rows only).
+  const viewerUserId = auth.isApiKey ? null : (auth.sub ?? null)
+  const emailVisibilityFilter = buildEmailVisibilityMikroFilter({
+    currentUserId: viewerUserId,
+    userFeatures: undefined,
+  })
 
   const profile = company.companyProfile
     ? await findOneWithDecryption(
@@ -483,11 +498,13 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
               tenantId: company.tenantId,
               organizationId: company.organizationId,
               deletedAt: null,
+              ...emailVisibilityFilter,
             }
           : {
               entity: company.id,
               tenantId: company.tenantId,
               organizationId: company.organizationId,
+              ...emailVisibilityFilter,
             },
         { orderBy: { scheduledAt: 'asc', createdAt: 'desc' }, limit: 100 },
         companyScope,
@@ -526,6 +543,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             deletedAt: null,
             status: 'planned',
             interactionType: { $ne: 'task' },
+            ...emailVisibilityFilter,
           },
           { orderBy: { scheduledAt: 'ASC', createdAt: 'ASC' }, limit: plannedPreviewLimit },
           companyScope,
@@ -612,7 +630,6 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       if (comment.authorUserId) authorIds.add(comment.authorUserId)
     }
   }
-  const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
   if (viewerUserId) authorIds.add(viewerUserId)
 
   let userMap = new Map<string, { name: string | null; email: string | null }>()
@@ -798,12 +815,14 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     tenantId: company.tenantId,
     deletedAt: null,
     interactionType: { $ne: 'task' },
+    ...emailVisibilityFilter,
   })
   const interactionCount = await em.count(CustomerInteraction, {
     entity: company.id,
     organizationId: company.organizationId,
     tenantId: company.tenantId,
     deletedAt: null,
+    ...emailVisibilityFilter,
   })
   const todoCount = interactionFlags.unified
     ? await em.count(CustomerInteraction, {
@@ -861,6 +880,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           organizationId: company.organizationId,
           tenantId: company.tenantId,
           deletedAt: null,
+          ...emailVisibilityFilter,
         },
         {
           fields: ['id', 'occurredAt', 'scheduledAt', 'createdAt'],
@@ -936,6 +956,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       organizationId: company.organizationId,
       tenantId: company.tenantId,
       isActive: company.isActive,
+      temperature: company.temperature ?? null,
+      renewalQuarter: company.renewalQuarter ?? null,
       createdAt: company.createdAt.toISOString(),
       updatedAt: company.updatedAt.toISOString(),
     },
@@ -1153,6 +1175,8 @@ const companyDetailResponseSchema = z.object({
     organizationId: z.string().uuid().nullable().optional(),
     tenantId: z.string().uuid().nullable().optional(),
     isActive: z.boolean().optional(),
+    temperature: z.string().nullable().optional(),
+    renewalQuarter: z.string().nullable().optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
   }),

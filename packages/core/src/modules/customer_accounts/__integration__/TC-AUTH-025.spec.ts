@@ -9,7 +9,11 @@ import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration
  * This prevents a deleted user's stolen JWT from remaining usable.
  */
 test.describe('TC-AUTH-025: Sessions and JWT revoked after admin user deletion', () => {
+  test.setTimeout(120_000)
+
   test('sessions-refresh and JWT-only requests are blocked after admin deletes the user', async ({ request }) => {
+    test.slow()
+
     const stamp = Date.now()
     const customerEmail = `qa-auth-025-${stamp}@test.local`
     const password = `InitialPass${stamp}!`

@@ -17,9 +17,12 @@ export type VariantPriceDraft = {
   amount: string
   currencyCode?: string | null
   displayMode: 'including-tax' | 'excluding-tax'
+  /** The price row's version, for the per-price optimistic-lock header (#2055). */
+  updatedAt?: string | null
 }
 
 export type VariantFormValues = {
+  id?: string
   name: string
   sku: string
   barcode: string
@@ -34,6 +37,7 @@ export type VariantFormValues = {
   prices: Record<string, VariantPriceDraft>
   taxRateId: string | null
   customFieldsetCode?: string | null
+  updatedAt?: string | null
 }
 
 export const VARIANT_BASE_VALUES: VariantFormValues = {
@@ -147,5 +151,11 @@ export function mapPriceItemToDraft(
           ? item.currencyCode
           : null,
     displayMode: kindMode,
+    updatedAt:
+      typeof item.updatedAt === 'string'
+        ? item.updatedAt
+        : typeof item.updated_at === 'string'
+          ? item.updated_at
+          : null,
   }
 }

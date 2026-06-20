@@ -29,6 +29,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
 
   const toggle = await em.findOne(FeatureToggle, {
     id: parse.data.id,
+    deletedAt: null,
   })
 
   if (!toggle) {
