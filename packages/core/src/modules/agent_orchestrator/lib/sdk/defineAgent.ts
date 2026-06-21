@@ -79,3 +79,27 @@ export function getAgentEntry(id: string): AgentRegistryEntry | undefined {
 export function listAgentEntries(): AgentRegistryEntry[] {
   return [...registry.values()]
 }
+
+let agentsLoadPromise: Promise<void> | null = null
+
+/**
+ * Ensure the module's `ai-agents.ts` has executed so `defineAgent` has populated
+ * the registry. The registry is a module-level Map filled by import side effect,
+ * so code paths that don't transitively import `ai-agents.ts` — notably the
+ * workflow background executor invoking an agent through the dispatch bridge —
+ * would otherwise read an empty registry and fail with "unknown agent id".
+ * Idempotent: skips when already populated, and a dynamic import of an
+ * already-executed module is a no-op.
+ */
+export async function ensureAgentsLoaded(): Promise<void> {
+  if (registry.size > 0) return
+  if (!agentsLoadPromise) {
+    agentsLoadPromise = import('../../ai-agents')
+      .then(() => undefined)
+      .catch((err) => {
+        agentsLoadPromise = null
+        throw err
+      })
+  }
+  await agentsLoadPromise
+}

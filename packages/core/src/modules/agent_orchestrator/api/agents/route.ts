@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { listAgentEntries } from '../../lib/sdk/defineAgent'
+import { listAgentEntries, ensureAgentsLoaded } from '../../lib/sdk/defineAgent'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
@@ -26,6 +26,7 @@ const errorSchema = z.object({ error: z.string() })
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  await ensureAgentsLoaded()
   const items = listAgentEntries().map((entry) => ({
     id: entry.id,
     resultKind: entry.resultKind,

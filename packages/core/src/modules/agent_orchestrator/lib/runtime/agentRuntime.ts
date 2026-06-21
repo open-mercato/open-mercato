@@ -2,7 +2,7 @@ import type { AwilixContainer } from 'awilix'
 import { runAiAgentObject } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime'
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { getAgentEntry } from '../sdk/defineAgent'
+import { getAgentEntry, ensureAgentsLoaded } from '../sdk/defineAgent'
 import { type AgentResult, type AgentProposalPayload } from '../../data/validators'
 
 export type AgentRunCtx = {
@@ -68,6 +68,7 @@ export class AgentRuntimeService {
   }
 
   async run(agentId: string, input: unknown, ctx: AgentRunCtx): Promise<AgentResult> {
+    await ensureAgentsLoaded()
     const entry = getAgentEntry(agentId)
     if (!entry) throw new AgentNotFoundError(agentId)
 
