@@ -113,8 +113,22 @@ export const activityTypeSchema = z.enum([
   'CALL_WEBHOOK',
   'EXECUTE_FUNCTION',
   'WAIT',
+  'INVOKE_AGENT',
 ])
 export type ActivityType = z.infer<typeof activityTypeSchema>
+
+// INVOKE_AGENT activity configuration — runs a callable agent (area 02a) and
+// dispositions any actionable proposal. `onResult` is carried verbatim to the
+// agent_orchestrator disposition service.
+export const invokeAgentConfigSchema = z.object({
+  agentId: z.string().min(1),
+  input: z.record(z.string(), z.any()).default({}),
+  onResult: z.union([
+    z.object({ autoApproveThreshold: z.number().min(0).max(1) }),
+    z.object({ alwaysAsk: z.literal(true) }),
+  ]),
+})
+export type InvokeAgentConfig = z.infer<typeof invokeAgentConfigSchema>
 
 export const escalationTriggerSchema = z.enum(['sla_breach', 'no_progress', 'custom'])
 export type EscalationTrigger = z.infer<typeof escalationTriggerSchema>
@@ -216,6 +230,19 @@ export const activityDefinitionSchema = z.object({
     automatic: z.boolean().default(true).optional() // Auto-trigger on failure
   }).optional(), // Compensation configuration (Phase 8.2)
 }).superRefine((activity, ctx) => {
+  if (activity.activityType === 'INVOKE_AGENT') {
+    const parsed = invokeAgentConfigSchema.safeParse(activity.config || {})
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['config', ...issue.path],
+          message: issue.message,
+        })
+      }
+    }
+    return
+  }
   if (activity.activityType !== 'WAIT') return
   const config = activity.config || {}
   const hasDuration = config.duration != null && config.duration !== ''

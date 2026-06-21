@@ -508,6 +508,62 @@ async function handleAutomatedStep(
       }
     }
 
+    // INVOKE_AGENT (agent_orchestrator) integration:
+    // A `__park` marker means the agent's proposal was routed to a human — park
+    // the instance on the signal exactly like handleWaitForSignalStep. The step
+    // declares `signalConfig.signalName`, so sendSignal (relaxed) resumes it when
+    // agent_orchestrator's dispose path fires `agent_orchestrator.proposal.ready`.
+    const parkResult = results.find((r) => r.output && (r.output as any).__park)
+    if (parkResult) {
+      const signalName = (parkResult.output as any).__park.signalName as string
+      const proposalId = (parkResult.output as any).proposalId
+      const now = new Date()
+      await logStepEvent(em, {
+        workflowInstanceId: instance.id,
+        stepInstanceId: stepInstance.id,
+        ...(branch ? { branchInstanceId: branch.id } : {}),
+        eventType: 'SIGNAL_AWAITING',
+        eventData: { signalName, proposalId, reason: 'INVOKE_AGENT' },
+        userId: context.userId,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+      })
+      if (branch) {
+        branch.status = 'PAUSED'
+        branch.updatedAt = now
+      } else {
+        instance.status = 'PAUSED'
+        instance.pausedAt = now
+        instance.updatedAt = now
+      }
+      await em.flush()
+      return {
+        status: 'WAITING',
+        waitReason: 'SIGNAL',
+        outputData: { signalName, proposalId, awaitingSince: now },
+      }
+    }
+
+    // Inline-resolved agent result (auto_approved / informative): surface the
+    // disposition into context (top-level, matching the human-path signal merge)
+    // so the outgoing transition can branch (effector vs skip) uniformly.
+    const inlineAgent = results.find(
+      (r) => r.output && typeof (r.output as any).kind === 'string' && 'agentId' in (r.output as any),
+    )
+    if (inlineAgent && !branch) {
+      const out = inlineAgent.output as any
+      if (out.kind === 'auto_approved') {
+        instance.context = {
+          ...instance.context,
+          disposition: 'auto_approved',
+          agentProposalId: out.proposalId,
+          proposalPayload: out.proposalPayload,
+        }
+        instance.updatedAt = new Date()
+        await em.flush()
+      }
+    }
+
     // All activities completed successfully
     const activityOutputs = results.reduce((acc, r) => {
       if (r.output) {

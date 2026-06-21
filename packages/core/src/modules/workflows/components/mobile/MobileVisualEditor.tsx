@@ -36,7 +36,7 @@ export interface MobileVisualEditorProps {
   metadataHandlers: WorkflowMetadataHandlers
 }
 
-const NODE_TYPES = ['start', 'userTask', 'automated', 'waitForSignal', 'subWorkflow', 'end'] as const
+const NODE_TYPES = ['start', 'userTask', 'automated', 'invokeAgent', 'waitForSignal', 'subWorkflow', 'end'] as const
 
 export function MobileVisualEditor({
   definitionId,

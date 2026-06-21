@@ -198,7 +198,15 @@ export async function sendSignal(
     (s: any) => s.stepId === instance.currentStepId
   )
 
-  if (!currentStep || currentStep.stepType !== 'WAIT_FOR_SIGNAL') {
+  // A dedicated WAIT_FOR_SIGNAL step — OR any step that parked while declaring a
+  // `signalConfig.signalName` (e.g. an AUTOMATED step whose INVOKE_AGENT activity
+  // routed its proposal to a human) — can be resumed by a matching signal. The
+  // resume path below (merge payload → exit step → run auto transitions) is
+  // step-type-agnostic, so widening this guard is additive and safe.
+  const stepCanReceiveSignal =
+    !!currentStep &&
+    (currentStep.stepType === 'WAIT_FOR_SIGNAL' || !!currentStep.signalConfig?.signalName)
+  if (!stepCanReceiveSignal) {
     throw new SignalError(
       'Workflow is not waiting for signal',
       'NOT_WAITING_FOR_SIGNAL',

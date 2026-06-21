@@ -1,3 +1,4 @@
+/// <reference path="./ai-tools-generated.d.ts" />
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { z } from 'zod'
 import type { SearchService } from '@open-mercato/search/service'

@@ -22,7 +22,7 @@ import {
   type HostLookup,
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { callWebhookConfigSchema } from '../data/validators'
+import { callWebhookConfigSchema, invokeAgentConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
 import { parseDuration } from './duration'
@@ -96,6 +96,33 @@ export type ActivityType =
   | 'CALL_WEBHOOK'
   | 'EXECUTE_FUNCTION'
   | 'WAIT'
+  | 'INVOKE_AGENT'
+
+/**
+ * Signal name the INVOKE_AGENT step parks on when a proposal is routed to a
+ * human. agent_orchestrator's proposal-dispose path emits
+ * `agent_orchestrator.proposal.ready` and calls workflows `sendSignal` with this
+ * name to resume the parked step.
+ */
+export const INVOKE_AGENT_SIGNAL_NAME = 'agent_orchestrator.proposal.ready'
+
+/**
+ * Marker carried on an activity result's output when the step must park and wait
+ * for a signal (INVOKE_AGENT routed a proposal to a human). The step handler
+ * inspects activity outputs for this marker and parks the instance accordingly.
+ * informative / auto_approved outcomes do NOT carry it and proceed inline.
+ */
+export type ActivityParkMarker = { signalName: string }
+
+export function getActivityParkMarker(output: unknown): ActivityParkMarker | null {
+  if (output && typeof output === 'object' && '__park' in output) {
+    const park = (output as { __park?: unknown }).__park
+    if (park && typeof park === 'object' && typeof (park as { signalName?: unknown }).signalName === 'string') {
+      return { signalName: (park as { signalName: string }).signalName }
+    }
+  }
+  return null
+}
 
 export interface ActivityDefinition {
   activityId: string // Unique identifier for activity
@@ -475,6 +502,9 @@ async function executeActivityByType(
 
     case 'WAIT':
       return await executeWait(interpolatedConfig)
+
+    case 'INVOKE_AGENT':
+      return await executeInvokeAgent(interpolatedConfig, context, container)
 
     default:
       throw new ActivityExecutionError(
@@ -888,6 +918,98 @@ async function executeWait(config: any): Promise<any> {
   await sleep(durationMs)
 
   return { waited: true, durationMs }
+}
+
+/**
+ * INVOKE_AGENT activity handler
+ *
+ * Runs a callable agent via the agent_orchestrator DI bridge (`agentWorkflowBridge`,
+ * an optional peer) and dispositions any actionable proposal:
+ * - informative → returns the agent data; the step proceeds inline (no park).
+ * - auto_approved → returns the proposalId; the step proceeds inline (no park).
+ * - user_task → returns a result carrying a `__park` marker so the step handler
+ *   parks the instance on `INVOKE_AGENT_SIGNAL_NAME`; agent_orchestrator's
+ *   dispose path later signals it to resume.
+ *
+ * `config` is the already-interpolated INVOKE_AGENT config.
+ */
+type AgentWorkflowBridgeLike = {
+  invokeAgentForWorkflow: (args: {
+    agentId: string
+    input: unknown
+    onResult: { autoApproveThreshold: number } | { alwaysAsk: true }
+    ctx: {
+      tenantId: string
+      organizationId: string
+      userId?: string
+      processId: string
+      stepId: string
+    }
+  }) => Promise<
+    | { kind: 'informative'; data: unknown }
+    | { kind: 'auto_approved'; proposalId: string; payload: unknown }
+    | { kind: 'user_task'; proposalId: string }
+  >
+}
+
+function tryResolveAgentWorkflowBridge(
+  container: AwilixContainer,
+): AgentWorkflowBridgeLike | undefined {
+  try {
+    return container.resolve<AgentWorkflowBridgeLike>('agentWorkflowBridge')
+  } catch {
+    return undefined
+  }
+}
+
+export async function executeInvokeAgent(
+  config: unknown,
+  context: ActivityContext,
+  container: AwilixContainer
+): Promise<any> {
+  const parsed = invokeAgentConfigSchema.safeParse(config)
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((issue) => `${issue.path.join('.') || 'config'}: ${issue.message}`)
+      .join('; ')
+    throw new Error(`INVOKE_AGENT config invalid: ${issues}`)
+  }
+  const { agentId, input, onResult } = parsed.data
+
+  const bridge = tryResolveAgentWorkflowBridge(container)
+  if (!bridge) {
+    throw new Error('[internal] agent_orchestrator not installed')
+  }
+
+  const stepId =
+    context.stepContext?.stepId ||
+    context.workflowInstance.currentStepId
+
+  const outcome = await bridge.invokeAgentForWorkflow({
+    agentId,
+    input,
+    onResult,
+    ctx: {
+      tenantId: context.workflowInstance.tenantId,
+      organizationId: context.workflowInstance.organizationId,
+      userId: context.userId,
+      processId: context.workflowInstance.id,
+      stepId,
+    },
+  })
+
+  if (outcome.kind === 'informative') {
+    return { kind: 'informative', agentId, data: outcome.data }
+  }
+  if (outcome.kind === 'auto_approved') {
+    return { kind: 'auto_approved', agentId, proposalId: outcome.proposalId, proposalPayload: outcome.payload }
+  }
+  return {
+    kind: 'user_task',
+    agentId,
+    proposalId: outcome.proposalId,
+    __park: { signalName: INVOKE_AGENT_SIGNAL_NAME },
+  }
 }
 
 /**

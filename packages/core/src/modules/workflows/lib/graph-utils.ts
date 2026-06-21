@@ -90,6 +90,18 @@ export function graphToDefinition(
       step.activities = node.data.activities
     }
 
+    // Invoke-agent step → AUTOMATED step carrying the INVOKE_AGENT activity plus
+    // a signalConfig so the engine can park-and-resume the human path. The
+    // stepType is already AUTOMATED via mapNodeTypeToStepType.
+    if (node.type === 'invokeAgent') {
+      if (node.data.activities) {
+        step.activities = node.data.activities
+      }
+      if (node.data.signalConfig) {
+        step.signalConfig = node.data.signalConfig
+      }
+    }
+
     // Pre-conditions (for START steps)
     if (node.type === 'start' && (node.data as any).preConditions && (node.data as any).preConditions.length > 0) {
       step.preConditions = (node.data as any).preConditions
@@ -225,8 +237,17 @@ export function definitionToGraph(
       position = (step as any)._editorPosition
     }
 
-    // Map step type to node type
-    const nodeType = mapStepTypeToNodeType(step.stepType)
+    // Map step type to node type. An AUTOMATED step whose activities contain a
+    // single INVOKE_AGENT marker is the compiled form of an invoke-agent node —
+    // round-trip it back to that node type so the dedicated editor/UI is used.
+    const invokeAgentActivity = (step.stepType === 'AUTOMATED'
+      ? ((step as any).activities as any[] | undefined)?.find(
+          (activity) => activity?.activityType === 'INVOKE_AGENT',
+        )
+      : undefined)
+    const nodeType = invokeAgentActivity
+      ? 'invokeAgent'
+      : mapStepTypeToNodeType(step.stepType)
 
     // Build node data
     const nodeData: any = {
@@ -287,6 +308,15 @@ export function definitionToGraph(
     // Add step activities data (for AUTOMATED steps)
     if (step.stepType === 'AUTOMATED' && (step as any).activities) {
       nodeData.activities = (step as any).activities
+    }
+
+    // Add invoke-agent data (compiled AUTOMATED step). Carry the signalConfig and
+    // a display-only agentId so the node renders without re-parsing activities.
+    if (invokeAgentActivity) {
+      if ((step as any).signalConfig) {
+        nodeData.signalConfig = (step as any).signalConfig
+      }
+      nodeData.agentId = invokeAgentActivity.config?.agentId
     }
 
     // Add pre-conditions data (for START steps)
@@ -458,6 +488,8 @@ function mapNodeTypeToStepType(nodeType: string): string {
     decision: 'DECISION',
     waitForSignal: 'WAIT_FOR_SIGNAL',
     waitForTimer: 'WAIT_FOR_TIMER',
+    // The invoke-agent node is a specialization of an AUTOMATED step.
+    invokeAgent: 'AUTOMATED',
   }
   return mapping[nodeType] || 'AUTOMATED'
 }
@@ -490,6 +522,7 @@ function getBadgeForNodeType(nodeType: string): string {
     decision: 'Decision',
     waitForSignal: 'Wait for Signal',
     waitForTimer: 'Wait for Timer',
+    invokeAgent: 'Invoke Agent',
   }
   return badges[nodeType] || 'Task'
 }
