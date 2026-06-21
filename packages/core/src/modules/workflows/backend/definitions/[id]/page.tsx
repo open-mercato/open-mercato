@@ -8,6 +8,8 @@ import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@open-mercato/ui/primitives/dialog'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { apiFetch, withScopedApiHeaders } from '@open-mercato/ui/backend/utils/api'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
@@ -93,6 +95,64 @@ export default function EditWorkflowDefinitionPage() {
   const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
     contextId: mutationContextId,
   })
+
+  const [startOpen, setStartOpen] = React.useState(false)
+  const [startContext, setStartContext] = React.useState('{}')
+  const [starting, setStarting] = React.useState(false)
+
+  const handleStartInstance = async () => {
+    let initialContext: Record<string, unknown>
+    try {
+      const parsed = startContext.trim() ? JSON.parse(startContext) : {}
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        throw new Error('[internal] context must be a JSON object')
+      }
+      initialContext = parsed as Record<string, unknown>
+    } catch {
+      flash(t('workflows.startInstance.invalidJson'), 'error')
+      return
+    }
+    setStarting(true)
+    try {
+      const result = await runMutation({
+        operation: async () => {
+          const response = await apiFetch('/api/workflows/instances', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              workflowId: definition.workflowId,
+              version: definition.version,
+              initialContext,
+            }),
+          })
+          if (!response.ok) {
+            const errorBody = await readJsonSafe<{ error?: string }>(response, null)
+            throw new Error(errorBody?.error || t('workflows.startInstance.failed'))
+          }
+          return readJsonSafe<{ data?: { instance?: { id?: string } } }>(response, null)
+        },
+        mutationPayload: { resourceId: definitionId, operation: 'start-instance' },
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'workflows.instance',
+          resourceId: definitionId,
+          operation: 'start-instance',
+          retryLastMutation,
+        },
+      })
+      flash(t('workflows.startInstance.started'), 'success')
+      setStartOpen(false)
+      const instanceId = result?.data?.instance?.id
+      if (instanceId) {
+        router.push(`/backend/instances/${instanceId}`)
+        router.refresh()
+      }
+    } catch (error) {
+      flash(error instanceof Error ? error.message : t('workflows.startInstance.failed'), 'error')
+    } finally {
+      setStarting(false)
+    }
+  }
 
   const handleSubmit = async (values: WorkflowDefinitionFormValues) => {
     const payload = buildWorkflowPayload({ ...values, triggers })
@@ -270,6 +330,11 @@ export default function EditWorkflowDefinitionPage() {
   return (
     <Page>
       <PageBody>
+        <div className="mb-4 flex justify-end">
+          <Button onClick={() => setStartOpen(true)}>
+            {t('workflows.actions.startInstance')}
+          </Button>
+        </div>
         {isCodeOnly && (
           <Alert variant="info" className="mb-4">
             <AlertDescription className="flex items-center justify-between">
@@ -347,6 +412,38 @@ export default function EditWorkflowDefinitionPage() {
           />
         </div>
       </PageBody>
+      <Dialog open={startOpen} onOpenChange={setStartOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('workflows.startInstance.title')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 px-1 py-2">
+            <p className="text-xs text-muted-foreground">{t('workflows.startInstance.description')}</p>
+            <label className="text-sm font-medium">{t('workflows.startInstance.contextLabel')}</label>
+            <Textarea
+              value={startContext}
+              onChange={(e) => setStartContext(e.target.value)}
+              rows={10}
+              spellCheck={false}
+              className="font-mono text-sm"
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                  e.preventDefault()
+                  void handleStartInstance()
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStartOpen(false)} disabled={starting}>
+              {t('workflows.startInstance.cancel')}
+            </Button>
+            <Button onClick={() => void handleStartInstance()} disabled={starting}>
+              {starting ? <Spinner className="h-4 w-4" /> : t('workflows.startInstance.start')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {ConfirmDialogElement}
     </Page>
   )
