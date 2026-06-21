@@ -1,3 +1,4 @@
+/// <reference path="./ai-agents-generated.d.ts" />
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import type { AiAgentDefinition, AiAgentExtension, AiAgentSuggestion } from './ai-agent-definition'
 import {

@@ -24,7 +24,27 @@ import {StartPreConditionsEditor, type StartPreCondition} from './fields/StartPr
 import {useT} from '@open-mercato/shared/lib/i18n/context'
 import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
+import {apiCall} from '@open-mercato/ui/backend/utils/apiCall'
 import {isFutureIsoDateString, isValidDurationString} from '../data/validators'
+import type {InvokeAgentConfig} from '../data/validators'
+
+// Signal name the INVOKE_AGENT step parks on when a proposal is routed to a
+// human. Mirrors INVOKE_AGENT_SIGNAL_NAME in lib/activity-executor.ts (which is
+// not imported here to keep server-only deps out of the client bundle). The
+// 02a step-handler resumes the parked AUTOMATED step by matching this name on
+// the step's signalConfig.
+const INVOKE_AGENT_SIGNAL_NAME = 'agent_orchestrator.proposal.ready'
+
+interface AgentListItem {
+  id: string
+  label: string
+  description: string
+}
+
+interface AgentInputRow {
+  key: string
+  value: string
+}
 
 export interface NodeEditDialogProps {
   node: Node | null
@@ -95,6 +115,14 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
 
   // Pre-conditions state (for START steps)
   const [preConditions, setPreConditions] = useState<StartPreCondition[]>([])
+
+  // Invoke-agent configuration (for invokeAgent steps)
+  const [agentOptions, setAgentOptions] = useState<AgentListItem[]>([])
+  const [agentsLoading, setAgentsLoading] = useState(false)
+  const [agentId, setAgentId] = useState('')
+  const [agentInputRows, setAgentInputRows] = useState<AgentInputRow[]>([])
+  const [agentResultMode, setAgentResultMode] = useState<'autoApprove' | 'alwaysAsk'>('autoApprove')
+  const [agentAutoApproveThreshold, setAgentAutoApproveThreshold] = useState('0.8')
 
   // Inline validation errors keyed by field name
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
@@ -245,6 +273,42 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
         setPreConditions([])
       }
 
+      // Load invoke-agent configuration. The node stores its config on the
+      // single INVOKE_AGENT activity inside node.data.activities (see handleSave).
+      if (node.type === 'invokeAgent') {
+        const invokeActivity = (nodeData?.activities as any[] | undefined)?.find(
+          (activity) => activity?.activityType === 'INVOKE_AGENT',
+        )
+        const config = (invokeActivity?.config || {}) as Partial<InvokeAgentConfig>
+        setAgentId(config.agentId || '')
+        const inputEntries = Object.entries(config.input || {})
+        setAgentInputRows(
+          inputEntries.length > 0
+            ? inputEntries.map(([key, value]) => ({
+                key,
+                value: typeof value === 'string' ? value : JSON.stringify(value),
+              }))
+            : [{ key: 'dealId', value: '{{deal.id}}' }],
+        )
+        const onResult = config.onResult
+        if (onResult && 'alwaysAsk' in onResult) {
+          setAgentResultMode('alwaysAsk')
+          setAgentAutoApproveThreshold('0.8')
+        } else {
+          setAgentResultMode('autoApprove')
+          setAgentAutoApproveThreshold(
+            onResult && 'autoApproveThreshold' in onResult
+              ? String(onResult.autoApproveThreshold)
+              : '0.8',
+          )
+        }
+      } else {
+        setAgentId('')
+        setAgentInputRows([])
+        setAgentResultMode('autoApprove')
+        setAgentAutoApproveThreshold('0.8')
+      }
+
       // Load form fields from userTaskConfig.formSchema
       if (nodeData?.userTaskConfig?.formSchema) {
         const schema = nodeData.userTaskConfig.formSchema
@@ -280,6 +344,29 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       setFieldErrors({})
     }
   }, [node, isOpen])
+
+  // Populate the Agent dropdown from the agent_orchestrator registry when an
+  // invokeAgent step is being edited. agent_orchestrator is an optional peer —
+  // when it is not installed the endpoint 404s and the list stays empty.
+  useEffect(() => {
+    if (!isOpen || node?.type !== 'invokeAgent') return
+    let cancelled = false
+    setAgentsLoading(true)
+    apiCall<{ items: AgentListItem[] }>('/api/agent_orchestrator/agents')
+      .then((res) => {
+        if (cancelled) return
+        setAgentOptions(res.ok && res.result?.items ? res.result.items : [])
+      })
+      .catch(() => {
+        if (!cancelled) setAgentOptions([])
+      })
+      .finally(() => {
+        if (!cancelled) setAgentsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, node?.type])
 
   const addFormField = () => {
     const newField: FormField = {
@@ -474,6 +561,40 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       updates.preConditions = preConditions.filter(pc => pc.ruleId && pc.ruleId.trim())
     }
 
+    // Invoke-agent step. Compiles to an AUTOMATED step (mapped in graph-utils)
+    // carrying ONE INVOKE_AGENT activity plus a signalConfig so the 02a
+    // step-handler can park-and-resume the human path. The activity lives on the
+    // STEP's activities (not a transition).
+    if (node.type === 'invokeAgent') {
+      const input = agentInputRows.reduce<Record<string, string>>((acc, row) => {
+        const key = row.key.trim()
+        if (key) acc[key] = row.value
+        return acc
+      }, {})
+
+      const onResult: InvokeAgentConfig['onResult'] =
+        agentResultMode === 'alwaysAsk'
+          ? { alwaysAsk: true }
+          : { autoApproveThreshold: Number.parseFloat(agentAutoApproveThreshold) || 0 }
+
+      const config: InvokeAgentConfig = {
+        agentId,
+        input,
+        onResult,
+      }
+
+      updates.agentId = agentId || undefined
+      updates.activities = [
+        {
+          activityId: 'invoke_agent',
+          activityName: t('workflows.nodeTypes.invokeAgent'),
+          activityType: 'INVOKE_AGENT',
+          config,
+        },
+      ]
+      updates.signalConfig = { signalName: INVOKE_AGENT_SIGNAL_NAME }
+    }
+
     // Merge advanced config
     if (advancedConfig && Object.keys(advancedConfig).length > 0) {
       Object.assign(updates, advancedConfig)
@@ -503,6 +624,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     subWorkflow: t('workflows.nodeTypes.subWorkflow'),
     parallelFork: t('workflows.nodeTypes.parallelFork'),
     parallelJoin: t('workflows.nodeTypes.parallelJoin'),
+    invokeAgent: t('workflows.nodeTypes.invokeAgent'),
   }[node.type || 'automated']
 
   // START nodes are partially editable (pre-conditions only), END nodes are not editable
@@ -1525,6 +1647,148 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         {t('workflows.activities.waitUntilDescription')}
                       </p>
                     )}
+                  </div>
+                </>
+              )}
+
+              {/* Invoke Agent Configuration */}
+              {node.type === 'invokeAgent' && (
+                <>
+                  <div className="border-t border-gray-200 pt-4 mt-4">
+                    <h3 className="text-sm font-semibold text-foreground mb-3">
+                      {t('workflows.nodeTypes.invokeAgent')}
+                    </h3>
+                  </div>
+
+                  {/* Agent */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t('workflows.form.invokeAgent.agent')} *
+                    </label>
+                    <Select value={agentId} onValueChange={setAgentId}>
+                      <SelectTrigger aria-busy={agentsLoading || undefined}>
+                        <SelectValue
+                          placeholder={
+                            agentsLoading
+                              ? t('common.loading')
+                              : t('workflows.form.invokeAgent.agentPlaceholder')
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {agentOptions.map((agent) => (
+                          <SelectItem key={agent.id} value={agent.id}>
+                            {agent.label || agent.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {t('workflows.form.invokeAgent.agentDescription')}
+                    </p>
+                  </div>
+
+                  {/* Input */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-sm font-medium text-gray-700">
+                        {t('workflows.form.invokeAgent.input')}
+                      </label>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setAgentInputRows([...agentInputRows, { key: '', value: '' }])}
+                      >
+                        <Plus className="size-3 mr-1" />
+                        {t('workflows.form.addMapping')}
+                      </Button>
+                    </div>
+                    <div className="space-y-2">
+                      {agentInputRows.map((row, index) => (
+                        <div key={index} className="flex gap-2 items-center">
+                          <Input
+                            type="text"
+                            value={row.key}
+                            onChange={(e) => {
+                              const updated = [...agentInputRows]
+                              updated[index] = { ...updated[index], key: e.target.value }
+                              setAgentInputRows(updated)
+                            }}
+                            placeholder={t('workflows.form.invokeAgent.inputKeyPlaceholder')}
+                            className="flex-1"
+                          />
+                          <span className="text-gray-400">=</span>
+                          <Input
+                            type="text"
+                            value={row.value}
+                            onChange={(e) => {
+                              const updated = [...agentInputRows]
+                              updated[index] = { ...updated[index], value: e.target.value }
+                              setAgentInputRows(updated)
+                            }}
+                            placeholder={t('workflows.form.invokeAgent.inputValuePlaceholder')}
+                            className="flex-1"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              setAgentInputRows(agentInputRows.filter((_, i) => i !== index))
+                            }
+                          >
+                            <Trash2 className="size-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {t('workflows.form.invokeAgent.inputDescription')}
+                    </p>
+                  </div>
+
+                  {/* On result */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {t('workflows.form.invokeAgent.onResult')}
+                    </label>
+                    <div className="space-y-3">
+                      <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input
+                          type="radio"
+                          name="invoke-agent-on-result"
+                          checked={agentResultMode === 'autoApprove'}
+                          onChange={() => setAgentResultMode('autoApprove')}
+                          className="h-4 w-4"
+                        />
+                        <span>{t('workflows.form.invokeAgent.autoApprove')}</span>
+                        <Input
+                          type="number"
+                          step="0.05"
+                          min="0"
+                          max="1"
+                          value={agentAutoApproveThreshold}
+                          onChange={(e) => setAgentAutoApproveThreshold(e.target.value)}
+                          onFocus={() => setAgentResultMode('autoApprove')}
+                          disabled={agentResultMode !== 'autoApprove'}
+                          className="w-24"
+                        />
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input
+                          type="radio"
+                          name="invoke-agent-on-result"
+                          checked={agentResultMode === 'alwaysAsk'}
+                          onChange={() => setAgentResultMode('alwaysAsk')}
+                          className="h-4 w-4"
+                        />
+                        <span>{t('workflows.form.invokeAgent.alwaysAsk')}</span>
+                      </label>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {t('workflows.form.invokeAgent.threshold')}
+                    </p>
                   </div>
                 </>
               )}
