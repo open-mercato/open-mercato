@@ -7,7 +7,7 @@ export const metadata: ModuleInfo = {
   version: '0.1.0',
   description: 'Configurable catalog for products, variants, and pricing used by the sales module.',
   author: 'Open Mercato Team',
-  license: 'Proprietary',
+  license: 'MIT',
   ejectable: true,
 }
 
