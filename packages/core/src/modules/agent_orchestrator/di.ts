@@ -11,20 +11,23 @@ export function register(container: AppContainer) {
   container.register({
     AgentRun: asValue(AgentRun),
     AgentProposal: asValue(AgentProposal),
-    agentRuntime: asFunction((cradle: { commandBus: CommandBus }) =>
+    // CLASSIC injection mode resolves deps by parameter name — destructure the
+    // real dependency names (not a `cradle` param) and use .proxy() so the
+    // cradle is passed and deps resolve lazily (matches sales/di.ts).
+    agentRuntime: asFunction(({ commandBus }: { commandBus: CommandBus }) =>
       new AgentRuntimeService({
         container,
-        commandBus: cradle.commandBus,
+        commandBus,
       }),
-    ).scoped(),
+    ).proxy().scoped(),
     dispositionService: asFunction(() => new DispositionServiceImpl(container)).scoped(),
     agentWorkflowBridge: asFunction(
-      (cradle: { agentRuntime: AgentRuntimeService; dispositionService: DispositionService }) =>
+      ({ agentRuntime, dispositionService }: { agentRuntime: AgentRuntimeService; dispositionService: DispositionService }) =>
         new AgentWorkflowBridgeService({
           container,
-          agentRuntime: cradle.agentRuntime,
-          dispositionService: cradle.dispositionService,
+          agentRuntime,
+          dispositionService,
         }),
-    ).scoped(),
+    ).proxy().scoped(),
   })
 }
