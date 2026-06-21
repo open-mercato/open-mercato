@@ -7,7 +7,12 @@ import {
   createPagedListResponseSchema,
 } from '../openapi'
 
-const ENTITY_TYPE = 'agent_orchestrator:proposal'
+// The entity-part must PascalCase to the MikroORM class name (`AgentProposal`)
+// so the query engine resolves it to the real table `agent_proposals` via ORM
+// metadata. `agent_orchestrator:proposal` would PascalCase to `Proposal` (no
+// such class) and fall back to pluralizing → `proposals` (does not exist).
+// Mirrors the runs route's `agent_orchestrator:agent_run` → `AgentRun`.
+const ENTITY_TYPE = 'agent_orchestrator:agent_proposal'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.proposals.view'] },
