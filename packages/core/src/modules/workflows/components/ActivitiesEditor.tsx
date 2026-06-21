@@ -44,6 +44,7 @@ const ACTIVITY_TYPES = [
   { value: 'CALL_WEBHOOK', label: 'Call Webhook' },
   { value: 'EXECUTE_FUNCTION', label: 'Execute Function' },
   { value: 'WAIT', label: 'Wait' },
+  { value: 'INVOKE_AGENT', label: 'Invoke Agent' },
 ]
 
 export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEditorProps) {

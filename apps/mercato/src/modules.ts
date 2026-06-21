@@ -100,6 +100,7 @@ export const enabledModules: ModuleEntry[] = [
   // (channel-slack, channel-whatsapp, future email providers) register adapters here.
   { id: 'communication_channels', from: '@open-mercato/core' },
   { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
+  { id: 'agent_orchestrator', from: '@open-mercato/core' },
   { id: 'translations', from: '@open-mercato/core' },
   { id: 'scheduler', from: '@open-mercato/scheduler' },
   { id: 'inbox_ops', from: '@open-mercato/core' },
