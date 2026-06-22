@@ -5,7 +5,7 @@ label: Support resolution playbook
 description: How to choose one resolution action from a ticket and its customer history.
 ---
 Use this playbook to pick the single best action for a support ticket, combining the ticket
-text with the history returned by `agent_examples.lookup_ticket_history`.
+text with the history returned by the `lookup_ticket_history` local tool.
 
 Actions you may propose:
 

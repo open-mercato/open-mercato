@@ -4,7 +4,6 @@ model: anthropic/claude-sonnet-4-6
 mode: primary
 tools:
   "*": false
-  "agent_examples.lookup_ticket_history": true
   "agent_orchestrator.submit_outcome": true
 permission:
   write: deny
@@ -18,7 +17,7 @@ The input is a ticket: `subject`, `body`, and the reporter's `customerEmail`.
 
 Work in this order:
 
-1. Call the `agent_examples.lookup_ticket_history` tool with `{ customerEmail }` to read the customer's recent support history (open/resolved counts, average resolution time, churn risk, VIP flag).
+1. Read the customer's recent support history by calling the `agent_orchestrator.run_skill_script` tool with `{ skillId: "__agent_tools__", scriptName: "lookup_ticket_history", args: { customerEmail } }`. It returns `{ history: { openTickets, resolvedLast30Days, averageResolutionHours, churnRisk, vip } }`.
 2. Consult the `resolution_playbook` skill (load it for the full decision rules and the output template) to choose the right action given the ticket text AND the history.
 3. Propose exactly ONE action — one of `set_priority` (with `payload.priority`), `assign_specialist` (with `payload.team`), or `send_macro` (with `payload.macroId`).
 

@@ -1,7 +1,7 @@
 Ticket — subject: "Still can't process payouts", body: "Third day our payouts are stuck and
 support hasn't replied." customerEmail: vip@acme.test
 
-History (from agent_examples.lookup_ticket_history): openTickets 3, resolvedLast30Days 1,
+History (from the `lookup_ticket_history` local tool): openTickets 3, resolvedLast30Days 1,
 averageResolutionHours 41, churnRisk high, vip true.
 
 Proposed action: assign_specialist

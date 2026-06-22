@@ -48,6 +48,14 @@ implementation contract) for the full design.
 - Never let a file-agent script or local tool touch fs/net, mutate domain state, or
   escape the `isolated-vm` sandbox. Local `tools/*.ts` are either `// @ref <defineAiTool id>`
   references (centrally ACL-gated) or sandboxed pure functions run via `run_skill_script`.
+- Never reference a `defineAiTool` id authored in an **app module** (`apps/mercato/src/modules/**`)
+  from a file-defined agent's `tools:`. The standalone MCP server (`mercato ai_assistant
+  mcp:serve-http`) loads the compiled `ai-tools.generated.mjs` via plain Node ESM, which cannot
+  import app-module TS source — and one failed import drops **all** module tools (the orchestrator
+  MCP tools included), so no file agent can call `submit_outcome`. Reference tools from **packages**
+  (built to dist) only, or use a **local sandboxed tool file** (`agents/<id>/tools/*.ts` run via
+  `run_skill_script`) — the example agent uses the latter. Verify with `mercato ai_assistant
+  mcp:list-tools` (expect the full set, not just 3 Code Mode tools).
 - Never let `agents/**/scripts/**` or `agents/**/tools/**` into a package/app's typed build.
   They are raw sandbox sources (read by the generator via `fs`, never imported/bundled), so
   the consuming `tsconfig.json` MUST `exclude` those globs (see `apps/mercato/tsconfig.json`)

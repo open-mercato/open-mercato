@@ -882,9 +882,16 @@ export function createAgentFilesExtension(): GeneratorExtension {
       // (Phase 4) may carry their own skills too, so flatten them in.
       const allAgents = sorted.flatMap((agent) => [agent, ...agent.subAgentsContent])
       const dockerSkillsDir = path.join(repoRoot, 'docker', 'opencode', 'skills')
+      // The synthetic `__agent_tools__` skill only carries an agent's local
+      // `tools/*.ts` sources (run via `run_skill_script`); it has no instructions
+      // and MUST NOT be emitted as a native OpenCode skill (OpenCode requires a
+      // non-empty `description`, and it is not a progressive-disclosure skill).
+      const isNativeSkill = (skill: { id: string }): boolean => skill.id !== AGENT_TOOLS_SKILL_ID
       const desiredSkillNames = new Set<string>()
       for (const agent of allAgents) {
-        for (const skill of agent.skillsContent) desiredSkillNames.add(skill.openCodeSkillName)
+        for (const skill of agent.skillsContent) {
+          if (isNativeSkill(skill)) desiredSkillNames.add(skill.openCodeSkillName)
+        }
       }
       if (desiredSkillNames.size > 0) fs.mkdirSync(dockerSkillsDir, { recursive: true })
       if (fs.existsSync(dockerSkillsDir)) {
@@ -897,6 +904,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
       const renderedSkillNames = new Set<string>()
       for (const agent of allAgents) {
         for (const skill of agent.skillsContent) {
+          if (!isNativeSkill(skill)) continue
           // A skill name may be shared across agents; the first rendering wins
           // (content is keyed by name, deterministic by sorted agent order).
           if (renderedSkillNames.has(skill.openCodeSkillName)) continue
