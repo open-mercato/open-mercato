@@ -7592,7 +7592,7 @@ __metadata:
     imapflow: "npm:^1.4.0"
     jest: "npm:^30.4.2"
     mailparser: "npm:^3.7.1"
-    nodemailer: "npm:^9.0.0"
+    nodemailer: "npm:^9.0.1"
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
     ts-jest: "npm:^29.4.11"

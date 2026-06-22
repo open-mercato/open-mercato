@@ -43,7 +43,8 @@
         "om-followup-issue-from-pr",
         "om-sync-merged-pr-issues",
         "om-auto-update-changelog",
-        "om-auto-qa-scenarios"
+        "om-auto-qa-scenarios",
+        "om-auto-verify-pr-ui"
       ]
     },
     "security": {

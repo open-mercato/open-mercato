@@ -1,6 +1,7 @@
 {
   "name": "@open-mercato/channel-imap",
   "version": "0.6.5",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -68,7 +69,7 @@
     "@types/nodemailer": "^8.0.1",
     "imapflow": "^1.4.0",
     "mailparser": "^3.7.1",
-    "nodemailer": "^9.0.0"
+    "nodemailer": "^9.0.1"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
