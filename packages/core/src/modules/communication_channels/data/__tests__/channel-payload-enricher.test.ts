@@ -10,7 +10,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { enrichers } = require('../enrichers') as typeof import('../enrichers')
 
-const PAYLOAD_ENRICHER_ID = 'communication_channels.message-channel-payload'
+const PAYLOAD_ENRICHER_ID = 'communication_channels.message-channel'
 
 function getPayloadEnricher(): ResponseEnricher {
   const enricher = enrichers.find((e) => e.id === PAYLOAD_ENRICHER_ID)

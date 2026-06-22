@@ -1,6 +1,6 @@
 'use client'
 
-import { Edge } from '@xyflow/react'
+import type { Edge } from '@xyflow/react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
 import { Badge } from '@open-mercato/ui/primitives/badge'
