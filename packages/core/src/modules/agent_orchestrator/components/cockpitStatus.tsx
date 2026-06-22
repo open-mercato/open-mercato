@@ -79,3 +79,31 @@ export function runStatusLabelKey(value: string | null | undefined): string {
   const match = value && (known as string[]).includes(value) ? value : 'running'
   return `agent_orchestrator.runStatus.${match}`
 }
+
+/**
+ * Display-only default confidence threshold for the proposal verdict hint.
+ * The real auto-approval gate is configured per workflow node
+ * (`onResult.autoApproveThreshold`, demo default 0.8) and lives in the
+ * disposition service — the card cannot know a given node's threshold, so it
+ * uses this standard value purely to label a proposal as "recommended for
+ * approval" vs "needs your input". It never drives an actual disposition.
+ */
+export const VERDICT_DISPLAY_THRESHOLD = 0.8
+
+export type ProposalVerdict = {
+  status: 'success' | 'warning'
+  labelKey: string
+}
+
+/**
+ * Confidence-driven verdict shown above a proposal. High confidence
+ * (≥ {@link VERDICT_DISPLAY_THRESHOLD}) reads as recommended for approval;
+ * a low or missing confidence reads as needing human input (fail-closed,
+ * matching the disposition gate's treatment of null confidence).
+ */
+export function proposalVerdict(confidence: number | null | undefined): ProposalVerdict {
+  if (typeof confidence === 'number' && confidence >= VERDICT_DISPLAY_THRESHOLD) {
+    return { status: 'success', labelKey: 'agent_orchestrator.proposal.verdict.approve' }
+  }
+  return { status: 'warning', labelKey: 'agent_orchestrator.proposal.verdict.ask' }
+}

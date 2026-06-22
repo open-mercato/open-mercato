@@ -40,6 +40,23 @@ export type AgentView = {
   skills: string[]
 }
 
+export type SkillDetailView = {
+  id: string
+  label: string
+  description: string
+  instructions: string
+  tools: string[]
+}
+
+export type AgentDetailView = AgentView & {
+  moduleId: string
+  instructions: string
+  defaultProvider: string | null
+  defaultModel: string | null
+  loopMaxSteps: number | null
+  skillDetails: SkillDetailView[]
+}
+
 function asString(value: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
@@ -97,6 +114,39 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
     resultKind,
     tools: Array.isArray(item.tools) ? item.tools.filter((tool): tool is string => typeof tool === 'string') : [],
     skills: Array.isArray(item.skills) ? item.skills.filter((skill): skill is string => typeof skill === 'string') : [],
+  }
+}
+
+export function mapAgentDetail(item: Record<string, unknown>): AgentDetailView | null {
+  const base = mapAgent(item)
+  if (!base) return null
+  const loop = item.loop && typeof item.loop === 'object' ? (item.loop as Record<string, unknown>) : null
+  const skillDetailsRaw = Array.isArray(item.skillDetails) ? item.skillDetails : []
+  const skillDetails = skillDetailsRaw
+    .map((raw): SkillDetailView | null => {
+      if (!raw || typeof raw !== 'object') return null
+      const entry = raw as Record<string, unknown>
+      const id = asString(entry.id)
+      if (!id) return null
+      return {
+        id,
+        label: asString(entry.label) ?? id,
+        description: asString(entry.description) ?? '',
+        instructions: asString(entry.instructions) ?? '',
+        tools: Array.isArray(entry.tools)
+          ? entry.tools.filter((tool): tool is string => typeof tool === 'string')
+          : [],
+      }
+    })
+    .filter((skill): skill is SkillDetailView => !!skill)
+  return {
+    ...base,
+    moduleId: asString(item.moduleId) ?? '',
+    instructions: asString(item.instructions) ?? '',
+    defaultProvider: asString(item.defaultProvider),
+    defaultModel: asString(item.defaultModel),
+    loopMaxSteps: loop ? asNumber(loop.maxSteps) : null,
+    skillDetails,
   }
 }
 

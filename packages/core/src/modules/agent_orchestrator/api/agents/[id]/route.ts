@@ -1,0 +1,90 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { getAgentEntry, ensureAgentsLoaded } from '../../../lib/sdk/defineAgent'
+import { getSkillEntry, ensureSkillsLoaded } from '../../../lib/sdk/defineSkill'
+
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
+}
+
+const skillDetailSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string(),
+  instructions: z.string(),
+  tools: z.array(z.string()),
+})
+
+const agentDetailSchema = z.object({
+  id: z.string(),
+  moduleId: z.string(),
+  resultKind: z.enum(['informative', 'actionable']),
+  tools: z.array(z.string()),
+  skills: z.array(z.string()),
+  skillDetails: z.array(skillDetailSchema),
+  label: z.string(),
+  description: z.string(),
+  instructions: z.string(),
+  defaultProvider: z.string().nullable(),
+  defaultModel: z.string().nullable(),
+  loop: z.object({ maxSteps: z.number().optional() }).nullable(),
+})
+
+const errorSchema = z.object({ error: z.string() })
+
+type RouteContext = { params: Promise<{ id: string }> }
+
+export async function GET(req: Request, ctx: RouteContext) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { id } = await ctx.params
+  await Promise.all([ensureAgentsLoaded(), ensureSkillsLoaded()])
+  const entry = getAgentEntry(id)
+  if (!entry) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
+  const skillDetails = entry.skills.map((skillId) => {
+    const skill = getSkillEntry(skillId)
+    return {
+      id: skillId,
+      label: skill?.label ?? skillId,
+      description: skill?.description ?? '',
+      instructions: skill?.instructions ?? '',
+      tools: skill?.tools ?? [],
+    }
+  })
+  return NextResponse.json({
+    id: entry.id,
+    moduleId: entry.moduleId,
+    resultKind: entry.resultKind,
+    tools: entry.tools,
+    skills: entry.skills,
+    skillDetails,
+    label: entry.label,
+    description: entry.description,
+    instructions: entry.instructions,
+    defaultProvider: entry.defaultProvider ?? null,
+    defaultModel: entry.defaultModel ?? null,
+    loop: entry.loop ?? null,
+  })
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Agent Orchestrator',
+  summary: 'Get agent definition',
+  methods: {
+    GET: {
+      summary: 'Get the full definition of a registered agent',
+      description:
+        'Returns the full in-module agent definition (id, module, result kind, tools, skills, instructions, provider/model, loop) for an agent declared via defineAgent. Gated by agent_orchestrator.agents.view.',
+      responses: [
+        { status: 200, description: 'Agent definition', schema: agentDetailSchema },
+      ],
+      errors: [
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 403, description: 'Missing agent_orchestrator.agents.view', schema: errorSchema },
+        { status: 404, description: 'Unknown agent id', schema: errorSchema },
+      ],
+    },
+  },
+}

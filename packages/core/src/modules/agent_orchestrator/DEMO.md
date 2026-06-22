@@ -80,7 +80,19 @@ The fastest way to test the agent on sample data. The agent runs in **object-mod
 }
 ```
 
-> **What this proves:** authoring (`defineAgent`) + the runtime (`agentRuntime.run` over `runAiAgentObject` object-mode) + the typed `AgentResult` (`actionable`) + propose-only (no tools). Each run also writes an `AgentRun` (+ `AgentProposal`) — see **Backend → Agent Orchestrator → Overview / Runs**.
+### Sample input 4 — read-only tool loop (fetch the deal by id)
+
+Instead of passing the deal inline, give the agent only a `dealId`. The agent calls the read-only `customers.get_deal` tool to fetch it, then proposes. Use a **real** `customers` deal id from your tenant:
+
+```json
+{
+  "dealId": "c6a05513-3536-4993-a754-57c28df48d9f"
+}
+```
+
+*Expect:* a normal `actionable` proposal — but this run exercised the tool loop (`runAiAgentObject({ enableTools })` → `generateText` + `experimental_output`). The agent could **read** the deal but cannot modify it (read-only policy strips every mutation tool). The tool runs under **your** ACL, so you need `customers.deals.view`.
+
+> **What this proves:** authoring (`defineAgent`) + the runtime (`agentRuntime.run` over `runAiAgentObject`) + the typed `AgentResult` (`actionable`) + propose-only. Samples 1–3 use object-mode (no tools); sample 4 uses the read-only tool loop. Each run also writes an `AgentRun` (+ `AgentProposal`) — see **Backend → Agent Orchestrator → Overview / Runs**.
 
 ---
 
@@ -102,7 +114,7 @@ In **Backend → Workflows → Definitions**, open *Deal Health Check (Agent)* a
 ```json
 {
   "deal": {
-    "id": "<a real customers deal id>",
+    "id": "c6a05513-3536-4993-a754-57c28df48d9f",
     "name": "Acme renewal",
     "stage": "Proposal",
     "value": 48000,
@@ -118,7 +130,7 @@ In **Backend → Workflows → Definitions**, open *Deal Health Check (Agent)* a
 ```json
 {
   "deal": {
-    "id": "<a real customers deal id>",
+    "id": "ce0641fa-03f8-44d0-9989-42eedcd4a73a",
     "name": "Globex expansion",
     "stage": "Qualification",
     "value": 120000,

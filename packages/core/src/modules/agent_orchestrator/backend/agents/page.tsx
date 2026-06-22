@@ -64,29 +64,40 @@ export default function AgentsRegistryPage() {
         ) : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
             {agents.map((agent) => (
-              <div key={agent.id} className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate font-mono text-sm font-medium">{agent.id}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t(`agent_orchestrator.agents.list.resultKind.${agent.resultKind}`)}
-                    </p>
-                  </div>
-                  <Tag variant="brand" dot>
-                    {t('agent_orchestrator.agents.list.marker')}
-                  </Tag>
-                </div>
-                {agent.description ? (
-                  <p className="text-sm text-muted-foreground">{agent.description}</p>
-                ) : null}
-                <div className="flex flex-wrap gap-1">
-                  {agent.tools.map((tool) => (
-                    <Tag key={tool} variant="neutral">
-                      {tool}
+              <div
+                key={agent.id}
+                className="flex flex-col gap-3 rounded-lg border border-border bg-card transition-colors hover:border-brand-violet/40 hover:bg-accent/30"
+              >
+                <Link
+                  href={`/backend/agents/${encodeURIComponent(agent.id)}`}
+                  className="flex flex-1 flex-col gap-3 rounded-t-lg p-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={t('agent_orchestrator.agents.list.viewDefinition', undefined, { agent: agent.id })}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-mono text-sm font-medium">{agent.id}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {t(`agent_orchestrator.agents.list.resultKind.${agent.resultKind}`)}
+                      </p>
+                    </div>
+                    <Tag variant="brand" dot>
+                      {t('agent_orchestrator.agents.list.marker')}
                     </Tag>
-                  ))}
-                </div>
-                <div className="mt-auto pt-2">
+                  </div>
+                  {agent.description ? (
+                    <p className="text-sm text-muted-foreground">{agent.description}</p>
+                  ) : null}
+                  {agent.tools.length ? (
+                    <div className="flex flex-wrap gap-1">
+                      {agent.tools.map((tool) => (
+                        <Tag key={tool} variant="neutral">
+                          {tool}
+                        </Tag>
+                      ))}
+                    </div>
+                  ) : null}
+                </Link>
+                <div className="mt-auto px-4 pb-4">
                   <Button asChild variant="outline" size="sm">
                     <Link href={`/backend/playground?agent=${encodeURIComponent(agent.id)}`}>
                       {t('agent_orchestrator.agents.list.openPlayground')}
