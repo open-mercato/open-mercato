@@ -468,6 +468,19 @@ build-time vs tenant-agent paths may use different delivery models.
   (§14.3) and tenant-agent (§14.4) options pending choice.
 - 2026-06-22 — Resolved §14.3 (A dev + B prod) and §14.4 (A for v1). Added §17
   pre-implementation readiness.
+- 2026-06-22 — Phases 0-5 implemented on branch `feat/opencode-file-defined-agents`
+  (companion findings + locked contract: `…-phase0-findings.md`). Phase 1 authoring
+  + generation (`outcomeSchema`/`agentMarkdown`/`defineFileAgent`, `runtime` registry
+  field, committed manifest, generator + `docker/opencode/agents/`); Phase 2 run bridge
+  (`submit_outcome` MCP tool, `OpenCodeAgentRunner`, dispatch, per-run session token);
+  Phase 3 skills (native SKILL.md + `load_skill` fallback, skill→tool union); Phase 4
+  sub-agents (`mode: subagent`, depth cap 1, additive `agent_runs.parent_run_id`);
+  Phase 5 sandboxed scripts + local tool files (`run_skill_script` via the isolated-vm
+  sandbox) + docs (`agent_orchestrator/AGENTS.md`). Adjustments vs. spec recorded in the
+  findings note: propose-only is enforced by the read-only allowlist + session-token ACL
+  (the MCP server does NOT strip mutation tools); OUTCOME compiles to Zod (no ajv);
+  container path is `/home/opencode/.config/opencode/`; OpenCode image version must be
+  pinned + verified. Not yet moved to `implemented/` (pending deployment evidence).
 
 ## 17. Pre-implementation readiness
 

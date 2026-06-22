@@ -16,6 +16,14 @@ export { registerFileAgent } from './defineAgent'
  * persisted to the committed manifest and returned by the `load_skill` MCP tool
  * at runtime without fs access.
  */
+/** One sandboxed skill/tool script carried as plain data (Phase 5). */
+export type LoadedScript = {
+  /** Script basename without extension (`scripts/score.ts` → `score`). */
+  name: string
+  /** Raw TS/JS source, run server-side in the Code Mode sandbox. */
+  source: string
+}
+
 export type LoadedSkillContent = {
   /** Skill id (frontmatter `id` or, when absent, the skill dir name). */
   id: string
@@ -27,6 +35,13 @@ export type LoadedSkillContent = {
   examples: string[]
   /** Read-only tool ids the skill contributes to the agent allowlist. */
   tools: string[]
+  /**
+   * Optional sandboxed helper scripts (`scripts/*.ts`), Phase 5. Carried as
+   * plain `{ name, source }` data (NOT copied to the OpenCode container); the
+   * agent runs them via the `run_skill_script` MCP tool, server-side in the
+   * Code Mode `isolated-vm` sandbox (no fs/net, 30s cap, per-call ACL).
+   */
+  scripts: LoadedScript[]
 }
 
 export type LoadedFileAgent = {
@@ -188,11 +203,34 @@ function renderOpenCodeAgentFile(args: {
 }
 
 /**
+ * Read sandboxed scripts from a `scripts/` dir (`scripts/*.ts` / `*.js`), Phase 5.
+ * Each file's basename (without extension) becomes the script `name`; the raw
+ * source is carried as plain data (run server-side in the sandbox, never copied
+ * to the container). Ordered by filename for determinism. Returns [] when the
+ * dir is absent.
+ */
+function loadScriptsDir(scriptsDir: string): LoadedScript[] {
+  if (!fs.existsSync(scriptsDir) || !fs.statSync(scriptsDir).isDirectory()) return []
+  const scripts: LoadedScript[] = []
+  const files = fs
+    .readdirSync(scriptsDir)
+    .filter((name) => name.endsWith('.ts') || name.endsWith('.js'))
+    .sort((a, b) => a.localeCompare(b))
+  for (const file of files) {
+    const source = fs.readFileSync(path.join(scriptsDir, file), 'utf8')
+    scripts.push({ name: file.replace(/\.(ts|js)$/, ''), source })
+  }
+  return scripts
+}
+
+/**
  * Read one agent-local skill dir `agents/<id>/skills/<skill_id>/`:
  *  - `SKILL.md` (required; parsed with `parseAgentLocalSkillMarkdown`, moduleId
  *    tolerated/absent, id defaulting to the dir name),
  *  - optional `TEMPLATE.md`,
- *  - optional `examples/*.md` (ordered by filename).
+ *  - optional `examples/*.md` (ordered by filename),
+ *  - optional `scripts/*.ts` (Phase 5; carried as plain source for sandboxed
+ *    execution via `run_skill_script`).
  *
  * Returns null when SKILL.md is missing or has no parseable frontmatter.
  */
@@ -227,8 +265,59 @@ function loadSkillDir(skillDir: string): LoadedSkillContent | null {
     template,
     examples,
     tools: parsed.tools,
+    scripts: loadScriptsDir(path.join(skillDir, 'scripts')),
   }
 }
+
+/**
+ * Load `agents/<id>/tools/*.ts` local tool files (Phase 5). Honors §7.4's v1
+ * guidance with TWO clearly-separated forms, both propose-only-safe:
+ *
+ *  1. REFERENCE form (preferred): a file whose first line is a directive
+ *     `// @ref <defineAiTool id>` (or `// @ref: <id>`). The id is unioned into
+ *     the agent's `tools` allowlist exactly like a CLAUDE.md `tools:` entry, so
+ *     it flows through the SAME central ACL + propose-only mutation gate (a
+ *     referenced `isMutation:true` tool is rejected at load by `defineAgent`'s
+ *     gate). Recommended — no new execution surface.
+ *  2. LOCAL SANDBOXED form: any other `tools/*.ts` file is carried as a script
+ *     (`{ name, source }`) registered under the synthetic skill id
+ *     `__agent_tools__` and executed through the SAME `isolated-vm` sandbox as
+ *     skill scripts via `run_skill_script` (skillId `__agent_tools__`). It can
+ *     never touch fs/net/mutation or escape the sandbox, and is `isMutation:false`
+ *     at the MCP boundary — so propose-only holds without generating an
+ *     unsandboxed native `.opencode/tool/` file that would bypass the MCP ACL gate.
+ *
+ * Returns `{ refs, scripts }`: `refs` union into the allowlist; `scripts` carry
+ * local sandboxed tool sources.
+ */
+const TOOL_REF_RE = /^\s*\/\/\s*@ref:?\s+(\S+)/
+
+function loadToolFiles(agentDir: string): { refs: string[]; scripts: LoadedScript[] } {
+  const toolsBase = path.join(agentDir, 'tools')
+  if (!fs.existsSync(toolsBase) || !fs.statSync(toolsBase).isDirectory()) {
+    return { refs: [], scripts: [] }
+  }
+  const refs: string[] = []
+  const scripts: LoadedScript[] = []
+  const files = fs
+    .readdirSync(toolsBase)
+    .filter((name) => name.endsWith('.ts') || name.endsWith('.js'))
+    .sort((a, b) => a.localeCompare(b))
+  for (const file of files) {
+    const source = fs.readFileSync(path.join(toolsBase, file), 'utf8')
+    const firstLine = source.split('\n', 1)[0] ?? ''
+    const refMatch = TOOL_REF_RE.exec(firstLine)
+    if (refMatch) {
+      refs.push(refMatch[1])
+      continue
+    }
+    scripts.push({ name: file.replace(/\.(ts|js)$/, ''), source })
+  }
+  return { refs, scripts }
+}
+
+/** Synthetic skill id under which an agent's LOCAL sandboxed tool files register. */
+export const AGENT_TOOLS_SKILL_ID = '__agent_tools__'
 
 /**
  * Resolve the agent-local skills referenced by CLAUDE.md `skills:`. For each id
@@ -412,7 +501,20 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
   // mirroring how the in-process `defineAgent` unions skill tools.
   const skillsContent = loadAgentSkills(dir, agent.skills)
   const skillTools = skillsContent.flatMap((skill) => skill.tools)
-  const effectiveTools = Array.from(new Set([...agent.tools, ...skillTools]))
+
+  // Phase 5: load `tools/*.ts` local tool files. Reference-form ids union into the
+  // allowlist (flow through the central ACL + propose-only gate); local sandboxed
+  // tool sources are carried under the synthetic `__agent_tools__` skill, run via
+  // `run_skill_script` in the same sandbox as skill scripts.
+  const toolFiles = loadToolFiles(dir)
+  const effectiveSkillsContent =
+    toolFiles.scripts.length > 0
+      ? [
+          ...skillsContent,
+          { id: AGENT_TOOLS_SKILL_ID, instructions: '', examples: [], tools: [], scripts: toolFiles.scripts },
+        ]
+      : skillsContent
+  const effectiveTools = Array.from(new Set([...agent.tools, ...skillTools, ...toolFiles.refs]))
 
   // Phase 4: load sub-agent dirs (constraints enforced — throws on violation).
   const subAgents = loadSubAgents(dir)
@@ -452,7 +554,7 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
     resultKind: outcome.kind,
     openCodeAgentFile,
     openCodeAgentName,
-    skillsContent,
+    skillsContent: effectiveSkillsContent,
     subAgents,
   }
 }

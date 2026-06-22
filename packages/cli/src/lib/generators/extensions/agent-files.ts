@@ -31,6 +31,12 @@ import { resolveStandaloneSourceMirrorBase } from '../scanner'
  * tools into the agent allowlist (manifest + docker agent-file `tools` block).
  */
 
+/** One sandboxed script carried as plain data (Phase 5). */
+type DiscoveredScript = {
+  name: string
+  source: string
+}
+
 type DiscoveredSkill = {
   /** Skill id: frontmatter `id` or, when absent, the skill dir name. */
   id: string
@@ -39,6 +45,8 @@ type DiscoveredSkill = {
   template?: string
   examples: string[]
   tools: string[]
+  /** Sandboxed helper scripts (`scripts/*.ts`), Phase 5. */
+  scripts: DiscoveredScript[]
   /** OpenCode native skill name (sanitized to ^[a-z0-9]+(-[a-z0-9]+)*$). */
   openCodeSkillName: string
 }
@@ -272,6 +280,78 @@ function listExampleBodies(skillDir: string): string[] {
 }
 
 /**
+ * Basic parse validation of a script source (Phase 5). The script runs in the
+ * `isolated-vm` sandbox server-side (never copied to the container), so we only
+ * cheaply assert it defines a `run` function — a missing `run` would fail at
+ * runtime, so we fail generation early naming the file. We do NOT execute it.
+ */
+function validateScriptSource(file: string, source: string): void {
+  const definesRun = /(^|\b)(async\s+)?function\s+run\b/.test(source) || /\brun\s*=/.test(source)
+  if (!definesRun) {
+    throw new Error(
+      `[internal] malformed agent script at ${file}: must define a \`run(args)\` function`,
+    )
+  }
+}
+
+/**
+ * Read sandboxed scripts from a `scripts/` dir (`*.ts` / `*.js`), Phase 5. Each
+ * file's basename (no extension) is the script name; the raw source is carried
+ * as plain data. Validates each parses (basic). Ordered by filename.
+ */
+function listScripts(scriptsDir: string): DiscoveredScript[] {
+  if (!fs.existsSync(scriptsDir) || !fs.statSync(scriptsDir).isDirectory()) return []
+  const scripts: DiscoveredScript[] = []
+  for (const name of fs
+    .readdirSync(scriptsDir)
+    .filter((entry) => entry.endsWith('.ts') || entry.endsWith('.js'))
+    .sort((a, b) => a.localeCompare(b))) {
+    const file = path.join(scriptsDir, name)
+    const source = fs.readFileSync(file, 'utf8')
+    validateScriptSource(file, source)
+    scripts.push({ name: name.replace(/\.(ts|js)$/, ''), source })
+  }
+  return scripts
+}
+
+/** Synthetic skill id under which an agent's LOCAL sandboxed tool files register. */
+const AGENT_TOOLS_SKILL_ID = '__agent_tools__'
+const TOOL_REF_RE = /^\s*\/\/\s*@ref:?\s+(\S+)/
+
+/**
+ * Discover `agents/<id>/tools/*.ts` local tool files (Phase 5). Reference-form
+ * files (first line `// @ref <defineAiTool id>`) contribute the id to `refs`
+ * (unioned into the allowlist, flows through the central ACL + propose-only
+ * gate). Any other file is a LOCAL sandboxed tool: carried as a script run via
+ * `run_skill_script` under the synthetic `__agent_tools__` skill. Must stay in
+ * sync with `lib/sdk/defineFileAgent.ts` `loadToolFiles`.
+ */
+function discoverToolFiles(agentDir: string): { refs: string[]; scripts: DiscoveredScript[] } {
+  const toolsBase = path.join(agentDir, 'tools')
+  if (!fs.existsSync(toolsBase) || !fs.statSync(toolsBase).isDirectory()) {
+    return { refs: [], scripts: [] }
+  }
+  const refs: string[] = []
+  const scripts: DiscoveredScript[] = []
+  for (const name of fs
+    .readdirSync(toolsBase)
+    .filter((entry) => entry.endsWith('.ts') || entry.endsWith('.js'))
+    .sort((a, b) => a.localeCompare(b))) {
+    const file = path.join(toolsBase, name)
+    const source = fs.readFileSync(file, 'utf8')
+    const firstLine = source.split('\n', 1)[0] ?? ''
+    const refMatch = TOOL_REF_RE.exec(firstLine)
+    if (refMatch) {
+      refs.push(refMatch[1])
+      continue
+    }
+    validateScriptSource(file, source)
+    scripts.push({ name: name.replace(/\.(ts|js)$/, ''), source })
+  }
+  return { refs, scripts }
+}
+
+/**
  * Discover the agent's referenced skills under `agents/<id>/skills/<skill_id>/`.
  * For each id in CLAUDE.md `skills:` we look up the matching dir (by frontmatter
  * id or dir name). FAILS generation when a referenced SKILL.md is malformed
@@ -305,6 +385,7 @@ function discoverAgentSkills(agentDir: string, skillIds: string[]): DiscoveredSk
       template,
       examples: listExampleBodies(skillDir),
       tools: parsed.meta.tools,
+      scripts: listScripts(path.join(skillDir, 'scripts')),
       openCodeSkillName: sanitizeSkillName(id),
     })
   }
@@ -359,7 +440,25 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
     }
     const skillsContent = discoverAgentSkills(dir, agent.skills)
     const skillTools = skillsContent.flatMap((skill) => skill.tools)
-    const effectiveTools = Array.from(new Set([...agent.tools, ...skillTools]))
+    const toolFiles = discoverToolFiles(dir)
+    const effectiveSkillsContent =
+      toolFiles.scripts.length > 0
+        ? [
+            ...skillsContent,
+            {
+              id: AGENT_TOOLS_SKILL_ID,
+              description: '',
+              instructions: '',
+              examples: [],
+              tools: [],
+              scripts: toolFiles.scripts,
+              openCodeSkillName: sanitizeSkillName(AGENT_TOOLS_SKILL_ID),
+            },
+          ]
+        : skillsContent
+    const effectiveTools = Array.from(
+      new Set([...agent.tools, ...skillTools, ...toolFiles.refs]),
+    )
     subAgents.push({
       moduleId: '',
       dir,
@@ -373,7 +472,7 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
       skills: agent.skills,
       subAgents: [],
       openCodeAgentName: sanitizeAgentName(agent.id!),
-      skillsContent,
+      skillsContent: effectiveSkillsContent,
       subAgentsContent: [],
       mode: 'subagent',
       maxSteps: agent.maxSteps,
@@ -502,6 +601,7 @@ function renderDescriptor(agent: DiscoveredAgent, indent: string): string {
     ...(skill.template != null ? { template: skill.template } : {}),
     examples: skill.examples,
     tools: skill.tools,
+    ...(skill.scripts.length > 0 ? { scripts: skill.scripts } : {}),
   }))
   return [
     `${indent}{`,
@@ -537,12 +637,24 @@ function renderManifest(agents: DiscoveredAgent[]): string {
 // Regenerate with \`yarn generate\`.
 import type { JsonSchemaNode, OutcomeKind } from '../lib/sdk/outcomeSchema'
 
+export type FileAgentScript = {
+  name: string
+  source: string
+}
+
 export type FileAgentSkillContent = {
   id: string
   instructions: string
   template?: string
   examples: string[]
   tools: string[]
+  /**
+   * Sandboxed helper scripts (Phase 5). Carried as plain source; run server-side
+   * in the Code Mode \`isolated-vm\` sandbox via the \`run_skill_script\` MCP tool.
+   * Never copied to the OpenCode container. The synthetic skill id
+   * \`__agent_tools__\` carries an agent's LOCAL \`tools/*.ts\` sources.
+   */
+  scripts?: FileAgentScript[]
 }
 
 export type FileAgentDescriptor = {
@@ -607,7 +719,27 @@ export function createAgentFilesExtension(): GeneratorExtension {
       // the agent allowlist (deduped), matching the loader.
       const skillsContent = discoverAgentSkills(dir, agent.skills)
       const skillTools = skillsContent.flatMap((skill) => skill.tools)
-      const effectiveTools = Array.from(new Set([...agent.tools, ...skillTools]))
+      // Phase 5: local tool files — reference ids union into the allowlist; local
+      // sandboxed tool sources register under the synthetic `__agent_tools__` skill.
+      const toolFiles = discoverToolFiles(dir)
+      const effectiveSkillsContent =
+        toolFiles.scripts.length > 0
+          ? [
+              ...skillsContent,
+              {
+                id: AGENT_TOOLS_SKILL_ID,
+                description: '',
+                instructions: '',
+                examples: [],
+                tools: [],
+                scripts: toolFiles.scripts,
+                openCodeSkillName: sanitizeSkillName(AGENT_TOOLS_SKILL_ID),
+              },
+            ]
+          : skillsContent
+      const effectiveTools = Array.from(
+        new Set([...agent.tools, ...skillTools, ...toolFiles.refs]),
+      )
       // Phase 4: discover + validate sub-agents (throws on a malformed/actionable/
       // self-delegating sub-agent).
       const subAgentsContent = discoverSubAgents(dir)
@@ -624,7 +756,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
         skills: agent.skills,
         subAgents: agent.subAgents,
         openCodeAgentName: sanitizeAgentName(agent.id!),
-        skillsContent,
+        skillsContent: effectiveSkillsContent,
         subAgentsContent,
         mode: 'primary',
         maxSteps: agent.maxSteps,

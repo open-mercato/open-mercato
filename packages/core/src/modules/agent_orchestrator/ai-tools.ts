@@ -4,7 +4,8 @@ import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_ass
 import { DELEGATE_TOOL_ID, getAgentEntry, ensureAgentsLoaded } from './lib/sdk/defineAgent'
 import type { AgentRuntimeService } from './lib/runtime/agentRuntime'
 import * as openCodeRunRegistry from './lib/runtime/openCodeRunRegistry'
-import { getAgentSkill } from './lib/runtime/fileAgentSkills'
+import { getAgentSkill, getAgentSkillScript } from './lib/runtime/fileAgentSkills'
+import { runSandboxedScript } from './lib/runtime/sandboxedScript'
 import { getCurrentRunId } from './lib/runtime/runContext'
 
 /** Tool id of the OUTCOME-submission tool an OpenCode file-agent finishes with. */
@@ -12,6 +13,9 @@ export const SUBMIT_OUTCOME_TOOL_ID = 'agent_orchestrator.submit_outcome'
 
 /** Tool id of the skill progressive-disclosure fallback (native skills preferred). */
 export const LOAD_SKILL_TOOL_ID = 'agent_orchestrator.load_skill'
+
+/** Tool id of the sandboxed skill-script / local-tool runner (Phase 5). */
+export const RUN_SKILL_SCRIPT_TOOL_ID = 'agent_orchestrator.run_skill_script'
 
 const delegateInput = z.object({
   agentId: z.string().min(1).describe('Id of the sub-agent to run (must be an informative agent).'),
@@ -208,6 +212,77 @@ const loadSkillTool: AiToolDefinition = {
   },
 }
 
-export const aiTools: AiToolDefinition[] = [delegateAgentTool, submitOutcomeTool, loadSkillTool]
+const runSkillScriptInput = z.object({
+  skillId: z
+    .string()
+    .min(1)
+    .describe('Id of the skill the script belongs to (one of the current agent skills).'),
+  scriptName: z
+    .string()
+    .min(1)
+    .describe('Script basename without extension (e.g. `scripts/score.ts` → "score").'),
+  args: z.unknown().optional().describe('Arguments passed to the script `run(args)` function.'),
+})
+
+/**
+ * Run one of the active agent's sandboxed helper scripts (Phase 5) — a skill
+ * `scripts/<name>.ts` or a local tool file (carried under the synthetic
+ * `__agent_tools__` skill id) — and return its value.
+ *
+ * The active agent + its allowed skill/script set are resolved server-side from
+ * the per-run correlation store (`ctx.sessionId`) — NEVER trusted from the model.
+ * The script source runs in the Code Mode `isolated-vm` sandbox: no fs/net/
+ * imports, a hard 30s cap, and per-call ACL via `requiredFeatures` + the session
+ * token. A script is a pure function of its `args`, so this stays propose-only —
+ * it can compute, not mutate. Errors are returned as data, never thrown.
+ */
+const runSkillScriptTool: AiToolDefinition = {
+  name: RUN_SKILL_SCRIPT_TOOL_ID,
+  displayName: 'Run agent skill script',
+  description:
+    'Run one of the current agent sandboxed helper scripts by skill id + script name and return its result. Scripts are pure functions of their args (no fs/net/side effects) executed in a sandbox.',
+  inputSchema: runSkillScriptInput,
+  requiredFeatures: ['agent_orchestrator.agents.run'],
+  isMutation: false,
+  tags: ['read', 'agent_orchestrator'],
+  async handler(rawInput, ctx) {
+    const { skillId, scriptName, args } = runSkillScriptInput.parse(rawInput)
+    const correlationKey = ctx.sessionId
+    if (!correlationKey) {
+      return { ok: false as const, code: 'no_active_run' as const, error: 'no run session in context' }
+    }
+    const run = openCodeRunRegistry.get(correlationKey)
+    if (!run) {
+      return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this session' }
+    }
+    if (!getAgentSkill(run.agentId, skillId)) {
+      return {
+        ok: false as const,
+        code: 'skill_not_allowed' as const,
+        error: `skill "${skillId}" is not available to the active agent`,
+      }
+    }
+    const script = getAgentSkillScript(run.agentId, skillId, scriptName)
+    if (!script) {
+      return {
+        ok: false as const,
+        code: 'script_not_found' as const,
+        error: `script "${scriptName}" not found in skill "${skillId}"`,
+      }
+    }
+    const outcome = await runSandboxedScript({ source: script.source, args })
+    if (!outcome.ok) {
+      return { ok: false as const, code: outcome.code, error: outcome.error }
+    }
+    return { ok: true as const, result: outcome.result }
+  },
+}
+
+export const aiTools: AiToolDefinition[] = [
+  delegateAgentTool,
+  submitOutcomeTool,
+  loadSkillTool,
+  runSkillScriptTool,
+]
 
 export default aiTools
