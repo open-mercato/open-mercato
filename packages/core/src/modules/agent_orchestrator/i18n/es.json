@@ -1,0 +1,291 @@
+{
+  "agent_orchestrator": {
+    "title": "Orquestador de agentes",
+    "nav": {
+      "group": "Agentes",
+      "caseload": "Carga de casos",
+      "overview": "Resumen",
+      "agents": "Agentes",
+      "playground": "Entorno de pruebas"
+    },
+    "agents": {
+      "title": "Agentes",
+      "run": "Ejecutar",
+      "list": {
+        "title": "Registro de agentes",
+        "empty": "Aún no hay agentes registrados.",
+        "emptyDescription": "Los agentes declarados mediante defineAgent aparecen aquí cuando se carga el módulo.",
+        "marker": "agente",
+        "columns": {
+          "id": "Agente",
+          "resultKind": "Tipo de resultado",
+          "tools": "Herramientas",
+          "skills": "Habilidades"
+        },
+        "openPlayground": "Abrir en el entorno de pruebas",
+        "viewDefinition": "Ver la definición de {agent}",
+        "error": "No se pudieron cargar los agentes.",
+        "resultKind": {
+          "informative": "Informativo",
+          "actionable": "Accionable"
+        },
+        "col": {
+          "agent": "Agente",
+          "type": "Tipo",
+          "autonomy": "Autonomía",
+          "runs": "Ejecuciones",
+          "evalPass": "Aprob. de eval.",
+          "override": "Anulaciones",
+          "cost": "Coste / ejecución",
+          "status": "Estado"
+        },
+        "autonomy": {
+          "auto": "Auto",
+          "review": "Revisión",
+          "gated": "Con aprobación"
+        },
+        "status": {
+          "good": "Bueno",
+          "watch": "Atención",
+          "poor": "Deficiente",
+          "new": "Nuevo"
+        },
+        "pending": {
+          "backend": "Requiere backend",
+          "noData": "Sin datos"
+        },
+        "actions": {
+          "view": "Ver"
+        }
+      },
+      "kpi": {
+        "active": "Agentes activos",
+        "activeSub": "{gated} con aprobación, {review} en revisión",
+        "avgEval": "Aprob. eval. media",
+        "avgOverride": "Anulaciones medias",
+        "spend": "Gasto (7 d)"
+      },
+      "filter": {
+        "all": "Todos",
+        "auto": "Auto",
+        "review": "Revisión",
+        "gated": "Con aprobación",
+        "attention": "Requiere atención"
+      },
+      "actions": {
+        "filters": "Filtros",
+        "export": "Exportar"
+      }
+    },
+    "agentDetail": {
+      "title": "Agente",
+      "back": "Volver a agentes",
+      "error": "No se pudo cargar la definición del agente.",
+      "notFound": "Agente no encontrado",
+      "notFoundDescription": "Este agente no está registrado o el módulo que lo declara no está cargado.",
+      "forbidden": "Acceso denegado",
+      "forbiddenDescription": "No tienes permiso para ver esta definición de agente.",
+      "defaultValue": "Predeterminado",
+      "noTools": "Este agente no declara herramientas: razona sobre la entrada que recibe. Añade herramientas de solo lectura para que pueda recopilar datos antes de proponer.",
+      "noSkills": "Este agente no declara habilidades. Las habilidades agrupan instrucciones reutilizables y herramientas de solo lectura que un agente puede ejecutar.",
+      "skillTools": "Herramientas",
+      "viewSkill": "Ver la habilidad {skill}",
+      "fields": {
+        "label": "Etiqueta",
+        "module": "Módulo",
+        "provider": "Proveedor",
+        "model": "Modelo",
+        "maxSteps": "Pasos máx.",
+        "tools": "Herramientas",
+        "skills": "Habilidades",
+        "instructions": "Instrucciones"
+      }
+    },
+    "runs": {
+      "title": "Ejecuciones",
+      "error": "No se pudo cargar la ejecución."
+    },
+    "overview": {
+      "title": "Resumen",
+      "error": "No se pudo cargar el resumen.",
+      "empty": "Aún no hay actividad de agentes.",
+      "emptyDescription": "Ejecuta un agente o espera a que un flujo de trabajo invoque uno: los recuentos aparecerán aquí.",
+      "tiles": {
+        "autoCompleted": "Completado automáticamente",
+        "autoCompletedMeta": "de todas las decisiones",
+        "needsDecision": "Necesita una decisión",
+        "needsDecisionMeta": "propuestas pendientes",
+        "queueDepth": "Profundidad de la cola",
+        "queueDepthMeta": "pasos de agente aparcados",
+        "totalRuns": "Ejecuciones totales",
+        "totalRunsMeta": "invocaciones de agentes"
+      },
+      "needsAttention": {
+        "title": "Necesita atención",
+        "empty": "Nada necesita tu atención ahora mismo."
+      }
+    },
+    "caseload": {
+      "title": "Carga de casos",
+      "subtitle": "Propuestas de agentes pendientes a la espera de tu decisión.",
+      "error": "No se pudo cargar la carga de casos.",
+      "empty": "Tu carga de casos está vacía.",
+      "emptyDescription": "No hay propuestas esperando una decisión.",
+      "refresh": "Actualizar",
+      "verb": {
+        "decide": "Decidir",
+        "answer": "Responder",
+        "do": "Hacer",
+        "know": "Saber"
+      },
+      "tiles": {
+        "needsYou": "Te necesita",
+        "waiting": "Esperando",
+        "running": "En ejecución",
+        "closed": "Cerrado"
+      },
+      "filters": {
+        "needsYou": "Te necesita",
+        "waiting": "Esperando",
+        "all": "Todas"
+      },
+      "row": {
+        "confidence": "Confianza",
+        "process": "Proceso",
+        "open": "Abrir propuesta"
+      }
+    },
+    "proposal": {
+      "title": "Propuesta",
+      "backToCaseload": "Volver a la carga de casos",
+      "notFound": "Propuesta no encontrada",
+      "notFoundDescription": "Esta propuesta no existe, ha sido eliminada o pertenece a otro inquilino.",
+      "error": "No se pudo cargar la propuesta.",
+      "proposes": "{agent} propone",
+      "confidence": "Confianza",
+      "verdict": {
+        "approve": "Recomendada para aprobación",
+        "ask": "Necesita tu opinión"
+      },
+      "actionsHeading": "Acciones propuestas",
+      "factorsHeading": "Por qué",
+      "ioHeading": "Inspeccionar ejecución",
+      "io": {
+        "input": "Entrada",
+        "output": "Salida",
+        "tools": "Herramientas usadas"
+      },
+      "gate": "Esta decisión está reservada a una persona. Aprueba para que el flujo de trabajo se reanude, edita la carga útil antes de ejecutar o rechaza con un motivo.",
+      "actions": {
+        "approve": "Aprobar",
+        "edit": "Editar",
+        "reject": "Rechazar",
+        "cancelEdit": "Cancelar",
+        "saveEdit": "Guardar y aprobar"
+      },
+      "edit": {
+        "heading": "Editar carga útil",
+        "payloadLabel": "Carga útil editada (JSON)",
+        "reasonLabel": "Motivo",
+        "reasonPlaceholder": "¿Por qué editas esta propuesta?",
+        "invalidJson": "La carga útil editada debe ser un JSON válido."
+      },
+      "reject": {
+        "heading": "Rechazar propuesta",
+        "reasonLabel": "Motivo",
+        "reasonPlaceholder": "¿Por qué rechazas esta propuesta?",
+        "confirm": "Rechazar propuesta",
+        "reasonRequired": "Se requiere un motivo para rechazar una propuesta."
+      },
+      "flash": {
+        "blocked": "Acción bloqueada por la validación.",
+        "approved": "Propuesta aprobada.",
+        "edited": "Propuesta editada y aprobada.",
+        "rejected": "Propuesta rechazada.",
+        "error": "No se pudo resolver la propuesta."
+      },
+      "drawer": {
+        "title": "E/S del agente",
+        "agentLane": "Agente · propone",
+        "systemLane": "Sistema · ejecución",
+        "rawOutput": "Salida sin procesar",
+        "noInput": "No se registró ninguna entrada.",
+        "noOutput": "No se registró ninguna salida.",
+        "noTools": "No se usaron herramientas.",
+        "close": "Cerrar"
+      }
+    },
+    "playground": {
+      "title": "Entorno de pruebas",
+      "subtitle": "Ejecuta un agente con una entrada JSON e inspecciona el resultado tipado.",
+      "agentLabel": "Agente",
+      "agentPlaceholder": "Selecciona un agente",
+      "inputLabel": "Entrada (JSON)",
+      "inputPlaceholder": "{ \"dealId\": \"…\" }",
+      "run": "Ejecutar",
+      "running": "Ejecutando…",
+      "noRun": "Aún no hay ejecución",
+      "noRunDescription": "Elige un agente, introduce una entrada JSON y ejecuta para ver el resultado.",
+      "invalidJson": "La entrada debe ser un JSON válido.",
+      "selectAgentFirst": "Selecciona primero un agente.",
+      "error": "La ejecución del agente falló.",
+      "result": {
+        "informative": "Resultado informativo",
+        "actionable": "Resultado accionable",
+        "trace": "Herramientas y pasos",
+        "toolsHeading": "Herramientas usadas",
+        "rawOutput": "Salida sin procesar",
+        "noTools": "No se usaron herramientas."
+      }
+    },
+    "proposals": {
+      "title": "Propuestas",
+      "dispose": {
+        "approve": "Aprobar",
+        "edit": "Editar",
+        "reject": "Rechazar",
+        "reason": "Motivo",
+        "reasonPlaceholder": "¿Por qué editas o rechazas esta propuesta?"
+      }
+    },
+    "disposition": {
+      "pending": "Pendiente",
+      "auto_approved": "Aprobada automáticamente",
+      "approved": "Aprobada",
+      "edited": "Editada",
+      "rejected": "Rechazada"
+    },
+    "runStatus": {
+      "running": "En ejecución",
+      "ok": "Completada",
+      "error": "Fallida"
+    },
+    "timeline": {
+      "title": "Cronología del agente",
+      "empty": "No hay actividad del agente para este proceso.",
+      "lane": {
+        "agent": "Agente · propone",
+        "system": "Sistema · resuelve",
+        "human": "Persona · en el bucle"
+      },
+      "parked": "Aparcado · a la espera de resolución",
+      "review": "Revisar propuesta",
+      "error": "No se pudo cargar la cronología del agente."
+    },
+    "tasks": {
+      "reviewProposal": "Revisar propuesta"
+    },
+    "errors": {
+      "unauthorized": "No autorizado",
+      "tenant_required": "Se requiere contexto de inquilino",
+      "validation_failed": "La validación falló",
+      "agent_not_found": "Agente no encontrado",
+      "agent_invalid_output": "El agente produjo una salida no válida",
+      "proposal_not_found": "Propuesta no encontrada",
+      "reason_required": "Se requiere un motivo para editar o rechazar una propuesta",
+      "payload_required": "Se requiere una carga útil editada",
+      "already_disposed": "Esta propuesta ya ha sido resuelta",
+      "conflict": "Esta propuesta cambió desde que la cargaste. Actualiza e inténtalo de nuevo."
+    }
+  }
+}

@@ -32,7 +32,53 @@
         "runtime": {
           "in-process": "In-process",
           "opencode": "OpenCode"
+        },
+        "col": {
+          "agent": "Agent",
+          "type": "Type",
+          "autonomy": "Autonomy",
+          "runs": "Runs",
+          "evalPass": "Eval pass",
+          "override": "Override",
+          "cost": "Cost / run",
+          "status": "Status"
+        },
+        "autonomy": {
+          "auto": "Auto",
+          "review": "Review",
+          "gated": "Gated"
+        },
+        "status": {
+          "good": "Good",
+          "watch": "Watch",
+          "poor": "Poor",
+          "new": "New"
+        },
+        "pending": {
+          "backend": "Needs backend",
+          "noData": "No data"
+        },
+        "actions": {
+          "view": "View"
         }
+      },
+      "kpi": {
+        "active": "Active agents",
+        "activeSub": "{gated} gated, {review} review",
+        "avgEval": "Avg eval pass",
+        "avgOverride": "Avg override",
+        "spend": "Spend (7d)"
+      },
+      "filter": {
+        "all": "All",
+        "auto": "Auto",
+        "review": "Review",
+        "gated": "Gated",
+        "attention": "Needs attention"
+      },
+      "actions": {
+        "filters": "Filters",
+        "export": "Export"
       }
     },
     "agentDetail": {

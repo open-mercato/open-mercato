@@ -1,0 +1,291 @@
+{
+  "agent_orchestrator": {
+    "title": "Agenten-Orchestrator",
+    "nav": {
+      "group": "Agenten",
+      "caseload": "Fallaufkommen",
+      "overview": "Übersicht",
+      "agents": "Agenten",
+      "playground": "Testbereich"
+    },
+    "agents": {
+      "title": "Agenten",
+      "run": "Ausführen",
+      "list": {
+        "title": "Agentenregister",
+        "empty": "Noch keine Agenten registriert.",
+        "emptyDescription": "Über defineAgent deklarierte Agenten erscheinen hier, sobald das Modul geladen ist.",
+        "marker": "Agent",
+        "columns": {
+          "id": "Agent",
+          "resultKind": "Ergebnistyp",
+          "tools": "Werkzeuge",
+          "skills": "Fähigkeiten"
+        },
+        "openPlayground": "Im Testbereich öffnen",
+        "viewDefinition": "Definition von {agent} anzeigen",
+        "error": "Agenten konnten nicht geladen werden.",
+        "resultKind": {
+          "informative": "Informativ",
+          "actionable": "Handlungsfähig"
+        },
+        "col": {
+          "agent": "Agent",
+          "type": "Typ",
+          "autonomy": "Autonomie",
+          "runs": "Ausführungen",
+          "evalPass": "Eval-Bestehensquote",
+          "override": "Korrekturen",
+          "cost": "Kosten / Ausführung",
+          "status": "Status"
+        },
+        "autonomy": {
+          "auto": "Auto",
+          "review": "Prüfung",
+          "gated": "Freigabepflichtig"
+        },
+        "status": {
+          "good": "Gut",
+          "watch": "Beobachten",
+          "poor": "Schlecht",
+          "new": "Neu"
+        },
+        "pending": {
+          "backend": "Backend erforderlich",
+          "noData": "Keine Daten"
+        },
+        "actions": {
+          "view": "Ansehen"
+        }
+      },
+      "kpi": {
+        "active": "Aktive Agenten",
+        "activeSub": "{gated} freigabepflichtig, {review} zur Prüfung",
+        "avgEval": "Ø Eval-Bestehensquote",
+        "avgOverride": "Ø Korrekturen",
+        "spend": "Ausgaben (7 Tage)"
+      },
+      "filter": {
+        "all": "Alle",
+        "auto": "Auto",
+        "review": "Prüfung",
+        "gated": "Freigabepflichtig",
+        "attention": "Erfordert Aufmerksamkeit"
+      },
+      "actions": {
+        "filters": "Filter",
+        "export": "Exportieren"
+      }
+    },
+    "agentDetail": {
+      "title": "Agent",
+      "back": "Zurück zu den Agenten",
+      "error": "Die Agentendefinition konnte nicht geladen werden.",
+      "notFound": "Agent nicht gefunden",
+      "notFoundDescription": "Dieser Agent ist nicht registriert oder das Modul, das ihn deklariert, ist nicht geladen.",
+      "forbidden": "Zugriff verweigert",
+      "forbiddenDescription": "Sie haben keine Berechtigung, diese Agentendefinition anzuzeigen.",
+      "defaultValue": "Standard",
+      "noTools": "Dieser Agent deklariert keine Werkzeuge — er argumentiert anhand der erhaltenen Eingabe. Fügen Sie schreibgeschützte Werkzeuge hinzu, damit er vor einem Vorschlag Daten sammeln kann.",
+      "noSkills": "Dieser Agent deklariert keine Fähigkeiten. Fähigkeiten bündeln wiederverwendbare Anweisungen und schreibgeschützte Werkzeuge, die ein Agent ausführen kann.",
+      "skillTools": "Werkzeuge",
+      "viewSkill": "Fähigkeit {skill} anzeigen",
+      "fields": {
+        "label": "Bezeichnung",
+        "module": "Modul",
+        "provider": "Anbieter",
+        "model": "Modell",
+        "maxSteps": "Max. Schritte",
+        "tools": "Werkzeuge",
+        "skills": "Fähigkeiten",
+        "instructions": "Anweisungen"
+      }
+    },
+    "runs": {
+      "title": "Ausführungen",
+      "error": "Die Ausführung konnte nicht geladen werden."
+    },
+    "overview": {
+      "title": "Übersicht",
+      "error": "Die Übersicht konnte nicht geladen werden.",
+      "empty": "Noch keine Agentenaktivität.",
+      "emptyDescription": "Führen Sie einen Agenten aus oder warten Sie, bis ein Workflow einen aufruft — die Zahlen erscheinen hier.",
+      "tiles": {
+        "autoCompleted": "Automatisch abgeschlossen",
+        "autoCompletedMeta": "aller Entscheidungen",
+        "needsDecision": "Benötigt eine Entscheidung",
+        "needsDecisionMeta": "ausstehende Vorschläge",
+        "queueDepth": "Warteschlangentiefe",
+        "queueDepthMeta": "geparkte Agentenschritte",
+        "totalRuns": "Ausführungen gesamt",
+        "totalRunsMeta": "Agentenaufrufe"
+      },
+      "needsAttention": {
+        "title": "Erfordert Aufmerksamkeit",
+        "empty": "Im Moment erfordert nichts Ihre Aufmerksamkeit."
+      }
+    },
+    "caseload": {
+      "title": "Fallaufkommen",
+      "subtitle": "Ausstehende Agentenvorschläge, die auf Ihre Entscheidung warten.",
+      "error": "Das Fallaufkommen konnte nicht geladen werden.",
+      "empty": "Ihr Fallaufkommen ist leer.",
+      "emptyDescription": "Es warten keine Vorschläge auf eine Entscheidung.",
+      "refresh": "Aktualisieren",
+      "verb": {
+        "decide": "Entscheiden",
+        "answer": "Beantworten",
+        "do": "Ausführen",
+        "know": "Prüfen"
+      },
+      "tiles": {
+        "needsYou": "Benötigt Sie",
+        "waiting": "Wartet",
+        "running": "Läuft",
+        "closed": "Geschlossen"
+      },
+      "filters": {
+        "needsYou": "Benötigt Sie",
+        "waiting": "Wartet",
+        "all": "Alle"
+      },
+      "row": {
+        "confidence": "Konfidenz",
+        "process": "Prozess",
+        "open": "Vorschlag öffnen"
+      }
+    },
+    "proposal": {
+      "title": "Vorschlag",
+      "backToCaseload": "Zurück zum Fallaufkommen",
+      "notFound": "Vorschlag nicht gefunden",
+      "notFoundDescription": "Dieser Vorschlag existiert nicht, wurde entfernt oder gehört einem anderen Mandanten.",
+      "error": "Der Vorschlag konnte nicht geladen werden.",
+      "proposes": "{agent} schlägt vor",
+      "confidence": "Konfidenz",
+      "verdict": {
+        "approve": "Zur Genehmigung empfohlen",
+        "ask": "Benötigt Ihre Eingabe"
+      },
+      "actionsHeading": "Vorgeschlagene Aktionen",
+      "factorsHeading": "Warum",
+      "ioHeading": "Ausführung prüfen",
+      "io": {
+        "input": "Eingabe",
+        "output": "Ausgabe",
+        "tools": "Verwendete Werkzeuge"
+      },
+      "gate": "Diese Entscheidung ist einem Menschen vorbehalten. Genehmigen Sie, damit der Workflow fortgesetzt wird, bearbeiten Sie die Nutzlast vor der Ausführung oder lehnen Sie mit Begründung ab.",
+      "actions": {
+        "approve": "Genehmigen",
+        "edit": "Bearbeiten",
+        "reject": "Ablehnen",
+        "cancelEdit": "Abbrechen",
+        "saveEdit": "Speichern & genehmigen"
+      },
+      "edit": {
+        "heading": "Nutzlast bearbeiten",
+        "payloadLabel": "Bearbeitete Nutzlast (JSON)",
+        "reasonLabel": "Begründung",
+        "reasonPlaceholder": "Warum bearbeiten Sie diesen Vorschlag?",
+        "invalidJson": "Die bearbeitete Nutzlast muss gültiges JSON sein."
+      },
+      "reject": {
+        "heading": "Vorschlag ablehnen",
+        "reasonLabel": "Begründung",
+        "reasonPlaceholder": "Warum lehnen Sie diesen Vorschlag ab?",
+        "confirm": "Vorschlag ablehnen",
+        "reasonRequired": "Zum Ablehnen eines Vorschlags ist eine Begründung erforderlich."
+      },
+      "flash": {
+        "blocked": "Aktion durch Validierung blockiert.",
+        "approved": "Vorschlag genehmigt.",
+        "edited": "Vorschlag bearbeitet und genehmigt.",
+        "rejected": "Vorschlag abgelehnt.",
+        "error": "Der Vorschlag konnte nicht bearbeitet werden."
+      },
+      "drawer": {
+        "title": "Agenten-E/A",
+        "agentLane": "Agent · schlägt vor",
+        "systemLane": "System · Ausführung",
+        "rawOutput": "Rohausgabe",
+        "noInput": "Keine Eingabe erfasst.",
+        "noOutput": "Keine Ausgabe erfasst.",
+        "noTools": "Es wurden keine Werkzeuge verwendet.",
+        "close": "Schließen"
+      }
+    },
+    "playground": {
+      "title": "Testbereich",
+      "subtitle": "Führen Sie einen Agenten mit einer JSON-Eingabe aus und prüfen Sie das typisierte Ergebnis.",
+      "agentLabel": "Agent",
+      "agentPlaceholder": "Agent auswählen",
+      "inputLabel": "Eingabe (JSON)",
+      "inputPlaceholder": "{ \"dealId\": \"…\" }",
+      "run": "Ausführen",
+      "running": "Wird ausgeführt…",
+      "noRun": "Noch keine Ausführung",
+      "noRunDescription": "Wählen Sie einen Agenten, geben Sie eine JSON-Eingabe ein und führen Sie aus, um das Ergebnis zu sehen.",
+      "invalidJson": "Die Eingabe muss gültiges JSON sein.",
+      "selectAgentFirst": "Wählen Sie zuerst einen Agenten aus.",
+      "error": "Die Agentenausführung ist fehlgeschlagen.",
+      "result": {
+        "informative": "Informatives Ergebnis",
+        "actionable": "Handlungsfähiges Ergebnis",
+        "trace": "Werkzeuge & Schritte",
+        "toolsHeading": "Verwendete Werkzeuge",
+        "rawOutput": "Rohausgabe",
+        "noTools": "Es wurden keine Werkzeuge verwendet."
+      }
+    },
+    "proposals": {
+      "title": "Vorschläge",
+      "dispose": {
+        "approve": "Genehmigen",
+        "edit": "Bearbeiten",
+        "reject": "Ablehnen",
+        "reason": "Begründung",
+        "reasonPlaceholder": "Warum bearbeiten oder lehnen Sie diesen Vorschlag ab?"
+      }
+    },
+    "disposition": {
+      "pending": "Ausstehend",
+      "auto_approved": "Automatisch genehmigt",
+      "approved": "Genehmigt",
+      "edited": "Bearbeitet",
+      "rejected": "Abgelehnt"
+    },
+    "runStatus": {
+      "running": "Läuft",
+      "ok": "Abgeschlossen",
+      "error": "Fehlgeschlagen"
+    },
+    "timeline": {
+      "title": "Agenten-Zeitleiste",
+      "empty": "Keine Agentenaktivität für diesen Prozess.",
+      "lane": {
+        "agent": "Agent · schlägt vor",
+        "system": "System · bearbeitet",
+        "human": "Mensch · in der Schleife"
+      },
+      "parked": "Geparkt · wartet auf Bearbeitung",
+      "review": "Vorschlag prüfen",
+      "error": "Die Agenten-Zeitleiste konnte nicht geladen werden."
+    },
+    "tasks": {
+      "reviewProposal": "Vorschlag prüfen"
+    },
+    "errors": {
+      "unauthorized": "Nicht autorisiert",
+      "tenant_required": "Mandantenkontext erforderlich",
+      "validation_failed": "Validierung fehlgeschlagen",
+      "agent_not_found": "Agent nicht gefunden",
+      "agent_invalid_output": "Der Agent hat eine ungültige Ausgabe erzeugt",
+      "proposal_not_found": "Vorschlag nicht gefunden",
+      "reason_required": "Zum Bearbeiten oder Ablehnen eines Vorschlags ist eine Begründung erforderlich",
+      "payload_required": "Eine bearbeitete Nutzlast ist erforderlich",
+      "already_disposed": "Dieser Vorschlag wurde bereits bearbeitet",
+      "conflict": "Dieser Vorschlag hat sich seit dem Laden geändert. Aktualisieren Sie und versuchen Sie es erneut."
+    }
+  }
+}
