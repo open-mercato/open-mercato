@@ -18,7 +18,9 @@ import type {
 import {
   convertToModelMessages,
   generateObject,
+  generateText,
   hasToolCall,
+  Output,
   stepCountIs,
   streamObject,
   streamText,
@@ -1755,6 +1757,21 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
     baseURL?: string | null
   }
   output?: RunAiAgentObjectOutputOverride<TSchema>
+  /**
+   * Opt-in: run the agent as a READ-ONLY tool loop that finalizes into the
+   * structured-output schema, instead of the toolless `generateObject` call.
+   *
+   * When `true` AND the agent resolves at least one tool, the runtime dispatches
+   * via `generateText({ tools, experimental_output: Output.object({ schema }) })`
+   * so the model can call its allowlisted tools to gather data before emitting
+   * the structured object. The mutation-approval gate (`buildWrapperPrepareStep`)
+   * is wired identically to chat mode, and read-only agents already have every
+   * `isMutation: true` tool stripped — so this never enables a direct write.
+   *
+   * When `false`/omitted (or no tools resolve) the existing toolless
+   * `generateObject`/`streamObject` path runs unchanged.
+   */
+  enableTools?: boolean
   debug?: boolean
   container?: AwilixContainer
   /**
@@ -1933,7 +1950,6 @@ export async function runAiAgentObject<TSchema = unknown>(
     resolvedAttachments,
   )
   const modelMessages = await convertToModelMessages(hydratedMessages)
-  void tools
 
   // Phase 6.2 — resolve session id and generate per-call turn id for
   // token-usage correlation in object mode.
@@ -1943,12 +1959,44 @@ export async function runAiAgentObject<TSchema = unknown>(
   void effectiveObjectSessionId
   void objectTurnId
 
+  const abortController = new AbortController()
+
+  // Read-only tool-loop path (opt-in via `enableTools`). When the agent resolves
+  // tools, run a `generateText` loop that finalizes into the output schema via
+  // `experimental_output`, so the model can read through its allowlisted tools
+  // before proposing. The mutation gate + stop conditions are wired exactly as in
+  // chat mode; read-only agents have mutation tools stripped, so no direct write
+  // is ever possible. Falls through to `generateObject` when no tools resolve.
+  const resolvedToolNames = Object.keys((tools ?? {}) as ToolSet)
+  if (input.enableTools && resolvedToolNames.length > 0) {
+    const toolLoopConfig = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_CHAT)
+    const toolStopConditions = translateStopConditions(toolLoopConfig, sanitizeToolNameForModel)
+    const toolWrapperPrepareStep = buildWrapperPrepareStep(agent, toolLoopConfig, tools)
+    const toolResult = await generateText({
+      model,
+      system: systemPrompt,
+      messages: modelMessages,
+      tools,
+      stopWhen: toolStopConditions as never,
+      prepareStep: toolWrapperPrepareStep as never,
+      experimental_output: Output.object({ schema: resolvedOutput.schema as never }),
+      abortSignal: abortController.signal,
+    })
+    return {
+      mode: 'generate',
+      object: (toolResult as unknown as { experimental_output: TSchema }).experimental_output,
+      finishReason: (toolResult as { finishReason?: string }).finishReason,
+      usage: {
+        inputTokens: toolResult.usage?.inputTokens,
+        outputTokens: toolResult.usage?.outputTokens,
+      },
+    }
+  }
+
   if (input.loop) {
     assertLoopObjectModeCompatible(input.loop)
   }
   const effectiveLoop = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_OBJECT)
-
-  const abortController = new AbortController()
 
   const preparedObjectOptions: PreparedAiSdkObjectOptions = {
     model,

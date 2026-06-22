@@ -56,7 +56,11 @@ const crud = makeCrudRoute<never, never, z.infer<typeof proposalListQuerySchema>
       updatedAt: 'updated_at',
     },
     buildFilters: async (query) => {
-      const filters: Record<string, unknown> = { deleted_at: { $eq: null } }
+      // The query engine auto-excludes soft-deleted rows (`deleted_at IS NULL`)
+      // in its base scope, so we do NOT add an explicit `deleted_at` filter here.
+      // The hybrid engine compiles `{ $eq: null }` to `deleted_at = NULL` (never
+      // true in SQL), which silently returns zero rows — see engine applyColumnFilter.
+      const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
       if (query.agentId) filters.agent_id = { $eq: query.agentId }
       if (query.processId) filters.process_id = { $eq: query.processId }

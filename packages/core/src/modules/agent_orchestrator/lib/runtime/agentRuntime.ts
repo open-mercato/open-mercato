@@ -41,8 +41,11 @@ export type AgentRuntimeDeps = {
  * thin AgentRun (and, for actionable results, an AgentProposal) through the
  * audited Command path, and returns the typed AgentResult union.
  *
- * Propose-only is structural: object mode passes no tools to the model, and the
- * runtime's only writes are AgentRun / AgentProposal via Commands.
+ * Propose-only is structural: the agent is declared read-only, so the AI runtime
+ * strips every mutation tool — an agent may only READ (via its allowlisted tools,
+ * when it declares any) and PROPOSE. The runtime's only writes are AgentRun /
+ * AgentProposal via Commands; domain writes happen later through the
+ * proposal → disposition → effector path, never the agent itself.
  */
 export class AgentRuntimeService {
   readonly container: AwilixContainer
@@ -51,6 +54,24 @@ export class AgentRuntimeService {
   constructor(deps: AgentRuntimeDeps) {
     this.container = deps.container
     this.commandBus = deps.commandBus
+  }
+
+  private async resolveCallerAcl(ctx: AgentRunCtx): Promise<{ features: string[]; isSuperAdmin: boolean }> {
+    try {
+      const rbac = this.container.resolve('rbacService') as {
+        loadAcl: (
+          userId: string,
+          scope: { tenantId: string | null; organizationId: string | null },
+        ) => Promise<{ isSuperAdmin: boolean; features: string[] }>
+      }
+      const loaded = await rbac.loadAcl(ctx.userId, {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+      })
+      return { features: loaded.features ?? [], isSuperAdmin: !!loaded.isSuperAdmin }
+    } catch {
+      return { features: [], isSuperAdmin: false }
+    }
   }
 
   private buildCommandContext(ctx: AgentRunCtx): CommandRuntimeContext {
@@ -83,12 +104,18 @@ export class AgentRuntimeService {
     })
     const runId = created.runId
 
+    // Load the caller's effective ACL so the agent's read-only tools (e.g.
+    // customers.get_deal, gated by customers.deals.view) pass their feature
+    // check under the caller's own scope — never escalated. Defensive: if the
+    // RBAC service is unavailable, fall back to no features (tool calls then
+    // fail closed rather than running unauthorized).
+    const acl = await this.resolveCallerAcl(ctx)
     const authContext: AiChatRequestContext = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       userId: ctx.userId,
-      features: [],
-      isSuperAdmin: false,
+      features: acl.features,
+      isSuperAdmin: acl.isSuperAdmin,
     }
 
     let rawObject: unknown
@@ -99,6 +126,12 @@ export class AgentRuntimeService {
         authContext,
         container: this.container,
         output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.schema },
+        // Propose-only agents stay read-only: run a read-only tool loop so the
+        // agent can gather data (via its own tools or skill-contributed tools)
+        // before proposing. The runtime auto-falls back to a plain structured
+        // generate when no tools resolve, so toolless agents are unaffected.
+        // Writes never execute directly (read-only policy + proposal → effector).
+        enableTools: true,
       })
       // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
       rawObject = objectResult.mode === 'stream' ? await objectResult.object : objectResult.object
