@@ -37,8 +37,11 @@ test.describe('TC-STAFF-020: My Timesheets Grid Loads', () => {
       // Verify project names appear as row headers
       await expect(page.getByText('Project').first()).toBeVisible()
 
-      // Verify day columns exist (day numbers in the header)
-      await expect(page.getByText('1').first()).toBeVisible()
+      // Verify day columns exist (day numbers in the header). The grid defaults to the current WEEK
+      // (Mon–Sun), so a hardcoded day "1" is a calendar time-bomb — weeks whose day numbers contain no
+      // "1" (e.g. the 22nd–28th) render no matching cell and the assertion fails ~2 weeks/month. Assert
+      // TODAY's day number instead: it is always within the rendered week, regardless of the date.
+      await expect(page.getByText(String(new Date().getDate())).first()).toBeVisible()
 
       // Verify "Daily Total" footer row is present
       await expect(page.getByText('Daily Total')).toBeVisible()
