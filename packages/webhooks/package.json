@@ -72,7 +72,7 @@
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "svix": "^1.95.2"
+    "svix": "^1.96.0"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",

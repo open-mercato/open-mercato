@@ -114,15 +114,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/amazon-bedrock": "^4.0.117",
-    "@ai-sdk/cohere": "^3.0.38",
-    "@ai-sdk/google": "^3.0.82",
-    "@ai-sdk/mistral": "^3.0.39",
-    "@ai-sdk/openai": "^3.0.71",
-    "ai": "^6.0.205",
-    "ai-sdk-ollama": "3.8.7",
+    "@ai-sdk/amazon-bedrock": "^4.0.120",
+    "@ai-sdk/cohere": "^3.0.39",
+    "@ai-sdk/google": "^3.0.83",
+    "@ai-sdk/mistral": "^3.0.40",
+    "@ai-sdk/openai": "^3.0.74",
+    "ai": "^6.0.208",
+    "ai-sdk-ollama": "3.8.8",
     "meilisearch": "^0.58.0",
-    "pg": "8.21.0",
+    "pg": "8.22.0",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
