@@ -162,6 +162,7 @@
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
     "openapi-typescript": "^7.13.0",
+    "pkg-pr-new": "0.0.75",
     "ts-jest": "^29.4.11",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
