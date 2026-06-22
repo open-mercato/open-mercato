@@ -331,6 +331,37 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
     : tenantValue
   const showTenantSelect = state.status === 'ready' && state.isSuperAdmin && tenantSelectOptions.length > 0
 
+  const flatOrgOptions = React.useMemo(() => {
+    const out: Array<{ id: string; label: string; selectable: boolean; depth: number }> = []
+    const walk = (list: OrganizationTreeNode[]) => {
+      for (const node of list) {
+        const depth = typeof node.depth === 'number' ? node.depth : 0
+        const indent = depth > 0 ? `${'  '.repeat(depth)}` : ''
+        out.push({
+          id: node.id,
+          label: `${indent}${node.name}`,
+          selectable: node.selectable !== false,
+          depth,
+        })
+        if (Array.isArray(node.children) && node.children.length > 0) walk(node.children as OrganizationTreeNode[])
+      }
+    }
+    walk(nodes)
+    return out
+  }, [nodes])
+
+  const [popoverOpen, setPopoverOpen] = React.useState(false)
+
+  const activeOrgLabel = React.useMemo(() => {
+    if (!value) {
+      return showAllOption
+        ? t('organizationSwitcher.allOrganizations', 'All organizations')
+        : t('organizationSwitcher.label', 'Organization')
+    }
+    return flatOrgOptions.find((opt) => opt.id === value)?.label.trim()
+      || t('organizationSwitcher.label', 'Organization')
+  }, [value, showAllOption, flatOrgOptions, t])
+
   if (state.status === 'hidden') {
     return null
   }
@@ -384,39 +415,6 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
       </div>
     )
   }
-
-  const flatOrgOptions = React.useMemo(() => {
-    const out: Array<{ id: string; label: string; selectable: boolean; depth: number }> = []
-    const walk = (list: OrganizationTreeNode[]) => {
-      for (const node of list) {
-        const depth = typeof node.depth === 'number' ? node.depth : 0
-        const indent = depth > 0 ? `${'  '.repeat(depth)}` : ''
-        out.push({
-          id: node.id,
-          label: `${indent}${node.name}`,
-          selectable: node.selectable !== false,
-          depth,
-        })
-        if (Array.isArray(node.children) && node.children.length > 0) walk(node.children as OrganizationTreeNode[])
-      }
-    }
-    walk(nodes)
-    return out
-  }, [nodes])
-
-  const ALL_ORGS_SENTINEL = '__all__'
-  const orgSelectValue = !value ? (showAllOption ? ALL_ORGS_SENTINEL : '') : value
-  const [popoverOpen, setPopoverOpen] = React.useState(false)
-
-  const activeOrgLabel = React.useMemo(() => {
-    if (!value) {
-      return showAllOption
-        ? t('organizationSwitcher.allOrganizations', 'All organizations')
-        : t('organizationSwitcher.label', 'Organization')
-    }
-    return flatOrgOptions.find((opt) => opt.id === value)?.label.trim()
-      || t('organizationSwitcher.label', 'Organization')
-  }, [value, showAllOption, flatOrgOptions, t])
 
   if (state.status === 'loading') {
     return <span className="hidden md:inline text-xs text-muted-foreground">{t('organizationSwitcher.loading')}</span>
