@@ -99,17 +99,24 @@ export type ProposalListQuery = z.infer<typeof proposalListQuerySchema>
 // The real demo agent ships in area 05; this actionable result schema is the
 // single source for the example `deals.health_check` agent referenced by the
 // area-01 SDK doc and the throwaway smoke-test `ai-agents.ts`.
+// Tightened so object-mode generation always yields a usable proposal: a
+// REQUIRED confidence (drives the disposition threshold — a missing one would
+// fail-closed and always park) and a typed `set_stage` action with a non-empty
+// stage (the effector reads `proposal.actions[0].payload.stage`). With these
+// required, `generateObject` constrains the model to fill them.
 export const dealHealthCheckResult = z.object({
   kind: z.literal('actionable'),
   proposal: z.object({
-    actions: z.array(
-      z.object({
-        type: z.string(),
-        payload: z.record(z.string(), z.unknown()),
-      }),
-    ),
-    confidence: z.number().optional(),
-    rationale: z.string().optional(),
+    actions: z
+      .array(
+        z.object({
+          type: z.literal('set_stage'),
+          payload: z.object({ stage: z.string().min(1) }),
+        }),
+      )
+      .min(1),
+    confidence: z.number().min(0).max(1),
+    rationale: z.string().min(1),
   }),
 })
 export type DealHealthCheckResult = z.infer<typeof dealHealthCheckResult>
