@@ -12,7 +12,7 @@ function makeAgentDir(opts: {
 }): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'file-agent-skill-'))
   fs.writeFileSync(
-    path.join(dir, 'CLAUDE.md'),
+    path.join(dir, 'AGENT.md'),
     [
       '---',
       'id: deals.health_check',

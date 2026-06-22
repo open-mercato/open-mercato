@@ -10,7 +10,7 @@ export type AgentResultKind = 'actionable' | 'informative'
 /**
  * Where an agent runs. `'in-process'` agents are authored with `defineAgent` and
  * execute via the Vercel AI SDK object mode in this process. `'opencode'` agents
- * are authored as `agents/<id>/` file conventions (CLAUDE.md + OUTCOME.md),
+ * are authored as `agents/<id>/` file conventions (AGENT.md + OUTCOME.md),
  * registered via `registerFileAgent`, and run on the OpenCode runtime. The field
  * is additive (BC-safe): every existing agent stays `'in-process'`.
  */

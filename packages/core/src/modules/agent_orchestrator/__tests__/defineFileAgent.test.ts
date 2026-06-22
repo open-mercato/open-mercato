@@ -3,26 +3,26 @@ import os from 'node:os'
 import path from 'node:path'
 import { loadFileAgentDir } from '../lib/sdk/defineFileAgent'
 
-function makeAgentDir(files: { claude?: string; outcome?: string }): string {
+function makeAgentDir(files: { agentMd?: string; outcome?: string }): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'file-agent-'))
-  if (files.claude !== undefined) fs.writeFileSync(path.join(dir, 'CLAUDE.md'), files.claude, 'utf8')
+  if (files.agentMd !== undefined) fs.writeFileSync(path.join(dir, 'AGENT.md'), files.agentMd, 'utf8')
   if (files.outcome !== undefined) fs.writeFileSync(path.join(dir, 'OUTCOME.md'), files.outcome, 'utf8')
   return dir
 }
 
-/** Add a `sub-agents/<name>/{CLAUDE.md,OUTCOME.md}` dir under an existing agent dir. */
+/** Add a `sub-agents/<name>/{AGENT.md,OUTCOME.md}` dir under an existing agent dir. */
 function addSubAgent(
   agentDir: string,
   name: string,
-  files: { claude: string; outcome: string },
+  files: { agentMd: string; outcome: string },
 ): void {
   const subDir = path.join(agentDir, 'sub-agents', name)
   fs.mkdirSync(subDir, { recursive: true })
-  fs.writeFileSync(path.join(subDir, 'CLAUDE.md'), files.claude, 'utf8')
+  fs.writeFileSync(path.join(subDir, 'AGENT.md'), files.agentMd, 'utf8')
   fs.writeFileSync(path.join(subDir, 'OUTCOME.md'), files.outcome, 'utf8')
 }
 
-const SUB_CLAUDE = [
+const SUB_AGENT_MD = [
   '---',
   'id: deals.activity_scan',
   'label: Activity scan',
@@ -44,7 +44,7 @@ const SUB_OUTCOME_INFORMATIVE = [
   '```',
 ].join('\n')
 
-const VALID_CLAUDE = [
+const VALID_AGENT_MD = [
   '---',
   'id: deals.health_check',
   'label: Deal health check',
@@ -81,7 +81,7 @@ describe('loadFileAgentDir', () => {
   })
 
   it('loads a valid agent into an opencode entry with the compiled schema', () => {
-    const dir = makeAgentDir({ claude: VALID_CLAUDE, outcome: VALID_OUTCOME })
+    const dir = makeAgentDir({ agentMd: VALID_AGENT_MD, outcome: VALID_OUTCOME })
     created.push(dir)
     const loaded = loadFileAgentDir(dir)
     expect(loaded).not.toBeNull()
@@ -109,21 +109,21 @@ describe('loadFileAgentDir', () => {
     expect(loaded!.openCodeAgentFile).toContain('submit_outcome')
   })
 
-  it('returns null when CLAUDE.md or OUTCOME.md is missing', () => {
-    const onlyClaude = makeAgentDir({ claude: VALID_CLAUDE })
+  it('returns null when AGENT.md or OUTCOME.md is missing', () => {
+    const onlyAgentMd = makeAgentDir({ agentMd: VALID_AGENT_MD })
     const onlyOutcome = makeAgentDir({ outcome: VALID_OUTCOME })
-    created.push(onlyClaude, onlyOutcome)
-    expect(loadFileAgentDir(onlyClaude)).toBeNull()
+    created.push(onlyAgentMd, onlyOutcome)
+    expect(loadFileAgentDir(onlyAgentMd)).toBeNull()
     expect(loadFileAgentDir(onlyOutcome)).toBeNull()
   })
 
-  it('returns null on malformed CLAUDE.md (missing required) or OUTCOME.md (no JSON block)', () => {
+  it('returns null on malformed AGENT.md (missing required) or OUTCOME.md (no JSON block)', () => {
     const badClaude = makeAgentDir({
-      claude: ['---', 'label: No Id', 'description: d', '---', 'body'].join('\n'),
+      agentMd: ['---', 'label: No Id', 'description: d', '---', 'body'].join('\n'),
       outcome: VALID_OUTCOME,
     })
     const badOutcome = makeAgentDir({
-      claude: VALID_CLAUDE,
+      agentMd: VALID_AGENT_MD,
       outcome: ['---', 'kind: actionable', '---', 'no json block here'].join('\n'),
     })
     created.push(badClaude, badOutcome)
@@ -133,9 +133,9 @@ describe('loadFileAgentDir', () => {
 
   // Phase 4 — sub-agents.
   it('loads sub-agents, renders them mode: subagent + read-only, and wires the primary task allowance', () => {
-    const dir = makeAgentDir({ claude: VALID_CLAUDE, outcome: VALID_OUTCOME })
+    const dir = makeAgentDir({ agentMd: VALID_AGENT_MD, outcome: VALID_OUTCOME })
     created.push(dir)
-    addSubAgent(dir, 'activity_scan', { claude: SUB_CLAUDE, outcome: SUB_OUTCOME_INFORMATIVE })
+    addSubAgent(dir, 'activity_scan', { agentMd: SUB_AGENT_MD, outcome: SUB_OUTCOME_INFORMATIVE })
 
     const loaded = loadFileAgentDir(dir)
     expect(loaded).not.toBeNull()
@@ -159,17 +159,17 @@ describe('loadFileAgentDir', () => {
   })
 
   it('rejects an actionable sub-agent (only the primary proposes)', () => {
-    const dir = makeAgentDir({ claude: VALID_CLAUDE, outcome: VALID_OUTCOME })
+    const dir = makeAgentDir({ agentMd: VALID_AGENT_MD, outcome: VALID_OUTCOME })
     created.push(dir)
-    addSubAgent(dir, 'bad', { claude: SUB_CLAUDE, outcome: VALID_OUTCOME })
+    addSubAgent(dir, 'bad', { agentMd: SUB_AGENT_MD, outcome: VALID_OUTCOME })
     expect(() => loadFileAgentDir(dir)).toThrow(/informative/i)
   })
 
   it('rejects a sub-agent that declares its own subAgents (depth cap = 1)', () => {
-    const dir = makeAgentDir({ claude: VALID_CLAUDE, outcome: VALID_OUTCOME })
+    const dir = makeAgentDir({ agentMd: VALID_AGENT_MD, outcome: VALID_OUTCOME })
     created.push(dir)
     addSubAgent(dir, 'nested', {
-      claude: [
+      agentMd: [
         '---',
         'id: deals.nested',
         'label: Nested',

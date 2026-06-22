@@ -1,5 +1,5 @@
 /**
- * Minimal, purpose-built parser for an `agents/<id>/CLAUDE.md` file, mirroring
+ * Minimal, purpose-built parser for an `agents/<id>/AGENT.md` file, mirroring
  * `skillMarkdown.ts`. The format is fully controlled by us (agents are authored
  * in-repo), so a tiny parser avoids pulling in a YAML/frontmatter dependency.
  * Supported frontmatter:

@@ -46,7 +46,7 @@ function writeAgent(
   files: { claude: string; outcome: string },
 ): void {
   fs.mkdirSync(agentDir, { recursive: true })
-  fs.writeFileSync(path.join(agentDir, 'CLAUDE.md'), files.claude, 'utf8')
+  fs.writeFileSync(path.join(agentDir, 'AGENT.md'), files.claude, 'utf8')
   fs.writeFileSync(path.join(agentDir, 'OUTCOME.md'), files.outcome, 'utf8')
 }
 

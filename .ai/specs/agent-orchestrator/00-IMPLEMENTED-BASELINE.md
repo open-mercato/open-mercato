@@ -60,7 +60,7 @@ dispatch through ONE entry point, `AgentRuntimeService.run()`
 
 - `'in-process'` — authored with `defineAgent` (`ai-agents.ts`). Executes via the
   Vercel AI SDK object mode (`runAiAgentObject`) in this Node process.
-- `'opencode'` — authored as a file convention `agents/<id>/` (CLAUDE.md +
+- `'opencode'` — authored as a file convention `agents/<id>/` (AGENT.md +
   OUTCOME.md). Registered by `ensureAgentsLoaded` from a committed manifest and
   run on the OpenCode runtime via `OpenCodeAgentRunner`.
 
@@ -166,10 +166,10 @@ agent auto-falls back to a plain structured generate.
 ### The `agents/<id>/` convention
 
 Authored under any module's `agents/<agent_id>/` tree (`AGENTS.md` §convention).
-Required: `CLAUDE.md` + `OUTCOME.md`. Optional: `skills/<sid>/` (SKILL.md +
+Required: `AGENT.md` + `OUTCOME.md`. Optional: `skills/<sid>/` (SKILL.md +
 TEMPLATE.md + examples/*.md + scripts/*.ts), `sub-agents/<subid>/`, `tools/*.ts`.
 
-- **CLAUDE.md** — frontmatter (`id`, `label`, `description`, `provider?`,
+- **AGENT.md** — frontmatter (`id`, `label`, `description`, `provider?`,
   `model?`, `tools?`, `skills?`, `subAgents?`, `maxSteps?`) + body = instructions.
   Parsed by `lib/sdk/agentMarkdown.ts:parseAgentMarkdown` (tiny in-repo parser;
   list keys accept inline `[a, b]` or block `- a`). Returns null when id/label/
@@ -207,7 +207,7 @@ app `.mercato/generated/` dir, so are written directly):
    files under `docker/opencode/skills/<name>/SKILL.md`). Idempotent: stale files
    are removed.
 
-Generation **throws** on any malformed CLAUDE.md/OUTCOME.md/SKILL.md, naming the
+Generation **throws** on any malformed AGENT.md/OUTCOME.md/SKILL.md, naming the
 dir. The CLI cannot import `@open-mercato/core`, so the parsers are reimplemented
 in the generator and MUST stay in sync with `lib/sdk/*`.
 
@@ -580,7 +580,7 @@ Grounded in code comments + `AGENTS.md` §Known follow-ups + the Phase-0 finding
    in the generated agent file + the load-time `loadFileAgents` gate + per-call ACL
    are the propose-only enforcement; neither may be weakened (`AGENTS.md` §Always).
 7. **Generator/loader parser duplication.** The CLI cannot import core, so the
-   CLAUDE.md/OUTCOME.md/SKILL.md parsers exist twice and must be kept in sync
+   AGENT.md/OUTCOME.md/SKILL.md parsers exist twice and must be kept in sync
    (`agent-files.ts` header).
 
 ---

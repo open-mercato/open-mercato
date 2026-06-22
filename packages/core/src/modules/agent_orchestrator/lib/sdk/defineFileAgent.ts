@@ -57,7 +57,7 @@ export type LoadedFileAgent = {
   openCodeAgentName: string
   /**
    * Resolved agent-local skill content (Phase 3). One entry per skill referenced
-   * by CLAUDE.md `skills:` that resolved to an `agents/<id>/skills/<skill_id>/`
+   * by AGENT.md `skills:` that resolved to an `agents/<id>/skills/<skill_id>/`
    * dir. Each skill's read-only tools are also unioned into `entry.tools`.
    */
   skillsContent: LoadedSkillContent[]
@@ -334,7 +334,7 @@ function loadSkillDir(skillDir: string): LoadedSkillContent | null {
  *
  *  1. REFERENCE form (preferred): a file whose first line is a directive
  *     `// @ref <defineAiTool id>` (or `// @ref: <id>`). The id is unioned into
- *     the agent's `tools` allowlist exactly like a CLAUDE.md `tools:` entry, so
+ *     the agent's `tools` allowlist exactly like a AGENT.md `tools:` entry, so
  *     it flows through the SAME central ACL + propose-only mutation gate (a
  *     referenced `isMutation:true` tool is rejected at load by `defineAgent`'s
  *     gate). Recommended — no new execution surface.
@@ -379,7 +379,7 @@ function loadToolFiles(agentDir: string): { refs: string[]; scripts: LoadedScrip
 export const AGENT_TOOLS_SKILL_ID = '__agent_tools__'
 
 /**
- * Resolve the agent-local skills referenced by CLAUDE.md `skills:`. For each id
+ * Resolve the agent-local skills referenced by AGENT.md `skills:`. For each id
  * we look for an `agents/<id>/skills/<skill_id>/` dir whose resolved skill id
  * (frontmatter id or dir name) matches. Unknown ids are skipped (warned) so a
  * stale reference never blocks the agent.
@@ -414,7 +414,7 @@ function loadAgentSkills(agentDir: string, skillIds: string[]): LoadedSkillConte
 
 /**
  * Load one sub-agent dir `agents/<id>/sub-agents/<subid>/` (Phase 4). Sub-agents
- * are full file agents (CLAUDE.md + OUTCOME.md) but constrained: each is rendered
+ * are full file agents (AGENT.md + OUTCOME.md) but constrained: each is rendered
  * `mode: subagent`, read-only, and MUST satisfy two hard rules (matching the
  * in-process `delegate_agent` contract):
  *
@@ -427,15 +427,15 @@ function loadAgentSkills(agentDir: string, skillIds: string[]): LoadedSkillConte
  * returning null — a present-but-invalid sub-agent must never be silently dropped.
  */
 function loadSubAgentDir(dir: string): LoadedFileAgent {
-  const claudePath = path.join(dir, 'CLAUDE.md')
+  const agentMdPath = path.join(dir, 'AGENT.md')
   const outcomePath = path.join(dir, 'OUTCOME.md')
-  if (!fs.existsSync(claudePath) || !fs.existsSync(outcomePath)) {
-    throw new Error(`[internal] malformed sub-agent at ${dir}: both CLAUDE.md and OUTCOME.md are required`)
+  if (!fs.existsSync(agentMdPath) || !fs.existsSync(outcomePath)) {
+    throw new Error(`[internal] malformed sub-agent at ${dir}: both AGENT.md and OUTCOME.md are required`)
   }
 
-  const agent = parseAgentMarkdown(fs.readFileSync(claudePath, 'utf8'))
+  const agent = parseAgentMarkdown(fs.readFileSync(agentMdPath, 'utf8'))
   if (!agent) {
-    throw new Error(`[internal] malformed CLAUDE.md at ${dir}: missing id/label/description`)
+    throw new Error(`[internal] malformed AGENT.md at ${dir}: missing id/label/description`)
   }
   const outcome = parseOutcomeMarkdown(fs.readFileSync(outcomePath, 'utf8'))
   if (!outcome) {
@@ -523,10 +523,10 @@ function loadSubAgents(agentDir: string): LoadedFileAgent[] {
 }
 
 /**
- * Read `agents/<id>/{CLAUDE.md,OUTCOME.md}` (+ skills + sub-agents), validate,
+ * Read `agents/<id>/{AGENT.md,OUTCOME.md}` (+ skills + sub-agents), validate,
  * compile the OUTCOME schema, and build an `AgentRegistryEntry` with
  * `runtime:'opencode'`. Pure and fs-based (unit-testable against fixtures).
- * Returns null when the dir is not a valid agent (missing/malformed CLAUDE.md or
+ * Returns null when the dir is not a valid agent (missing/malformed AGENT.md or
  * OUTCOME.md); the generator turns a null into a hard generation error naming the
  * dir. A present-but-invalid SUB-agent throws (so a constraint violation fails
  * loudly rather than being silently dropped).
@@ -538,14 +538,14 @@ function loadSubAgents(agentDir: string): LoadedFileAgent[] {
  * and gains a "Sub-agents" prompt section.
  */
 export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
-  const claudePath = path.join(dir, 'CLAUDE.md')
+  const agentMdPath = path.join(dir, 'AGENT.md')
   const outcomePath = path.join(dir, 'OUTCOME.md')
-  if (!fs.existsSync(claudePath) || !fs.existsSync(outcomePath)) return null
+  if (!fs.existsSync(agentMdPath) || !fs.existsSync(outcomePath)) return null
 
-  const claudeRaw = fs.readFileSync(claudePath, 'utf8')
+  const agentMdRaw = fs.readFileSync(agentMdPath, 'utf8')
   const outcomeRaw = fs.readFileSync(outcomePath, 'utf8')
 
-  const agent = parseAgentMarkdown(claudeRaw)
+  const agent = parseAgentMarkdown(agentMdRaw)
   if (!agent) return null
 
   const outcome = parseOutcomeMarkdown(outcomeRaw)
@@ -558,7 +558,7 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
     return null
   }
 
-  // Phase 3: resolve agent-local skills referenced by CLAUDE.md `skills:` and
+  // Phase 3: resolve agent-local skills referenced by AGENT.md `skills:` and
   // UNION each resolved skill's read-only tools into the agent allowlist (deduped),
   // mirroring how the in-process `defineAgent` unions skill tools.
   const skillsContent = loadAgentSkills(dir, agent.skills)

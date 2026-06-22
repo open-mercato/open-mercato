@@ -22,7 +22,7 @@ implementation contract) for the full design.
   server does NOT strip `isMutation` tools — so a file agent that declares an
   `isMutation:true` tool is rejected at load (`loadFileAgents` gate). Never weaken either gate.
 - Author file agents under `packages/<pkg>/src/modules/<module>/agents/<agent_id>/` (or an
-  app module). Required: `CLAUDE.md` + `OUTCOME.md`. Optional: `skills/<sid>/SKILL.md`
+  app module). Required: `AGENT.md` + `OUTCOME.md`. Optional: `skills/<sid>/SKILL.md`
   (+ `TEMPLATE.md`, `examples/*.md`, `scripts/*.ts`), `sub-agents/<subid>/`, `tools/*.ts`.
 - Keep the OUTCOME schema in the supported JSON-Schema subset (compiled to Zod by
   `lib/sdk/outcomeSchema.ts`). Unsupported keywords (`oneOf`/`anyOf`/`$ref`/`format`/…)
@@ -79,14 +79,14 @@ yarn generate   # then: docker compose up -d opencode
 
 ```
 agents/<agent_id>/
-├── CLAUDE.md          # frontmatter (id,label,description,provider?,model?,tools?,skills?,subAgents?,maxSteps?) + body = instructions
+├── AGENT.md          # frontmatter (id,label,description,provider?,model?,tools?,skills?,subAgents?,maxSteps?) + body = instructions
 ├── OUTCOME.md         # frontmatter `kind: informative|actionable` + FIRST fenced ```json block = JSON-Schema; trailing prose = guidance
 ├── skills/<sid>/
 │   ├── SKILL.md       # reuse the in-repo SKILL.md frontmatter (id optional → dir name; tools optional)
 │   ├── TEMPLATE.md    # optional output template (returned by load_skill)
 │   ├── examples/*.md  # optional few-shot (returned by load_skill)
 │   └── scripts/*.ts   # optional sandboxed helper; MUST define `run(args)`; run via run_skill_script
-├── sub-agents/<subid>/  # CLAUDE.md + OUTCOME.md; informative-only, no further subAgents (depth cap 1)
+├── sub-agents/<subid>/  # AGENT.md + OUTCOME.md; informative-only, no further subAgents (depth cap 1)
 └── tools/*.ts           # `// @ref <defineAiTool id>` (preferred, ACL-gated) OR a sandboxed `run(args)` local tool
 ```
 

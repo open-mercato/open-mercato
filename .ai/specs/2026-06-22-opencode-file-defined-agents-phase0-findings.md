@@ -198,15 +198,15 @@ implement exactly. "BC-safe" = additive per `BACKWARD_COMPATIBILITY.md` + spec �
 
 ```
 packages/<pkg>/src/modules/<module>/agents/<agent_id>/
-├── CLAUDE.md                     # frontmatter (metadata) + body (instructions)
+├── AGENT.md                     # frontmatter (metadata) + body (instructions)
 ├── OUTCOME.md                    # frontmatter (kind + JSON-Schema) + body (prose guidance)
 ├── skills/<skill_id>/SKILL.md    # + optional TEMPLATE.md, examples/*.md, scripts/*.ts
 ├── sub-agents/                   # files OR references to other agent ids   (Phase 4)
 └── tools/                        # *.ts handlers OR refs to defineAiTool ids (Phase 5)
 ```
 
-`<agent_id>` is the dir name; the CLAUDE.md `id` frontmatter is authoritative and
-MUST match. Generation FAILS (hard error) if CLAUDE.md or OUTCOME.md is missing or
+`<agent_id>` is the dir name; the AGENT.md `id` frontmatter is authoritative and
+MUST match. Generation FAILS (hard error) if AGENT.md or OUTCOME.md is missing or
 malformed in any discovered `agents/<id>/` dir (spec §9).
 
 ### C1. OUTCOME schema → Zod (`outcomeSchema.ts`)
@@ -252,7 +252,7 @@ The compiled `resultSchema` is what becomes the registry entry's `schema` and th
 **Deferred (NOT in v1)**: the optional `schemaRef` (Zod export) escape hatch from
 OUTCOME.md frontmatter. v1 supports JSON-Schema-in-frontmatter only.
 
-### C2. CLAUDE.md parser (`agentMarkdown.ts`)
+### C2. AGENT.md parser (`agentMarkdown.ts`)
 
 New module: `packages/core/src/modules/agent_orchestrator/lib/sdk/agentMarkdown.ts`,
 mirroring `skillMarkdown.ts` (tiny hand-rolled frontmatter parser, **no new YAML
@@ -319,7 +319,7 @@ export type LoadedFileAgent = {
 }
 
 /**
- * Read agents/<id>/{CLAUDE.md,OUTCOME.md}(+skills/sub-agents), validate, compile.
+ * Read agents/<id>/{AGENT.md,OUTCOME.md}(+skills/sub-agents), validate, compile.
  * Returns null when the dir is not a valid agent (missing/malformed files →
  * the generator turns a null into a hard generation error; see C5).
  */
@@ -342,7 +342,7 @@ New generator extension:
 
 1. Scans every module for `agents/<id>/` dirs (across packages + app + active
    official-modules), runs `loadFileAgentDir` on each.
-2. **Fails generation** (non-zero) on any malformed CLAUDE.md/OUTCOME.md
+2. **Fails generation** (non-zero) on any malformed AGENT.md/OUTCOME.md
    (spec §9). Reports the offending dir.
 3. Emits OpenCode agent `.md` files (+ subagent files in Phase 4, native SKILL.md
    in Phase 3) to **`docker/opencode/agents/`** (and `…/skills/`, `…/tools/`),

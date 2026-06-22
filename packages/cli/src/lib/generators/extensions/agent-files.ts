@@ -5,7 +5,7 @@ import { resolveStandaloneSourceMirrorBase } from '../scanner'
 
 /**
  * Generator extension for the `agents/<id>/` file-defined-agent convention
- * (CLAUDE.md + OUTCOME.md). For every enabled module it scans the module's
+ * (AGENT.md + OUTCOME.md). For every enabled module it scans the module's
  * `agents/` tree, validates each agent dir, and emits two artifacts as a
  * deterministic fs side effect from `generateOutput()`:
  *
@@ -19,9 +19,9 @@ import { resolveStandaloneSourceMirrorBase } from '../scanner'
  * written directly (not via the Map<filename,content> return, which targets the
  * app generated dir). `generateOutput()` therefore returns an empty Map.
  *
- * Generation FAILS (throws) on any malformed CLAUDE.md/OUTCOME.md/SKILL.md,
+ * Generation FAILS (throws) on any malformed AGENT.md/OUTCOME.md/SKILL.md,
  * naming the offending dir (spec §9). The CLI does not depend on
- * `@open-mercato/core`, so the small CLAUDE.md/OUTCOME.md/SKILL.md parsers are
+ * `@open-mercato/core`, so the small AGENT.md/OUTCOME.md/SKILL.md parsers are
  * reimplemented here; they MUST stay in sync with
  * `lib/sdk/{agentMarkdown,skillMarkdown,defineFileAgent}.ts`.
  *
@@ -62,7 +62,7 @@ type DiscoveredAgent = {
   outcomeSchema: Record<string, unknown>
   /** OUTCOME.md prose after the JSON-Schema fence — injected into the agent prompt. */
   outcomeProse: string
-  /** Effective allowlist: CLAUDE.md tools ∪ skill-contributed read-only tools. */
+  /** Effective allowlist: AGENT.md tools ∪ skill-contributed read-only tools. */
   tools: string[]
   skills: string[]
   subAgents: string[]
@@ -398,7 +398,7 @@ function discoverToolFiles(agentDir: string): { refs: string[]; scripts: Discove
 
 /**
  * Discover the agent's referenced skills under `agents/<id>/skills/<skill_id>/`.
- * For each id in CLAUDE.md `skills:` we look up the matching dir (by frontmatter
+ * For each id in AGENT.md `skills:` we look up the matching dir (by frontmatter
  * id or dir name). FAILS generation when a referenced SKILL.md is malformed
  * (present dir but unparseable frontmatter). A referenced id with no dir is
  * skipped (the loader warns identically at runtime).
@@ -445,7 +445,7 @@ function discoverAgentSkills(agentDir: string, skillIds: string[]): DiscoveredSk
 
 /**
  * Discover and validate the sub-agents under `agents/<id>/sub-agents/<subid>/`
- * (Phase 4). Each is a full file agent (CLAUDE.md + OUTCOME.md) constrained to:
+ * (Phase 4). Each is a full file agent (AGENT.md + OUTCOME.md) constrained to:
  *   1. OUTCOME `kind: informative` (sub-agents inform; only the primary proposes);
  *   2. NO `subAgents` of its own (depth cap = 1).
  * FAILS generation (throws, naming the dir) on a malformed sub-agent OR a
@@ -458,16 +458,16 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
   for (const entry of fs.readdirSync(base, { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.name === '__tests__') continue
     const dir = path.join(base, entry.name)
-    const claudePath = path.join(dir, 'CLAUDE.md')
+    const agentMdPath = path.join(dir, 'AGENT.md')
     const outcomePath = path.join(dir, 'OUTCOME.md')
-    if (!fs.existsSync(claudePath) || !fs.existsSync(outcomePath)) {
+    if (!fs.existsSync(agentMdPath) || !fs.existsSync(outcomePath)) {
       throw new Error(
-        `[internal] malformed sub-agent at ${dir}: both CLAUDE.md and OUTCOME.md are required`,
+        `[internal] malformed sub-agent at ${dir}: both AGENT.md and OUTCOME.md are required`,
       )
     }
-    const agent = parseAgentMarkdown(fs.readFileSync(claudePath, 'utf8'))
+    const agent = parseAgentMarkdown(fs.readFileSync(agentMdPath, 'utf8'))
     if (!agent) {
-      throw new Error(`[internal] malformed CLAUDE.md at ${dir}: missing id/label/description`)
+      throw new Error(`[internal] malformed AGENT.md at ${dir}: missing id/label/description`)
     }
     const outcome = parseOutcomeMarkdown(fs.readFileSync(outcomePath, 'utf8'))
     if (!outcome) {
@@ -773,20 +773,20 @@ export function createAgentFilesExtension(): GeneratorExtension {
 
   function scanAgentsTree(moduleId: string, baseDir: string): void {
     for (const dir of listAgentDirs(baseDir)) {
-      const claudePath = path.join(dir, 'CLAUDE.md')
+      const agentMdPath = path.join(dir, 'AGENT.md')
       const outcomePath = path.join(dir, 'OUTCOME.md')
       // Only treat a dir as an agent if at least one convention file exists.
-      const hasClaude = fs.existsSync(claudePath)
+      const hasAgentMd = fs.existsSync(agentMdPath)
       const hasOutcome = fs.existsSync(outcomePath)
-      if (!hasClaude && !hasOutcome) continue
-      if (!hasClaude || !hasOutcome) {
+      if (!hasAgentMd && !hasOutcome) continue
+      if (!hasAgentMd || !hasOutcome) {
         throw new Error(
-          `[internal] malformed file agent at ${dir}: both CLAUDE.md and OUTCOME.md are required`,
+          `[internal] malformed file agent at ${dir}: both AGENT.md and OUTCOME.md are required`,
         )
       }
-      const agent = parseAgentMarkdown(fs.readFileSync(claudePath, 'utf8'))
+      const agent = parseAgentMarkdown(fs.readFileSync(agentMdPath, 'utf8'))
       if (!agent) {
-        throw new Error(`[internal] malformed CLAUDE.md at ${dir}: missing id/label/description`)
+        throw new Error(`[internal] malformed AGENT.md at ${dir}: missing id/label/description`)
       }
       const outcome = parseOutcomeMarkdown(fs.readFileSync(outcomePath, 'utf8'))
       if (!outcome) {

@@ -1,4 +1,4 @@
-# File-defined agents on OpenCode (CLAUDE.md / OUTCOME.md / skills / sub-agents / tools)
+# File-defined agents on OpenCode (AGENT.md / OUTCOME.md / skills / sub-agents / tools)
 
 - **Date**: 2026-06-22
 - **Status**: Approved — decisions resolved; Phase 0 spike next (see §17 readiness)
@@ -16,7 +16,7 @@ Deliver the file-based agent authoring convention
 
 ```
 agent/
-├── CLAUDE.md         # agent metadata (frontmatter) + system prompt (body)
+├── AGENT.md         # agent metadata (frontmatter) + system prompt (body)
 ├── OUTCOME.md        # the result contract (what the agent must return)
 ├── skills/<skill>/   # SKILL.md, TEMPLATE.md, examples/, scripts/
 ├── sub-agents/       # delegated agents (run in parallel when beneficial)
@@ -46,7 +46,7 @@ result, and (c) wiring OpenCode as a selectable backend behind the existing
   and natively provides markdown agents, sub-agent delegation, tool allowlists,
   and MCP tools — exactly the primitives in the diagram.
 - A filesystem convention lets non-engineers author/version agents as files
-  (CLAUDE.md/SKILL.md), which is the stated goal for the agent-creation area.
+  (AGENT.md/SKILL.md), which is the stated goal for the agent-creation area.
 
 ## 3. Goals / Non-goals
 
@@ -101,7 +101,7 @@ validated, propose-only** results. The OUTCOME bridge (§7.3) closes it.
 
 ```
 packages/<pkg>/src/modules/<module>/agents/<agent_id>/
-├── CLAUDE.md
+├── AGENT.md
 ├── OUTCOME.md
 ├── skills/
 │   └── <skill_id>/
@@ -113,7 +113,7 @@ packages/<pkg>/src/modules/<module>/agents/<agent_id>/
 └── tools/                     # *.ts tool handlers OR references to defineAiTool ids
 ```
 
-### CLAUDE.md
+### AGENT.md
 YAML frontmatter + markdown body:
 
 ```md
@@ -184,7 +184,7 @@ AgentResult  →  disposition / caseload / workflow INVOKE_AGENT  (unchanged)
 
 ### 7.1 Generation: `agent/` → OpenCode agent files
 A new generator (`packages/cli`) scans every module's `agents/<id>/` dir,
-validates CLAUDE.md + OUTCOME.md, and:
+validates AGENT.md + OUTCOME.md, and:
 - emits an OpenCode agent file per agent (instructions body, frontmatter:
   model/provider, `tools` allowlist mapped to MCP tool names, `mode: primary`,
   `permission`/`tools` deny defaults = read-only);
@@ -197,7 +197,7 @@ The OpenCode agent files live under a generated, container-mounted dir (e.g.
 `docker/opencode/agents/` mounted into `~/.config/opencode/agent/`). Mirrors how
 `opencode.json` is mounted today (`packages/ai-assistant/AGENTS.md` → Docker).
 
-### 7.2 Instructions — CLAUDE.md
+### 7.2 Instructions — AGENT.md
 Body → OpenCode agent system prompt. Frontmatter `model`/`provider` → OpenCode
 agent model (falling back to OM's `OM_AI_*` resolution when omitted). No bridge
 needed beyond generation.
@@ -222,7 +222,7 @@ OpenCode.
 
 ### 7.4 Tools
 Three layers, all already available via MCP (`:3001`):
-- **Declared OM tools** — `tools:` ids in CLAUDE.md map to `defineAiTool`/MCP
+- **Declared OM tools** — `tools:` ids in AGENT.md map to `defineAiTool`/MCP
   tools. The MCP server already enforces `requiredFeatures` per call under the
   caller's session-token ACL and **strips `isMutation: true` tools for
   read-only agents** — so propose-only holds.
@@ -306,7 +306,7 @@ playground/run route/workflow bridge call `agentRuntime.run` unchanged.
   `docker/opencode/agents/`), not DB rows.
 
 ## 9. Discovery / generator
-- New `yarn generate` step: scan `**/agents/<id>/`, validate CLAUDE.md +
+- New `yarn generate` step: scan `**/agents/<id>/`, validate AGENT.md +
   OUTCOME.md (fail the build on a malformed agent), compile OUTCOME schema, emit
   OpenCode agent/subagent files + an `agent-orchestrator-files.generated.ts`
   registry the module loads (mirrors `ai-agents.generated.ts`).
@@ -320,7 +320,7 @@ playground/run route/workflow bridge call `agentRuntime.run` unchanged.
 | Phase | Deliverable | Effort |
 |------|-------------|--------|
 | **0 — Spike** | Confirm exact OpenCode contracts: agent-file frontmatter schema, per-message `agent` selection, subagent/task delegation + parallelism, custom-tool registration, version pinning. Produce a findings note; adjust this spec. | S (~2–3d) |
-| **1 — Authoring + generation** | `agent/` convention parser (CLAUDE.md/OUTCOME.md), OUTCOME→validator, generator emitting OpenCode agent files + registry entries (`runtime:'opencode'`). Agent appears in **Agents** list/detail. NOT yet runnable. | M (~3–5d) |
+| **1 — Authoring + generation** | `agent/` convention parser (AGENT.md/OUTCOME.md), OUTCOME→validator, generator emitting OpenCode agent files + registry entries (`runtime:'opencode'`). Agent appears in **Agents** list/detail. NOT yet runnable. | M (~3–5d) |
 | **2 — Run bridge + OUTCOME** | `submit_outcome` MCP tool; `OpenCodeAgentRunner`; `agentRuntime` dispatch on `runtime`; per-run session token; Playground + `/run` route + workflow `INVOKE_AGENT` work end-to-end for an **instructions-only** file agent. | M–L (~1–2wk) |
 | **3 — Skills** | `load_skill` MCP tool (progressive disclosure), examples/TEMPLATE, skill→tool allowlist union. | M (~3–5d) |
 | **4 — Sub-agents** | Subagent generation, parallel delegation, depth cap, nested `AgentRun` trace (`parent_run_id`). | L (~1–2wk) |
@@ -349,7 +349,7 @@ the convention.
 - Caseload disposition of an OpenCode-produced proposal.
 
 **Tests** (per `.ai/qa/AGENTS.md`)
-- Unit: OUTCOME→validator, CLAUDE.md parse, generator output, `submit_outcome`
+- Unit: OUTCOME→validator, AGENT.md parse, generator output, `submit_outcome`
   validation (accept/reject), runtime dispatch.
 - Integration: end-to-end run via the runner with a stubbed OpenCode endpoint
   (assert session token scope, agent selection, outcome capture, AgentRun rows);
@@ -426,7 +426,7 @@ runtime vs. agents being developer/repo assets:
   assets reviewed in PRs and discovered at generate time. *Pros*: simplest,
   safest, zero untrusted input, matches how OM modules work. *Cons*: every new
   agent needs a deploy; no self-serve.
-- **B. Tenant agents as data + curated catalog.** Tenants author CLAUDE.md/
+- **B. Tenant agents as data + curated catalog.** Tenants author AGENT.md/
   OUTCOME.md via UI, picking tools/skills from a **curated read-only catalog**
   (no raw scripts); stored tenant-scoped in DB; materialized per run via runtime
   push (§14.3-C) or a per-tenant ephemeral dir. *Pros*: self-serve, no redeploy.
@@ -452,7 +452,7 @@ build-time vs tenant-agent paths may use different delivery models.
   inline-persona capability — all confirmed in the Phase 0 spike.
 
 ## 15. Definition of done
-- A module ships `agents/<id>/` with CLAUDE.md + OUTCOME.md (+ optional skills/
+- A module ships `agents/<id>/` with AGENT.md + OUTCOME.md (+ optional skills/
   sub-agents/tools); `yarn generate` discovers it.
 - The agent appears in **Agents**, runs from the **Playground** and
   `/agents/:id/run`, returns a **validated** `AgentResult`, persists an

@@ -20,7 +20,7 @@ function makeRepoFixture(): { repoRoot: string; appBase: string; pkgBase: string
   fs.mkdirSync(agentDir, { recursive: true })
 
   fs.writeFileSync(
-    path.join(agentDir, 'CLAUDE.md'),
+    path.join(agentDir, 'AGENT.md'),
     [
       '---',
       'id: deals.health_check',
@@ -120,9 +120,9 @@ describe('createAgentFilesExtension', () => {
     repoRoot = fixture.repoRoot
     const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
 
-    // Reference a skill in CLAUDE.md and author it under skills/<skill_id>/.
+    // Reference a skill in AGENT.md and author it under skills/<skill_id>/.
     fs.writeFileSync(
-      path.join(agentDir, 'CLAUDE.md'),
+      path.join(agentDir, 'AGENT.md'),
       [
         '---',
         'id: deals.health_check',
@@ -189,7 +189,7 @@ describe('createAgentFilesExtension', () => {
     repoRoot = fixture.repoRoot
     const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
     fs.writeFileSync(
-      path.join(agentDir, 'CLAUDE.md'),
+      path.join(agentDir, 'AGENT.md'),
       [
         '---',
         'id: deals.health_check',
