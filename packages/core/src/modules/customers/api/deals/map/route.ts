@@ -195,7 +195,7 @@ function emptyMapResponse(page: number, pageSize: number) {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -230,20 +230,33 @@ export async function GET(req: Request) {
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const effectiveTenantId = scope.tenantId ?? auth.tenantId
-  const orgFilterIds = Array.isArray(scope.filterIds) && scope.filterIds.length > 0
-    ? scope.filterIds.filter((id) => typeof id === 'string' && id.length > 0)
-    : auth.orgId
-      ? [auth.orgId]
-      : []
-  if (!effectiveTenantId || orgFilterIds.length === 0) {
+  // `null` = unrestricted access (superadmin or an "all organizations" grant): aggregate tenant-wide,
+  // exactly like the deals List route (`makeCrudRoute`) and the query_index status route. A populated
+  // array bounds the query to the caller's visible orgs; an empty array means no org visibility → 401.
+  // The previous guard hard-required `auth.orgId`, which is empty under the header "All organizations"
+  // scope, so the map 401'd (and hung on the loading spinner) while List/Kanban aggregated fine (#3481).
+  const orgScopeIds: string[] | null =
+    scope.filterIds === null
+      ? null
+      : Array.isArray(scope.filterIds) && scope.filterIds.length > 0
+        ? Array.from(new Set(scope.filterIds.filter((id) => typeof id === 'string' && id.length > 0)))
+        : auth.orgId
+          ? [auth.orgId]
+          : []
+  if (!effectiveTenantId || (Array.isArray(orgScopeIds) && orgScopeIds.length === 0)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Bounded `$in` when the caller is org-restricted; omitted entirely under unrestricted access so
+  // every query stays tenant-scoped only. `fallbackOrgId` is undefined when unrestricted.
+  const orgScopeFilter = orgScopeIds ? { organizationId: { $in: orgScopeIds } } : {}
+  const fallbackOrgId = orgScopeIds && orgScopeIds.length > 0 ? orgScopeIds[0] : undefined
+
   // `findWithDecryption` decrypts each row with the row's OWN tenant/organization (the encryption
   // subscriber's resolveScope(target) wins); this scope is only a fallback for rows that carry no
-  // scope columns. CustomerAddress always carries organization_id, so under a multi-org ("All
-  // organizations") scope every org's rows still decrypt correctly even though we pass orgFilterIds[0].
-  const decryptionScope = { tenantId: effectiveTenantId, organizationId: orgFilterIds[0] }
+  // scope columns. CustomerAddress always carries organization_id, so every org's rows still decrypt
+  // correctly under a multi-org / unrestricted scope even though `fallbackOrgId` may be undefined.
+  const decryptionScope = { tenantId: effectiveTenantId, organizationId: fallbackOrgId }
 
   // Located-only, resolved in two stages so the per-request cost stays page-bounded:
   // 1) LIGHT id-only queries (FK columns only, no decryption) determine which deals have a
@@ -257,7 +270,7 @@ export async function GET(req: Request) {
       latitude: { $ne: null },
       longitude: { $ne: null },
       tenantId: effectiveTenantId,
-      organizationId: { $in: orgFilterIds },
+      ...orgScopeFilter,
     },
     { fields: ['entity'] },
     decryptionScope,
@@ -297,8 +310,8 @@ export async function GET(req: Request) {
     container,
     auth,
     organizationScope: scope,
-    selectedOrganizationId: orgFilterIds[0],
-    organizationIds: orgFilterIds,
+    selectedOrganizationId: fallbackOrgId ?? null,
+    organizationIds: orgScopeIds,
     request: req,
   }
 
@@ -392,6 +405,11 @@ export async function GET(req: Request) {
   const res = await queryEngine.query(E.customers.customer_deal, {
     fields: [
       'id',
+      // `organization_id` is projected (never exposed in the response) so the query engine can decrypt
+      // each row's encrypted fields (e.g. `title`) with the row's OWN org. Without it, an unrestricted
+      // "All organizations" scope has no single fallback org to decrypt with and titles come back as
+      // ciphertext — the List route projects it for the same reason (#3481).
+      'organization_id',
       'title',
       'status',
       'pipeline_id',
@@ -408,8 +426,8 @@ export async function GET(req: Request) {
     page: { page: query.page, pageSize: query.pageSize },
     filters,
     tenantId: effectiveTenantId,
-    organizationId: orgFilterIds[0],
-    organizationIds: orgFilterIds,
+    organizationId: fallbackOrgId,
+    organizationIds: orgScopeIds ?? undefined,
   })
 
   const rows = (Array.isArray(res.items) ? res.items : []).filter(
@@ -461,7 +479,7 @@ export async function GET(req: Request) {
           latitude: { $ne: null },
           longitude: { $ne: null },
           tenantId: effectiveTenantId,
-          organizationId: { $in: orgFilterIds },
+          ...orgScopeFilter,
         },
         {},
         decryptionScope,

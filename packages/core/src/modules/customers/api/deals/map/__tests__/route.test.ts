@@ -347,6 +347,80 @@ describe('customers deals map route', () => {
     expect(queryMock).not.toHaveBeenCalled()
   })
 
+  it('serves the map under an "All organizations" scope where auth.orgId is empty (BUG-001 / #3481)', async () => {
+    // Regression: the early guard previously hard-required `auth.orgId`, so the "All organizations"
+    // header scope (no concrete org → empty auth.orgId) returned 401 and the map hung on an infinite
+    // spinner, while the List/Kanban views aggregated fine. The route must instead fall through to the
+    // resolved multi-org scope (resolveOrganizationScopeForRequest → filterIds) — the same contract the
+    // deals List route relies on.
+    getAuthMock.mockResolvedValueOnce({ sub: userId, tenantId, orgId: undefined })
+    resolveScopeMock.mockResolvedValueOnce({ tenantId, filterIds: [scopedOrgId] })
+    mockLinksAndAddresses()
+
+    const response = await GET(new Request('http://localhost/api/customers/deals/map?pageSize=100'))
+
+    expect(response.status).toBe(200)
+    // Proves the request reached scope resolution + the query engine instead of bailing at the guard.
+    expect(queryMock).toHaveBeenCalledWith(
+      'customers:customer_deal',
+      expect.objectContaining({ organizationId: scopedOrgId, organizationIds: [scopedOrgId] }),
+    )
+  })
+
+  it('still returns 401 when neither auth.orgId nor the resolved scope yields any organization', async () => {
+    // The fix relaxes the early guard, but the downstream empty-scope guard must keep failing closed:
+    // no concrete org AND an empty resolved scope = no visibility = 401 (no data leak).
+    getAuthMock.mockResolvedValueOnce({ sub: userId, tenantId, orgId: undefined })
+    resolveScopeMock.mockResolvedValueOnce({ tenantId, filterIds: [] })
+
+    const response = await GET(new Request('http://localhost/api/customers/deals/map'))
+
+    expect(response.status).toBe(401)
+    expect(queryMock).not.toHaveBeenCalled()
+  })
+
+  it('aggregates tenant-wide under unrestricted access where scope.filterIds is null (superadmin "All organizations", #3481)', async () => {
+    // True superadmin / "all organizations" grant: resolveOrganizationScopeForRequest returns
+    // filterIds: null (unrestricted). The map must aggregate across the whole tenant WITHOUT an
+    // organizationId restriction — the same `organizationIds: null` contract the List route relies on —
+    // rather than collapsing the null scope to an empty org list and 401'ing.
+    getAuthMock.mockResolvedValueOnce({ sub: userId, tenantId, orgId: undefined, isSuperAdmin: true })
+    resolveScopeMock.mockResolvedValueOnce({ tenantId, filterIds: null, allowedIds: null })
+    mockLinksAndAddresses()
+
+    const response = await GET(new Request('http://localhost/api/customers/deals/map?pageSize=100'))
+    expect(response.status).toBe(200)
+
+    // The deal query carries NO organizationId restriction (tenant-only) under unrestricted access.
+    const dealQueryCall = queryMock.mock.calls.find((call) => call[0] === 'customers:customer_deal')
+    expect(dealQueryCall?.[1]?.tenantId).toBe(tenantId)
+    expect(dealQueryCall?.[1]?.organizationIds).toBeUndefined()
+    expect(dealQueryCall?.[1]?.organizationId).toBeUndefined()
+    // `organization_id` MUST be projected so the query engine decrypts each row's encrypted `title`
+    // with the row's own org — without it, titles return as ciphertext under the unrestricted scope
+    // (no single fallback org to decrypt with). Regression guard for the #3481 decryption fix.
+    expect(dealQueryCall?.[1]?.fields).toContain('organization_id')
+
+    // Both address fetches are tenant-scoped with NO organizationId $in clause, and the decryption
+    // fallback carries no concrete org (per-row decryption resolves each row's own organization).
+    const lightAddressCall = findWithDecryptionMock.mock.calls.find(
+      (call) => call[1] === CustomerAddress && call[3]?.fields,
+    )
+    expect(lightAddressCall?.[2]).toEqual({
+      latitude: { $ne: null },
+      longitude: { $ne: null },
+      tenantId,
+    })
+    expect(lightAddressCall?.[2]?.organizationId).toBeUndefined()
+    expect(lightAddressCall?.[4]).toEqual({ tenantId })
+
+    // The page-bounded heavy address fetch must also omit the org $in clause under unrestricted access.
+    const heavyAddressCall = findWithDecryptionMock.mock.calls.find(
+      (call) => call[1] === CustomerAddress && !call[3]?.fields && call[2]?.entity,
+    )
+    expect(heavyAddressCall?.[2]?.organizationId).toBeUndefined()
+  })
+
   it('queries every organization in a multi-org scope and passes orgFilterIds[0] as the decryption fallback', async () => {
     // "All organizations" scope: the resolved scope carries more than one org. This asserts the
     // ROUTE's multi-org contract — deal + address fetches span the whole org set (`$in`) and the
