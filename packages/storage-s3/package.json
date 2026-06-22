@@ -80,7 +80,8 @@
     "esbuild": "^0.28.1",
     "glob": "^13.0.6",
     "jest": "^30.4.2",
-    "ts-jest": "^29.4.11"
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
   },
   "publishConfig": {
     "access": "public"
