@@ -46,10 +46,14 @@ describe('feature toggle override list OpenAPI schema', () => {
   beforeEach(() => {
     em = {
       find: jest.fn(),
+      // `getOverrides` paginates in the DB (#3242): it calls `em.count` for the total before the
+      // `em.find` page fetch, so the mock must provide it or every call throws `em.count is not a function`.
+      count: jest.fn(),
     } as unknown as EntityManager
   })
 
   it('documents the live response shape for both override and inherited rows', async () => {
+    (em.count as jest.Mock).mockResolvedValueOnce(2);
     (em.find as jest.Mock).mockResolvedValueOnce([overriddenToggle, inheritedToggle]);
     (em.find as jest.Mock).mockResolvedValueOnce([override])
 
