@@ -5,8 +5,8 @@
 - **Scope**: OSS
 - **Owners**: Agent Orchestrator
 - **Related**:
-  - `.ai/specs/agent-orchiestrator/` (original orchestrator specs)
-  - `.ai/specs/2026-06-19-agent-runtime-options-opencode-vs-in-process.md` (runtime trade-off analysis)
+  - `.ai/specs/agent-orchestrator/` (orchestrator spec corpus — start at `README.md` + `00-IMPLEMENTED-BASELINE.md`)
+  - `.ai/specs/agent-orchestrator/archive/superseded/2026-06-19-agent-runtime-options-opencode-vs-in-process.md` (runtime trade-off analysis — decision now implemented)
   - `packages/ai-assistant/AGENTS.md` (OpenCode + MCP integration)
   - `packages/core/src/modules/agent_orchestrator/AGENTS.md` (in-process SDK)
 
