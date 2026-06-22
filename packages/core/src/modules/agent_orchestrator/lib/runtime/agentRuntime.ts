@@ -1,18 +1,22 @@
 import type { AwilixContainer } from 'awilix'
 import { runAiAgentObject } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime'
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
-import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { getAgentEntry, ensureAgentsLoaded } from '../sdk/defineAgent'
-import { type AgentResult, type AgentProposalPayload } from '../../data/validators'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { getAgentEntry, ensureAgentsLoaded, type AgentRegistryEntry } from '../sdk/defineAgent'
+import { type AgentResult } from '../../data/validators'
+import { OpenCodeAgentRunner } from './openCodeAgentRunner'
+import {
+  type AgentRunCtx,
+  buildCommandContext,
+  resolveCallerAcl,
+  createRun,
+  completeRun,
+  failRun,
+  createProposal,
+  shapeResult,
+} from './persistence'
 
-export type AgentRunCtx = {
-  tenantId: string
-  organizationId: string
-  userId: string
-  /** Set for workflow-originated runs (area 02) → stamped onto the AgentProposal; null for the playground. */
-  processId?: string
-  stepId?: string
-}
+export type { AgentRunCtx } from './persistence'
 
 export class AgentNotFoundError extends Error {
   readonly code = 'agent_not_found'
@@ -56,60 +60,47 @@ export class AgentRuntimeService {
     this.commandBus = deps.commandBus
   }
 
-  private async resolveCallerAcl(ctx: AgentRunCtx): Promise<{ features: string[]; isSuperAdmin: boolean }> {
-    try {
-      const rbac = this.container.resolve('rbacService') as {
-        loadAcl: (
-          userId: string,
-          scope: { tenantId: string | null; organizationId: string | null },
-        ) => Promise<{ isSuperAdmin: boolean; features: string[] }>
-      }
-      const loaded = await rbac.loadAcl(ctx.userId, {
-        tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId,
-      })
-      return { features: loaded.features ?? [], isSuperAdmin: !!loaded.isSuperAdmin }
-    } catch {
-      return { features: [], isSuperAdmin: false }
-    }
-  }
-
-  private buildCommandContext(ctx: AgentRunCtx): CommandRuntimeContext {
-    return {
-      container: this.container,
-      auth: {
-        sub: ctx.userId,
-        tenantId: ctx.tenantId,
-        orgId: ctx.organizationId,
-      } as CommandRuntimeContext['auth'],
-      organizationScope: null,
-      selectedOrganizationId: ctx.organizationId,
-      organizationIds: [ctx.organizationId],
-    }
-  }
-
   async run(agentId: string, input: unknown, ctx: AgentRunCtx): Promise<AgentResult> {
     await ensureAgentsLoaded()
     const entry = getAgentEntry(agentId)
     if (!entry) throw new AgentNotFoundError(agentId)
 
-    const commandCtx = this.buildCommandContext(ctx)
+    // Dispatch on the agent's declared runtime. File-defined (OpenCode) agents
+    // run on the OpenCode runtime via a dedicated runner; everything else uses
+    // the existing in-process object-mode path (unchanged).
+    if (entry.runtime === 'opencode') {
+      const runner = new OpenCodeAgentRunner({
+        container: this.container,
+        commandBus: this.commandBus,
+        openCodeClient: this.container.resolve('openCodeClient'),
+      })
+      return runner.run(entry, input, ctx)
+    }
 
-    const { result: created } = await this.commandBus.execute<
-      { tenantId: string; organizationId: string; agentId: string; input: unknown },
-      { runId: string }
-    >('agent_orchestrator.runs.create', {
-      input: { tenantId: ctx.tenantId, organizationId: ctx.organizationId, agentId, input },
-      ctx: commandCtx,
+    return this.runInProcess(agentId, entry, input, ctx)
+  }
+
+  private async runInProcess(
+    agentId: string,
+    entry: AgentRegistryEntry,
+    input: unknown,
+    ctx: AgentRunCtx,
+  ): Promise<AgentResult> {
+    const commandCtx = buildCommandContext(this.container, ctx)
+
+    const runId = await createRun(this.commandBus, commandCtx, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      agentId,
+      input,
     })
-    const runId = created.runId
 
     // Load the caller's effective ACL so the agent's read-only tools (e.g.
     // customers.get_deal, gated by customers.deals.view) pass their feature
     // check under the caller's own scope — never escalated. Defensive: if the
     // RBAC service is unavailable, fall back to no features (tool calls then
     // fail closed rather than running unauthorized).
-    const acl = await this.resolveCallerAcl(ctx)
+    const acl = await resolveCallerAcl(this.container, ctx)
     const authContext: AiChatRequestContext = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
@@ -137,68 +128,38 @@ export class AgentRuntimeService {
       rawObject = objectResult.mode === 'stream' ? await objectResult.object : objectResult.object
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      await this.failRun(runId, message, commandCtx)
+      await failRun(this.commandBus, commandCtx, { runId, errorMessage: message })
       throw err
     }
 
     const parsed = entry.schema.safeParse(rawObject)
     if (!parsed.success) {
       const detail = parsed.error.message
-      await this.failRun(runId, detail, commandCtx)
+      await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
       throw new AgentOutputInvalidError(agentId, detail)
     }
 
-    const result = this.shapeResult(entry.resultKind, parsed.data)
+    const result = shapeResult(entry.resultKind, parsed.data)
 
-    await this.commandBus.execute<
-      { runId: string; status: 'ok'; output: AgentResult; resultKind: 'informative' | 'actionable' },
-      { runId: string }
-    >('agent_orchestrator.runs.complete', {
-      input: { runId, status: 'ok', output: result, resultKind: entry.resultKind },
-      ctx: commandCtx,
+    await completeRun(this.commandBus, commandCtx, {
+      runId,
+      output: result,
+      resultKind: entry.resultKind,
     })
 
     if (result.kind === 'actionable') {
-      await this.commandBus.execute(
-        'agent_orchestrator.proposals.create',
-        {
-          input: {
-            tenantId: ctx.tenantId,
-            organizationId: ctx.organizationId,
-            agentId,
-            runId,
-            payload: result.proposal,
-            confidence: result.proposal.confidence ?? null,
-            processId: ctx.processId ?? null,
-            stepId: ctx.stepId ?? null,
-          },
-          ctx: commandCtx,
-        },
-      )
+      await createProposal(this.commandBus, commandCtx, {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        agentId,
+        runId,
+        payload: result.proposal,
+        confidence: result.proposal.confidence ?? null,
+        processId: ctx.processId ?? null,
+        stepId: ctx.stepId ?? null,
+      })
     }
 
     return result
-  }
-
-  /**
-   * The agent `result.schema` already produces the AgentResult shape (an object
-   * with `kind` plus `data` or `proposal`). We re-key by the declared
-   * `resultKind` so the persisted output/proposal is always well-formed even if
-   * a schema omits the literal `kind` discriminator.
-   */
-  private shapeResult(resultKind: 'informative' | 'actionable', data: unknown): AgentResult {
-    const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
-    if (resultKind === 'informative') {
-      return { kind: 'informative', data: 'data' in record ? record.data : data }
-    }
-    const proposal = (record.proposal ?? data) as AgentProposalPayload
-    return { kind: 'actionable', proposal }
-  }
-
-  private async failRun(runId: string, errorMessage: string, ctx: CommandRuntimeContext): Promise<void> {
-    await this.commandBus.execute<{ runId: string; errorMessage: string }, { runId: string }>(
-      'agent_orchestrator.runs.fail',
-      { input: { runId, errorMessage }, ctx },
-    )
   }
 }

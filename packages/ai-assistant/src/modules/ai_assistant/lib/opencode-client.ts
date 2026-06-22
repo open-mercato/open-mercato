@@ -303,6 +303,13 @@ export class OpenCodeClient {
     message: string,
     options?: {
       model?: { providerID: string; modelID: string }
+      /**
+       * Optional OpenCode agent (persona) id selecting which agent file
+       * processes this message (`POST /session/:id/message` accepts `agent?`).
+       * The file-agent runner passes the generated `openCodeAgentName` here.
+       * Additive / BC-safe: omitted for ordinary chat turns.
+       */
+      agent?: string
     }
   ): Promise<OpenCodeMessage> {
     const body: Record<string, unknown> = {
@@ -311,6 +318,10 @@ export class OpenCodeClient {
 
     if (options?.model) {
       body.model = options.model
+    }
+
+    if (options?.agent) {
+      body.agent = options.agent
     }
 
     const res = await fetchWithTimeout(`${this.baseUrl}/session/${sessionId}/message`, {

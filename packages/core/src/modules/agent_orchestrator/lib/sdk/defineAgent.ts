@@ -223,6 +223,38 @@ async function loadAllAgentModules(): Promise<void> {
  * `yarn generate`, and a descriptor whose schema fails to compile is skipped
  * (warned) so one bad agent never blocks the rest.
  */
+/**
+ * Resolve a predicate `(toolId) => boolean` reporting whether a tool is
+ * registered with `isMutation: true`, so the propose-only gate can reject file
+ * agents that declare write tools. Loads the module tool registry first; if the
+ * registry is unavailable (e.g. a unit-test harness that never imported the AI
+ * tooling), the predicate fails CLOSED on a known prefix-free basis: it returns
+ * `false` for every id (no false rejections), and the agent-file allowlist plus
+ * session-token ACL remain the runtime gates.
+ */
+async function loadMutationToolPredicate(): Promise<(toolId: string) => boolean> {
+  try {
+    const { loadAllModuleTools } = await import(
+      '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-loader'
+    )
+    const { getToolRegistry } = await import(
+      '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-registry'
+    )
+    try {
+      await loadAllModuleTools()
+    } catch {
+      // Tools may already be loaded, or loading is a no-op in this harness.
+    }
+    const registry = getToolRegistry()
+    return (toolId: string): boolean => {
+      const tool = registry.getTool(toolId) as { isMutation?: boolean } | undefined
+      return !!tool?.isMutation
+    }
+  } catch {
+    return () => false
+  }
+}
+
 async function loadFileAgents(): Promise<void> {
   let descriptors: import('../../generated/file-agents.generated').FileAgentDescriptor[]
   try {
@@ -232,8 +264,25 @@ async function loadFileAgents(): Promise<void> {
     return
   }
   const { compileOutcome } = await import('./outcomeSchema')
+  const isMutationTool = await loadMutationToolPredicate()
   for (const descriptor of descriptors) {
     if (registry.has(descriptor.id)) continue
+    // Propose-only generation gate (contract C8): a file agent may NEVER declare
+    // a tool registered with `isMutation: true`. The OpenCode MCP server does NOT
+    // strip mutation tools (it filters per-call ACL only), so the agent-file
+    // read-only allowlist is the hard gate — and a mis-declared write tool must
+    // not even reach registration. We enforce at LOAD time (not in the CLI
+    // generator) because the CLI cannot import core's tool registry to know which
+    // ids are mutations; the tool registry is only resolvable at runtime. A
+    // violating agent is rejected (skipped + warned) so the rest still load.
+    const mutationTool = descriptor.tools.find((toolId) => isMutationTool(toolId))
+    if (mutationTool) {
+      console.warn(
+        `[internal] file agent "${descriptor.id}" declares mutation tool "${mutationTool}"; ` +
+          'file agents are propose-only and may only list read-only tools — skipping registration.',
+      )
+      continue
+    }
     try {
       const { resultSchema } = compileOutcome({
         kind: descriptor.resultKind,

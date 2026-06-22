@@ -3,6 +3,10 @@ import { defineAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/li
 import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
 import { DELEGATE_TOOL_ID, getAgentEntry, ensureAgentsLoaded } from './lib/sdk/defineAgent'
 import type { AgentRuntimeService } from './lib/runtime/agentRuntime'
+import * as openCodeRunRegistry from './lib/runtime/openCodeRunRegistry'
+
+/** Tool id of the OUTCOME-submission tool an OpenCode file-agent finishes with. */
+export const SUBMIT_OUTCOME_TOOL_ID = 'agent_orchestrator.submit_outcome'
 
 const delegateInput = z.object({
   agentId: z.string().min(1).describe('Id of the sub-agent to run (must be an informative agent).'),
@@ -67,6 +71,73 @@ const delegateAgentTool: AiToolDefinition = {
   },
 }
 
-export const aiTools: AiToolDefinition[] = [delegateAgentTool]
+const submitOutcomeInput = z.object({
+  outcome: z
+    .unknown()
+    .describe(
+      'The structured result, matching the active agent OUTCOME contract. The active agent and its schema are resolved server-side from the run session — never trusted from this call.',
+    ),
+})
+
+/**
+ * Terminal tool an OpenCode file-agent calls to deliver its structured result.
+ *
+ * The active agent id + compiled OUTCOME result schema are resolved from the
+ * per-run correlation store keyed by THIS run's session token (`ctx.sessionId`,
+ * which the MCP HTTP server sets to the session token the runner minted) — NOT
+ * trusted from the model. The submitted `outcome` is validated against that
+ * agent's schema:
+ *
+ *  - valid   → stored + completion signalled (the waiting runner resolves);
+ *              returns `{ ok: true }`.
+ *  - invalid → returns `{ ok: false, code: 'outcome_invalid', errors }` so
+ *              OpenCode/the agent can correct and retry (NOT thrown).
+ *  - missing/stale correlation (no run for this session, or already completed)
+ *            → `{ ok: false, code: 'no_active_run' }`.
+ *
+ * Propose-only: `isMutation: false` — the only state this ever produces is the
+ * AgentRun/AgentProposal the runner persists from the captured outcome.
+ */
+const submitOutcomeTool: AiToolDefinition = {
+  name: SUBMIT_OUTCOME_TOOL_ID,
+  displayName: 'Submit agent outcome',
+  description:
+    'Finish the current agent run by submitting its structured outcome. The server validates it against the agent OUTCOME contract; on failure it returns the validation errors so you can correct and resubmit.',
+  inputSchema: submitOutcomeInput,
+  requiredFeatures: ['agent_orchestrator.agents.run'],
+  isMutation: false,
+  tags: ['read', 'agent_orchestrator'],
+  async handler(rawInput, ctx) {
+    const { outcome } = submitOutcomeInput.parse(rawInput)
+    // The runner registers the correlation entry keyed by the per-run session
+    // token; the MCP HTTP server exposes that token as `ctx.sessionId`.
+    const correlationKey = ctx.sessionId
+    if (!correlationKey) {
+      return { ok: false as const, code: 'no_active_run' as const, error: 'no run session in context' }
+    }
+    const entry = openCodeRunRegistry.get(correlationKey)
+    if (!entry) {
+      return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this session' }
+    }
+    const parsed = entry.resultSchema.safeParse(outcome)
+    if (!parsed.success) {
+      return {
+        ok: false as const,
+        code: 'outcome_invalid' as const,
+        errors: parsed.error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
+      }
+    }
+    const completed = openCodeRunRegistry.complete(correlationKey, parsed.data)
+    if (!completed) {
+      return { ok: false as const, code: 'no_active_run' as const, error: 'run already completed' }
+    }
+    return { ok: true as const }
+  },
+}
+
+export const aiTools: AiToolDefinition[] = [delegateAgentTool, submitOutcomeTool]
 
 export default aiTools
