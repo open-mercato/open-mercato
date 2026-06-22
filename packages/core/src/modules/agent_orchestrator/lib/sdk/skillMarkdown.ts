@@ -94,3 +94,46 @@ export function parseSkillMarkdown(raw: string): DefineSkillInput | null {
     tools: meta.tools ?? [],
   }
 }
+
+export type AgentLocalSkill = {
+  /** Skill id: frontmatter `id` when present, else the dir name (see fallbackId). */
+  id: string
+  label: string
+  description: string
+  instructions: string
+  tools: string[]
+}
+
+/**
+ * Parse an AGENT-LOCAL SKILL.md (authored under `agents/<id>/skills/<skill_id>/`).
+ *
+ * Unlike module-level skills (`parseSkillMarkdown`), agent-local skills MAY omit
+ * `moduleId` (they are scoped to one agent, not a module registry) and MAY omit
+ * the frontmatter `id` (the skill DIR NAME is then authoritative). This mirrors
+ * the OpenCode native-skill shape (`name` + `description` + body) more closely
+ * than the module-skill shape. Resolution rules:
+ *
+ *  - `id`   ← frontmatter `id` when present, else `fallbackId` (the dir name).
+ *  - `label`← frontmatter `label` when present, else `id`.
+ *  - `tools`← frontmatter `tools` (read-only ids) unioned into the agent allowlist.
+ *
+ * Returns null only when the file has no parseable frontmatter block at all.
+ */
+export function parseAgentLocalSkillMarkdown(
+  raw: string,
+  fallbackId: string,
+): AgentLocalSkill | null {
+  const match = FRONTMATTER_RE.exec(raw)
+  if (!match) return null
+  const [, frontmatterBlock, body] = match
+  const meta = parseFrontmatter(frontmatterBlock)
+  const id = meta.id || fallbackId
+  if (!id) return null
+  return {
+    id,
+    label: meta.label || id,
+    description: meta.description ?? '',
+    instructions: body.trim(),
+    tools: meta.tools ?? [],
+  }
+}

@@ -11,6 +11,7 @@ export const metadata = {
 const agentItemSchema = z.object({
   id: z.string(),
   resultKind: z.enum(['informative', 'actionable']),
+  runtime: z.enum(['in-process', 'opencode']),
   tools: z.array(z.string()),
   skills: z.array(z.string()),
   label: z.string(),
@@ -30,6 +31,7 @@ export async function GET(req: Request) {
   const items = listAgentEntries().map((entry) => ({
     id: entry.id,
     resultKind: entry.resultKind,
+    runtime: entry.runtime,
     tools: entry.tools,
     skills: entry.skills,
     label: entry.label,

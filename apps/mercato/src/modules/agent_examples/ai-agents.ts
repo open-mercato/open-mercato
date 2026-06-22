@@ -1,6 +1,6 @@
 import type { AiAgentDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
 import { defineAgent } from '@open-mercato/core/modules/agent_orchestrator/lib/sdk/defineAgent'
-import { ticketTriageResult } from './data/validators'
+import { ticketTriageResult, triageBatchResult } from './data/validators'
 
 // `support.ticket_triage` is a fully self-contained example agent declared in a
 // NEW app module (`agent_examples`). It shows the minimum needed to ship an
@@ -31,6 +31,31 @@ export const aiAgents: AiAgentDefinition[] = [
       'Every field is REQUIRED. Never invent details that are not in the ticket.',
     ].join(' '),
     result: { kind: 'informative', schema: ticketTriageResult },
+  }),
+
+  // `support.triage_batch` is a MANAGER agent that demonstrates the
+  // sub-agent-as-tool pattern. It delegates each ticket to the
+  // `support.ticket_triage` sub-agent — fanning them out in parallel — then
+  // aggregates. Declaring `subAgents` auto-adds the read-only delegate tool and
+  // a prompt section listing the allowed sub-agents. Still propose-only: nobody
+  // writes; sub-agents only inform.
+  defineAgent({
+    id: 'support.triage_batch',
+    moduleId: 'agent_examples',
+    label: 'Support triage (batch)',
+    description: 'Triage a batch of support tickets by delegating each to the ticket-triage sub-agent in parallel.',
+    instructions: [
+      'You triage a BATCH of support tickets. The input has `tickets`: an array of objects with',
+      '`subject` and `body`. For EACH ticket, delegate to the `support.ticket_triage` sub-agent by',
+      'calling the delegate tool with { agentId: "support.ticket_triage", input: <that ticket> }.',
+      'Issue all delegate calls in the SAME step so they run in parallel — do not triage tickets',
+      'yourself. Each delegate call returns `{ ok, data: { category, priority, summary } }`.',
+      'Then aggregate: return `total` (number of tickets), `urgentCount` (how many have priority',
+      '"urgent"), and `items` (one entry per ticket with its subject plus the sub-agent’s category,',
+      'priority and summary). Every field is REQUIRED.',
+    ].join(' '),
+    subAgents: ['support.ticket_triage'],
+    result: { kind: 'informative', schema: triageBatchResult },
   }),
 ]
 
