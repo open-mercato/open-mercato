@@ -173,10 +173,20 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect }: ProposalCa
           </Button>
         ) : null}
 
-        {/* Gate */}
-        <Alert status="warning" style="light">
-          {t('agent_orchestrator.proposal.gate')}
-        </Alert>
+        {/* Gate — the "approve/edit/reject" warning only renders where those
+            buttons exist (Caseload, pending). In read-only mode (the Playground
+            preview) the proposal is saved but not disposable here, so point to
+            Caseload instead of promising buttons. Already-disposed proposals show
+            no gate. */}
+        {actions && isPending ? (
+          <Alert status="warning" style="light">
+            {t('agent_orchestrator.proposal.gate')}
+          </Alert>
+        ) : !actions ? (
+          <Alert status="information" style="light">
+            {t('agent_orchestrator.proposal.gateReadonly')}
+          </Alert>
+        ) : null}
 
         {/* Disposition reason on already-disposed proposals */}
         {proposal && !isPending && proposal.dispositionReason ? (

@@ -31,11 +31,14 @@ export type RunView = {
   updatedAt: string | null
 }
 
+export type AgentRuntime = 'in-process' | 'opencode'
+
 export type AgentView = {
   id: string
   label: string
   description: string
   resultKind: 'informative' | 'actionable'
+  runtime: AgentRuntime
   tools: string[]
   skills: string[]
 }
@@ -55,6 +58,7 @@ export type AgentDetailView = AgentView & {
   defaultModel: string | null
   loopMaxSteps: number | null
   skillDetails: SkillDetailView[]
+  subAgents: string[]
 }
 
 function asString(value: unknown): string | null {
@@ -107,11 +111,13 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
   const id = asString(item.id)
   if (!id) return null
   const resultKind = item.resultKind === 'actionable' ? 'actionable' : 'informative'
+  const runtime = item.runtime === 'opencode' ? 'opencode' : 'in-process'
   return {
     id,
     label: asString(item.label) ?? id,
     description: asString(item.description) ?? '',
     resultKind,
+    runtime,
     tools: Array.isArray(item.tools) ? item.tools.filter((tool): tool is string => typeof tool === 'string') : [],
     skills: Array.isArray(item.skills) ? item.skills.filter((skill): skill is string => typeof skill === 'string') : [],
   }
@@ -147,6 +153,9 @@ export function mapAgentDetail(item: Record<string, unknown>): AgentDetailView |
     defaultModel: asString(item.defaultModel),
     loopMaxSteps: loop ? asNumber(loop.maxSteps) : null,
     skillDetails,
+    subAgents: Array.isArray(item.subAgents)
+      ? item.subAgents.filter((sub): sub is string => typeof sub === 'string')
+      : [],
   }
 }
 

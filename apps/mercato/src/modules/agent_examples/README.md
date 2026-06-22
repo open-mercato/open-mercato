@@ -86,6 +86,42 @@ skill's instructions are injected into the prompt and its tools are unioned into
 the agent's allowlist. Skills are currently registered by the `agent_orchestrator`
 module — see `agent_orchestrator/lib/sdk/defineSkill.ts` and `ai-skills.ts`.
 
+## Sub-agents (delegate to other agents, in parallel)
+
+An agent can delegate sub-tasks to other agents. Declare `subAgents: ['<id>']` and
+the agent automatically gains the read-only `agent_orchestrator.delegate_agent`
+tool plus a prompt section listing the allowed sub-agents. The model calls the
+tool — issuing several calls in one step to **fan out in parallel** — then
+combines the results.
+
+```ts
+defineAgent({
+  id: 'support.triage_batch',
+  moduleId: 'agent_examples',
+  // …
+  subAgents: ['support.ticket_triage'], // ← auto-adds the delegate tool
+  result: { kind: 'informative', schema: triageBatchResult },
+})
+```
+
+Safety (enforced by the delegate tool): sub-agents must be **informative**
+(they inform; only the parent proposes), may **not** themselves delegate (depth
+capped at 1, no cycles), and run under the **caller's** ACL — never escalated.
+The whole tree stays propose-only: no agent writes.
+
+`support.triage_batch` is the worked example — run it with:
+
+```json
+{ "tickets": [
+  { "subject": "Charged twice", "body": "Two identical charges on my card." },
+  { "subject": "Love the new dashboard", "body": "Just wanted to say thanks!" },
+  { "subject": "Site is down", "body": "500 errors on every page right now." }
+] }
+```
+
+It delegates each ticket to `support.ticket_triage` in parallel and returns an
+aggregate (`total`, `urgentCount`, `items[]`).
+
 ## Try it
 
 Open **Backend → Agents → Support ticket triage → Open in playground** and run:

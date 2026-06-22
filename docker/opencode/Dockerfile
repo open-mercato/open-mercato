@@ -1,11 +1,17 @@
 FROM debian:bookworm-slim
+# Pinned OpenCode version. The contract (agent-file frontmatter, per-message
+# `agent` selection, native skills, task delegation) is validated against THIS
+# tag — do not float to latest. ASSUMPTION-to-verify: the installer's version
+# pin env var is `VERSION`; confirm against the chosen release before bumping.
+ARG OPENCODE_VERSION=1.1.21
+
 # Install dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates bash passwd \
     && rm -rf /var/lib/apt/lists/*
 
-# Install OpenCode and move to system path
-RUN curl -fsSL https://opencode.ai/install | bash && \
+# Install OpenCode (pinned) and move to system path
+RUN curl -fsSL https://opencode.ai/install | VERSION="${OPENCODE_VERSION}" bash && \
     cp /root/.opencode/bin/opencode /usr/local/bin/opencode && \
     chmod +x /usr/local/bin/opencode
 
@@ -22,6 +28,17 @@ RUN mkdir -p /home/opencode/.config/opencode
 # Copy instructions to working directory (OpenCode resolves relative to $CWD)
 COPY --chown=opencode:opencode AGENTS.md /home/opencode/AGENTS.md
 COPY --chown=opencode:opencode entrypoint.sh /home/opencode/entrypoint.sh
+
+# Bake the generated, file-defined OpenCode agents into the image (prod delivery
+# model B). Dev bind-mounts this same dir via docker-compose.*.dev.yml (model A).
+# Target the plural `agents/` dir under the non-root opencode user's config home.
+COPY --chown=opencode:opencode agents/ /home/opencode/.config/opencode/agents/
+
+# Bake the generated NATIVE OpenCode skill files (Phase 3) into the image. Dev
+# bind-mounts the same dir. Target the plural `skills/` dir; OpenCode lists each
+# skill in the built-in `skill` tool and pulls SKILL.md on demand (progressive
+# disclosure). The dir is created above; the COPY is a no-op when no skills exist.
+COPY --chown=opencode:opencode skills/ /home/opencode/.config/opencode/skills/
 
 USER root
 RUN chmod +x /home/opencode/entrypoint.sh

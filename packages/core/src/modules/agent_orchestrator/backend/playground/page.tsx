@@ -180,14 +180,22 @@ export default function AgentPlaygroundPage() {
         ) : null}
 
         {result?.kind === 'actionable' ? (
-          <ProposalCard
-            adHoc={{
-              agentId,
-              confidence: typeof result.proposal.confidence === 'number' ? result.proposal.confidence : null,
-              payload: result.proposal.actions,
-              rationale: result.proposal.rationale ?? null,
-            }}
-          />
+          <div className="space-y-2">
+            <ProposalCard
+              adHoc={{
+                agentId,
+                confidence: typeof result.proposal.confidence === 'number' ? result.proposal.confidence : null,
+                payload: result.proposal.actions,
+                rationale: result.proposal.rationale ?? null,
+              }}
+            />
+            <a
+              href="/backend/agent_orchestrator/caseload"
+              className="inline-block text-sm font-medium text-brand-violet hover:underline"
+            >
+              {t('agent_orchestrator.playground.result.openCaseload')}
+            </a>
+          </div>
         ) : null}
 
         {result?.kind === 'informative' ? (

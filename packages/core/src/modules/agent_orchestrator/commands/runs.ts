@@ -10,6 +10,8 @@ const createAgentRunSchema = z.object({
   organizationId: z.string().uuid(),
   agentId: z.string().min(1),
   input: z.unknown(),
+  /** Parent run id for a nested sub-agent run (Phase 4); null/absent for top-level runs. */
+  parentRunId: z.string().uuid().nullable().optional(),
 })
 export type CreateAgentRunInput = z.infer<typeof createAgentRunSchema>
 
@@ -38,6 +40,7 @@ const createAgentRunCommand: CommandHandler<CreateAgentRunInput, { runId: string
       agentId: input.agentId,
       status: 'running' as AgentRunStatus,
       input: input.input,
+      parentRunId: input.parentRunId ?? null,
     })
     em.persist(run)
     await em.flush()

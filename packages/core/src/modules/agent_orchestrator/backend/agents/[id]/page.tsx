@@ -123,6 +123,10 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
             <Field label={t('agent_orchestrator.agentDetail.fields.label')} value={agent.label} />
             <Field label={t('agent_orchestrator.agentDetail.fields.module')} value={agent.moduleId} mono />
             <Field
+              label={t('agent_orchestrator.agentDetail.fields.runtime')}
+              value={t(`agent_orchestrator.agents.list.runtime.${agent.runtime}`)}
+            />
+            <Field
               label={t('agent_orchestrator.agentDetail.fields.provider')}
               value={agent.defaultProvider ?? t('agent_orchestrator.agentDetail.defaultValue')}
               mono
@@ -155,6 +159,19 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
             <p className="text-sm text-muted-foreground">{t('agent_orchestrator.agentDetail.noTools')}</p>
           )}
         </section>
+
+        {agent.subAgents.length ? (
+          <section className="space-y-2">
+            <SectionHeader title={t('agent_orchestrator.agentDetail.fields.subAgents')} />
+            <div className="flex flex-wrap gap-1">
+              {agent.subAgents.map((subId) => (
+                <Button key={subId} asChild variant="outline" size="sm">
+                  <Link href={`/backend/agents/${encodeURIComponent(subId)}`}>{subId}</Link>
+                </Button>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <section className="space-y-2">
           <SectionHeader title={t('agent_orchestrator.agentDetail.fields.skills')} />
