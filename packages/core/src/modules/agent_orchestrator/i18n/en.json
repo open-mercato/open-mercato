@@ -28,6 +28,10 @@
         "resultKind": {
           "informative": "Informative",
           "actionable": "Actionable"
+        },
+        "runtime": {
+          "in-process": "In-process",
+          "opencode": "OpenCode"
         }
       }
     },
@@ -47,6 +51,7 @@
       "fields": {
         "label": "Label",
         "module": "Module",
+        "runtime": "Runtime",
         "provider": "Provider",
         "model": "Model",
         "maxSteps": "Max steps",

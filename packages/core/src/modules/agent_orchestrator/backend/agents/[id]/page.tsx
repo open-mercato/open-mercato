@@ -123,6 +123,10 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
             <Field label={t('agent_orchestrator.agentDetail.fields.label')} value={agent.label} />
             <Field label={t('agent_orchestrator.agentDetail.fields.module')} value={agent.moduleId} mono />
             <Field
+              label={t('agent_orchestrator.agentDetail.fields.runtime')}
+              value={t(`agent_orchestrator.agents.list.runtime.${agent.runtime}`)}
+            />
+            <Field
               label={t('agent_orchestrator.agentDetail.fields.provider')}
               value={agent.defaultProvider ?? t('agent_orchestrator.agentDetail.defaultValue')}
               mono

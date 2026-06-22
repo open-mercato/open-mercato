@@ -8,6 +8,15 @@ import { getSkillEntry } from './defineSkill'
 export type AgentResultKind = 'actionable' | 'informative'
 
 /**
+ * Where an agent runs. `'in-process'` agents are authored with `defineAgent` and
+ * execute via the Vercel AI SDK object mode in this process. `'opencode'` agents
+ * are authored as `agents/<id>/` file conventions (CLAUDE.md + OUTCOME.md),
+ * registered via `registerFileAgent`, and run on the OpenCode runtime. The field
+ * is additive (BC-safe): every existing agent stays `'in-process'`.
+ */
+export type AgentRuntime = 'in-process' | 'opencode'
+
+/**
  * Tool id of the built-in delegation tool (declared in agent_orchestrator's
  * `ai-tools.ts`). An agent that lists `subAgents` automatically gains this tool,
  * letting it run other (read-only, informative) agents as sub-agents — and fan
@@ -50,6 +59,12 @@ export interface DefineAgentInput {
   defaultModel?: string
   /** Object-safe loop subset only. */
   loop?: { maxSteps?: number }
+  /**
+   * Runtime the agent executes on. Defaults to `'in-process'`; `defineAgent`
+   * only ever produces in-process agents, so this is reserved for future use
+   * and kept additive.
+   */
+  runtime?: AgentRuntime
   /** Zod from data/validators.ts; IS the output.schema (single source). */
   result: { kind: AgentResultKind; schema: ZodTypeAny }
 }
@@ -70,6 +85,8 @@ export interface AgentRegistryEntry {
   defaultModel?: string
   /** Object-safe loop subset (see DefineAgentInput). */
   loop?: { maxSteps?: number }
+  /** Runtime the agent executes on. Always set (default `'in-process'`). */
+  runtime: AgentRuntime
 }
 
 const registry = new Map<string, AgentRegistryEntry>()
@@ -113,6 +130,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     defaultProvider: input.defaultProvider,
     defaultModel: input.defaultModel,
     loop: input.loop,
+    runtime: 'in-process',
   })
   const skillSections = resolvedSkills.map(
     (skill) => `## Skill: ${skill.label}\n${skill.instructions}`,
@@ -142,6 +160,20 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     loop: input.loop,
     output: { schemaName: input.id.replace(/\W+/g, '_'), schema: input.result.schema },
   })
+}
+
+/**
+ * Register a file-defined (OpenCode) agent directly into the SAME registry that
+ * `defineAgent` writes to, so file agents are discoverable via `getAgentEntry`,
+ * `listAgentEntries`, and the Agents list/detail without going through
+ * `defineAiAgent` (file agents don't run in-process, so they need no
+ * `AiAgentDefinition`). Same dup-id guard as `defineAgent`.
+ */
+export function registerFileAgent(entry: AgentRegistryEntry): void {
+  if (registry.has(entry.id)) {
+    throw new Error(`[internal] duplicate agent id "${entry.id}"`)
+  }
+  registry.set(entry.id, entry)
 }
 
 export function getAgentEntry(id: string): AgentRegistryEntry | undefined {
@@ -178,6 +210,54 @@ async function loadAllAgentModules(): Promise<void> {
   }
   if (registry.size === 0) {
     await import('../../ai-agents')
+  }
+  await loadFileAgents()
+}
+
+/**
+ * Load file-defined (OpenCode) agents from the committed, generator-owned
+ * manifest (`generated/file-agents.generated.ts`). The manifest stores PLAIN
+ * data (raw JSON-Schema, not a Zod instance); for each descriptor we recompile
+ * the result schema via `compileOutcome` and register it with `runtime:'opencode'`.
+ * The import is guarded: the manifest may be absent or empty before the first
+ * `yarn generate`, and a descriptor whose schema fails to compile is skipped
+ * (warned) so one bad agent never blocks the rest.
+ */
+async function loadFileAgents(): Promise<void> {
+  let descriptors: import('../../generated/file-agents.generated').FileAgentDescriptor[]
+  try {
+    const manifest = await import('../../generated/file-agents.generated')
+    descriptors = manifest.fileAgentDescriptors ?? []
+  } catch {
+    return
+  }
+  const { compileOutcome } = await import('./outcomeSchema')
+  for (const descriptor of descriptors) {
+    if (registry.has(descriptor.id)) continue
+    try {
+      const { resultSchema } = compileOutcome({
+        kind: descriptor.resultKind,
+        schema: descriptor.outcomeSchema,
+      })
+      registerFileAgent({
+        id: descriptor.id,
+        moduleId: descriptor.moduleId,
+        resultKind: descriptor.resultKind,
+        schema: resultSchema,
+        tools: descriptor.tools,
+        skills: descriptor.skills,
+        subAgents: descriptor.subAgents,
+        label: descriptor.label,
+        description: descriptor.description,
+        instructions: descriptor.instructions,
+        defaultProvider: descriptor.provider,
+        defaultModel: descriptor.model,
+        loop: descriptor.maxSteps != null ? { maxSteps: descriptor.maxSteps } : undefined,
+        runtime: 'opencode',
+      })
+    } catch (err) {
+      console.warn(`[internal] failed to load file agent "${descriptor.id}":`, err)
+    }
   }
 }
 

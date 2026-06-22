@@ -31,11 +31,14 @@ export type RunView = {
   updatedAt: string | null
 }
 
+export type AgentRuntime = 'in-process' | 'opencode'
+
 export type AgentView = {
   id: string
   label: string
   description: string
   resultKind: 'informative' | 'actionable'
+  runtime: AgentRuntime
   tools: string[]
   skills: string[]
 }
@@ -108,11 +111,13 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
   const id = asString(item.id)
   if (!id) return null
   const resultKind = item.resultKind === 'actionable' ? 'actionable' : 'informative'
+  const runtime = item.runtime === 'opencode' ? 'opencode' : 'in-process'
   return {
     id,
     label: asString(item.label) ?? id,
     description: asString(item.description) ?? '',
     resultKind,
+    runtime,
     tools: Array.isArray(item.tools) ? item.tools.filter((tool): tool is string => typeof tool === 'string') : [],
     skills: Array.isArray(item.skills) ? item.skills.filter((skill): skill is string => typeof skill === 'string') : [],
   }

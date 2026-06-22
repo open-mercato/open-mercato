@@ -23,6 +23,11 @@ services:
       MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
     ports:
       - "${OPENCODE_PORT:-4096}:4096"
+    volumes:
+      # File-defined agents (delivery model A — dev bind-mount). Generated from
+      # `agents/<id>/` dirs; OpenCode picks them up on new sessions (no guaranteed
+      # hot-reload — restart this service after `yarn generate`).
+      - ./docker/opencode/agents:/home/opencode/.config/opencode/agents:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

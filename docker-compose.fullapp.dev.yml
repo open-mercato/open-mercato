@@ -18,6 +18,11 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+    volumes:
+      # File-defined agents (delivery model A — dev bind-mount). The generator
+      # emits these from `agents/<id>/` dirs; OpenCode loads them on new sessions
+      # (no guaranteed hot-reload — restart this service after `yarn generate`).
+      - ./docker/opencode/agents:/home/opencode/.config/opencode/agents:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
