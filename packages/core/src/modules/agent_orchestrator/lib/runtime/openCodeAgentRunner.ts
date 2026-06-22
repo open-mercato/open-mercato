@@ -19,7 +19,7 @@ import {
   createProposal,
   shapeResult,
 } from './persistence'
-import * as openCodeRunRegistry from './openCodeRunRegistry'
+import type { AgentRunSessionStore } from './agentRunSessionStore'
 
 /**
  * Minimal surface the runner needs from the OpenCode client. Declared locally so
@@ -32,7 +32,7 @@ export type OpenCodeRunnerClient = {
   sendMessage(
     sessionId: string,
     message: string,
-    options?: { agent?: string },
+    options?: { agent?: string; timeoutMs?: number },
   ): Promise<unknown>
   subscribeToEvents(
     onEvent: (event: { type: string; properties: Record<string, unknown> }) => void,
@@ -57,6 +57,8 @@ export class OpenCodeRunFailedError extends Error {
 const SESSION_TTL_MINUTES = 120
 /** Time to wait after the session goes idle without a captured outcome before nudging. */
 const IDLE_GRACE_MS = 500
+/** How often to poll the shared store for the captured outcome (cross-process). */
+const OUTCOME_POLL_MS = 750
 
 /**
  * Wall-clock backstop for a single OpenCode run. Completion is normally signalled
@@ -137,10 +139,16 @@ export class OpenCodeAgentRunner {
     })
 
     // Correlation key = the per-run session token. The MCP server exposes it as
-    // `ctx.sessionId` to the submit_outcome handler, which validates + completes.
-    const handle = openCodeRunRegistry.register(sessionToken, {
+    // `ctx.sessionId` to the submit_outcome handler. The store is SHARED (DB) so
+    // the separate mcp:serve-http process can resolve the active agent + write
+    // the outcome this runner polls for.
+    const store = this.container.resolve('agentRunSessionStore') as AgentRunSessionStore
+    await store.open({
+      sessionToken,
       agentId,
-      resultSchema: entry.schema,
+      runId,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
     })
 
     try {
@@ -152,7 +160,7 @@ export class OpenCodeAgentRunner {
         message,
         openCodeAgentName,
         sessionToken,
-        outcomePromise: handle.outcomePromise,
+        store,
       })
 
       if (capturedOutcome === NO_OUTCOME) {
@@ -195,8 +203,13 @@ export class OpenCodeAgentRunner {
 
       return result
     } finally {
-      openCodeRunRegistry.dispose(sessionToken)
-      // Best-effort revoke the per-run token so it cannot be reused after the run.
+      // Remove the shared correlation row, then best-effort revoke the per-run
+      // token so it cannot be reused after the run.
+      try {
+        await store.dispose(sessionToken)
+      } catch (err) {
+        console.warn(`[internal] failed to dispose OpenCode run session row for "${agentId}":`, err)
+      }
       try {
         await deleteSessionApiKey(em, sessionToken)
       } catch (err) {
@@ -212,85 +225,80 @@ export class OpenCodeAgentRunner {
   }
 
   /**
-   * Send the message and consume the SSE stream until the agent either captures
-   * an outcome (via submit_outcome → the correlation deferred) or the session
-   * goes idle. On idle-without-outcome, sends ONE corrective nudge and waits a
-   * second round before giving up. A wall-clock deadline (H1 backstop) guarantees
-   * termination even if the stream stalls without a terminal event or error, so
-   * the caller's `finally` always runs (token revoke) and the run never hangs.
+   * Send the message and wait for the captured outcome. Completion crosses a
+   * PROCESS boundary (`submit_outcome` runs in the separate mcp:serve-http
+   * process and writes the outcome to the shared store), so the runner cannot
+   * await an in-memory promise — it POLLS `store.readOutcome` while also reacting
+   * to SSE idle (the agent finished a turn) and a wall-clock deadline (H1 backstop
+   * so a wedged/silent stream never hangs the run). On idle-without-outcome it
+   * sends ONE corrective nudge; a second idle without an outcome gives up. The
+   * `finally` (token revoke + row dispose) therefore always runs.
    */
   private async driveSession(args: {
     sessionId: string
     message: string
     openCodeAgentName: string
     sessionToken: string
-    outcomePromise: Promise<unknown>
+    store: AgentRunSessionStore
   }): Promise<unknown | typeof NO_OUTCOME> {
     const idleSignal = this.subscribeIdle(args.sessionId)
     const deadline = createDeadline(resolveRunTimeoutMs())
+    // The send is synchronous server-side (holds until the loop finishes), so use
+    // the long run deadline as its timeout — aborting at the 30s chat default
+    // would CANCEL the OpenCode run. Completion is driven by the store/SSE, never
+    // the HTTP response, so fire-and-forget (errors only logged).
+    const sendTimeoutMs = resolveRunTimeoutMs()
+    const read = () => args.store.readOutcome(args.sessionToken)
     try {
-      // Fire-and-forget the send: completion is signalled by SSE idle or by the
-      // outcome deferred, NEVER by the HTTP response (no Promise.race on send).
       this.client
-        .sendMessage(args.sessionId, args.message, { agent: args.openCodeAgentName })
-        .catch((err) => {
-          console.error('[OpenCode runner] send error (SSE/outcome will resolve):', err)
-        })
+        .sendMessage(args.sessionId, args.message, { agent: args.openCodeAgentName, timeoutMs: sendTimeoutMs })
+        .catch((err) => console.error('[OpenCode runner] send error (store/SSE will resolve):', err))
 
-      const first = await this.waitForOutcomeOrIdle(args.outcomePromise, idleSignal.nextIdle(), deadline.promise)
-      if (first.kind === 'outcome') return first.outcome
-      if (first.kind === 'timeout') return this.onTimeout(args.sessionToken)
-
-      // Idle without an outcome — give the registry a beat in case the
-      // submit_outcome handler is mid-flight, then nudge once.
-      await delay(IDLE_GRACE_MS)
-      const settled = openCodeRunRegistry.get(args.sessionToken)?.outcome
-      if (settled !== undefined) return settled
-
-      const nextIdle = idleSignal.nextIdle()
-      this.client
-        .sendMessage(
-          args.sessionId,
-          'You did not call agent_orchestrator.submit_outcome. Finish now by calling it with a value matching the outcome contract.',
-          { agent: args.openCodeAgentName },
-        )
-        .catch((err) => {
-          console.error('[OpenCode runner] nudge send error:', err)
-        })
-
-      const second = await this.waitForOutcomeOrIdle(args.outcomePromise, nextIdle, deadline.promise)
-      if (second.kind === 'outcome') return second.outcome
-      if (second.kind === 'timeout') return this.onTimeout(args.sessionToken)
-      const afterNudge = openCodeRunRegistry.get(args.sessionToken)?.outcome
-      return afterNudge !== undefined ? afterNudge : NO_OUTCOME
+      let nudged = false
+      // A single idle waiter, renewed only after it fires (avoids leaking a new
+      // pending promise on every poll). H2 latch makes a renewed wait resolve
+      // immediately if an idle already arrived.
+      let idleWait = idleSignal.nextIdle()
+      while (true) {
+        const got = await read()
+        if (got.done) return got.outcome
+        const signal = await Promise.race([
+          idleWait.then(() => 'idle' as const),
+          deadline.promise.then(() => 'timeout' as const),
+          delay(OUTCOME_POLL_MS).then(() => 'poll' as const),
+        ])
+        if (signal === 'timeout') {
+          const fin = await read()
+          if (fin.done) return fin.outcome
+          console.error('[OpenCode runner] run exceeded the wall-clock deadline; failing the run.')
+          return NO_OUTCOME
+        }
+        if (signal === 'idle') {
+          // Give submit_outcome a beat to commit, then re-check.
+          await delay(IDLE_GRACE_MS)
+          const after = await read()
+          if (after.done) return after.outcome
+          idleWait = idleSignal.nextIdle()
+          if (!nudged) {
+            nudged = true
+            this.client
+              .sendMessage(
+                args.sessionId,
+                `You did not call the agent_orchestrator submit_outcome tool. Finish now by calling it with a value matching the outcome contract (the \`outcome\` argument).`,
+                { agent: args.openCodeAgentName, timeoutMs: sendTimeoutMs },
+              )
+              .catch((err) => console.error('[OpenCode runner] nudge send error:', err))
+          } else {
+            // Idle a second time after the nudge with no outcome → give up.
+            return NO_OUTCOME
+          }
+        }
+        // signal === 'poll' → loop and re-read the store.
+      }
     } finally {
       deadline.cancel()
       idleSignal.unsubscribe()
     }
-  }
-
-  /**
-   * The deadline fired. The agent may still have submitted an outcome in the same
-   * tick the timer fired — check the registry once before giving up — otherwise
-   * return NO_OUTCOME so the caller fails the run and reaches its cleanup.
-   */
-  private onTimeout(sessionToken: string): unknown | typeof NO_OUTCOME {
-    const settled = openCodeRunRegistry.get(sessionToken)?.outcome
-    if (settled !== undefined) return settled
-    console.error('[OpenCode runner] run exceeded the wall-clock deadline; failing the run.')
-    return NO_OUTCOME
-  }
-
-  private async waitForOutcomeOrIdle(
-    outcomePromise: Promise<unknown>,
-    idlePromise: Promise<void>,
-    deadlinePromise: Promise<void>,
-  ): Promise<{ kind: 'outcome'; outcome: unknown } | { kind: 'idle' } | { kind: 'timeout' }> {
-    return Promise.race([
-      outcomePromise.then((outcome) => ({ kind: 'outcome' as const, outcome })),
-      idlePromise.then(() => ({ kind: 'idle' as const })),
-      deadlinePromise.then(() => ({ kind: 'timeout' as const })),
-    ])
   }
 
   /**

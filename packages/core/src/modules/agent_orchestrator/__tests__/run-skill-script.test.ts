@@ -1,4 +1,4 @@
-import * as openCodeRunRegistry from '../lib/runtime/openCodeRunRegistry'
+import { InMemoryAgentRunSessionStore } from '../lib/runtime/agentRunSessionStore'
 import { registerAgentSkills, clearAgentSkills } from '../lib/runtime/fileAgentSkills'
 import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
 
@@ -25,8 +25,16 @@ describe('agent_orchestrator.run_skill_script', () => {
     (t) => t.name === RUN_SKILL_SCRIPT_TOOL_ID,
   ) as AiToolDefinition
 
-  function makeCtx(sessionId?: string) {
-    return { sessionId } as unknown as Parameters<NonNullable<typeof tool.handler>>[1]
+  function makeCtx(store: InMemoryAgentRunSessionStore, sessionId?: string) {
+    return {
+      sessionId,
+      container: {
+        resolve: (name: string) => {
+          if (name === 'agentRunSessionStore') return store
+          throw new Error(`unexpected resolve("${name}")`)
+        },
+      },
+    } as unknown as Parameters<NonNullable<typeof tool.handler>>[1]
   }
 
   const agentId = 'demo.script_agent'
@@ -53,56 +61,48 @@ describe('agent_orchestrator.run_skill_script', () => {
   })
 
   it('runs an allowed script and returns its sandbox result', async () => {
+    const store = new InMemoryAgentRunSessionStore()
     const key = 'sess_script_ok'
-    openCodeRunRegistry.register(key, { agentId, resultSchema: { safeParse: () => ({ success: true }) } as never })
-    try {
-      const result = (await tool.handler!(
-        { skillId: 'playbook', scriptName: 'score', args: { momentum: 1 } },
-        makeCtx(key),
-      )) as { ok: boolean; result?: { args?: unknown } }
-      expect(result.ok).toBe(true)
-      expect(result.result?.args).toEqual({ momentum: 1 })
-    } finally {
-      openCodeRunRegistry.dispose(key)
-    }
+    await store.open({ sessionToken: key, agentId, tenantId: 't', organizationId: 'o' })
+    const result = (await tool.handler!(
+      { skillId: 'playbook', scriptName: 'score', args: { momentum: 1 } },
+      makeCtx(store, key),
+    )) as { ok: boolean; result?: { args?: unknown } }
+    expect(result.ok).toBe(true)
+    expect(result.result?.args).toEqual({ momentum: 1 })
   })
 
   it('fails closed when the context carries no active run', async () => {
+    const store = new InMemoryAgentRunSessionStore()
     const result = (await tool.handler!(
       { skillId: 'playbook', scriptName: 'score' },
-      makeCtx(undefined),
+      makeCtx(store, undefined),
     )) as { ok: boolean; code?: string }
     expect(result.ok).toBe(false)
     expect(result.code).toBe('no_active_run')
   })
 
   it('rejects a skill the active agent does not have', async () => {
+    const store = new InMemoryAgentRunSessionStore()
     const key = 'sess_script_denyskill'
-    openCodeRunRegistry.register(key, { agentId, resultSchema: { safeParse: () => ({ success: true }) } as never })
-    try {
-      const result = (await tool.handler!(
-        { skillId: 'not_mine', scriptName: 'score' },
-        makeCtx(key),
-      )) as { ok: boolean; code?: string }
-      expect(result.ok).toBe(false)
-      expect(result.code).toBe('skill_not_allowed')
-    } finally {
-      openCodeRunRegistry.dispose(key)
-    }
+    await store.open({ sessionToken: key, agentId, tenantId: 't', organizationId: 'o' })
+    const result = (await tool.handler!(
+      { skillId: 'not_mine', scriptName: 'score' },
+      makeCtx(store, key),
+    )) as { ok: boolean; code?: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('skill_not_allowed')
   })
 
   it('rejects an unknown script within an allowed skill', async () => {
+    const store = new InMemoryAgentRunSessionStore()
     const key = 'sess_script_unknown'
-    openCodeRunRegistry.register(key, { agentId, resultSchema: { safeParse: () => ({ success: true }) } as never })
-    try {
-      const result = (await tool.handler!(
-        { skillId: 'playbook', scriptName: 'missing' },
-        makeCtx(key),
-      )) as { ok: boolean; code?: string }
-      expect(result.ok).toBe(false)
-      expect(result.code).toBe('script_not_found')
-    } finally {
-      openCodeRunRegistry.dispose(key)
-    }
+    await store.open({ sessionToken: key, agentId, tenantId: 't', organizationId: 'o' })
+    const result = (await tool.handler!(
+      { skillId: 'playbook', scriptName: 'missing' },
+      makeCtx(store, key),
+    )) as { ok: boolean; code?: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('script_not_found')
   })
 })

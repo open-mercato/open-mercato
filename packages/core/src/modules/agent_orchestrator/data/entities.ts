@@ -60,6 +60,56 @@ export class AgentRun {
   updatedAt: Date = new Date()
 }
 
+export type AgentRunSessionStatus = 'pending' | 'completed'
+
+/**
+ * Cross-process correlation for an OpenCode file-agent run. The runner (app /
+ * worker process) and the `submit_outcome` / `load_skill` / `run_skill_script`
+ * MCP tools (separate `mcp:serve-http` process) do NOT share memory, so the
+ * active-agent + captured-outcome handoff cannot live in an in-process Map. This
+ * row, keyed by the per-run session token, is the shared store both processes
+ * reach: the runner `open`s it before sending; `submit_outcome` resolves the
+ * active agent from it and writes the validated `outcome`; the runner polls for
+ * the completed outcome and `dispose`s the row when the run ends.
+ */
+@Entity({ tableName: 'agent_run_sessions' })
+@Index({ name: 'agent_run_sessions_token_idx', properties: ['sessionToken'] })
+export class AgentRunSession {
+  [OptionalProps]?: 'runId' | 'outcome' | 'status' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  /** The per-run session token the runner minted = the correlation key (unique). */
+  @Property({ name: 'session_token', type: 'varchar', length: 100, unique: true })
+  sessionToken!: string
+
+  @Property({ name: 'agent_id', type: 'varchar', length: 100 })
+  agentId!: string
+
+  @Property({ name: 'run_id', type: 'uuid', nullable: true })
+  runId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** The validated outcome captured by `submit_outcome`, once it arrives. */
+  @Property({ name: 'outcome', type: 'jsonb', nullable: true })
+  outcome?: unknown | null
+
+  @Property({ name: 'status', type: 'varchar', length: 20, default: 'pending' })
+  status: AgentRunSessionStatus = 'pending'
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
 export type AgentProposalDisposition =
   | 'pending' | 'auto_approved' | 'approved' | 'edited' | 'rejected'
 

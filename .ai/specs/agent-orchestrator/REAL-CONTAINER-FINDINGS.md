@@ -59,8 +59,25 @@ to the agent. Validation staying strict is correct; the input handling + guidanc
 ## Net status
 The pipeline is proven to the last inch: OpenCode loads the agent/sub-agent/skills, the agent
 delegates to the sub-agent and calls `submit_outcome` with the right tool id + session token.
-The remaining blocker (#3) is the in-process correlation store vs. the multi-process deployment
-topology — a real design correction, not a config fix. #1, #2 are bounded fixes; #4 is hardening.
+
+**Resolution (2026-06-22):**
+- **#1 (tool-id) ✅** generated allowlist + prompt use `open-mercato_<id>`.
+- **#2 (send timeout) ✅** `OpenCodeClient.sendMessage` gained `timeoutMs`; the runner passes its
+  long run deadline so multi-step runs aren't cancelled at 30s.
+- **#3 (cross-process correlation) ✅** replaced the in-memory `openCodeRunRegistry` with a
+  DB-backed `agent_run_sessions` store (`lib/runtime/agentRunSessionStore.ts`, entity + migration).
+  The runner `open`s a row and POLLS `readOutcome`; the MCP tools (in the separate `mcp:serve-http`
+  process) resolve the active agent from the SAME store and `submit_outcome` writes the validated
+  outcome there. Both processes build the store from their own container, same DB.
+- **#4 (outcome shape) ✅** `submit_outcome` parses a JSON-string `outcome` before validating; the
+  generator now INJECTS the OUTCOME JSON-Schema + prose into the agent prompt ("## Outcome
+  contract"), so the agent sees the exact shape instead of guessing.
+
+**Live re-verification still needed** (the unit tests use the in-memory store + a fake client):
+run against the container after `yarn build:packages` (the standalone MCP server + the runner use
+`dist`, NOT source — a stale `dist` was why a regenerate initially missed the prompt changes), then
+`yarn db:migrate` (adds `agent_run_sessions`), restart `mcp:serve` + the opencode container, and
+re-run an agent end-to-end to confirm the cross-process outcome handoff and proposal persistence.
 
 ## Local environment notes (for re-testing)
 - MCP server key (`open-mercato`) defines the MCP tool prefix.

@@ -60,6 +60,8 @@ type DiscoveredAgent = {
   instructions: string
   resultKind: 'informative' | 'actionable'
   outcomeSchema: Record<string, unknown>
+  /** OUTCOME.md prose after the JSON-Schema fence — injected into the agent prompt. */
+  outcomeProse: string
   /** Effective allowlist: CLAUDE.md tools ∪ skill-contributed read-only tools. */
   tools: string[]
   skills: string[]
@@ -174,7 +176,7 @@ function parseOutcomeKind(frontmatterBlock: string): 'informative' | 'actionable
 
 function parseOutcomeMarkdown(
   raw: string,
-): { kind: 'informative' | 'actionable'; schema: Record<string, unknown> } | null {
+): { kind: 'informative' | 'actionable'; schema: Record<string, unknown>; prose: string } | null {
   const frontmatterMatch = FRONTMATTER_RE.exec(raw)
   if (!frontmatterMatch) return null
   const [, frontmatterBlock, body] = frontmatterMatch
@@ -189,7 +191,8 @@ function parseOutcomeMarkdown(
     return null
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
-  return { kind, schema: parsed as Record<string, unknown> }
+  const prose = body.slice(fenceMatch.index + fenceMatch[0].length).trim()
+  return { kind, schema: parsed as Record<string, unknown>, prose }
 }
 
 // Keep in sync with `agent_orchestrator/lib/sdk/outcomeSchema.ts` (the CLI cannot
@@ -511,6 +514,7 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
       instructions: agent.instructions,
       resultKind: outcome.kind,
       outcomeSchema: outcome.schema,
+      outcomeProse: outcome.prose,
       tools: effectiveTools,
       skills: agent.skills,
       subAgents: [],
@@ -627,7 +631,25 @@ function renderOpenCodeAgentFile(agent: DiscoveredAgent): string {
   const subAgentSection = hasSubAgents
     ? `## Sub-agents\nYou may delegate independent read-only sub-tasks to these sub-agents by calling the \`task\` tool. When several sub-tasks are independent, issue multiple \`task\` calls in the SAME step so they run in parallel, then combine their results before submitting your outcome. Available sub-agents: ${subAgentNames.join(', ')}.`
     : null
-  const body = [agent.instructions.trim(), ...(subAgentSection ? [subAgentSection] : []), terminalInstruction]
+  // Inject the OUTCOME contract so the agent SEES the exact shape it must submit
+  // (otherwise it guesses and learns the shape only from validation errors). Keep
+  // in sync with lib/sdk/defineFileAgent.ts renderOutcomeSection.
+  const outcomeTarget = agent.resultKind === 'actionable' ? 'the `proposal` object' : 'the `data` object'
+  const outcomeSection = [
+    '## Outcome contract',
+    `Your result MUST match this JSON Schema (${outcomeTarget}). Pass it as the \`outcome\` argument of the submit_outcome tool, as a JSON object (not a string):`,
+    '',
+    '```json',
+    JSON.stringify(agent.outcomeSchema, null, 2),
+    '```',
+    ...(agent.outcomeProse ? ['', agent.outcomeProse] : []),
+  ].join('\n')
+  const body = [
+    agent.instructions.trim(),
+    ...(subAgentSection ? [subAgentSection] : []),
+    outcomeSection,
+    terminalInstruction,
+  ]
     .filter(Boolean)
     .join('\n\n')
   return `${frontmatterLines.join('\n')}\n${body}\n`
@@ -822,6 +844,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
         instructions: agent.instructions,
         resultKind: outcome.kind,
         outcomeSchema: outcome.schema,
+        outcomeProse: outcome.prose,
         tools: effectiveTools,
         skills: agent.skills,
         subAgents: agent.subAgents,

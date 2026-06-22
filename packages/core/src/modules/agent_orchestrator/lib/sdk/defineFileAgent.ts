@@ -87,6 +87,8 @@ const JSON_FENCE_RE = /```json\s*\n([\s\S]*?)\n```/
 type OutcomeDescriptor = {
   kind: OutcomeKind
   schema: JsonSchemaNode
+  /** Human guidance after the JSON-Schema fence — injected into the agent prompt. */
+  prose: string
 }
 
 function parseOutcomeKind(frontmatterBlock: string): OutcomeKind | null {
@@ -116,7 +118,27 @@ function parseOutcomeMarkdown(raw: string): OutcomeDescriptor | null {
     return null
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
-  return { kind, schema: parsed as JsonSchemaNode }
+  const prose = body.slice(fenceMatch.index + fenceMatch[0].length).trim()
+  return { kind, schema: parsed as JsonSchemaNode, prose }
+}
+
+/**
+ * Render the "## Outcome contract" prompt section so the agent SEES the exact
+ * shape it must submit (otherwise it guesses and only learns the shape from
+ * submit_outcome's validation errors). Shows the JSON-Schema + the OUTCOME.md prose.
+ */
+function renderOutcomeSection(kind: OutcomeKind, schema: JsonSchemaNode, prose: string): string {
+  const target = kind === 'actionable' ? 'the `proposal` object' : 'the `data` object'
+  const schemaJson = JSON.stringify(schema, null, 2)
+  return [
+    '## Outcome contract',
+    `Your result MUST match this JSON Schema (${target}). Pass it as the \`outcome\` argument of the submit_outcome tool, as a JSON object (not a string):`,
+    '',
+    '```json',
+    schemaJson,
+    '```',
+    ...(prose ? ['', prose] : []),
+  ].join('\n')
 }
 
 function sanitizeAgentName(id: string): string {
@@ -176,6 +198,10 @@ function renderOpenCodeAgentFile(args: {
   mode?: 'primary' | 'subagent'
   /** Sanitized OpenCode names of this primary's reachable sub-agents (empty otherwise). */
   subAgentNames?: string[]
+  /** The OUTCOME contract — injected into the prompt so the agent sees its exact shape. */
+  outcomeKind: OutcomeKind
+  outcomeSchema: JsonSchemaNode
+  outcomeProse: string
 }): string {
   const mode = args.mode ?? 'primary'
   const subAgentNames = mode === 'primary' ? (args.subAgentNames ?? []) : []
@@ -223,7 +249,13 @@ function renderOpenCodeAgentFile(args: {
   const subAgentSection = hasSubAgents
     ? `## Sub-agents\nYou may delegate independent read-only sub-tasks to these sub-agents by calling the \`task\` tool. When several sub-tasks are independent, issue multiple \`task\` calls in the SAME step so they run in parallel, then combine their results before submitting your outcome. Available sub-agents: ${subAgentNames.join(', ')}.`
     : null
-  const body = [args.instructions.trim(), ...(subAgentSection ? [subAgentSection] : []), terminalInstruction]
+  const outcomeSection = renderOutcomeSection(args.outcomeKind, args.outcomeSchema, args.outcomeProse)
+  const body = [
+    args.instructions.trim(),
+    ...(subAgentSection ? [subAgentSection] : []),
+    outcomeSection,
+    terminalInstruction,
+  ]
     .filter(Boolean)
     .join('\n\n')
   return `${frontmatterLines.join('\n')}\n${body}\n`
@@ -457,6 +489,9 @@ function loadSubAgentDir(dir: string): LoadedFileAgent {
     instructions: agent.instructions,
     tools: effectiveTools,
     mode: 'subagent',
+    outcomeKind: outcome.kind,
+    outcomeSchema: outcome.schema,
+    outcomeProse: outcome.prose,
   })
 
   return {
@@ -573,6 +608,9 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
     tools: effectiveTools,
     mode: 'primary',
     subAgentNames,
+    outcomeKind: outcome.kind,
+    outcomeSchema: outcome.schema,
+    outcomeProse: outcome.prose,
   })
 
   return {

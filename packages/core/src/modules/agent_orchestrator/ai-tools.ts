@@ -3,7 +3,7 @@ import { defineAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/li
 import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
 import { DELEGATE_TOOL_ID, getAgentEntry, ensureAgentsLoaded } from './lib/sdk/defineAgent'
 import type { AgentRuntimeService } from './lib/runtime/agentRuntime'
-import * as openCodeRunRegistry from './lib/runtime/openCodeRunRegistry'
+import type { AgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
 import { getAgentSkill, getAgentSkillScript } from './lib/runtime/fileAgentSkills'
 import { runSandboxedScript } from './lib/runtime/sandboxedScript'
 import { getCurrentRunId } from './lib/runtime/runContext'
@@ -97,16 +97,17 @@ const submitOutcomeInput = z.object({
 /**
  * Terminal tool an OpenCode file-agent calls to deliver its structured result.
  *
- * The active agent id + compiled OUTCOME result schema are resolved from the
- * per-run correlation store keyed by THIS run's session token (`ctx.sessionId`,
- * which the MCP HTTP server sets to the session token the runner minted) — NOT
- * trusted from the model. The submitted `outcome` is validated against that
- * agent's schema:
+ * The active agent id is resolved from the cross-process correlation store keyed
+ * by THIS run's session token (`ctx.sessionId`, which the MCP HTTP server sets to
+ * the session token the runner minted) — NOT trusted from the model. The store is
+ * DB-backed because the runner and this tool run in different processes. The
+ * agent's compiled OUTCOME schema is read from the registry; the submitted
+ * `outcome` is validated against it:
  *
- *  - valid   → stored + completion signalled (the waiting runner resolves);
- *              returns `{ ok: true }`.
- *  - invalid → returns `{ ok: false, code: 'outcome_invalid', errors }` so
- *              OpenCode/the agent can correct and retry (NOT thrown).
+ *  - valid   → written to the store; the polling runner reads it back. `{ ok: true }`.
+ *  - invalid → `{ ok: false, code: 'outcome_invalid', errors }` so OpenCode/the
+ *              agent can correct and retry (NOT thrown). A non-JSON string is the
+ *              same: parsed first, then validated.
  *  - missing/stale correlation (no run for this session, or already completed)
  *            → `{ ok: false, code: 'no_active_run' }`.
  *
@@ -117,24 +118,41 @@ const submitOutcomeTool: AiToolDefinition = {
   name: SUBMIT_OUTCOME_TOOL_ID,
   displayName: 'Submit agent outcome',
   description:
-    'Finish the current agent run by submitting its structured outcome. The server validates it against the agent OUTCOME contract; on failure it returns the validation errors so you can correct and resubmit.',
+    'Finish the current agent run by submitting its structured outcome (as the `outcome` argument object). The server validates it against the agent OUTCOME contract; on failure it returns the validation errors so you can correct and resubmit.',
   inputSchema: submitOutcomeInput,
   requiredFeatures: ['agent_orchestrator.agents.run'],
   isMutation: false,
   tags: ['read', 'agent_orchestrator'],
   async handler(rawInput, ctx) {
     const { outcome } = submitOutcomeInput.parse(rawInput)
-    // The runner registers the correlation entry keyed by the per-run session
-    // token; the MCP HTTP server exposes that token as `ctx.sessionId`.
-    const correlationKey = ctx.sessionId
-    if (!correlationKey) {
+    const sessionToken = ctx.sessionId
+    if (!sessionToken) {
       return { ok: false as const, code: 'no_active_run' as const, error: 'no run session in context' }
     }
-    const entry = openCodeRunRegistry.get(correlationKey)
-    if (!entry) {
+    const store = ctx.container.resolve('agentRunSessionStore') as AgentRunSessionStore
+    const agentId = await store.resolveActiveAgentId(sessionToken)
+    if (!agentId) {
       return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this session' }
     }
-    const parsed = entry.resultSchema.safeParse(outcome)
+    await ensureAgentsLoaded()
+    const entry = getAgentEntry(agentId)
+    if (!entry) {
+      return { ok: false as const, code: 'no_active_run' as const, error: 'active agent is no longer registered' }
+    }
+    // Models sometimes pass the outcome as a JSON STRING — parse it before validating.
+    let outcomeValue = outcome
+    if (typeof outcomeValue === 'string') {
+      try {
+        outcomeValue = JSON.parse(outcomeValue)
+      } catch {
+        return {
+          ok: false as const,
+          code: 'outcome_invalid' as const,
+          errors: [{ path: '', message: 'outcome must be a JSON object, not an unparseable string' }],
+        }
+      }
+    }
+    const parsed = entry.schema.safeParse(outcomeValue)
     if (!parsed.success) {
       return {
         ok: false as const,
@@ -145,9 +163,10 @@ const submitOutcomeTool: AiToolDefinition = {
         })),
       }
     }
-    const completed = openCodeRunRegistry.complete(correlationKey, parsed.data)
-    if (!completed) {
-      return { ok: false as const, code: 'no_active_run' as const, error: 'run already completed' }
+    const completion = await store.completeOutcome(sessionToken, parsed.data)
+    if (completion !== 'completed') {
+      // not_found (run gone) or already_completed → nothing more to capture.
+      return { ok: false as const, code: 'no_active_run' as const, error: `run ${completion}` }
     }
     return { ok: true as const }
   },
@@ -187,15 +206,16 @@ const loadSkillTool: AiToolDefinition = {
   tags: ['read', 'agent_orchestrator'],
   async handler(rawInput, ctx) {
     const { skillId } = loadSkillInput.parse(rawInput)
-    const correlationKey = ctx.sessionId
-    if (!correlationKey) {
+    const sessionToken = ctx.sessionId
+    if (!sessionToken) {
       return { ok: false as const, code: 'no_active_run' as const, error: 'no run session in context' }
     }
-    const run = openCodeRunRegistry.get(correlationKey)
-    if (!run) {
+    const store = ctx.container.resolve('agentRunSessionStore') as AgentRunSessionStore
+    const agentId = await store.resolveActiveAgentId(sessionToken)
+    if (!agentId) {
       return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this session' }
     }
-    const skill = getAgentSkill(run.agentId, skillId)
+    const skill = getAgentSkill(agentId, skillId)
     if (!skill) {
       return {
         ok: false as const,
@@ -247,22 +267,23 @@ const runSkillScriptTool: AiToolDefinition = {
   tags: ['read', 'agent_orchestrator'],
   async handler(rawInput, ctx) {
     const { skillId, scriptName, args } = runSkillScriptInput.parse(rawInput)
-    const correlationKey = ctx.sessionId
-    if (!correlationKey) {
+    const sessionToken = ctx.sessionId
+    if (!sessionToken) {
       return { ok: false as const, code: 'no_active_run' as const, error: 'no run session in context' }
     }
-    const run = openCodeRunRegistry.get(correlationKey)
-    if (!run) {
+    const store = ctx.container.resolve('agentRunSessionStore') as AgentRunSessionStore
+    const agentId = await store.resolveActiveAgentId(sessionToken)
+    if (!agentId) {
       return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this session' }
     }
-    if (!getAgentSkill(run.agentId, skillId)) {
+    if (!getAgentSkill(agentId, skillId)) {
       return {
         ok: false as const,
         code: 'skill_not_allowed' as const,
         error: `skill "${skillId}" is not available to the active agent`,
       }
     }
-    const script = getAgentSkillScript(run.agentId, skillId, scriptName)
+    const script = getAgentSkillScript(agentId, skillId, scriptName)
     if (!script) {
       return {
         ok: false as const,

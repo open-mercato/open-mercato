@@ -106,11 +106,13 @@ agents/<agent_id>/
   fails on malformed dirs, emits the manifest + `docker/opencode/{agents,skills}/`). The CLI
   cannot import `@open-mercato/core`, so it reimplements the tiny parsers — keep them in sync.
 - Runner + dispatch: `lib/runtime/agentRuntime.ts` (dispatch on `entry.runtime`),
-  `lib/runtime/openCodeAgentRunner.ts` (per-run session token, send with `agent: <name>`,
-  wait on SSE idle OR captured outcome, one corrective nudge then fail-closed),
-  `lib/runtime/openCodeRunRegistry.ts` (active-agent-by-session correlation),
-  `lib/runtime/persistence.ts` (shared run/proposal lifecycle), `lib/runtime/runContext.ts`
-  (AsyncLocalStorage parent-run trace for the in-process delegate path).
+  `lib/runtime/openCodeAgentRunner.ts` (per-run session token, send with `agent: <name>` +
+  long timeout, poll the shared store for the outcome OR SSE idle, one corrective nudge then
+  fail-closed), `lib/runtime/agentRunSessionStore.ts` (DB-backed `agent_run_sessions`
+  cross-process correlation — the runner and the separate `mcp:serve-http` process share it;
+  an in-process Map does NOT work across processes), `lib/runtime/persistence.ts` (shared
+  run/proposal lifecycle), `lib/runtime/runContext.ts` (AsyncLocalStorage parent-run trace for
+  the in-process delegate path).
 - MCP tools (`ai-tools.ts`): `submit_outcome` (terminal outcome), `load_skill` (progressive
   disclosure fallback), `run_skill_script` (sandboxed scripts + local tools), `delegate_agent`
   (in-process sub-agent fan-out). All `isMutation:false`, gated by `agent_orchestrator.agents.run`.

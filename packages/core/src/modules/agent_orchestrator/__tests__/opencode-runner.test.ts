@@ -24,6 +24,7 @@ import { AgentRuntimeService } from '../lib/runtime/agentRuntime'
 import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
 import { aiTools, SUBMIT_OUTCOME_TOOL_ID } from '../ai-tools'
 import { compileOutcome } from '../lib/sdk/outcomeSchema'
+import { InMemoryAgentRunSessionStore } from '../lib/runtime/agentRunSessionStore'
 import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
 
 const submitOutcomeTool = aiTools.find((t) => t.name === SUBMIT_OUTCOME_TOOL_ID) as AiToolDefinition
@@ -110,8 +111,12 @@ function makeHarness() {
     loadAcl: async () => ({ isSuperAdmin: false, features: ['agent_orchestrator.agents.run'] }),
   }
   const em = {}
+  // Shared cross-process correlation store — the runner opens a row, the fake
+  // client's submit_outcome (resolving the SAME store from the container)
+  // completes it, and the runner polls it back.
+  const agentRunSessionStore = new InMemoryAgentRunSessionStore()
 
-  const registrations: Record<string, unknown> = { rbacService, em }
+  const registrations: Record<string, unknown> = { rbacService, em, agentRunSessionStore }
   const container = {
     resolve(name: string) {
       if (name in registrations) return registrations[name]
@@ -135,6 +140,7 @@ function makeFakeClient(opts: {
   outcome: unknown
   sessionTokenRef: { value: string }
   agentSentRef: { value: string | undefined }
+  container: { resolve: (name: string) => unknown }
   callSubmitOutcome?: boolean
 }): OpenCodeRunnerClient {
   let emit: ((event: { type: string; properties: Record<string, unknown> }) => void) | null = null
@@ -149,11 +155,13 @@ function makeFakeClient(opts: {
       // MCP server would (ctx.sessionId === the run session token).
       const tokenMatch = /Session Authorization: (sess_[a-z0-9_]+)/i.exec(message)
       if (tokenMatch) opts.sessionTokenRef.value = tokenMatch[1]
-      // Simulate the agent calling submit_outcome through the in-process handler.
+      // Simulate the agent calling submit_outcome through the in-process handler,
+      // passing the run session token as ctx.sessionId + the SAME container so the
+      // handler resolves the shared store the runner opened.
       if (opts.callSubmitOutcome !== false) {
         await submitOutcomeTool.handler!(
           { outcome: opts.outcome },
-          { sessionId: opts.sessionTokenRef.value } as unknown as Parameters<
+          { sessionId: opts.sessionTokenRef.value, container: opts.container } as unknown as Parameters<
             NonNullable<typeof submitOutcomeTool.handler>
           >[1],
         )
@@ -191,7 +199,7 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     const { calls, commandBus, container } = makeHarness()
     const sessionTokenRef = { value: '' }
     const agentSentRef = { value: undefined as string | undefined }
-    const client = makeFakeClient({ outcome: validOutcome, sessionTokenRef, agentSentRef })
+    const client = makeFakeClient({ outcome: validOutcome, sessionTokenRef, agentSentRef, container })
 
     const runner = new OpenCodeAgentRunner({
       container: container as never,
@@ -253,6 +261,7 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
       outcome: validOutcome,
       sessionTokenRef,
       agentSentRef,
+      container,
       callSubmitOutcome: false, // never call submit_outcome
     })
 
@@ -274,7 +283,7 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     const { commandBus, container, registrations } = makeHarness()
     const sessionTokenRef = { value: '' }
     const agentSentRef = { value: undefined as string | undefined }
-    registrations.openCodeClient = makeFakeClient({ outcome: validOutcome, sessionTokenRef, agentSentRef })
+    registrations.openCodeClient = makeFakeClient({ outcome: validOutcome, sessionTokenRef, agentSentRef, container })
 
     const service = new AgentRuntimeService({ container: container as never, commandBus: commandBus as never })
     const result = await service.run(entry.id, { dealId: 'deal-1' }, runCtx)

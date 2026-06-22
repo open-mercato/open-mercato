@@ -25,4 +25,80 @@ Work in this order:
 
 Set `confidence` between 0 and 1 (lower it when the signal is weak), and write a one-sentence `rationale` a support lead can act on, naming the specific history or ticket signal that drove the decision.
 
+## Outcome contract
+Your result MUST match this JSON Schema (the `proposal` object). Pass it as the `outcome` argument of the submit_outcome tool, as a JSON object (not a string):
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "actions",
+    "confidence",
+    "rationale"
+  ],
+  "properties": {
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "payload"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "set_priority",
+              "assign_specialist",
+              "send_macro"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "priority": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "urgent"
+                ]
+              },
+              "team": {
+                "type": "string",
+                "minLength": 1
+              },
+              "macroId": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
+```
+
+Propose exactly one action in `actions`. Fill only the `payload` field that matches the
+action `type` (`set_priority` → `priority`, `assign_specialist` → `team`, `send_macro` →
+`macroId`). `confidence` is 0..1 and `rationale` is one non-empty, support-lead-readable
+sentence naming the deciding signal.
+
 Finish by calling the `open-mercato_agent_orchestrator_submit_outcome` tool with a value matching the outcome contract (pass it as the `outcome` argument). You MUST call the tool — do not answer in prose or emit the result as a code block.

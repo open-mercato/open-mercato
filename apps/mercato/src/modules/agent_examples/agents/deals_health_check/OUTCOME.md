@@ -33,4 +33,10 @@ kind: actionable
 }
 ```
 
-Return exactly one `set_stage` action whose `payload.stage` names the proposed pipeline stage. `confidence` must be between 0 and 1, and `rationale` must be a non-empty, manager-readable justification.
+Use this EXACT shape — `actions` is an ARRAY and the stage is nested under `payload`:
+
+```json
+{ "actions": [{ "type": "set_stage", "payload": { "stage": "negotiation" } }], "confidence": 0.8, "rationale": "…" }
+```
+
+Common mistakes to avoid: do NOT use a singular `action` object, and do NOT put `stage` at the top of the action (it must be `payload.stage`). Return exactly one action. `confidence` must be between 0 and 1; `rationale` must be a non-empty, manager-readable justification. Pass this object as the `outcome` argument of the submit_outcome tool (an object, not a string).
