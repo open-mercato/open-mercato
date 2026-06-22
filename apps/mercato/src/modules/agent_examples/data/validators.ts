@@ -19,3 +19,28 @@ export const ticketTriageResult = z.object({
 })
 
 export type TicketTriageResult = z.infer<typeof ticketTriageResult>
+
+/**
+ * Result schema for the `support.triage_batch` manager agent. It delegates each
+ * ticket to the `support.ticket_triage` sub-agent (in parallel) and aggregates.
+ * Informative — it summarizes; it proposes nothing.
+ */
+export const triageBatchResult = z.object({
+  kind: z.literal('informative'),
+  data: z.object({
+    total: z.number().int().min(0),
+    urgentCount: z.number().int().min(0),
+    items: z
+      .array(
+        z.object({
+          subject: z.string(),
+          category: z.enum(['billing', 'technical', 'account', 'feedback', 'other']),
+          priority: z.enum(['low', 'medium', 'high', 'urgent']),
+          summary: z.string().min(1),
+        }),
+      )
+      .min(1),
+  }),
+})
+
+export type TriageBatchResult = z.infer<typeof triageBatchResult>

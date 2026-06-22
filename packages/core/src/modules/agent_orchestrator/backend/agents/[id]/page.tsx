@@ -156,6 +156,19 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
           )}
         </section>
 
+        {agent.subAgents.length ? (
+          <section className="space-y-2">
+            <SectionHeader title={t('agent_orchestrator.agentDetail.fields.subAgents')} />
+            <div className="flex flex-wrap gap-1">
+              {agent.subAgents.map((subId) => (
+                <Button key={subId} asChild variant="outline" size="sm">
+                  <Link href={`/backend/agents/${encodeURIComponent(subId)}`}>{subId}</Link>
+                </Button>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         <section className="space-y-2">
           <SectionHeader title={t('agent_orchestrator.agentDetail.fields.skills')} />
           {agent.skillDetails.length ? (

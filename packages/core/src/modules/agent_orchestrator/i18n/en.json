@@ -52,6 +52,7 @@
         "maxSteps": "Max steps",
         "tools": "Tools",
         "skills": "Skills",
+        "subAgents": "Sub-agents",
         "instructions": "Instructions"
       }
     },

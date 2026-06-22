@@ -55,6 +55,7 @@ export type AgentDetailView = AgentView & {
   defaultModel: string | null
   loopMaxSteps: number | null
   skillDetails: SkillDetailView[]
+  subAgents: string[]
 }
 
 function asString(value: unknown): string | null {
@@ -147,6 +148,9 @@ export function mapAgentDetail(item: Record<string, unknown>): AgentDetailView |
     defaultModel: asString(item.defaultModel),
     loopMaxSteps: loop ? asNumber(loop.maxSteps) : null,
     skillDetails,
+    subAgents: Array.isArray(item.subAgents)
+      ? item.subAgents.filter((sub): sub is string => typeof sub === 'string')
+      : [],
   }
 }
 

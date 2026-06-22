@@ -7,6 +7,14 @@ import { getSkillEntry } from './defineSkill'
 
 export type AgentResultKind = 'actionable' | 'informative'
 
+/**
+ * Tool id of the built-in delegation tool (declared in agent_orchestrator's
+ * `ai-tools.ts`). An agent that lists `subAgents` automatically gains this tool,
+ * letting it run other (read-only, informative) agents as sub-agents — and fan
+ * them out in parallel. Sub-agents stay propose-only: they only inform.
+ */
+export const DELEGATE_TOOL_ID = 'agent_orchestrator.delegate_agent'
+
 export interface DefineAgentInput {
   /** 'module.agent' — STABLE contract id (see BACKWARD_COMPATIBILITY.md). */
   id: string
@@ -30,6 +38,14 @@ export interface DefineAgentInput {
    * allowlist. Unknown ids are warned and skipped (the agent still loads).
    */
   skills?: string[]
+  /**
+   * Agent ids this agent may delegate to as sub-agents. When non-empty the agent
+   * gains the `DELEGATE_TOOL_ID` tool and a prompt section listing the ids; the
+   * model calls them (in parallel when independent). Sub-agents MUST be
+   * informative (they inform; only the parent proposes) and may not themselves
+   * delegate — enforced by the delegate tool, capping the tree depth.
+   */
+  subAgents?: string[]
   defaultProvider?: string
   defaultModel?: string
   /** Object-safe loop subset only. */
@@ -45,6 +61,7 @@ export interface AgentRegistryEntry {
   schema: ZodTypeAny
   tools: string[]
   skills: string[]
+  subAgents: string[]
   label: string
   description: string
   /** System prompt the agent runs with. */
@@ -76,7 +93,11 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     })
     .filter((skill): skill is NonNullable<typeof skill> => !!skill)
   const skillTools = resolvedSkills.flatMap((skill) => skill.tools)
-  const effectiveTools = Array.from(new Set([...ownTools, ...skillTools]))
+  // Sub-agents: when declared, the agent gains the delegation tool so it can run
+  // other agents as read-only sub-agents (and fan them out in parallel).
+  const subAgents = input.subAgents ?? []
+  const delegationTools = subAgents.length > 0 ? [DELEGATE_TOOL_ID] : []
+  const effectiveTools = Array.from(new Set([...ownTools, ...skillTools, ...delegationTools]))
 
   registry.set(input.id, {
     id: input.id,
@@ -85,6 +106,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     schema: input.result.schema,
     tools: ownTools,
     skills: skillIds,
+    subAgents,
     label: input.label,
     description: input.description,
     instructions: input.instructions,
@@ -95,9 +117,11 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
   const skillSections = resolvedSkills.map(
     (skill) => `## Skill: ${skill.label}\n${skill.instructions}`,
   )
-  const systemPrompt = skillSections.length
-    ? [input.instructions, ...skillSections].join('\n\n')
-    : input.instructions
+  const subAgentSection = subAgents.length
+    ? `## Sub-agents\nYou may delegate independent sub-tasks to these agents by calling the \`${DELEGATE_TOOL_ID}\` tool with { agentId, input }. When several sub-tasks are independent, issue multiple delegate calls in the SAME step so they run in parallel, then combine their results. Available sub-agents: ${subAgents.join(', ')}.`
+    : null
+  const systemPrompt = [input.instructions, ...skillSections, ...(subAgentSection ? [subAgentSection] : [])]
+    .join('\n\n')
   return defineAiAgent({
     id: input.id,
     moduleId: input.moduleId,
