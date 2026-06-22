@@ -5,6 +5,7 @@ description: Assess a sales deal's health and propose the next stage.
 provider: anthropic
 model: claude-sonnet-4-6
 skills: [stage_playbook]
+subAgents: [deals.activity_scan]
 maxSteps: 12
 ---
 You assess the health of a single sales deal and propose the most appropriate next stage.

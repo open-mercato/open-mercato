@@ -5,6 +5,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { getAgentEntry, ensureAgentsLoaded, type AgentRegistryEntry } from '../sdk/defineAgent'
 import { type AgentResult } from '../../data/validators'
 import { OpenCodeAgentRunner } from './openCodeAgentRunner'
+import { withRunContext } from './runContext'
 import {
   type AgentRunCtx,
   buildCommandContext,
@@ -93,6 +94,7 @@ export class AgentRuntimeService {
       organizationId: ctx.organizationId,
       agentId,
       input,
+      parentRunId: ctx.parentRunId ?? null,
     })
 
     // Load the caller's effective ACL so the agent's read-only tools (e.g.
@@ -111,19 +113,24 @@ export class AgentRuntimeService {
 
     let rawObject: unknown
     try {
-      const objectResult = await runAiAgentObject({
-        agentId,
-        input: typeof input === 'string' ? input : JSON.stringify(input),
-        authContext,
-        container: this.container,
-        output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.schema },
-        // Propose-only agents stay read-only: run a read-only tool loop so the
-        // agent can gather data (via its own tools or skill-contributed tools)
-        // before proposing. The runtime auto-falls back to a plain structured
-        // generate when no tools resolve, so toolless agents are unaffected.
-        // Writes never execute directly (read-only policy + proposal → effector).
-        enableTools: true,
-      })
+      // Bind this run's id as the current in-process run so a `delegate_agent`
+      // tool call (from a sub-agent-capable agent) can stamp `parent_run_id` on
+      // its nested run for traceability (Phase 4).
+      const objectResult = await withRunContext(runId, () =>
+        runAiAgentObject({
+          agentId,
+          input: typeof input === 'string' ? input : JSON.stringify(input),
+          authContext,
+          container: this.container,
+          output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.schema },
+          // Propose-only agents stay read-only: run a read-only tool loop so the
+          // agent can gather data (via its own tools or skill-contributed tools)
+          // before proposing. The runtime auto-falls back to a plain structured
+          // generate when no tools resolve, so toolless agents are unaffected.
+          // Writes never execute directly (read-only policy + proposal → effector).
+          enableTools: true,
+        }),
+      )
       // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
       rawObject = objectResult.mode === 'stream' ? await objectResult.object : objectResult.object
     } catch (err) {

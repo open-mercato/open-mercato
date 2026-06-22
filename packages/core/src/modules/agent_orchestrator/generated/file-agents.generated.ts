@@ -31,6 +31,12 @@ export type FileAgentDescriptor = {
   subAgents: string[]
   openCodeAgentName: string
   skillsContent?: FileAgentSkillContent[]
+  /**
+   * Nested descriptors for this agent's sub-agents (Phase 4). Each is an
+   * informative, non-delegating file agent registered individually (depth cap =
+   * 1). Absent for agents without sub-agents and for sub-agents themselves.
+   */
+  subAgentDescriptors?: FileAgentDescriptor[]
   maxSteps?: number
   provider?: string
   model?: string
@@ -47,9 +53,28 @@ export const fileAgentDescriptors: FileAgentDescriptor[] = [
     outcomeSchema: {"type":"object","additionalProperties":false,"required":["actions","confidence","rationale"],"properties":{"actions":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"required":["type","payload"],"properties":{"type":{"const":"set_stage"},"payload":{"type":"object","additionalProperties":false,"required":["stage"],"properties":{"stage":{"type":"string","minLength":1}}}}}},"confidence":{"type":"number","minimum":0,"maximum":1},"rationale":{"type":"string","minLength":1}}},
     tools: [],
     skills: ["stage_playbook"],
-    subAgents: [],
+    subAgents: ["deals.activity_scan"],
     openCodeAgentName: "deals_health_check",
     skillsContent: [{"id":"stage_playbook","instructions":"Use this playbook to pick the single most appropriate next stage for a deal.\n\nPipeline stages, in order:\n\n1. `lead` — initial interest, no qualification yet.\n2. `qualified` — budget, authority, need, and timeline (BANT) confirmed.\n3. `proposal` — a quote or proposal has been sent.\n4. `negotiation` — terms are actively being discussed.\n5. `won` — the deal is closed and signed.\n6. `lost` — the deal is dead; record the reason.\n\nDecision rules:\n\n- Advance one stage at a time unless a strong signal justifies a jump.\n- Strong forward signals: a signed document, a scheduled close date, an\n  explicit verbal commitment, or procurement engagement.\n- Risk signals that hold a deal back: no reply for two or more weeks, the\n  champion leaving, or repeated reschedules.\n- When momentum is unclear, prefer the conservative stage and lower your\n  confidence rather than guessing high.\n\nAlways justify the chosen stage in the rationale with the specific signal you\nrelied on.","template":"Recommended next stage: <stage>\nConfidence: <0..1>\nPrimary signal: <the one signal that drove this decision>\nRationale: <one or two sentences a sales manager can act on>","examples":["Deal: Acme renewal, currently in `proposal`. The buyer replied yesterday asking\nto discuss discount tiers and contract length, and looped in their procurement\nlead.\n\nRecommended next stage: negotiation\nConfidence: 0.8\nPrimary signal: procurement engaged and terms (discount, contract length) are\nactively under discussion.\nRationale: an active terms discussion with procurement involved is a strong\nforward signal; advance one stage from proposal to negotiation."],"tools":[]}],
+    subAgentDescriptors: [
+    {
+      id: "deals.activity_scan",
+      moduleId: "",
+      label: "Deal activity scan (sub-agent)",
+      description: "Scan a deal's recent activity and summarize momentum signals.",
+      instructions: "You are a read-only sub-agent that scans a single sales deal's recent activity.\n\nGiven the deal context provided as input, identify the most recent meaningful touchpoints (calls, emails, meetings, stage changes) and judge whether momentum is increasing, steady, or stalling. Note any risk signals such as long gaps since the last contact or a stuck stage.\n\nYou only inform the primary agent — you never propose actions. Return a concise, structured summary the primary can use to decide the next stage.",
+      resultKind: "informative",
+      outcomeSchema: {"type":"object","additionalProperties":false,"required":["momentum","signals"],"properties":{"momentum":{"type":"string","enum":["increasing","steady","stalling"]},"lastTouchpoint":{"type":"string","minLength":1},"signals":{"type":"array","items":{"type":"string","minLength":1}}}},
+      tools: [],
+      skills: [],
+      subAgents: [],
+      openCodeAgentName: "deals_activity_scan",
+      skillsContent: [],
+      maxSteps: 6,
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+    },
+    ],
     maxSteps: 12,
     provider: "anthropic",
     model: "claude-sonnet-4-6",

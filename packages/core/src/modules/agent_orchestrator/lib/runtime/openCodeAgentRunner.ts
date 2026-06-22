@@ -101,6 +101,7 @@ export class OpenCodeAgentRunner {
       organizationId: ctx.organizationId,
       agentId,
       input,
+      parentRunId: ctx.parentRunId ?? null,
     })
 
     // Mint a fresh per-run session token scoped to the caller (their roles,

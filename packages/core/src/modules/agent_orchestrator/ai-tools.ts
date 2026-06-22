@@ -5,6 +5,7 @@ import { DELEGATE_TOOL_ID, getAgentEntry, ensureAgentsLoaded } from './lib/sdk/d
 import type { AgentRuntimeService } from './lib/runtime/agentRuntime'
 import * as openCodeRunRegistry from './lib/runtime/openCodeRunRegistry'
 import { getAgentSkill } from './lib/runtime/fileAgentSkills'
+import { getCurrentRunId } from './lib/runtime/runContext'
 
 /** Tool id of the OUTCOME-submission tool an OpenCode file-agent finishes with. */
 export const SUBMIT_OUTCOME_TOOL_ID = 'agent_orchestrator.submit_outcome'
@@ -61,10 +62,16 @@ const delegateAgentTool: AiToolDefinition = {
 
     try {
       const agentRuntime = ctx.container.resolve('agentRuntime') as AgentRuntimeService
+      // The parent run is the in-process run currently executing (bound via the
+      // run-context AsyncLocalStorage); pass its id so the nested sub-agent run
+      // records `parent_run_id` for traceability (Phase 4). Undefined outside a
+      // run context (the nested run is then a top-level run).
+      const parentRunId = getCurrentRunId()
       const result = await agentRuntime.run(agentId, input, {
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
         userId: ctx.userId,
+        ...(parentRunId ? { parentRunId } : {}),
       })
       const data = result.kind === 'informative' ? result.data : result.proposal
       return { ok: true as const, agentId, data }

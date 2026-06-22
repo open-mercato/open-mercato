@@ -7,7 +7,14 @@ export type AgentRunStatus = 'running' | 'ok' | 'error'
 @Index({ name: 'agent_runs_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'agent_runs_agent_idx', properties: ['organizationId', 'agentId'] })
 export class AgentRun {
-  [OptionalProps]?: 'status' | 'output' | 'resultKind' | 'errorMessage' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?:
+    | 'status'
+    | 'output'
+    | 'resultKind'
+    | 'errorMessage'
+    | 'parentRunId'
+    | 'createdAt'
+    | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -20,6 +27,16 @@ export class AgentRun {
 
   @Property({ name: 'agent_id', type: 'varchar', length: 100 })
   agentId!: string
+
+  /**
+   * Parent run that delegated to this one as a sub-agent (Phase 4 nested trace).
+   * Nullable + additive: top-level runs leave it null. Populated for the
+   * in-process `delegate_agent` path; OpenCode-NATIVE `task` delegation runs
+   * sub-agents inside OpenCode (not via our runner), so per-sub-agent rows are a
+   * documented follow-up for that path.
+   */
+  @Property({ name: 'parent_run_id', type: 'uuid', nullable: true })
+  parentRunId?: string | null
 
   @Property({ name: 'status', type: 'varchar', length: 20, default: 'running' })
   status: AgentRunStatus = 'running'

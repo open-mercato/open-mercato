@@ -112,14 +112,24 @@ function renderToolPermissionLine(toolName: string): string {
   return `  ${JSON.stringify(toolName)}: true`
 }
 
+/** Built-in OpenCode delegation tool a primary agent uses to fan out to sub-agents. */
+const TASK_TOOL_NAME = 'task'
+
 /**
  * Render the OpenCode agent .md file: YAML-ish frontmatter (description,
- * optional model/provider, mode: primary, a read-only tools/permission block)
- * plus the body = instructions + the terminal `submit_outcome` instruction.
+ * optional model/provider, mode, a read-only tools/permission block) plus the
+ * body = instructions + the terminal `submit_outcome` instruction.
  *
  * The `tools` block denies everything by default and allows ONLY the agent's
  * declared read-only MCP tool ids plus `submit_outcome` (propose-only gate; see
  * findings §C8). Writes (`write`/`edit`/`bash`) are denied via `permission`.
+ *
+ * Sub-agent files (`mode: subagent`, Phase 4) are rendered with NO `task`
+ * allowance and `permission.task: deny`, so they cannot delegate further (depth
+ * cap = 1). The PRIMARY, when it declares sub-agents, additionally allows the
+ * built-in `task` tool, whitelists ONLY its sub-agents' sanitized names under
+ * `permission.task`, and gets a "Sub-agents" prompt section nudging parallel
+ * fan-out (mirrors `defineAgent`'s `subAgentSection`).
  */
 function renderOpenCodeAgentFile(args: {
   description: string
@@ -127,20 +137,35 @@ function renderOpenCodeAgentFile(args: {
   model?: string
   instructions: string
   tools: string[]
+  /** `'primary'` (default) or `'subagent'` for a generated sub-agent file. */
+  mode?: 'primary' | 'subagent'
+  /** Sanitized OpenCode names of this primary's reachable sub-agents (empty otherwise). */
+  subAgentNames?: string[]
 }): string {
   const submitTool = 'agent_orchestrator.submit_outcome'
-  const allowedTools = Array.from(new Set([...args.tools, submitTool]))
+  const mode = args.mode ?? 'primary'
+  const subAgentNames = mode === 'primary' ? (args.subAgentNames ?? []) : []
+  const hasSubAgents = subAgentNames.length > 0
+  const allowedTools = Array.from(
+    new Set([...args.tools, submitTool, ...(hasSubAgents ? [TASK_TOOL_NAME] : [])]),
+  )
   const modelLine =
     args.provider && args.model
       ? `model: ${args.provider}/${args.model}`
       : args.model
         ? `model: ${args.model}`
         : null
+  // Sub-agents may NOT delegate further: deny `task` entirely. A primary that
+  // declares sub-agents denies `task` by default then whitelists ONLY its own
+  // sub-agents' sanitized names.
+  const taskPermissionLines = hasSubAgents
+    ? ['  task:', '    "*": deny', ...subAgentNames.map((name) => `    ${JSON.stringify(name)}: allow`)]
+    : ['  task: deny']
   const frontmatterLines = [
     '---',
     `description: ${JSON.stringify(args.description)}`,
     ...(modelLine ? [modelLine] : []),
-    'mode: primary',
+    `mode: ${mode}`,
     'tools:',
     '  "*": false',
     ...allowedTools.map(renderToolPermissionLine),
@@ -148,11 +173,17 @@ function renderOpenCodeAgentFile(args: {
     '  write: deny',
     '  edit: deny',
     '  bash: deny',
+    ...taskPermissionLines,
     '---',
   ]
   const terminalInstruction =
     'Finish by calling `agent_orchestrator.submit_outcome` with a value matching the outcome contract. Do not answer in prose.'
-  const body = [args.instructions.trim(), terminalInstruction].filter(Boolean).join('\n\n')
+  const subAgentSection = hasSubAgents
+    ? `## Sub-agents\nYou may delegate independent read-only sub-tasks to these sub-agents by calling the \`task\` tool. When several sub-tasks are independent, issue multiple \`task\` calls in the SAME step so they run in parallel, then combine their results before submitting your outcome. Available sub-agents: ${subAgentNames.join(', ')}.`
+    : null
+  const body = [args.instructions.trim(), ...(subAgentSection ? [subAgentSection] : []), terminalInstruction]
+    .filter(Boolean)
+    .join('\n\n')
   return `${frontmatterLines.join('\n')}\n${body}\n`
 }
 
@@ -234,14 +265,126 @@ function loadAgentSkills(agentDir: string, skillIds: string[]): LoadedSkillConte
 }
 
 /**
- * Read `agents/<id>/{CLAUDE.md,OUTCOME.md}`, validate, compile the OUTCOME schema,
- * and build an `AgentRegistryEntry` with `runtime:'opencode'`. Pure and fs-based
- * (unit-testable against fixtures). Returns null when the dir is not a valid
- * agent (missing/malformed CLAUDE.md or OUTCOME.md); the generator turns a null
- * into a hard generation error naming the dir.
+ * Load one sub-agent dir `agents/<id>/sub-agents/<subid>/` (Phase 4). Sub-agents
+ * are full file agents (CLAUDE.md + OUTCOME.md) but constrained: each is rendered
+ * `mode: subagent`, read-only, and MUST satisfy two hard rules (matching the
+ * in-process `delegate_agent` contract):
  *
- * In Phase 1 `subAgents` (loaded children) is always `[]`; the declared sub-agent
- * ids are still carried on `entry.subAgents`.
+ *   1. OUTCOME `kind` MUST be `informative` (sub-agents inform; only the primary
+ *      proposes);
+ *   2. it MUST NOT itself declare `subAgents` (depth cap = 1).
+ *
+ * A malformed sub-agent dir or a constraint violation THROWS with a clear
+ * `[internal]` reason naming the dir (so the generator fails loudly), rather than
+ * returning null — a present-but-invalid sub-agent must never be silently dropped.
+ */
+function loadSubAgentDir(dir: string): LoadedFileAgent {
+  const claudePath = path.join(dir, 'CLAUDE.md')
+  const outcomePath = path.join(dir, 'OUTCOME.md')
+  if (!fs.existsSync(claudePath) || !fs.existsSync(outcomePath)) {
+    throw new Error(`[internal] malformed sub-agent at ${dir}: both CLAUDE.md and OUTCOME.md are required`)
+  }
+
+  const agent = parseAgentMarkdown(fs.readFileSync(claudePath, 'utf8'))
+  if (!agent) {
+    throw new Error(`[internal] malformed CLAUDE.md at ${dir}: missing id/label/description`)
+  }
+  const outcome = parseOutcomeMarkdown(fs.readFileSync(outcomePath, 'utf8'))
+  if (!outcome) {
+    throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
+  }
+  if (outcome.kind !== 'informative') {
+    throw new Error(
+      `[internal] sub-agent at ${dir} must be informative (kind: informative); sub-agents inform, only the primary proposes`,
+    )
+  }
+  if (agent.subAgents.length > 0) {
+    throw new Error(
+      `[internal] sub-agent at ${dir} may not declare subAgents (depth cap = 1); sub-agents may not delegate further`,
+    )
+  }
+
+  let resultSchema
+  try {
+    resultSchema = compileOutcome({ kind: outcome.kind, schema: outcome.schema }).resultSchema
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    throw new Error(`[internal] malformed OUTCOME.md at ${dir}: ${detail}`)
+  }
+
+  const skillsContent = loadAgentSkills(dir, agent.skills)
+  const skillTools = skillsContent.flatMap((skill) => skill.tools)
+  const effectiveTools = Array.from(new Set([...agent.tools, ...skillTools]))
+
+  const openCodeAgentName = sanitizeAgentName(agent.id)
+  const entry: AgentRegistryEntry = {
+    id: agent.id,
+    moduleId: '',
+    resultKind: outcome.kind,
+    schema: resultSchema,
+    tools: effectiveTools,
+    skills: agent.skills,
+    subAgents: [],
+    label: agent.label,
+    description: agent.description,
+    instructions: agent.instructions,
+    defaultProvider: agent.provider,
+    defaultModel: agent.model,
+    loop: agent.maxSteps != null ? { maxSteps: agent.maxSteps } : undefined,
+    runtime: 'opencode',
+  }
+
+  const openCodeAgentFile = renderOpenCodeAgentFile({
+    description: agent.description,
+    provider: agent.provider,
+    model: agent.model,
+    instructions: agent.instructions,
+    tools: effectiveTools,
+    mode: 'subagent',
+  })
+
+  return {
+    entry,
+    outcomeSchema: outcome.schema,
+    resultKind: outcome.kind,
+    openCodeAgentFile,
+    openCodeAgentName,
+    skillsContent,
+    subAgents: [],
+  }
+}
+
+/**
+ * Load every sub-agent under `agents/<id>/sub-agents/<subid>/` (Phase 4). Each
+ * resolved child carries its own loaded `LoadedFileAgent` (full file agent,
+ * constrained to informative + non-delegating). Returns [] when the agent has no
+ * `sub-agents/` dir.
+ */
+function loadSubAgents(agentDir: string): LoadedFileAgent[] {
+  const base = path.join(agentDir, 'sub-agents')
+  if (!fs.existsSync(base) || !fs.statSync(base).isDirectory()) return []
+  const loaded: LoadedFileAgent[] = []
+  for (const entry of fs.readdirSync(base, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === '__tests__') continue
+    loaded.push(loadSubAgentDir(path.join(base, entry.name)))
+  }
+  return loaded
+}
+
+/**
+ * Read `agents/<id>/{CLAUDE.md,OUTCOME.md}` (+ skills + sub-agents), validate,
+ * compile the OUTCOME schema, and build an `AgentRegistryEntry` with
+ * `runtime:'opencode'`. Pure and fs-based (unit-testable against fixtures).
+ * Returns null when the dir is not a valid agent (missing/malformed CLAUDE.md or
+ * OUTCOME.md); the generator turns a null into a hard generation error naming the
+ * dir. A present-but-invalid SUB-agent throws (so a constraint violation fails
+ * loudly rather than being silently dropped).
+ *
+ * `subAgents` (loaded children) is populated from `agents/<id>/sub-agents/`; the
+ * declared sub-agent ids are still carried on `entry.subAgents`. When sub-agents
+ * are present, the rendered primary agent file additionally allows the `task`
+ * tool, whitelists ONLY its sub-agents' sanitized names under `permission.task`,
+ * and gains a "Sub-agents" prompt section.
  */
 export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
   const claudePath = path.join(dir, 'CLAUDE.md')
@@ -271,6 +414,10 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
   const skillTools = skillsContent.flatMap((skill) => skill.tools)
   const effectiveTools = Array.from(new Set([...agent.tools, ...skillTools]))
 
+  // Phase 4: load sub-agent dirs (constraints enforced — throws on violation).
+  const subAgents = loadSubAgents(dir)
+  const subAgentNames = subAgents.map((sub) => sub.openCodeAgentName)
+
   const openCodeAgentName = sanitizeAgentName(agent.id)
   const entry: AgentRegistryEntry = {
     id: agent.id,
@@ -295,6 +442,8 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
     model: agent.model,
     instructions: agent.instructions,
     tools: effectiveTools,
+    mode: 'primary',
+    subAgentNames,
   })
 
   return {
@@ -304,6 +453,6 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
     openCodeAgentFile,
     openCodeAgentName,
     skillsContent,
-    subAgents: [],
+    subAgents,
   }
 }

@@ -59,6 +59,14 @@ type DiscoveredAgent = {
   openCodeAgentName: string
   /** Resolved agent-local skill content (Phase 3). */
   skillsContent: DiscoveredSkill[]
+  /**
+   * Resolved sub-agents under `sub-agents/<subid>/` (Phase 4). Each is a full
+   * file agent, constrained to informative + non-delegating. Empty for a
+   * sub-agent itself (depth cap = 1) and for primaries with no sub-agents.
+   */
+  subAgentsContent: DiscoveredAgent[]
+  /** `'primary'` (default) or `'subagent'` for a discovered sub-agent. */
+  mode: 'primary' | 'subagent'
   maxSteps?: number
   provider?: string
   model?: string
@@ -309,6 +317,73 @@ function discoverAgentSkills(agentDir: string, skillIds: string[]): DiscoveredSk
   return resolved
 }
 
+/**
+ * Discover and validate the sub-agents under `agents/<id>/sub-agents/<subid>/`
+ * (Phase 4). Each is a full file agent (CLAUDE.md + OUTCOME.md) constrained to:
+ *   1. OUTCOME `kind: informative` (sub-agents inform; only the primary proposes);
+ *   2. NO `subAgents` of its own (depth cap = 1).
+ * FAILS generation (throws, naming the dir) on a malformed sub-agent OR a
+ * constraint violation — in sync with `lib/sdk/defineFileAgent.ts` `loadSubAgentDir`.
+ */
+function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
+  const base = path.join(agentDir, 'sub-agents')
+  if (!fs.existsSync(base) || !fs.statSync(base).isDirectory()) return []
+  const subAgents: DiscoveredAgent[] = []
+  for (const entry of fs.readdirSync(base, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === '__tests__') continue
+    const dir = path.join(base, entry.name)
+    const claudePath = path.join(dir, 'CLAUDE.md')
+    const outcomePath = path.join(dir, 'OUTCOME.md')
+    if (!fs.existsSync(claudePath) || !fs.existsSync(outcomePath)) {
+      throw new Error(
+        `[internal] malformed sub-agent at ${dir}: both CLAUDE.md and OUTCOME.md are required`,
+      )
+    }
+    const agent = parseAgentMarkdown(fs.readFileSync(claudePath, 'utf8'))
+    if (!agent) {
+      throw new Error(`[internal] malformed CLAUDE.md at ${dir}: missing id/label/description`)
+    }
+    const outcome = parseOutcomeMarkdown(fs.readFileSync(outcomePath, 'utf8'))
+    if (!outcome) {
+      throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
+    }
+    if (outcome.kind !== 'informative') {
+      throw new Error(
+        `[internal] sub-agent at ${dir} must be informative (kind: informative); only the primary proposes`,
+      )
+    }
+    if (agent.subAgents.length > 0) {
+      throw new Error(
+        `[internal] sub-agent at ${dir} may not declare subAgents (depth cap = 1); sub-agents may not delegate further`,
+      )
+    }
+    const skillsContent = discoverAgentSkills(dir, agent.skills)
+    const skillTools = skillsContent.flatMap((skill) => skill.tools)
+    const effectiveTools = Array.from(new Set([...agent.tools, ...skillTools]))
+    subAgents.push({
+      moduleId: '',
+      dir,
+      id: agent.id!,
+      label: agent.label!,
+      description: agent.description!,
+      instructions: agent.instructions,
+      resultKind: outcome.kind,
+      outcomeSchema: outcome.schema,
+      tools: effectiveTools,
+      skills: agent.skills,
+      subAgents: [],
+      openCodeAgentName: sanitizeAgentName(agent.id!),
+      skillsContent,
+      subAgentsContent: [],
+      mode: 'subagent',
+      maxSteps: agent.maxSteps,
+      provider: agent.provider,
+      model: agent.model,
+    })
+  }
+  return subAgents
+}
+
 function renderOpenCodeSkillFile(skill: DiscoveredSkill): string {
   const frontmatter = [
     '---',
@@ -348,20 +423,39 @@ function renderToolPermissionLine(toolName: string): string {
   return `  ${JSON.stringify(toolName)}: true`
 }
 
+/** Built-in OpenCode delegation tool a primary agent uses to fan out to sub-agents. */
+const TASK_TOOL_NAME = 'task'
+
+/**
+ * Render an OpenCode agent .md file. Must stay in sync with
+ * `lib/sdk/defineFileAgent.ts` `renderOpenCodeAgentFile`. Sub-agent files
+ * (`mode: subagent`) get NO `task` allowance and `permission.task: deny` (depth
+ * cap = 1). A primary that declares sub-agents allows the built-in `task` tool,
+ * whitelists ONLY its sub-agents' sanitized names under `permission.task`, and
+ * gains a "Sub-agents" prompt section nudging parallel fan-out.
+ */
 function renderOpenCodeAgentFile(agent: DiscoveredAgent): string {
   const submitTool = 'agent_orchestrator.submit_outcome'
-  const allowedTools = Array.from(new Set([...agent.tools, submitTool]))
+  const subAgentNames =
+    agent.mode === 'primary' ? agent.subAgentsContent.map((sub) => sub.openCodeAgentName) : []
+  const hasSubAgents = subAgentNames.length > 0
+  const allowedTools = Array.from(
+    new Set([...agent.tools, submitTool, ...(hasSubAgents ? [TASK_TOOL_NAME] : [])]),
+  )
   const modelLine =
     agent.provider && agent.model
       ? `model: ${agent.provider}/${agent.model}`
       : agent.model
         ? `model: ${agent.model}`
         : null
+  const taskPermissionLines = hasSubAgents
+    ? ['  task:', '    "*": deny', ...subAgentNames.map((name) => `    ${JSON.stringify(name)}: allow`)]
+    : ['  task: deny']
   const frontmatterLines = [
     '---',
     `description: ${JSON.stringify(agent.description)}`,
     ...(modelLine ? [modelLine] : []),
-    'mode: primary',
+    `mode: ${agent.mode}`,
     'tools:',
     '  "*": false',
     ...allowedTools.map(renderToolPermissionLine),
@@ -369,47 +463,67 @@ function renderOpenCodeAgentFile(agent: DiscoveredAgent): string {
     '  write: deny',
     '  edit: deny',
     '  bash: deny',
+    ...taskPermissionLines,
     '---',
   ]
   const terminalInstruction =
     'Finish by calling `agent_orchestrator.submit_outcome` with a value matching the outcome contract. Do not answer in prose.'
-  const body = [agent.instructions.trim(), terminalInstruction].filter(Boolean).join('\n\n')
+  const subAgentSection = hasSubAgents
+    ? `## Sub-agents\nYou may delegate independent read-only sub-tasks to these sub-agents by calling the \`task\` tool. When several sub-tasks are independent, issue multiple \`task\` calls in the SAME step so they run in parallel, then combine their results before submitting your outcome. Available sub-agents: ${subAgentNames.join(', ')}.`
+    : null
+  const body = [agent.instructions.trim(), ...(subAgentSection ? [subAgentSection] : []), terminalInstruction]
+    .filter(Boolean)
+    .join('\n\n')
   return `${frontmatterLines.join('\n')}\n${body}\n`
 }
 
+/**
+ * Render one agent descriptor as a key-per-line object literal at `indent`.
+ * Used for both top-level agents and nested sub-agents (Phase 4). A primary that
+ * declares sub-agents emits them as a nested `subAgentDescriptors` array so
+ * `ensureAgentsLoaded` can register each sub-agent too (informative, individually
+ * runnable file agents). A nested sub-agent carries no `subAgentDescriptors`
+ * (depth cap = 1).
+ */
+function renderDescriptor(agent: DiscoveredAgent, indent: string): string {
+  const optional: string[] = []
+  if (agent.subAgentsContent.length > 0) {
+    const nested = agent.subAgentsContent
+      .map((sub) => renderDescriptor(sub, `${indent}  `))
+      .join('\n')
+    optional.push(`${indent}  subAgentDescriptors: [\n${nested}\n${indent}  ],`)
+  }
+  if (agent.maxSteps != null) optional.push(`${indent}  maxSteps: ${agent.maxSteps},`)
+  if (agent.provider != null) optional.push(`${indent}  provider: ${JSON.stringify(agent.provider)},`)
+  if (agent.model != null) optional.push(`${indent}  model: ${JSON.stringify(agent.model)},`)
+  const skillsContent = agent.skillsContent.map((skill) => ({
+    id: skill.id,
+    instructions: skill.instructions,
+    ...(skill.template != null ? { template: skill.template } : {}),
+    examples: skill.examples,
+    tools: skill.tools,
+  }))
+  return [
+    `${indent}{`,
+    `${indent}  id: ${JSON.stringify(agent.id)},`,
+    `${indent}  moduleId: ${JSON.stringify(agent.moduleId)},`,
+    `${indent}  label: ${JSON.stringify(agent.label)},`,
+    `${indent}  description: ${JSON.stringify(agent.description)},`,
+    `${indent}  instructions: ${JSON.stringify(agent.instructions)},`,
+    `${indent}  resultKind: ${JSON.stringify(agent.resultKind)},`,
+    `${indent}  outcomeSchema: ${JSON.stringify(agent.outcomeSchema)},`,
+    `${indent}  tools: ${JSON.stringify(agent.tools)},`,
+    `${indent}  skills: ${JSON.stringify(agent.skills)},`,
+    `${indent}  subAgents: ${JSON.stringify(agent.subAgents)},`,
+    `${indent}  openCodeAgentName: ${JSON.stringify(agent.openCodeAgentName)},`,
+    `${indent}  skillsContent: ${JSON.stringify(skillsContent)},`,
+    ...optional,
+    `${indent}},`,
+  ].join('\n')
+}
+
 function renderManifest(agents: DiscoveredAgent[]): string {
-  const descriptors = agents
-    .map((agent) => {
-      const optional: string[] = []
-      if (agent.maxSteps != null) optional.push(`    maxSteps: ${agent.maxSteps},`)
-      if (agent.provider != null) optional.push(`    provider: ${JSON.stringify(agent.provider)},`)
-      if (agent.model != null) optional.push(`    model: ${JSON.stringify(agent.model)},`)
-      const skillsContent = agent.skillsContent.map((skill) => ({
-        id: skill.id,
-        instructions: skill.instructions,
-        ...(skill.template != null ? { template: skill.template } : {}),
-        examples: skill.examples,
-        tools: skill.tools,
-      }))
-      return [
-        '  {',
-        `    id: ${JSON.stringify(agent.id)},`,
-        `    moduleId: ${JSON.stringify(agent.moduleId)},`,
-        `    label: ${JSON.stringify(agent.label)},`,
-        `    description: ${JSON.stringify(agent.description)},`,
-        `    instructions: ${JSON.stringify(agent.instructions)},`,
-        `    resultKind: ${JSON.stringify(agent.resultKind)},`,
-        `    outcomeSchema: ${JSON.stringify(agent.outcomeSchema)},`,
-        `    tools: ${JSON.stringify(agent.tools)},`,
-        `    skills: ${JSON.stringify(agent.skills)},`,
-        `    subAgents: ${JSON.stringify(agent.subAgents)},`,
-        `    openCodeAgentName: ${JSON.stringify(agent.openCodeAgentName)},`,
-        `    skillsContent: ${JSON.stringify(skillsContent)},`,
-        ...optional,
-        '  },',
-      ].join('\n')
-    })
-    .join('\n')
+  const descriptors = agents.map((agent) => renderDescriptor(agent, '  ')).join('\n')
 
   return `// AUTO-GENERATED by mercato generate registry — DO NOT EDIT BY HAND.
 //
@@ -444,6 +558,12 @@ export type FileAgentDescriptor = {
   subAgents: string[]
   openCodeAgentName: string
   skillsContent?: FileAgentSkillContent[]
+  /**
+   * Nested descriptors for this agent's sub-agents (Phase 4). Each is an
+   * informative, non-delegating file agent registered individually (depth cap =
+   * 1). Absent for agents without sub-agents and for sub-agents themselves.
+   */
+  subAgentDescriptors?: FileAgentDescriptor[]
   maxSteps?: number
   provider?: string
   model?: string
@@ -488,6 +608,9 @@ export function createAgentFilesExtension(): GeneratorExtension {
       const skillsContent = discoverAgentSkills(dir, agent.skills)
       const skillTools = skillsContent.flatMap((skill) => skill.tools)
       const effectiveTools = Array.from(new Set([...agent.tools, ...skillTools]))
+      // Phase 4: discover + validate sub-agents (throws on a malformed/actionable/
+      // self-delegating sub-agent).
+      const subAgentsContent = discoverSubAgents(dir)
       discovered.push({
         moduleId,
         dir,
@@ -502,6 +625,8 @@ export function createAgentFilesExtension(): GeneratorExtension {
         subAgents: agent.subAgents,
         openCodeAgentName: sanitizeAgentName(agent.id!),
         skillsContent,
+        subAgentsContent,
+        mode: 'primary',
         maxSteps: agent.maxSteps,
         provider: agent.provider,
         model: agent.model,
@@ -547,6 +672,11 @@ export function createAgentFilesExtension(): GeneratorExtension {
       const desiredFiles = new Map<string, string>()
       for (const agent of sorted) {
         desiredFiles.set(`${agent.openCodeAgentName}.md`, renderOpenCodeAgentFile(agent))
+        // Phase 4: emit each sub-agent as its own `mode: subagent` file so
+        // OpenCode can reach it via the primary's whitelisted `task` tool.
+        for (const sub of agent.subAgentsContent) {
+          desiredFiles.set(`${sub.openCodeAgentName}.md`, renderOpenCodeAgentFile(sub))
+        }
       }
       // Idempotent: remove stale generated agent files, write the current set.
       for (const existing of fs.existsSync(dockerAgentsDir) ? fs.readdirSync(dockerAgentsDir) : []) {
@@ -560,10 +690,12 @@ export function createAgentFilesExtension(): GeneratorExtension {
 
       // Phase 3: emit NATIVE OpenCode skill files (one dir per skill name) under
       // `docker/opencode/skills/<sanitized-skill-name>/SKILL.md`. Idempotent:
-      // remove stale skill dirs not in the current desired set.
+      // remove stale skill dirs not in the current desired set. Sub-agents
+      // (Phase 4) may carry their own skills too, so flatten them in.
+      const allAgents = sorted.flatMap((agent) => [agent, ...agent.subAgentsContent])
       const dockerSkillsDir = path.join(repoRoot, 'docker', 'opencode', 'skills')
       const desiredSkillNames = new Set<string>()
-      for (const agent of sorted) {
+      for (const agent of allAgents) {
         for (const skill of agent.skillsContent) desiredSkillNames.add(skill.openCodeSkillName)
       }
       if (desiredSkillNames.size > 0) fs.mkdirSync(dockerSkillsDir, { recursive: true })
@@ -575,7 +707,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
         }
       }
       const renderedSkillNames = new Set<string>()
-      for (const agent of sorted) {
+      for (const agent of allAgents) {
         for (const skill of agent.skillsContent) {
           // A skill name may be shared across agents; the first rendering wins
           // (content is keyed by name, deterministic by sorted agent order).

@@ -17,6 +17,13 @@ export type AgentRunCtx = {
   /** Set for workflow-originated runs (area 02) → stamped onto the AgentProposal; null for the playground. */
   processId?: string
   stepId?: string
+  /**
+   * Parent run id when this run is a nested sub-agent delegation (Phase 4 trace).
+   * Additive + optional: top-level runs leave it undefined. The in-process
+   * `delegate_agent` tool passes the parent run's id here so nested in-process
+   * delegations are traceable via `agent_runs.parent_run_id`.
+   */
+  parentRunId?: string
 }
 
 export function buildCommandContext(
@@ -60,7 +67,14 @@ export async function resolveCallerAcl(
 export async function createRun(
   commandBus: CommandBus,
   commandCtx: CommandRuntimeContext,
-  input: { tenantId: string; organizationId: string; agentId: string; input: unknown },
+  input: {
+    tenantId: string
+    organizationId: string
+    agentId: string
+    input: unknown
+    /** Nested sub-agent run trace (Phase 4); omit/null for top-level runs. */
+    parentRunId?: string | null
+  },
 ): Promise<string> {
   const { result } = await commandBus.execute<typeof input, { runId: string }>(
     'agent_orchestrator.runs.create',

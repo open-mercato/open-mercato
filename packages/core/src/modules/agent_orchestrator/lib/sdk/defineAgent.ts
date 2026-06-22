@@ -266,7 +266,16 @@ async function loadFileAgents(): Promise<void> {
   const { compileOutcome } = await import('./outcomeSchema')
   const { registerAgentSkills } = await import('../runtime/fileAgentSkills')
   const isMutationTool = await loadMutationToolPredicate()
-  for (const descriptor of descriptors) {
+  // Flatten each descriptor's nested sub-agents (Phase 4) so they register as
+  // individual file agents too: they are informative, individually runnable, and
+  // discoverable in the Agents list/detail. A sub-agent flows through the SAME
+  // propose-only mutation-tool gate below; the registry dup-id guard prevents a
+  // duplicate id (a sub-agent that collides with another agent's id is skipped).
+  const allDescriptors = descriptors.flatMap((descriptor) => [
+    descriptor,
+    ...(descriptor.subAgentDescriptors ?? []),
+  ])
+  for (const descriptor of allDescriptors) {
     if (registry.has(descriptor.id)) continue
     // Propose-only generation gate (contract C8): a file agent may NEVER declare
     // a tool registered with `isMutation: true`. The OpenCode MCP server does NOT
