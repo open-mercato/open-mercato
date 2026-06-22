@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { sql } from 'kysely'
-import { resolveTranslationsRouteContext, requireTranslationFeatures } from '@open-mercato/core/modules/translations/api/context'
+import { resolveTranslationsRouteContext, requireTranslationFeatures, resolveTranslationsActorId } from '@open-mercato/core/modules/translations/api/context'
 import { translationBodySchema, entityTypeParamSchema, entityIdParamSchema } from '@open-mercato/core/modules/translations/data/validators'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
@@ -116,6 +120,22 @@ export async function PUT(req: Request, ctx: { params?: { entityType?: string; e
     }
     const translations = translationBodySchema.parse(rawBody)
 
+    const guardUserId = resolveTranslationsActorId(context.auth)
+    const guardResult = await validateCrudMutationGuard(context.container, {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userId: guardUserId,
+      resourceKind: 'translations.translation',
+      resourceId: `${entityType}:${entityId}`,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: { entityType, entityId, translations },
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
     // Optimistic lock: refuse a stale standalone PUT so a translation save that
     // started from an out-of-date view cannot silently clobber a concurrent edit.
     // Strictly additive — no expected-version header → no-op. Skipped when no row
@@ -150,6 +170,20 @@ export async function PUT(req: Request, ctx: { params?: { entityType?: string; e
       },
       ctx: context.commandCtx,
     })
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(context.container, {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        userId: guardUserId,
+        resourceKind: 'translations.translation',
+        resourceId: `${entityType}:${entityId}`,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
 
     const row = await (context.db as any)
       .selectFrom('entity_translations')
@@ -206,6 +240,22 @@ export async function DELETE(req: Request, ctx: { params?: { entityType?: string
       entityId: ctx.params?.entityId,
     })
 
+    const guardUserId = resolveTranslationsActorId(context.auth)
+    const guardResult = await validateCrudMutationGuard(context.container, {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userId: guardUserId,
+      resourceKind: 'translations.translation',
+      resourceId: `${entityType}:${entityId}`,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: null,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
     // Optimistic lock: refuse a stale standalone DELETE (same hole as PUT).
     // Additive — no header → no-op; skipped when no row exists.
     const existingVersion = await loadTranslationRowVersion(
@@ -237,6 +287,20 @@ export async function DELETE(req: Request, ctx: { params?: { entityType?: string
       },
       ctx: context.commandCtx,
     })
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(context.container, {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        userId: guardUserId,
+        resourceKind: 'translations.translation',
+        resourceId: `${entityType}:${entityId}`,
+        operation: 'delete',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
 
     const response = new NextResponse(null, { status: 204 })
 

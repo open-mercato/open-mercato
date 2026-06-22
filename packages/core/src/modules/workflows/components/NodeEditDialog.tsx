@@ -1,6 +1,6 @@
 'use client'
 
-import {Node} from '@xyflow/react'
+import type {Node} from '@xyflow/react'
 import {useEffect, useState} from 'react'
 import {Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle} from '@open-mercato/ui/primitives/dialog'
 import {Button} from '@open-mercato/ui/primitives/button'

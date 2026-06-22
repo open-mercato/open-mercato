@@ -90,8 +90,13 @@ export const featureToggleSchema = z.object({
   updatedAt: z.string().optional(),
 })
 
+// Inherited rows (no per-tenant override) intentionally carry an empty-string
+// `id` sentinel instead of a UUID, so the row id must accept both a UUID (real
+// override rows) and the empty inherited sentinel. See lib/queries.ts.
+export const overrideRowIdSchema = z.union([z.string().uuid(), z.literal('')])
+
 export const overrideListResponseSchema = z.object({
-  id: z.string().uuid(),
+  id: overrideRowIdSchema,
   toggleId: z.string().uuid(),
   tenantName: z.string(),
   tenantId: z.string().uuid(),

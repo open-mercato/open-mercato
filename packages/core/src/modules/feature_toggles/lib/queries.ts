@@ -1,4 +1,4 @@
-import { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import { EntityManager, FilterQuery, QueryOrder } from '@mikro-orm/postgresql'
 import { FeatureToggle, FeatureToggleOverride } from '../data/entities'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -28,6 +28,8 @@ export type GetOverridesQuery = {
     pageSize?: number
 }
 
+const SORTABLE_FIELDS = new Set<keyof FeatureToggle>(['identifier', 'name', 'category'])
+
 type GetOverridesResult = {
     items: OverrideListResponse[]
     total: number
@@ -56,77 +58,56 @@ export async function getOverrides(
         filters.identifier = { $ilike: `%${escapeLikePattern(query.identifier)}%` }
     }
 
-    const globalToggles = await em.find(FeatureToggle, filters)
+    const page = query.page ?? 1
+    const pageSize = query.pageSize ?? 25
+    const offset = (page - 1) * pageSize
 
-    const overrides = await em.find(FeatureToggleOverride, {
-        tenantId: tenant.id,
-        toggle: { id: { $in: globalToggles.map((toggle) => toggle.id) } },
+    const direction = query.sortDir === 'desc' ? QueryOrder.DESC : QueryOrder.ASC
+    const orderBy: Partial<Record<keyof FeatureToggle, QueryOrder>> = {}
+    if (query.sortField && SORTABLE_FIELDS.has(query.sortField as keyof FeatureToggle)) {
+        orderBy[query.sortField as keyof FeatureToggle] = direction
+    }
+    orderBy.id = QueryOrder.ASC
+
+    const totalItems = await em.count(FeatureToggle, filters)
+
+    const globalToggles = await em.find(FeatureToggle, filters, {
+        orderBy,
+        limit: pageSize,
+        offset,
     })
 
-    const response: OverrideListResponse[] = []
+    const overrides = globalToggles.length
+        ? await em.find(FeatureToggleOverride, {
+              tenantId: tenant.id,
+              toggle: { id: { $in: globalToggles.map((toggle) => toggle.id) } },
+          })
+        : []
 
-    globalToggles.forEach((toggle) => {
-        const override = overrides.find((o) => o.toggle.id === toggle.id)
-        if (override) {
-            response.push({
-                id: override?.id ?? '',
-                toggleId: toggle.id,
-                tenantName: tenant.name,
-                tenantId: tenant.id,
-                identifier: toggle.identifier,
-                name: toggle.name,
-                category: toggle.category ?? '',
-                isOverride: true,
-                updatedAt: override.updatedAt instanceof Date ? override.updatedAt.toISOString() : null,
-            })
-        } else {
-            response.push({
-                id: '',
-                toggleId: toggle.id,
-                tenantName: tenant.name,
-                tenantId: tenant.id,
-                identifier: toggle.identifier,
-                name: toggle.name,
-                category: toggle.category ?? '',
-                isOverride: false,
-            })
+    const overridesByToggleId = new Map<string, FeatureToggleOverride>()
+    for (const override of overrides) {
+        overridesByToggleId.set(override.toggle.id, override)
+    }
+
+    const items: OverrideListResponse[] = globalToggles.map((toggle) => {
+        const override = overridesByToggleId.get(toggle.id)
+        return {
+            id: override?.id ?? '',
+            toggleId: toggle.id,
+            tenantName: tenant.name,
+            tenantId: tenant.id,
+            identifier: toggle.identifier,
+            name: toggle.name,
+            category: toggle.category ?? '',
+            isOverride: Boolean(override),
+            updatedAt: override?.updatedAt instanceof Date ? override.updatedAt.toISOString() : null,
         }
     })
 
-    if (query.sortField && query.sortDir) {
-        const sortField = query.sortField
-        const sortDir = query.sortDir
-
-        response.sort((a, b) => {
-            let aValue: any = a[sortField as keyof typeof a]
-            let bValue: any = b[sortField as keyof typeof b]
-
-
-
-            if (typeof aValue === 'string' && typeof bValue === 'string') {
-                const comparison = aValue.localeCompare(bValue)
-                return sortDir === 'asc' ? comparison : -comparison
-            }
-
-            if (typeof aValue === 'number' && typeof bValue === 'number') {
-                return sortDir === 'asc' ? aValue - bValue : bValue - aValue
-            }
-
-            return 0
-        })
-    }
-
-    const totalItems = response.length
-    const page = query.page ?? 1
-    const pageSize = query.pageSize ?? 25
     const totalPages = Math.ceil(totalItems / pageSize)
-    const startIndex = (page - 1) * pageSize
-    const endIndex = startIndex + pageSize
-
-    const paginatedItems = response.slice(startIndex, endIndex)
 
     return {
-        items: paginatedItems,
+        items,
         total: totalItems,
         totalPages,
         page,

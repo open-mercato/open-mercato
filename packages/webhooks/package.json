@@ -1,6 +1,7 @@
 {
   "name": "@open-mercato/webhooks",
   "version": "0.6.5",
+  "license": "MIT",
   "description": "Webhooks module for Open Mercato — Standard Webhooks compliant outbound/inbound delivery",
   "type": "module",
   "main": "./dist/index.js",

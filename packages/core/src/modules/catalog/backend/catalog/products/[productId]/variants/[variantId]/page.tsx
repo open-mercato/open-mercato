@@ -347,6 +347,18 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             name: typeof record.name === 'string' ? record.name : '',
             sku: typeof record.sku === 'string' ? record.sku : '',
             barcode: typeof record.barcode === 'string' ? record.barcode : '',
+            gtinType:
+              typeof record.gtin_type === 'string'
+                ? record.gtin_type
+                : typeof record.gtinType === 'string'
+                  ? record.gtinType
+                  : null,
+            hsCode:
+              typeof record.hs_code === 'string'
+                ? record.hs_code
+                : typeof record.hsCode === 'string'
+                  ? record.hsCode
+                  : '',
             isDefault: record.is_default === true || record.isDefault === true,
             isActive: record.is_active !== false && record.isActive !== false,
             optionValues: normalizedOptionValues,
@@ -615,6 +627,8 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               name,
               sku: values.sku?.trim() || undefined,
               barcode: values.barcode?.trim() || undefined,
+              gtinType: values.gtinType ?? null,
+              hsCode: values.hsCode?.trim() || null,
               isDefault: Boolean(values.isDefault),
               isActive: values.isActive !== false,
               optionValues: Object.keys(values.optionValues ?? {}).length ? values.optionValues : undefined,
