@@ -104,7 +104,7 @@ describe('loadFileAgentDir', () => {
     // rendered OpenCode agent file carries the propose-only allowlist + submit_outcome
     expect(loaded!.openCodeAgentFile).toContain('mode: primary')
     expect(loaded!.openCodeAgentFile).toContain('"*": false')
-    expect(loaded!.openCodeAgentFile).toContain('agent_orchestrator.submit_outcome')
+    expect(loaded!.openCodeAgentFile).toContain('open-mercato_agent_orchestrator_submit_outcome')
     expect(loaded!.openCodeAgentFile).toContain('write: deny')
     expect(loaded!.openCodeAgentFile).toContain('submit_outcome')
   })

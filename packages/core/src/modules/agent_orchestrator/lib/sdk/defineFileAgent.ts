@@ -131,6 +131,26 @@ function renderToolPermissionLine(toolName: string): string {
 const TASK_TOOL_NAME = 'task'
 
 /**
+ * The MCP server key OpenCode connects under (the `mcp.<key>` in opencode.jsonc;
+ * `open-mercato` in OM's container). OpenCode exposes each MCP tool as
+ * `<serverKey>_<toolName with dots→underscores>`, so a file-agent's `tools`
+ * allowlist + prompt MUST reference that id — verified against the running image.
+ */
+const OPENCODE_MCP_SERVER_KEY = 'open-mercato'
+
+/** Core MCP tools every file agent may call (terminal outcome + progressive disclosure + sandboxed scripts). */
+const CORE_FILE_AGENT_TOOL_IDS = [
+  'agent_orchestrator.submit_outcome',
+  'agent_orchestrator.load_skill',
+  'agent_orchestrator.run_skill_script',
+]
+
+/** Map an OM tool id (`module.tool`) to OpenCode's MCP tool id (`<serverKey>_module_tool`). */
+function toOpenCodeMcpToolId(omToolId: string): string {
+  return `${OPENCODE_MCP_SERVER_KEY}_${omToolId.replace(/\./g, '_')}`
+}
+
+/**
  * Render the OpenCode agent .md file: YAML-ish frontmatter (description,
  * optional model/provider, mode, a read-only tools/permission block) plus the
  * body = instructions + the terminal `submit_outcome` instruction.
@@ -157,13 +177,19 @@ function renderOpenCodeAgentFile(args: {
   /** Sanitized OpenCode names of this primary's reachable sub-agents (empty otherwise). */
   subAgentNames?: string[]
 }): string {
-  const submitTool = 'agent_orchestrator.submit_outcome'
   const mode = args.mode ?? 'primary'
   const subAgentNames = mode === 'primary' ? (args.subAgentNames ?? []) : []
   const hasSubAgents = subAgentNames.length > 0
-  const allowedTools = Array.from(
-    new Set([...args.tools, submitTool, ...(hasSubAgents ? [TASK_TOOL_NAME] : [])]),
-  )
+  // The agent's MCP tools = its declared read tools + the core file-agent tools
+  // (submit_outcome / load_skill / run_skill_script). OpenCode names every MCP
+  // tool `<serverKey>_<toolName with dots→underscores>`, so the allowlist key and
+  // the prompt MUST use that form — a dotted OM id never matches and `"*": false`
+  // would silently drop it. `task` is an OpenCode built-in (not prefixed).
+  const omMcpToolIds = Array.from(new Set([...args.tools, ...CORE_FILE_AGENT_TOOL_IDS]))
+  const allowedTools = [
+    ...omMcpToolIds.map(toOpenCodeMcpToolId),
+    ...(hasSubAgents ? [TASK_TOOL_NAME] : []),
+  ]
   const modelLine =
     args.provider && args.model
       ? `model: ${args.provider}/${args.model}`
@@ -191,8 +217,9 @@ function renderOpenCodeAgentFile(args: {
     ...taskPermissionLines,
     '---',
   ]
+  const submitToolId = toOpenCodeMcpToolId('agent_orchestrator.submit_outcome')
   const terminalInstruction =
-    'Finish by calling `agent_orchestrator.submit_outcome` with a value matching the outcome contract. Do not answer in prose.'
+    `Finish by calling the \`${submitToolId}\` tool with a value matching the outcome contract (pass it as the \`outcome\` argument). You MUST call the tool — do not answer in prose or emit the result as a code block.`
   const subAgentSection = hasSubAgents
     ? `## Sub-agents\nYou may delegate independent read-only sub-tasks to these sub-agents by calling the \`task\` tool. When several sub-tasks are independent, issue multiple \`task\` calls in the SAME step so they run in parallel, then combine their results before submitting your outcome. Available sub-agents: ${subAgentNames.join(', ')}.`
     : null

@@ -99,7 +99,7 @@ describe('createAgentFilesExtension', () => {
     expect(fs.existsSync(dockerFile)).toBe(true)
     const dockerContent = fs.readFileSync(dockerFile, 'utf8')
     expect(dockerContent).toContain('mode: primary')
-    expect(dockerContent).toContain('agent_orchestrator.submit_outcome')
+    expect(dockerContent).toContain('open-mercato_agent_orchestrator_submit_outcome')
     expect(dockerContent).toContain('write: deny')
   })
 
@@ -180,7 +180,8 @@ describe('createAgentFilesExtension', () => {
       path.join(repoRoot, 'docker/opencode/agents/deals_health_check.md'),
       'utf8',
     )
-    expect(dockerAgent).toContain('customers.analyze_deals')
+    // Declared OM tool ids are mapped to OpenCode's MCP tool id form in the allowlist.
+    expect(dockerAgent).toContain('open-mercato_customers_analyze_deals')
   })
 
   it('fails generation on a malformed SKILL.md (no frontmatter)', () => {

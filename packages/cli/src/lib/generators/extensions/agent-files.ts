@@ -568,6 +568,19 @@ function renderToolPermissionLine(toolName: string): string {
 /** Built-in OpenCode delegation tool a primary agent uses to fan out to sub-agents. */
 const TASK_TOOL_NAME = 'task'
 
+// OpenCode names every MCP tool `<serverKey>_<toolName with dots→underscores>`
+// (verified against the running image). Keep in sync with
+// `lib/sdk/defineFileAgent.ts`.
+const OPENCODE_MCP_SERVER_KEY = 'open-mercato'
+const CORE_FILE_AGENT_TOOL_IDS = [
+  'agent_orchestrator.submit_outcome',
+  'agent_orchestrator.load_skill',
+  'agent_orchestrator.run_skill_script',
+]
+function toOpenCodeMcpToolId(omToolId: string): string {
+  return `${OPENCODE_MCP_SERVER_KEY}_${omToolId.replace(/\./g, '_')}`
+}
+
 /**
  * Render an OpenCode agent .md file. Must stay in sync with
  * `lib/sdk/defineFileAgent.ts` `renderOpenCodeAgentFile`. Sub-agent files
@@ -577,13 +590,14 @@ const TASK_TOOL_NAME = 'task'
  * gains a "Sub-agents" prompt section nudging parallel fan-out.
  */
 function renderOpenCodeAgentFile(agent: DiscoveredAgent): string {
-  const submitTool = 'agent_orchestrator.submit_outcome'
   const subAgentNames =
     agent.mode === 'primary' ? agent.subAgentsContent.map((sub) => sub.openCodeAgentName) : []
   const hasSubAgents = subAgentNames.length > 0
-  const allowedTools = Array.from(
-    new Set([...agent.tools, submitTool, ...(hasSubAgents ? [TASK_TOOL_NAME] : [])]),
-  )
+  const omMcpToolIds = Array.from(new Set([...agent.tools, ...CORE_FILE_AGENT_TOOL_IDS]))
+  const allowedTools = [
+    ...omMcpToolIds.map(toOpenCodeMcpToolId),
+    ...(hasSubAgents ? [TASK_TOOL_NAME] : []),
+  ]
   const modelLine =
     agent.provider && agent.model
       ? `model: ${agent.provider}/${agent.model}`
@@ -609,7 +623,7 @@ function renderOpenCodeAgentFile(agent: DiscoveredAgent): string {
     '---',
   ]
   const terminalInstruction =
-    'Finish by calling `agent_orchestrator.submit_outcome` with a value matching the outcome contract. Do not answer in prose.'
+    `Finish by calling the \`${toOpenCodeMcpToolId('agent_orchestrator.submit_outcome')}\` tool with a value matching the outcome contract (pass it as the \`outcome\` argument). You MUST call the tool — do not answer in prose or emit the result as a code block.`
   const subAgentSection = hasSubAgents
     ? `## Sub-agents\nYou may delegate independent read-only sub-tasks to these sub-agents by calling the \`task\` tool. When several sub-tasks are independent, issue multiple \`task\` calls in the SAME step so they run in parallel, then combine their results before submitting your outcome. Available sub-agents: ${subAgentNames.join(', ')}.`
     : null

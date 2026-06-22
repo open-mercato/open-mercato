@@ -3,7 +3,7 @@ id: deals.health_check_file
 label: Deal health check (file-defined)
 description: Assess a sales deal's health and propose the next stage.
 provider: anthropic
-model: claude-sonnet-4-6
+model: claude-sonnet-4-5
 skills: [stage_playbook]
 subAgents: [deals.activity_scan]
 maxSteps: 12

@@ -1,10 +1,12 @@
 ---
 description: "Scan a deal's recent activity and summarize momentum signals."
-model: anthropic/claude-sonnet-4-6
+model: anthropic/claude-sonnet-4-5
 mode: subagent
 tools:
   "*": false
-  "agent_orchestrator.submit_outcome": true
+  "open-mercato_agent_orchestrator_submit_outcome": true
+  "open-mercato_agent_orchestrator_load_skill": true
+  "open-mercato_agent_orchestrator_run_skill_script": true
 permission:
   write: deny
   edit: deny
@@ -17,4 +19,4 @@ Given the deal context provided as input, identify the most recent meaningful to
 
 You only inform the primary agent — you never propose actions. Return a concise, structured summary the primary can use to decide the next stage.
 
-Finish by calling `agent_orchestrator.submit_outcome` with a value matching the outcome contract. Do not answer in prose.
+Finish by calling the `open-mercato_agent_orchestrator_submit_outcome` tool with a value matching the outcome contract (pass it as the `outcome` argument). You MUST call the tool — do not answer in prose or emit the result as a code block.
