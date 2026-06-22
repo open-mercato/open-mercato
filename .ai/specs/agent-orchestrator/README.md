@@ -62,10 +62,9 @@ The old `agent-orchestrator-specs.zip` and `.DS_Store` were removed (redundant b
 
 ## Known follow-ups surfaced during the reorg
 
-- **Duplicate agent id `deals.health_check`** — an in-process demo agent
-  (`agent_orchestrator/ai-agents.ts`) and the file-defined example
-  (`agent_examples/agents/deals_health_check/`) share the same registry id; `loadFileAgents`
-  silently skips the file one when the in-process one is already registered. Give one a unique id.
+- ~~Duplicate agent id `deals.health_check`~~ — **fixed 2026-06-22**: the file-defined example
+  was renamed to `deals.health_check_file` so it no longer collides with the in-process demo in
+  `agent_orchestrator/ai-agents.ts` (which `loadFileAgents` was silently skipping).
 - **`OPENCODE_VERSION` pin** and the installer's version env var are ASSUMPTION-to-verify against
   the running OpenCode image (see the phase-0 findings).
 - **OpenCode-native sub-agent runs** are not yet recorded as nested `AgentRun` rows

@@ -56,7 +56,7 @@ export type FileAgentDescriptor = {
 
 export const fileAgentDescriptors: FileAgentDescriptor[] = [
   {
-    id: "deals.health_check",
+    id: "deals.health_check_file",
     moduleId: "agent_examples",
     label: "Deal health check (file-defined)",
     description: "Assess a sales deal's health and propose the next stage.",
@@ -66,7 +66,7 @@ export const fileAgentDescriptors: FileAgentDescriptor[] = [
     tools: [],
     skills: ["stage_playbook"],
     subAgents: ["deals.activity_scan"],
-    openCodeAgentName: "deals_health_check",
+    openCodeAgentName: "deals_health_check_file",
     skillsContent: [{"id":"stage_playbook","instructions":"Use this playbook to pick the single most appropriate next stage for a deal.\n\nPipeline stages, in order:\n\n1. `lead` — initial interest, no qualification yet.\n2. `qualified` — budget, authority, need, and timeline (BANT) confirmed.\n3. `proposal` — a quote or proposal has been sent.\n4. `negotiation` — terms are actively being discussed.\n5. `won` — the deal is closed and signed.\n6. `lost` — the deal is dead; record the reason.\n\nDecision rules:\n\n- Advance one stage at a time unless a strong signal justifies a jump.\n- Strong forward signals: a signed document, a scheduled close date, an\n  explicit verbal commitment, or procurement engagement.\n- Risk signals that hold a deal back: no reply for two or more weeks, the\n  champion leaving, or repeated reschedules.\n- When momentum is unclear, prefer the conservative stage and lower your\n  confidence rather than guessing high.\n\nAlways justify the chosen stage in the rationale with the specific signal you\nrelied on.","template":"Recommended next stage: <stage>\nConfidence: <0..1>\nPrimary signal: <the one signal that drove this decision>\nRationale: <one or two sentences a sales manager can act on>","examples":["Deal: Acme renewal, currently in `proposal`. The buyer replied yesterday asking\nto discuss discount tiers and contract length, and looped in their procurement\nlead.\n\nRecommended next stage: negotiation\nConfidence: 0.8\nPrimary signal: procurement engaged and terms (discount, contract length) are\nactively under discussion.\nRationale: an active terms discussion with procurement involved is a strong\nforward signal; advance one stage from proposal to negotiation."],"tools":[],"scripts":[{"name":"score","source":"// Sandboxed skill helper (Phase 5). Pure function of its args — no fs/net/imports.\n// Invoked by the agent via `agent_orchestrator.run_skill_script`\n// ({ skillId: \"stage_playbook\", scriptName: \"score\", args: { momentum, risk } }).\n// Returns a 0..1 health score from two 0..1 signals; the agent folds it into its\n// confidence. It can compute, never mutate — propose-only holds in the sandbox.\n\nfunction run(args) {\n  const momentum = clamp01(numberOr(args && args.momentum, 0.5))\n  const risk = clamp01(numberOr(args && args.risk, 0.5))\n  const score = clamp01(0.6 * momentum + 0.4 * (1 - risk))\n  return { score: Math.round(score * 100) / 100, momentum, risk }\n}\n\nfunction numberOr(value, fallback) {\n  return typeof value === 'number' && Number.isFinite(value) ? value : fallback\n}\n\nfunction clamp01(value) {\n  return Math.max(0, Math.min(1, value))\n}\n"}]}],
     subAgentDescriptors: [
     {

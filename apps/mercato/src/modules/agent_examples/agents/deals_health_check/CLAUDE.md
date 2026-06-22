@@ -1,5 +1,5 @@
 ---
-id: deals.health_check
+id: deals.health_check_file
 label: Deal health check (file-defined)
 description: Assess a sales deal's health and propose the next stage.
 provider: anthropic
