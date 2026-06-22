@@ -148,7 +148,7 @@
     "@types/better-sqlite3": "^7.6.11",
     "@types/html-to-text": "^9.0.4",
     "@types/jest": "^30.0.0",
-    "@types/node": "^25.9.3",
+    "@types/node": "^26.0.0",
     "@types/pg": "^8.20.0",
     "@types/react": "^19.2.17",
     "@types/react-big-calendar": "^1.16.3",
