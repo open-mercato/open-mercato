@@ -75,9 +75,10 @@ export async function GET(_req: Request, ctx: { params: { tableId: string } }) {
   const assignedRoleNames = Array.isArray(auth.roles)
     ? Array.from(new Set(auth.roles.filter((role): role is string => typeof role === 'string' && role.trim().length > 0)))
     : []
-  const assignedRoles = assignedRoleNames.length
+  const assignedRoles = assignedRoleNames.length && auth.tenantId
     ? await em.find(Role, {
         name: { $in: assignedRoleNames as any },
+        tenantId: auth.tenantId,
         deletedAt: null,
       } as any, { orderBy: { name: 'asc' } })
     : []
