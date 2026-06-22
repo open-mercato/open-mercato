@@ -48,6 +48,10 @@ implementation contract) for the full design.
 - Never let a file-agent script or local tool touch fs/net, mutate domain state, or
   escape the `isolated-vm` sandbox. Local `tools/*.ts` are either `// @ref <defineAiTool id>`
   references (centrally ACL-gated) or sandboxed pure functions run via `run_skill_script`.
+- Never let `agents/**/scripts/**` or `agents/**/tools/**` into a package/app's typed build.
+  They are raw sandbox sources (read by the generator via `fs`, never imported/bundled), so
+  the consuming `tsconfig.json` MUST `exclude` those globs (see `apps/mercato/tsconfig.json`)
+  — otherwise `tsc` type-checks loose script JS and fails.
 - Never hand-edit `generated/file-agents.generated.ts` or `docker/opencode/agents|skills/*`
   — they are generator output (committed so they travel with the repo).
 - Never trust the active agent / skill / outcome from the model. MCP tools resolve the
