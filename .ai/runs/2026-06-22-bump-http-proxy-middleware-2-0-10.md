@@ -54,8 +54,8 @@ The 2.0.10 release hardens proxy-table matching to prevent a routing-bypass
 
 ### Phase 1: Apply lockfile bump
 
-- [ ] 1.1 Bump http-proxy-middleware lock entry to 2.0.10 and verify lockfile consistency
+- [x] 1.1 Bump http-proxy-middleware lock entry to 2.0.10 and verify lockfile consistency — 875e2a28d
 
 ### Phase 2: Validate
 
-- [ ] 2.1 Confirm immutable `yarn install` passes and diff is limited to yarn.lock
+- [x] 2.1 Confirm immutable `yarn install` passes and diff is limited to yarn.lock — 875e2a28d
