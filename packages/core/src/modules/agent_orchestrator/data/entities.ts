@@ -7,7 +7,14 @@ export type AgentRunStatus = 'running' | 'ok' | 'error'
 @Index({ name: 'agent_runs_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'agent_runs_agent_idx', properties: ['organizationId', 'agentId'] })
 export class AgentRun {
-  [OptionalProps]?: 'status' | 'output' | 'resultKind' | 'errorMessage' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?:
+    | 'status'
+    | 'output'
+    | 'resultKind'
+    | 'errorMessage'
+    | 'parentRunId'
+    | 'createdAt'
+    | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -20,6 +27,16 @@ export class AgentRun {
 
   @Property({ name: 'agent_id', type: 'varchar', length: 100 })
   agentId!: string
+
+  /**
+   * Parent run that delegated to this one as a sub-agent (Phase 4 nested trace).
+   * Nullable + additive: top-level runs leave it null. Populated for the
+   * in-process `delegate_agent` path; OpenCode-NATIVE `task` delegation runs
+   * sub-agents inside OpenCode (not via our runner), so per-sub-agent rows are a
+   * documented follow-up for that path.
+   */
+  @Property({ name: 'parent_run_id', type: 'uuid', nullable: true })
+  parentRunId?: string | null
 
   @Property({ name: 'status', type: 'varchar', length: 20, default: 'running' })
   status: AgentRunStatus = 'running'
@@ -35,6 +52,56 @@ export class AgentRun {
 
   @Property({ name: 'error_message', type: 'text', nullable: true })
   errorMessage?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+export type AgentRunSessionStatus = 'pending' | 'completed'
+
+/**
+ * Cross-process correlation for an OpenCode file-agent run. The runner (app /
+ * worker process) and the `submit_outcome` / `load_skill` / `run_skill_script`
+ * MCP tools (separate `mcp:serve-http` process) do NOT share memory, so the
+ * active-agent + captured-outcome handoff cannot live in an in-process Map. This
+ * row, keyed by the per-run session token, is the shared store both processes
+ * reach: the runner `open`s it before sending; `submit_outcome` resolves the
+ * active agent from it and writes the validated `outcome`; the runner polls for
+ * the completed outcome and `dispose`s the row when the run ends.
+ */
+@Entity({ tableName: 'agent_run_sessions' })
+@Index({ name: 'agent_run_sessions_token_idx', properties: ['sessionToken'] })
+export class AgentRunSession {
+  [OptionalProps]?: 'runId' | 'outcome' | 'status' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  /** The per-run session token the runner minted = the correlation key (unique). */
+  @Property({ name: 'session_token', type: 'varchar', length: 100, unique: true })
+  sessionToken!: string
+
+  @Property({ name: 'agent_id', type: 'varchar', length: 100 })
+  agentId!: string
+
+  @Property({ name: 'run_id', type: 'uuid', nullable: true })
+  runId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** The validated outcome captured by `submit_outcome`, once it arrives. */
+  @Property({ name: 'outcome', type: 'jsonb', nullable: true })
+  outcome?: unknown | null
+
+  @Property({ name: 'status', type: 'varchar', length: 20, default: 'pending' })
+  status: AgentRunSessionStatus = 'pending'
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

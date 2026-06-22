@@ -81,7 +81,7 @@ export default function AgentsRegistryPage() {
                       </p>
                     </div>
                     <Tag variant="brand" dot>
-                      {t('agent_orchestrator.agents.list.marker')}
+                      {t(`agent_orchestrator.agents.list.runtime.${agent.runtime}`)}
                     </Tag>
                   </div>
                   {agent.description ? (

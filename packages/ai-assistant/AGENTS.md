@@ -992,6 +992,26 @@ MUST keep port 4096 for OpenCode. MUST mount `opencode.json` to `/root/.opencode
 
 MUST use `host.docker.internal` (not `localhost`) for Docker-to-host communication.
 
+### File-defined agents (OpenCode runtime)
+
+The orchestrator's file-defined agents (`packages/<pkg>/src/modules/<module>/agents/<id>/`)
+generate OpenCode agent + skill files into `docker/opencode/{agents,skills}/` (committed).
+The container loads them from `~/.config/opencode/{agents,skills}/` — in our image the
+OpenCode user is `opencode`, so the real path is `/home/opencode/.config/opencode/...`
+(the `/root/.opencode/...` path shown above for `opencode.json` is stale; the running image
+is non-root). Dev `docker-compose*.yml` bind-mounts those dirs (`:ro`); CI bakes them via
+Dockerfile `COPY`. The `OPENCODE_VERSION` build ARG pins the image (verify the installer's
+pin env var + the agent-file/`task`/skills contracts against the pinned tag — ASSUMPTION
+flagged in the phase-0 findings).
+
+Workflow after editing any `agents/<id>/` file: `yarn generate` → **restart** OpenCode
+(`docker compose up -d opencode`); hot-reload is not guaranteed. The orchestrator adds three
+read-only MCP tools (`agent_orchestrator.submit_outcome` / `load_skill` / `run_skill_script`,
+all `agent_orchestrator.agents.run`) that file agents call; propose-only rests on the
+generated read-only `tools` allowlist + the per-run session-token ACL — the MCP HTTP server
+does NOT strip `isMutation` tools, so a file agent that declares one is rejected at load.
+See `packages/core/src/modules/agent_orchestrator/AGENTS.md`.
+
 ## Rules for the Debug Panel
 
 Toggle with "Debug" button in Command Palette footer. Use this for inspecting tool calls.

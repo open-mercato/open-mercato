@@ -3,6 +3,7 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { AgentRun, AgentProposal } from './data/entities'
 import { AgentRuntimeService } from './lib/runtime/agentRuntime'
+import { DbAgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
 import { DispositionServiceImpl } from './lib/disposition/dispositionService'
 import { AgentWorkflowBridgeService } from './lib/runtime/invokeAgentForWorkflow'
 import type { DispositionService } from './lib/disposition/dispositionService'
@@ -21,6 +22,11 @@ export function register(container: AppContainer) {
       }),
     ).proxy().scoped(),
     dispositionService: asFunction(() => new DispositionServiceImpl(container)).scoped(),
+    // Cross-process correlation store for OpenCode file-agent runs. Built from
+    // each process's own container (app + the separate mcp:serve-http process),
+    // both backed by the same DB — the in-process Map seam does not work because
+    // the runner and the submit_outcome MCP tool run in different processes.
+    agentRunSessionStore: asFunction(() => new DbAgentRunSessionStore(container)).scoped(),
     agentWorkflowBridge: asFunction(
       ({ agentRuntime, dispositionService }: { agentRuntime: AgentRuntimeService; dispositionService: DispositionService }) =>
         new AgentWorkflowBridgeService({

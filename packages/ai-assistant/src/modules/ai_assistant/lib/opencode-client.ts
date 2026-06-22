@@ -306,6 +306,21 @@ export class OpenCodeClient {
     message: string,
     options?: {
       model?: { providerID: string; modelID: string }
+      /**
+       * Optional OpenCode agent (persona) id selecting which agent file
+       * processes this message (`POST /session/:id/message` accepts `agent?`).
+       * The file-agent runner passes the generated `openCodeAgentName` here.
+       * Additive / BC-safe: omitted for ordinary chat turns.
+       */
+      agent?: string
+      /**
+       * Override the send timeout (ms). `/session/:id/message` is synchronous —
+       * it holds until the agent loop finishes — so a multi-step agentic run can
+       * exceed the 30s chat default; aborting cancels the OpenCode run. The
+       * file-agent runner passes its long run deadline here (completion is then
+       * driven by SSE/the outcome store, not the HTTP response). Additive / BC-safe.
+       */
+      timeoutMs?: number
     }
   ): Promise<OpenCodeMessage> {
     const body: Record<string, unknown> = {
@@ -316,14 +331,20 @@ export class OpenCodeClient {
       body.model = options.model
     }
 
+    if (options?.agent) {
+      body.agent = options.agent
+    }
+
     const res = await fetchWithTimeout(`${this.baseUrl}/session/${sessionId}/message`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify(body),
-      timeoutMs: resolveOpencodeTimeoutMs(
-        'OPENCODE_SEND_MESSAGE_TIMEOUT_MS',
-        resolveOpencodeTimeoutMs('OPENCODE_REQUEST_TIMEOUT_MS', DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS),
-      ),
+      timeoutMs:
+        options?.timeoutMs ??
+        resolveOpencodeTimeoutMs(
+          'OPENCODE_SEND_MESSAGE_TIMEOUT_MS',
+          resolveOpencodeTimeoutMs('OPENCODE_REQUEST_TIMEOUT_MS', DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS),
+        ),
     })
 
     if (!res.ok) {
