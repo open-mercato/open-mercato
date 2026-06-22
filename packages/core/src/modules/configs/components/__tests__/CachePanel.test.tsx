@@ -10,8 +10,17 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
+const runMutationMock = jest.fn(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: jest.fn(),
+}))
+
+jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
+  useGuardedMutation: () => ({
+    runMutation: (...args: unknown[]) => runMutationMock(...(args as [{ operation: () => Promise<unknown> }])),
+    retryLastMutation: jest.fn(),
+  }),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
@@ -72,15 +81,25 @@ const statsPayload = {
   ],
 }
 
+function mockManageEnabled() {
+  ;(readApiResultOrThrow as jest.Mock)
+    .mockResolvedValueOnce(statsPayload) // stats
+    .mockResolvedValueOnce({ ok: true, granted: ['configs.cache.manage'] }) // feature check
+}
+
+async function confirmDialog() {
+  const confirmButtons = screen.getAllByText('Confirm')
+  fireEvent.click(confirmButtons[confirmButtons.length - 1])
+}
+
 describe('CachePanel', () => {
   beforeEach(() => {
     jest.resetAllMocks()
+    runMutationMock.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
   })
 
   it('renders cache statistics and management actions', async () => {
-    ;(readApiResultOrThrow as jest.Mock)
-      .mockResolvedValueOnce(statsPayload) // stats
-      .mockResolvedValueOnce({ ok: true, granted: ['configs.cache.manage'] }) // feature check
+    mockManageEnabled()
 
     renderWithProviders(<CachePanel />, { dict })
 
@@ -91,13 +110,11 @@ describe('CachePanel', () => {
   })
 
   it('purges a segment when user confirms', async () => {
-    ;(readApiResultOrThrow as jest.Mock)
-      .mockResolvedValueOnce(statsPayload)
-      .mockResolvedValueOnce({ ok: true, granted: ['configs.cache.manage'] })
-      .mockResolvedValueOnce({
-        stats: statsPayload,
-        deleted: 1,
-      })
+    mockManageEnabled()
+    ;(readApiResultOrThrow as jest.Mock).mockResolvedValueOnce({
+      stats: statsPayload,
+      deleted: 1,
+    })
 
     renderWithProviders(<CachePanel />, { dict })
 
@@ -105,17 +122,13 @@ describe('CachePanel', () => {
       expect(screen.getByText('users.list')).toBeInTheDocument()
     })
 
-    // Click purge segment button
     fireEvent.click(screen.getByRole('button', { name: 'Purge segment' }))
 
-    // Wait for confirm dialog to appear (dialog title)
     await waitFor(() => {
       expect(screen.getByText('Confirm segment purge?')).toBeInTheDocument()
     })
 
-    // Click confirm button by text (inside dialog)
-    const confirmButtons = screen.getAllByText('Confirm')
-    fireEvent.click(confirmButtons[confirmButtons.length - 1])
+    await confirmDialog()
 
     await waitFor(() => {
       expect(flash).toHaveBeenCalledWith('Purged users.list (1)', 'success')
@@ -130,5 +143,86 @@ describe('CachePanel', () => {
     await waitFor(() => {
       expect(screen.getByText('boom')).toBeInTheDocument()
     })
+
+    // The retry control is a non-submit action and MUST declare type="button".
+    expect(screen.getByRole('button', { name: 'Retry' })).toHaveAttribute('type', 'button')
+  })
+
+  it('routes the purge-all write through the guarded mutation runner', async () => {
+    mockManageEnabled()
+    ;(readApiResultOrThrow as jest.Mock).mockResolvedValueOnce({ stats: statsPayload })
+
+    renderWithProviders(<CachePanel />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByText('users.list')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Purge all cache' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Confirm all purge?')).toBeInTheDocument()
+    })
+
+    await confirmDialog()
+
+    await waitFor(() => {
+      expect(runMutationMock).toHaveBeenCalledTimes(1)
+    })
+    expect(runMutationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          resourceKind: 'configs.cache',
+          retryLastMutation: expect.any(Function),
+        }),
+        mutationPayload: { action: 'purgeAll' },
+      }),
+    )
+  })
+
+  it('routes the purge-segment write through the guarded mutation runner', async () => {
+    mockManageEnabled()
+    ;(readApiResultOrThrow as jest.Mock).mockResolvedValueOnce({ stats: statsPayload, deleted: 1 })
+
+    renderWithProviders(<CachePanel />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByText('users.list')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Purge segment' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Confirm segment purge?')).toBeInTheDocument()
+    })
+
+    await confirmDialog()
+
+    await waitFor(() => {
+      expect(runMutationMock).toHaveBeenCalledTimes(1)
+    })
+    expect(runMutationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          resourceKind: 'configs.cache',
+          retryLastMutation: expect.any(Function),
+        }),
+        mutationPayload: { action: 'purgeSegment', segment: 'users.list' },
+      }),
+    )
+  })
+
+  it('declares explicit type="button" on the non-submit action buttons', async () => {
+    mockManageEnabled()
+
+    renderWithProviders(<CachePanel />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByText('users.list')).toBeInTheDocument()
+    })
+
+    expect(screen.getByRole('button', { name: 'Refresh' })).toHaveAttribute('type', 'button')
+    expect(screen.getByRole('button', { name: 'Purge all cache' })).toHaveAttribute('type', 'button')
+    expect(screen.getByRole('button', { name: 'Purge segment' })).toHaveAttribute('type', 'button')
   })
 })
