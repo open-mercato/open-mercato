@@ -224,15 +224,27 @@ async function loadAllAgentModules(): Promise<void> {
  * (warned) so one bad agent never blocks the rest.
  */
 /**
- * Resolve a predicate `(toolId) => boolean` reporting whether a tool is
- * registered with `isMutation: true`, so the propose-only gate can reject file
- * agents that declare write tools. Loads the module tool registry first; if the
- * registry is unavailable (e.g. a unit-test harness that never imported the AI
- * tooling), the predicate fails CLOSED on a known prefix-free basis: it returns
- * `false` for every id (no false rejections), and the agent-file allowlist plus
- * session-token ACL remain the runtime gates.
+ * Resolve a predicate `(toolId) => 'mutating' | 'read' | 'unknown'` for a declared
+ * tool id, used by the load-time propose-only check below.
+ *
+ * This load-time check is an EARLY, advisory rejection — NOT the load-bearing
+ * propose-only boundary. The actual runtime gates (which always hold) are: (1) the
+ * generated OpenCode agent file's `tools` deny-by-default allowlist + its
+ * `permission: { write/edit/bash: deny }` block, and (2) the per-run session-token
+ * ACL the MCP server re-checks on every tool call. The MCP server does NOT strip
+ * `isMutation` tools, so those two gates — not this predicate — are what enforce
+ * propose-only.
+ *
+ * When the registry IS loadable we await `loadAllModuleTools()` first, so a tool
+ * id absent afterward is genuinely unknown (a config error): we fail CLOSED and
+ * report `'unknown'` (the caller rejects the agent). When the registry import
+ * itself is unavailable (e.g. a unit-test harness without the AI tooling) the
+ * check cannot run at all and reports `'skip'`; registration proceeds and the two
+ * runtime gates above remain in force.
  */
-async function loadMutationToolPredicate(): Promise<(toolId: string) => boolean> {
+type MutationCheck = (toolId: string) => 'mutating' | 'read' | 'unknown' | 'skip'
+
+async function loadMutationToolPredicate(): Promise<MutationCheck> {
   try {
     const { loadAllModuleTools } = await import(
       '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-loader'
@@ -246,12 +258,13 @@ async function loadMutationToolPredicate(): Promise<(toolId: string) => boolean>
       // Tools may already be loaded, or loading is a no-op in this harness.
     }
     const registry = getToolRegistry()
-    return (toolId: string): boolean => {
+    return (toolId: string): 'mutating' | 'read' | 'unknown' | 'skip' => {
       const tool = registry.getTool(toolId) as { isMutation?: boolean } | undefined
-      return !!tool?.isMutation
+      if (!tool) return 'unknown'
+      return tool.isMutation ? 'mutating' : 'read'
     }
   } catch {
-    return () => false
+    return () => 'skip'
   }
 }
 
@@ -277,19 +290,24 @@ async function loadFileAgents(): Promise<void> {
   ])
   for (const descriptor of allDescriptors) {
     if (registry.has(descriptor.id)) continue
-    // Propose-only generation gate (contract C8): a file agent may NEVER declare
-    // a tool registered with `isMutation: true`. The OpenCode MCP server does NOT
-    // strip mutation tools (it filters per-call ACL only), so the agent-file
-    // read-only allowlist is the hard gate — and a mis-declared write tool must
-    // not even reach registration. We enforce at LOAD time (not in the CLI
-    // generator) because the CLI cannot import core's tool registry to know which
-    // ids are mutations; the tool registry is only resolvable at runtime. A
-    // violating agent is rejected (skipped + warned) so the rest still load.
-    const mutationTool = descriptor.tools.find((toolId) => isMutationTool(toolId))
-    if (mutationTool) {
+    // Propose-only early check (contract C8): a file agent may NEVER declare a
+    // tool registered with `isMutation: true`. This is defense-in-depth on top of
+    // the load-bearing runtime gates (the agent-file read-only allowlist +
+    // write/edit/bash deny, and the per-call session-token ACL — see
+    // `loadMutationToolPredicate`). When the tool registry is resolvable we fail
+    // CLOSED: a declared tool that is `mutating` OR `unknown` (absent after
+    // `loadAllModuleTools`, i.e. a config error) rejects the agent here so it never
+    // reaches registration. `skip` means the registry could not be loaded at all
+    // (test harness without AI tooling) — we let it through and rely on the runtime
+    // gates. A rejected agent is skipped + warned so the rest still load.
+    const offending = descriptor.tools
+      .map((toolId) => ({ toolId, verdict: isMutationTool(toolId) }))
+      .find(({ verdict }) => verdict === 'mutating' || verdict === 'unknown')
+    if (offending) {
       console.warn(
-        `[internal] file agent "${descriptor.id}" declares mutation tool "${mutationTool}"; ` +
-          'file agents are propose-only and may only list read-only tools — skipping registration.',
+        `[internal] file agent "${descriptor.id}" declares ${offending.verdict} tool ` +
+          `"${offending.toolId}"; file agents are propose-only and may only list known ` +
+          'read-only tools — skipping registration.',
       )
       continue
     }

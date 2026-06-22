@@ -13,7 +13,6 @@ import { type AgentResult } from '../../data/validators'
 import {
   type AgentRunCtx,
   buildCommandContext,
-  resolveCallerAcl,
   createRun,
   completeRun,
   failRun,
@@ -58,6 +57,20 @@ export class OpenCodeRunFailedError extends Error {
 const SESSION_TTL_MINUTES = 120
 /** Time to wait after the session goes idle without a captured outcome before nudging. */
 const IDLE_GRACE_MS = 500
+
+/**
+ * Wall-clock backstop for a single OpenCode run. Completion is normally signalled
+ * by the captured outcome or an SSE busy→idle transition, but a wedged container
+ * or a silently-dropped stream can leave both pending forever — which would pin
+ * the run and defer the per-run session token's revocation to its 120m TTL. This
+ * deadline guarantees the run always terminates and reaches the `finally` cleanup.
+ * Override with `OM_OPENCODE_RUN_TIMEOUT_MS` (ms); defaults to 5 minutes.
+ */
+const DEFAULT_RUN_TIMEOUT_MS = 5 * 60_000
+function resolveRunTimeoutMs(): number {
+  const raw = Number.parseInt(process.env.OM_OPENCODE_RUN_TIMEOUT_MS ?? '', 10)
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_RUN_TIMEOUT_MS
+}
 
 /**
  * Runs a file-defined (OpenCode) agent end-to-end and returns the SAME typed
@@ -108,8 +121,10 @@ export class OpenCodeAgentRunner {
     // tenant, org) — never static, never superadmin. The MCP HTTP server
     // resolves this token's ACL on every tool call, so a tool the caller lacks
     // features for is unreachable regardless of the prompt (propose-only gate 2).
+    // The token's effective ACL is its caller roles (resolved server-side by the
+    // MCP server on every tool call) — we do NOT pre-resolve/attach features here,
+    // and superadmin is excluded by passing only the caller's own roles below.
     const em = this.container.resolve<EntityManager>('em')
-    const acl = await resolveCallerAcl(this.container, ctx)
     const userRoleIds = await this.getUserRoleIds(em, ctx.userId, ctx.tenantId)
     const sessionToken = generateSessionToken()
     await createSessionApiKey(em, {
@@ -200,7 +215,9 @@ export class OpenCodeAgentRunner {
    * Send the message and consume the SSE stream until the agent either captures
    * an outcome (via submit_outcome → the correlation deferred) or the session
    * goes idle. On idle-without-outcome, sends ONE corrective nudge and waits a
-   * second round before giving up.
+   * second round before giving up. A wall-clock deadline (H1 backstop) guarantees
+   * termination even if the stream stalls without a terminal event or error, so
+   * the caller's `finally` always runs (token revoke) and the run never hangs.
    */
   private async driveSession(args: {
     sessionId: string
@@ -210,6 +227,7 @@ export class OpenCodeAgentRunner {
     outcomePromise: Promise<unknown>
   }): Promise<unknown | typeof NO_OUTCOME> {
     const idleSignal = this.subscribeIdle(args.sessionId)
+    const deadline = createDeadline(resolveRunTimeoutMs())
     try {
       // Fire-and-forget the send: completion is signalled by SSE idle or by the
       // outcome deferred, NEVER by the HTTP response (no Promise.race on send).
@@ -219,8 +237,9 @@ export class OpenCodeAgentRunner {
           console.error('[OpenCode runner] send error (SSE/outcome will resolve):', err)
         })
 
-      const first = await this.waitForOutcomeOrIdle(args.outcomePromise, idleSignal.nextIdle())
+      const first = await this.waitForOutcomeOrIdle(args.outcomePromise, idleSignal.nextIdle(), deadline.promise)
       if (first.kind === 'outcome') return first.outcome
+      if (first.kind === 'timeout') return this.onTimeout(args.sessionToken)
 
       // Idle without an outcome — give the registry a beat in case the
       // submit_outcome handler is mid-flight, then nudge once.
@@ -239,22 +258,38 @@ export class OpenCodeAgentRunner {
           console.error('[OpenCode runner] nudge send error:', err)
         })
 
-      const second = await this.waitForOutcomeOrIdle(args.outcomePromise, nextIdle)
+      const second = await this.waitForOutcomeOrIdle(args.outcomePromise, nextIdle, deadline.promise)
       if (second.kind === 'outcome') return second.outcome
+      if (second.kind === 'timeout') return this.onTimeout(args.sessionToken)
       const afterNudge = openCodeRunRegistry.get(args.sessionToken)?.outcome
       return afterNudge !== undefined ? afterNudge : NO_OUTCOME
     } finally {
+      deadline.cancel()
       idleSignal.unsubscribe()
     }
+  }
+
+  /**
+   * The deadline fired. The agent may still have submitted an outcome in the same
+   * tick the timer fired — check the registry once before giving up — otherwise
+   * return NO_OUTCOME so the caller fails the run and reaches its cleanup.
+   */
+  private onTimeout(sessionToken: string): unknown | typeof NO_OUTCOME {
+    const settled = openCodeRunRegistry.get(sessionToken)?.outcome
+    if (settled !== undefined) return settled
+    console.error('[OpenCode runner] run exceeded the wall-clock deadline; failing the run.')
+    return NO_OUTCOME
   }
 
   private async waitForOutcomeOrIdle(
     outcomePromise: Promise<unknown>,
     idlePromise: Promise<void>,
-  ): Promise<{ kind: 'outcome'; outcome: unknown } | { kind: 'idle' }> {
+    deadlinePromise: Promise<void>,
+  ): Promise<{ kind: 'outcome'; outcome: unknown } | { kind: 'idle' } | { kind: 'timeout' }> {
     return Promise.race([
       outcomePromise.then((outcome) => ({ kind: 'outcome' as const, outcome })),
       idlePromise.then(() => ({ kind: 'idle' as const })),
+      deadlinePromise.then(() => ({ kind: 'timeout' as const })),
     ])
   }
 
@@ -264,6 +299,11 @@ export class OpenCodeAgentRunner {
    * path's idle-detection), so the runner can wait again after a corrective
    * nudge. An SSE error resolves the pending idle waiter (fail toward giving up
    * rather than hanging).
+   *
+   * H2 — lost-wakeup safe: between two `nextIdle()` calls (e.g. during the nudge
+   * grace delay) there is no registered waiter. A busy→idle (or SSE error) that
+   * arrives in that window is LATCHED instead of dropped, so the next `nextIdle()`
+   * resolves immediately rather than blocking on a transition that already passed.
    */
   private subscribeIdle(sessionId: string): {
     nextIdle: () => Promise<void>
@@ -271,12 +311,16 @@ export class OpenCodeAgentRunner {
   } {
     let pendingResolve: (() => void) | null = null
     let wasBusy = false
+    let idleLatched = false
 
     const settleIdle = () => {
       if (pendingResolve) {
         const resolve = pendingResolve
         pendingResolve = null
         resolve()
+      } else {
+        // No waiter registered right now — remember the wakeup for the next wait.
+        idleLatched = true
       }
     }
 
@@ -305,6 +349,11 @@ export class OpenCodeAgentRunner {
     return {
       nextIdle() {
         return new Promise<void>((resolve) => {
+          if (idleLatched) {
+            idleLatched = false
+            resolve()
+            return
+          }
           pendingResolve = resolve
         })
       },
@@ -341,4 +390,29 @@ const NO_OUTCOME = Symbol('no-outcome')
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * A cancellable wall-clock deadline. `promise` resolves once `ms` elapses (and
+ * stays resolved thereafter, so racing it again returns immediately); `cancel()`
+ * clears the timer in the runner's `finally` so a completed run leaks no timer.
+ * The timer is `unref`'d so it never keeps the process alive on its own.
+ */
+function createDeadline(ms: number): { promise: Promise<void>; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const promise = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms)
+    if (timer && typeof (timer as { unref?: () => void }).unref === 'function') {
+      ;(timer as { unref: () => void }).unref()
+    }
+  })
+  return {
+    promise,
+    cancel() {
+      if (timer) {
+        clearTimeout(timer)
+        timer = null
+      }
+    },
+  }
 }

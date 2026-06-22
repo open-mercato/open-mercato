@@ -209,4 +209,48 @@ describe('createAgentFilesExtension', () => {
       extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase)),
     ).toThrow(/malformed SKILL\.md/)
   })
+
+  it('fails generation when an OUTCOME.md schema is outside the supported subset (M2)', () => {
+    const fixture = makeRepoFixture()
+    const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
+    // `oneOf` parses as valid JSON but cannot compile to Zod — must fail at scan,
+    // not silently parse and get dropped at load.
+    fs.writeFileSync(
+      path.join(agentDir, 'OUTCOME.md'),
+      [
+        '---',
+        'kind: actionable',
+        '---',
+        '```json',
+        JSON.stringify({ type: 'object', properties: { x: { oneOf: [{ type: 'string' }] } } }),
+        '```',
+      ].join('\n'),
+      'utf8',
+    )
+    const extension = createAgentFilesExtension()
+    expect(() =>
+      extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase)),
+    ).toThrow(/unsupported keyword "oneOf"/)
+  })
+
+  it('fails generation when an OUTCOME.md schema node has no supported type (M2)', () => {
+    const fixture = makeRepoFixture()
+    const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
+    fs.writeFileSync(
+      path.join(agentDir, 'OUTCOME.md'),
+      [
+        '---',
+        'kind: informative',
+        '---',
+        '```json',
+        JSON.stringify({ type: 'object', properties: { x: { minimum: 0 } } }),
+        '```',
+      ].join('\n'),
+      'utf8',
+    )
+    const extension = createAgentFilesExtension()
+    expect(() =>
+      extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase)),
+    ).toThrow(/missing\/unsupported "type"/)
+  })
 })

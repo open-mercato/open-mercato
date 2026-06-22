@@ -192,6 +192,48 @@ function parseOutcomeMarkdown(
   return { kind, schema: parsed as Record<string, unknown> }
 }
 
+// Keep in sync with `agent_orchestrator/lib/sdk/outcomeSchema.ts` (the CLI cannot
+// import @open-mercato/core). Mirrors `jsonSchemaToZod`'s supported subset so a
+// schema that parses as JSON but could NOT compile to Zod fails generation LOUDLY
+// here, instead of parsing fine and being silently dropped at load time (M2).
+const OUTCOME_UNSUPPORTED_KEYWORDS = [
+  'oneOf', 'anyOf', 'allOf', 'not', '$ref', 'format', 'patternProperties', 'pattern',
+  'additionalItems', 'propertyNames', 'if', 'then', 'else',
+] as const
+const OUTCOME_SUPPORTED_TYPES = ['object', 'array', 'string', 'number', 'integer', 'boolean']
+
+/** Throw (failing `yarn generate`) when an OUTCOME schema node is outside the supported subset. */
+function assertOutcomeSchemaSupported(node: unknown, where: string, path = '$'): void {
+  if (typeof node !== 'object' || node === null || Array.isArray(node)) {
+    throw new Error(`[internal] malformed OUTCOME.md at ${where}: schema node at ${path} must be an object`)
+  }
+  const schema = node as Record<string, unknown>
+  for (const keyword of OUTCOME_UNSUPPORTED_KEYWORDS) {
+    if (keyword in schema) {
+      throw new Error(`[internal] malformed OUTCOME.md at ${where}: unsupported keyword "${keyword}" at ${path}`)
+    }
+  }
+  if ('const' in schema) return
+  const type = schema.type
+  if (typeof type !== 'string' || !OUTCOME_SUPPORTED_TYPES.includes(type)) {
+    throw new Error(`[internal] malformed OUTCOME.md at ${where}: missing/unsupported "type" at ${path}`)
+  }
+  if (type === 'object' && schema.properties != null) {
+    if (typeof schema.properties !== 'object' || schema.properties === null || Array.isArray(schema.properties)) {
+      throw new Error(`[internal] malformed OUTCOME.md at ${where}: "properties" at ${path} must be an object`)
+    }
+    for (const [key, child] of Object.entries(schema.properties as Record<string, unknown>)) {
+      assertOutcomeSchemaSupported(child, where, `${path}.${key}`)
+    }
+  }
+  if (type === 'array') {
+    if (schema.items == null) {
+      throw new Error(`[internal] malformed OUTCOME.md at ${where}: array at ${path} requires "items"`)
+    }
+    assertOutcomeSchemaSupported(schema.items, where, `${path}[]`)
+  }
+}
+
 function sanitizeAgentName(id: string): string {
   return id.replace(/[^a-z0-9_-]/gi, '_')
 }
@@ -428,6 +470,7 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
     if (!outcome) {
       throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
     }
+    assertOutcomeSchemaSupported(outcome.schema, dir)
     if (outcome.kind !== 'informative') {
       throw new Error(
         `[internal] sub-agent at ${dir} must be informative (kind: informative); only the primary proposes`,
@@ -713,7 +756,20 @@ export function createAgentFilesExtension(): GeneratorExtension {
       if (!outcome) {
         throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
       }
-      if (seenIds.has(agent.id!)) continue
+      assertOutcomeSchemaSupported(outcome.schema, dir)
+      // The id is the registry/dup key AND the OpenCode `agent` message field —
+      // constrain it to a safe charset (module.entity-style: lowercase alnum + . _ -).
+      if (!/^[a-z0-9][a-z0-9._-]*$/.test(agent.id!)) {
+        throw new Error(
+          `[internal] invalid agent id "${agent.id}" at ${dir}: use lowercase [a-z0-9._-] (e.g. "module.agent")`,
+        )
+      }
+      if (seenIds.has(agent.id!)) {
+        // Surface accidental collisions at generate time instead of silently
+        // dropping the later agent (the registry would only skip it at load).
+        console.warn(`[internal] duplicate file-agent id "${agent.id}" at ${dir}; keeping the first, skipping this one.`)
+        continue
+      }
       seenIds.add(agent.id!)
       // Phase 3: resolve agent-local skills and UNION their read-only tools into
       // the agent allowlist (deduped), matching the loader.

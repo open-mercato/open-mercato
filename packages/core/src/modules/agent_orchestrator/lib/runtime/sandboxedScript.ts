@@ -20,6 +20,12 @@
  * (`agent_orchestrator.agents.run`) + the per-run session token, so this module
  * only owns the execution-isolation guarantee.
  *
+ * Trust model: the script SOURCE is trusted, committed, in-repo manifest content
+ * (`run_skill_script` only lets the model pick WHICH named script runs, never
+ * supply source), and the security boundary is the V8 isolate above — NOT the way
+ * the source string is wrapped below. `wrapScript` is a correctness device (so the
+ * `run` binding is in scope and actually invoked), not a sanitization device.
+ *
  * Invocation convention: a script/tool source file MUST define a function named
  * `run` (a `function run(args) {…}` declaration OR a `const run = (args) => …`
  * binding). We wrap the whole source in a single async arrow whose body defines
