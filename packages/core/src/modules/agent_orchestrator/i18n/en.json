@@ -136,6 +136,7 @@
         "tools": "Tools used"
       },
       "gate": "This decision is gated to a human. Approve to let the workflow resume, edit the payload before executing, or reject with a reason.",
+      "gateReadonly": "This decision is gated to a human. The proposal has been saved — review and approve, edit, or reject it in Caseload.",
       "actions": {
         "approve": "Approve",
         "edit": "Edit",
@@ -195,7 +196,8 @@
         "trace": "Tools & steps",
         "toolsHeading": "Tools used",
         "rawOutput": "Raw output",
-        "noTools": "No tools were used."
+        "noTools": "No tools were used.",
+        "openCaseload": "Open this proposal in Caseload →"
       }
     },
     "proposals": {
