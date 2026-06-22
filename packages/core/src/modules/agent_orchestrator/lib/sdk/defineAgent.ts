@@ -264,6 +264,7 @@ async function loadFileAgents(): Promise<void> {
     return
   }
   const { compileOutcome } = await import('./outcomeSchema')
+  const { registerAgentSkills } = await import('../runtime/fileAgentSkills')
   const isMutationTool = await loadMutationToolPredicate()
   for (const descriptor of descriptors) {
     if (registry.has(descriptor.id)) continue
@@ -304,6 +305,10 @@ async function loadFileAgents(): Promise<void> {
         loop: descriptor.maxSteps != null ? { maxSteps: descriptor.maxSteps } : undefined,
         runtime: 'opencode',
       })
+      // Phase 3: register the agent's resolved skill content into the runtime
+      // lookup so `load_skill` can return it without fs access. Optional + BC: a
+      // descriptor without `skillsContent` registers no skills (cleared).
+      registerAgentSkills(descriptor.id, descriptor.skillsContent ?? [])
     } catch (err) {
       console.warn(`[internal] failed to load file agent "${descriptor.id}":`, err)
     }

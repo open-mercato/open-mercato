@@ -19,11 +19,29 @@ import { resolveStandaloneSourceMirrorBase } from '../scanner'
  * written directly (not via the Map<filename,content> return, which targets the
  * app generated dir). `generateOutput()` therefore returns an empty Map.
  *
- * Generation FAILS (throws) on any malformed CLAUDE.md/OUTCOME.md, naming the
- * offending dir (spec §9). The CLI does not depend on `@open-mercato/core`, so
- * the small CLAUDE.md/OUTCOME.md parsers are reimplemented here; they MUST stay
- * in sync with `lib/sdk/{agentMarkdown,defineFileAgent}.ts`.
+ * Generation FAILS (throws) on any malformed CLAUDE.md/OUTCOME.md/SKILL.md,
+ * naming the offending dir (spec §9). The CLI does not depend on
+ * `@open-mercato/core`, so the small CLAUDE.md/OUTCOME.md/SKILL.md parsers are
+ * reimplemented here; they MUST stay in sync with
+ * `lib/sdk/{agentMarkdown,skillMarkdown,defineFileAgent}.ts`.
+ *
+ * Phase 3 also emits NATIVE OpenCode skill files under `docker/opencode/skills/`
+ * (frontmatter `name` sanitized to `^[a-z0-9]+(-[a-z0-9]+)*$`, `description`
+ * required, body = skill instructions) and unions skill-contributed read-only
+ * tools into the agent allowlist (manifest + docker agent-file `tools` block).
  */
+
+type DiscoveredSkill = {
+  /** Skill id: frontmatter `id` or, when absent, the skill dir name. */
+  id: string
+  description: string
+  instructions: string
+  template?: string
+  examples: string[]
+  tools: string[]
+  /** OpenCode native skill name (sanitized to ^[a-z0-9]+(-[a-z0-9]+)*$). */
+  openCodeSkillName: string
+}
 
 type DiscoveredAgent = {
   moduleId: string
@@ -34,10 +52,13 @@ type DiscoveredAgent = {
   instructions: string
   resultKind: 'informative' | 'actionable'
   outcomeSchema: Record<string, unknown>
+  /** Effective allowlist: CLAUDE.md tools ∪ skill-contributed read-only tools. */
   tools: string[]
   skills: string[]
   subAgents: string[]
   openCodeAgentName: string
+  /** Resolved agent-local skill content (Phase 3). */
+  skillsContent: DiscoveredSkill[]
   maxSteps?: number
   provider?: string
   model?: string
@@ -159,6 +180,145 @@ function sanitizeAgentName(id: string): string {
   return id.replace(/[^a-z0-9_-]/gi, '_')
 }
 
+/**
+ * Sanitize a skill id into an OpenCode native skill `name`, which must match
+ * `^[a-z0-9]+(-[a-z0-9]+)*$`: lowercase, underscores/dots/spaces → hyphens,
+ * any other char → hyphen, collapse runs, trim leading/trailing hyphens. Must
+ * stay in sync with the loader's interpretation of skill ids.
+ */
+function sanitizeSkillName(id: string): string {
+  const name = id
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '')
+  return name || 'skill'
+}
+
+type SkillFrontmatter = {
+  id?: string
+  label?: string
+  description?: string
+  tools: string[]
+}
+
+/**
+ * Parse an agent-local SKILL.md frontmatter (in sync with
+ * `lib/sdk/skillMarkdown.ts`). Agent-local skills may omit `moduleId` and `id`
+ * (the dir name is then authoritative); only a parseable frontmatter block is
+ * required. Returns null when there is no frontmatter block.
+ */
+function parseSkillMarkdown(raw: string): { meta: SkillFrontmatter; body: string } | null {
+  const match = FRONTMATTER_RE.exec(raw)
+  if (!match) return null
+  const [, frontmatterBlock, body] = match
+  const meta: SkillFrontmatter = { tools: [] }
+  const lines = frontmatterBlock.split('\n')
+  let index = 0
+  while (index < lines.length) {
+    const line = lines[index]
+    if (!line.trim()) {
+      index += 1
+      continue
+    }
+    const lineMatch = /^([A-Za-z0-9_]+):\s*(.*)$/.exec(line)
+    if (!lineMatch) {
+      index += 1
+      continue
+    }
+    const key = lineMatch[1]
+    const rawValue = lineMatch[2].trim()
+    if (key === 'tools') {
+      if (rawValue.startsWith('[')) {
+        meta.tools = parseInlineList(rawValue)
+        index += 1
+        continue
+      }
+      const items: string[] = []
+      index += 1
+      while (index < lines.length && /^\s*-\s+/.test(lines[index])) {
+        items.push(stripQuotes(lines[index].replace(/^\s*-\s+/, '')))
+        index += 1
+      }
+      meta.tools = items.filter(Boolean)
+      continue
+    }
+    if (key === 'id' || key === 'label' || key === 'description') {
+      meta[key] = stripQuotes(rawValue)
+    }
+    index += 1
+  }
+  return { meta, body: body.trim() }
+}
+
+function listExampleBodies(skillDir: string): string[] {
+  const examplesDir = path.join(skillDir, 'examples')
+  if (!fs.existsSync(examplesDir) || !fs.statSync(examplesDir).isDirectory()) return []
+  return fs
+    .readdirSync(examplesDir)
+    .filter((name) => name.endsWith('.md'))
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => fs.readFileSync(path.join(examplesDir, name), 'utf8').trim())
+    .filter(Boolean)
+}
+
+/**
+ * Discover the agent's referenced skills under `agents/<id>/skills/<skill_id>/`.
+ * For each id in CLAUDE.md `skills:` we look up the matching dir (by frontmatter
+ * id or dir name). FAILS generation when a referenced SKILL.md is malformed
+ * (present dir but unparseable frontmatter). A referenced id with no dir is
+ * skipped (the loader warns identically at runtime).
+ */
+function discoverAgentSkills(agentDir: string, skillIds: string[]): DiscoveredSkill[] {
+  if (skillIds.length === 0) return []
+  const skillsBase = path.join(agentDir, 'skills')
+  if (!fs.existsSync(skillsBase) || !fs.statSync(skillsBase).isDirectory()) return []
+
+  const bySkillId = new Map<string, DiscoveredSkill>()
+  for (const entry of fs.readdirSync(skillsBase, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const skillDir = path.join(skillsBase, entry.name)
+    const skillPath = path.join(skillDir, 'SKILL.md')
+    if (!fs.existsSync(skillPath)) continue
+    const parsed = parseSkillMarkdown(fs.readFileSync(skillPath, 'utf8'))
+    if (!parsed) {
+      throw new Error(`[internal] malformed SKILL.md at ${skillDir}: missing frontmatter block`)
+    }
+    const id = parsed.meta.id || entry.name
+    const templatePath = path.join(skillDir, 'TEMPLATE.md')
+    const template = fs.existsSync(templatePath)
+      ? fs.readFileSync(templatePath, 'utf8').trim() || undefined
+      : undefined
+    bySkillId.set(id, {
+      id,
+      description: parsed.meta.description ?? '',
+      instructions: parsed.body,
+      template,
+      examples: listExampleBodies(skillDir),
+      tools: parsed.meta.tools,
+      openCodeSkillName: sanitizeSkillName(id),
+    })
+  }
+
+  const resolved: DiscoveredSkill[] = []
+  for (const skillId of skillIds) {
+    const skill = bySkillId.get(skillId)
+    if (skill) resolved.push(skill)
+  }
+  return resolved
+}
+
+function renderOpenCodeSkillFile(skill: DiscoveredSkill): string {
+  const frontmatter = [
+    '---',
+    `name: ${skill.openCodeSkillName}`,
+    `description: ${JSON.stringify(skill.description)}`,
+    '---',
+  ]
+  return `${frontmatter.join('\n')}\n${skill.instructions.trim()}\n`
+}
+
 /** Walk up from a known in-repo path until a dir containing both `docker` and `packages` is found. */
 function findRepoRoot(start: string): string | null {
   let current = path.resolve(start)
@@ -224,6 +384,13 @@ function renderManifest(agents: DiscoveredAgent[]): string {
       if (agent.maxSteps != null) optional.push(`    maxSteps: ${agent.maxSteps},`)
       if (agent.provider != null) optional.push(`    provider: ${JSON.stringify(agent.provider)},`)
       if (agent.model != null) optional.push(`    model: ${JSON.stringify(agent.model)},`)
+      const skillsContent = agent.skillsContent.map((skill) => ({
+        id: skill.id,
+        instructions: skill.instructions,
+        ...(skill.template != null ? { template: skill.template } : {}),
+        examples: skill.examples,
+        tools: skill.tools,
+      }))
       return [
         '  {',
         `    id: ${JSON.stringify(agent.id)},`,
@@ -237,6 +404,7 @@ function renderManifest(agents: DiscoveredAgent[]): string {
         `    skills: ${JSON.stringify(agent.skills)},`,
         `    subAgents: ${JSON.stringify(agent.subAgents)},`,
         `    openCodeAgentName: ${JSON.stringify(agent.openCodeAgentName)},`,
+        `    skillsContent: ${JSON.stringify(skillsContent)},`,
         ...optional,
         '  },',
       ].join('\n')
@@ -255,6 +423,14 @@ function renderManifest(agents: DiscoveredAgent[]): string {
 // Regenerate with \`yarn generate\`.
 import type { JsonSchemaNode, OutcomeKind } from '../lib/sdk/outcomeSchema'
 
+export type FileAgentSkillContent = {
+  id: string
+  instructions: string
+  template?: string
+  examples: string[]
+  tools: string[]
+}
+
 export type FileAgentDescriptor = {
   id: string
   moduleId: string
@@ -267,6 +443,7 @@ export type FileAgentDescriptor = {
   skills: string[]
   subAgents: string[]
   openCodeAgentName: string
+  skillsContent?: FileAgentSkillContent[]
   maxSteps?: number
   provider?: string
   model?: string
@@ -306,6 +483,11 @@ export function createAgentFilesExtension(): GeneratorExtension {
       }
       if (seenIds.has(agent.id!)) continue
       seenIds.add(agent.id!)
+      // Phase 3: resolve agent-local skills and UNION their read-only tools into
+      // the agent allowlist (deduped), matching the loader.
+      const skillsContent = discoverAgentSkills(dir, agent.skills)
+      const skillTools = skillsContent.flatMap((skill) => skill.tools)
+      const effectiveTools = Array.from(new Set([...agent.tools, ...skillTools]))
       discovered.push({
         moduleId,
         dir,
@@ -315,10 +497,11 @@ export function createAgentFilesExtension(): GeneratorExtension {
         instructions: agent.instructions,
         resultKind: outcome.kind,
         outcomeSchema: outcome.schema,
-        tools: agent.tools,
+        tools: effectiveTools,
         skills: agent.skills,
         subAgents: agent.subAgents,
         openCodeAgentName: sanitizeAgentName(agent.id!),
+        skillsContent,
         maxSteps: agent.maxSteps,
         provider: agent.provider,
         model: agent.model,
@@ -373,6 +556,35 @@ export function createAgentFilesExtension(): GeneratorExtension {
       }
       for (const [fileName, content] of desiredFiles) {
         fs.writeFileSync(path.join(dockerAgentsDir, fileName), content, 'utf8')
+      }
+
+      // Phase 3: emit NATIVE OpenCode skill files (one dir per skill name) under
+      // `docker/opencode/skills/<sanitized-skill-name>/SKILL.md`. Idempotent:
+      // remove stale skill dirs not in the current desired set.
+      const dockerSkillsDir = path.join(repoRoot, 'docker', 'opencode', 'skills')
+      const desiredSkillNames = new Set<string>()
+      for (const agent of sorted) {
+        for (const skill of agent.skillsContent) desiredSkillNames.add(skill.openCodeSkillName)
+      }
+      if (desiredSkillNames.size > 0) fs.mkdirSync(dockerSkillsDir, { recursive: true })
+      if (fs.existsSync(dockerSkillsDir)) {
+        for (const existing of fs.readdirSync(dockerSkillsDir, { withFileTypes: true })) {
+          if (existing.isDirectory() && !desiredSkillNames.has(existing.name)) {
+            fs.rmSync(path.join(dockerSkillsDir, existing.name), { recursive: true, force: true })
+          }
+        }
+      }
+      const renderedSkillNames = new Set<string>()
+      for (const agent of sorted) {
+        for (const skill of agent.skillsContent) {
+          // A skill name may be shared across agents; the first rendering wins
+          // (content is keyed by name, deterministic by sorted agent order).
+          if (renderedSkillNames.has(skill.openCodeSkillName)) continue
+          renderedSkillNames.add(skill.openCodeSkillName)
+          const skillDir = path.join(dockerSkillsDir, skill.openCodeSkillName)
+          fs.mkdirSync(skillDir, { recursive: true })
+          fs.writeFileSync(path.join(skillDir, 'SKILL.md'), renderOpenCodeSkillFile(skill), 'utf8')
+        }
       }
 
       return new Map<string, string>()

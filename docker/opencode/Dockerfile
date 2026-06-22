@@ -34,6 +34,12 @@ COPY --chown=opencode:opencode entrypoint.sh /home/opencode/entrypoint.sh
 # Target the plural `agents/` dir under the non-root opencode user's config home.
 COPY --chown=opencode:opencode agents/ /home/opencode/.config/opencode/agents/
 
+# Bake the generated NATIVE OpenCode skill files (Phase 3) into the image. Dev
+# bind-mounts the same dir. Target the plural `skills/` dir; OpenCode lists each
+# skill in the built-in `skill` tool and pulls SKILL.md on demand (progressive
+# disclosure). The dir is created above; the COPY is a no-op when no skills exist.
+COPY --chown=opencode:opencode skills/ /home/opencode/.config/opencode/skills/
+
 USER root
 RUN chmod +x /home/opencode/entrypoint.sh
 USER opencode

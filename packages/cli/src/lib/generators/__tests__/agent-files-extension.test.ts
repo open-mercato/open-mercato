@@ -114,4 +114,99 @@ describe('createAgentFilesExtension', () => {
       extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase)),
     ).toThrow(/malformed file agent/)
   })
+
+  it('emits native SKILL.md, unions skill tools, and writes skillsContent to the manifest', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
+
+    // Reference a skill in CLAUDE.md and author it under skills/<skill_id>/.
+    fs.writeFileSync(
+      path.join(agentDir, 'CLAUDE.md'),
+      [
+        '---',
+        'id: deals.health_check',
+        'label: Deal health check',
+        'description: Assess a deal.',
+        'skills: [stage_playbook]',
+        'tools: [customers.get_deal]',
+        '---',
+        'You assess a deal.',
+      ].join('\n'),
+      'utf8',
+    )
+    const skillDir = path.join(agentDir, 'skills', 'stage_playbook')
+    fs.mkdirSync(path.join(skillDir, 'examples'), { recursive: true })
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'id: stage_playbook',
+        'label: Stage playbook',
+        'description: Pick the next stage.',
+        'tools: [customers.analyze_deals]',
+        '---',
+        'STAGE_PLAYBOOK_BODY',
+      ].join('\n'),
+      'utf8',
+    )
+    fs.writeFileSync(path.join(skillDir, 'TEMPLATE.md'), 'TEMPLATE_BODY', 'utf8')
+    fs.writeFileSync(path.join(skillDir, 'examples', 'a.md'), 'EXAMPLE_ONE', 'utf8')
+
+    const extension = createAgentFilesExtension()
+    extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase))
+    extension.generateOutput()
+
+    // Native OpenCode skill file (sanitized dir name: stage_playbook → stage-playbook).
+    const nativeSkill = path.join(repoRoot, 'docker/opencode/skills/stage-playbook/SKILL.md')
+    expect(fs.existsSync(nativeSkill)).toBe(true)
+    const nativeContent = fs.readFileSync(nativeSkill, 'utf8')
+    expect(nativeContent).toContain('name: stage-playbook')
+    expect(nativeContent).toContain('STAGE_PLAYBOOK_BODY')
+
+    // Manifest carries skillsContent and the unioned tool allowlist.
+    const manifest = fs.readFileSync(
+      path.join(repoRoot, 'packages/core/src/modules/agent_orchestrator/generated/file-agents.generated.ts'),
+      'utf8',
+    )
+    expect(manifest).toContain('skillsContent')
+    expect(manifest).toContain('STAGE_PLAYBOOK_BODY')
+    expect(manifest).toContain('TEMPLATE_BODY')
+    expect(manifest).toContain('EXAMPLE_ONE')
+    expect(manifest).toContain('customers.analyze_deals')
+
+    // The docker agent file's tools block includes the skill tool too.
+    const dockerAgent = fs.readFileSync(
+      path.join(repoRoot, 'docker/opencode/agents/deals_health_check.md'),
+      'utf8',
+    )
+    expect(dockerAgent).toContain('customers.analyze_deals')
+  })
+
+  it('fails generation on a malformed SKILL.md (no frontmatter)', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
+    fs.writeFileSync(
+      path.join(agentDir, 'CLAUDE.md'),
+      [
+        '---',
+        'id: deals.health_check',
+        'label: Deal health check',
+        'description: Assess a deal.',
+        'skills: [stage_playbook]',
+        '---',
+        'You assess a deal.',
+      ].join('\n'),
+      'utf8',
+    )
+    const skillDir = path.join(agentDir, 'skills', 'stage_playbook')
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), 'no frontmatter at all', 'utf8')
+
+    const extension = createAgentFilesExtension()
+    expect(() =>
+      extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase)),
+    ).toThrow(/malformed SKILL\.md/)
+  })
 })

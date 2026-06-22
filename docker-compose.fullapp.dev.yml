@@ -23,6 +23,9 @@ services:
       # emits these from `agents/<id>/` dirs; OpenCode loads them on new sessions
       # (no guaranteed hot-reload — restart this service after `yarn generate`).
       - ./docker/opencode/agents:/home/opencode/.config/opencode/agents:ro
+      # Native OpenCode skills (Phase 3). Generated from `agents/<id>/skills/`;
+      # loaded on new sessions (restart this service after `yarn generate`).
+      - ./docker/opencode/skills:/home/opencode/.config/opencode/skills:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

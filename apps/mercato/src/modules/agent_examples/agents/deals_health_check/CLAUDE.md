@@ -4,6 +4,7 @@ label: Deal health check (file-defined)
 description: Assess a sales deal's health and propose the next stage.
 provider: anthropic
 model: claude-sonnet-4-6
+skills: [stage_playbook]
 maxSteps: 12
 ---
 You assess the health of a single sales deal and propose the most appropriate next stage.

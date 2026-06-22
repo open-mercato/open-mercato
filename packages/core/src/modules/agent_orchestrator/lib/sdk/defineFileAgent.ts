@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { AgentRegistryEntry } from './defineAgent'
 import { parseAgentMarkdown } from './agentMarkdown'
+import { parseAgentLocalSkillMarkdown } from './skillMarkdown'
 import { compileOutcome, type JsonSchemaNode, type OutcomeKind } from './outcomeSchema'
 
 /**
@@ -9,6 +10,24 @@ import { compileOutcome, type JsonSchemaNode, type OutcomeKind } from './outcome
  * register into the same in-memory registry as `defineAgent` agents.
  */
 export { registerFileAgent } from './defineAgent'
+
+/**
+ * Resolved content of one agent-local skill (Phase 3). Plain data so it can be
+ * persisted to the committed manifest and returned by the `load_skill` MCP tool
+ * at runtime without fs access.
+ */
+export type LoadedSkillContent = {
+  /** Skill id (frontmatter `id` or, when absent, the skill dir name). */
+  id: string
+  /** SKILL.md body → progressive-disclosure instructions. */
+  instructions: string
+  /** Optional TEMPLATE.md body (output template). */
+  template?: string
+  /** Optional examples/*.md bodies (few-shot blocks), ordered by filename. */
+  examples: string[]
+  /** Read-only tool ids the skill contributes to the agent allowlist. */
+  tools: string[]
+}
 
 export type LoadedFileAgent = {
   /** runtime: 'opencode'; schema = compiled OUTCOME resultSchema. */
@@ -21,6 +40,12 @@ export type LoadedFileAgent = {
   openCodeAgentFile: string
   /** Sanitized filename-id passed in the message `agent` field. */
   openCodeAgentName: string
+  /**
+   * Resolved agent-local skill content (Phase 3). One entry per skill referenced
+   * by CLAUDE.md `skills:` that resolved to an `agents/<id>/skills/<skill_id>/`
+   * dir. Each skill's read-only tools are also unioned into `entry.tools`.
+   */
+  skillsContent: LoadedSkillContent[]
   /** Phase 4 sub-agent file loading; [] in Phase 1-3 (ids still carried on entry). */
   subAgents: LoadedFileAgent[]
 }
@@ -132,6 +157,83 @@ function renderOpenCodeAgentFile(args: {
 }
 
 /**
+ * Read one agent-local skill dir `agents/<id>/skills/<skill_id>/`:
+ *  - `SKILL.md` (required; parsed with `parseAgentLocalSkillMarkdown`, moduleId
+ *    tolerated/absent, id defaulting to the dir name),
+ *  - optional `TEMPLATE.md`,
+ *  - optional `examples/*.md` (ordered by filename).
+ *
+ * Returns null when SKILL.md is missing or has no parseable frontmatter.
+ */
+function loadSkillDir(skillDir: string): LoadedSkillContent | null {
+  const skillPath = path.join(skillDir, 'SKILL.md')
+  if (!fs.existsSync(skillPath)) return null
+  const dirName = path.basename(skillDir)
+  const parsed = parseAgentLocalSkillMarkdown(fs.readFileSync(skillPath, 'utf8'), dirName)
+  if (!parsed) return null
+
+  const templatePath = path.join(skillDir, 'TEMPLATE.md')
+  const template = fs.existsSync(templatePath)
+    ? fs.readFileSync(templatePath, 'utf8').trim() || undefined
+    : undefined
+
+  const examplesDir = path.join(skillDir, 'examples')
+  const examples: string[] = []
+  if (fs.existsSync(examplesDir) && fs.statSync(examplesDir).isDirectory()) {
+    const files = fs
+      .readdirSync(examplesDir)
+      .filter((name) => name.endsWith('.md'))
+      .sort((a, b) => a.localeCompare(b))
+    for (const file of files) {
+      const body = fs.readFileSync(path.join(examplesDir, file), 'utf8').trim()
+      if (body) examples.push(body)
+    }
+  }
+
+  return {
+    id: parsed.id,
+    instructions: parsed.instructions,
+    template,
+    examples,
+    tools: parsed.tools,
+  }
+}
+
+/**
+ * Resolve the agent-local skills referenced by CLAUDE.md `skills:`. For each id
+ * we look for an `agents/<id>/skills/<skill_id>/` dir whose resolved skill id
+ * (frontmatter id or dir name) matches. Unknown ids are skipped (warned) so a
+ * stale reference never blocks the agent.
+ */
+function loadAgentSkills(agentDir: string, skillIds: string[]): LoadedSkillContent[] {
+  if (skillIds.length === 0) return []
+  const skillsBase = path.join(agentDir, 'skills')
+  const hasSkillsDir = fs.existsSync(skillsBase) && fs.statSync(skillsBase).isDirectory()
+
+  const bySkillId = new Map<string, LoadedSkillContent>()
+  if (hasSkillsDir) {
+    for (const entry of fs.readdirSync(skillsBase, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const loaded = loadSkillDir(path.join(skillsBase, entry.name))
+      if (loaded) bySkillId.set(loaded.id, loaded)
+    }
+  }
+
+  const resolved: LoadedSkillContent[] = []
+  for (const skillId of skillIds) {
+    const skill = bySkillId.get(skillId)
+    if (!skill) {
+      console.warn(
+        `[internal] file agent skill "${skillId}" not found under ${skillsBase}; skipping.`,
+      )
+      continue
+    }
+    resolved.push(skill)
+  }
+  return resolved
+}
+
+/**
  * Read `agents/<id>/{CLAUDE.md,OUTCOME.md}`, validate, compile the OUTCOME schema,
  * and build an `AgentRegistryEntry` with `runtime:'opencode'`. Pure and fs-based
  * (unit-testable against fixtures). Returns null when the dir is not a valid
@@ -162,13 +264,20 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
     return null
   }
 
+  // Phase 3: resolve agent-local skills referenced by CLAUDE.md `skills:` and
+  // UNION each resolved skill's read-only tools into the agent allowlist (deduped),
+  // mirroring how the in-process `defineAgent` unions skill tools.
+  const skillsContent = loadAgentSkills(dir, agent.skills)
+  const skillTools = skillsContent.flatMap((skill) => skill.tools)
+  const effectiveTools = Array.from(new Set([...agent.tools, ...skillTools]))
+
   const openCodeAgentName = sanitizeAgentName(agent.id)
   const entry: AgentRegistryEntry = {
     id: agent.id,
     moduleId: '',
     resultKind: outcome.kind,
     schema: resultSchema,
-    tools: agent.tools,
+    tools: effectiveTools,
     skills: agent.skills,
     subAgents: agent.subAgents,
     label: agent.label,
@@ -185,7 +294,7 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
     provider: agent.provider,
     model: agent.model,
     instructions: agent.instructions,
-    tools: agent.tools,
+    tools: effectiveTools,
   })
 
   return {
@@ -194,6 +303,7 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
     resultKind: outcome.kind,
     openCodeAgentFile,
     openCodeAgentName,
+    skillsContent,
     subAgents: [],
   }
 }

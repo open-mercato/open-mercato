@@ -4,9 +4,13 @@ import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_ass
 import { DELEGATE_TOOL_ID, getAgentEntry, ensureAgentsLoaded } from './lib/sdk/defineAgent'
 import type { AgentRuntimeService } from './lib/runtime/agentRuntime'
 import * as openCodeRunRegistry from './lib/runtime/openCodeRunRegistry'
+import { getAgentSkill } from './lib/runtime/fileAgentSkills'
 
 /** Tool id of the OUTCOME-submission tool an OpenCode file-agent finishes with. */
 export const SUBMIT_OUTCOME_TOOL_ID = 'agent_orchestrator.submit_outcome'
+
+/** Tool id of the skill progressive-disclosure fallback (native skills preferred). */
+export const LOAD_SKILL_TOOL_ID = 'agent_orchestrator.load_skill'
 
 const delegateInput = z.object({
   agentId: z.string().min(1).describe('Id of the sub-agent to run (must be an informative agent).'),
@@ -138,6 +142,65 @@ const submitOutcomeTool: AiToolDefinition = {
   },
 }
 
-export const aiTools: AiToolDefinition[] = [delegateAgentTool, submitOutcomeTool]
+const loadSkillInput = z.object({
+  skillId: z
+    .string()
+    .min(1)
+    .describe('Id of the skill to load. Must be one of the active agent allowed skills.'),
+})
+
+/**
+ * Progressive-disclosure FALLBACK for agent-local skills. Native OpenCode skills
+ * (generated `SKILL.md` files) are the primary path; this MCP tool returns a
+ * skill's full content on demand AND carries TEMPLATE.md/examples that native
+ * skills may not bundle.
+ *
+ * The allowed skill set is the ACTIVE agent's skills — resolved from the per-run
+ * correlation store keyed by THIS run's session token (`ctx.sessionId`) — NEVER
+ * trusted from the model. Outcomes:
+ *
+ *  - missing/stale correlation (no run for this session) → `{ ok:false, code:'no_active_run' }`.
+ *  - skillId not registered for the active agent → `{ ok:false, code:'skill_not_allowed' }`.
+ *  - otherwise → `{ ok:true, instructions, template?, examples }`.
+ *
+ * Propose-only: `isMutation:false` — it only reads skill content.
+ */
+const loadSkillTool: AiToolDefinition = {
+  name: LOAD_SKILL_TOOL_ID,
+  displayName: 'Load agent skill',
+  description:
+    'Load the full instructions (and optional template + examples) of one of the current agent skills, by skill id.',
+  inputSchema: loadSkillInput,
+  requiredFeatures: ['agent_orchestrator.agents.run'],
+  isMutation: false,
+  tags: ['read', 'agent_orchestrator'],
+  async handler(rawInput, ctx) {
+    const { skillId } = loadSkillInput.parse(rawInput)
+    const correlationKey = ctx.sessionId
+    if (!correlationKey) {
+      return { ok: false as const, code: 'no_active_run' as const, error: 'no run session in context' }
+    }
+    const run = openCodeRunRegistry.get(correlationKey)
+    if (!run) {
+      return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this session' }
+    }
+    const skill = getAgentSkill(run.agentId, skillId)
+    if (!skill) {
+      return {
+        ok: false as const,
+        code: 'skill_not_allowed' as const,
+        error: `skill "${skillId}" is not available to the active agent`,
+      }
+    }
+    return {
+      ok: true as const,
+      instructions: skill.instructions,
+      ...(skill.template != null ? { template: skill.template } : {}),
+      examples: skill.examples,
+    }
+  },
+}
+
+export const aiTools: AiToolDefinition[] = [delegateAgentTool, submitOutcomeTool, loadSkillTool]
 
 export default aiTools

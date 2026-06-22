@@ -10,6 +10,14 @@
 // Regenerate with `yarn generate`.
 import type { JsonSchemaNode, OutcomeKind } from "../lib/sdk/outcomeSchema.js"
 
+export type FileAgentSkillContent = {
+  id: string
+  instructions: string
+  template?: string
+  examples: string[]
+  tools: string[]
+}
+
 export type FileAgentDescriptor = {
   id: string
   moduleId: string
@@ -22,6 +30,7 @@ export type FileAgentDescriptor = {
   skills: string[]
   subAgents: string[]
   openCodeAgentName: string
+  skillsContent?: FileAgentSkillContent[]
   maxSteps?: number
   provider?: string
   model?: string
@@ -37,9 +46,10 @@ export const fileAgentDescriptors: FileAgentDescriptor[] = [
     resultKind: "actionable",
     outcomeSchema: {"type":"object","additionalProperties":false,"required":["actions","confidence","rationale"],"properties":{"actions":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"required":["type","payload"],"properties":{"type":{"const":"set_stage"},"payload":{"type":"object","additionalProperties":false,"required":["stage"],"properties":{"stage":{"type":"string","minLength":1}}}}}},"confidence":{"type":"number","minimum":0,"maximum":1},"rationale":{"type":"string","minLength":1}}},
     tools: [],
-    skills: [],
+    skills: ["stage_playbook"],
     subAgents: [],
     openCodeAgentName: "deals_health_check",
+    skillsContent: [{"id":"stage_playbook","instructions":"Use this playbook to pick the single most appropriate next stage for a deal.\n\nPipeline stages, in order:\n\n1. `lead` — initial interest, no qualification yet.\n2. `qualified` — budget, authority, need, and timeline (BANT) confirmed.\n3. `proposal` — a quote or proposal has been sent.\n4. `negotiation` — terms are actively being discussed.\n5. `won` — the deal is closed and signed.\n6. `lost` — the deal is dead; record the reason.\n\nDecision rules:\n\n- Advance one stage at a time unless a strong signal justifies a jump.\n- Strong forward signals: a signed document, a scheduled close date, an\n  explicit verbal commitment, or procurement engagement.\n- Risk signals that hold a deal back: no reply for two or more weeks, the\n  champion leaving, or repeated reschedules.\n- When momentum is unclear, prefer the conservative stage and lower your\n  confidence rather than guessing high.\n\nAlways justify the chosen stage in the rationale with the specific signal you\nrelied on.","template":"Recommended next stage: <stage>\nConfidence: <0..1>\nPrimary signal: <the one signal that drove this decision>\nRationale: <one or two sentences a sales manager can act on>","examples":["Deal: Acme renewal, currently in `proposal`. The buyer replied yesterday asking\nto discuss discount tiers and contract length, and looped in their procurement\nlead.\n\nRecommended next stage: negotiation\nConfidence: 0.8\nPrimary signal: procurement engaged and terms (discount, contract length) are\nactively under discussion.\nRationale: an active terms discussion with procurement involved is a strong\nforward signal; advance one stage from proposal to negotiation."],"tools":[]}],
     maxSteps: 12,
     provider: "anthropic",
     model: "claude-sonnet-4-6",
