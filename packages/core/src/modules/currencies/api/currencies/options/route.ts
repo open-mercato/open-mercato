@@ -7,6 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import {
   buildCollectionTags,
+  debugCrudCache,
   isCrudCacheEnabled,
   resolveCrudCache,
 } from '@open-mercato/shared/lib/crud/cache'
@@ -78,9 +79,18 @@ export async function GET(req: Request) {
     : null
 
   if (cache && cacheKey) {
-    const cached = await runWithCacheTenant(tenantId, () => cache.get(cacheKey))
-    if (cached) {
-      return NextResponse.json(cached)
+    try {
+      const cached = await runWithCacheTenant(tenantId, () => cache.get(cacheKey))
+      if (cached) {
+        return NextResponse.json(cached)
+      }
+    } catch (err) {
+      // A cache-backend read error must degrade to a fresh DB read, never a 500.
+      debugCrudCache('get', {
+        resource: CURRENCY_OPTIONS_RESOURCE,
+        key: cacheKey,
+        error: err instanceof Error ? err.message : String(err),
+      })
     }
   }
 
@@ -124,7 +134,15 @@ export async function GET(req: Request) {
           tags: buildCollectionTags(CURRENCY_OPTIONS_RESOURCE, tenantId, [orgId]),
         }),
       )
-    } catch {}
+    } catch (err) {
+      // A cache write must never break the request; log it for observability
+      // instead of swallowing the failure silently (matches the CRUD factory).
+      debugCrudCache('store', {
+        resource: CURRENCY_OPTIONS_RESOURCE,
+        key: cacheKey,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   }
 
   return NextResponse.json(payload)
