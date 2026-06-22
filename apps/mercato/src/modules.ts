@@ -136,6 +136,9 @@ export const enabledModules: ModuleEntry[] = [
     },
   },
   { id: 'ratelimit_probe', from: '@app' },
+  // Example app module: shows how to declare an Agent Orchestrator agent from a
+  // brand-new module (see apps/mercato/src/modules/agent_examples/README.md).
+  { id: 'agent_examples', from: '@app' },
 ]
 
 // Official modules activated via official-modules.json / official-modules.local.json

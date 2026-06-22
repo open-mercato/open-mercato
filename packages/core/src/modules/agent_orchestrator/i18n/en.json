@@ -23,11 +23,36 @@
           "skills": "Skills"
         },
         "openPlayground": "Open in playground",
+        "viewDefinition": "View definition of {agent}",
         "error": "Failed to load agents.",
         "resultKind": {
           "informative": "Informative",
           "actionable": "Actionable"
         }
+      }
+    },
+    "agentDetail": {
+      "title": "Agent",
+      "back": "Back to agents",
+      "error": "Failed to load the agent definition.",
+      "notFound": "Agent not found",
+      "notFoundDescription": "This agent is not registered, or the module that declares it is not loaded.",
+      "forbidden": "Access denied",
+      "forbiddenDescription": "You do not have permission to view this agent definition.",
+      "defaultValue": "Default",
+      "noTools": "This agent declares no tools — it reasons over the input it is given. Add read-only tools to let it gather data before proposing.",
+      "noSkills": "This agent declares no skills. Skills package reusable instructions and read-only tools an agent can run.",
+      "skillTools": "Tools",
+      "viewSkill": "View skill {skill}",
+      "fields": {
+        "label": "Label",
+        "module": "Module",
+        "provider": "Provider",
+        "model": "Model",
+        "maxSteps": "Max steps",
+        "tools": "Tools",
+        "skills": "Skills",
+        "instructions": "Instructions"
       }
     },
     "runs": {

@@ -3,6 +3,7 @@ import {
   type AiAgentDefinition,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
 import type { ZodTypeAny } from 'zod'
+import { getSkillEntry } from './defineSkill'
 
 export type AgentResultKind = 'actionable' | 'informative'
 
@@ -14,9 +15,20 @@ export interface DefineAgentInput {
   description: string
   /** System prompt → AiAgentDefinition.systemPrompt. */
   instructions: string
-  /** defineAiTool ids, READ-ONLY (propose-only is structural; see the runtime). */
+  /**
+   * defineAiTool ids the agent may call. Propose-only stays structural: the agent
+   * is declared read-only, so any `isMutation: true` tool is stripped by the
+   * runtime — only READ tools survive. When non-empty the runtime runs a read-only
+   * tool loop (`runAiAgentObject({ enableTools })`) so the agent can gather data
+   * before proposing; all writes still flow through proposal → disposition →
+   * effector, never the agent directly.
+   */
   tools?: string[]
-  /** SKILL.md pack ids — MVP appends to instructions; progressive disclosure deferred. */
+  /**
+   * Skill ids (see `defineSkill`). Each resolved skill injects its instructions
+   * into the system prompt and unions its read-only tools into the agent's
+   * allowlist. Unknown ids are warned and skipped (the agent still loads).
+   */
   skills?: string[]
   defaultProvider?: string
   defaultModel?: string
@@ -28,12 +40,19 @@ export interface DefineAgentInput {
 
 export interface AgentRegistryEntry {
   id: string
+  moduleId: string
   resultKind: AgentResultKind
   schema: ZodTypeAny
   tools: string[]
   skills: string[]
   label: string
   description: string
+  /** System prompt the agent runs with. */
+  instructions: string
+  defaultProvider?: string
+  defaultModel?: string
+  /** Object-safe loop subset (see DefineAgentInput). */
+  loop?: { maxSteps?: number }
 }
 
 const registry = new Map<string, AgentRegistryEntry>()
@@ -42,17 +61,42 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
   if (registry.has(input.id)) {
     throw new Error(`[internal] duplicate agent id "${input.id}"`)
   }
+  // Resolve declared skills from the registry (ai-skills.ts must be imported
+  // before the agents that reference them — ai-agents.ts does this at the top).
+  // Each skill injects real instructions AND contributes its read-only tools.
+  const ownTools = input.tools ?? []
+  const skillIds = input.skills ?? []
+  const resolvedSkills = skillIds
+    .map((skillId) => {
+      const skill = getSkillEntry(skillId)
+      if (!skill) {
+        console.warn(`[internal] agent "${input.id}" references unknown skill "${skillId}"; skipping.`)
+      }
+      return skill
+    })
+    .filter((skill): skill is NonNullable<typeof skill> => !!skill)
+  const skillTools = resolvedSkills.flatMap((skill) => skill.tools)
+  const effectiveTools = Array.from(new Set([...ownTools, ...skillTools]))
+
   registry.set(input.id, {
     id: input.id,
+    moduleId: input.moduleId,
     resultKind: input.result.kind,
     schema: input.result.schema,
-    tools: input.tools ?? [],
-    skills: input.skills ?? [],
+    tools: ownTools,
+    skills: skillIds,
     label: input.label,
     description: input.description,
+    instructions: input.instructions,
+    defaultProvider: input.defaultProvider,
+    defaultModel: input.defaultModel,
+    loop: input.loop,
   })
-  const systemPrompt = input.skills?.length
-    ? `${input.instructions}\n\n${input.skills.map((skill) => `[skill:${skill}]`).join('\n')}`
+  const skillSections = resolvedSkills.map(
+    (skill) => `## Skill: ${skill.label}\n${skill.instructions}`,
+  )
+  const systemPrompt = skillSections.length
+    ? [input.instructions, ...skillSections].join('\n\n')
     : input.instructions
   return defineAiAgent({
     id: input.id,
@@ -60,9 +104,13 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     label: input.label,
     description: input.description,
     systemPrompt,
-    // READ-only allowlist; object mode never passes tools to the model.
-    allowedTools: input.tools ?? [],
+    // Effective read-only allowlist = the agent's own tools + every read tool its
+    // skills contribute. Read-only policy still strips any mutation tool.
+    allowedTools: effectiveTools,
     executionMode: 'object',
+    // Read-only is the propose-only guarantee: the runtime strips every
+    // `isMutation: true` tool, so even a mis-declared write tool can never fire.
+    // Reads are allowed; writes only ever happen via the proposal/effector path.
     readOnly: true,
     mutationPolicy: 'read-only',
     defaultProvider: input.defaultProvider,
@@ -83,18 +131,43 @@ export function listAgentEntries(): AgentRegistryEntry[] {
 let agentsLoadPromise: Promise<void> | null = null
 
 /**
- * Ensure the module's `ai-agents.ts` has executed so `defineAgent` has populated
- * the registry. The registry is a module-level Map filled by import side effect,
- * so code paths that don't transitively import `ai-agents.ts` — notably the
- * workflow background executor invoking an agent through the dispatch bridge —
- * would otherwise read an empty registry and fail with "unknown agent id".
- * Idempotent: skips when already populated, and a dynamic import of an
- * already-executed module is a no-op.
+ * Load every module's agents into the registry. `defineAgent` registers by import
+ * side effect, so an agent declared in ANY module is only discoverable once that
+ * module's `ai-agents.ts` has executed. The generated `ai-agents.generated.ts`
+ * aggregator statically imports every module's `ai-agents.ts`; ai_assistant's
+ * `loadAgentRegistry()` imports that aggregator, so calling it runs every
+ * `defineAgent()` across all modules and fills this registry. Packages must not
+ * import the app-generated file directly, so we go through ai_assistant.
+ *
+ * Fallback: if the aggregator is unavailable (tests, fresh checkout before
+ * `yarn generate`), import agent_orchestrator's own `ai-agents.ts` so at least
+ * its built-in agents resolve.
+ */
+async function loadAllAgentModules(): Promise<void> {
+  try {
+    const { loadAgentRegistry } = await import(
+      '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-registry'
+    )
+    await loadAgentRegistry()
+  } catch {
+    // ignore — fall through to the local import below
+  }
+  if (registry.size === 0) {
+    await import('../../ai-agents')
+  }
+}
+
+/**
+ * Ensure agents from every module have registered before the registry is read.
+ * Idempotent: skips when already populated, and the underlying imports are no-ops
+ * once their modules have executed. Code paths that don't transitively import any
+ * `ai-agents.ts` — notably the workflow background executor and the agents API —
+ * call this first so they never read an empty registry.
  */
 export async function ensureAgentsLoaded(): Promise<void> {
   if (registry.size > 0) return
   if (!agentsLoadPromise) {
-    agentsLoadPromise = import('../../ai-agents')
+    agentsLoadPromise = loadAllAgentModules()
       .then(() => undefined)
       .catch((err) => {
         agentsLoadPromise = null

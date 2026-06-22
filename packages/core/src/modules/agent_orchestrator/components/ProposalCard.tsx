@@ -11,7 +11,7 @@ import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatConfidence, type ProposalView } from './types'
-import { dispositionLabelKey, dispositionVariant } from './cockpitStatus'
+import { dispositionLabelKey, dispositionVariant, proposalVerdict } from './cockpitStatus'
 
 export type DisposeKind = 'approved' | 'edited' | 'rejected'
 
@@ -64,6 +64,7 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect }: ProposalCa
   const payload = proposal?.payload ?? adHoc?.payload ?? null
   const rationale = adHoc?.rationale ?? null
   const confidenceLabel = formatConfidence(confidence)
+  const verdict = proposalVerdict(confidence)
   const busy = actions?.busy ?? false
   const canDispose = actions?.canDispose ?? false
   const isPending = (proposal?.disposition ?? 'pending') === 'pending'
@@ -152,9 +153,9 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect }: ProposalCa
       </div>
 
       <div className="space-y-5 p-4">
-        {/* Verdict block */}
-        <Alert status="success" style="light">
-          {t('agent_orchestrator.proposal.verdict.approve')}
+        {/* Verdict block — confidence-driven, not a static "approve" banner. */}
+        <Alert status={verdict.status} style="light">
+          {t(verdict.labelKey)}
         </Alert>
 
         {rationale ? <p className="text-sm text-muted-foreground">{rationale}</p> : null}
