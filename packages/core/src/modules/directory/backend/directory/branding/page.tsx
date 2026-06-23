@@ -86,7 +86,7 @@ export default function OrganizationBrandingPage() {
       },
       { errorMessage: t('directory.branding.errors.upload', 'Failed to upload logo') },
     )
-    return upload?.item.thumbnailUrl ?? upload?.item.url ?? null
+    return upload?.item.url ?? upload?.item.thumbnailUrl ?? null
   }, [selectedFile, t])
 
   const saveBranding = React.useCallback(async (nextLogoUrl?: string, options?: { skipUpload?: boolean }) => {

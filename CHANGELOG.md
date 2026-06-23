@@ -1,4 +1,9 @@
 
+# Unreleased
+
+## 🐛 Fixes
+- 🐛 Directory: preserve uploaded organization logo aspect ratios in the backend sidebar.
+
 # 0.6.5 (2026-06-15)
 
 ## Highlights

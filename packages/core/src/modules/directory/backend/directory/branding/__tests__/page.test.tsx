@@ -129,22 +129,30 @@ describe('OrganizationBrandingPage', () => {
     })
   })
 
-  it('uploads a selected logo file before saving branding', async () => {
+  it.each([
+    ['svg', 'image/svg+xml'],
+    ['png', 'image/png'],
+    ['jpg', 'image/jpeg'],
+    ['webp', 'image/webp'],
+  ])('uploads a selected %s logo file without storing the square thumbnail', async (extension, mimeType) => {
+    const attachmentId = `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb${extension === 'svg' ? 'b' : extension === 'png' ? 'c' : extension === 'jpg' ? 'd' : 'e'}`
+    const fileUrl = `/api/attachments/file/${attachmentId}`
+
     readApiResultOrThrowMock
       .mockResolvedValueOnce(brandingPayload)
       .mockResolvedValueOnce({
         ok: true,
         item: {
-          id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-          url: '/api/attachments/image/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/acme.svg',
-          thumbnailUrl: '/api/attachments/image/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/acme.svg?width=320',
+          id: attachmentId,
+          url: fileUrl,
+          thumbnailUrl: `/api/attachments/image/${attachmentId}/acme.${extension}?width=320&height=320`,
         },
       })
 
     renderWithProviders(<OrganizationBrandingPage />)
 
     const input = await screen.findByLabelText('Upload logo')
-    const file = new File(['<svg />'], 'acme.svg', { type: 'image/svg+xml' })
+    const file = new File(['logo'], `acme.${extension}`, { type: mimeType })
     fireEvent.change(input, { target: { files: [file] } })
     fireEvent.click(screen.getByRole('button', { name: /Save branding/ }))
 
@@ -163,7 +171,7 @@ describe('OrganizationBrandingPage', () => {
       expect.objectContaining({
         method: 'PUT',
         body: JSON.stringify({
-          logoUrl: '/api/attachments/image/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/acme.svg?width=320',
+          logoUrl: fileUrl,
         }),
       }),
       expect.anything(),

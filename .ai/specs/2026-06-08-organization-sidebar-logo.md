@@ -23,7 +23,7 @@ The missing behavior affects two paths:
 
 Store the logo URL on `Organization` as a nullable `logoUrl`/`logo_url` field. Add a dedicated branding endpoint for the currently selected organization, then extend backend chrome with an optional `brand` payload. The app shell prefers `brand.logo.src` when present and otherwise keeps the existing static logo prop.
 
-The settings page lets an administrator either upload an image through `/api/attachments` or paste a valid image URL. Both flows save the final URL through `/api/directory/organization-branding`, so audit, command execution, cache invalidation, and future extension points remain centralized.
+The settings page lets an administrator either upload an image through `/api/attachments` or paste a valid image URL. Both flows save the final URL through `/api/directory/organization-branding`, so audit, command execution, cache invalidation, and future extension points remain centralized. Uploaded files persist the original attachment file URL, not a square thumbnail URL, so wide or tall organization marks keep their source aspect ratio.
 
 ## Scope
 
@@ -46,9 +46,9 @@ type BackendChromePayload = {
 }
 ```
 
-`AppShell` prefers `payload.brand.logo` over the static `logo` prop. If no custom organization logo exists, the current Open Mercato logo behavior is unchanged.
+`AppShell` prefers `payload.brand.logo` over the static `logo` prop. If no custom organization logo exists, the current Open Mercato logo behavior is unchanged. Custom organization logos render with contained object fit rather than the default rounded icon treatment so uploaded wordmarks are not cropped.
 
-The settings page uploads files via `/api/attachments` using `entityId=directory.organization` and `recordId=<organizationId>`, then stores the returned image URL through `/api/directory/organization-branding`. External URLs are validated and stored directly.
+The settings page uploads files via `/api/attachments` using `entityId=directory.organization` and `recordId=<organizationId>`, then stores the returned original file URL through `/api/directory/organization-branding`. External URLs are validated and stored directly.
 
 The branding endpoint resolves organization scope with the same directory scope utilities used elsewhere. It rejects ambiguous "all organizations" scope because a branding write needs a concrete target organization. Writes execute `directory.organizations.update` through the command bus so the standard directory command behavior remains the single write path.
 
@@ -155,9 +155,12 @@ Unit/API and UI smoke coverage:
   - current branding render,
   - pasted URL save,
   - reset to default,
-  - upload flow through `/api/attachments` before branding save.
+  - upload flow through `/api/attachments` before branding save,
+  - uploaded SVG/PNG/JPEG/WebP logos persist original attachment file URLs instead of square thumbnails,
+  - file picker cancel keeps the pending selected-file preview.
 - `packages/ui/src/backend/__tests__/AppShell.test.tsx`
-  - sidebar logo fallback and custom brand rendering.
+  - sidebar logo fallback and custom brand rendering,
+  - internal attachment file/image URLs and external URLs render unoptimized with aspect-ratio-preserving containment.
 
 Manual CRM validation on `https://crm.they.dev` covered pasted URL save, invalid URL rejection, sidebar refresh behavior, and reset to default. Upload automation was inconclusive in the browser session, so the upload path is covered by the UI unit smoke test and should be rechecked manually after the final CRM deploy is healthy.
 
@@ -178,6 +181,7 @@ Manual CRM validation on `https://crm.they.dev` covered pasted URL save, invalid
 | Cached sidebar payload keeps an old logo after save | Medium | Backend chrome | Invalidate tenant and organization sidebar tags; dispatch `om:refresh-sidebar` after UI save | Browser may show stale chrome until refresh if an external cache layer ignores tags |
 | Additive nav payload breaks consumers that assume an exact object shape | Low | `/api/auth/admin/nav` clients | Field is optional and nullable; existing fields are unchanged | Consumers with overly strict custom validators may need to allow unknown fields |
 | Uploaded file automation misses a real attachment regression | Medium | Branding page upload UX | Unit smoke covers FormData upload call; manual CRM upload should be repeated after final deploy health is restored | Final deployed upload UX still needs a healthy CRM deploy confirmation |
+| Uploaded wordmark is cropped because a square thumbnail URL is stored or rendered like an icon | Medium | Sidebar visual branding | Store the original attachment file URL and render custom logos with object containment while keeping the default icon behavior unchanged | Very small sidebars still constrain available width, but the image itself is not cropped |
 
 ## Final Compliance Report
 
@@ -192,3 +196,4 @@ Manual CRM validation on `https://crm.they.dev` covered pasted URL save, invalid
 
 - 2026-06-08: Created spec for organization-level sidebar logo branding.
 - 2026-06-08: Updated implementation coverage, API contracts, risk review, and final compliance report after PR audit.
+- 2026-06-23: Clarified uploaded logo aspect-ratio preservation, original attachment URL persistence, and additional SVG/PNG/JPEG/WebP coverage.

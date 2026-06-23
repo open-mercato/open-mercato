@@ -207,7 +207,11 @@ describe('AppShell', () => {
     )
   })
 
-  it('uses backend chrome brand logo when the selected organization has one', async () => {
+  it.each([
+    ['internal-file', '/api/attachments/file/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
+    ['internal-image-query', '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.svg?width=320&height=320'],
+    ['external-webp', 'https://example.com/acme-wide-logo.webp'],
+  ])('uses an aspect-ratio-preserving backend chrome brand logo for %s', async (variant, logoSrc) => {
     const previousFetch = global.fetch
     const previousWindowFetch = window.fetch
     const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
@@ -216,7 +220,7 @@ describe('AppShell', () => {
         brand: {
           name: 'Acme',
           logo: {
-            src: '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.png?width=320',
+            src: logoSrc,
             alt: 'Acme logo',
           },
         },
@@ -238,7 +242,7 @@ describe('AppShell', () => {
         <AppShell
           email="demo@example.com"
           groups={[]}
-          adminNavApi="/api/auth/admin/nav-brand-logo"
+          adminNavApi={`/api/auth/admin/nav-brand-logo-${variant}`}
         >
           <div>Child content</div>
         </AppShell>,
@@ -247,11 +251,10 @@ describe('AppShell', () => {
 
       await waitFor(() => {
         const logo = screen.getByAltText('Acme logo')
-        expect(logo).toHaveAttribute(
-          'src',
-          '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.png?width=320',
-        )
+        expect(logo).toHaveAttribute('src', logoSrc)
         expect(logo).toHaveAttribute('data-unoptimized', 'true')
+        expect(logo).toHaveClass('object-contain')
+        expect(logo).not.toHaveClass('rounded-full')
       })
       expect(screen.getByText('Acme')).toBeInTheDocument()
     } finally {
