@@ -553,6 +553,30 @@ describe('catalog module components', () => {
     ]))
   })
 
+  it('allows staff work requirements to use an explicit label without selecting a reference', () => {
+    const handleChange = jest.fn()
+
+    render(
+      <ServiceWorkRequirements
+        value={[{
+          targetType: 'staff_member',
+          targetId: null,
+          labelSnapshot: '',
+          allocationMode: 'fixed_hours',
+          allocationValue: '10',
+          sortOrder: 0,
+        }]}
+        onChange={handleChange}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Label'), { target: { value: 'Lead designer' } })
+
+    expect(handleChange).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ targetId: null, labelSnapshot: 'Lead designer' }),
+    ]))
+  })
+
   it('maps valid integer work requirements and rejects invalid values before submit', () => {
     const t = (_key: string, fallback?: string) => fallback ?? _key
     const valid = buildServicePayload(createServiceInitialValues({

@@ -236,7 +236,7 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
           const targetOptions = lookups[row.targetType] ?? []
           return (
             <div key={`${row.id ?? 'new'}-${index}`} className="rounded-md border p-3">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-[minmax(7rem,0.8fr)_minmax(14rem,1.5fr)_minmax(7rem,0.8fr)_minmax(5.5rem,0.6fr)_2rem]">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-[minmax(7rem,0.8fr)_minmax(12rem,1.2fr)_minmax(14rem,1.5fr)_minmax(7rem,0.8fr)_minmax(5.5rem,0.6fr)_2rem]">
                 <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
                   <span>{t('catalog.services.work.field.targetType', 'Target')}</span>
                   <select
@@ -255,16 +255,16 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
                   </select>
                 </label>
 
-                {row.targetType === 'generic' ? (
-                  <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
-                    <span>{t('catalog.services.work.field.label', 'Label')}</span>
-                    <input
-                      className="h-9 w-full min-w-0 rounded-md border bg-background px-2 text-sm"
-                      value={row.labelSnapshot}
-                      onChange={(event) => updateRow(index, { labelSnapshot: event.target.value, targetId: null })}
-                    />
-                  </label>
-                ) : (
+                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
+                  <span>{t('catalog.services.work.field.label', 'Label')}</span>
+                  <input
+                    className="h-9 w-full min-w-0 rounded-md border bg-background px-2 text-sm"
+                    value={row.labelSnapshot}
+                    onChange={(event) => updateRow(index, { labelSnapshot: event.target.value })}
+                  />
+                </label>
+
+                {row.targetType === 'generic' ? null : (
                   <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
                     <span>{t('catalog.services.work.field.reference', 'Reference')}</span>
                     <select
@@ -309,7 +309,7 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
                   />
                 </label>
 
-                <div className="flex min-w-0 items-end justify-end sm:col-span-2 2xl:col-span-1">
+                <div className="flex min-w-0 items-end justify-end sm:col-span-2 2xl:col-span-1 2xl:col-start-6">
                   <IconButton variant="ghost" size="default" onClick={() => removeRow(index)} aria-label={t('catalog.services.work.actions.remove', 'Remove')}>
                     <Trash2 className="h-4 w-4" />
                   </IconButton>
