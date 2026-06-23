@@ -59,8 +59,12 @@ jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryTable', 
 }))
 
 describe('DictionarySettings', () => {
+  const originalHash = window.location.hash
+  const originalScrollIntoView = Element.prototype.scrollIntoView
+
   beforeEach(() => {
     jest.clearAllMocks()
+    window.location.hash = originalHash
     confirmMock.mockResolvedValue(false)
     readApiResultOrThrowMock.mockImplementation(async (path: string) => {
       if (path === '/api/customers/dictionaries/person-company-roles') {
@@ -77,6 +81,15 @@ describe('DictionarySettings', () => {
       }
       return { items: [] }
     })
+  })
+
+  afterEach(() => {
+    window.location.hash = originalHash
+    if (originalScrollIntoView) {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    } else {
+      delete (Element.prototype as Partial<Element>).scrollIntoView
+    }
   })
 
   it('blocks deleting role types that are already in use before sending the request', async () => {
@@ -100,5 +113,21 @@ describe('DictionarySettings', () => {
       }),
     )
     expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+  })
+
+  it('scrolls the linked customer dictionary section after rendering', async () => {
+    const scrollIntoView = jest.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    window.location.hash = '#customer-dictionary-job-titles'
+
+    renderWithProviders(<DictionarySettings />)
+
+    const target = document.getElementById('customer-dictionary-job-titles')
+    expect(target).toBeTruthy()
+
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
+    })
+    expect(scrollIntoView.mock.contexts).toContain(target)
   })
 })

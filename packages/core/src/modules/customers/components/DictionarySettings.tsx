@@ -49,6 +49,19 @@ const DEFAULT_FORM_VALUES: DictionaryFormValues = {
   icon: null,
 }
 
+const DICTIONARY_HASH_SCROLL_RETRY_DELAYS_MS = [100, 350, 1000] as const
+
+function getCurrentDictionaryHashTarget(): HTMLElement | null {
+  if (typeof window === 'undefined') return null
+  const hash = window.location.hash
+  if (!hash.startsWith('#customer-dictionary-')) return null
+  try {
+    return document.getElementById(decodeURIComponent(hash.slice(1)))
+  } catch {
+    return document.getElementById(hash.slice(1))
+  }
+}
+
 export default function DictionarySettings() {
   const t = useT()
 
@@ -99,6 +112,45 @@ export default function DictionarySettings() {
       description: t('customers.config.dictionaries.sections.addressTypes.description', 'Define the available address types.'),
     },
   ], [t])
+
+  React.useEffect(() => {
+    const timeoutIds: number[] = []
+    let frameId: number | null = null
+
+    const clearScheduledScrolls = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+        frameId = null
+      }
+      while (timeoutIds.length > 0) {
+        const timeoutId = timeoutIds.pop()
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId)
+      }
+    }
+
+    const scrollToHashTarget = () => {
+      getCurrentDictionaryHashTarget()?.scrollIntoView({ block: 'start' })
+    }
+
+    const scheduleHashScroll = () => {
+      clearScheduledScrolls()
+      if (!window.location.hash.startsWith('#customer-dictionary-')) return
+      scrollToHashTarget()
+      if (typeof window.requestAnimationFrame === 'function') {
+        frameId = window.requestAnimationFrame(scrollToHashTarget)
+      }
+      DICTIONARY_HASH_SCROLL_RETRY_DELAYS_MS.forEach((delay) => {
+        timeoutIds.push(window.setTimeout(scrollToHashTarget, delay))
+      })
+    }
+
+    scheduleHashScroll()
+    window.addEventListener('hashchange', scheduleHashScroll)
+    return () => {
+      window.removeEventListener('hashchange', scheduleHashScroll)
+      clearScheduledScrolls()
+    }
+  }, [])
 
   return (
     <div className="space-y-8">
