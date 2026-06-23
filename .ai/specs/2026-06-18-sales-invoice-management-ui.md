@@ -2,7 +2,7 @@
 
 ## TLDR
 
-Adds backend sales invoice list/detail pages and an order detail invoice tab. Users can create one full invoice from an order, open invoice details, review lines/totals/source order links, and avoid duplicate invoices for the same order.
+Adds backend sales invoice list/detail pages and an order detail invoice tab. Users can create one full invoice from an order, open invoice details, review lines/totals/source order links, update the invoice status from the invoice detail page, and avoid duplicate invoices for the same order.
 
 ## Overview
 
@@ -15,7 +15,7 @@ Sales orders can progress to invoices, but the backend order detail page only ex
 ## Proposed Solution
 
 - Add `/backend/sales/invoices` as a DataTable list for invoice number, status, source order, dates, total, and outstanding amount.
-- Add `/backend/sales/invoices/[id]` as a detail page with header metadata, line items, totals, source order navigation, and delete action.
+- Add `/backend/sales/invoices/[id]` as a detail page with header metadata, invoice status update action, line items, totals, source order navigation, and delete action.
 - Add an `Invoices` tab on order detail pages only.
 - Create one full invoice from current order lines and totals via the existing invoice command endpoint.
 - Disable duplicate creation once the order already has an invoice.
@@ -28,6 +28,8 @@ The UI lives in `packages/core/src/modules/sales/components/documents/` and back
 The order detail page integrates `SalesDocumentInvoicesSection` only for `kind === 'order'`. The section loads invoices through `GET /api/sales/invoices?orderId=<id>`, builds a create payload from the order and order-line APIs, posts it to `/api/sales/invoices`, then redirects to the invoice detail route.
 
 Invoice writes remain command-backed. The create command resolves order and order-line MikroORM relations before persistence so invoice headers and lines retain the source-order linkage.
+
+Invoice status updates use the existing invoice update API from the invoice detail page. The action sends the current invoice `updatedAt` optimistic-lock value and reloads the canonical invoice detail response after a successful save so the status badge, select value, and list readback stay aligned with persisted state.
 
 ## Data Models
 
@@ -96,6 +98,7 @@ Returns:
 
 - API route tests cover invoice route exports and the new invoice detail route metadata/OpenAPI export.
 - Command tests cover draft defaulting and persisted order/order-line relations.
+- Component tests cover invoice status selection, optimistic-lock update headers, success messaging, and invoice detail readback after saving.
 - Playwright integration `TC-SALES-032` covers invoice create/read/delete and invalid source order handling.
 
 ## Risks & Impact Review
@@ -112,7 +115,8 @@ Returns:
 - New backend pages have `page.meta.ts` guards.
 - New API route exports `openApi`.
 - Invoice delete actions send optimistic-lock headers from `updatedAt`.
-- Tests added for command/API behavior and invoice integration flow.
+- Invoice status updates send optimistic-lock headers from `updatedAt` and reload invoice detail readback after saving.
+- Tests added for command/API behavior, invoice status updates, and invoice integration flow.
 - QA follow-up covers localized invoice status labels, consistent money/date display, readable invoice identifiers, source-order link propagation, duplicate invoice prevention, and non-blocking backend feedback UI.
 
 ## Changelog
@@ -120,3 +124,4 @@ Returns:
 - 2026-06-18: Added the invoice management UI spec for sales invoice list/detail pages and order-detail invoice creation.
 - 2026-06-19: Added migration and backward compatibility notes for the upstream contribution review gate.
 - 2026-06-19: Added QA follow-up notes for invoice display polish, source-order navigation, and backend feedback prompt behavior.
+- 2026-06-23: Added invoice detail status update coverage with optimistic-lock save and canonical readback.

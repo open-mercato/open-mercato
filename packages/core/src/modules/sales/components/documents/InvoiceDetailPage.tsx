@@ -7,10 +7,17 @@ import { ArrowLeft, FileText, Trash2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { ErrorMessage, LoadingMessage, RecordNotFoundState, TabEmptyState } from '@open-mercato/ui/backend/detail'
-import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
-import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -22,6 +29,7 @@ type InvoiceHeader = {
   id: string
   orderId: string | null
   invoiceNumber: string
+  statusEntryId: string | null
   status: string | null
   issueDate: string | null
   dueDate: string | null
@@ -60,8 +68,27 @@ type InvoiceDetailResponse = {
   lines?: InvoiceLine[]
 }
 
+type StatusOption = {
+  id: string
+  value: string
+  label: string
+}
+
+const NO_INVOICE_STATUS_VALUE = '__open_mercato_invoice_status_none__'
+
 function amount(value: string | number | null | undefined): number {
   return normalizeNumber(value, 0)
+}
+
+function normalizeStatusOption(entry: Record<string, unknown>): StatusOption | null {
+  const id = typeof entry.id === 'string' && entry.id.trim().length ? entry.id : null
+  const value = typeof entry.value === 'string' && entry.value.trim().length ? entry.value : null
+  if (!id || !value) return null
+  const label =
+    typeof entry.label === 'string' && entry.label.trim().length
+      ? entry.label.trim()
+      : value
+  return { id, value, label }
 }
 
 export function InvoiceDetailPage({ id }: { id: string }) {
@@ -75,6 +102,10 @@ export function InvoiceDetailPage({ id }: { id: string }) {
   const [lines, setLines] = React.useState<InvoiceLine[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [statusOptions, setStatusOptions] = React.useState<StatusOption[]>([])
+  const [statusDraft, setStatusDraft] = React.useState('')
+  const [statusLoading, setStatusLoading] = React.useState(false)
+  const [statusSaving, setStatusSaving] = React.useState(false)
 
   const loadInvoice = React.useCallback(async () => {
     setLoading(true)
@@ -97,9 +128,52 @@ export function InvoiceDetailPage({ id }: { id: string }) {
     }
   }, [id, t])
 
+  const loadStatuses = React.useCallback(async () => {
+    setStatusLoading(true)
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '100' })
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/order-statuses?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      if (!response.ok) {
+        throw new Error(t('sales.invoices.detail.status.errorLoad', 'Failed to load invoice statuses.'))
+      }
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      setStatusOptions(
+        items
+          .map(normalizeStatusOption)
+          .filter((entry): entry is StatusOption => Boolean(entry)),
+      )
+    } catch (err) {
+      console.error('sales.invoices.statuses.load', err)
+      setStatusOptions([])
+      flash(t('sales.invoices.detail.status.errorLoad', 'Failed to load invoice statuses.'), 'error')
+    } finally {
+      setStatusLoading(false)
+    }
+  }, [t])
+
   React.useEffect(() => {
     void loadInvoice()
   }, [loadInvoice])
+
+  React.useEffect(() => {
+    void loadStatuses()
+  }, [loadStatuses])
+
+  React.useEffect(() => {
+    setStatusDraft(invoice?.statusEntryId ?? '')
+  }, [invoice?.id, invoice?.statusEntryId])
+
+  const visibleStatusOptions = React.useMemo(() => {
+    if (!invoice?.statusEntryId || statusOptions.some((option) => option.id === invoice.statusEntryId)) {
+      return statusOptions
+    }
+    const label = invoice.status ? formatInvoiceStatus(invoice.status, t) : invoice.statusEntryId
+    return [...statusOptions, { id: invoice.statusEntryId, value: invoice.status ?? invoice.statusEntryId, label }]
+  }, [invoice?.status, invoice?.statusEntryId, statusOptions, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!invoice) return
@@ -137,6 +211,46 @@ export function InvoiceDetailPage({ id }: { id: string }) {
     }
   }, [confirm, invoice, retryLastMutation, router, runMutation, t])
 
+  const handleStatusUpdate = React.useCallback(async () => {
+    if (!invoice) return
+    const nextStatusEntryId = statusDraft.trim().length ? statusDraft.trim() : null
+    const currentStatusEntryId = invoice.statusEntryId ?? null
+    if (nextStatusEntryId === currentStatusEntryId) return
+
+    setStatusSaving(true)
+    try {
+      await runMutation({
+        operation: async () => {
+          await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(invoice.updatedAt),
+            () =>
+              updateCrud('sales/invoices', {
+                id: invoice.id,
+                statusEntryId: nextStatusEntryId,
+                currencyCode: invoice.currencyCode,
+              }, {
+                errorMessage: t('sales.invoices.detail.status.errorSave', 'Failed to update invoice status.'),
+              }),
+          )
+        },
+        context: {
+          formId: 'sales-invoice-detail',
+          resourceKind: 'sales.invoice',
+          resourceId: invoice.id,
+          retryLastMutation,
+        },
+        mutationPayload: { statusEntryId: nextStatusEntryId },
+      })
+      flash(t('sales.invoices.detail.status.success', 'Invoice status updated.'), 'success')
+      await loadInvoice()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('sales.invoices.detail.status.errorSave', 'Failed to update invoice status.')
+      flash(message, 'error')
+    } finally {
+      setStatusSaving(false)
+    }
+  }, [invoice, loadInvoice, retryLastMutation, runMutation, statusDraft, t])
+
   if (loading) return <LoadingMessage label={t('sales.invoices.detail.loading', 'Loading invoice…')} />
   if (error) {
     return (
@@ -161,6 +275,11 @@ export function InvoiceDetailPage({ id }: { id: string }) {
   }
 
   const currency = invoice.currencyCode
+  const currentStatusEntryId = invoice.statusEntryId ?? ''
+  const selectedStatusEntryId = statusDraft.trim()
+  const statusChanged = selectedStatusEntryId !== currentStatusEntryId
+  const statusSelectValue = selectedStatusEntryId || NO_INVOICE_STATUS_VALUE
+  const canSaveStatus = statusChanged && !statusLoading && !statusSaving
 
   return (
     <Page>
@@ -183,18 +302,62 @@ export function InvoiceDetailPage({ id }: { id: string }) {
               </div>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {invoice.orderId ? (
-              <Button asChild variant="outline">
-                <Link href={`/backend/sales/orders/${invoice.orderId}?kind=order`}>
-                  {t('sales.invoices.detail.sourceOrder', 'Source order')}
-                </Link>
+          <div className="flex flex-col items-stretch gap-3 sm:items-end">
+            <div className="flex flex-wrap items-end justify-end gap-2">
+              <div className="min-w-[14rem]">
+                <label
+                  htmlFor="sales-invoice-status"
+                  className="mb-1 block text-xs font-medium text-muted-foreground"
+                >
+                  {t('sales.invoices.detail.status.label', 'Invoice status')}
+                </label>
+                <Select
+                  value={statusSelectValue}
+                  onValueChange={(value) => {
+                    setStatusDraft(value === NO_INVOICE_STATUS_VALUE ? '' : value)
+                  }}
+                  disabled={statusLoading || statusSaving}
+                >
+                  <SelectTrigger id="sales-invoice-status" size="sm">
+                    <SelectValue placeholder={t('sales.invoices.detail.status.placeholder', 'Select status')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_INVOICE_STATUS_VALUE}>
+                      {t('sales.invoices.detail.status.none', 'No status')}
+                    </SelectItem>
+                    {visibleStatusOptions.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!canSaveStatus}
+                onClick={() => void handleStatusUpdate()}
+              >
+                {statusSaving
+                  ? t('sales.invoices.detail.status.saving', 'Saving…')
+                  : t('sales.invoices.detail.status.update', 'Update status')}
               </Button>
-            ) : null}
-            <Button type="button" variant="destructive" onClick={() => void handleDelete()}>
-              <Trash2 className="mr-2 h-4 w-4" aria-hidden />
-              {t('sales.invoices.delete.action', 'Delete invoice')}
-            </Button>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {invoice.orderId ? (
+                <Button asChild variant="outline">
+                  <Link href={`/backend/sales/orders/${invoice.orderId}?kind=order`}>
+                    {t('sales.invoices.detail.sourceOrder', 'Source order')}
+                  </Link>
+                </Button>
+              ) : null}
+              <Button type="button" variant="destructive" onClick={() => void handleDelete()}>
+                <Trash2 className="mr-2 h-4 w-4" aria-hidden />
+                {t('sales.invoices.delete.action', 'Delete invoice')}
+              </Button>
+            </div>
           </div>
         </div>
 
