@@ -659,6 +659,16 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function pickInputPatch(input: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(input, key)) {
+      patch[key] = input[key];
+    }
+  }
+  return patch;
+}
+
 async function resolveCustomerSnapshot(
   em: EntityManager,
   organizationId: string,
@@ -8608,10 +8618,9 @@ const updateInvoiceCommand: CommandHandler<
       deletedAt: null,
     });
 
-    const changes = buildChanges(invoice, parsed, [
+    const changes = pickInputPatch(parsed, [
       "invoiceNumber",
       "statusEntryId",
-      "status",
       "issueDate",
       "dueDate",
       "currencyCode",
@@ -8627,7 +8636,7 @@ const updateInvoiceCommand: CommandHandler<
     ]);
 
     if (parsed.statusEntryId !== undefined) {
-      invoice.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: invoice.tenantId });
+      changes.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: invoice.tenantId });
     }
 
     Object.assign(invoice, changes);
@@ -9102,10 +9111,9 @@ const updateCreditMemoCommand: CommandHandler<
       deletedAt: null,
     });
 
-    const changes = buildChanges(creditMemo, parsed, [
+    const changes = pickInputPatch(parsed, [
       "creditMemoNumber",
       "statusEntryId",
-      "status",
       "reason",
       "issueDate",
       "currencyCode",
@@ -9118,7 +9126,7 @@ const updateCreditMemoCommand: CommandHandler<
     ]);
 
     if (parsed.statusEntryId !== undefined) {
-      creditMemo.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: creditMemo.tenantId });
+      changes.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: creditMemo.tenantId });
     }
 
     Object.assign(creditMemo, changes);

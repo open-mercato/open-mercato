@@ -28,6 +28,7 @@ const TENANT = '33333333-3333-4333-8333-333333333333'
 const ORDER_ID = '44444444-4444-4444-8444-444444444444'
 const ORDER_LINE_ID = '55555555-5555-4555-8555-555555555555'
 const STATUS_ENTRY_ID = '66666666-6666-4666-8666-666666666666'
+const SENT_STATUS_ENTRY_ID = '77777777-7777-4777-8777-777777777777'
 
 type RegisteredCommand = {
   execute: (input: Record<string, unknown>, ctx: unknown) => Promise<unknown>
@@ -47,9 +48,9 @@ function entityName(entity: unknown): string {
   return typeof entity === 'function' ? entity.name : ''
 }
 
-function buildEm() {
+function buildEm(options: { invoice?: Record<string, unknown> | null; statusValue?: string; statusEntryId?: string } = {}) {
   const dictionary = { id: 'dictionary-1' }
-  const statusEntry = { id: STATUS_ENTRY_ID, value: 'draft' }
+  const statusEntry = { id: options.statusEntryId ?? STATUS_ENTRY_ID, value: options.statusValue ?? 'draft' }
   const order = { id: ORDER_ID, organizationId: ORG, tenantId: TENANT }
   const orderLine = { id: ORDER_LINE_ID, order, organizationId: ORG, tenantId: TENANT }
   const createdInvoices: Array<Record<string, unknown>> = []
@@ -66,10 +67,14 @@ function buildEm() {
         case 'SalesOrder':
           return order
         case 'SalesInvoice':
-          return null
+          return options.invoice ?? null
         default:
           return null
       }
+    }),
+    findOneOrFail: jest.fn().mockImplementation(async (entity: unknown) => {
+      if (entityName(entity) === 'SalesInvoice' && options.invoice) return options.invoice
+      throw new Error('not found')
     }),
     find: jest.fn().mockImplementation(async (entity: unknown) => {
       if (entityName(entity) === 'SalesOrderLine') return [orderLine]
@@ -175,6 +180,54 @@ describe('sales.invoices.create command', () => {
     expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'created',
+        entity: invoice,
+      }),
+    )
+  })
+})
+
+describe('sales.invoices.update command', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    jest.resetModules()
+  })
+
+  it('updates invoice status fields without assigning audit diff objects', async () => {
+    const command = loadCommand('sales.invoices.update')
+    const invoice = {
+      id: '88888888-8888-4888-8888-888888888888',
+      organizationId: ORG,
+      tenantId: TENANT,
+      invoiceNumber: 'INV-TEST-1',
+      statusEntryId: STATUS_ENTRY_ID,
+      status: 'draft',
+      currencyCode: 'EUR',
+      grandTotalGrossAmount: '123',
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+      deletedAt: null,
+    }
+    const em = buildEm({ invoice, statusEntryId: SENT_STATUS_ENTRY_ID, statusValue: 'sent' })
+    const { ctx, dataEngine } = buildCtx(em)
+
+    const result = await command.execute(
+      {
+        id: invoice.id,
+        organizationId: ORG,
+        tenantId: TENANT,
+        statusEntryId: SENT_STATUS_ENTRY_ID,
+        currencyCode: 'EUR',
+      },
+      ctx,
+    )
+
+    expect(result).toEqual({ invoiceId: invoice.id })
+    expect(invoice.statusEntryId).toBe(SENT_STATUS_ENTRY_ID)
+    expect(invoice.status).toBe('sent')
+    expect(invoice.statusEntryId).not.toEqual(expect.objectContaining({ from: expect.anything(), to: expect.anything() }))
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'updated',
         entity: invoice,
       }),
     )
