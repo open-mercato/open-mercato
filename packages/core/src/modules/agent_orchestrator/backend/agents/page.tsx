@@ -13,6 +13,7 @@ import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { mapAgent, type AgentView } from '../../components/types'
 
@@ -22,12 +23,12 @@ type Health = 'good' | 'watch' | 'poor' | 'new'
 type AgentRow = AgentView & {
   autonomy: Autonomy
   runs: number
+  evalPass: number | null
   overrideRate: number | null
+  cost: number | null
   pending: number
   status: Health
 }
-
-type FilterKey = 'all' | 'auto' | 'review' | 'gated' | 'attention'
 
 const statusVariant: StatusMap<Health> = { good: 'success', watch: 'warning', poor: 'error', new: 'neutral' }
 
@@ -45,23 +46,14 @@ async function fetchItems(path: string): Promise<Array<Record<string, unknown>>>
   return call.result.items
 }
 
-function matchesFilter(agent: AgentRow, key: FilterKey): boolean {
-  switch (key) {
-    case 'auto': return agent.autonomy === 'auto'
-    case 'review': return agent.autonomy === 'review'
-    case 'gated': return agent.autonomy === 'gated'
-    case 'attention': return agent.status === 'poor' || agent.status === 'watch'
-    default: return true
-  }
-}
-
 export default function AgentsRegistryPage() {
   const t = useT()
   const router = useRouter()
   const [rows, setRows] = React.useState<AgentRow[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const [filter, setFilter] = React.useState<FilterKey>('all')
+  const [page, setPage] = React.useState(1)
+  const [pageSize, setPageSize] = React.useState(20)
 
   React.useEffect(() => {
     let cancelled = false
@@ -125,7 +117,7 @@ export default function AgentsRegistryPage() {
           else if ((overrideRate ?? 0) > 0.15) status = 'watch'
           else status = 'good'
         }
-        return { ...agent, autonomy, runs: run.total, overrideRate, pending: proposal.pending, status }
+        return { ...agent, autonomy, runs: run.total, evalPass: null, overrideRate, cost: null, pending: proposal.pending, status }
       })
       setRows(built)
       setIsLoading(false)
@@ -135,8 +127,6 @@ export default function AgentsRegistryPage() {
       cancelled = true
     }
   }, [t])
-
-  const visibleRows = React.useMemo(() => rows.filter((agent) => matchesFilter(agent, filter)), [rows, filter])
 
   const columns = React.useMemo<ColumnDef<AgentRow>[]>(() => [
     {
@@ -177,7 +167,7 @@ export default function AgentsRegistryPage() {
       cell: ({ row }) => <div className="text-right text-sm tabular-nums">{row.original.runs.toLocaleString('en-US')}</div>,
     },
     {
-      id: 'evalPass',
+      accessorKey: 'evalPass',
       header: t('agent_orchestrator.agents.list.col.evalPass', 'Eval pass'),
       cell: () => <PendingChip label={t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')} />,
     },
@@ -199,7 +189,7 @@ export default function AgentsRegistryPage() {
       },
     },
     {
-      id: 'costPerRun',
+      accessorKey: 'cost',
       header: t('agent_orchestrator.agents.list.col.cost', 'Cost / run'),
       cell: () => <PendingChip label={t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')} />,
     },
@@ -234,24 +224,16 @@ export default function AgentsRegistryPage() {
     )
   }
 
-  const autoCount = rows.filter((agent) => agent.autonomy === 'auto').length
-  const reviewCount = rows.filter((agent) => agent.autonomy === 'review').length
   const gatedCount = rows.filter((agent) => agent.autonomy === 'gated').length
-  const attentionCount = rows.filter((agent) => agent.status === 'poor' || agent.status === 'watch').length
+  const reviewCount = rows.filter((agent) => agent.autonomy === 'review').length
   const ratedRows = rows.filter((agent) => agent.overrideRate != null)
   const avgOverride = ratedRows.length
     ? Math.round((ratedRows.reduce((sum, agent) => sum + (agent.overrideRate ?? 0), 0) / ratedRows.length) * 100)
     : null
 
-  const filterDefs: { key: FilterKey; label: string; count: number }[] = [
-    { key: 'all', label: t('agent_orchestrator.agents.filter.all', 'All'), count: rows.length },
-    { key: 'auto', label: t('agent_orchestrator.agents.filter.auto', 'Auto'), count: autoCount },
-    { key: 'review', label: t('agent_orchestrator.agents.filter.review', 'Review'), count: reviewCount },
-    { key: 'gated', label: t('agent_orchestrator.agents.filter.gated', 'Gated'), count: gatedCount },
-    { key: 'attention', label: t('agent_orchestrator.agents.filter.attention', 'Needs attention'), count: attentionCount },
-  ]
-
-  const backendChip = <PendingChip label={t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')} />
+  const total = rows.length
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize)
 
   return (
     <Page>
@@ -267,26 +249,32 @@ export default function AgentsRegistryPage() {
               <Download className="mr-2 size-4" />
               {t('agent_orchestrator.agents.actions.export', 'Export')}
             </Button>
+            <Button size="sm" onClick={() => flash(t('agent_orchestrator.agents.actions.codeOnly', 'Agents are defined in code for now — UI creation needs backend.'), 'info')}>
+              {t('agent_orchestrator.agents.actions.newAgent', 'New agent')}
+            </Button>
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Stat label={t('agent_orchestrator.agents.kpi.active', 'Active agents')} sub={t('agent_orchestrator.agents.kpi.activeSub', '{gated} gated, {review} review', { gated: gatedCount, review: reviewCount })}>
-            <span className="text-2xl font-semibold tabular-nums text-foreground">{rows.length.toLocaleString('en-US')}</span>
-          </Stat>
-          <Stat label={t('agent_orchestrator.agents.kpi.avgEval', 'Avg eval pass')}>{backendChip}</Stat>
-          <Stat label={t('agent_orchestrator.agents.kpi.avgOverride', 'Avg override')}>
-            {avgOverride == null
-              ? <PendingChip label={t('agent_orchestrator.agents.list.pending.noData', 'No data')} />
-              : <span className="text-2xl font-semibold tabular-nums text-foreground">{avgOverride}%</span>}
-          </Stat>
-          <Stat label={t('agent_orchestrator.agents.kpi.spend', 'Spend (7d)')}>{backendChip}</Stat>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {filterDefs.map((def) => (
-            <FilterChip key={def.key} label={def.label} count={def.count} active={filter === def.key} onClick={() => setFilter(def.key)} />
-          ))}
+          <StatCard label={t('agent_orchestrator.agents.kpi.active', 'Active agents')} sub={t('agent_orchestrator.agents.kpi.activeSub', '{gated} gated, {review} review', { gated: gatedCount, review: reviewCount })}>
+            <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{rows.length.toLocaleString('en-US')}</span>
+          </StatCard>
+          <StatCard label={t('agent_orchestrator.agents.kpi.avgEval', 'Avg eval pass')}>
+            <PendingChip label={t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')} />
+          </StatCard>
+          <StatCard label={t('agent_orchestrator.agents.kpi.avgOverride', 'Avg override')}>
+            {avgOverride == null ? (
+              <PendingChip label={t('agent_orchestrator.agents.list.pending.noData', 'No data')} />
+            ) : (
+              <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">
+                {avgOverride}
+                <span className="text-xl font-semibold text-muted-foreground">%</span>
+              </span>
+            )}
+          </StatCard>
+          <StatCard label={t('agent_orchestrator.agents.kpi.spend', 'Spend (7d)')}>
+            <PendingChip label={t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')} />
+          </StatCard>
         </div>
 
         {rows.length === 0 ? (
@@ -297,14 +285,27 @@ export default function AgentsRegistryPage() {
         ) : (
           <DataTable<AgentRow>
             columns={columns}
-            data={visibleRows}
+            data={pagedRows}
             sortable
+            pagination={{
+              page,
+              pageSize,
+              total,
+              totalPages,
+              onPageChange: setPage,
+              pageSizeOptions: [10, 20, 50],
+              onPageSizeChange: (next) => { setPageSize(next); setPage(1) },
+            }}
+            columnChooser={{ auto: true }}
+            perspective={{ tableId: 'agent_orchestrator.agents.list', align: 'right' }}
             onRowClick={(row) => router.push(`/backend/agents/${encodeURIComponent(row.id)}`)}
             rowActions={(row) => (
               <RowActions
                 items={[
                   { id: 'view', label: t('agent_orchestrator.agents.list.actions.view', 'View'), onSelect: () => router.push(`/backend/agents/${encodeURIComponent(row.id)}`) },
                   { id: 'playground', label: t('agent_orchestrator.agents.list.openPlayground', 'Open in playground'), onSelect: () => router.push(`/backend/playground?agent=${encodeURIComponent(row.id)}`) },
+                  { id: 'duplicate', label: t('agent_orchestrator.agents.list.actions.duplicate', 'Duplicate'), onSelect: () => flash(t('agent_orchestrator.agents.actions.codeOnly', 'Agents are defined in code for now — UI creation needs backend.'), 'info') },
+                  { id: 'disable', label: t('agent_orchestrator.agents.list.actions.disable', 'Disable'), destructive: true, onSelect: () => flash(t('agent_orchestrator.agents.actions.codeOnly', 'Agents are defined in code for now — UI creation needs backend.'), 'info') },
                 ]}
               />
             )}
@@ -335,21 +336,15 @@ function PendingChip({ label }: { label: string }) {
   )
 }
 
-function FilterChip({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) {
+function StatCard({ label, sub, children }: { label: string; sub?: string; children: React.ReactNode }) {
   return (
-    <Button type="button" variant={active ? 'default' : 'outline'} size="sm" onClick={onClick}>
-      {label}
-      <span className={active ? 'text-primary-foreground/70' : 'text-muted-foreground'}>{count}</span>
-    </Button>
-  )
-}
-
-function Stat({ label, sub, children }: { label: string; sub?: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1">{children}</div>
-      {sub && <div className="mt-1 text-xs text-muted-foreground">{sub}</div>}
+    <div className="flex h-full flex-col rounded-2xl bg-gradient-to-br from-brand-lime via-brand-lime/80 to-brand-lime/40">
+      <div className="px-4 pb-2.5 pt-3 text-sm font-semibold text-brand-lime-foreground">{label}</div>
+      <div className="mx-1.5 mb-1.5 flex flex-1 flex-col rounded-xl bg-card p-4">
+        <div className="flex min-h-9 items-end">{children}</div>
+        {sub && <div className="mt-1 text-xs text-muted-foreground">{sub}</div>}
+      </div>
     </div>
   )
 }
+
