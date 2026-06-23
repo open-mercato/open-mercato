@@ -198,6 +198,13 @@ export type DataTableExportConfig = {
 
 export type DataTablePerspectiveConfig = {
   tableId: string
+  /**
+   * Where to render the "Views" perspective switcher. Defaults to 'left'
+   * (inside the filter toolbar). When 'right', the switcher moves to the
+   * right-hand actions area and the redundant standalone "Customize columns"
+   * (•••) button is suppressed — the "Views" control already opens that panel.
+   */
+  align?: 'left' | 'right'
   initialState?: {
     response?: PerspectivesIndexResponse
     activePerspectiveId?: string | null
@@ -1095,6 +1102,7 @@ export function DataTable<T>({
   const queryClient = useQueryClient()
   const perspectiveConfig = perspective ?? null
   const perspectiveTableId = perspectiveConfig?.tableId ?? null
+  const perspectiveAlign: 'left' | 'right' = perspectiveConfig?.align ?? 'left'
   const perspectiveEnabled = Boolean(perspectiveTableId)
   // Snapshot from localStorage is read post-mount via useLayoutEffect to avoid SSR/CSR
   // hydration mismatch. Initial render uses only props-derived state (identical on both sides).
@@ -2548,10 +2556,11 @@ export function DataTable<T>({
           </div>
         )
         : null
-    const leadingItems = advancedFilterButton || perspectiveButton ? (
+    const perspectiveButtonLeading = perspectiveAlign === 'right' ? null : perspectiveButton
+    const leadingItems = advancedFilterButton || perspectiveButtonLeading ? (
       <div className="flex items-center gap-2">
         {advancedFilterButton}
-        {perspectiveButton}
+        {perspectiveButtonLeading}
       </div>
     ) : null
     const trailingItems = hasBulkButtons ? (
@@ -2599,6 +2608,9 @@ export function DataTable<T>({
     const searchTrailingNode = searchTrailingInjectionSpotId && onSearchChange ? (
       <InjectionSpot spotId={searchTrailingInjectionSpotId} context={resolvedInjectionContext} />
     ) : null
+    // With the Views switcher moved to the right-hand actions area, the filter
+    // toolbar has nothing left to render — drop it so no empty band appears.
+    if (perspectiveAlign === 'right' && !anySearch && combined.length === 0 && !advancedFilterButton && !trailingItems && !fieldsetSelector) return null
     return (
       <FilterBar
         searchValue={searchValue}
@@ -2630,6 +2642,7 @@ export function DataTable<T>({
     onFiltersApply,
     onFiltersClear,
     canUsePerspectives,
+    perspectiveAlign,
     embedded,
     supportsCustomFieldFilterFieldsets,
     resolvedEntityIds,
@@ -2748,17 +2761,29 @@ export function DataTable<T>({
                     </Button>
                   ) : null}
                   {canUsePerspectives ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setPerspectiveOpen(true)}
-                      aria-label={t('ui.dataTable.customizeColumns.ariaLabel', 'Customize columns')}
-                      title={t('ui.dataTable.customizeColumns.title', 'Customize columns')}
-                    >
-                      <MoreHorizontal className="h-4 w-4" />
-                      <span className="sr-only">{t('ui.dataTable.customizeColumns.srOnly', 'Customize columns')}</span>
-                    </Button>
+                    perspectiveAlign === 'right' ? (
+                      <ViewSwitcherDropdown
+                        activePerspectiveId={activePerspectiveId}
+                        perspectives={perspectiveData?.perspectives ?? []}
+                        rolePerspectives={perspectiveData?.rolePerspectives ?? []}
+                        onClear={() => applyPerspectiveSettings({}, null)}
+                        onActivate={handlePerspectiveActivate}
+                        onOpenSidebar={() => setPerspectiveOpen(true)}
+                        t={t}
+                      />
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setPerspectiveOpen(true)}
+                        aria-label={t('ui.dataTable.customizeColumns.ariaLabel', 'Customize columns')}
+                        title={t('ui.dataTable.customizeColumns.title', 'Customize columns')}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                        <span className="sr-only">{t('ui.dataTable.customizeColumns.srOnly', 'Customize columns')}</span>
+                      </Button>
+                    )
                   ) : null}
                   {exportConfig && hasExport ? <ExportMenu config={exportConfig} sections={resolvedExportSections} /> : null}
                   {toolbarInjectionSpotId ? (
