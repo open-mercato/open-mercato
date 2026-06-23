@@ -1,253 +1,298 @@
 {
   "agent_orchestrator": {
-    "title": "Agent Orchestrator",
-    "nav": {
-      "group": "Agents",
-      "caseload": "Caseload",
-      "overview": "Overview",
-      "agents": "Agents",
-      "playground": "Playground"
+    "agentDetail": {
+      "back": "Back to agents",
+      "defaultValue": "Default",
+      "error": "Failed to load the agent definition.",
+      "fields": {
+        "instructions": "Instructions",
+        "label": "Label",
+        "maxSteps": "Max steps",
+        "model": "Model",
+        "module": "Module",
+        "provider": "Provider",
+        "runtime": "Runtime",
+        "skills": "Skills",
+        "subAgents": "Sub-agents",
+        "tools": "Tools"
+      },
+      "forbidden": "Access denied",
+      "forbiddenDescription": "You do not have permission to view this agent definition.",
+      "noSkills": "This agent declares no skills. Skills package reusable instructions and read-only tools an agent can run.",
+      "noTools": "This agent declares no tools — it reasons over the input it is given. Add read-only tools to let it gather data before proposing.",
+      "notFound": "Agent not found",
+      "notFoundDescription": "This agent is not registered, or the module that declares it is not loaded.",
+      "skillTools": "Tools",
+      "title": "Agent",
+      "viewSkill": "View skill {skill}"
     },
     "agents": {
-      "title": "Agents",
-      "run": "Run",
       "list": {
-        "title": "Agents registry",
-        "empty": "No agents registered yet.",
-        "emptyDescription": "Agents declared via defineAgent appear here once the module loads.",
-        "marker": "agent",
         "columns": {
           "id": "Agent",
           "resultKind": "Result kind",
-          "tools": "Tools",
-          "skills": "Skills"
+          "skills": "Skills",
+          "tools": "Tools"
         },
-        "openPlayground": "Open in playground",
-        "viewDefinition": "View definition of {agent}",
+        "empty": "No agents registered yet.",
+        "emptyDescription": "Agents declared via defineAgent appear here once the module loads.",
         "error": "Failed to load agents.",
+        "marker": "agent",
+        "openPlayground": "Open in playground",
         "resultKind": {
-          "informative": "Informative",
-          "actionable": "Actionable"
+          "actionable": "Actionable",
+          "informative": "Informative"
         },
         "runtime": {
           "in-process": "In-process",
           "opencode": "OpenCode"
-        }
+        },
+        "title": "Agents registry",
+        "viewDefinition": "View definition of {agent}"
+      },
+      "run": "Run",
+      "title": "Agents"
+    },
+    "caseload": {
+      "empty": "Your caseload is clear.",
+      "emptyDescription": "No proposals are waiting for a decision.",
+      "error": "Failed to load the caseload.",
+      "filters": {
+        "all": "All",
+        "needsYou": "Needs you",
+        "waiting": "Waiting"
+      },
+      "refresh": "Refresh",
+      "row": {
+        "confidence": "Confidence",
+        "open": "Open proposal",
+        "process": "Process"
+      },
+      "subtitle": "Pending agent proposals awaiting your decision.",
+      "tiles": {
+        "closed": "Closed",
+        "needsYou": "Needs you",
+        "running": "Running",
+        "waiting": "Waiting"
+      },
+      "title": "Caseload",
+      "verb": {
+        "answer": "Answer",
+        "decide": "Decide",
+        "do": "Do",
+        "know": "Know"
       }
     },
-    "agentDetail": {
-      "title": "Agent",
-      "back": "Back to agents",
-      "error": "Failed to load the agent definition.",
-      "notFound": "Agent not found",
-      "notFoundDescription": "This agent is not registered, or the module that declares it is not loaded.",
-      "forbidden": "Access denied",
-      "forbiddenDescription": "You do not have permission to view this agent definition.",
-      "defaultValue": "Default",
-      "noTools": "This agent declares no tools — it reasons over the input it is given. Add read-only tools to let it gather data before proposing.",
-      "noSkills": "This agent declares no skills. Skills package reusable instructions and read-only tools an agent can run.",
-      "skillTools": "Tools",
-      "viewSkill": "View skill {skill}",
-      "fields": {
-        "label": "Label",
-        "module": "Module",
-        "runtime": "Runtime",
-        "provider": "Provider",
-        "model": "Model",
-        "maxSteps": "Max steps",
-        "tools": "Tools",
-        "skills": "Skills",
-        "subAgents": "Sub-agents",
-        "instructions": "Instructions"
-      }
+    "disposition": {
+      "approved": "Approved",
+      "auto_approved": "Auto-approved",
+      "edited": "Edited",
+      "pending": "Pending",
+      "rejected": "Rejected"
     },
-    "runs": {
-      "title": "Runs",
-      "error": "Failed to load run."
+    "errors": {
+      "agent_invalid_output": "Agent produced invalid output",
+      "agent_not_found": "Agent not found",
+      "already_disposed": "This proposal has already been disposed",
+      "conflict": "This proposal changed since you loaded it. Reload and try again.",
+      "payload_required": "An edited payload is required",
+      "proposal_not_found": "Proposal not found",
+      "reason_required": "A reason is required to edit or reject a proposal",
+      "tenant_required": "Tenant context required",
+      "unauthorized": "Unauthorized",
+      "validation_failed": "Validation failed"
+    },
+    "nav": {
+      "agents": "Agents",
+      "caseload": "Caseload",
+      "group": "Agents",
+      "overview": "Overview",
+      "playground": "Playground",
+      "traces": "Traces"
     },
     "overview": {
-      "title": "Overview",
-      "error": "Failed to load overview.",
       "empty": "No agent activity yet.",
       "emptyDescription": "Run an agent or wait for a workflow to invoke one — counts will appear here.",
+      "error": "Failed to load overview.",
+      "needsAttention": {
+        "empty": "Nothing needs your attention right now.",
+        "title": "Needs attention"
+      },
       "tiles": {
+        "approveUnchanged": "Approved unchanged",
+        "approveUnchangedMeta": "Rubber-stamp signal",
         "autoCompleted": "Auto-completed",
         "autoCompletedMeta": "of all dispositions",
+        "evalPassRate": "Eval pass rate",
+        "evalPassRateMeta": "Deterministic gate",
         "needsDecision": "Needs a decision",
         "needsDecisionMeta": "pending proposals",
+        "overrideRate": "Override rate",
+        "overrideRateMeta": "Edited or rejected",
         "queueDepth": "Queue depth",
         "queueDepthMeta": "parked agent steps",
         "totalRuns": "Total runs",
         "totalRunsMeta": "agent invocations"
       },
-      "needsAttention": {
-        "title": "Needs attention",
-        "empty": "Nothing needs your attention right now."
-      }
+      "title": "Overview"
     },
-    "caseload": {
-      "title": "Caseload",
-      "subtitle": "Pending agent proposals awaiting your decision.",
-      "error": "Failed to load the caseload.",
-      "empty": "Your caseload is clear.",
-      "emptyDescription": "No proposals are waiting for a decision.",
-      "refresh": "Refresh",
-      "verb": {
-        "decide": "Decide",
-        "answer": "Answer",
-        "do": "Do",
-        "know": "Know"
+    "playground": {
+      "agentLabel": "Agent",
+      "agentPlaceholder": "Select an agent",
+      "error": "The agent run failed.",
+      "inputLabel": "Input (JSON)",
+      "inputPlaceholder": "{ \"dealId\": \"…\" }",
+      "invalidJson": "The input must be valid JSON.",
+      "noRun": "No run yet",
+      "noRunDescription": "Pick an agent, enter a JSON input, and run to see the result.",
+      "result": {
+        "actionable": "Actionable result",
+        "informative": "Informative result",
+        "noTools": "No tools were used.",
+        "openCaseload": "Open this proposal in Caseload →",
+        "rawOutput": "Raw output",
+        "toolsHeading": "Tools used",
+        "trace": "Tools & steps"
       },
-      "tiles": {
-        "needsYou": "Needs you",
-        "waiting": "Waiting",
-        "running": "Running",
-        "closed": "Closed"
-      },
-      "filters": {
-        "needsYou": "Needs you",
-        "waiting": "Waiting",
-        "all": "All"
-      },
-      "row": {
-        "confidence": "Confidence",
-        "process": "Process",
-        "open": "Open proposal"
-      }
+      "run": "Run",
+      "running": "Running…",
+      "selectAgentFirst": "Select an agent first.",
+      "subtitle": "Run an agent against a JSON input and inspect the typed result.",
+      "title": "Playground"
     },
     "proposal": {
-      "title": "Proposal",
-      "backToCaseload": "Back to caseload",
-      "notFound": "Proposal not found",
-      "notFoundDescription": "This proposal does not exist, has been removed, or belongs to another tenant.",
-      "error": "Failed to load the proposal.",
-      "proposes": "{agent} proposes",
-      "confidence": "Confidence",
-      "verdict": {
-        "approve": "Recommended for approval",
-        "ask": "Needs your input"
+      "actions": {
+        "approve": "Approve",
+        "cancelEdit": "Cancel",
+        "edit": "Edit",
+        "reject": "Reject",
+        "saveEdit": "Save & approve"
       },
       "actionsHeading": "Proposed actions",
+      "backToCaseload": "Back to caseload",
+      "confidence": "Confidence",
+      "drawer": {
+        "agentLane": "Agent · proposes",
+        "close": "Close",
+        "noInput": "No input recorded.",
+        "noOutput": "No output recorded.",
+        "noTools": "No tools were used.",
+        "rawOutput": "Raw output",
+        "systemLane": "System · run",
+        "title": "Agent I/O"
+      },
+      "edit": {
+        "heading": "Edit payload",
+        "invalidJson": "The edited payload must be valid JSON.",
+        "payloadLabel": "Edited payload (JSON)",
+        "reasonLabel": "Reason",
+        "reasonPlaceholder": "Why are you editing this proposal?"
+      },
+      "error": "Failed to load the proposal.",
       "factorsHeading": "Why",
-      "ioHeading": "Inspect run",
+      "flash": {
+        "approved": "Proposal approved.",
+        "blocked": "Action blocked by validation.",
+        "edited": "Proposal edited and approved.",
+        "error": "Failed to dispose the proposal.",
+        "rejected": "Proposal rejected."
+      },
+      "gate": "This decision is gated to a human. Approve to let the workflow resume, edit the payload before executing, or reject with a reason.",
+      "gateReadonly": "This decision is gated to a human. The proposal has been saved — review and approve, edit, or reject it in Caseload.",
       "io": {
         "input": "Input",
         "output": "Output",
         "tools": "Tools used"
       },
-      "gate": "This decision is gated to a human. Approve to let the workflow resume, edit the payload before executing, or reject with a reason.",
-      "gateReadonly": "This decision is gated to a human. The proposal has been saved — review and approve, edit, or reject it in Caseload.",
-      "actions": {
-        "approve": "Approve",
-        "edit": "Edit",
-        "reject": "Reject",
-        "cancelEdit": "Cancel",
-        "saveEdit": "Save & approve"
-      },
-      "edit": {
-        "heading": "Edit payload",
-        "payloadLabel": "Edited payload (JSON)",
-        "reasonLabel": "Reason",
-        "reasonPlaceholder": "Why are you editing this proposal?",
-        "invalidJson": "The edited payload must be valid JSON."
-      },
+      "ioHeading": "Inspect run",
+      "notFound": "Proposal not found",
+      "notFoundDescription": "This proposal does not exist, has been removed, or belongs to another tenant.",
+      "openTrace": "Open full trace",
+      "proposes": "{agent} proposes",
       "reject": {
+        "confirm": "Reject proposal",
         "heading": "Reject proposal",
         "reasonLabel": "Reason",
         "reasonPlaceholder": "Why are you rejecting this proposal?",
-        "confirm": "Reject proposal",
         "reasonRequired": "A reason is required to reject a proposal."
       },
-      "flash": {
-        "blocked": "Action blocked by validation.",
-        "approved": "Proposal approved.",
-        "edited": "Proposal edited and approved.",
-        "rejected": "Proposal rejected.",
-        "error": "Failed to dispose the proposal."
-      },
-      "drawer": {
-        "title": "Agent I/O",
-        "agentLane": "Agent · proposes",
-        "systemLane": "System · run",
-        "rawOutput": "Raw output",
-        "noInput": "No input recorded.",
-        "noOutput": "No output recorded.",
-        "noTools": "No tools were used.",
-        "close": "Close"
-      }
-    },
-    "playground": {
-      "title": "Playground",
-      "subtitle": "Run an agent against a JSON input and inspect the typed result.",
-      "agentLabel": "Agent",
-      "agentPlaceholder": "Select an agent",
-      "inputLabel": "Input (JSON)",
-      "inputPlaceholder": "{ \"dealId\": \"…\" }",
-      "run": "Run",
-      "running": "Running…",
-      "noRun": "No run yet",
-      "noRunDescription": "Pick an agent, enter a JSON input, and run to see the result.",
-      "invalidJson": "The input must be valid JSON.",
-      "selectAgentFirst": "Select an agent first.",
-      "error": "The agent run failed.",
-      "result": {
-        "informative": "Informative result",
-        "actionable": "Actionable result",
-        "trace": "Tools & steps",
-        "toolsHeading": "Tools used",
-        "rawOutput": "Raw output",
-        "noTools": "No tools were used.",
-        "openCaseload": "Open this proposal in Caseload →"
+      "title": "Proposal",
+      "verdict": {
+        "approve": "Recommended for approval",
+        "ask": "Needs your input"
       }
     },
     "proposals": {
-      "title": "Proposals",
       "dispose": {
         "approve": "Approve",
         "edit": "Edit",
-        "reject": "Reject",
         "reason": "Reason",
-        "reasonPlaceholder": "Why are you editing or rejecting this proposal?"
-      }
-    },
-    "disposition": {
-      "pending": "Pending",
-      "auto_approved": "Auto-approved",
-      "approved": "Approved",
-      "edited": "Edited",
-      "rejected": "Rejected"
+        "reasonPlaceholder": "Why are you editing or rejecting this proposal?",
+        "reject": "Reject"
+      },
+      "title": "Proposals"
     },
     "runStatus": {
-      "running": "Running",
+      "error": "Failed",
       "ok": "Completed",
-      "error": "Failed"
+      "running": "Running"
     },
-    "timeline": {
-      "title": "Agent timeline",
-      "empty": "No agent activity for this process.",
-      "lane": {
-        "agent": "Agent · proposes",
-        "system": "System · disposes",
-        "human": "Human · in the loop"
-      },
-      "parked": "Parked · awaiting disposition",
-      "review": "Review proposal",
-      "error": "Failed to load the agent timeline."
+    "runs": {
+      "error": "Failed to load run.",
+      "title": "Runs"
     },
     "tasks": {
       "reviewProposal": "Review proposal"
     },
-    "errors": {
-      "unauthorized": "Unauthorized",
-      "tenant_required": "Tenant context required",
-      "validation_failed": "Validation failed",
-      "agent_not_found": "Agent not found",
-      "agent_invalid_output": "Agent produced invalid output",
-      "proposal_not_found": "Proposal not found",
-      "reason_required": "A reason is required to edit or reject a proposal",
-      "payload_required": "An edited payload is required",
-      "already_disposed": "This proposal has already been disposed",
-      "conflict": "This proposal changed since you loaded it. Reload and try again."
+    "timeline": {
+      "empty": "No agent activity for this process.",
+      "error": "Failed to load the agent timeline.",
+      "lane": {
+        "agent": "Agent · proposes",
+        "human": "Human · in the loop",
+        "system": "System · disposes"
+      },
+      "parked": "Parked · awaiting disposition",
+      "review": "Review proposal",
+      "title": "Agent timeline"
+    },
+    "title": "Agent Orchestrator",
+    "traces": {
+      "detail": {
+        "back": "Back to traces",
+        "confidence": "Confidence",
+        "error": "Could not load this run.",
+        "evalResults": "Evaluation results",
+        "latency": "Latency",
+        "noEvalResults": "No evaluation results for this run.",
+        "noOutput": "No output recorded for this run.",
+        "noSpans": "No spans recorded for this run.",
+        "noToolCalls": "No tool calls recorded for this run.",
+        "output": "Output",
+        "spans": "Spans",
+        "title": "Run trace",
+        "toolCalls": "Tool calls"
+      },
+      "empty": "No runs in this window",
+      "emptyDescription": "Agent runs will appear here once agents execute or traces are ingested.",
+      "error": "Could not load traces.",
+      "eval": {
+        "fail": "Fail",
+        "none": "—",
+        "pass": "Pass"
+      },
+      "facet": {
+        "all": "All",
+        "evalFail": "Eval failed",
+        "lowConfidence": "Low confidence"
+      },
+      "subtitle": "Production agent runs with spans, tool calls and evaluation results.",
+      "title": "Traces",
+      "window": {
+        "24h": "24h",
+        "30d": "30d",
+        "7d": "7d"
+      }
     }
   }
 }
