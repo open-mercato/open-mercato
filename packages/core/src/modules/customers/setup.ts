@@ -92,6 +92,8 @@ export const setup: ModuleSetupConfig = {
       'customers.companies.manage',
       'customers.deals.view',
       'customers.deals.manage',
+      'customers.leads.view',
+      'customers.leads.manage',
       'customers.activities.view',
       'customers.activities.manage',
       'customers.pipelines.view',

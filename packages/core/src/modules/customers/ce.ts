@@ -48,6 +48,15 @@ export const entities = [
     defaultEditor: false,
     fields: CUSTOMER_ACTIVITY_CUSTOM_FIELDS,
   },
+  {
+    id: 'customers:customer_lead',
+    label: 'Customer Lead',
+    description: 'Pre-opportunity sales intake record with qualification and conversion lineage.',
+    labelField: 'title',
+    showInSidebar: false,
+    defaultEditor: false,
+    fields: [],
+  },
 ]
 
 export default entities

@@ -59,6 +59,13 @@ const events = [
   { id: 'customers.interaction.deleted', label: 'Interaction Deleted', entity: 'interaction', category: 'crud' },
   { id: 'customers.next_interaction.updated', label: 'Next Interaction Updated', entity: 'interaction', category: 'lifecycle' },
 
+  // Leads
+  { id: 'customers.lead.created', label: 'Lead Created', entity: 'lead', category: 'crud' },
+  { id: 'customers.lead.updated', label: 'Lead Updated', entity: 'lead', category: 'crud' },
+  { id: 'customers.lead.status_changed', label: 'Lead Status Changed', entity: 'lead', category: 'lifecycle' },
+  { id: 'customers.lead.converted', label: 'Lead Converted', entity: 'lead', category: 'lifecycle' },
+  { id: 'customers.lead.deleted', label: 'Lead Deleted', entity: 'lead', category: 'crud' },
+
   // Entity Roles
   { id: 'customers.entity_role.created', label: 'Entity Role Created', entity: 'entity_role', category: 'crud' },
   { id: 'customers.entity_role.updated', label: 'Entity Role Updated', entity: 'entity_role', category: 'crud' },

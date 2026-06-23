@@ -79,6 +79,20 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
       { field: 'industry' },
     ],
   },
+  {
+    entityId: 'customers:customer_lead',
+    fields: [
+      { field: 'title' },
+      { field: 'description' },
+      { field: 'source' },
+      { field: 'company_name' },
+      { field: 'company_vat_id' },
+      { field: 'contact_first_name' },
+      { field: 'contact_last_name' },
+      { field: 'contact_phone' },
+      { field: 'contact_email' },
+    ],
+  },
 ]
 
 export default defaultEncryptionMaps

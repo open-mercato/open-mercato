@@ -1215,3 +1215,82 @@ export class CustomerPersonCompanyRole {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 }
+
+export type CustomerLeadStatus = 'open' | 'in_progress' | 'qualified' | 'rejected'
+
+@Entity({ tableName: 'customer_leads' })
+@Index({ name: 'customer_leads_org_tenant_status_created_idx', properties: ['organizationId', 'tenantId', 'status', 'createdAt'] })
+@Index({ name: 'customer_leads_org_tenant_created_idx', properties: ['organizationId', 'tenantId', 'createdAt'] })
+@Index({ name: 'customer_leads_org_tenant_converted_idx', properties: ['organizationId', 'tenantId', 'convertedAt'] })
+export class CustomerLead {
+  [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  title!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ type: 'text', default: 'open' })
+  status: CustomerLeadStatus = 'open'
+
+  @Property({ type: 'text', nullable: true })
+  source?: string | null
+
+  @Property({ name: 'estimated_value_amount', type: 'numeric', precision: 14, scale: 2, nullable: true })
+  estimatedValueAmount?: string | null
+
+  @Property({ name: 'estimated_value_currency', type: 'text', nullable: true })
+  estimatedValueCurrency?: string | null
+
+  @Property({ name: 'company_name', type: 'text', nullable: true })
+  companyName?: string | null
+
+  @Property({ name: 'company_vat_id', type: 'text', nullable: true })
+  companyVatId?: string | null
+
+  @Property({ name: 'contact_first_name', type: 'text', nullable: true })
+  contactFirstName?: string | null
+
+  @Property({ name: 'contact_last_name', type: 'text', nullable: true })
+  contactLastName?: string | null
+
+  @Property({ name: 'contact_phone', type: 'text', nullable: true })
+  contactPhone?: string | null
+
+  @Property({ name: 'contact_email', type: 'text', nullable: true })
+  contactEmail?: string | null
+
+  @Property({ name: 'created_deal_id', type: 'uuid', nullable: true })
+  createdDealId?: string | null
+
+  @Property({ name: 'created_person_entity_id', type: 'uuid', nullable: true })
+  createdPersonEntityId?: string | null
+
+  @Property({ name: 'created_company_entity_id', type: 'uuid', nullable: true })
+  createdCompanyEntityId?: string | null
+
+  @Property({ name: 'converted_at', type: Date, nullable: true })
+  convertedAt?: Date | null
+
+  @Property({ name: 'converted_by_user_id', type: 'uuid', nullable: true })
+  convertedByUserId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

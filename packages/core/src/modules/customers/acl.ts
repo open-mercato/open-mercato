@@ -71,6 +71,8 @@ export const features = [
     module: 'customers',
     dependsOn: ['customers.interactions.view'],
   },
+  { id: 'customers.leads.view', title: 'View leads', module: 'customers' },
+  { id: 'customers.leads.manage', title: 'Manage leads', module: 'customers' },
   { id: 'customers.roles.view', title: 'View entity roles', module: 'customers' },
   {
     id: 'customers.roles.manage',

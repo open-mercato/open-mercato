@@ -205,6 +205,70 @@ export const dealsBulkUpdateResponseSchema = z.object({
   message: z.string(),
 })
 
+const leadStatusSchema = z.enum(['open', 'in_progress', 'qualified', 'rejected'])
+
+const leadBaseSchema = {
+  title: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(4000).optional(),
+  source: z.string().trim().max(150).optional(),
+  estimatedValueAmount: z.coerce.number().min(0).optional(),
+  estimatedValueCurrency: z.string().trim().min(3).max(3).optional(),
+  companyName: z.string().trim().max(200).optional(),
+  companyVatId: z.string().trim().max(50).optional(),
+  contactFirstName: z.string().trim().max(120).optional(),
+  contactLastName: z.string().trim().max(120).optional(),
+  contactPhone: phoneSchema,
+  contactEmail: z.string().trim().email().max(320).optional(),
+}
+
+export const leadCreateSchema = scopedSchema.extend({
+  ...leadBaseSchema,
+  status: leadStatusSchema.optional().refine((val) => val !== 'qualified', {
+    message: 'customers.leads.form.status.qualifiedNotAllowed',
+  }),
+})
+
+export const leadUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(
+    scopedSchema.extend({
+      ...leadBaseSchema,
+      status: leadStatusSchema.optional().refine((val) => val !== 'qualified', {
+        message: 'customers.leads.form.status.qualifiedNotAllowed',
+      }),
+    }).partial()
+  )
+
+const leadConvertBaseSchema = scopedSchema.extend({
+  id: uuid(),
+  createDeal: z.boolean(),
+  createPerson: z.boolean(),
+  createCompany: z.boolean(),
+  deal: z
+    .object({
+      title: z.string().trim().min(1).max(200).optional(),
+      pipelineId: uuid().optional(),
+      pipelineStageId: uuid().optional(),
+      valueAmount: z.coerce.number().min(0).optional(),
+      valueCurrency: z.string().trim().min(3).max(3).optional(),
+    })
+    .optional(),
+})
+
+export const leadConvertSchema = leadConvertBaseSchema.refine(
+  (data) => data.createDeal || data.createPerson || data.createCompany,
+  { message: 'customers.leads.convert.atLeastOneTargetRequired' },
+)
+
+export const leadConvertBodySchema = leadConvertBaseSchema
+  .omit({ id: true, tenantId: true, organizationId: true })
+  .refine(
+    (data) => data.createDeal || data.createPerson || data.createCompany,
+    { message: 'customers.leads.convert.atLeastOneTargetRequired' },
+  )
+
 export const activityCreateSchema = scopedSchema.extend({
   entityId: uuid(),
   activityType: z.string().min(1).max(100),
@@ -585,6 +649,9 @@ export type CompanyCreateInput = z.infer<typeof companyCreateSchema>
 export type CompanyUpdateInput = z.infer<typeof companyUpdateSchema>
 export type DealCreateInput = z.infer<typeof dealCreateSchema>
 export type DealUpdateInput = z.infer<typeof dealUpdateSchema>
+export type LeadCreateInput = z.infer<typeof leadCreateSchema>
+export type LeadUpdateInput = z.infer<typeof leadUpdateSchema>
+export type LeadConvertInput = z.infer<typeof leadConvertSchema>
 export type ActivityCreateInput = z.infer<typeof activityCreateSchema>
 export type ActivityUpdateInput = z.infer<typeof activityUpdateSchema>
 export type CommentCreateInput = z.infer<typeof commentCreateSchema>
