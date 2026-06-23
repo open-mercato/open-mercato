@@ -29,10 +29,12 @@ export async function GET(req: Request) {
   const cacheKey = cache && userId ? buildUnreadCountCacheKey(userId) : null
 
   if (cache && cacheKey) {
-    const cached = await runWithCacheTenant(scope.tenantId, () => cache.get(cacheKey))
-    if (typeof cached === 'number') {
-      return Response.json({ unreadCount: cached })
-    }
+    try {
+      const cached = await runWithCacheTenant(scope.tenantId, () => cache.get(cacheKey))
+      if (typeof cached === 'number') {
+        return Response.json({ unreadCount: cached })
+      }
+    } catch {}
   }
 
   const count = await em.count(Notification, {
