@@ -175,9 +175,21 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
       <PageBody className="max-w-3xl space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-semibold">{t('agent_orchestrator.proposal.title')}</h1>
-          <Button type="button" variant="outline" size="sm" onClick={() => router.push('/backend/caseload')}>
-            {t('agent_orchestrator.proposal.backToCaseload')}
-          </Button>
+          <div className="flex items-center gap-2">
+            {proposal.runId ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => router.push(`/backend/traces/${proposal.runId}`)}
+              >
+                {t('agent_orchestrator.proposal.openTrace')}
+              </Button>
+            ) : null}
+            <Button type="button" variant="outline" size="sm" onClick={() => router.push('/backend/caseload')}>
+              {t('agent_orchestrator.proposal.backToCaseload')}
+            </Button>
+          </div>
         </div>
 
         <ProposalCard

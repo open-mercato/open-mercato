@@ -34,6 +34,14 @@ export type AgentResult<T = unknown> =
   | { kind: 'informative'; data: T }
   | { kind: 'actionable'; proposal: AgentProposalPayload }
 
+/** Trace-list filter facets (trace-eval overlay). */
+export const runFilterFacet = z.enum(['overridden', 'low-confidence', 'eval-fail'])
+export type RunFilterFacet = z.infer<typeof runFilterFacet>
+
+/** Relative time windows for trace/metrics queries. */
+export const runWindow = z.enum(['24h', '7d', '30d', '90d'])
+export type RunWindow = z.infer<typeof runWindow>
+
 /** Query schema for GET /runs (list + ?id= detail). */
 export const runListQuerySchema = z
   .object({
@@ -41,8 +49,11 @@ export const runListQuerySchema = z
     pageSize: z.coerce.number().min(1).max(100).default(50),
     id: z.string().uuid().optional(),
     agentId: z.string().optional(),
-    status: z.enum(['running', 'ok', 'error']).optional(),
+    status: z.enum(['running', 'ok', 'error', 'cancelled']).optional(),
     resultKind: z.enum(['informative', 'actionable']).optional(),
+    // Trace facets + window (trace-eval overlay).
+    filter: runFilterFacet.optional(),
+    window: runWindow.optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
@@ -120,3 +131,126 @@ export const dealHealthCheckResult = z.object({
   }),
 })
 export type DealHealthCheckResult = z.infer<typeof dealHealthCheckResult>
+
+// ── Trace ingestion (trace-eval overlay) ───────────────────────────────────
+// The normalized trace a runtime adapter POSTs to /trace/ingest. tenantId and
+// organizationId are NEVER taken from the body — they are derived server-side
+// from the authenticated/HMAC principal so a caller cannot ingest cross-tenant.
+// Idempotency key is (runtime, externalRunId). Large payloads (input/output and
+// per-tool request/response) are offloaded to storage-s3 by the service; only
+// redacted summaries stay on the row.
+
+/** A single tool invocation within a span. `*Payload` are full payloads the service offloads. */
+export const traceToolCallIngestSchema = z.object({
+  toolName: z.string().min(1),
+  requestSummary: z.unknown().optional(),
+  responseSummary: z.unknown().optional(),
+  requestPayload: z.unknown().optional(),
+  responsePayload: z.unknown().optional(),
+  status: z.enum(['ok', 'error']).default('ok'),
+  latencyMs: z.number().int().nonnegative().optional(),
+  errorMessage: z.string().optional(),
+})
+export type TraceToolCallIngest = z.infer<typeof traceToolCallIngestSchema>
+
+/** One execution-trace span. `externalSpanId` links children regardless of arrival order. */
+export const traceSpanIngestSchema = z.object({
+  externalSpanId: z.string().min(1),
+  parentExternalSpanId: z.string().nullable().optional(),
+  sequence: z.number().int().nonnegative(),
+  name: z.string().min(1),
+  kind: z.enum(['llm', 'tool', 'system']),
+  startedAt: z.string().datetime(),
+  endedAt: z.string().datetime().nullable().optional(),
+  durationMs: z.number().int().nonnegative().nullable().optional(),
+  status: z.enum(['ok', 'error']).default('ok'),
+  attributes: z.unknown().optional(),
+  toolCalls: z.array(traceToolCallIngestSchema).optional(),
+})
+export type TraceSpanIngest = z.infer<typeof traceSpanIngestSchema>
+
+/** The run envelope POSTed to /trace/ingest. */
+export const traceIngestSchema = z.object({
+  runtime: z.string().min(1),
+  externalRunId: z.string().min(1),
+  agentId: z.string().min(1),
+  agentVersion: z.string().optional(),
+  model: z.string().optional(),
+  status: z.enum(['running', 'ok', 'error', 'cancelled']).optional(),
+  processId: z.string().uuid().nullable().optional(),
+  stepId: z.string().nullable().optional(),
+  proposalId: z.string().uuid().nullable().optional(),
+  confidence: z.number().optional(),
+  inputTokens: z.number().int().nonnegative().optional(),
+  outputTokens: z.number().int().nonnegative().optional(),
+  costMinor: z.number().int().nonnegative().optional(),
+  currency: z.string().length(3).optional(),
+  latencyMs: z.number().int().nonnegative().optional(),
+  input: z.unknown().optional(),
+  output: z.unknown().optional(),
+  outputSummary: z.unknown().optional(),
+  contextRouting: z.unknown().optional(),
+  spans: z.array(traceSpanIngestSchema).optional(),
+})
+export type TraceIngest = z.infer<typeof traceIngestSchema>
+
+/** Shape returned by GET /runs/:id — the full run with its trace tree. */
+export type RunDetailResponse = {
+  run: Record<string, unknown>
+  spans: Array<Record<string, unknown>>
+  toolCalls: Array<Record<string, unknown>>
+}
+
+// ── Corrections & eval cases (flywheel) ────────────────────────────────────
+
+export const correctionAction = z.enum(['edit', 'reject', 'override', 'answer'])
+export type CorrectionActionInput = z.infer<typeof correctionAction>
+
+/**
+ * Body schema for POST /corrections. The route derives proposedValue, agentId,
+ * run input, and scope from the proposal/run server-side; the client supplies
+ * only the verdict, the mandatory reason, and (for edits) the corrected value.
+ */
+export const createCorrectionRequestSchema = z
+  .object({
+    proposalId: z.string().uuid(),
+    action: correctionAction,
+    reason: z.string().min(1),
+    correctedValue: z.unknown().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.action === 'edit' && value.correctedValue === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['correctedValue'], message: '[internal] correctedValue required for edit/override' })
+    }
+  })
+export type CreateCorrectionRequest = z.infer<typeof createCorrectionRequestSchema>
+
+/** Versioned envelope for the agent_orchestrator eval-case export (STABLE/ADDITIVE-ONLY). */
+export const EVAL_CASE_EXPORT_VERSION = 1 as const
+
+export type EvalCaseExportItem = {
+  id: string
+  sourceType: 'correction' | 'golden_run'
+  agentDefinitionId: string
+  processType: string | null
+  input: unknown
+  expected: unknown | null
+  assertions: unknown | null
+  approvedByUserId: string | null
+  createdAt: string
+}
+
+export type EvalCaseExport = {
+  version: typeof EVAL_CASE_EXPORT_VERSION
+  generatedAt: string
+  count: number
+  cases: EvalCaseExportItem[]
+}
+
+/** Query schema for GET /eval-cases/export. */
+export const evalCaseExportQuerySchema = z
+  .object({
+    agentDefinitionId: z.string().optional(),
+  })
+  .passthrough()
+export type EvalCaseExportQuery = z.infer<typeof evalCaseExportQuerySchema>

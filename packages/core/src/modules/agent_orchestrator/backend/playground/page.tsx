@@ -28,6 +28,25 @@ type AgentResult =
   | { kind: 'informative'; data: unknown }
   | { kind: 'actionable'; proposal: { actions: unknown[]; confidence?: number; rationale?: string } }
 
+/**
+ * Per-agent example inputs surfaced via the "Insert sample" button. Keyed by the
+ * stable agent id; the demo `deals.health_check` agent accepts an inline `deal`
+ * (no DB lookup, deterministic in the playground) or a `dealId`.
+ */
+const SAMPLE_INPUTS: Record<string, unknown> = {
+  'deals.health_check': {
+    deal: {
+      id: 'demo-deal-1',
+      name: 'Acme Corp — Enterprise plan',
+      stage: 'Proposal',
+      value: 48000,
+      probability: 0.65,
+      daysInStage: 12,
+      recentActivity: 'Sent revised pricing; awaiting procurement sign-off.',
+    },
+  },
+}
+
 export default function AgentPlaygroundPage() {
   const t = useT()
   const searchParams = useSearchParams()
@@ -66,6 +85,11 @@ export default function AgentPlaygroundPage() {
   const selectedAgent = React.useMemo(
     () => agents.find((agent) => agent.id === agentId) ?? null,
     [agents, agentId],
+  )
+
+  const sampleInput = React.useMemo(
+    () => (agentId && agentId in SAMPLE_INPUTS ? SAMPLE_INPUTS[agentId] : undefined),
+    [agentId],
   )
 
   const run = React.useCallback(async () => {
@@ -140,9 +164,21 @@ export default function AgentPlaygroundPage() {
         </div>
 
         <div className="space-y-1">
-          <label className="text-sm font-medium" htmlFor="ao-pg-input">
-            {t('agent_orchestrator.playground.inputLabel')}
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium" htmlFor="ao-pg-input">
+              {t('agent_orchestrator.playground.inputLabel')}
+            </label>
+            {sampleInput ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setInput(JSON.stringify(sampleInput, null, 2))}
+              >
+                {t('agent_orchestrator.playground.insertSample')}
+              </Button>
+            ) : null}
+          </div>
           <Textarea
             id="ao-pg-input"
             value={input}

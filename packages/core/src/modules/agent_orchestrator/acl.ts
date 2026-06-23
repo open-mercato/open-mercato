@@ -16,6 +16,26 @@ export const features = [
     module: 'agent_orchestrator',
     dependsOn: ['agent_orchestrator.proposals.view'],
   },
+  // Trace + eval overlay.
+  { id: 'agent_orchestrator.trace.view', title: 'View agent run traces', module: 'agent_orchestrator' },
+  {
+    id: 'agent_orchestrator.trace.correct',
+    title: 'Record agent corrections',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.trace.view'],
+  },
+  {
+    id: 'agent_orchestrator.eval.manage',
+    title: 'Manage evaluation cases and assertions',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.trace.view'],
+  },
+  {
+    id: 'agent_orchestrator.eval.export',
+    title: 'Export the agent eval-case set',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.eval.manage'],
+  },
 ]
 
 export default features

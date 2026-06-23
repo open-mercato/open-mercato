@@ -9,7 +9,7 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { mapProposal, formatConfidence, type ProposalView } from '../../components/types'
+import { mapProposal, mapRun, formatConfidence, type ProposalView, type RunView } from '../../components/types'
 
 type ProposalsResponse = { items?: Array<Record<string, unknown>>; total?: number }
 type RunsResponse = { items?: Array<Record<string, unknown>>; total?: number }
@@ -18,6 +18,7 @@ export default function AgentOverviewPage() {
   const t = useT()
   const router = useRouter()
   const [proposals, setProposals] = React.useState<ProposalView[]>([])
+  const [runs, setRuns] = React.useState<RunView[]>([])
   const [runsTotal, setRunsTotal] = React.useState(0)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -48,6 +49,7 @@ export default function AgentOverviewPage() {
             .filter((row): row is ProposalView => !!row),
         )
         const runItems = Array.isArray(runsCall.result?.items) ? runsCall.result!.items : []
+        setRuns(runItems.map((item) => mapRun(item as Record<string, unknown>)).filter((row): row is RunView => !!row))
         setRunsTotal(typeof runsCall.result?.total === 'number' ? runsCall.result.total : runItems.length)
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : t('agent_orchestrator.overview.error'))
@@ -68,8 +70,23 @@ export default function AgentOverviewPage() {
     const disposed = proposals.filter((p) => p.disposition !== 'pending').length
     const queueDepth = proposals.filter((p) => p.disposition === 'pending' && !!p.processId).length
     const autoPct = disposed > 0 ? Math.round((auto / disposed) * 100) : 0
-    return { total, pending, autoPct, queueDepth }
-  }, [proposals])
+
+    // Quality / anti-rubber-stamp signals (AI Act Art. 14), computed from the
+    // already-loaded runs + proposals — no extra fetch.
+    const unchanged = proposals.filter((p) => p.disposition === 'approved' || p.disposition === 'auto_approved').length
+    const overridden = proposals.filter((p) => p.disposition === 'edited' || p.disposition === 'rejected').length
+    const dispositioned = unchanged + overridden
+    const overrideRate = dispositioned > 0 ? Math.round((overridden / dispositioned) * 100) : null
+    const approveUnchangedRate = dispositioned > 0 ? Math.round((unchanged / dispositioned) * 100) : null
+    const evaluated = runs.filter((r) => r.evalPassed !== null)
+    const evalPassRate = evaluated.length > 0
+      ? Math.round((evaluated.filter((r) => r.evalPassed === true).length / evaluated.length) * 100)
+      : null
+
+    return { total, pending, autoPct, queueDepth, overrideRate, approveUnchangedRate, evalPassRate }
+  }, [proposals, runs])
+
+  const formatPct = (value: number | null) => (value == null ? '—' : `${value}%`)
 
   const needsAttention = React.useMemo(
     () => proposals.filter((p) => p.disposition === 'pending'),
@@ -114,6 +131,28 @@ export default function AgentOverviewPage() {
                 <p className="text-sm text-muted-foreground">{t('agent_orchestrator.overview.tiles.totalRuns')}</p>
                 <p className="text-2xl font-semibold">{runsTotal}</p>
                 <StatusBadge variant="neutral">{t('agent_orchestrator.overview.tiles.totalRunsMeta')}</StatusBadge>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-lg border border-border bg-card p-4">
+                <p className="text-sm text-muted-foreground">{t('agent_orchestrator.overview.tiles.evalPassRate')}</p>
+                <p className="text-2xl font-semibold">{formatPct(stats.evalPassRate)}</p>
+                <StatusBadge variant={stats.evalPassRate != null && stats.evalPassRate < 100 ? 'warning' : 'success'}>
+                  {t('agent_orchestrator.overview.tiles.evalPassRateMeta')}
+                </StatusBadge>
+              </div>
+              <div className="rounded-lg border border-border bg-card p-4">
+                <p className="text-sm text-muted-foreground">{t('agent_orchestrator.overview.tiles.overrideRate')}</p>
+                <p className="text-2xl font-semibold">{formatPct(stats.overrideRate)}</p>
+                <StatusBadge variant="info">{t('agent_orchestrator.overview.tiles.overrideRateMeta')}</StatusBadge>
+              </div>
+              <div className="rounded-lg border border-border bg-card p-4">
+                <p className="text-sm text-muted-foreground">{t('agent_orchestrator.overview.tiles.approveUnchanged')}</p>
+                <p className="text-2xl font-semibold">{formatPct(stats.approveUnchangedRate)}</p>
+                <StatusBadge variant={stats.approveUnchangedRate != null && stats.approveUnchangedRate >= 90 ? 'warning' : 'neutral'}>
+                  {t('agent_orchestrator.overview.tiles.approveUnchangedMeta')}
+                </StatusBadge>
               </div>
             </div>
 
