@@ -25,6 +25,10 @@ type ConvertResponse = {
   createdCompanyEntityId: string | null
 }
 
+type ConvertErrorResponse = {
+  error?: string
+}
+
 export function LeadQualificationDialog({
   leadId,
   leadUpdatedAt,
@@ -111,13 +115,14 @@ export function LeadQualificationDialog({
             },
           )
           if (!response.ok) {
+            const errorResult = response.result as unknown as ConvertErrorResponse | null
             const message =
-              typeof response.result?.error === 'string'
-                ? response.result.error
+              typeof errorResult?.error === 'string'
+                ? errorResult.error
                 : t('customers.leads.convert.error', 'Failed to qualify lead.')
             throw new Error(message)
           }
-          return response.result
+          return response.result as ConvertResponse
         },
         context: { leadId, createDeal, createPerson, createCompany },
         mutationPayload: { createDeal, createPerson, createCompany },

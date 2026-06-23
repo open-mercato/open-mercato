@@ -16,6 +16,7 @@ import {
   CustomerDeal,
   CustomerDealPersonLink,
   CustomerDealCompanyLink,
+  type CustomerLeadStatus,
 } from '../data/entities'
 import {
   leadCreateSchema,
@@ -61,7 +62,7 @@ type LeadSnapshot = {
   tenantId: string
   title: string | null
   description: string | null
-  status: string
+  status: CustomerLeadStatus
   source: string | null
   estimatedValueAmount: string | null
   estimatedValueCurrency: string | null
@@ -83,9 +84,9 @@ type LeadUndoPayload = {
   after?: LeadSnapshot | null
 }
 
-function toNumericString(value: number | null | undefined): string | null {
+function toNumericString(value: number | string | null | undefined): string | null {
   if (value === undefined || value === null) return null
-  return value.toString()
+  return String(value)
 }
 
 function normalizeOptionalString(value: string | null | undefined): string | null {
@@ -125,7 +126,7 @@ async function loadLeadSnapshot(em: EntityManager, id: string): Promise<LeadSnap
     CustomerLead,
     { id, deletedAt: null },
     undefined,
-    null,
+    undefined,
   )
   if (!lead) return null
   return serializeLeadSnapshot(lead)
@@ -243,13 +244,13 @@ const updateLeadCommand: CommandHandler<LeadUpdateInput, { leadId: string }> = {
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(leadUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadLeadSnapshot(em, parsed.id)
+    const snapshot = await loadLeadSnapshot(em, parsed.id!)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(leadUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const lead = await resolveLead(em, parsed.id, parsed.tenantId, parsed.organizationId)
+    const lead = await resolveLead(em, parsed.id!, parsed.tenantId!, parsed.organizationId!)
     ensureTenantScope(ctx, lead.tenantId)
     ensureOrganizationScope(ctx, lead.organizationId)
 
@@ -258,8 +259,8 @@ const updateLeadCommand: CommandHandler<LeadUpdateInput, { leadId: string }> = {
     }
 
     applyLeadBaseFields(lead, parsed)
-    if (parsed.status !== undefined && parsed.status !== 'qualified') {
-      lead.status = parsed.status
+    if (parsed.status !== undefined) {
+      lead.status = parsed.status as CustomerLeadStatus
     }
     await em.flush()
 
@@ -379,7 +380,7 @@ const updateLeadStatusCommand: CommandHandler<{ id: string; tenantId: string; or
       rawInput,
     )
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadLeadSnapshot(em, parsed.id)
+    const snapshot = await loadLeadSnapshot(em, parsed.id!)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
@@ -387,11 +388,8 @@ const updateLeadStatusCommand: CommandHandler<{ id: string; tenantId: string; or
       leadUpdateSchema.pick({ id: true, tenantId: true, organizationId: true }).extend({ status: leadUpdateSchema.shape.status }),
       rawInput,
     )
-    if (parsed.status === 'qualified') {
-      throw new CrudHttpError(400, { error: 'Status qualified can only be set via conversion' })
-    }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const lead = await resolveLead(em, parsed.id, parsed.tenantId, parsed.organizationId)
+    const lead = await resolveLead(em, parsed.id!, parsed.tenantId!, parsed.organizationId!)
     ensureTenantScope(ctx, lead.tenantId)
     ensureOrganizationScope(ctx, lead.organizationId)
 
@@ -399,7 +397,9 @@ const updateLeadStatusCommand: CommandHandler<{ id: string; tenantId: string; or
       throw new CrudHttpError(409, { error: 'Converted leads cannot be updated' })
     }
 
-    lead.status = parsed.status
+    if (parsed.status !== undefined) {
+      lead.status = parsed.status as CustomerLeadStatus
+    }
     await em.flush()
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
