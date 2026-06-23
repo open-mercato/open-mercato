@@ -10,10 +10,18 @@ import {
 const ENTITY_TYPE = 'agent_orchestrator:agent_run'
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
+  GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.trace.view'] },
 }
 
 export const metadata = routeMetadata
+
+const LOW_CONFIDENCE_THRESHOLD = 0.5
+const WINDOW_MS: Record<string, number> = {
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+  '90d': 90 * 24 * 60 * 60 * 1000,
+}
 
 const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
   metadata: routeMetadata,
@@ -35,6 +43,20 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
       'input',
       'output',
       'error_message',
+      'runtime',
+      'external_run_id',
+      'model',
+      'confidence',
+      'eval_score',
+      'eval_passed',
+      'latency_ms',
+      'cost_minor',
+      'currency',
+      'input_tokens',
+      'output_tokens',
+      'process_id',
+      'proposal_id',
+      'human_confirmed_at',
       'organization_id',
       'tenant_id',
       'created_at',
@@ -44,6 +66,10 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
       agentId: 'agent_id',
       status: 'status',
       resultKind: 'result_kind',
+      confidence: 'confidence',
+      latencyMs: 'latency_ms',
+      costMinor: 'cost_minor',
+      evalScore: 'eval_score',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
@@ -53,6 +79,13 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
       if (query.agentId) filters.agent_id = { $eq: query.agentId }
       if (query.status) filters.status = { $eq: query.status }
       if (query.resultKind) filters.result_kind = { $eq: query.resultKind }
+      if (query.window && WINDOW_MS[query.window]) {
+        filters.created_at = { $gte: new Date(Date.now() - WINDOW_MS[query.window]).toISOString() }
+      }
+      // 'overridden' joins on AgentCorrection, which lands in PR2; until then only
+      // the self-contained facets are honored.
+      if (query.filter === 'eval-fail') filters.eval_passed = { $eq: false }
+      else if (query.filter === 'low-confidence') filters.confidence = { $lt: LOW_CONFIDENCE_THRESHOLD }
       return filters
     },
   },
@@ -66,6 +99,20 @@ const runListItemSchema = z.object({
   status: z.string().nullable().optional(),
   result_kind: z.string().nullable().optional(),
   error_message: z.string().nullable().optional(),
+  runtime: z.string().nullable().optional(),
+  external_run_id: z.string().nullable().optional(),
+  model: z.string().nullable().optional(),
+  confidence: z.number().nullable().optional(),
+  eval_score: z.number().nullable().optional(),
+  eval_passed: z.boolean().nullable().optional(),
+  latency_ms: z.number().nullable().optional(),
+  cost_minor: z.number().nullable().optional(),
+  currency: z.string().nullable().optional(),
+  input_tokens: z.number().nullable().optional(),
+  output_tokens: z.number().nullable().optional(),
+  process_id: z.string().uuid().nullable().optional(),
+  proposal_id: z.string().uuid().nullable().optional(),
+  human_confirmed_at: z.string().nullable().optional(),
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),
   created_at: z.string().nullable().optional(),
