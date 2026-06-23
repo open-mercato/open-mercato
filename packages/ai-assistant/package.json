@@ -1,6 +1,7 @@
 {
   "name": "@open-mercato/ai-assistant",
   "version": "0.6.5",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"
