@@ -11,6 +11,9 @@ import {
 export const defaultCreateResponseSchema = sharedDefaultCreateResponseSchema
 export const defaultOkResponseSchema = sharedDefaultOkResponseSchema
 
+/** Shared OpenAPI tag for custom (non-CRUD) agent_orchestrator routes. */
+export const agentOrchestratorTag = 'Agent Orchestrator'
+
 export function createPagedListResponseSchema(itemSchema: ZodTypeAny) {
   return createSharedPagedListResponseSchema(itemSchema, { paginationMetaOptional: true })
 }

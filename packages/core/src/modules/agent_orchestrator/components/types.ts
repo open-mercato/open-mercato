@@ -29,6 +29,55 @@ export type RunView = {
   output: unknown
   createdAt: string | null
   updatedAt: string | null
+  // Trace-eval overlay fields (present on the trace list + detail reads).
+  runtime: string | null
+  externalRunId: string | null
+  model: string | null
+  confidence: number | null
+  evalScore: number | null
+  evalPassed: boolean | null
+  latencyMs: number | null
+  costMinor: number | null
+}
+
+export type SpanView = {
+  id: string
+  externalSpanId: string | null
+  parentSpanId: string | null
+  sequence: number
+  name: string
+  kind: string
+  startedAt: string | null
+  endedAt: string | null
+  durationMs: number | null
+  status: string | null
+}
+
+export type ToolCallView = {
+  id: string
+  spanId: string | null
+  toolName: string
+  status: string | null
+  latencyMs: number | null
+  errorMessage: string | null
+  requestSummary: unknown
+  responseSummary: unknown
+}
+
+export type EvalResultView = {
+  id: string
+  assertionKey: string
+  passed: boolean
+  score: number | null
+  severity: string
+  evidence: unknown
+}
+
+export type RunDetailView = {
+  run: RunView
+  spans: SpanView[]
+  toolCalls: ToolCallView[]
+  evalResults: EvalResultView[]
 }
 
 export type AgentRuntime = 'in-process' | 'opencode'
@@ -90,6 +139,10 @@ export function mapProposal(item: Record<string, unknown>): ProposalView | null 
   }
 }
 
+function asBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null
+}
+
 export function mapRun(item: Record<string, unknown>): RunView | null {
   const id = asString(item.id)
   const agentId = asString(item.agent_id) ?? asString(item.agentId)
@@ -104,7 +157,76 @@ export function mapRun(item: Record<string, unknown>): RunView | null {
     output: item.output ?? null,
     createdAt: asString(item.created_at) ?? asString(item.createdAt),
     updatedAt: asString(item.updated_at) ?? asString(item.updatedAt),
+    runtime: asString(item.runtime),
+    externalRunId: asString(item.external_run_id) ?? asString(item.externalRunId),
+    model: asString(item.model),
+    confidence: asNumber(item.confidence),
+    evalScore: asNumber(item.eval_score) ?? asNumber(item.evalScore),
+    evalPassed: asBoolean(item.eval_passed) ?? asBoolean(item.evalPassed),
+    latencyMs: asNumber(item.latency_ms) ?? asNumber(item.latencyMs),
+    costMinor: asNumber(item.cost_minor) ?? asNumber(item.costMinor),
   }
+}
+
+export function mapSpan(item: Record<string, unknown>): SpanView | null {
+  const id = asString(item.id)
+  if (!id) return null
+  return {
+    id,
+    externalSpanId: asString(item.external_span_id) ?? asString(item.externalSpanId),
+    parentSpanId: asString(item.parent_span_id) ?? asString(item.parentSpanId),
+    sequence: asNumber(item.sequence) ?? 0,
+    name: asString(item.name) ?? '',
+    kind: asString(item.kind) ?? 'system',
+    startedAt: asString(item.started_at) ?? asString(item.startedAt),
+    endedAt: asString(item.ended_at) ?? asString(item.endedAt),
+    durationMs: asNumber(item.duration_ms) ?? asNumber(item.durationMs),
+    status: asString(item.status),
+  }
+}
+
+export function mapToolCall(item: Record<string, unknown>): ToolCallView | null {
+  const id = asString(item.id)
+  if (!id) return null
+  return {
+    id,
+    spanId: asString(item.span_id) ?? asString(item.spanId),
+    toolName: asString(item.tool_name) ?? asString(item.toolName) ?? '',
+    status: asString(item.status),
+    latencyMs: asNumber(item.latency_ms) ?? asNumber(item.latencyMs),
+    errorMessage: asString(item.error_message) ?? asString(item.errorMessage),
+    requestSummary: item.request_summary ?? item.requestSummary ?? null,
+    responseSummary: item.response_summary ?? item.responseSummary ?? null,
+  }
+}
+
+export function mapEvalResult(item: Record<string, unknown>): EvalResultView | null {
+  const id = asString(item.id)
+  if (!id) return null
+  return {
+    id,
+    assertionKey: asString(item.assertion_key) ?? asString(item.assertionKey) ?? '',
+    passed: asBoolean(item.passed) ?? false,
+    score: asNumber(item.score),
+    severity: asString(item.severity) ?? 'warn',
+    evidence: item.evidence ?? null,
+  }
+}
+
+export function mapRunDetail(payload: Record<string, unknown>): RunDetailView | null {
+  const run = mapRun((payload.run as Record<string, unknown>) ?? {})
+  if (!run) return null
+  const spans = (Array.isArray(payload.spans) ? payload.spans : [])
+    .map((row) => mapSpan(row as Record<string, unknown>))
+    .filter((row): row is SpanView => !!row)
+    .sort((left, right) => left.sequence - right.sequence)
+  const toolCalls = (Array.isArray(payload.toolCalls) ? payload.toolCalls : [])
+    .map((row) => mapToolCall(row as Record<string, unknown>))
+    .filter((row): row is ToolCallView => !!row)
+  const evalResults = (Array.isArray(payload.evalResults) ? payload.evalResults : [])
+    .map((row) => mapEvalResult(row as Record<string, unknown>))
+    .filter((row): row is EvalResultView => !!row)
+  return { run, spans, toolCalls, evalResults }
 }
 
 export function mapAgent(item: Record<string, unknown>): AgentView | null {
