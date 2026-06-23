@@ -1,7 +1,7 @@
 import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
 import { getCliModules } from '@open-mercato/shared/modules/registry'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
-import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { isSingleDeliveryRequested } from '../../../single-delivery'
 
 export const EVENTS_QUEUE_NAME = 'events'
 
@@ -38,11 +38,12 @@ type SubscriberEntry = {
 /**
  * Mirror of the event bus single-delivery flag. When enabled, the worker owns
  * dispatch of every persistent subscriber and matches by pattern so wildcard
- * (`event: '*'`) persistent subscribers are finally reached. Default off keeps
- * the legacy exact-match dispatch of all subscribers.
+ * (`event: '*'`) persistent subscribers are finally reached. Defaults ON;
+ * reconciled by the server bootstrap against worker availability and read from
+ * the same env var as the bus so the two always agree within a process.
  */
 function isSingleDeliveryEnabled(): boolean {
-  return parseBooleanWithDefault(process.env.OM_EVENTS_SINGLE_DELIVERY, false)
+  return isSingleDeliveryRequested()
 }
 
 /**

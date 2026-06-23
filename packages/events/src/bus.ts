@@ -1,6 +1,7 @@
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { isSingleDeliveryRequested } from './single-delivery'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
@@ -22,12 +23,13 @@ const EVENTS_QUEUE_NAME = 'events'
  * When enabled, a persistent emit delivers each subscriber on exactly one path:
  * persistent-marked subscribers are skipped inline (the events worker dispatches
  * them via pattern match, so wildcard persistent subscribers are reached), while
- * ephemeral subscribers keep running inline. Default off preserves the legacy
- * dual-dispatch behavior. Both this flag and the worker MUST agree, so the worker
- * reads the same env var.
+ * ephemeral subscribers keep running inline. Defaults ON; the server bootstrap
+ * reconciles the env against worker availability (and may rewrite it to `false`
+ * for a worker-less process). Both the bus and the events worker read the same
+ * (possibly reconciled) env var, so they always agree within a process.
  */
 function isSingleDeliveryEnabled(): boolean {
-  return parseBooleanWithDefault(process.env.OM_EVENTS_SINGLE_DELIVERY, false)
+  return isSingleDeliveryRequested()
 }
 
 type GlobalEventTap = (event: string, payload: EventPayload, options?: EmitOptions) => void | Promise<void>
@@ -259,8 +261,17 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     // Deliver to in-memory handlers first. Under single-delivery, persistent
     // subscribers are skipped inline on a persistent emit because the events
     // worker will dispatch them from the queue.
-    const skipPersistentInline = Boolean(options?.persistent) && isSingleDeliveryEnabled()
-    await deliver(event, payload, options, skipPersistentInline)
+    //
+    // `deliverInline: false` on a persistent emit is enqueue-only: skip inline
+    // delivery entirely so a heavy persistent job runs solely in the events
+    // worker, off the caller's request path (the queued enqueue below still
+    // happens). Without this, a persistent emit dual-dispatches by default and
+    // runs the subscriber inline in the caller's request too.
+    const enqueueOnly = Boolean(options?.persistent) && options?.deliverInline === false
+    if (!enqueueOnly) {
+      const skipPersistentInline = Boolean(options?.persistent) && isSingleDeliveryEnabled()
+      await deliver(event, payload, options, skipPersistentInline)
+    }
 
     if (isBroadcastEvent(event) && hasTenantScope(payload)) {
       try {

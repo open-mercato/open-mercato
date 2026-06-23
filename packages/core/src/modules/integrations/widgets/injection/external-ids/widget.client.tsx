@@ -10,10 +10,10 @@ import { cn } from '@open-mercato/shared/lib/utils'
 type IntegrationsData = Record<string, ExternalIdMapping>
 
 const SYNC_STATUS_STYLES: Record<ExternalIdMapping['syncStatus'], { dot: string; label: string }> = {
-  synced: { dot: 'bg-green-500', label: 'integrations.syncStatus.synced' },
-  pending: { dot: 'bg-yellow-500', label: 'integrations.syncStatus.pending' },
-  error: { dot: 'bg-red-500', label: 'integrations.syncStatus.error' },
-  not_synced: { dot: 'bg-gray-400', label: 'integrations.syncStatus.notSynced' },
+  synced: { dot: 'bg-status-success-icon', label: 'integrations.syncStatus.synced' },
+  pending: { dot: 'bg-status-warning-icon', label: 'integrations.syncStatus.pending' },
+  error: { dot: 'bg-status-error-icon', label: 'integrations.syncStatus.error' },
+  not_synced: { dot: 'bg-status-neutral-icon', label: 'integrations.syncStatus.notSynced' },
 }
 
 function SyncStatusBadge({ status, lastSynced }: { status: ExternalIdMapping['syncStatus']; lastSynced?: string }) {

@@ -352,9 +352,9 @@ Label rules:
 
 - If the PR has no pipeline label when review starts, set `review` before continuing so the state machine is explicit.
 - If the verdict is changes requested, set `changes-requested`.
-- If the verdict is approved, set `merge-queue` — both when the PR requires QA (`needs-qa` present, no `skip-qa`) and when it does not. Keep `needs-qa` in place when present; the `merge-gate` CI check blocks the actual merge until a QA reviewer adds `qa-approved`.
+- If the verdict is approved, set `merge-queue` — both when the PR requires QA (`needs-qa` present, no `skip-qa`) and when it does not. Keep `needs-qa` in place when present; the QA-approval gate blocks the actual merge until a QA reviewer adds `qa-approved`.
 - **Never set the `qa` pipeline label from this skill.** `qa` means "manual QA is in progress" and is applied **manually by a QA reviewer** when they pick the PR up to test it. This skill only requests QA with the `needs-qa` meta label; it never sets, moves to, or removes `qa`.
-- **Never apply `qa-approved` based on reading the diff** — code-review approval is not QA approval. `qa-approved` is earned only by manual QA (by a QA reviewer, or by an engineer via the self-QA exception). Until it lands, a `needs-qa` PR sits in `merge-queue` blocked by the `merge-gate` check.
+- **Never apply `qa-approved` based on reading the diff** — code-review approval is not QA approval. `qa-approved` is earned only by manual QA (by a QA reviewer, or by an engineer via the self-QA exception). Until it lands, a `needs-qa` PR sits in `merge-queue` blocked by the QA-approval gate.
 - Never leave `review`, `changes-requested`, `qa`, `qa-failed`, and `merge-queue` on the same PR together.
 
 Priority label (always ensure exactly one):
@@ -373,7 +373,7 @@ Suggested label comments:
 
 - `review`: `Label set to \`review\` because this PR is ready for code review.`
 - `changes-requested`: `Label set to \`changes-requested\` because review found actionable issues.`
-- `merge-queue` (QA still required): `Label set to \`merge-queue\` because code review passed; \`needs-qa\` stays on so the merge-gate holds the merge until a QA reviewer adds \`qa-approved\`.`
+- `merge-queue` (QA still required): `Label set to \`merge-queue\` because code review passed; \`needs-qa\` stays on so the QA-approval gate holds the merge until a QA reviewer adds \`qa-approved\`.`
 - `merge-queue` (no QA required): `Label set to \`merge-queue\` because the required review gates passed and QA is not required (or `qa-approved` is already present).`
 - `blocked`: `Label set to \`blocked\` because progress depends on an external blocker.`
 - `do-not-merge`: `Label set to \`do-not-merge\` because this PR should not merge yet.`
@@ -420,7 +420,7 @@ Post it as a single comment so multi-line formatting survives:
 gh pr comment {prNumber} --body-file <(cat <<'EOF'
 ## 🧪 Manual QA instructions (`needs-qa`)
 
-This PR is approved and requires manual QA (`needs-qa`, no `skip-qa`). It is queued in `merge-queue` but the merge-gate holds it until `qa-approved` is added. QA reviewer: when you pick it up, move it to `qa` (`gh pr edit {prNumber} --remove-label merge-queue --add-label qa`), then run the routes below.
+This PR is approved and requires manual QA (`needs-qa`, no `skip-qa`). It is queued in `merge-queue` but the QA-approval gate holds it until `qa-approved` is added. QA reviewer: when you pick it up, move it to `qa` (`gh pr edit {prNumber} --remove-label merge-queue --add-label qa`), then run the routes below.
 
 ### P0 — {area}
 **Where to click**
@@ -446,7 +446,7 @@ This PR is approved and requires manual QA (`needs-qa`, no `skip-qa`). It is que
 - {concrete regression symptom}
 
 ### Pass/fail
-- All routes pass → `gh pr edit {prNumber} --remove-label qa --add-label merge-queue --add-label qa-approved` (this clears the merge-gate)
+- All routes pass → `gh pr edit {prNumber} --remove-label qa --add-label merge-queue --add-label qa-approved` (this clears the QA-approval gate)
 - Any route fails → `gh pr edit {prNumber} --remove-label qa --add-label qa-failed` with a comment describing the failure.
 EOF
 )
@@ -635,7 +635,7 @@ If a critical blocker remains that requires human judgment, the summary must des
 - Always add the chosen pipeline label and remove every other pipeline label
 - Always add a short PR comment explaining why the chosen pipeline label was applied
 - Always hand `changes-requested` PRs back to the original author with an explicit reassignment/comment handoff when possible
-- Approved PRs land in `merge-queue` whether or not QA is required; for a `needs-qa` PR (no `skip-qa`), keep `needs-qa` so the `merge-gate` CI check blocks the merge until `qa-approved` is added
+- Approved PRs land in `merge-queue` whether or not QA is required; for a `needs-qa` PR (no `skip-qa`), keep `needs-qa` so the QA-approval gate blocks the merge until `qa-approved` is added
 - Never set the `qa` pipeline label from this skill — `qa` means "manual QA in progress" and is applied manually by a QA reviewer; this skill requests QA with the `needs-qa` meta label only
 - Never apply `qa-approved` from this skill based only on reading the diff — `qa-approved` is earned by manual QA (QA reviewer) or the self-QA exception (run locally, click through, attach a screenshot/written confirmation, then add `qa-approved` + `qa-self-verified`)
 - When approving a `needs-qa` PR, also post a manual-QA instructions comment (step 8a) with concrete click paths, verification points, and edge cases derived from the diff, using the `om-auto-qa-scenarios` P0/P1/P2 route format; this is additive and does not replace the pipeline-label or completion comments

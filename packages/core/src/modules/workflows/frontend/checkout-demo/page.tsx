@@ -14,6 +14,7 @@ import {
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { deriveCurrentStep } from './deriveCurrentStep'
 
 interface CartItem {
   id: string // Product UUID
@@ -62,8 +63,6 @@ export default function CheckoutDemoPage() {
   const [advancing, setAdvancing] = useState(false)
   const [result, setResult] = useState<WorkflowResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [currentStep, setCurrentStep] = useState<StepInfo | null>(null)
-  const [availableSteps, setAvailableSteps] = useState<StepInfo[]>([])
   const [formData, setFormData] = useState<Record<string, any>>({})
   const [submittingTask, setSubmittingTask] = useState(false)
   const [taskError, setTaskError] = useState<string | null>(null)
@@ -270,21 +269,8 @@ export default function CheckoutDemoPage() {
     { stepId: 'end', stepName: 'Complete', stepType: 'END', description: 'Checkout completed' },
   ]
 
-  // Update current step and available steps when result changes
-  useEffect(() => {
-    if (result?.currentStepId) {
-      const current = workflowSteps.find(s => s.stepId === result.currentStepId)
-      setCurrentStep(current || null)
-
-      // Find next available steps (simple - just show next step)
-      const currentIndex = workflowSteps.findIndex(s => s.stepId === result.currentStepId)
-      if (currentIndex >= 0 && currentIndex < workflowSteps.length - 1) {
-        setAvailableSteps([workflowSteps[currentIndex + 1]])
-      } else {
-        setAvailableSteps([])
-      }
-    }
-  }, [result])
+  // Current step derived from the running instance and the workflow steps
+  const currentStep = deriveCurrentStep(result?.currentStepId, workflowSteps)
 
   // Add initial delay before polling for user tasks when workflow becomes PAUSED
   // This reduces race condition where API returns before background execution completes
@@ -1490,8 +1476,6 @@ export default function CheckoutDemoPage() {
                     onClick={() => {
                       setResult(null)
                       setError(null)
-                      setCurrentStep(null)
-                      setAvailableSteps([])
                     }}
                     variant="outline"
                     className="w-full"
@@ -1515,8 +1499,6 @@ export default function CheckoutDemoPage() {
                   onClick={() => {
                     setResult(null)
                     setError(null)
-                    setCurrentStep(null)
-                    setAvailableSteps([])
                   }}
                   className="w-full mt-6"
                 >
@@ -1773,8 +1755,6 @@ export default function CheckoutDemoPage() {
                     onClick={() => {
                       setResult(null)
                       setError(null)
-                      setCurrentStep(null)
-                      setAvailableSteps([])
                     }}
                     variant="outline"
                     className="w-full"

@@ -7,6 +7,7 @@ import {
     overrideListQuerySchema,
     getToggleOverrideQuerySchema,
     featureToggleOverrideResponseSchema,
+    overrideRowIdSchema,
 } from '../data/validators'
 
 export const featureTogglesTag = 'Feature Toggles'
@@ -42,16 +43,20 @@ export const featureToggleListResponseSchema = z.object({
 
 export { toggleCreateSchema, toggleUpdateSchema }
 
+// Documents the actual override-list row shape returned by GET /api/feature_toggles/overrides
+// (see lib/queries.ts → getOverrides). Each row reports whether the tenant has a
+// per-tenant override via `isOverride`; inherited rows (no override) carry an
+// empty-string `id` sentinel instead of a UUID, hence `overrideRowIdSchema`.
 export const featureToggleOverrideSchema = z
     .object({
-        id: z.string().uuid(),
+        id: overrideRowIdSchema,
         toggleId: z.string().uuid(),
-        overrideState: z.enum(['enabled', 'disabled', 'inherit']),
+        tenantName: z.string(),
+        tenantId: z.string().uuid(),
         identifier: z.string(),
         name: z.string(),
-        category: z.string().nullable().optional(),
-        defaultState: z.boolean(),
-        tenantName: z.string().nullable().optional(),
+        category: z.string(),
+        isOverride: z.boolean(),
     })
     .passthrough()
 
