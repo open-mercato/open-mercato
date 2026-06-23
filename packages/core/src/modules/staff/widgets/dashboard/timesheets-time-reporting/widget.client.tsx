@@ -6,6 +6,7 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { startTimerEntry } from '../../../lib/timesheets-ui/startTimer'
 import { DEFAULT_SETTINGS, hydrateSettings, type TimeReportingSettings } from './config'
 
 type ProjectOption = { id: string; name: string; code: string | null }
@@ -138,25 +139,15 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
     setActionLoading(true)
     try {
       const today = new Date().toISOString().slice(0, 10)
-      // Create entry + start timer
-      const createRes = await apiCall<Record<string, unknown>>('/api/staff/timesheets/time-entries', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          staffMemberId,
-          date: today,
-          timeProjectId: selectedProjectId,
-          durationMinutes: 0,
-          notes: notes.trim() || null,
-          source: 'timer',
-        }),
+      // Single atomic create+start request (issue #3311): a partial failure can
+      // no longer leave an orphaned, unstarted timer entry, and a rejected start
+      // now surfaces here instead of being silently ignored.
+      await startTimerEntry({
+        staffMemberId,
+        timeProjectId: selectedProjectId,
+        date: today,
+        notes: notes.trim() || null,
       })
-      if (!createRes.ok) throw new Error('Failed to create entry')
-      const body = createRes.result as Record<string, unknown> | null
-      const entryId = String(body?.id ?? (body?.item as Record<string, unknown> | undefined)?.id ?? '')
-      if (!entryId) throw new Error('Failed to extract entry ID')
-
-      await apiCall(`/api/staff/timesheets/time-entries/${entryId}/timer-start`, { method: 'POST' })
 
       onSettingsChange({ ...hydrated, lastProjectId: selectedProjectId })
       await loadState()

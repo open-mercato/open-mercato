@@ -67,7 +67,7 @@
     "@open-mercato/ui": "workspace:*",
     "@stripe/react-stripe-js": "^6.6.0",
     "@stripe/stripe-js": "^9.8.0",
-    "stripe": "^22.2.1"
+    "stripe": "^22.2.2"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
