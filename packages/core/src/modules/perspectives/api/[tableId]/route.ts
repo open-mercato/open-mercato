@@ -4,6 +4,10 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { perspectiveSaveSchema } from '@open-mercato/core/modules/perspectives/data/validators'
 import {
   loadPerspectivesState,
@@ -71,9 +75,10 @@ export async function GET(_req: Request, ctx: { params: { tableId: string } }) {
   const assignedRoleNames = Array.isArray(auth.roles)
     ? Array.from(new Set(auth.roles.filter((role): role is string => typeof role === 'string' && role.trim().length > 0)))
     : []
-  const assignedRoles = assignedRoleNames.length
+  const assignedRoles = assignedRoleNames.length && auth.tenantId
     ? await em.find(Role, {
         name: { $in: assignedRoleNames as any },
+        tenantId: auth.tenantId,
         deletedAt: null,
       } as any, { orderBy: { name: 'asc' } })
     : []
@@ -168,6 +173,7 @@ export async function POST(req: Request, ctx: { params: { tableId: string } }) {
   const applyToRoles = Array.from(new Set(parsed.data.applyToRoles ?? [])).filter((id) => id.trim().length > 0)
   const clearRoleIds = Array.from(new Set(parsed.data.clearRoleIds ?? [])).filter((id) => id.trim().length > 0)
   const hasRoleOps = applyToRoles.length > 0 || clearRoleIds.length > 0
+  const targetRoleIds = Array.from(new Set([...applyToRoles, ...clearRoleIds]))
 
   if (hasRoleOps) {
     const canApplyToRoles = await rbac.userHasAllFeatures?.(
@@ -183,7 +189,6 @@ export async function POST(req: Request, ctx: { params: { tableId: string } }) {
     const roleScope = auth.tenantId
       ? { $or: [{ tenantId: auth.tenantId }, { tenantId: null }] }
       : { tenantId: null }
-    const targetRoleIds = Array.from(new Set([...applyToRoles, ...clearRoleIds]))
     const roles = await em.find(Role, {
       id: { $in: targetRoleIds as any },
       ...(roleScope as any),
@@ -197,50 +202,121 @@ export async function POST(req: Request, ctx: { params: { tableId: string } }) {
     }
   }
 
+  const guardResourceId = parsed.data.perspectiveId ?? tableId
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: auth.tenantId ?? '',
+    organizationId: auth.orgId ?? null,
+    userId: auth.sub,
+    resourceKind: 'perspectives.perspective',
+    resourceId: guardResourceId,
+    operation: 'custom',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: { ...parsed.data, tableId },
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
+
+  let roleGuardResult: Awaited<ReturnType<typeof validateCrudMutationGuard>> | null = null
+  if (hasRoleOps) {
+    roleGuardResult = await validateCrudMutationGuard(container, {
+      tenantId: auth.tenantId ?? '',
+      organizationId: auth.orgId ?? null,
+      userId: auth.sub,
+      resourceKind: 'perspectives.role_perspective',
+      resourceId: targetRoleIds.join(','),
+      operation: 'custom',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: {
+        tableId,
+        applyToRoles,
+        clearRoleIds,
+        name: parsed.data.name,
+        settings: parsed.data.settings,
+        setRoleDefault: parsed.data.setRoleDefault ?? false,
+      },
+    })
+  }
+  if (roleGuardResult && !roleGuardResult.ok) {
+    return NextResponse.json(roleGuardResult.body, { status: roleGuardResult.status })
+  }
+
   let saved: Awaited<ReturnType<typeof saveUserPerspective>> | null = null
   let updatedRolePerspectives: Awaited<ReturnType<typeof saveRolePerspectives>> | null = null
+  let clearedRolePerspectiveCount = 0
 
   try {
     await withAtomicFlush(em, [
-    async () => {
-      saved = await saveUserPerspective(em, cache, {
-        scope,
-        tableId,
-        input: parsed.data,
-        request: req,
-      })
-    },
-    async () => {
-      if (applyToRoles.length) {
-        updatedRolePerspectives = await saveRolePerspectives(em, cache, {
+      async () => {
+        saved = await saveUserPerspective(em, cache, {
+          scope,
           tableId,
-          tenantId: auth.tenantId ?? null,
-          organizationId: auth.orgId ?? null,
-          input: {
-            roleIds: applyToRoles,
-            name: parsed.data.name,
-            settings: parsed.data.settings,
-            setDefault: parsed.data.setRoleDefault ?? false,
-          },
+          input: parsed.data,
+          request: req,
         })
-      }
-    },
-    async () => {
-      if (clearRoleIds.length) {
-        await clearRolePerspectives(em, cache, {
-          tableId,
-          tenantId: auth.tenantId ?? null,
-          organizationId: auth.orgId ?? null,
-          roleIds: clearRoleIds,
-        })
-      }
-    },
+      },
+      async () => {
+        if (applyToRoles.length) {
+          updatedRolePerspectives = await saveRolePerspectives(em, cache, {
+            tableId,
+            tenantId: auth.tenantId ?? null,
+            organizationId: auth.orgId ?? null,
+            input: {
+              roleIds: applyToRoles,
+              name: parsed.data.name,
+              settings: parsed.data.settings,
+              setDefault: parsed.data.setRoleDefault ?? false,
+            },
+          })
+        }
+      },
+      async () => {
+        if (clearRoleIds.length) {
+          clearedRolePerspectiveCount = await clearRolePerspectives(em, cache, {
+            tableId,
+            tenantId: auth.tenantId ?? null,
+            organizationId: auth.orgId ?? null,
+            roleIds: clearRoleIds,
+          })
+        }
+      },
     ], { transaction: true })
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     throw err
+  }
+
+  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: auth.tenantId ?? '',
+      organizationId: auth.orgId ?? null,
+      userId: auth.sub,
+      resourceKind: 'perspectives.perspective',
+      resourceId: guardResourceId,
+      operation: 'custom',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata ?? null,
+    })
+  }
+
+  const didWriteRolePerspectives = applyToRoles.length > 0 || clearedRolePerspectiveCount > 0
+  if (didWriteRolePerspectives && roleGuardResult?.ok && roleGuardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: auth.tenantId ?? '',
+      organizationId: auth.orgId ?? null,
+      userId: auth.sub,
+      resourceKind: 'perspectives.role_perspective',
+      resourceId: targetRoleIds.join(','),
+      operation: 'custom',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: roleGuardResult.metadata ?? null,
+    })
   }
 
   return NextResponse.json({

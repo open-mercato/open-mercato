@@ -1,6 +1,6 @@
 'use client'
 
-import {Edge} from '@xyflow/react'
+import type {Edge} from '@xyflow/react'
 import {useEffect, useState} from 'react'
 import {
   Dialog,
