@@ -16,7 +16,7 @@
   "directory.branding.errors.organizationRequired": "Wählen Sie eine einzelne Organisation aus, bevor Sie das Seitenleisten-Branding ändern.",
   "directory.branding.errors.save": "Organisationsbranding konnte nicht aktualisiert werden",
   "directory.branding.errors.upload": "Logo konnte nicht hochgeladen werden",
-  "directory.branding.file.hint": "PNG, JPG, WebP oder SVG funktioniert am besten. Hochgeladene Dateien werden als Organisationsanhänge gespeichert.",
+  "directory.branding.file.hint": "PNG, JPG oder WebP funktioniert am besten. Hochgeladene Dateien werden als Organisationsanhänge gespeichert.",
   "directory.branding.file.label": "Logo hochladen",
   "directory.branding.flash.saved": "Organisationsbranding aktualisiert",
   "directory.branding.loading": "Organisationsbranding wird geladen...",

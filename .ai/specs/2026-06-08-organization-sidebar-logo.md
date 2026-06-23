@@ -156,7 +156,8 @@ Unit/API and UI smoke coverage:
   - pasted URL save,
   - reset to default,
   - upload flow through `/api/attachments` before branding save,
-  - uploaded SVG/PNG/JPEG/WebP logos persist original attachment file URLs instead of square thumbnails,
+- uploaded PNG/JPEG/WebP logos persist original attachment file URLs instead of square thumbnails,
+  while external SVG logo URLs remain supported through the URL field,
   - file picker cancel keeps the pending selected-file preview.
 - `packages/ui/src/backend/__tests__/AppShell.test.tsx`
   - sidebar logo fallback and custom brand rendering,
@@ -196,4 +197,4 @@ Manual CRM validation on `https://crm.they.dev` covered pasted URL save, invalid
 
 - 2026-06-08: Created spec for organization-level sidebar logo branding.
 - 2026-06-08: Updated implementation coverage, API contracts, risk review, and final compliance report after PR audit.
-- 2026-06-23: Clarified uploaded logo aspect-ratio preservation, original attachment URL persistence, and additional SVG/PNG/JPEG/WebP coverage.
+- 2026-06-23: Clarified uploaded logo aspect-ratio preservation, original attachment URL persistence, additional PNG/JPEG/WebP upload coverage, and external SVG URL coverage.

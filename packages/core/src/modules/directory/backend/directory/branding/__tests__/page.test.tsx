@@ -130,12 +130,11 @@ describe('OrganizationBrandingPage', () => {
   })
 
   it.each([
-    ['svg', 'image/svg+xml'],
     ['png', 'image/png'],
     ['jpg', 'image/jpeg'],
     ['webp', 'image/webp'],
   ])('uploads a selected %s logo file without storing the square thumbnail', async (extension, mimeType) => {
-    const attachmentId = `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb${extension === 'svg' ? 'b' : extension === 'png' ? 'c' : extension === 'jpg' ? 'd' : 'e'}`
+    const attachmentId = `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb${extension === 'png' ? 'c' : extension === 'jpg' ? 'd' : 'e'}`
     const fileUrl = `/api/attachments/file/${attachmentId}`
 
     readApiResultOrThrowMock
@@ -185,7 +184,7 @@ describe('OrganizationBrandingPage', () => {
     renderWithProviders(<OrganizationBrandingPage />)
 
     const input = await screen.findByLabelText('Upload logo')
-    const file = new File(['<svg />'], 'acme.svg', { type: 'image/svg+xml' })
+    const file = new File(['logo'], 'acme.png', { type: 'image/png' })
     fireEvent.change(input, { target: { files: [file] } })
 
     await waitFor(() => {

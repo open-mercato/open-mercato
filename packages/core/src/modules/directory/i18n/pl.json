@@ -16,7 +16,7 @@
   "directory.branding.errors.organizationRequired": "Wybierz pojedynczą organizację przed zmianą brandingu sidebara.",
   "directory.branding.errors.save": "Nie udało się zaktualizować brandingu organizacji",
   "directory.branding.errors.upload": "Nie udało się przesłać logo",
-  "directory.branding.file.hint": "Najlepiej sprawdzi się PNG, JPG, WebP albo SVG. Przesłane pliki są zapisywane jako załączniki organizacji.",
+  "directory.branding.file.hint": "Najlepiej sprawdzi się PNG, JPG albo WebP. Przesłane pliki są zapisywane jako załączniki organizacji.",
   "directory.branding.file.label": "Prześlij logo",
   "directory.branding.flash.saved": "Branding organizacji zaktualizowany",
   "directory.branding.loading": "Ładowanie brandingu organizacji...",
