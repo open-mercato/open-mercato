@@ -118,7 +118,11 @@ When a customer signs up, the module automatically searches for a matching CRM p
 
 | Spot | Widget | Purpose |
 |------|--------|---------|
+| `customers.person` | Account status | Shows portal account status on Customers v2 person detail |
+| `crud-form:customers.person` | Account status | Alias for CrudForm hosts deriving the spot from `customers.person` |
 | `crud-form:customers:customer_person_profile:fields` | Account status | Shows portal account status on CRM person detail |
+| `customers.company` | Company users | Shows portal users on Customers v2 company detail |
+| `crud-form:customers.company` | Company users | Alias for CrudForm hosts deriving the spot from `customers.company` |
 | `crud-form:customers:customer_company_profile:fields` | Company users | Shows portal users linked to a CRM company |
 
 ## Security Notes
