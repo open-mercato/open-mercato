@@ -46,8 +46,6 @@ describe('feature toggle override list OpenAPI schema', () => {
   beforeEach(() => {
     em = {
       find: jest.fn(),
-      // `getOverrides` paginates in the DB (#3242): it calls `em.count` for the total before the
-      // `em.find` page fetch, so the mock must provide it or every call throws `em.count is not a function`.
       count: jest.fn(),
     } as unknown as EntityManager
   })
