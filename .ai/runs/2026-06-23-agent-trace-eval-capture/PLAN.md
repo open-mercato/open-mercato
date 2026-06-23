@@ -250,3 +250,8 @@ gap-12 — also needs DPO/legal call on fairness, gap-13); context knowledge pla
   - **Cockpit now covers:** Overview (KPIs incl. eval/quality) · Caseload four-verb + disposition + trace
     handoff · Agents registry · Playground · **Engineer trace inspector**. Not done: widget-injection into
     `workflows` My-Tasks (chose own pages) + guard-results panel (needs guardrails overlay).
+- 2026-06-24: **Follow-up spec written** for all deferred/remaining work →
+  `.ai/specs/agent-orchestrator/next/2026-06-24-trace-eval-pr4b-and-followups.md` (F1 S3 offload · F2 rollups+
+  scheduler · F3 partitioning · F4 ACL rollout · F5 encryption.ts · F6 dispose-hook test · F7 i18n · F8 runner
+  stamping · F9 llm_judge assertion mgmt · F10 guard-results [blocked]). Each item has verified building blocks
+  to start cold (`schedulerService` DI + `ScheduleRegistration`, `storageService` proxy, `tenantEncryptionService`).
