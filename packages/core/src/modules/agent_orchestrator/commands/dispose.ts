@@ -1,5 +1,5 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandBus, CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -118,6 +118,14 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
       throw new CrudHttpError(404, { error: '[internal] proposal not found' })
     }
 
+    // Capture the agent's ORIGINAL proposal payload before an `edited` verdict
+    // overwrites it, so the correction flywheel records what the agent proposed.
+    const originalProposalPayload = proposal.payload
+    const correctionRunId = proposal.runId
+    const correctionAgentId = proposal.agentId
+    const correctionProcessId = proposal.processId ?? null
+    const correctionStepId = proposal.stepId ?? null
+
     // 3. Already-disposed guard. Re-disposing to the same verdict is idempotent;
     // a different verdict on an already-terminal proposal is a genuine conflict.
     if (proposal.disposition !== 'pending') {
@@ -192,6 +200,35 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
       },
       { persistent: true },
     )
+
+    // 8b. Correction flywheel: a human edit/reject is a correction — record it
+    // (append-only) and auto-draft an eval case. Best-effort: the verdict is
+    // already committed, so a correction-write failure must not fail disposition
+    // (the explicit POST /corrections route is the fallback recording surface).
+    if (!isAuto && actorUserId && (input.disposition === 'edited' || input.disposition === 'rejected')) {
+      try {
+        const commandBus = container.resolve('commandBus') as CommandBus
+        await commandBus.execute('agent_orchestrator.corrections.create', {
+          input: {
+            tenantId: input.tenantId,
+            organizationId: input.organizationId,
+            proposalId: proposal.id,
+            agentRunId: correctionRunId,
+            processId: correctionProcessId,
+            stepId: correctionStepId,
+            agentDefinitionId: correctionAgentId,
+            correctedByUserId: actorUserId,
+            action: input.disposition === 'edited' ? 'edit' : 'reject',
+            proposedValue: originalProposalPayload,
+            correctedValue: input.disposition === 'edited' ? input.payload : null,
+            reason: input.reason ?? '',
+          },
+          ctx,
+        })
+      } catch (error) {
+        console.warn('[internal] agent_orchestrator: failed to record correction for disposed proposal', error)
+      }
+    }
 
     // 9. Resume (human path only). The auto path set `skipResume` because the
     // area-02 executor proceeded inline without ever parking — no signal to send,

@@ -1,5 +1,6 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { seedAgentOrchestratorExamples } from './lib/seeds'
+import { seedDefaultEvalAssertions } from './lib/eval/defaultAssertions'
 
 export const setup: ModuleSetupConfig = {
   // Mirrors the frozen ACL feature set (mvp/00-overview.md §ACL features):
@@ -28,31 +29,40 @@ export const setup: ModuleSetupConfig = {
       'agent_orchestrator.agents.view',
       'agent_orchestrator.proposals.view',
       'agent_orchestrator.proposals.dispose',
+      'agent_orchestrator.trace.view',
+      'agent_orchestrator.trace.correct',
     ],
     operator: [
       'agent_orchestrator.agents.view',
       'agent_orchestrator.proposals.view',
       'agent_orchestrator.proposals.dispose',
+      'agent_orchestrator.trace.view',
+      'agent_orchestrator.trace.correct',
     ],
     engineer: [
       'agent_orchestrator.agents.view',
       'agent_orchestrator.agents.run',
       'agent_orchestrator.proposals.view',
       'agent_orchestrator.workflows.author',
+      'agent_orchestrator.trace.view',
+      'agent_orchestrator.eval.manage',
+      'agent_orchestrator.eval.export',
     ],
   },
 
-  // No-op by design. The auto-approve gate (area 03 DispositionService) reads the
-  // threshold ONLY from the INVOKE_AGENT node config (`onResult.autoApproveThreshold`,
-  // 0.8 on the demo node) — there is no tenant config row to seed. The shared
-  // configs store (`module_configs`) is keyed by (moduleId, name) without
-  // tenant_id/organization_id, so seeding a threshold there would create a
-  // GLOBAL, cross-tenant row, violating the tenant-scoping rule. Keeping the
-  // threshold in the node config is the deliberate MVP simplification
-  // (mvp/05-seed-and-demo.md §seedDefaults). A tenant-wide fallback config is a
-  // post-hackathon overlay (it needs its own tenant-scoped entity).
-  seedDefaults: async () => {
-    /* intentionally empty — threshold is per-node config (see comment above) */
+  // The auto-approve threshold is NOT seeded here (it lives in the INVOKE_AGENT
+  // node config; the shared `module_configs` store is global, not tenant-scoped,
+  // so a threshold row there would leak across tenants — see area 03).
+  //
+  // The trace-eval overlay DOES seed default deterministic eval assertions: these
+  // are real per-(tenant, organization) `agent_eval_assertions` rows (properly
+  // tenant-scoped, unlike module_configs), so a stock tenant evaluates runs out
+  // of the box. Idempotent — re-running creates nothing new.
+  seedDefaults: async (ctx) => {
+    await seedDefaultEvalAssertions(ctx.em, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
   },
 
   // Gated demo seed (skipped with --no-examples). Idempotent + tenant-scoped:
