@@ -120,6 +120,7 @@
   "staff.audit.teams.update": "Update team",
   "staff.audit.timesheets.time_entries.create": "Create time entry",
   "staff.audit.timesheets.time_entries.delete": "Delete time entry",
+  "staff.audit.timesheets.time_entries.startTimer": "Start timer",
   "staff.audit.timesheets.time_entries.update": "Update time entry",
   "staff.audit.timesheets.time_project_members.assign": "Assign time project member",
   "staff.audit.timesheets.time_project_members.unassign": "Unassign time project member",

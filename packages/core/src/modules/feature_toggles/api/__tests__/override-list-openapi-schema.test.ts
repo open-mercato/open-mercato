@@ -46,11 +46,12 @@ describe('feature toggle override list OpenAPI schema', () => {
   beforeEach(() => {
     em = {
       find: jest.fn(),
-      count: jest.fn().mockResolvedValue(2),
+      count: jest.fn(),
     } as unknown as EntityManager
   })
 
   it('documents the live response shape for both override and inherited rows', async () => {
+    (em.count as jest.Mock).mockResolvedValueOnce(2);
     (em.find as jest.Mock).mockResolvedValueOnce([overriddenToggle, inheritedToggle]);
     (em.find as jest.Mock).mockResolvedValueOnce([override])
 
