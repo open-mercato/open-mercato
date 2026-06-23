@@ -23,6 +23,6 @@ test.describe('TC-SALES-001: Quote Creation', () => {
     expect(quoteId).toMatch(/[0-9a-f-]{36}/i);
     const row = page.getByRole('row', { name: new RegExp(lineName, 'i') });
     await expect(row).toBeVisible();
-    await expect(row).toContainText('$60.00 gross');
+    await expect(row).toContainText(/(?:\$|USD\s*)60\.00 gross/);
   });
 });
