@@ -142,6 +142,7 @@
       "error": "The agent run failed.",
       "inputLabel": "Input (JSON)",
       "inputPlaceholder": "{ \"dealId\": \"…\" }",
+      "insertSample": "Insert sample",
       "invalidJson": "The input must be valid JSON.",
       "noRun": "No run yet",
       "noRunDescription": "Pick an agent, enter a JSON input, and run to see the result.",
