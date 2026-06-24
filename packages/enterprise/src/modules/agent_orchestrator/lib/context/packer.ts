@@ -7,17 +7,32 @@ import type {
 import type { ContextSourceHit } from './registry'
 
 /**
- * Budget packer (context overlay, Phase 1).
+ * Budget packer (context overlay, Phases 1 + 4).
  *
  * Mandatory-first, priority-ordered packing: the mandatory floor is ALWAYS routed
  * (a regulated-domain source can never be ranked out), then descending-score
  * optional fill packs the remaining budget. Whole sources are pruned with a reason
- * — never mid-fact truncation. Phase 1 uses a conservative char-based token
- * estimator; the model-appropriate tokenizer + full redaction-aware enforcement
- * land in P4 (the estimator is the clean seam for it).
+ * — NEVER mid-fact truncation. The records handed in are already redacted (P4:
+ * encrypted/PII values are removed by the resolver BEFORE estimation), so the
+ * token estimate and the packed payload only ever cover least-privilege content.
+ *
+ * Budget invariant: the OPTIONAL fill is bounded so `tokensUsed ≤ tokenBudget`
+ * holds across the optional tier — anything that does not fit is pruned, never
+ * truncated. The mandatory floor is the single documented exception: it is routed
+ * whole even if it alone exceeds the budget (the floor guarantee takes precedence
+ * over the cap — a capability whose declared floor exceeds its budget is a
+ * misconfiguration, not an excuse to drop regulated evidence). In practice a
+ * capability declares a floor that fits, so `tokensUsed ≤ tokenBudget` holds.
  */
 
-/** Conservative chars-per-token heuristic (P4 swaps in a model tokenizer). */
+/**
+ * Conservative chars-per-token heuristic. Tokens ≈ serialized-JSON length / 4 (the
+ * usual ~4-chars-per-token rule of thumb for English/code), rounded UP with a floor
+ * of 1. Deliberately an over-estimate so we err toward pruning rather than
+ * overflowing a real model context window; exactness is not required — the
+ * routed/pruned INVARIANT is. Swap in a model tokenizer behind this signature when
+ * per-model budgeting is needed.
+ */
 const CHARS_PER_TOKEN = 4
 
 /** Estimate the token cost of a fact's redacted record. Conservative (rounds up). */
