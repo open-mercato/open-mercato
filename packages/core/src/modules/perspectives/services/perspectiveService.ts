@@ -327,7 +327,7 @@ export async function deleteUserPerspective(
   em: EntityManager,
   cache: CacheStrategy | null | undefined,
   options: { scope: PerspectiveScope; tableId: string; perspectiveId: string },
-): Promise<void> {
+): Promise<boolean> {
   const { scope, tableId, perspectiveId } = options
   const tenantId = scope.tenantId ?? null
   const organizationId = scope.organizationId ?? null
@@ -340,7 +340,7 @@ export async function deleteUserPerspective(
     tableId,
     deletedAt: null,
   })
-  if (!existing) return
+  if (!existing) return false
 
   existing.deletedAt = new Date()
   existing.isDefault = false
@@ -349,6 +349,8 @@ export async function deleteUserPerspective(
   if (cache?.deleteByTags) {
     await cache.deleteByTags([userTag(scope, tableId)])
   }
+
+  return true
 }
 
 export async function saveRolePerspectives(
@@ -448,13 +450,13 @@ export async function clearRolePerspectives(
     organizationId?: string | null
     roleIds: string[]
   },
-): Promise<void> {
+): Promise<number> {
   const { tableId, roleIds } = options
   const tenantId = options.tenantId ?? null
   const organizationId = options.organizationId ?? null
-  if (!roleIds.length) return
+  if (!roleIds.length) return 0
 
-  await em.nativeUpdate(
+  const affected = await em.nativeUpdate(
     RolePerspective,
     {
       roleId: { $in: roleIds as any },
@@ -470,4 +472,6 @@ export async function clearRolePerspectives(
     const tags = roleIds.map((roleId) => roleTag(roleId, tableId, tenantId))
     await cache.deleteByTags(tags)
   }
+
+  return affected
 }

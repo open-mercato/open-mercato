@@ -39,8 +39,10 @@ import type { Page } from '@playwright/test'
  * Pattern (see optimisticLockUi): load the detail page so the page/form captures
  * `updated_at` → advance `updated_at` out-of-band via a header-less API PUT
  * (additive path, always succeeds) → edit/save (or delete) in the browser so the
- * now-stale `x-om-ext-optimistic-lock-expected-updated-at` header triggers the
- * 409 → conflict bar.
+ * now-stale `x-om-ext-optimistic-lock-expected-updated-at` header triggers a
+ * conflict surface. With enterprise record_locks enabled, the incoming-change
+ * dialog may surface before the stale PUT is sent; both conflict surfaces are
+ * valid and are covered by `expectConflictBanner`.
  */
 
 const DEALS_API_BASE = '/api/customers/deals'
@@ -90,18 +92,14 @@ test.describe('TC-LOCK-OSS-016: customers deal edit + stale delete conflict bar'
         title: `QA Lock 016 bumped ${stamp}`,
       })
 
-      // Edit (makes the form dirty → enables Save) + click the header Save →
-      // stale header → 409 → bar.
+      // Edit (makes the form dirty → enables Save) + click the header Save.
+      // Under the enterprise record_locks module, the incoming-change dialog
+      // can win before the browser sends the stale PUT, so assert the visible
+      // conflict surface instead of pinning this UI test to one network path.
       await fillControlledInput(titleInput, `QA Lock 016 stale ${stamp}`)
       const saveButton = page.getByRole('button', { name: /^save$/i }).first()
       await expect(saveButton).toBeEnabled({ timeout: 10_000 })
-      const staleSaveResponse = page.waitForResponse((response) => {
-        const url = new URL(response.url())
-        return response.request().method() === 'PUT' && url.pathname === DEALS_API_BASE
-      }, { timeout: 30_000 })
       await saveButton.click()
-      const response = await staleSaveResponse
-      expect(response.status(), `stale PUT ${DEALS_API_BASE} should conflict`).toBe(409)
 
       await expectConflictBanner(page)
     } finally {
