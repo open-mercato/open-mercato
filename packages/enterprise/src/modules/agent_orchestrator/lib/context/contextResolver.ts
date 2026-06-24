@@ -7,6 +7,7 @@ import {
   contextBundleRoutedSourcesSchema,
   contextBundlePrunedSourcesSchema,
   contextBundleSourcesSchema,
+  contextBundleRedactionAppliedSchema,
   type ContextProvenance,
 } from '../../data/validators'
 import {
@@ -18,12 +19,30 @@ import {
 import { estimateTokens, packCandidates, type PackCandidate } from './packer'
 import { readRetrievalSource } from './retrievalSource'
 import type { DocumentExtraction } from '../../data/validators'
+import type { ContextRedactionApplied } from '../../data/validators'
 import {
   documentExtractionToCandidates,
   documentProvenance,
   DEFAULT_DOCUMENT_MIN_CONFIDENCE,
 } from './documentSource'
 import type { DocumentIngestInput, DocumentIngestService } from './documentIngest'
+import { redactRecord, staticEncryptedFieldNames } from './redactor'
+import { defaultEncryptionMaps } from '../../encryption'
+
+/**
+ * Minimal slice of `TenantDataEncryptionService` the redactor consults — only the
+ * read of which fields are encrypted at rest for an entity (per-tenant map). Typed
+ * narrowly so the resolver never depends on the full service surface and so it
+ * degrades to the static-map floor when the service is unregistered (tests/envs
+ * with encryption-at-rest disabled).
+ */
+export interface EncryptedFieldNameSource {
+  getEncryptedFieldNames(
+    entityId: string,
+    tenantId: string | null | undefined,
+    organizationId?: string | null,
+  ): Promise<string[]>
+}
 
 /**
  * Input to a TDCR assembly. Validated by `assembleInputSchema`; tenant/org are
@@ -137,6 +156,51 @@ export class ContextResolverImpl implements ContextResolver {
     }
   }
 
+  private get encryptionService(): EncryptedFieldNameSource | null {
+    const hasRegistration =
+      typeof this.container.hasRegistration === 'function'
+        ? this.container.hasRegistration.bind(this.container)
+        : null
+    if (hasRegistration && !hasRegistration('tenantEncryptionService')) return null
+    try {
+      const service = this.container.resolve('tenantEncryptionService') as unknown
+      if (service && typeof (service as EncryptedFieldNameSource).getEncryptedFieldNames === 'function') {
+        return service as EncryptedFieldNameSource
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * The least-privilege set of fields to redact for an entity source: the
+   * module's static encryption-map floor (always on) UNION the per-tenant
+   * encrypted-field set from `TenantDataEncryptionService` (when registered). The
+   * PII name-based rule is applied independently inside `redactRecord`.
+   */
+  private async encryptedFieldNamesFor(
+    entityType: string,
+    scope: { tenantId: string; organizationId: string },
+  ): Promise<string[]> {
+    const fields = new Set<string>(staticEncryptedFieldNames(entityType, defaultEncryptionMaps))
+    const service = this.encryptionService
+    if (service) {
+      try {
+        const tenantFields = await service.getEncryptedFieldNames(
+          entityType,
+          scope.tenantId,
+          scope.organizationId,
+        )
+        for (const field of tenantFields) fields.add(field)
+      } catch {
+        // The static floor still applies; a service read failure must never
+        // un-redact a field, so we fall through with what we have.
+      }
+    }
+    return [...fields]
+  }
+
   async assemble(em: EntityManager, input: AssembleInput): Promise<AssembleResult> {
     // Validate the serializable scope/budget fields; the Buffer-bearing document
     // inputs ride alongside as a typed param (not a JSON value).
@@ -150,13 +214,14 @@ export class ContextResolverImpl implements ContextResolver {
     const module = resolveContextModule(parsed.capability)
     if (!module) throw new ContextModuleNotFoundError(parsed.capability)
 
-    const candidates = await this.collectCandidates(module, parsed)
+    const { candidates, redactions } = await this.collectCandidates(module, parsed)
     const packed = packCandidates(candidates, parsed.budget)
 
     // Validate the jsonb shapes at the Zod boundary before persisting.
     const routedSources = contextBundleRoutedSourcesSchema.parse(packed.routedSources)
     const prunedSources = contextBundlePrunedSourcesSchema.parse(packed.prunedSources)
     const sources = contextBundleSourcesSchema.parse(packed.sources)
+    const redactionApplied = contextBundleRedactionAppliedSchema.parse(redactions)
 
     const bundle = em.create(AgentContextBundle, {
       tenantId: parsed.tenantId,
@@ -170,8 +235,10 @@ export class ContextResolverImpl implements ContextResolver {
       sources,
       tokenBudget: parsed.budget,
       tokensUsed: packed.tokensUsed,
-      // P4 records field-encryption/PII redaction here (least-privilege seam).
-      redactionApplied: null,
+      // Field-encryption/PII redaction applied before packing (least-privilege).
+      // Encrypted/PII values are removed from every routed record; this records
+      // exactly what was withheld for the trace inspector + compliance lineage.
+      redactionApplied: redactionApplied.length ? redactionApplied : null,
       // P4 offloads the packed payload to storage-s3 and stores the ref here.
       payloadRef: null,
     })
@@ -228,16 +295,20 @@ export class ContextResolverImpl implements ContextResolver {
 
     // Structured `entity` sources also ground a proposal — emit them as citable
     // snippets (the record id is the locator, score defaults to a certain 1).
+    // Redact encrypted/PII fields here too: a grounding snippet is agent-visible,
+    // so it must obey the same least-privilege boundary as the packed bundle.
     for (const source of module.sources) {
       if (source.kind !== 'entity') continue
+      const encryptedFields = await this.encryptedFieldNamesFor(source.entityType, readScope)
       const hits = await this.readEntitySource(source, readScope)
       for (const hit of hits) {
+        const { record } = redactRecord(hit.record, encryptedFields)
         const locator = hit.locator ?? `${source.entityType}:${hit.ref}`
         snippets.push({
           sourceKind: 'entity',
           sourceRef: hit.ref,
           locator,
-          snippet: JSON.stringify(hit.record),
+          snippet: JSON.stringify(record),
           score: hit.score ?? 1,
         })
       }
@@ -249,24 +320,38 @@ export class ContextResolverImpl implements ContextResolver {
   private async collectCandidates(
     module: ContextModule,
     input: AssembleInput,
-  ): Promise<PackCandidate[]> {
+  ): Promise<{ candidates: PackCandidate[]; redactions: ContextRedactionApplied[] }> {
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
     const candidates: PackCandidate[] = []
+    const redactionByField = new Map<string, ContextRedactionApplied>()
     const ordered = [...module.sources].sort((left, right) => left.priority - right.priority)
+
+    const recordRedactions = (applied: ContextRedactionApplied[]): void => {
+      for (const redaction of applied) {
+        const key = `${redaction.field}:${redaction.rule}`
+        if (!redactionByField.has(key)) redactionByField.set(key, redaction)
+      }
+    }
 
     // First pass: read structured `entity` sources. The mandatory floor comes
     // exclusively from these (retrieval is always optional fill), so we read it
     // before deriving the retrieval query from the assembled mandatory facts.
+    // Each record is REDACTED here, before it becomes a candidate — encrypted/PII
+    // field values never enter the pack, the budget estimate, or the payload.
     for (const source of ordered) {
       if (source.kind !== 'entity') continue
+      const encryptedFields = await this.encryptedFieldNamesFor(source.entityType, scope)
       const hits = await this.readEntitySource(source, scope)
       for (const hit of hits) {
-        const provenance: ContextProvenance = source.provenance(hit)
+        const { record, redactions } = redactRecord(hit.record, encryptedFields)
+        recordRedactions(redactions)
+        const redactedHit = { ...hit, record }
+        const provenance: ContextProvenance = source.provenance(redactedHit)
         candidates.push({
           kind: source.kind,
           tier: source.tier,
-          hit,
-          tokens: estimateTokens(hit.record),
+          hit: redactedHit,
+          tokens: estimateTokens(record),
           provenance,
         })
       }
@@ -276,17 +361,22 @@ export class ContextResolverImpl implements ContextResolver {
     // from the mandatory floor so retrieval is grounded in the subject the
     // capability MUST see; results pack into the budget remaining after the floor
     // and flow through the same routed/pruned recording as every other candidate.
+    // Retrieval records are PII-redacted by name (no per-entity encryption map is
+    // known for a fused snippet) so a sensitive field can't ride in via search.
     const retrievalQuery = buildRetrievalQuery(candidates, input.capability)
     for (const source of ordered) {
       if (source.kind !== 'retrieval') continue
       const hits = await readRetrievalSource(this.container, source, retrievalQuery, scope)
       for (const hit of hits) {
-        const provenance: ContextProvenance = source.provenance(hit)
+        const { record, redactions } = redactRecord(hit.record, [])
+        recordRedactions(redactions)
+        const redactedHit = { ...hit, record }
+        const provenance: ContextProvenance = source.provenance(redactedHit)
         candidates.push({
           kind: source.kind,
           tier: source.tier,
-          hit,
-          tokens: estimateTokens(hit.record),
+          hit: redactedHit,
+          tokens: estimateTokens(record),
           provenance,
         })
       }
@@ -296,22 +386,26 @@ export class ContextResolverImpl implements ContextResolver {
     // swappable OCR/extraction pipeline, fold in any pre-ingested extractions,
     // then pack each fact as an OPTIONAL `document` candidate. Low-confidence
     // facts are excluded before they enter the pool (excludable-from-routing);
-    // extracted text is UNTRUSTED data, never an instruction.
+    // extracted text is UNTRUSTED data, never an instruction. Document records
+    // also pass through PII-name redaction before packing.
     const extractions = await this.collectDocumentExtractions(input, scope)
     const minConfidence = input.documentMinConfidence ?? DEFAULT_DOCUMENT_MIN_CONFIDENCE
     for (const extraction of extractions) {
       for (const { fact, hit } of documentExtractionToCandidates(extraction, { minConfidence })) {
+        const { record, redactions } = redactRecord(hit.record, [])
+        recordRedactions(redactions)
+        const redactedHit = { ...hit, record }
         candidates.push({
           kind: 'document',
           tier: 'optional',
-          hit,
-          tokens: estimateTokens(hit.record),
+          hit: redactedHit,
+          tokens: estimateTokens(record),
           provenance: documentProvenance(fact),
         })
       }
     }
 
-    return candidates
+    return { candidates, redactions: [...redactionByField.values()] }
   }
 
   /**

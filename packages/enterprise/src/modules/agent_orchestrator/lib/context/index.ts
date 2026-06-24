@@ -9,6 +9,7 @@ export type {
   AssembleResult,
   RetrieveScope,
   RetrievedSnippet,
+  EncryptedFieldNameSource,
 } from './contextResolver'
 export {
   registerContextModule,
@@ -24,6 +25,13 @@ export type {
 } from './registry'
 export { estimateTokens, packCandidates } from './packer'
 export type { PackCandidate, PackResult } from './packer'
+export {
+  redactRecord,
+  staticEncryptedFieldNames,
+  REDACTION_RULE_FIELD_ENCRYPTION,
+  REDACTION_RULE_PII,
+} from './redactor'
+export type { RedactionResult } from './redactor'
 export { readRetrievalSource } from './retrievalSource'
 export type { SearchServiceLike, SearchHit, RetrievalScope } from './retrievalSource'
 export {
