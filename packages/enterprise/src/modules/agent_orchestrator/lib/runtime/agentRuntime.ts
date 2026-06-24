@@ -95,6 +95,10 @@ export class AgentRuntimeService {
       agentId,
       input,
       parentRunId: ctx.parentRunId ?? null,
+      // In-process runs have no external session id, so only the runtime is
+      // stamped. The `(runtime, externalRunId)` unique index allows multiple
+      // nulls, so leaving externalRunId null is correct here.
+      runtime: 'in-process',
     })
 
     // Load the caller's effective ACL so the agent's read-only tools (e.g.
