@@ -417,6 +417,67 @@ describe('notification service', () => {
     expect(commandBus.execute).not.toHaveBeenCalled()
   })
 
+  it('releases the claim when the dispatched command fails so the action can be retried', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const commandError = new Error('command exploded')
+    const commandBus = { execute: jest.fn().mockRejectedValue(commandError) }
+    const container = { resolve: jest.fn() }
+
+    // Capture every UPDATE ... SET payload so we can assert the claim is rolled back.
+    const setPayloads: Array<Record<string, unknown>> = []
+    em.getKysely.mockReturnValue({
+      selectFrom: () => ({
+        select: () => ({
+          where: () => ({ executeTakeFirst: async () => undefined, execute: async () => [] }),
+        }),
+      }),
+      updateTable: () => ({
+        set: (payload: Record<string, unknown>) => {
+          setPayloads.push(payload)
+          const chain: any = {
+            where: () => chain,
+            executeTakeFirst: async () => ({ numUpdatedRows: BigInt(1) }),
+          }
+          return chain
+        },
+      }),
+    })
+
+    const service = createNotificationService({ em, eventBus, commandBus, container })
+
+    const notification: Notification = {
+      id: 'note-retry',
+      recipientUserId: baseCtx.userId ?? null,
+      tenantId: baseCtx.tenantId,
+      status: 'unread',
+      readAt: null,
+      actionedAt: null,
+      actionTaken: null,
+      sourceEntityId: '1f9d8d1c-319f-48d4-b803-77665b6b2510',
+      actionData: {
+        actions: [{ id: 'approve', label: 'Approve', commandId: 'sales.approve' }],
+        primaryActionId: 'approve',
+      },
+    } as Notification
+
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(notification)
+
+    await expect(
+      service.executeAction(notification.id, { actionId: 'approve', payload: {} }, baseCtx)
+    ).rejects.toBe(commandError)
+
+    // First UPDATE claims the notification; the second releases it back to its
+    // prior, retryable state instead of leaving it locked as `actioned`.
+    expect(setPayloads).toHaveLength(2)
+    expect(setPayloads[0]).toMatchObject({ status: 'actioned', action_taken: 'approve' })
+    expect(setPayloads[1]).toMatchObject({ status: 'unread', actioned_at: null, action_taken: null })
+
+    // The failed action did not persist an actioned state or emit the actioned event.
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalledWith(NOTIFICATION_EVENTS.ACTIONED, expect.anything())
+  })
+
   it('executes the target command at most once for duplicate concurrent requests', async () => {
     const em = buildEm()
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
