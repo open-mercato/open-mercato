@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import { attachOperationMetadataHeader, type OperationLogEntryLike } from '../../../../lib/operationMetadata'
 import { resolveMessageContext } from '../../../../lib/routeHelpers'
+import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../../../guards'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { actionResultResponseSchema } from '../../../openapi'
 
@@ -20,6 +21,29 @@ export async function POST(
   const body = (typeof rawBody === 'object' && rawBody && !Array.isArray(rawBody)
     ? rawBody
     : {}) as Record<string, unknown>
+
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: params.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: body,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
+
   try {
     const commandResult = await commandBus.execute('messages.actions.execute', {
       input: {
@@ -54,6 +78,16 @@ export async function POST(
     attachOperationMetadataHeader(response, result.operationLogEntry ?? null, {
       resourceKind: 'messages.message',
       resourceId: params.id,
+    })
+    await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: params.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
     })
     return response
   } catch (error) {

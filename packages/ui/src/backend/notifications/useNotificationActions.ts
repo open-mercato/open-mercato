@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { apiCall } from '../utils/apiCall'
+import { apiCall, apiCallOrThrow } from '../utils/apiCall'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
 
 export type NotificationDismissUndoState = {
@@ -32,7 +32,7 @@ export function useNotificationActions(
   const dismissUndoTimerRef = React.useRef<number | null>(null)
 
   const markAsRead = React.useCallback(async (id: string) => {
-    await apiCall(`/api/notifications/${id}/read`, { method: 'PUT' })
+    await apiCallOrThrow(`/api/notifications/${id}/read`, { method: 'PUT' })
     setNotifications((prev) =>
       prev.map((n) =>
         n.id === id ? { ...n, status: 'read', readAt: new Date().toISOString() } : n,
@@ -69,7 +69,7 @@ export function useNotificationActions(
 
   const dismiss = React.useCallback(
     async (id: string) => {
-      await apiCall(`/api/notifications/${id}/dismiss`, { method: 'PUT' })
+      await apiCallOrThrow(`/api/notifications/${id}/dismiss`, { method: 'PUT' })
       const notification = notifications.find((n) => n.id === id)
       setNotifications((prev) => prev.filter((n) => n.id !== id))
       if (notification?.status === 'unread') {
@@ -95,7 +95,7 @@ export function useNotificationActions(
 
   const undoDismiss = React.useCallback(async () => {
     if (!dismissUndo) return
-    await apiCall(`/api/notifications/${dismissUndo.notification.id}/restore`, {
+    await apiCallOrThrow(`/api/notifications/${dismissUndo.notification.id}/restore`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ status: dismissUndo.previousStatus }),
@@ -129,7 +129,7 @@ export function useNotificationActions(
   }, [dismissUndo, setNotifications, setUnreadCount])
 
   const markAllRead = React.useCallback(async () => {
-    await apiCall('/api/notifications/mark-all-read', { method: 'PUT' })
+    await apiCallOrThrow('/api/notifications/mark-all-read', { method: 'PUT' })
     setNotifications((prev) =>
       prev.map((n) =>
         n.status === 'unread'
