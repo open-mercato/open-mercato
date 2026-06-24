@@ -254,3 +254,22 @@ export const evalCaseExportQuerySchema = z
   })
   .passthrough()
 export type EvalCaseExportQuery = z.infer<typeof evalCaseExportQuerySchema>
+
+// ── Metric rollups (F2) ─────────────────────────────────────────────────────
+/**
+ * The `metrics` jsonb shape stored on an AgentMetricRollup row — the same KPIs
+ * the /agents/:id/metrics endpoint computes live, precomputed per window. Null
+ * rates mean "no denominator" (e.g. no evaluated runs) rather than zero.
+ */
+export const agentMetricRollupMetricsSchema = z.object({
+  totalRuns: z.number().int().nonnegative(),
+  evaluatedRuns: z.number().int().nonnegative(),
+  evalPassRate: z.number().min(0).max(1).nullable(),
+  overrides: z.number().int().nonnegative(),
+  overrideRate: z.number().min(0).max(1).nullable(),
+  avgLatencyMs: z.number().nonnegative().nullable(),
+  costMinorTotal: z.number().nonnegative(),
+  disposedProposals: z.number().int().nonnegative(),
+  approveUnchangedRate: z.number().min(0).max(1).nullable(),
+})
+export type AgentMetricRollupMetrics = z.infer<typeof agentMetricRollupMetricsSchema>

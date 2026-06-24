@@ -10,6 +10,7 @@ import {
   AgentEvalCase,
   AgentEvalAssertion,
   AgentEvalResult,
+  AgentMetricRollup,
 } from './data/entities'
 import { AgentRuntimeService } from './lib/runtime/agentRuntime'
 import { DbAgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
@@ -27,6 +28,7 @@ export function register(container: AppContainer) {
     AgentEvalCase: asValue(AgentEvalCase),
     AgentEvalAssertion: asValue(AgentEvalAssertion),
     AgentEvalResult: asValue(AgentEvalResult),
+    AgentMetricRollup: asValue(AgentMetricRollup),
     // CLASSIC injection mode resolves deps by parameter name — destructure the
     // real dependency names (not a `cradle` param) and use .proxy() so the
     // cradle is passed and deps resolve lazily (matches sales/di.ts).
