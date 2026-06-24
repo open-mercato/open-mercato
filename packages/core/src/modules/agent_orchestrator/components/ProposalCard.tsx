@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { TriangleAlert, Info } from 'lucide-react'
+import { TriangleAlert, Info, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert } from '@open-mercato/ui/primitives/alert'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
@@ -14,7 +14,21 @@ import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatConfidence, type ProposalView } from './types'
-import { dispositionLabelKey, dispositionVariant, proposalVerdict } from './cockpitStatus'
+import { proposalVerdict } from './cockpitStatus'
+
+// Mirror the caseload status taxonomy (Action required / Approved / Rejected)
+// so the proposal detail badge reads identically to the inbox + list — and
+// never falls back to the amber "Pending" pill the cockpit retired.
+function caseStatusVariant(disposition: string): 'info' | 'success' | 'error' {
+  if (disposition === 'pending') return 'info'
+  if (disposition === 'rejected') return 'error'
+  return 'success'
+}
+function caseStatusLabelKey(disposition: string): string {
+  if (disposition === 'pending') return 'agent_orchestrator.caseload.status.actionRequired'
+  if (disposition === 'rejected') return 'agent_orchestrator.caseload.status.rejected'
+  return 'agent_orchestrator.caseload.status.approved'
+}
 
 export type DisposeKind = 'approved' | 'edited' | 'rejected'
 
@@ -202,8 +216,8 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
           </div>
         ) : null}
         {proposal ? (
-          <StatusBadge variant={dispositionVariant(proposal.disposition)} dot>
-            {t(dispositionLabelKey(proposal.disposition))}
+          <StatusBadge variant={caseStatusVariant(proposal.disposition)} dot>
+            {t(caseStatusLabelKey(proposal.disposition))}
           </StatusBadge>
         ) : null}
       </div>
@@ -357,10 +371,11 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
           <div className="flex items-center gap-2 border-t border-border pt-4">
             <Button
               type="button"
-              variant="destructive"
+              variant="outline"
               onClick={startReject}
               disabled={!canDispose || busy}
             >
+              <X className="mr-1.5 size-4 text-status-error-text" />
               {t('agent_orchestrator.proposal.actions.reject')}
             </Button>
             <Button
