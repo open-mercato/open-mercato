@@ -753,3 +753,79 @@ export class AgentProposal {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+/**
+ * The single durable artifact of a Task-Driven Context Routing (TDCR) assembly —
+ * the evidence record of *what an agent saw* for one `INVOKE_AGENT` run. Append-only
+ * (omits `updated_at`/`deleted_at`) per conventions §3.2: it is immutable evidence
+ * read by the trace inspector (routed vs. pruned + token usage), the guardrails
+ * grounding check (cited snippets), and compliance lineage (fact → evidence).
+ *
+ * `routedSources`/`prunedSources`/`sources`/`redactionApplied` jsonb shapes are
+ * enforced by Zod in data/validators.ts (`contextBundleRoutedSourcesSchema` etc.).
+ * Other modules referenced by FK id only (agentRunId, processId).
+ */
+@Entity({ tableName: 'agent_context_bundles' })
+@Index({ name: 'agent_context_bundles_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_context_bundles_run_idx', properties: ['agentRunId'] })
+export class AgentContextBundle {
+  [OptionalProps]?: 'processId' | 'stepId' | 'prunedSources' | 'redactionApplied' | 'payloadRef' | 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** FK id → agent_runs; NOT an ORM relation. */
+  @Property({ name: 'agent_run_id', type: 'uuid' })
+  agentRunId!: string
+
+  /** FK id → workflows process instance (null for standalone runs). */
+  @Property({ name: 'process_id', type: 'uuid', nullable: true })
+  processId?: string | null
+
+  @Property({ name: 'step_id', type: 'varchar', length: 100, nullable: true })
+  stepId?: string | null
+
+  @Property({ name: 'capability', type: 'varchar', length: 100 })
+  capability!: string
+
+  /**
+   * Selected & packed sources: `{ kind, ref, locator?, tokens, score? }[]`. The
+   * mandatory floor is always present here. Shape enforced by Zod.
+   */
+  @Property({ name: 'routed_sources', type: 'jsonb' })
+  routedSources!: unknown
+
+  /**
+   * Excluded candidates with a reason (over budget / out of scope):
+   * `{ kind, ref, reason }[]`. Records the optional-fill variance for audit.
+   */
+  @Property({ name: 'pruned_sources', type: 'jsonb', nullable: true })
+  prunedSources?: unknown | null
+
+  /** Provenance: `{ factId, sourceKind, sourceRef, locator? }[]` (→ lineage). */
+  @Property({ name: 'sources', type: 'jsonb' })
+  sources!: unknown
+
+  @Property({ name: 'token_budget', type: 'integer' })
+  tokenBudget!: number
+
+  @Property({ name: 'tokens_used', type: 'integer' })
+  tokensUsed!: number
+
+  /** `{ field, rule }[]` redacted before the agent saw it (P4 populates richer rules). */
+  @Property({ name: 'redaction_applied', type: 'jsonb', nullable: true })
+  redactionApplied?: unknown | null
+
+  /** storage-s3 ref to the packed context payload (P4 offloads the full payload). */
+  @Property({ name: 'payload_ref', type: 'varchar', length: 500, nullable: true })
+  payloadRef?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}

@@ -44,6 +44,8 @@ export const features = [
     module: 'agent_orchestrator',
     dependsOn: ['agent_orchestrator.guardrail.read'],
   },
+  // Context overlay — read the assembled context bundles (trace "context assembled" panel).
+  { id: 'agent_orchestrator.context.read', title: 'View agent context bundles', module: 'agent_orchestrator' },
 ]
 
 export default features
