@@ -28,6 +28,20 @@ Baseline before run: 26 suites / 111 tests pass.
 | 7 | F9 — `llm_judge` assertion management | M | ✅ | CRUD route (4 verbs gated eval.manage, optimistic lock) + backend page (i18n ×4, check-sync green) + seeded disabled llm_judge_helpfulness example + create→enable→judge test (32 suites/129 tests) |
 | 8 | Guardrails P1 — output-schema + tool-scope | M | ✅ | AgentGuardrailCheck entity + guard_results col (migration+snapshot), guardrail.tripped event, guardrail.read/manage ACL, GuardrailService (checkOutput schema+tool_scope; checkInput stub), read route, runtime post-call wiring (block fails, pass non-disruptive), guardrails-output.test.ts (33 suites/133 tests) |
 
+## Outcome (2026-06-25)
+
+All 8 foundational-subset phases complete — one commit each (F4 `418b0e27b` → Guardrails P1 `3357fdaed`).
+Final module state: **33 suites / 133 tests pass** (baseline 26/111), enterprise `typecheck` clean,
+`i18n:check-sync` green for agent_orchestrator. F7 needed no code (already done).
+
+### Maintainer handoff (actions outside this run's scope)
+- **Apply migrations** (generated, NOT applied per the ask): `Migration20260625000000` (F2 `agent_metric_rollups`)
+  and `Migration20260625010000` (Guardrails P1 `agent_guardrail_checks` + `agent_proposals.guard_results`). Run `yarn db:migrate`.
+- **Sync ACLs**: `yarn mercato auth sync-role-acls` for the new `guardrail.read`/`guardrail.manage` features (and the F4 `trace.view` note).
+- **Pre-existing orphan**: stale untracked `packages/core/src/modules/agent_orchestrator/generated/` (leftover from the
+  enterprise move) breaks full-repo `yarn typecheck`. Left untouched (deletion denied / not in scope) — safe to remove.
+- Pre-existing unstaged `docker/opencode/...` deletions remain (from the move) — left untouched.
+
 ## Deferred (flagged for follow-up)
 
 - **F1** Encrypted S3 artifact offload (needs F5; first `storageService` consumer — validate proxy flow).
