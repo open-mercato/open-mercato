@@ -24,7 +24,7 @@ Baseline before run: 26 suites / 111 tests pass.
 | 3 | F8 — runner stamps `runtime`+`externalRunId` | S | ✅ | createRun threads runtime/externalRunId; opencode=session.id, in-process stamps runtime; run-runtime-stamping.test.ts (29 suites/119 tests) |
 | 4 | F6 — dispose→correction hook test | S | ✅ | dispose-correction-hook.test.ts (4 cases, mutation-verified non-vacuous; 30 suites/123 tests) |
 | 5 | F7 — i18n flatten + de/es/pl | M | ✅ (already done) | en.json already flat; de/es/pl fully translated (387 keys each, only legit loanwords identical to EN); `i18n:check-sync` + `check-values` clean for agent_orchestrator. No change needed. (Only `workflows` has a sync issue — out of scope.) |
-| 6 | F2 — `AgentMetricRollup` + scheduler + worker | M | ☐ | |
+| 6 | F2 — `AgentMetricRollup` + scheduler + worker | M | ✅ | entity+migration+snapshot, metricRollupService (canonical windows, bucketed idempotency), worker, 300s scheduler in setup, metrics route prefers rollup w/ live fallback; metric-rollup.test.ts (31 suites/125 tests). Overview page repoint = TODO follow-up. |
 | 7 | F9 — `llm_judge` assertion management | M | ☐ | |
 | 8 | Guardrails P1 — output-schema + tool-scope | M | ☐ | |
 

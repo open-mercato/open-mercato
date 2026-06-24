@@ -1,6 +1,39 @@
+import { createHash } from 'node:crypto'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { seedAgentOrchestratorExamples } from './lib/seeds'
 import { seedDefaultEvalAssertions } from './lib/eval/defaultAssertions'
+import { AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE } from './lib/queue'
+
+/** Mirrors the @open-mercato/scheduler ScheduleRegistration field names. */
+type SchedulerServiceLike = {
+  register: (registration: {
+    id: string
+    name: string
+    scopeType: 'system' | 'organization' | 'tenant'
+    organizationId?: string
+    tenantId?: string
+    scheduleType: 'cron' | 'interval'
+    scheduleValue: string
+    timezone?: string
+    targetType: 'queue' | 'command'
+    targetQueue?: string
+    targetPayload?: unknown
+    sourceType?: 'user' | 'module'
+    sourceModule?: string
+    isEnabled?: boolean
+    description?: string
+  }) => Promise<void>
+}
+
+/**
+ * `scheduled_jobs.id` is a uuid column, so a module-owned schedule's stable
+ * registration key must be hashed into a uuid — this keeps register() an
+ * idempotent upsert across seedDefaults re-runs.
+ */
+function stableScheduleUuid(stableKey: string): string {
+  const hex = createHash('sha256').update(stableKey).digest('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+}
 
 export const setup: ModuleSetupConfig = {
   // Mirrors the frozen ACL feature set (mvp/00-overview.md §ACL features):
@@ -63,6 +96,41 @@ export const setup: ModuleSetupConfig = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
     })
+
+    // F2: register the per-org metric-rollup interval job. Best-effort + guarded
+    // — a deployment without the scheduler module is a safe no-op, and a
+    // scheduler failure must not abort tenant init for every other module. The
+    // schedule id is a deterministic uuid so re-runs upsert idempotently.
+    const cradle = ctx.container as { hasRegistration?: (name: string) => boolean }
+    if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) {
+      return
+    }
+    try {
+      const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+      const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
+      await schedulerService.register({
+        id: stableScheduleUuid(`agent_orchestrator:metric-rollup:${ctx.organizationId}`),
+        name: 'Agent metric rollup',
+        description: 'Precomputes per-agent KPI windows into append-only rollup rows every 300s.',
+        scopeType: 'organization',
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        scheduleType: 'interval',
+        scheduleValue: '300s',
+        timezone: 'UTC',
+        targetType: 'queue',
+        targetQueue: AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE,
+        targetPayload: { scope },
+        sourceType: 'module',
+        sourceModule: 'agent_orchestrator',
+        isEnabled: true,
+      })
+    } catch (error) {
+      console.warn(
+        '[internal] agent_orchestrator: failed to register metric-rollup schedule',
+        error instanceof Error ? error.message : error,
+      )
+    }
   },
 
   // Gated demo seed (skipped with --no-examples). Idempotent + tenant-scoped:

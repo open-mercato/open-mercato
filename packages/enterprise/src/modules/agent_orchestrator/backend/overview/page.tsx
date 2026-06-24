@@ -144,6 +144,9 @@ export default function AgentFleetOverviewPage() {
   }, [proposals])
 
   const trust = React.useMemo<TrustRow[]>(() => {
+    // TODO(F2 follow-up): this tile computes override/run stats client-side from
+    // capped /proposals + /runs lists; repoint it at GET /agents/:id/metrics
+    // (which now prefers precomputed rollups) so large fleets read stable windows.
     const runStats = new Map<string, { total: number; errors: number }>()
     for (const run of rawRuns) {
       const id = fieldOf(run, 'agent_id', 'agentId')
