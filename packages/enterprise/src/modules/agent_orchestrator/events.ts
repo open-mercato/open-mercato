@@ -21,6 +21,9 @@ const events = [
   { id: 'agent_orchestrator.proposal.corrected', label: 'Agent Proposal Corrected', entity: 'proposal', category: 'lifecycle' },
   { id: 'agent_orchestrator.eval_case.created', label: 'Agent Eval Case Created', entity: 'eval_case', category: 'lifecycle' },
   { id: 'agent_orchestrator.eval_case.approved', label: 'Agent Eval Case Approved', entity: 'eval_case', category: 'lifecycle' },
+  // Runtime guardrails overlay. Emitted for `block` AND `warn` results so the
+  // cockpit live-updates (clientBroadcast) and business_rules ACTION rules react.
+  { id: 'agent_orchestrator.guardrail.tripped', label: 'Agent Guardrail Tripped', entity: 'guardrail', category: 'lifecycle', clientBroadcast: true },
 ] as const
 
 export const eventsConfig = createModuleEvents({

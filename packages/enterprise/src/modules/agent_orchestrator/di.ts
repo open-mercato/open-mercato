@@ -11,8 +11,10 @@ import {
   AgentEvalAssertion,
   AgentEvalResult,
   AgentMetricRollup,
+  AgentGuardrailCheck,
 } from './data/entities'
 import { AgentRuntimeService } from './lib/runtime/agentRuntime'
+import { GuardrailService } from './lib/guardrails/guardrailService'
 import { DbAgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
 import { DispositionServiceImpl } from './lib/disposition/dispositionService'
 import { AgentWorkflowBridgeService } from './lib/runtime/invokeAgentForWorkflow'
@@ -29,6 +31,7 @@ export function register(container: AppContainer) {
     AgentEvalAssertion: asValue(AgentEvalAssertion),
     AgentEvalResult: asValue(AgentEvalResult),
     AgentMetricRollup: asValue(AgentMetricRollup),
+    AgentGuardrailCheck: asValue(AgentGuardrailCheck),
     // CLASSIC injection mode resolves deps by parameter name — destructure the
     // real dependency names (not a `cradle` param) and use .proxy() so the
     // cradle is passed and deps resolve lazily (matches sales/di.ts).
@@ -39,6 +42,9 @@ export function register(container: AppContainer) {
       }),
     ).proxy().scoped(),
     dispositionService: asFunction(() => new DispositionServiceImpl(container)).scoped(),
+    // Phase 1 runtime guardrails: deterministic output schema + tool-scope
+    // backstop checks. Pure/stateless aside from the container it persists through.
+    guardrailService: asFunction(() => new GuardrailService(container)).scoped(),
     // Cross-process correlation store for OpenCode file-agent runs. Built from
     // each process's own container (app + the separate mcp:serve-http process),
     // both backed by the same DB — the in-process Map seam does not work because

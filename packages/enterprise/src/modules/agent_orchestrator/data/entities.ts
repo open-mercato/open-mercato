@@ -618,6 +618,78 @@ export class AgentRunSession {
   updatedAt: Date = new Date()
 }
 
+export type GuardrailPhase = 'input' | 'output'
+
+export type GuardrailKind =
+  | 'prompt_injection'
+  | 'pii'
+  | 'grounding'
+  | 'schema'
+  | 'moderation'
+  | 'tool_scope'
+
+export type GuardrailResult = 'pass' | 'warn' | 'block'
+
+/**
+ * Append-only audit of every runtime guardrail check (omits `updated_at`/
+ * `deleted_at`). One row per check per phase; `guardResults` on the AgentProposal
+ * carries the same verdict for fast read. `evidence` holds REDACTED data only
+ * (pointers/offsets into the encrypted artifact store) — never raw PII. Shape is
+ * enforced by the Zod schema in data/validators.ts. Other modules referenced by
+ * FK id only (agentRunId, proposalId).
+ */
+@Entity({ tableName: 'agent_guardrail_checks' })
+@Index({ name: 'agent_guardrail_checks_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_guardrail_checks_run_idx', properties: ['agentRunId', 'createdAt'] })
+@Index({ name: 'agent_guardrail_checks_proposal_idx', properties: ['proposalId'] })
+export class AgentGuardrailCheck {
+  [OptionalProps]?: 'result' | 'evidence' | 'proposalId' | 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** FK id → agent_runs; NOT an ORM relation. */
+  @Property({ name: 'agent_run_id', type: 'uuid' })
+  agentRunId!: string
+
+  /** FK id → agent_proposals (null for pre-call input checks). */
+  @Property({ name: 'proposal_id', type: 'uuid', nullable: true })
+  proposalId?: string | null
+
+  /** Which versioned set produced this verdict. */
+  @Property({ name: 'guardrail_set_version', type: 'varchar', length: 64 })
+  guardrailSetVersion!: string
+
+  @Property({ name: 'capability', type: 'varchar', length: 100 })
+  capability!: string
+
+  @Property({ name: 'phase', type: 'varchar', length: 10 })
+  phase!: GuardrailPhase
+
+  @Property({ name: 'kind', type: 'varchar', length: 30 })
+  kind!: GuardrailKind
+
+  @Property({ name: 'result', type: 'varchar', length: 10, default: 'pass' })
+  result: GuardrailResult = 'pass'
+
+  /**
+   * Redacted evidence ONLY — never raw PII; pointers/offsets into the encrypted
+   * artifact store (trace spec) rather than plaintext spans. Shape enforced by a
+   * Zod schema in data/validators.ts.
+   */
+  @Property({ name: 'evidence', type: 'jsonb', nullable: true })
+  evidence?: unknown | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
 export type AgentProposalDisposition =
   | 'pending' | 'auto_approved' | 'approved' | 'edited' | 'rejected'
 
@@ -626,7 +698,7 @@ export type AgentProposalDisposition =
 @Index({ name: 'agent_proposals_run_idx', properties: ['organizationId', 'runId'] })
 export class AgentProposal {
   [OptionalProps]?: 'disposition' | 'dispositionBy' | 'dispositionReason'
-    | 'processId' | 'stepId' | 'confidence' | 'createdAt' | 'updatedAt' | 'deletedAt'
+    | 'processId' | 'stepId' | 'confidence' | 'guardResults' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -654,6 +726,14 @@ export class AgentProposal {
 
   @Property({ name: 'confidence', type: 'float', nullable: true })
   confidence?: number | null
+
+  /**
+   * The guardrail verdict's `checks` array attached at proposal creation (output
+   * phase). Append-only audit lives in `agent_guardrail_checks`; this is the fast
+   * read carried on the proposal. Validated by the Zod schema in data/validators.ts.
+   */
+  @Property({ name: 'guard_results', type: 'jsonb', nullable: true })
+  guardResults?: unknown | null
 
   @Property({ name: 'disposition', type: 'varchar', length: 20, default: 'pending' })
   disposition: AgentProposalDisposition = 'pending'
