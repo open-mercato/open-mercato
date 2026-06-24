@@ -41,8 +41,12 @@ Final module state: **33 suites / 133 tests pass** (baseline 26/111), enterprise
   `OM_ENABLE_ENTERPRISE_MODULES=true OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true` AND via
   `yarn workspace @open-mercato/app db:migrate` (the root `yarn db:migrate` goes through turbo, which strips those
   env vars). Enabling enterprise also caught up `record_locks` (4 migrations applied).
-- **Sync ACLs** — STILL PENDING: `OM_ENABLE_ENTERPRISE_MODULES=true OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true yarn workspace @open-mercato/app mercato auth sync-role-acls`
-  for the new `guardrail.read`/`guardrail.manage` features (and the F4 `trace.view` note).
+- **Sync ACLs** — ✅ DONE 2026-06-25. Granted `guardrail.read` (employee/operator/engineer + superadmin/admin wildcards),
+  `guardrail.manage` (engineer), and `trace.*`/`eval.*` per setup.ts. GOTCHA: `sync-role-acls` reads the **generated
+  module registry** (`tryGetModules()`), not the env-aware resolver `migrate` uses — so the enterprise module was invisible
+  until the registry was regenerated WITH the flags: `OM_ENABLE_ENTERPRISE_MODULES=true OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true yarn workspace @open-mercato/app generate`,
+  then the same-flagged `... mercato auth sync-role-acls`. (Regen also enabled record_locks/system_status_overlays/agent_examples
+  in this checkout's registry; reverts on a no-flag `yarn generate`.)
 - **Pre-existing orphan**: stale untracked `packages/core/src/modules/agent_orchestrator/generated/` (leftover from the
   enterprise move) breaks full-repo `yarn typecheck`. Left untouched (deletion denied / not in scope) — safe to remove.
 - Pre-existing unstaged `docker/opencode/...` deletions remain (from the move) — left untouched.
