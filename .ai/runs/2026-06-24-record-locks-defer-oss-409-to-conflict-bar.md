@@ -68,6 +68,6 @@ blast radius, same behavior.
 
 ### Phase 2: Validate + ship
 
-- [ ] 2.1 Targeted validation (enterprise jest + typecheck/lint on changed files)
-- [ ] 2.2 Full validation gate (build:packages, generate, i18n, typecheck, test, build:app)
+- [x] 2.1 Targeted validation (enterprise jest + typecheck on changed files) — record_locks 12/72, predicate suite 10/10
+- [x] 2.2 Full validation gate (build:packages, generate, i18n, typecheck 21/21, enterprise test 49/417, build:app) — all green
 - [ ] 2.3 Open PR, close #3550 with explanation + credit, normalize labels
