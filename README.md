@@ -325,6 +325,7 @@ Architecture in two lines: Vault/KMS (or a derived-key fallback) issues per-tena
 - `latest` is the stable npm channel published from `main`.
 - `develop` is the moving prerelease channel published from pushes to `develop`.
 - Exact snapshot versions remain installable for debugging or rollback when you need to pin one specific build.
+- PR package previews are opt-in. Add `publish-pkg-preview` to a PR to publish pkg.pr.new previews without publishing to npm. Add `publish-npm-snapshot` only when you need the legacy npm canary snapshot and standalone validation path.
 
 Examples:
 

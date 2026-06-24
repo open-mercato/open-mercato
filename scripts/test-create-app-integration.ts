@@ -17,6 +17,8 @@ const cyan = (value: string) => `\x1b[36m${value}\x1b[0m`
 const yellow = (value: string) => `\x1b[33m${value}\x1b[0m`
 const red = (value: string) => `\x1b[31m${value}\x1b[0m`
 
+const STANDALONE_BUILD_NODE_OPTIONS = '--max-old-space-size=8192'
+
 type EphemeralEnvState = {
   status?: string
   baseUrl?: string
@@ -47,6 +49,13 @@ function ensureEnterpriseDependency(appDir: string): void {
   dependencies['@open-mercato/enterprise'] = ROOT_VERSION
   packageJson.dependencies = dependencies
   writeJson(packageJsonPath, packageJson)
+}
+
+function withStandaloneBuildNodeOptions(value: string | undefined): string {
+  const normalized = value?.trim()
+  if (!normalized) return STANDALONE_BUILD_NODE_OPTIONS
+  if (/(?:^|\s)--max-old-space-size=\d+(?=\s|$)/.test(normalized)) return normalized
+  return `${normalized} ${STANDALONE_BUILD_NODE_OPTIONS}`
 }
 
 function writeStandaloneEnv(appDir: string): void {
@@ -196,6 +205,7 @@ async function main(): Promise<void> {
     CACHE_STRATEGY: 'memory',
     OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180',
     OM_TEST_APP_ROOT: appDir,
+    NODE_OPTIONS: withStandaloneBuildNodeOptions(process.env.NODE_OPTIONS),
     NODE_ENV: 'test',
   }
 

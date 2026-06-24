@@ -75,8 +75,10 @@ makeCrudRoute({
 ### Custom Write Routes
 
 For non-CRUD write routes (`POST`/`PUT`/`PATCH`/`DELETE`), MUST wire mutation guards:
-- Call `validateCrudMutationGuard` before mutation
-- Call `runCrudMutationGuardAfterSuccess` after successful mutation
+- Map the route to the closest registry operation (`create`, `update`, or `delete`; state-changing action endpoints usually use `update`)
+- Collect registered guards with `getAllMutationGuardInstances()` and append `bridgeLegacyGuard(container)` when present
+- Call `runMutationGuards(...)` from `@open-mercato/shared/lib/crud/mutation-guard-registry` before mutation, passing the caller's granted features as `{ userFeatures }`
+- Return guard rejection bodies/statuses, merge `modifiedPayload` into validated input when present, and run returned `afterSuccessCallbacks` after successful mutation, catching/logging callback failures so committed writes still return successfully
 
 ## Module Setup (`setup.ts`)
 

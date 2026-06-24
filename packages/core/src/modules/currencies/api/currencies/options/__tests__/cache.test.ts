@@ -144,4 +144,42 @@ describe('GET /api/currencies/options caching', () => {
     const [key] = cache.set.mock.calls[0]
     expect(key).toBe('currencies:options:org=22222222-2222-4222-8222-222222222222:active=all:limit=10')
   })
+
+  it('falls back to the database when the cache read throws', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    const { GET } = await loadRoute()
+    cache.get.mockRejectedValue(new Error('cache backend down'))
+    em.find.mockResolvedValue([makeRow('USD', 'US Dollar')])
+
+    const res = await GET(new Request('http://localhost/api/currencies/options'))
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { items: { value: string; label: string }[] }
+    expect(body.items).toEqual([{ value: 'USD', label: 'USD - US Dollar' }])
+    expect(em.find).toHaveBeenCalledTimes(1)
+    expect(cache.set).toHaveBeenCalledTimes(1)
+  })
+
+  it('logs the failure without throwing when the cache write fails', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    process.env.QUERY_ENGINE_DEBUG_SQL = 'true'
+    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {})
+    const { GET } = await loadRoute()
+    cache.get.mockResolvedValue(null)
+    cache.set.mockRejectedValue(new Error('cache write failed'))
+    em.find.mockResolvedValue([makeRow('USD', 'US Dollar')])
+
+    const res = await GET(new Request('http://localhost/api/currencies/options'))
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { items: { value: string; label: string }[] }
+    expect(body.items).toEqual([{ value: 'USD', label: 'USD - US Dollar' }])
+    expect(cache.set).toHaveBeenCalledTimes(1)
+    expect(debugSpy).toHaveBeenCalledWith(
+      '[crud][cache]',
+      'store',
+      expect.objectContaining({ error: 'cache write failed' }),
+    )
+    debugSpy.mockRestore()
+  })
 })

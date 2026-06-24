@@ -1,6 +1,9 @@
 import { Collection, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, OneToMany, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import type {
+  CatalogExciseCategory,
+  CatalogGtinType,
+  CatalogHazmatPackingGroup,
   CatalogServiceWorkAllocationMode,
   CatalogServiceWorkTargetType,
   CatalogPriceDisplayMode,
@@ -72,6 +75,11 @@ export class CatalogProduct {
     | 'uomRoundingScale'
     | 'uomRoundingMode'
     | 'unitPriceEnabled'
+    | 'isExciseGood'
+    | 'requiresPrescription'
+    | 'containsLithiumBattery'
+    | 'requiresShipping'
+    | 'isQuoteOnly'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -155,6 +163,84 @@ export class CatalogProduct {
     depth?: number | null
     unit?: string | null
   } | null
+
+  @Property({ name: 'country_of_origin_code', type: 'text', nullable: true })
+  countryOfOriginCode?: string | null
+
+  @Property({ name: 'pkwiu_code', type: 'text', nullable: true })
+  pkwiuCode?: string | null
+
+  @Property({ name: 'cn_code', type: 'text', nullable: true })
+  cnCode?: string | null
+
+  @Property({ name: 'hs_code', type: 'text', nullable: true })
+  hsCode?: string | null
+
+  @Property({ name: 'tax_classification_code', type: 'text', nullable: true })
+  taxClassificationCode?: string | null
+
+  @Property({ name: 'gtu_codes', type: 'text[]', nullable: true })
+  gtuCodes?: string[] | null
+
+  @Property({ name: 'age_min', type: 'smallint', nullable: true })
+  ageMin?: number | null
+
+  @Property({ name: 'is_excise_good', type: 'boolean', default: false })
+  isExciseGood: boolean = false
+
+  @Property({ name: 'excise_category', type: 'text', nullable: true })
+  exciseCategory?: CatalogExciseCategory | null
+
+  @Property({ name: 'requires_prescription', type: 'boolean', default: false })
+  requiresPrescription: boolean = false
+
+  @Property({ name: 'hazmat_class', type: 'text', nullable: true })
+  hazmatClass?: string | null
+
+  @Property({ name: 'un_number', type: 'text', nullable: true })
+  unNumber?: string | null
+
+  @Property({ name: 'hazmat_packing_group', type: 'text', nullable: true })
+  hazmatPackingGroup?: CatalogHazmatPackingGroup | null
+
+  @Property({ name: 'contains_lithium_battery', type: 'boolean', default: false })
+  containsLithiumBattery: boolean = false
+
+  @Property({ name: 'launch_at', type: Date, nullable: true })
+  launchAt?: Date | null
+
+  @Property({ name: 'end_of_life_at', type: Date, nullable: true })
+  endOfLifeAt?: Date | null
+
+  @Property({ name: 'available_from', type: Date, nullable: true })
+  availableFrom?: Date | null
+
+  @Property({ name: 'available_until', type: Date, nullable: true })
+  availableUntil?: Date | null
+
+  @Property({ name: 'min_order_qty', type: 'integer', nullable: true })
+  minOrderQty?: number | null
+
+  @Property({ name: 'max_order_qty', type: 'integer', nullable: true })
+  maxOrderQty?: number | null
+
+  @Property({ name: 'order_qty_increment', type: 'integer', nullable: true })
+  orderQtyIncrement?: number | null
+
+  @Property({ name: 'requires_shipping', type: 'boolean', default: true })
+  requiresShipping: boolean = true
+
+  @Property({ name: 'is_quote_only', type: 'boolean', default: false })
+  isQuoteOnly: boolean = false
+
+  @Property({ name: 'seo_title', type: 'text', nullable: true })
+  seoTitle?: string | null
+
+  @Property({ name: 'seo_description', type: 'text', nullable: true })
+  seoDescription?: string | null
+
+  @Property({ name: 'canonical_url', type: 'text', nullable: true })
+  canonicalUrl?: string | null
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
@@ -638,6 +724,11 @@ export class CatalogOffer {
   name: 'catalog_product_variants_sku_unique',
   properties: ['organizationId', 'tenantId', 'sku'],
 })
+@Index({
+  name: 'catalog_product_variants_gtin_scope_unique',
+  expression:
+    `create unique index "catalog_product_variants_gtin_scope_unique" on "catalog_product_variants" ("tenant_id", "organization_id", "gtin_type", "barcode") where deleted_at is null and gtin_type is not null and barcode is not null`,
+})
 export class CatalogProductVariant {
   [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
 
@@ -661,6 +752,12 @@ export class CatalogProductVariant {
 
   @Property({ type: 'text', nullable: true })
   barcode?: string | null
+
+  @Property({ name: 'gtin_type', type: 'text', nullable: true })
+  gtinType?: CatalogGtinType | null
+
+  @Property({ name: 'hs_code', type: 'text', nullable: true })
+  hsCode?: string | null
 
   @Property({ type: 'text', nullable: true })
   statusEntryId?: string | null
