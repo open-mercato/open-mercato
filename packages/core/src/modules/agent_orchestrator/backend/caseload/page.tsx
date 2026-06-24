@@ -34,6 +34,7 @@ import {
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { mapAgent, mapProposal, type ProposalView } from '../../components/types'
@@ -233,6 +234,12 @@ export default function AgentCaseloadPage() {
   }, [reloadToken, t])
 
   const reload = React.useCallback(() => setReloadToken((token) => token + 1), [])
+
+  // Live-refresh when a proposal is created, disposed, or becomes ready
+  // (DOM Event Bridge, tenant/org-scoped server-side).
+  useAppEvent('agent_orchestrator.proposal.*', () => {
+    reload()
+  })
 
   const allRows = React.useMemo<QueueRow[]>(() => {
     const now = Date.now()

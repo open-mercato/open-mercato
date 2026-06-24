@@ -15,7 +15,13 @@ import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { mapAgent, type AgentView } from '../../components/types'
+import { mapAgent, type AgentView, type AgentRuntime } from '../../components/types'
+
+const RUNTIME_LABEL: Record<AgentRuntime, string> = {
+  'in-process': 'In Process',
+  opencode: 'Open Code',
+  external: 'External',
+}
 
 type Autonomy = 'auto' | 'review' | 'gated'
 type Health = 'good' | 'watch' | 'poor' | 'new'
@@ -151,6 +157,15 @@ export default function AgentsRegistryPage() {
       header: t('agent_orchestrator.agents.list.col.type', 'Type'),
       cell: ({ row }) => (
         <Chip>{t(`agent_orchestrator.agents.list.resultKind.${row.original.resultKind}`)}</Chip>
+      ),
+    },
+    {
+      accessorKey: 'runtime',
+      header: t('agent_orchestrator.agents.list.col.runtime', 'Runtime'),
+      cell: ({ row }) => (
+        <Chip>
+          {t(`agent_orchestrator.agents.list.runtime.${row.original.runtime}`, RUNTIME_LABEL[row.original.runtime])}
+        </Chip>
       ),
     },
     {

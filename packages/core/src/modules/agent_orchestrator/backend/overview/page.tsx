@@ -11,6 +11,7 @@ import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { mapAgent, mapProposal, mapRun, type ProposalView, type RunView } from '../../components/types'
 
@@ -123,6 +124,12 @@ export default function AgentFleetOverviewPage() {
     load()
     return () => { cancelled = true }
   }, [t, refreshKey])
+
+  // Live-refresh KPIs + needs-attention queue on any proposal lifecycle change
+  // (DOM Event Bridge, tenant/org-scoped server-side).
+  useAppEvent('agent_orchestrator.proposal.*', () => {
+    setRefreshKey((key) => key + 1)
+  })
 
   const kpi = React.useMemo(() => {
     const disposed = proposals.filter((p) => p.disposition !== 'pending').length

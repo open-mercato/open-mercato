@@ -11,7 +11,7 @@ export const metadata = {
 const agentItemSchema = z.object({
   id: z.string(),
   resultKind: z.enum(['informative', 'actionable']),
-  runtime: z.enum(['in-process', 'opencode']),
+  runtime: z.enum(['in-process', 'opencode', 'external']),
   tools: z.array(z.string()),
   skills: z.array(z.string()),
   label: z.string(),

@@ -27,6 +27,11 @@ into the implemented baseline, the roadmap (`next/`), and historical material (`
 
 Each overlay builds **on top of** the implemented baseline; align its entities/APIs/events with
 the shipped module before implementing. Design backing for each lives in `next/gap-analysis/`.
+
+> **What's actually built?** See [`next/IMPLEMENTATION-TRACE.md`](./next/IMPLEMENTATION-TRACE.md) — a
+> code-grounded status matrix (✅/🟡/⬜) for every `next/` spec. As of 2026-06-24: trace+eval (#2) is
+> shipped, the operations cockpit (#+) is partial, and everything else is not started.
+
 Suggested implementation order (dependencies first):
 
 | # | Overlay | Spec | Backing gaps |

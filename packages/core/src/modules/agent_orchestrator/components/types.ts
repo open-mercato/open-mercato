@@ -80,7 +80,7 @@ export type RunDetailView = {
   evalResults: EvalResultView[]
 }
 
-export type AgentRuntime = 'in-process' | 'opencode'
+export type AgentRuntime = 'in-process' | 'opencode' | 'external'
 
 export type AgentView = {
   id: string
@@ -233,7 +233,8 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
   const id = asString(item.id)
   if (!id) return null
   const resultKind = item.resultKind === 'actionable' ? 'actionable' : 'informative'
-  const runtime = item.runtime === 'opencode' ? 'opencode' : 'in-process'
+  const runtime: AgentRuntime =
+    item.runtime === 'opencode' ? 'opencode' : item.runtime === 'external' ? 'external' : 'in-process'
   return {
     id,
     label: asString(item.label) ?? id,
