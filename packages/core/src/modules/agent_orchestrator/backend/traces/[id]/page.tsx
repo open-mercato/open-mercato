@@ -32,6 +32,23 @@ function depthOf(span: SpanView, byExternalId: Map<string, SpanView>): number {
   return depth
 }
 
+function hasSummary(value: unknown): boolean {
+  if (value == null) return false
+  if (typeof value === 'string') return value.trim().length > 0
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === 'object') return Object.keys(value as Record<string, unknown>).length > 0
+  return true
+}
+
+function formatSummary(value: unknown): string {
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
 export default function AgentRunTracePage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const router = useRouter()
@@ -115,6 +132,12 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                   </span>
                 ) : null}
               </div>
+              {detail.run.errorMessage ? (
+                <div className="rounded-md border border-status-error-border bg-status-error-bg px-3 py-2 text-sm text-status-error-text">
+                  <span className="font-medium">{t('agent_orchestrator.traces.detail.runError')}:</span>{' '}
+                  {detail.run.errorMessage}
+                </div>
+              ) : null}
             </section>
 
             <section className="space-y-2">
@@ -154,15 +177,43 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                   {detail.toolCalls.map((toolCall) => (
                     <li
                       key={toolCall.id}
-                      className="flex items-center justify-between gap-3 border-b border-border px-3 py-2 last:border-b-0"
+                      className="space-y-2 border-b border-border px-3 py-2 last:border-b-0"
                     >
-                      <span className="truncate font-mono text-sm">{toolCall.toolName}</span>
-                      <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                        {toolCall.latencyMs != null ? `${toolCall.latencyMs}ms` : ''}
-                        <StatusBadge variant={toolCall.status === 'error' ? 'error' : 'success'}>
-                          {toolCall.status ?? 'ok'}
-                        </StatusBadge>
-                      </span>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate font-mono text-sm">{toolCall.toolName}</span>
+                        <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                          {toolCall.latencyMs != null ? `${toolCall.latencyMs}ms` : ''}
+                          <StatusBadge variant={toolCall.status === 'error' ? 'error' : 'success'}>
+                            {toolCall.status ?? 'ok'}
+                          </StatusBadge>
+                        </span>
+                      </div>
+                      {toolCall.errorMessage ? (
+                        <p className="text-xs text-status-error-text">
+                          <span className="font-medium">{t('agent_orchestrator.traces.detail.toolError')}:</span>{' '}
+                          {toolCall.errorMessage}
+                        </p>
+                      ) : null}
+                      {hasSummary(toolCall.requestSummary) ? (
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            {t('agent_orchestrator.traces.detail.toolRequest')}
+                          </p>
+                          <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted px-2 py-1 text-xs">
+                            {formatSummary(toolCall.requestSummary)}
+                          </pre>
+                        </div>
+                      ) : null}
+                      {hasSummary(toolCall.responseSummary) ? (
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            {t('agent_orchestrator.traces.detail.toolResponse')}
+                          </p>
+                          <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted px-2 py-1 text-xs">
+                            {formatSummary(toolCall.responseSummary)}
+                          </pre>
+                        </div>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -178,20 +229,32 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                   {detail.evalResults.map((result) => (
                     <li
                       key={result.id}
-                      className="flex items-center justify-between gap-3 border-b border-border px-3 py-2 last:border-b-0"
+                      className="space-y-2 border-b border-border px-3 py-2 last:border-b-0"
                     >
-                      <span className="truncate">
-                        <span className="text-xs uppercase tracking-wide text-muted-foreground">{result.severity}</span>{' '}
-                        {result.assertionKey}
-                      </span>
-                      <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                        {result.score != null ? result.score.toFixed(2) : ''}
-                        <StatusBadge variant={result.passed ? 'success' : 'error'}>
-                          {result.passed
-                            ? t('agent_orchestrator.traces.eval.pass')
-                            : t('agent_orchestrator.traces.eval.fail')}
-                        </StatusBadge>
-                      </span>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate">
+                          <span className="text-xs uppercase tracking-wide text-muted-foreground">{result.severity}</span>{' '}
+                          {result.assertionKey}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                          {result.score != null ? result.score.toFixed(2) : ''}
+                          <StatusBadge variant={result.passed ? 'success' : 'error'}>
+                            {result.passed
+                              ? t('agent_orchestrator.traces.eval.pass')
+                              : t('agent_orchestrator.traces.eval.fail')}
+                          </StatusBadge>
+                        </span>
+                      </div>
+                      {hasSummary(result.evidence) ? (
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            {t('agent_orchestrator.traces.detail.evalEvidence')}
+                          </p>
+                          <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted px-2 py-1 text-xs">
+                            {formatSummary(result.evidence)}
+                          </pre>
+                        </div>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
