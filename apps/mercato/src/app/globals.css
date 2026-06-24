@@ -179,6 +179,8 @@ TODO: Fix that latter to have reference by the package names
   --radius: 0.625rem;
   /* Brand lime — theme-invariant (no .dark override). Brand violet is themed (see below + .dark). */
   --brand-lime: #D4F372;
+  /* Brand yellow — mid stop of the OM brand gradient (lime -> yellow -> violet), theme-invariant. */
+  --brand-yellow: #EEFB63;
   /* Foreground for text/icons placed on the brand-lime surface — dark, theme-invariant (the lime stays light in both themes). */
   --brand-lime-foreground: #1f2a12;
   /* Focus ring tokens (Figma dual-shadow spec — opt-in via .focus-ring-fancy) */
