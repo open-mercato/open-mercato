@@ -26,6 +26,10 @@ export function ProgressTopBar({ className, t, completedAutoHideMs }: ProgressTo
   const visibleCompleted = useAutoHideCompletedJobs(recentlyCompleted, completedAutoHideMs)
   const [expanded, setExpanded] = React.useState(false)
 
+  // `om:progress:expanded` is a trivial scalar flag ('true' | 'false') with no
+  // schema to evolve, so it is intentionally kept raw rather than wrapped in a
+  // versioned envelope (the versioning threshold for structured persisted state
+  // lives in `@open-mercato/shared/lib/browser/versionedPreference`).
   React.useEffect(() => {
     const saved = localStorage.getItem('om:progress:expanded')
     if (saved === 'true') setExpanded(true)
