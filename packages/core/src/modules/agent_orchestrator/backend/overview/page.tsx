@@ -8,6 +8,7 @@ import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { mapProposal, mapRun, formatConfidence, type ProposalView, type RunView } from '../../components/types'
 
@@ -22,6 +23,7 @@ export default function AgentOverviewPage() {
   const [runsTotal, setRunsTotal] = React.useState(0)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [reloadToken, setReloadToken] = React.useState(0)
 
   React.useEffect(() => {
     let cancelled = false
@@ -61,7 +63,13 @@ export default function AgentOverviewPage() {
     return () => {
       cancelled = true
     }
-  }, [t])
+  }, [t, reloadToken])
+
+  // Live-refresh KPIs + needs-attention queue on any proposal lifecycle change
+  // (DOM Event Bridge, tenant/org-scoped server-side).
+  useAppEvent('agent_orchestrator.proposal.*', () => {
+    setReloadToken((token) => token + 1)
+  })
 
   const stats = React.useMemo(() => {
     const total = proposals.length
