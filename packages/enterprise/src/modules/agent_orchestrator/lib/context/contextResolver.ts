@@ -19,7 +19,7 @@ import {
 import { estimateTokens, packCandidates, type PackCandidate } from './packer'
 import { readRetrievalSource } from './retrievalSource'
 import type { DocumentExtraction } from '../../data/validators'
-import type { ContextRedactionApplied } from '../../data/validators'
+import type { ContextRedactionApplied, UntrustedSpan } from '../../data/validators'
 import {
   documentExtractionToCandidates,
   documentProvenance,
@@ -80,6 +80,14 @@ export type AssembleInput = z.infer<typeof assembleInputSchema> & {
 export type AssembleResult = {
   bundle: AgentContextBundle
   payloadRef: string | null
+  /**
+   * The UNTRUSTED (`document`/`retrieval`) spans that were ROUTED into this bundle,
+   * carrying their raw text + provenance locator. Surfaced (not persisted on the
+   * bundle) so the Wave-3 pre-call prompt-injection guardrail can screen them
+   * before the model call. Trusted `entity` spans are excluded. Empty when the
+   * capability routes no untrusted content.
+   */
+  untrustedSpans: UntrustedSpan[]
 }
 
 export type RetrieveScope = {
@@ -217,6 +225,28 @@ export class ContextResolverImpl implements ContextResolver {
     const { candidates, redactions } = await this.collectCandidates(module, parsed)
     const packed = packCandidates(candidates, parsed.budget)
 
+    // Surface the UNTRUSTED (document/retrieval) spans that were actually ROUTED so
+    // the Wave-3 pre-call injection guardrail screens only what the model will see.
+    // A span is routed when its ref appears in `routedSources` for that kind. The
+    // raw text rides on the candidate's redacted record `snippet`; it is surfaced
+    // in-memory only (never written to the persisted bundle).
+    const routedKeys = new Set(packed.routedSources.map((source) => `${source.kind}:${source.ref}`))
+    const untrustedSpans: UntrustedSpan[] = candidates
+      .filter(
+        (candidate) =>
+          (candidate.kind === 'document' || candidate.kind === 'retrieval') &&
+          routedKeys.has(`${candidate.kind}:${candidate.hit.ref}`),
+      )
+      .map((candidate) => ({
+        sourceKind: candidate.kind as 'document' | 'retrieval',
+        sourceRef: candidate.hit.ref,
+        locator: candidate.hit.locator ?? `${candidate.kind}:${candidate.hit.ref}`,
+        text:
+          typeof candidate.hit.record.snippet === 'string'
+            ? candidate.hit.record.snippet
+            : JSON.stringify(candidate.hit.record),
+      }))
+
     // Validate the jsonb shapes at the Zod boundary before persisting.
     const routedSources = contextBundleRoutedSourcesSchema.parse(packed.routedSources)
     const prunedSources = contextBundlePrunedSourcesSchema.parse(packed.prunedSources)
@@ -245,7 +275,7 @@ export class ContextResolverImpl implements ContextResolver {
     em.persist(bundle)
     await em.flush()
 
-    return { bundle, payloadRef: bundle.payloadRef ?? null }
+    return { bundle, payloadRef: bundle.payloadRef ?? null, untrustedSpans }
   }
 
   /**
