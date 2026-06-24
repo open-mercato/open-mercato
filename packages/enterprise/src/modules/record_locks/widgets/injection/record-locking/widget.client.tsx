@@ -31,7 +31,7 @@ import {
   type RecordLockUiConflict,
   type RecordLockUiView,
 } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
-import { isOssOptimisticLockConflict } from '@open-mercato/enterprise/modules/record_locks/lib/conflictSurface'
+import { decideCrudSaveErrorAction } from '@open-mercato/enterprise/modules/record_locks/lib/conflictSurface'
 
 type CrudInjectionContext = {
   formId?: string
@@ -1025,19 +1025,28 @@ export default function RecordLockingWidget({
       const detail = (event as CustomEvent<CrudSaveErrorEventDetail>).detail
       if (!detail) return
       const eventContextId = detail.contextId ?? detail.formId
-      let payload = extractRecordLockConflictPayload(detail.error)
+      const payload = extractRecordLockConflictPayload(detail.error)
       const currentState = getRecordLockFormState(formId)
       const eventTargetsCurrentForm = !eventContextId || eventContextId === formId
-      if (!eventTargetsCurrentForm) {
-        if (!payload || !currentState?.resourceKind || !currentState?.resourceId) return
-        const payloadResourceKind = payload.conflict.resourceKind?.trim() ?? ''
-        const payloadResourceId = payload.conflict.resourceId?.trim() ?? ''
-        if (!payloadResourceKind || !payloadResourceId) return
-        if (payloadResourceKind !== currentState.resourceKind || payloadResourceId !== currentState.resourceId) return
-      }
-        if (!payload) {
-        if (!currentState?.resourceKind || !currentState?.resourceId) return
-        if (isRecordDeletedError(detail.error)) {
+
+      // Single-surface arbitration (issue #3504 / S3). Decision is extracted to a
+      // pure, unit-tested helper so the wiring — especially deferring OSS
+      // optimistic-lock 409s to the shared conflict bar instead of opening a
+      // second, degraded merge dialog — is covered without rendering the widget.
+      const action = decideCrudSaveErrorAction({
+        error: detail.error,
+        eventTargetsCurrentForm,
+        hasRecordLockPayload: payload !== null,
+        payloadResourceKind: payload?.conflict.resourceKind ?? null,
+        payloadResourceId: payload?.conflict.resourceId ?? null,
+        currentResourceKind: currentState?.resourceKind ?? null,
+        currentResourceId: currentState?.resourceId ?? null,
+        isRecordDeleted: isRecordDeletedError(detail.error),
+        errorStatus: extractErrorStatus(detail.error),
+      })
+
+      switch (action) {
+        case 'record-deleted':
           setIsConflictDialogOpen(true)
           setRecordLockFormState(formId, {
             recordDeleted: true,
@@ -1049,20 +1058,17 @@ export default function RecordLockingWidget({
             pendingResolutionArmed: false,
           })
           return
-        }
-        // Defer to the shared OSS conflict bar for optimistic-lock 409s: the
-        // merge dialog cannot resolve them and rendering both surfaces at once
-        // violates the single-surface invariant (issue #3504 / S3).
-        if (
-          extractErrorStatus(detail.error) === 409
-          && !isOssOptimisticLockConflict(detail.error)
-        ) {
-          applyConflictPayload(buildFallbackConflict(currentState))
-        }
-        return
+        case 'open-fallback-dialog':
+          if (currentState) applyConflictPayload(buildFallbackConflict(currentState))
+          return
+        case 'apply-record-lock-payload':
+          if (payload) applyConflictPayload(payload)
+          return
+        case 'defer-to-oss-conflict-bar':
+        case 'ignore':
+        default:
+          return
       }
-
-      applyConflictPayload(payload)
     }
 
     window.addEventListener(BACKEND_MUTATION_ERROR_EVENT, onCrudSaveError)
