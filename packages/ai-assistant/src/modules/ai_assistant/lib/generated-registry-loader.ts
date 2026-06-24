@@ -53,10 +53,12 @@ export function findGeneratedFile(fileName: string): string | null {
 }
 
 /**
- * Compile-and-import a generated registry file on the fly. Resolves the `@/`
- * alias to the app root, transpiles TS → ESM, and emits a sibling `.mjs` we can
- * `import()` from Node. Cached on mtime so repeat calls in the same process
- * don't recompile.
+ * Compile-and-import a generated registry file on the fly. Rewrites the entry
+ * specifiers Node can't resolve standalone (`@/...` aliases and the
+ * `../../src/...` relative imports the generator emits for `@app` local
+ * modules) to absolute file URLs, transpiles TS → ESM, and emits a sibling
+ * `.mjs` we can `import()` from Node. Cached on mtime so repeat calls in the
+ * same process don't recompile.
  *
  * Transpile-only (no bundling): the generated registries declare an array
  * literal whose entries are static `import("…")` arrow functions — we want
@@ -128,15 +130,31 @@ function toSafeJsStringLiteral(value: string): string {
 }
 
 /**
- * Rewrite `@/...` path-alias imports (both `from "@/x"` and dynamic
- * `import("@/x")`) in generated-registry source to absolute `file://` URLs
- * rooted at `appRoot`. The `@/` alias is a Next.js bundler convention; outside
- * the bundler Node treats `@/...` as a bare package specifier and throws
- * `ERR_MODULE_NOT_FOUND`. Exported for unit testing.
+ * Rewrite the two specifier shapes the generator emits for module entries in a
+ * generated registry to absolute `file://` URLs Node can resolve in a
+ * standalone process:
+ *
+ *   1. `@/...` path-alias imports (both `from "@/x"` and dynamic `import("@/x")`).
+ *      The `@/` alias is a Next.js bundler convention; outside the bundler Node
+ *      treats `@/...` as a bare package specifier and throws
+ *      `ERR_MODULE_NOT_FOUND`. Resolved against `appRoot`.
+ *   2. `../../src/...` relative imports the generator emits for `@app` local
+ *      modules (e.g. `from "../../src/modules/<id>/ai-tools"`). esbuild's
+ *      transform (transpile-only) leaves these untouched, so the compiled
+ *      `.mjs` keeps an extensionless relative specifier that resolves to a
+ *      `.ts` file with no compiled `.js`/`.mjs` sibling — Node ESM then throws
+ *      `ERR_MODULE_NOT_FOUND`. Resolved against the generated file's directory
+ *      (`<appRoot>/.mercato/generated`), the location the generator wrote them
+ *      relative to. Package-backed modules (`@open-mercato/*`) are unaffected —
+ *      their bare specifiers resolve through `node_modules` to compiled `.js`.
+ *
+ * Both shapes reuse the same `.ts`-suffix probe so a source-only TypeScript
+ * target is loaded directly (Node strips types). Other specifiers (bare
+ * packages, sibling `./` imports) are left untouched. Exported for unit testing.
  */
 export function rewriteGeneratedAliasImports(source: string, appRoot: string): string {
-  const resolveAlias = (relativePath: string): string => {
-    const target = path.join(appRoot, relativePath)
+  const generatedDir = path.join(appRoot, '.mercato', 'generated')
+  const toResolvedLiteral = (target: string): string => {
     const candidate = fs.existsSync(target)
       ? target
       : fs.existsSync(target + '.ts')
@@ -144,12 +162,22 @@ export function rewriteGeneratedAliasImports(source: string, appRoot: string): s
         : target
     return toSafeJsStringLiteral(pathToFileURL(candidate).href)
   }
+  const resolveAlias = (relativePath: string): string =>
+    toResolvedLiteral(path.join(appRoot, relativePath))
+  const resolveRelative = (specifier: string): string =>
+    toResolvedLiteral(path.resolve(generatedDir, specifier))
   return source
     .replace(/from\s+["']@\/([^"']+)["']/g, (_match, relativePath: string) => {
       return `from ${resolveAlias(relativePath)}`
     })
     .replace(/import\s*\(\s*["']@\/([^"']+)["']\s*\)/g, (_match, relativePath: string) => {
       return `import(${resolveAlias(relativePath)})`
+    })
+    .replace(/from\s+["']((?:\.\.\/)+src\/[^"']+)["']/g, (_match, specifier: string) => {
+      return `from ${resolveRelative(specifier)}`
+    })
+    .replace(/import\s*\(\s*["']((?:\.\.\/)+src\/[^"']+)["']\s*\)/g, (_match, specifier: string) => {
+      return `import(${resolveRelative(specifier)})`
     })
 }
 
