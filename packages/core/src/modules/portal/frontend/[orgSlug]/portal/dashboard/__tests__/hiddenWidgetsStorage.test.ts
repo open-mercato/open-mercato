@@ -22,6 +22,12 @@ describe('portal dashboard hidden widgets storage', () => {
     expect(loadHiddenWidgets('org-b', 'user-1')).toEqual(new Set())
   })
 
+  it('persists the shared versioned-envelope shape', () => {
+    saveHiddenWidgets('org-a', 'user-1', new Set(['widget-1']))
+    const raw = localStorage.getItem('om:portal:dashboard:hidden:v1:org-a:user-1')
+    expect(raw && JSON.parse(raw)).toEqual({ v: 1, data: ['widget-1'] })
+  })
+
   it('ignores the legacy unscoped key when loading a scoped preference', () => {
     localStorage.setItem(LEGACY_KEY, JSON.stringify(['legacy-widget']))
     expect(loadHiddenWidgets('org-a', 'user-1')).toEqual(new Set())
@@ -40,7 +46,7 @@ describe('portal dashboard hidden widgets storage', () => {
     localStorage.setItem('om:portal:dashboard:hidden:v1:org-a:user-2', JSON.stringify(['bare-array']))
     expect(loadHiddenWidgets('org-a', 'user-2')).toEqual(new Set())
 
-    localStorage.setItem('om:portal:dashboard:hidden:v1:org-a:user-3', JSON.stringify({ v: 2, hidden: ['x'] }))
+    localStorage.setItem('om:portal:dashboard:hidden:v1:org-a:user-3', JSON.stringify({ v: 2, data: ['x'] }))
     expect(loadHiddenWidgets('org-a', 'user-3')).toEqual(new Set())
   })
 })
