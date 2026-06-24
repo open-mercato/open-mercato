@@ -3498,7 +3498,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           className={embedded ? 'min-h-[1px]' : 'min-h-[400px]'}
         >
           {wrapFormBody(
-            <form id={formId} onSubmit={handleSubmit} className={`space-y-4 ${dialogFormPadding}`}>
+            <form id={formId} noValidate onSubmit={handleSubmit} className={`space-y-4 ${dialogFormPadding}`}>
             {resolvedInjectionSpotId ? (
               <InjectionSpot
                 spotId={resolvedInjectionSpotId}
@@ -3583,6 +3583,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           <div>
           <form
             id={formId}
+            noValidate
             onSubmit={handleSubmit}
             className={`${embedded ? 'space-y-4' : 'rounded-lg border bg-card p-4 space-y-4'} ${dialogFormPadding}`}
           >
