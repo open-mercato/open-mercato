@@ -14,6 +14,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type RoleRow = {
@@ -46,6 +47,21 @@ export default function CustomerRolesPage() {
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+
+  const { runMutation } = useGuardedMutation<{ entityType: string }>({
+    contextId: 'customer_accounts:roles-list',
+  })
+
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: { entityType: 'customer_accounts:role' },
+      })
+    },
+    [runMutation],
+  )
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -95,24 +111,26 @@ export default function CustomerRolesPage() {
     })
     if (!confirmed) return
     try {
-      const call = await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(role.updatedAt),
-        () => apiCall(
-          `/api/customer_accounts/admin/roles/${encodeURIComponent(role.id)}`,
-          { method: 'DELETE' },
-        ),
-      )
-      if (!call.ok) {
-        flash(t('customer_accounts.admin.roles.error.delete', 'Failed to delete role'), 'error')
-        return
-      }
-      flash(t('customer_accounts.admin.roles.flash.deleted', 'Role deleted'), 'success')
-      setReloadToken((token) => token + 1)
+      await runMutationWithContext(async () => {
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(role.updatedAt),
+          () => apiCall(
+            `/api/customer_accounts/admin/roles/${encodeURIComponent(role.id)}`,
+            { method: 'DELETE' },
+          ),
+        )
+        if (!call.ok) {
+          flash(t('customer_accounts.admin.roles.error.delete', 'Failed to delete role'), 'error')
+          return
+        }
+        flash(t('customer_accounts.admin.roles.flash.deleted', 'Role deleted'), 'success')
+        setReloadToken((token) => token + 1)
+      }, { id: role.id })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.roles.error.delete', 'Failed to delete role')
       flash(message, 'error')
     }
-  }, [confirm, t])
+  }, [confirm, runMutationWithContext, t])
 
   const columns = React.useMemo<ColumnDef<RoleRow>[]>(() => [
     {

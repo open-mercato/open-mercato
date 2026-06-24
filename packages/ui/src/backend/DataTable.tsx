@@ -34,7 +34,7 @@ import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { apiCall, withScopedApiRequestHeaders } from './utils/apiCall'
 import { buildOptimisticLockHeader } from './utils/optimisticLock'
-import { surfaceRecordConflict } from './conflicts'
+import { useGuardedMutation } from './injection/useGuardedMutation'
 import { raiseCrudError } from './utils/serverErrors'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
 import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
@@ -1721,6 +1721,27 @@ export function DataTable<T>({
     () => perspectiveData?.manageableRolePerspectives ?? perspectiveData?.rolePerspectives ?? [],
     [perspectiveData],
   )
+
+  type PerspectiveMutationContext = {
+    formId: string
+    resourceKind: 'perspective'
+    retryLastMutation: () => Promise<boolean>
+  }
+  const perspectiveMutationContextId = `data-table-perspectives:${perspectiveTableId ?? 'unknown'}`
+  const { runMutation: runPerspectiveMutation, retryLastMutation: retryPerspectiveMutation } =
+    useGuardedMutation<PerspectiveMutationContext>({
+      contextId: perspectiveMutationContextId,
+      blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+    })
+  const perspectiveMutationContext = React.useMemo<PerspectiveMutationContext>(
+    () => ({
+      formId: perspectiveMutationContextId,
+      resourceKind: 'perspective',
+      retryLastMutation: retryPerspectiveMutation,
+    }),
+    [perspectiveMutationContextId, retryPerspectiveMutation],
+  )
+
   const savePerspectiveMutation = useMutation<PerspectiveSaveResponse, Error, SavePerspectivePayload>({
     mutationFn: async (input) => {
       if (!perspectiveTableId) throw new Error('Missing table id')
@@ -1760,26 +1781,32 @@ export function DataTable<T>({
       const existing = input.perspectiveId
         ? perspectiveData?.perspectives.find((p) => p.id === input.perspectiveId) ?? null
         : null
-      const call = await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(existing?.updatedAt ?? null),
-        () => apiCall<PerspectiveSaveResponse>(
-          `/api/perspectives/${encodeURIComponent(perspectiveTableId)}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          },
-        ),
-      )
-      if (call.status === 404) {
-        throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` to regenerate module routes and restart the dev server.'))
-      }
-      if (!call.ok) {
-        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
-      }
-      const result = call.result
-      if (!result) throw new Error(t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
-      return result
+      return runPerspectiveMutation({
+        operation: async () => {
+          const call = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(existing?.updatedAt ?? null),
+            () => apiCall<PerspectiveSaveResponse>(
+              `/api/perspectives/${encodeURIComponent(perspectiveTableId)}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+            ),
+          )
+          if (call.status === 404) {
+            throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` to regenerate module routes and restart the dev server.'))
+          }
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
+          }
+          const result = call.result
+          if (!result) throw new Error(t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
+          return result
+        },
+        context: perspectiveMutationContext,
+        mutationPayload: payload,
+      })
     },
     onSuccess: (data) => {
       if (perspectiveTableId) {
@@ -1789,11 +1816,12 @@ export function DataTable<T>({
         applyPerspectiveSettings(data.perspective.settings, data.perspective.id)
       }
     },
-    onError: (error) => {
+    onError: () => {
+      // Conflict surfacing is handled inside `runPerspectiveMutation`
+      // (surfaceRecordConflict); only the cache refresh remains here.
       if (perspectiveTableId) {
         void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
       }
-      surfaceRecordConflict(error, t)
     },
   })
 
@@ -1818,17 +1846,23 @@ export function DataTable<T>({
     mutationFn: async ({ perspectiveId }) => {
       if (!perspectiveTableId) throw new Error('Missing table id')
       const existing = perspectiveData?.perspectives.find((p) => p.id === perspectiveId) ?? null
-      const call = await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(existing?.updatedAt ?? null),
-        () => apiCall(
-          `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`,
-          { method: 'DELETE' },
-        ),
-      )
-      if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
-      if (!call.ok) {
-        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.delete', 'Failed to delete perspective'))
-      }
+      await runPerspectiveMutation({
+        operation: async () => {
+          const call = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(existing?.updatedAt ?? null),
+            () => apiCall(
+              `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`,
+              { method: 'DELETE' },
+            ),
+          )
+          if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.delete', 'Failed to delete perspective'))
+          }
+        },
+        context: perspectiveMutationContext,
+        mutationPayload: { perspectiveId },
+      })
     },
     onMutate: ({ perspectiveId }) => {
       setDeletingIds((prev) => prev.includes(perspectiveId) ? prev : [...prev, perspectiveId])
@@ -1852,11 +1886,12 @@ export function DataTable<T>({
         initialPerspectiveAppliedRef.current = false
       }
     },
-    onError: (error) => {
+    onError: () => {
+      // Conflict surfacing is handled inside `runPerspectiveMutation`
+      // (surfaceRecordConflict); only the cache refresh remains here.
       if (perspectiveTableId) {
         void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
       }
-      surfaceRecordConflict(error, t)
     },
   })
 
@@ -1869,23 +1904,29 @@ export function DataTable<T>({
       if (!perspectiveTableId) throw new Error('Missing table id')
       const hasPerRowVersions = expectedUpdatedAtByPerspectiveId
         && Object.keys(expectedUpdatedAtByPerspectiveId).length > 0
-      const call = await withScopedApiRequestHeaders(
-        hasPerRowVersions ? {} : buildOptimisticLockHeader(updatedAt ?? null),
-        () => apiCall(
-          `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`,
-          hasPerRowVersions
-            ? {
-              method: 'DELETE',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ roleExpectedUpdatedAtByPerspectiveId: expectedUpdatedAtByPerspectiveId }),
-            }
-            : { method: 'DELETE' },
-        ),
-      )
-      if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
-      if (!call.ok) {
-        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.clearRoles', 'Failed to clear role perspectives'))
-      }
+      await runPerspectiveMutation({
+        operation: async () => {
+          const call = await withScopedApiRequestHeaders(
+            hasPerRowVersions ? {} : buildOptimisticLockHeader(updatedAt ?? null),
+            () => apiCall(
+              `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`,
+              hasPerRowVersions
+                ? {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ roleExpectedUpdatedAtByPerspectiveId: expectedUpdatedAtByPerspectiveId }),
+                }
+                : { method: 'DELETE' },
+            ),
+          )
+          if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.clearRoles', 'Failed to clear role perspectives'))
+          }
+        },
+        context: perspectiveMutationContext,
+        mutationPayload: { roleId },
+      })
     },
     onMutate: ({ roleId }) => {
       setRoleClearingIds((prev) => prev.includes(roleId) ? prev : [...prev, roleId])
@@ -1909,11 +1950,12 @@ export function DataTable<T>({
         }
       }
     },
-    onError: (error) => {
+    onError: () => {
+      // Conflict surfacing is handled inside `runPerspectiveMutation`
+      // (surfaceRecordConflict); only the cache refresh remains here.
       if (perspectiveTableId) {
         void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
       }
-      surfaceRecordConflict(error, t)
     },
   })
 

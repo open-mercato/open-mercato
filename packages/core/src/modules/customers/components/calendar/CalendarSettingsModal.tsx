@@ -78,6 +78,10 @@ export function CalendarSettingsModal({
   ]
 
   const title = t('customers.calendar.settings.title', 'Customization')
+  const removeTagLabel = React.useCallback(
+    (tag: string) => t('customers.calendar.settings.removeTag', 'Remove {tag}', { tag }),
+    [t],
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -119,6 +123,7 @@ export function CalendarSettingsModal({
             placeholder={t('customers.calendar.settings.addCategory', 'Add a category…')}
             value={draft.eventCategories}
             maxTags={MAX_EVENT_CATEGORIES}
+            removeTagLabel={removeTagLabel}
             onChange={(eventCategories) => setDraft((current) => ({ ...current, eventCategories }))}
           />
           <SettingsTagInput
@@ -131,6 +136,7 @@ export function CalendarSettingsModal({
             placeholder={t('customers.calendar.settings.addType', 'Add a type…')}
             value={draft.activityTypes}
             maxTags={MAX_ACTIVITY_TYPES}
+            removeTagLabel={removeTagLabel}
             onChange={(activityTypes) => setDraft((current) => ({ ...current, activityTypes }))}
           />
           {toggleRows.map((row) => (
@@ -186,10 +192,11 @@ type SettingsTagInputProps = {
   placeholder: string
   value: string[]
   maxTags: number
+  removeTagLabel: (tag: string) => string
   onChange(value: string[]): void
 }
 
-function SettingsTagInput({ label, maxLabel, hint, placeholder, value, maxTags, onChange }: SettingsTagInputProps) {
+function SettingsTagInput({ label, maxLabel, hint, placeholder, value, maxTags, removeTagLabel, onChange }: SettingsTagInputProps) {
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-1">
@@ -201,7 +208,14 @@ function SettingsTagInput({ label, maxLabel, hint, placeholder, value, maxTags, 
           </span>
         </SimpleTooltip>
       </div>
-      <TagInput value={value} onChange={onChange} placeholder={placeholder} maxTags={maxTags} aria-label={label} />
+      <TagInput
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        maxTags={maxTags}
+        aria-label={label}
+        removeTagLabel={removeTagLabel}
+      />
     </div>
   )
 }
