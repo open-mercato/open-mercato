@@ -3,6 +3,10 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { deleteUserPerspective } from '@open-mercato/core/modules/perspectives/services/perspectiveService'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { perspectivesTag, perspectivesErrorSchema, perspectivesSuccessSchema } from '../../openapi'
@@ -41,8 +45,24 @@ export async function DELETE(req: Request, ctx: { params: { tableId: string; per
     }
   })()
 
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: auth.tenantId ?? '',
+    organizationId: auth.orgId ?? null,
+    userId: auth.sub,
+    resourceKind: 'perspectives.perspective',
+    resourceId: perspectiveId,
+    operation: 'delete',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: { tableId, perspectiveId },
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
+
+  let deleted = false
   try {
-    await deleteUserPerspective(em, cache, {
+    deleted = await deleteUserPerspective(em, cache, {
       scope: {
         userId: auth.sub,
         tenantId: auth.tenantId ?? null,
@@ -57,6 +77,20 @@ export async function DELETE(req: Request, ctx: { params: { tableId: string; per
       return NextResponse.json(err.body, { status: err.status })
     }
     throw err
+  }
+
+  if (deleted && guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: auth.tenantId ?? '',
+      organizationId: auth.orgId ?? null,
+      userId: auth.sub,
+      resourceKind: 'perspectives.perspective',
+      resourceId: perspectiveId,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata ?? null,
+    })
   }
 
   return NextResponse.json({ success: true })

@@ -570,6 +570,7 @@
   "notices.cookies.dismiss": "Schließen",
   "notices.demo.and": "und",
   "notices.demo.description": "Diese Instanz wird nur zu Demonstrationszwecken bereitgestellt. Daten können jederzeit zurückgesetzt werden und werden nicht für einen garantierten Zeitraum aufbewahrt.",
+  "notices.demo.dismiss": "Demo-Hinweis schließen",
   "notices.demo.installLink": "Open Mercato lokal installieren",
   "notices.demo.reviewLinks": "Lesen Sie unsere",
   "notices.demo.superadminQuestion": "Benötigen Sie dauerhaften Superadmin-Zugriff?",

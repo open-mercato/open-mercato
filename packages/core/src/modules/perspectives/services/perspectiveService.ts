@@ -363,7 +363,7 @@ export async function deleteUserPerspective(
     perspectiveId: string
     request?: Request | Headers | null
   },
-): Promise<void> {
+): Promise<boolean> {
   const { scope, tableId, perspectiveId } = options
   const tenantId = scope.tenantId ?? null
   const organizationId = scope.organizationId ?? null
@@ -382,7 +382,7 @@ export async function deleteUserPerspective(
       resourceId: perspectiveId,
       request: options.request ?? null,
     })
-    return
+    return false
   }
 
   enforceCommandOptimisticLock({
@@ -399,6 +399,8 @@ export async function deleteUserPerspective(
   if (cache?.deleteByTags) {
     await cache.deleteByTags([userTag(scope, tableId)])
   }
+
+  return true
 }
 
 export async function saveRolePerspectives(
@@ -546,11 +548,11 @@ export async function clearRolePerspectives(
     expectedUpdatedAtByPerspectiveId?: ExpectedUpdatedAtById
     request?: Request | Headers | null
   },
-): Promise<void> {
+): Promise<number> {
   const { tableId, roleIds } = options
   const tenantId = options.tenantId ?? null
   const organizationId = options.organizationId ?? null
-  if (!roleIds.length) return
+  if (!roleIds.length) return 0
 
   const existingRecords = await em.find(RolePerspective, {
     roleId: { $in: roleIds as any },
@@ -600,7 +602,7 @@ export async function clearRolePerspectives(
     }
   }
 
-  await em.nativeUpdate(
+  const affected = await em.nativeUpdate(
     RolePerspective,
     {
       roleId: { $in: roleIds as any },
@@ -616,4 +618,6 @@ export async function clearRolePerspectives(
     const tags = roleIds.map((roleId) => roleTag(roleId, tableId, tenantId))
     await cache.deleteByTags(tags)
   }
+
+  return affected
 }
