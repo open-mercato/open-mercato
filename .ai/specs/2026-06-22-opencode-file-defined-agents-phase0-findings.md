@@ -211,7 +211,7 @@ malformed in any discovered `agents/<id>/` dir (spec §9).
 
 ### C1. OUTCOME schema → Zod (`outcomeSchema.ts`)
 
-New module: `packages/core/src/modules/agent_orchestrator/lib/sdk/outcomeSchema.ts`.
+New module: `packages/enterprise/src/modules/agent_orchestrator/lib/sdk/outcomeSchema.ts`.
 **No new ajv / json-schema validator production dependency** — convert the
 OUTCOME.md JSON Schema subset directly to Zod (the codebase already standardizes
 on Zod end-to-end; the in-process path feeds Zod to `runAiAgentObject`).
@@ -254,7 +254,7 @@ OUTCOME.md frontmatter. v1 supports JSON-Schema-in-frontmatter only.
 
 ### C2. AGENT.md parser (`agentMarkdown.ts`)
 
-New module: `packages/core/src/modules/agent_orchestrator/lib/sdk/agentMarkdown.ts`,
+New module: `packages/enterprise/src/modules/agent_orchestrator/lib/sdk/agentMarkdown.ts`,
 mirroring `skillMarkdown.ts` (tiny hand-rolled frontmatter parser, **no new YAML
 dep**, same `FRONTMATTER_RE` + inline-`[a,b]` + block-`- a` list handling).
 
@@ -307,7 +307,7 @@ export type AgentRuntime = 'in-process' | 'opencode'
 
 ### C4. File-agent loader (`defineFileAgent.ts`)
 
-New module: `packages/core/src/modules/agent_orchestrator/lib/sdk/defineFileAgent.ts`.
+New module: `packages/enterprise/src/modules/agent_orchestrator/lib/sdk/defineFileAgent.ts`.
 Pure, fs-based, unit-testable against fixtures.
 
 ```ts
@@ -358,7 +358,7 @@ Packages MUST NOT import `apps/mercato/.mercato/generated/*` (root `AGENTS.md`,
 module:**
 
 - The generator writes a **committed, git-tracked** manifest module at
-  `packages/core/src/modules/agent_orchestrator/generated/file-agents.generated.ts`
+  `packages/enterprise/src/modules/agent_orchestrator/generated/file-agents.generated.ts`
   (a `*.generated.ts` file that lives inside the module, the narrow exception
   allowed for versioned generated registries that must travel with the repo and
   survive `yarn clean-generated`). It exports a serializable array of file-agent
@@ -387,7 +387,7 @@ hot-reload is not guaranteed — see finding §1). Document in
 
 ### C6. `submit_outcome` + `load_skill` MCP tools (`ai-tools.ts`)
 
-Add to `packages/core/src/modules/agent_orchestrator/ai-tools.ts` via
+Add to `packages/enterprise/src/modules/agent_orchestrator/ai-tools.ts` via
 `defineAiTool` — the SAME path the existing `delegate_agent` tool already uses
 (auto-discovered by the ai-tools generator + `tool-loader.ts`). Both:
 `isMutation: false`, `requiredFeatures: ['agent_orchestrator.agents.run']`.
@@ -420,7 +420,7 @@ feature (spec §17.1 — no new ACL feature). Add no new feature.
 `entry.runtime`:
 - `'in-process'` → existing object-mode path (unchanged).
 - `'opencode'` → new `OpenCodeAgentRunner` in
-  `packages/core/src/modules/agent_orchestrator/lib/runtime/openCodeAgentRunner.ts`.
+  `packages/enterprise/src/modules/agent_orchestrator/lib/runtime/openCodeAgentRunner.ts`.
 
 Runner flow (spec §7.7):
 1. Create the `AgentRun` via the existing `agent_orchestrator.runs.create` command
@@ -479,16 +479,16 @@ propose-only contract and gates Phase 2.
 
 | File | Phase | Purpose |
 |---|---|---|
-| `packages/core/src/modules/agent_orchestrator/lib/sdk/outcomeSchema.ts` | 1 | `jsonSchemaToZod`, `compileOutcome` |
-| `packages/core/src/modules/agent_orchestrator/lib/sdk/agentMarkdown.ts` | 1 | `parseAgentMarkdown` |
-| `packages/core/src/modules/agent_orchestrator/lib/sdk/defineFileAgent.ts` | 1 | `loadFileAgentDir`, re-export `registerFileAgent` |
-| `packages/core/src/modules/agent_orchestrator/lib/sdk/defineAgent.ts` (edit) | 1 | add `runtime`, `registerFileAgent`, extend `ensureAgentsLoaded` |
-| `packages/core/src/modules/agent_orchestrator/generated/file-agents.generated.ts` | 1 | committed embedded manifest (generated) |
+| `packages/enterprise/src/modules/agent_orchestrator/lib/sdk/outcomeSchema.ts` | 1 | `jsonSchemaToZod`, `compileOutcome` |
+| `packages/enterprise/src/modules/agent_orchestrator/lib/sdk/agentMarkdown.ts` | 1 | `parseAgentMarkdown` |
+| `packages/enterprise/src/modules/agent_orchestrator/lib/sdk/defineFileAgent.ts` | 1 | `loadFileAgentDir`, re-export `registerFileAgent` |
+| `packages/enterprise/src/modules/agent_orchestrator/lib/sdk/defineAgent.ts` (edit) | 1 | add `runtime`, `registerFileAgent`, extend `ensureAgentsLoaded` |
+| `packages/enterprise/src/modules/agent_orchestrator/generated/file-agents.generated.ts` | 1 | committed embedded manifest (generated) |
 | `packages/cli/src/lib/generators/extensions/agent-files.ts` (+ index reg) | 1 | scan + validate + emit OpenCode files + manifest |
 | `docker/opencode/agents/*.md` (+ compose mount, Dockerfile COPY, version pin) | 1 | container delivery (A dev / B prod) |
-| `packages/core/src/modules/agent_orchestrator/ai-tools.ts` (edit) | 2/3 | add `submit_outcome` (2), `load_skill` (3) |
-| `packages/core/src/modules/agent_orchestrator/lib/runtime/openCodeAgentRunner.ts` | 2 | the runner (DI-injected client) |
-| `packages/core/src/modules/agent_orchestrator/lib/runtime/agentRuntime.ts` (edit) | 2 | dispatch on `entry.runtime` |
+| `packages/enterprise/src/modules/agent_orchestrator/ai-tools.ts` (edit) | 2/3 | add `submit_outcome` (2), `load_skill` (3) |
+| `packages/enterprise/src/modules/agent_orchestrator/lib/runtime/openCodeAgentRunner.ts` | 2 | the runner (DI-injected client) |
+| `packages/enterprise/src/modules/agent_orchestrator/lib/runtime/agentRuntime.ts` (edit) | 2 | dispatch on `entry.runtime` |
 | `packages/ai-assistant/src/modules/ai_assistant/lib/opencode-client.ts` (edit) | 2 | `sendMessage` gains optional `agent` |
 | `docker/opencode/skills/**`, agent-file `tools` allowlist gen | 3 | native skills |
 | `docker/opencode/agents/*` subagent files + depth cap | 4 | sub-agents |

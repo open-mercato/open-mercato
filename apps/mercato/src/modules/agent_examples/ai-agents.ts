@@ -1,5 +1,5 @@
 import type { AiAgentDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
-import { defineAgent } from '@open-mercato/core/modules/agent_orchestrator/lib/sdk/defineAgent'
+import { defineAgent } from '@open-mercato/enterprise/modules/agent_orchestrator/lib/sdk/defineAgent'
 import { ticketTriageResult, triageBatchResult } from './data/validators'
 
 // `support.ticket_triage` is a fully self-contained example agent declared in a

@@ -64,7 +64,9 @@
     }
   },
   "dependencies": {
+    "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/core": "workspace:*",
+    "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.1",
