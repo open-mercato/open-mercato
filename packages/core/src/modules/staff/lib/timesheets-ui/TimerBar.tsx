@@ -7,6 +7,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ProjectColorDot } from './ProjectColorDot'
 import { startTimerEntry } from './startTimer'
 import { resolveTimerActionError } from './timerErrors'
@@ -22,6 +23,17 @@ type TimerBarProps = {
   projects: ProjectOption[]
   staffMemberId: string | null
   onTimerStopped: () => void
+}
+
+const TIMER_MUTATION_CONTEXT_ID = 'staff-timesheets-timer-bar'
+
+type TimerMutationContext = {
+  formId: string
+  resourceKind: string
+  resourceId: string
+  staffMemberId: string | null
+  action: 'timer-create' | 'timer-start' | 'timer-stop'
+  retryLastMutation: () => Promise<boolean>
 }
 
 function formatElapsed(seconds: number): string {
@@ -41,6 +53,10 @@ function getToday(): string {
 
 export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarProps) {
   const t = useT()
+  const { runMutation, retryLastMutation } = useGuardedMutation<TimerMutationContext>({
+    contextId: TIMER_MUTATION_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   const [activeEntryId, setActiveEntryId] = useState<string | null>(null)
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
@@ -142,11 +158,23 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
     setIsStarting(true)
     try {
       const today = getToday()
-      const { id: entryId } = await startTimerEntry({
+      const startPayload = {
         staffMemberId,
         timeProjectId: selectedProjectId,
         date: today,
         notes: description || null,
+      }
+      const { id: entryId } = await runMutation({
+        operation: () => startTimerEntry(startPayload),
+        context: {
+          formId: TIMER_MUTATION_CONTEXT_ID,
+          resourceKind: 'staff.timesheets.time_entry',
+          resourceId: staffMemberId,
+          staffMemberId,
+          action: 'timer-start',
+          retryLastMutation,
+        },
+        mutationPayload: startPayload,
       })
 
       setActiveEntryId(entryId)
@@ -167,10 +195,27 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
 
     setIsStopping(true)
     try {
-      await apiCallOrThrow(
-        `/api/staff/timesheets/time-entries/${activeEntryId}/timer-stop`,
-        { method: 'POST' },
-      )
+      const stopPayload = {
+        id: activeEntryId,
+        action: 'timer-stop',
+        staffMemberId,
+      }
+      await runMutation({
+        operation: () =>
+          apiCallOrThrow(
+            `/api/staff/timesheets/time-entries/${activeEntryId}/timer-stop`,
+            { method: 'POST' },
+          ),
+        context: {
+          formId: TIMER_MUTATION_CONTEXT_ID,
+          resourceKind: 'staff.timesheets.time_entry',
+          resourceId: activeEntryId,
+          staffMemberId,
+          action: 'timer-stop',
+          retryLastMutation,
+        },
+        mutationPayload: stopPayload,
+      })
 
       setActiveEntryId(null)
       setActiveProjectId(null)
