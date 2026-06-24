@@ -906,6 +906,7 @@
           modeDev: 'Standard dev flow',
           modeGreenfield: 'Greenfield dev flow',
           modeSetup: 'Project setup flow',
+          modeEphemeral: 'Ephemeral dev flow',
           codingButtonLabel: '🤖 Start coding with AI',
           codingNoTools: 'No supported coding tools were detected on this machine.',
           gitRepoHeading: 'GitHub repository',
@@ -943,6 +944,7 @@
           modeDev: 'Standardowy tryb dev',
           modeGreenfield: 'Tryb greenfield',
           modeSetup: 'Tryb konfiguracji projektu',
+          modeEphemeral: 'Tymczasowy tryb dev',
           codingButtonLabel: '🤖 Zacznij kodować z AI',
           codingNoTools: 'Na tej maszynie nie wykryto obsługiwanych narzędzi do kodowania.',
           gitRepoHeading: 'Repozytorium GitHub',
@@ -980,6 +982,7 @@
           modeDev: 'Flujo dev estándar',
           modeGreenfield: 'Flujo dev greenfield',
           modeSetup: 'Flujo de configuración del proyecto',
+          modeEphemeral: 'Flujo dev efímero',
           codingButtonLabel: '🤖 Empezar a programar con IA',
           codingNoTools: 'No se detectaron herramientas de programacion compatibles en esta maquina.',
           gitRepoHeading: 'Repositorio de GitHub',
@@ -1017,6 +1020,7 @@
           modeDev: 'Standard-Dev-Ablauf',
           modeGreenfield: 'Greenfield-Dev-Ablauf',
           modeSetup: 'Projekt-Setup-Ablauf',
+          modeEphemeral: 'Ephemerer Dev-Ablauf',
           codingButtonLabel: '🤖 Mit KI programmieren',
           codingNoTools: 'Auf diesem Rechner wurden keine unterstuetzten Coding-Tools erkannt.',
           gitRepoHeading: 'GitHub-Repository',
@@ -1630,15 +1634,18 @@
         }[char]))
       }
 
+      function getModeLabel(mode) {
+        if (mode === 'greenfield') return t('modeGreenfield')
+        if (mode === 'setup') return t('modeSetup')
+        if (mode === 'ephemeral') return t('modeEphemeral')
+        return t('modeDev')
+      }
+
       async function refresh() {
         try {
           const response = await fetch('/status', { cache: 'no-store' })
           const state = await response.json()
-          modeLine.textContent = state.mode === 'greenfield'
-            ? t('modeGreenfield')
-            : state.mode === 'setup'
-              ? t('modeSetup')
-              : t('modeDev')
+          modeLine.textContent = getModeLabel(state.mode)
           const rawPhase = state.phase || 'Preparing app runtime'
           const rawDetail = state.detail || 'Preparing app runtime'
           const rawProgressLabel = state.progressLabel || 'Preparing startup pipeline'
