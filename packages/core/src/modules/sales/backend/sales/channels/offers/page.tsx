@@ -14,6 +14,7 @@ import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { mapOfferRow, renderOfferPriceSummary, type OfferRow } from '@open-mercato/core/modules/sales/components/channels/offerTableUtils'
@@ -26,9 +27,27 @@ type OffersResponse = {
 
 const PAGE_SIZE = 25
 
+const SAVE_CONTEXT_ID = 'sales-channel-offers-list'
+
 export default function SalesChannelOffersListPage() {
   const t = useT()
   const router = useRouter()
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: SAVE_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const mutationContext = React.useMemo(
+    () => ({
+      formId: SAVE_CONTEXT_ID,
+      resourceKind: 'sales.channels.offers',
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
   const scopeVersion = useOrganizationScopeVersion()
   const channelOptionsRef = React.useRef<Map<string, FilterOption>>(new Map())
   const [rows, setRows] = React.useState<OfferRow[]>([])
@@ -282,19 +301,24 @@ export default function SalesChannelOffersListPage() {
 
   const handleDelete = React.useCallback(async (row: OfferRow) => {
     try {
-      await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(row.updatedAt),
-        () => deleteCrud('catalog/offers', row.id, {
-          errorMessage: t('sales.channels.offers.errors.delete', 'Failed to delete offer.'),
-        }),
-      )
+      await runMutation({
+        operation: () =>
+          withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(row.updatedAt),
+            () => deleteCrud('catalog/offers', row.id, {
+              errorMessage: t('sales.channels.offers.errors.delete', 'Failed to delete offer.'),
+            }),
+          ),
+        context: mutationContext,
+        mutationPayload: { action: 'delete', id: row.id },
+      })
       flash(t('sales.channels.offers.messages.deleted', 'Offer deleted.'), 'success')
       handleRefresh()
     } catch (err) {
       if (surfaceRecordConflict(err, t)) { handleRefresh(); return }
       console.error('sales.channels.offers.delete', err)
     }
-  }, [handleRefresh, t])
+  }, [handleRefresh, mutationContext, runMutation, t])
 
   const tableTitle = (
     <div className="flex flex-col gap-1">

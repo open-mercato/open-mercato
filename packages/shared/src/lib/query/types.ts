@@ -148,8 +148,16 @@ export type PartialIndexWarning = {
   scope?: 'scoped' | 'global'
 }
 
+export type EncryptedSortRowCapWarning = {
+  entity: EntityId
+  sortFields: string[]
+  maxRows: number
+  totalMatched: number
+}
+
 export type QueryResultMeta = {
   partialIndexWarning?: PartialIndexWarning
+  encryptedSortRowCapWarning?: EncryptedSortRowCapWarning
 }
 
 export type QueryResult<T = any> = {

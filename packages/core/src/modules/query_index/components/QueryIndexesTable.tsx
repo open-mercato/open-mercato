@@ -6,9 +6,13 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+
+const MUTATION_CONTEXT_ID = 'query_index.status.list:actions'
 
 type Translator = (key: string, params?: Record<string, string | number>) => string
 
@@ -226,6 +230,15 @@ export default function QueryIndexesTable() {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const columns = React.useMemo(() => createColumns(t), [t])
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: MUTATION_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   const { data, isLoading } = useQuery<Resp>({
     queryKey: ['query-index-status', scopeVersion, refreshSeq],
@@ -256,21 +269,32 @@ export default function QueryIndexesTable() {
         action === 'purge' ? t('query_index.table.actions.purge') : t('query_index.table.actions.reindex')
       const errorMessage = t('query_index.table.errors.actionFailed', { action: actionLabel })
       try {
-        await apiCallOrThrow(`/api/query_index/${action}`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        }, { errorMessage })
+        await runMutation({
+          operation: () =>
+            apiCallOrThrow(`/api/query_index/${action}`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(body),
+            }, { errorMessage }),
+          context: {
+            formId: MUTATION_CONTEXT_ID,
+            resourceKind: 'query_index',
+            resourceId: entityId,
+            retryLastMutation,
+          },
+          mutationPayload: { action, entityType: entityId, force: Boolean(opts?.force) },
+        })
       } catch (err) {
-        console.error('query_index.table.trigger', err)
-        if (typeof window !== 'undefined') {
-          const message = err instanceof Error ? err.message : errorMessage
-          window.alert(message)
-        }
+        // Expected operational failures (e.g. a 503 when a search backend is not
+        // configured) — surface a flash toast, not an alert or an error-level
+        // stack dump that reads like an unhandled exception.
+        const message = err instanceof Error && err.message ? err.message : errorMessage
+        console.warn('[query_index] index action failed', message)
+        flash(message, 'error')
       }
       qc.invalidateQueries({ queryKey: ['query-index-status'] })
     },
-    [qc, t],
+    [qc, t, runMutation, retryLastMutation],
   )
 
   const triggerVector = React.useCallback(
@@ -288,24 +312,32 @@ export default function QueryIndexesTable() {
         : t('query_index.table.actions.vectorReindex')
       const errorMessage = t('query_index.table.errors.actionFailed', { action: actionLabel })
       try {
-        await apiCallOrThrow('/api/search/embeddings/reindex', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            entityId,
-            purgeFirst: action === 'purge',
-          }),
-        }, { errorMessage })
+        await runMutation({
+          operation: () =>
+            apiCallOrThrow('/api/search/embeddings/reindex', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                entityId,
+                purgeFirst: action === 'purge',
+              }),
+            }, { errorMessage }),
+          context: {
+            formId: MUTATION_CONTEXT_ID,
+            resourceKind: 'query_index.vector',
+            resourceId: entityId,
+            retryLastMutation,
+          },
+          mutationPayload: { action, entityId, purgeFirst: action === 'purge' },
+        })
       } catch (err) {
-        console.error('query_index.table.vectorAction', err)
-        if (typeof window !== 'undefined') {
-          const message = err instanceof Error ? err.message : errorMessage
-          window.alert(message)
-        }
+        const message = err instanceof Error && err.message ? err.message : errorMessage
+        console.warn('[query_index] vector action failed', message)
+        flash(message, 'error')
       }
       qc.invalidateQueries({ queryKey: ['query-index-status'] })
     },
-    [confirm, qc, t],
+    [confirm, qc, t, runMutation, retryLastMutation],
   )
 
   const triggerFulltext = React.useCallback(
@@ -323,24 +355,32 @@ export default function QueryIndexesTable() {
         : t('query_index.table.actions.fulltextReindex')
       const errorMessage = t('query_index.table.errors.actionFailed', { action: actionLabel })
       try {
-        await apiCallOrThrow('/api/search/reindex', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            action: action === 'purge' ? 'clear' : 'reindex',
-            entityId,
-          }),
-        }, { errorMessage })
+        await runMutation({
+          operation: () =>
+            apiCallOrThrow('/api/search/reindex', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                action: action === 'purge' ? 'clear' : 'reindex',
+                entityId,
+              }),
+            }, { errorMessage }),
+          context: {
+            formId: MUTATION_CONTEXT_ID,
+            resourceKind: 'query_index.fulltext',
+            resourceId: entityId,
+            retryLastMutation,
+          },
+          mutationPayload: { action, entityId },
+        })
       } catch (err) {
-        console.error('query_index.table.fulltextAction', err)
-        if (typeof window !== 'undefined') {
-          const message = err instanceof Error ? err.message : errorMessage
-          window.alert(message)
-        }
+        const message = err instanceof Error && err.message ? err.message : errorMessage
+        console.warn('[query_index] fulltext action failed', message)
+        flash(message, 'error')
       }
       qc.invalidateQueries({ queryKey: ['query-index-status'] })
     },
-    [confirm, qc, t],
+    [confirm, qc, t, runMutation, retryLastMutation],
   )
 
   return (

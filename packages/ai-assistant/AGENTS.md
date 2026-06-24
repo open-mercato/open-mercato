@@ -1484,7 +1484,32 @@ The global `RATE_LIMIT_ENABLED` kill switch (auto-off under `OM_INTEGRATION_TEST
 
 **Files**:
 - Added `lib/rate-limit.ts` + `lib/__tests__/rate-limit.test.ts`.
-- `api/ai/chat/route.ts`, `api/chat/route.ts` — call the gate near the top of the POST handler (legacy route hoists its existing request container so the session-key path reuses it).
+- `api/ai/chat/route.ts`, `api/chat/route.ts` — call the gate near the top of the POST handler (legacy route reuses the request container resolved for the answerQuestion ownership re-check).
+
+### 2026-06-11 - Harden latent MCP server-config module (#2672)
+
+**What changed** (`lib/mcp-server-config.ts`, currently dead code — no callers):
+- Added `validateMcpServerUrl()` (exported): restricts external MCP server URLs to `http:`/`https:` (blocks `file:`/`gopher:`/`data:` local-file disclosure) and rejects literal loopback, link-local (`169.254.0.0/16`, `fe80::/10`), and RFC1918 private hosts plus `localhost`/`0.0.0.0`/IPv4-mapped IPv6 — reducing SSRF exposure if a management route is ever wired up. `validateMcpServerConfig` now uses it for HTTP configs.
+- `saveMcpServerConfig` / `updateMcpServerConfig` now call `validateMcpServerConfig` and throw on invalid input, so persistence is **fail-closed**.
+- `generateId()` now uses `randomUUID()` (CSPRNG) instead of `Date.now()` + `Math.random()`.
+
+Note: the guard is intentionally NOT added to `mcp-client.ts` `connectHttp`, which legitimately connects to the app's own loopback MCP server (`localhost:3001`). DNS-rebinding (resolution-time checks) is out of scope for this dead-code hardening.
+
+**Files**: `lib/mcp-server-config.ts`. Regression test: `lib/__tests__/mcp-server-config-hardening.test.ts`.
+
+**Backward compatibility**: `validateMcpServerUrl` is additive. The module has no callers, so the tightened HTTP validation + fail-closed persistence change no live behavior.
+
+### 2026-06-11 - MCP stdio server fails closed without auth (#2673)
+
+**What changed**:
+- `createMcpServer` / `runMcpServer` (`lib/mcp-server.ts`) no longer silently grant `isSuperAdmin = true` when no auth is supplied. The two fail-open branches (a `context` without a `userId`, and neither `apiKeySecret` nor `context`) now **throw** instead of escalating to an unscoped superadmin.
+- `apiKeySecret` is normalized — an empty / whitespace-only string is treated as missing instead of falling through to the unauthenticated branch.
+- Added an explicit, loud opt-in `McpServerOptions.allowUnauthenticatedSuperadmin` (default off) for local dev/testing. When enabled the server runs as superadmin with a startup `WARNING` log; when off and unauthenticated it refuses to start.
+- `mcp:serve` CLI: `--user` is now effectively required alongside `--tenant`; the legacy "no user → superadmin" behavior is preserved only behind the new `--allow-unauthenticated-superadmin` flag (documented in `--help`).
+
+**Files modified**: `lib/mcp-server.ts`, `lib/types.ts`, `cli.ts`. Regression test: `lib/__tests__/mcp-server-auth-fail-closed.test.ts`.
+
+**Backward compatibility**: `allowUnauthenticatedSuperadmin` is an additive optional field. The only behavior change is that a previously fail-open misconfiguration now fails closed — callers that relied on auth-less superadmin must pass the explicit opt-in.
 
 ### 2026-05-13 - Remove dead `indexApiEndpoints` from MCP boot (#1876)
 

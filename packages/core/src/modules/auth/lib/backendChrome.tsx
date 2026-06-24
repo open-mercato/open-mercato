@@ -22,9 +22,15 @@ import { resolveRegisteredLucideIconNode } from '@open-mercato/ui/backend/icons/
 import { profilePathPrefixes, profileSections } from './profile-sections'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { filterGrantsByEnabledModules } from '@open-mercato/shared/security/enabledModulesRegistry'
-import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import {
+  getSelectedOrganizationFromRequest,
+  resolveFeatureCheckContext,
+} from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   applySidebarPreference,
   loadFirstRoleSidebarPreference,
@@ -397,6 +403,35 @@ export async function resolveBackendChromePayload({
     ),
   )
 
+  const requestOrganizationId = request ? getSelectedOrganizationFromRequest(request) : null
+  const fallbackOrganizationId = selectedOrganizationId ?? requestOrganizationId ?? auth.orgId ?? null
+  const brandOrganizationId = scopedOrganizationId
+    ?? (fallbackOrganizationId && !isAllOrganizationsSelection(fallbackOrganizationId) ? fallbackOrganizationId : null)
+
+  let brand: BackendChromePayload['brand'] = null
+  if (brandOrganizationId && scopedTenantId) {
+    try {
+      const organization = await findOneWithDecryption(
+        em,
+        Organization,
+        { id: brandOrganizationId, tenant: scopedTenantId, deletedAt: null },
+        undefined,
+        { tenantId: scopedTenantId, organizationId: brandOrganizationId },
+      )
+      if (organization?.logoUrl) {
+        brand = {
+          name: organization.name,
+          logo: {
+            src: organization.logoUrl,
+            alt: `${organization.name} logo`,
+          },
+        }
+      }
+    } catch {
+      brand = null
+    }
+  }
+
   return {
     groups: appliedGroups.map(({ weight: _weight, ...group }) => group),
     settingsSections,
@@ -405,5 +440,6 @@ export async function resolveBackendChromePayload({
     profilePathPrefixes,
     grantedFeatures,
     roles: Array.isArray(auth.roles) ? auth.roles : [],
+    brand,
   }
 }

@@ -3,6 +3,8 @@ import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { subscribeProductSeoValidation } from './state'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
+import { Alert } from '@open-mercato/ui/primitives/alert'
 
 type SeoData = {
   title?: string | null
@@ -13,6 +15,8 @@ type SeoData = {
 type ValidationState = { ok: boolean; issues: string[]; message?: string }
 
 type IssueKey = 'addTitle' | 'titleTooShort' | 'titleTooLong' | 'addDescription' | 'descriptionTooShort'
+
+type SeoScore = { text: string; variant: StatusBadgeVariant }
 
 function computeIssueKeys(title: string, description: string): IssueKey[] {
   const issues: IssueKey[] = []
@@ -51,27 +55,27 @@ export default function ProductSeoWidget({ data }: InjectionWidgetComponentProps
     })
   }, [])
 
-  const titleScore = React.useMemo(() => {
-    if (!title) return { text: t('catalog.products.create.seoWidget.missing', 'Missing'), color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' }
-    if (title.length < 10) return { text: t('catalog.products.create.seoWidget.tooShort', 'Too short'), color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200' }
-    if (title.length > 60) return { text: t('catalog.products.create.seoWidget.tooLong', 'Too long'), color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200' }
-    return { text: t('catalog.products.create.seoWidget.good', 'Good'), color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-200' }
+  const titleScore = React.useMemo<SeoScore>(() => {
+    if (!title) return { text: t('catalog.products.create.seoWidget.missing', 'Missing'), variant: 'error' }
+    if (title.length < 10) return { text: t('catalog.products.create.seoWidget.tooShort', 'Too short'), variant: 'warning' }
+    if (title.length > 60) return { text: t('catalog.products.create.seoWidget.tooLong', 'Too long'), variant: 'warning' }
+    return { text: t('catalog.products.create.seoWidget.good', 'Good'), variant: 'success' }
   }, [title, t])
 
-  const descScore = React.useMemo(() => {
-    if (!description) return { text: t('catalog.products.create.seoWidget.missing', 'Missing'), color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' }
-    if (description.length < 50) return { text: t('catalog.products.create.seoWidget.tooShort', 'Too short'), color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200' }
-    return { text: t('catalog.products.create.seoWidget.good', 'Good'), color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-200' }
+  const descScore = React.useMemo<SeoScore>(() => {
+    if (!description) return { text: t('catalog.products.create.seoWidget.missing', 'Missing'), variant: 'error' }
+    if (description.length < 50) return { text: t('catalog.products.create.seoWidget.tooShort', 'Too short'), variant: 'warning' }
+    return { text: t('catalog.products.create.seoWidget.good', 'Good'), variant: 'success' }
   }, [description, t])
 
   const statusBadge = validation.ok ? (
-    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 border border-emerald-200">
+    <StatusBadge variant="success">
       {t('catalog.products.create.seoWidget.ready', 'Ready')}
-    </span>
+    </StatusBadge>
   ) : (
-    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 border border-amber-200">
+    <StatusBadge variant="warning">
       {t('catalog.products.create.seoWidget.needsAttention', 'Needs attention')}
-    </span>
+    </StatusBadge>
   )
 
   const translateIssue = (issueKey: string): string => {
@@ -89,7 +93,13 @@ export default function ProductSeoWidget({ data }: InjectionWidgetComponentProps
       </div>
 
       {validation.message || validation.issues.length ? (
-        <div className={`rounded-md border p-3 text-xs ${validation.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+        <Alert
+          status={validation.ok ? 'success' : 'warning'}
+          style="lighter"
+          size="sm"
+          showIcon={false}
+          className="text-xs"
+        >
           {validation.message ? <div className="font-medium">{validation.message}</div> : null}
           {validation.issues.length ? (
             <ul className="ml-4 list-disc space-y-1 pt-1">
@@ -98,17 +108,17 @@ export default function ProductSeoWidget({ data }: InjectionWidgetComponentProps
               ))}
             </ul>
           ) : null}
-        </div>
+        </Alert>
       ) : null}
 
       <div className="rounded border bg-muted/30 p-3 text-sm">
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">{t('catalog.products.create.seoWidget.titleLabel', 'Title ({{count}} chars)', { count: title.length })}</span>
-          <span className={`font-medium ${titleScore.color}`}>{titleScore.text}</span>
+          <StatusBadge variant={titleScore.variant}>{titleScore.text}</StatusBadge>
         </div>
         <div className="mt-2 flex items-center justify-between">
           <span className="text-muted-foreground">{t('catalog.products.create.seoWidget.descriptionLabel', 'Description ({{count}} chars)', { count: description.length })}</span>
-          <span className={`font-medium ${descScore.color}`}>{descScore.text}</span>
+          <StatusBadge variant={descScore.variant}>{descScore.text}</StatusBadge>
         </div>
       </div>
 

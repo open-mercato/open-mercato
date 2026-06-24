@@ -7,13 +7,15 @@ import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import type { OnboardingRequest } from '@open-mercato/onboarding/modules/onboarding/data/entities'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboarding/lib/ready-email'
-import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
-import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
-import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
+import { PREPARATION_CLAIM_STALE_MS } from '@open-mercato/onboarding/modules/onboarding/lib/preparation-claim'
 
 const VECTOR_REINDEX_ENQUEUE_TIMEOUT_MS = 5_000
 const SEED_EXAMPLES_TIMEOUT_MS = 15_000
+// Steady lease-renewal cadence while the chain works. Must stay well below
+// PREPARATION_CLAIM_STALE_MS so a live runner is never mistaken for a crashed
+// one, regardless of how long any single module's seedExamples takes.
+const PREPARATION_HEARTBEAT_MS = 5_000
 
 export function resolveProvisioningIds(request: OnboardingRequest) {
   if (!request.tenantId || !request.organizationId || !request.userId) return null
@@ -80,13 +82,14 @@ async function runModuleSetupHook(args: {
 
 async function markWorkspaceReady(args: {
   requestId: string
+  service: OnboardingService
 }) {
-  const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
-  const service = new OnboardingService(em)
-  const request = await service.findById(args.requestId)
-  if (!request || request.preparationCompletedAt) return
-  await service.markPreparationCompleted(request, new Date())
+  const request = await args.service.findById(args.requestId)
+  // The status guard protects a request that was re-submitted (and reset to
+  // pending) while this chain was still running — completing it would let the
+  // new flow skip its own deferred provisioning.
+  if (!request || request.preparationCompletedAt || request.status !== 'completed') return
+  await args.service.markPreparationCompleted(request, new Date())
 }
 
 async function enqueueVectorReindex(args: {
@@ -113,67 +116,61 @@ async function enqueueVectorReindex(args: {
   ])
 }
 
-async function rebuildTenantQueryIndexes(args: {
-  em: EntityManager
+type PersistentEventBus = {
+  emitEvent: (
+    event: string,
+    payload: unknown,
+    options?: { persistent?: boolean; deliverInline?: boolean },
+  ) => Promise<void>
+}
+
+async function enqueueQueryIndexRebuild(args: {
+  container: { resolve: <T = unknown>(name: string) => T }
   tenantId: string
-  organizationId: string
 }) {
-  const coverageRefreshKeys = new Set<string>()
+  // Hand the heavy query-index rebuild to the durable queue instead of running
+  // a multi-minute force purge+reindex of every system entity inline — that
+  // inline rebuild was what stalled the preparing page and exhausted the PG
+  // pool. Each entity becomes a persistent `query_index.reindex` job, so it
+  // survives a worker/process restart and is retried independently of
+  // onboarding. reindexEntity({ force: true }) purges the scope and refreshes
+  // coverage internally, so no explicit purge/coverage sweep is needed here.
+  //
+  // Scope is the whole tenant (no organizationId): the previous inline rebuild
+  // reindexed tenant-wide, which also covers organization_id IS NULL rows and
+  // entities whose org is derived from the row (e.g. directory:organization).
+  // Narrowing to a single org would silently drop those.
+  let eventBus: PersistentEventBus | null = null
   try {
-    const allEntities = getEntityIds()
-    const entityIds = flattenSystemEntityIds(allEntities)
-    for (const entityType of entityIds) {
-      try {
-        await purgeIndexScope(args.em, { entityType, tenantId: args.tenantId })
-      } catch (error) {
-        console.error('[onboarding.verify] failed to purge query index scope', {
-          entityType,
-          tenantId: args.tenantId,
-          error,
-        })
-      }
-      try {
-        await reindexEntity(args.em, {
+    eventBus = args.container.resolve<PersistentEventBus>('eventBus')
+  } catch {
+    eventBus = null
+  }
+  if (!eventBus) return
+
+  const entityIds = flattenSystemEntityIds(getEntityIds())
+  for (const entityType of entityIds) {
+    try {
+      // deliverInline: false is load-bearing here. A bare `{ persistent: true }`
+      // emit dual-dispatches: the events worker drains the queued job AND the
+      // subscriber runs inline in THIS request — so the multi-minute force
+      // reindex of every system entity would still block onboarding (and reuse
+      // the request's already-committed em, spamming "Transaction is already
+      // committed" from the vector-purge status-log prune). Enqueue-only hands
+      // the rebuild to the worker and returns immediately.
+      await eventBus.emitEvent(
+        'query_index.reindex',
+        {
           entityType,
           tenantId: args.tenantId,
           force: true,
-          emitVectorizeEvents: false,
-          vectorService: null,
-        })
-      } catch (error) {
-        console.error('[onboarding.verify] failed to reindex entity', {
-          entityType,
-          tenantId: args.tenantId,
-          error,
-        })
-      }
-      coverageRefreshKeys.add(`${entityType}|${args.tenantId}|__null__`)
-      coverageRefreshKeys.add(`${entityType}|${args.tenantId}|${args.organizationId}`)
-    }
-  } catch (error) {
-    console.error('[onboarding.verify] failed to rebuild query indexes', { tenantId: args.tenantId, error })
-  }
-
-  if (!coverageRefreshKeys.size) return
-
-  for (const entry of coverageRefreshKeys) {
-    const [entityType, tenantKey, orgKey] = entry.split('|')
-    const orgScope = orgKey === '__null__' ? null : orgKey
-    try {
-      await refreshCoverageSnapshot(
-        args.em,
-        {
-          entityType,
-          tenantId: tenantKey,
-          organizationId: orgScope,
-          withDeleted: false,
         },
+        { persistent: true, deliverInline: false },
       )
     } catch (error) {
-      console.error('[onboarding.verify] failed to refresh coverage snapshot', {
+      console.error('[onboarding.verify] failed to enqueue query index rebuild', {
         entityType,
-        tenantId: tenantKey,
-        organizationId: orgScope,
+        tenantId: args.tenantId,
         error,
       })
     }
@@ -187,44 +184,108 @@ export async function runDeferredProvisioning(args: {
 }) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const modules = getModules()
+  const service = new OnboardingService(em)
 
-  for (const mod of modules) {
-    if (!mod.setup?.seedExamples) continue
-    try {
-      await runModuleSetupHook({
-        moduleId: mod.id,
-        phase: 'seedExamples',
-        timeoutMs: SEED_EXAMPLES_TIMEOUT_MS,
-        run: () => mod.setup!.seedExamples!({
-          em,
-          tenantId: args.tenantId,
-          organizationId: args.organizationId,
-          container,
-        }),
-      })
-    } catch (error) {
-      if (isUniqueViolation(error)) {
-        console.info('[onboarding.verify] deferred seedExamples skipped (already applied)', {
-          moduleId: mod.id,
-          tenantId: args.tenantId,
-          organizationId: args.organizationId,
-        })
-      } else {
-        console.error('[onboarding.verify] deferred seedExamples failed', {
-          moduleId: mod.id,
-          tenantId: args.tenantId,
-          organizationId: args.organizationId,
-          error,
-        })
-      }
-    }
+  // Single-flight guard: the preparing page polls the status endpoint every
+  // second and each poll (plus the verify handler) schedules this chain. The
+  // atomic claim collapses those triggers into one run per request — without
+  // it, dozens of concurrent seed + full-reindex chains exhaust the PG
+  // connection pool (2026-06-11 demo outage). A stale claim (crashed runner)
+  // becomes reclaimable after PREPARATION_CLAIM_STALE_MS.
+  const claimedAt = new Date()
+  const claimed = await service.claimPreparation(
+    args.requestId,
+    claimedAt,
+    new Date(claimedAt.getTime() - PREPARATION_CLAIM_STALE_MS),
+  )
+  if (!claimed) {
+    console.info('[onboarding.verify] deferred provisioning skipped (already claimed or completed)', {
+      requestId: args.requestId,
+      tenantId: args.tenantId,
+    })
+    return
   }
 
-  await markWorkspaceReady({
-    requestId: args.requestId,
-  })
+  // Steady heartbeat on a SEPARATE EntityManager (own connection) so renewal can
+  // never interleave with the chain's own DB work on `em`. This keeps the lease
+  // fresh on a fixed cadence independent of how long any single module's
+  // seedExamples takes, which is what lets PREPARATION_CLAIM_STALE_MS stay short:
+  // a runner that actually crashes stops renewing and is reclaimable in seconds,
+  // while a genuinely-working one is never falsely reclaimed. renewPreparation is
+  // a no-op once the request is completed, so a late tick can't resurrect a
+  // finished lease.
+  const heartbeatEm = typeof (em as { fork?: () => EntityManager }).fork === 'function'
+    ? em.fork()
+    : em
+  const heartbeatService = new OnboardingService(heartbeatEm)
+  const heartbeat = setInterval(() => {
+    void heartbeatService.renewPreparation(args.requestId, new Date()).catch(() => {})
+  }, PREPARATION_HEARTBEAT_MS)
+  if (typeof heartbeat.unref === 'function') heartbeat.unref()
 
+  try {
+    const modules = getModules()
+
+    for (const mod of modules) {
+      if (!mod.setup?.seedExamples) continue
+      // Renew immediately before each module too, so even a long-running module
+      // starts from a fresh lease in addition to the steady heartbeat above.
+      await service.renewPreparation(args.requestId, new Date()).catch(() => {})
+      try {
+        await runModuleSetupHook({
+          moduleId: mod.id,
+          phase: 'seedExamples',
+          timeoutMs: SEED_EXAMPLES_TIMEOUT_MS,
+          run: () => mod.setup!.seedExamples!({
+            em,
+            tenantId: args.tenantId,
+            organizationId: args.organizationId,
+            container,
+          }),
+        })
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          console.info('[onboarding.verify] deferred seedExamples skipped (already applied)', {
+            moduleId: mod.id,
+            tenantId: args.tenantId,
+            organizationId: args.organizationId,
+          })
+        } else {
+          console.error('[onboarding.verify] deferred seedExamples failed', {
+            moduleId: mod.id,
+            tenantId: args.tenantId,
+            organizationId: args.organizationId,
+            error,
+          })
+        }
+      }
+    }
+
+    // The query-index rebuild is ENQUEUED before the completion flag, not run
+    // inline: preparationCompletedAt is the terminal gate for both the
+    // status-route scheduling and claimPreparation, so a runner that dies before
+    // the jobs are queued must leave the flag unset — the stale claim then makes
+    // the chain reclaimable and re-enqueues (a repeated force reindex is
+    // harmless). Enqueuing is fast, so the workspace is marked ready in seconds
+    // while the actual reindex runs in the background workers.
+    await enqueueQueryIndexRebuild({
+      container,
+      tenantId: args.tenantId,
+    })
+
+    await markWorkspaceReady({
+      requestId: args.requestId,
+      service,
+    })
+  } finally {
+    // Stop renewing as soon as the chain finishes (or throws): a crashed runner
+    // must let the lease go stale so a status poll can reclaim it.
+    clearInterval(heartbeat)
+  }
+
+  // Non-fatal (#2954 contract): an email failure must not abort the chain.
+  // The status endpoint retries the ready email on later polls while
+  // readyEmailSentAt is unset.
   await sendWorkspaceReadyEmail({
     requestId: args.requestId,
     tenantId: args.tenantId,
@@ -235,13 +296,6 @@ export async function runDeferredProvisioning(args: {
       organizationId: args.organizationId,
       error,
     })
-    throw error
-  })
-
-  await rebuildTenantQueryIndexes({
-    em,
-    tenantId: args.tenantId,
-    organizationId: args.organizationId,
   })
 
   await enqueueVectorReindex({

@@ -27,6 +27,7 @@ import { killProcessTree } from './dev-shutdown-utils.mjs'
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
+import { resolveSplashBindHost } from './dev-splash-shared.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
 import {
   resolveDevBaseUrl,
@@ -119,10 +120,6 @@ function shouldRefreshStandaloneRegistryPackages() {
   return !hasExistingStandaloneInstall()
 }
 
-function isContainerRuntime() {
-  return fs.existsSync('/.dockerenv')
-}
-
 function parsePortNumber(value) {
   if (typeof value !== 'string' && typeof value !== 'number') return null
   const parsed = Number.parseInt(String(value).trim(), 10)
@@ -200,7 +197,7 @@ const splashMode = greenfield ? 'greenfield' : setupMode ? 'setup' : 'dev'
 const standaloneStageTotal = setupMode ? 5 : 4
 const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
-const splashBindHost = isContainerRuntime() ? '0.0.0.0' : '127.0.0.1'
+const splashBindHost = resolveSplashBindHost(process.env)
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
 const warmupReadyFilePath = path.join(
   process.cwd(),
