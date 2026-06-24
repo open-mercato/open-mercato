@@ -1,0 +1,70 @@
+name: Package Previews
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: package-previews-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  publish-previews:
+    if: github.event.label.name == 'publish-pkg-preview'
+    name: Publish Package Previews
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build packages
+        run: |
+          yarn build:packages
+          yarn generate
+          yarn build:packages
+
+      - name: Publish package previews
+        run: >
+          yarn pkg-pr-new publish --comment=update --no-template --yarn --packageManager=yarn
+          './packages/ai-assistant'
+          './packages/cache'
+          './packages/channel-gmail'
+          './packages/channel-imap'
+          './packages/checkout'
+          './packages/cli'
+          './packages/content'
+          './packages/core'
+          './packages/create-app'
+          './packages/enterprise'
+          './packages/events'
+          './packages/gateway-stripe'
+          './packages/onboarding'
+          './packages/queue'
+          './packages/scheduler'
+          './packages/search'
+          './packages/shared'
+          './packages/storage-s3'
+          './packages/sync-akeneo'
+          './packages/ui'
+          './packages/webhooks'
