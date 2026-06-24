@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentRun, AgentSpan, AgentToolCall, AgentEvalResult } from '../../../data/entities'
 
 /**
@@ -30,15 +31,28 @@ export async function GET(req: Request, ctx: RouteContext) {
   if (!parsedId.success) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
 
   const scope = { tenantId: auth.tenantId, organizationId: auth.orgId ?? undefined }
+  const decryptionScope = { tenantId: auth.tenantId, organizationId: auth.orgId ?? null }
   const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager).fork()
 
-  const run = await em.findOne(AgentRun, { id: parsedId.data, ...scope, deletedAt: null })
+  const run = await findOneWithDecryption(
+    em,
+    AgentRun,
+    { id: parsedId.data, ...scope, deletedAt: null },
+    undefined,
+    decryptionScope,
+  )
   if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
 
   const [spans, toolCalls, evalResults] = await Promise.all([
     em.find(AgentSpan, { agentRunId: run.id, ...scope }, { orderBy: { sequence: 'asc' } }),
-    em.find(AgentToolCall, { agentRunId: run.id, ...scope }, { orderBy: { createdAt: 'asc' } }),
+    findWithDecryption(
+      em,
+      AgentToolCall,
+      { agentRunId: run.id, ...scope },
+      { orderBy: { createdAt: 'asc' } },
+      decryptionScope,
+    ),
     em.find(AgentEvalResult, { agentRunId: run.id, ...scope }, { orderBy: { evaluatedAt: 'asc' } }),
   ])
 

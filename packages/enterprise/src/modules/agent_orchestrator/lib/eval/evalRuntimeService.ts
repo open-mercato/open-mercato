@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentRun, AgentEvalAssertion, AgentEvalResult } from '../../data/entities'
 import { getScorer } from './scorers'
 
@@ -25,7 +26,13 @@ export async function evaluateRun(
   scope: EvaluateRunScope,
   runId: string,
 ): Promise<EvaluateRunResult> {
-  const run = await em.findOne(AgentRun, { id: runId, tenantId: scope.tenantId, organizationId: scope.organizationId })
+  const run = await findOneWithDecryption(
+    em,
+    AgentRun,
+    { id: runId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    undefined,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
   if (!run) return { evaluated: 0, evalPassed: null, evalScore: null }
 
   const assertions = await em.find(AgentEvalAssertion, {

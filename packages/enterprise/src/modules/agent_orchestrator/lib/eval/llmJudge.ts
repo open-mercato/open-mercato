@@ -2,6 +2,7 @@ import { generateObject } from 'ai'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
 import { AgentRun, AgentEvalAssertion, AgentEvalResult } from '../../data/entities'
 
@@ -56,7 +57,13 @@ export async function runLlmJudgeForRun(
   runId: string,
   judge: JudgeFn,
 ): Promise<RunLlmJudgeResult> {
-  const run = await em.findOne(AgentRun, { id: runId, tenantId: scope.tenantId, organizationId: scope.organizationId })
+  const run = await findOneWithDecryption(
+    em,
+    AgentRun,
+    { id: runId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    undefined,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
   if (!run) return { judged: 0, skipped: 0 }
 
   const assertions = await em.find(AgentEvalAssertion, {
