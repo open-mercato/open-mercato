@@ -16,6 +16,7 @@ import {
   type ContextSourceHit,
 } from './registry'
 import { estimateTokens, packCandidates, type PackCandidate } from './packer'
+import { readRetrievalSource } from './retrievalSource'
 
 /**
  * Input to a TDCR assembly. Validated by `assembleInputSchema`; tenant/org are
@@ -46,10 +47,16 @@ export type RetrieveScope = {
   capability: string
 }
 
+/**
+ * A citable grounding snippet returned by `retrieve()`. The grounding contract
+ * GUARANTEES `sourceRef` + `locator` + `score` on every snippet — `locator` is
+ * required (not optional) so the Wave 3 cite-or-abstain check can always resolve
+ * a cite back to its source.
+ */
 export type RetrievedSnippet = {
   sourceKind: 'entity' | 'document' | 'retrieval'
   sourceRef: string
-  locator?: string
+  locator: string
   snippet: string
   score: number
 }
@@ -81,8 +88,9 @@ export interface ContextResolver {
  * append-only `AgentContextBundle` per run.
  *
  * Clean seams for later phases:
- *   - `retrieve()` is the standalone grounding hook (P2 wires `searchService` RRF
- *     fill behind it; Phase 1 returns the mandatory entity hits as citable snippets).
+ *   - `retrieve()` is the standalone grounding hook — Phase 2 wires `searchService`
+ *     RRF fill behind it; it returns citable snippets (sourceRef + locator + score)
+ *     and is the contract the Wave 3 grounding (cite-or-abstain) check consumes.
  *   - the packer's token estimator + redaction stage are where P4 plugs the
  *     model-appropriate tokenizer and PII/field-encryption redaction.
  *   - the `document` source kind is declared by the registry and assembled by P3.
@@ -131,35 +139,67 @@ export class ContextResolverImpl implements ContextResolver {
   }
 
   /**
-   * Standalone grounding lookup (the guardrails grounding-check seam). Phase 1
-   * returns the capability's mandatory entity hits as citable snippets (ref +
-   * locator + score). P2 fills it with `searchService` RRF-ranked retrieval.
+   * Standalone grounding lookup — the contract the Wave 3 guardrails grounding
+   * (cite-or-abstain) check consumes. Wraps `searchService` (RRF, `packages/search`)
+   * over the capability's declared `retrieval` sources plus its structured
+   * `entity` sources, ALWAYS org+tenant scoped (cross-tenant retrieval is
+   * structurally impossible — the scope is the authority, never user input).
+   *
+   * GROUNDING CONTRACT: every returned snippet is CITABLE — it carries
+   * `sourceRef` + `locator` + `score`. No snippet is ever emitted without a
+   * locator or score (a malformed search row is dropped, not returned uncited),
+   * so the grounding check can verify a proposal's cites or force an abstain.
+   *
+   * Signature:
+   *   retrieve(em, query, { tenantId, organizationId, capability })
+   *     => Promise<RetrievedSnippet[]>
+   *   RetrievedSnippet = { sourceKind, sourceRef, locator, snippet, score }
    */
   async retrieve(
-    em: EntityManager,
-    _query: string,
+    _em: EntityManager,
+    query: string,
     scope: RetrieveScope,
   ): Promise<RetrievedSnippet[]> {
     const module = resolveContextModule(scope.capability)
     if (!module) throw new ContextModuleNotFoundError(scope.capability)
 
+    const readScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
     const snippets: RetrievedSnippet[] = []
+
+    // Retrieval sources: RRF-ranked `searchService` hits (the primary grounding
+    // surface). Every hit is citable by construction (locator + score).
+    for (const source of module.sources) {
+      if (source.kind !== 'retrieval') continue
+      const hits = await readRetrievalSource(this.container, source, query, readScope)
+      for (const hit of hits) {
+        if (!hit.locator || typeof hit.score !== 'number') continue
+        snippets.push({
+          sourceKind: 'retrieval',
+          sourceRef: hit.ref,
+          locator: hit.locator,
+          snippet: typeof hit.record.snippet === 'string' ? hit.record.snippet : JSON.stringify(hit.record),
+          score: hit.score,
+        })
+      }
+    }
+
+    // Structured `entity` sources also ground a proposal — emit them as citable
+    // snippets (the record id is the locator, score defaults to a certain 1).
     for (const source of module.sources) {
       if (source.kind !== 'entity') continue
-      const hits = await this.readEntitySource(source, {
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-      })
+      const hits = await this.readEntitySource(source, readScope)
       for (const hit of hits) {
+        const locator = hit.locator ?? `${source.entityType}:${hit.ref}`
         snippets.push({
           sourceKind: 'entity',
           sourceRef: hit.ref,
-          ...(hit.locator ? { locator: hit.locator } : {}),
+          locator,
           snippet: JSON.stringify(hit.record),
           score: hit.score ?? 1,
         })
       }
     }
+
     return snippets
   }
 
@@ -167,16 +207,16 @@ export class ContextResolverImpl implements ContextResolver {
     module: ContextModule,
     input: AssembleInput,
   ): Promise<PackCandidate[]> {
+    const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
     const candidates: PackCandidate[] = []
     const ordered = [...module.sources].sort((left, right) => left.priority - right.priority)
+
+    // First pass: read structured `entity` sources. The mandatory floor comes
+    // exclusively from these (retrieval is always optional fill), so we read it
+    // before deriving the retrieval query from the assembled mandatory facts.
     for (const source of ordered) {
-      // Phase 1 assembles `entity` sources. `retrieval` (P2) and `document` (P3)
-      // are declared by the registry and packed by later phases — skip cleanly.
       if (source.kind !== 'entity') continue
-      const hits = await this.readEntitySource(source, {
-        tenantId: input.tenantId,
-        organizationId: input.organizationId,
-      })
+      const hits = await this.readEntitySource(source, scope)
       for (const hit of hits) {
         const provenance: ContextProvenance = source.provenance(hit)
         candidates.push({
@@ -188,6 +228,27 @@ export class ContextResolverImpl implements ContextResolver {
         })
       }
     }
+
+    // Second pass: retrieval-ranked OPTIONAL fill (Phase 2). The query is derived
+    // from the mandatory floor so retrieval is grounded in the subject the
+    // capability MUST see; results pack into the budget remaining after the floor
+    // and flow through the same routed/pruned recording as every other candidate.
+    const retrievalQuery = buildRetrievalQuery(candidates, input.capability)
+    for (const source of ordered) {
+      if (source.kind !== 'retrieval') continue
+      const hits = await readRetrievalSource(this.container, source, retrievalQuery, scope)
+      for (const hit of hits) {
+        const provenance: ContextProvenance = source.provenance(hit)
+        candidates.push({
+          kind: source.kind,
+          tier: source.tier,
+          hit,
+          tokens: estimateTokens(hit.record),
+          provenance,
+        })
+      }
+    }
+
     return candidates
   }
 
@@ -210,4 +271,25 @@ export class ContextResolverImpl implements ContextResolver {
       record,
     }))
   }
+}
+
+/** Field names whose value is a human-meaningful term to seed retrieval. */
+const RETRIEVAL_QUERY_FIELDS = ['title', 'name', 'subject', 'label', 'summary', 'description']
+
+/**
+ * Derive the retrieval query for the optional fill from the assembled mandatory
+ * floor: the capability id plus short, human-meaningful values from the
+ * mandatory facts. Deterministic and bounded so retrieval is grounded in what
+ * the capability MUST see (not free-form user input).
+ */
+function buildRetrievalQuery(candidates: PackCandidate[], capability: string): string {
+  const terms: string[] = [capability]
+  for (const candidate of candidates) {
+    if (candidate.tier !== 'mandatory') continue
+    for (const field of RETRIEVAL_QUERY_FIELDS) {
+      const value = candidate.hit.record[field]
+      if (typeof value === 'string' && value.trim()) terms.push(value.trim())
+    }
+  }
+  return [...new Set(terms)].join(' ').slice(0, 512).trim()
 }
