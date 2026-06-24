@@ -8,6 +8,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ProjectColorDot } from './ProjectColorDot'
+import { startTimerEntry } from './startTimer'
 
 type ProjectOption = {
   id: string
@@ -140,31 +141,14 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
     setIsStarting(true)
     try {
       const today = getToday()
-      const createResponse = await apiCallOrThrow(
-        '/api/staff/timesheets/time-entries',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            staffMemberId,
-            timeProjectId: selectedProjectId,
-            date: today,
-            durationMinutes: 0,
-            source: 'timer',
-            notes: description || null,
-          }),
-        },
-      )
+      const { id: entryId } = await startTimerEntry({
+        staffMemberId,
+        timeProjectId: selectedProjectId,
+        date: today,
+        notes: description || null,
+      })
 
-      const created = createResponse.result as Record<string, unknown> | null
-      const entryId = created?.id as string | undefined
-
-      await apiCallOrThrow(
-        `/api/staff/timesheets/time-entries/${entryId}/timer-start`,
-        { method: 'POST' },
-      )
-
-      setActiveEntryId(entryId ?? null)
+      setActiveEntryId(entryId)
       setActiveProjectId(selectedProjectId)
       startElapsedCounter(new Date().toISOString())
     } catch {
