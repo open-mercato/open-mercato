@@ -1,8 +1,8 @@
-> 🗂️ **Reorg 2026-06-22 · Status: NOT STARTED (roadmap overlay).** Build this ON TOP of the implemented Agent Orchestrator. Treat the in-process + OpenCode runtimes, the registry/SDK, proposal/disposition, and the data model as already-shipped substrate — align new entities/APIs/events with the live module before implementing. Baseline: `.ai/specs/agent-orchestrator/00-IMPLEMENTED-BASELINE.md` · live OpenCode spec: `.ai/specs/2026-06-22-opencode-file-defined-agents.md` · code: `packages/core/src/modules/agent_orchestrator/`.
+> 🗂️ **Status update 2026-06-24 · 🟡 PARTIALLY IMPLEMENTED (PR #3532)** on `feat/agent-orchestrator-mvp`. The operator caseload, engineer trace inspector, and admin KPI tiles shipped — but as **standalone `backend/` pages** (`overview`, `caseload`, `traces`, `agents`, `playground`), NOT as the widget-injection overlays onto `workflows` My-Tasks / `dashboards` / `perspectives` that this spec proposes. Still open: the perspective + injection approach, persisted KPI rollups (vs live client-side compute), and the disposition-card guard-results panel (F10, **blocked** on the unbuilt guardrails overlay). Code-grounded status matrix: [`IMPLEMENTATION-TRACE.md`](./IMPLEMENTATION-TRACE.md).
 
 # Agent Operations UI (Cockpit)
 
-> **Status:** Draft · **Owner:** Patryk Lewczuk (Comerito) · **Created:** 2026-06-19
+> **Status:** Partially implemented (PR #3532, 2026-06-24 — built as standalone pages, not widget injection) · **Owner:** Patryk Lewczuk (Comerito) · **Created:** 2026-06-19
 > **Module:** `agent_orchestrator` (core) · **subdomain:** cockpit · **Depends:** `workflows` (monitoring dashboard + My Tasks queue), `dashboards`, `perspectives`, `inbox_ops`, the trace spec (`2026-06-19-agent-trace-eval-capture.md`), the orchestration spec (`2026-06-19-agent-orchestration-step-and-proposal.md`), `@open-mercato/ui`
 > **Conventions:** Governed by `2026-06-19-agent-orchestrator-conventions.md` — where an entity/layout/naming detail conflicts with this spec, that document wins.
 

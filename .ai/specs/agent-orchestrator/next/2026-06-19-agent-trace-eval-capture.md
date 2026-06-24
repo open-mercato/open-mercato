@@ -1,8 +1,8 @@
-> 🗂️ **Reorg 2026-06-22 · Status: NOT STARTED (roadmap overlay).** Build this ON TOP of the implemented Agent Orchestrator. Treat the in-process + OpenCode runtimes, the registry/SDK, proposal/disposition, and the data model as already-shipped substrate — align new entities/APIs/events with the live module before implementing. Baseline: `.ai/specs/agent-orchestrator/00-IMPLEMENTED-BASELINE.md` · live OpenCode spec: `.ai/specs/2026-06-22-opencode-file-defined-agents.md` · code: `packages/core/src/modules/agent_orchestrator/`.
+> 🗂️ **Status update 2026-06-24 · ✅ IMPLEMENTED (PR #3532)** on `feat/agent-orchestrator-mvp`. The trace · evaluation · correction capture described here is shipped: `AgentSpan`/`AgentToolCall`/`AgentRunSession` entities, `lib/trace/*`, `POST /api/agent_orchestrator/trace/ingest`, `GET /runs/:id`, the `backend/traces/*` inspector, and the `run.ingested`/`run.evaluated` events. Deferred infra (S3 artifact offload, metric rollups, span partitioning) + hardening items are tracked in [`2026-06-24-trace-eval-pr4b-and-followups.md`](./2026-06-24-trace-eval-pr4b-and-followups.md). Code-grounded status matrix: [`IMPLEMENTATION-TRACE.md`](./IMPLEMENTATION-TRACE.md).
 
 # Agent Trace, Evaluation & Correction Capture
 
-> **Status:** Draft · **Owner:** Patryk Lewczuk (Comerito) · **Created:** 2026-06-19
+> **Status:** Implemented (PR #3532, 2026-06-24) · **Owner:** Patryk Lewczuk (Comerito) · **Created:** 2026-06-19
 > **Module:** `agent_orchestrator` (core; `packages/core/src/modules/agent_orchestrator/`) · **subdomain:** `trace` (`lib/trace/`)
 > **Depends:** `workflows`, `audit_logs`, `storage-s3`, `packages/queue`, `ai_assistant`, dispatch spec (`2026-06-19-agent-dispatch.md`), orchestration spec (`2026-06-19-agent-orchestration-step-and-proposal.md`)
 > **Conventions:** governed by `2026-06-19-agent-orchestrator-conventions.md` (normative; wins on any entity/structure conflict).
