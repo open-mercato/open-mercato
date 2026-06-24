@@ -56,12 +56,12 @@ No public contract surface changes. Function signatures, API routes, database sc
 
 ### Phase 1: Encryption Map Planning
 
-- [ ] 1.1 Include organization-scoped encrypted field maps for all-organization query planning
+- [x] 1.1 Include organization-scoped encrypted field maps for all-organization query planning — 0c1664513
 
 ### Phase 2: Sort-Key Scope Projection
 
-- [ ] 2.1 Retain tenant and organization scope columns during encrypted sort-key projection
+- [x] 2.1 Retain tenant and organization scope columns during encrypted sort-key projection — 0c1664513
 
 ### Phase 3: Regression Coverage
 
-- [ ] 3.1 Add service, basic query engine, and hybrid query engine regression tests
+- [x] 3.1 Add service, basic query engine, and hybrid query engine regression tests — 0c1664513
