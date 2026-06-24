@@ -255,6 +255,20 @@ const extractShipmentAddressSnapshot = (
   return normalizeAddressSnapshot(raw as Record<string, unknown>)
 }
 
+const addressOptionsSignature = (options: ShipmentAddressOption[]): string =>
+  options.map((option) => `${snapshotKey(option.snapshot) ?? ''}::${option.id}`).join('||')
+
+function useStableAddressOptions(options: ShipmentAddressOption[]): ShipmentAddressOption[] {
+  const signature = addressOptionsSignature(options)
+  const stableRef = React.useRef(options)
+  const signatureRef = React.useRef(signature)
+  if (signatureRef.current !== signature) {
+    signatureRef.current = signature
+    stableRef.current = options
+  }
+  return stableRef.current
+}
+
 export function ShipmentDialog({
   open,
   mode,
@@ -323,7 +337,7 @@ export function ShipmentDialog({
     [shipmentAddressSnapshot, t],
   )
 
-  const baseAddressOptions = React.useMemo(
+  const computedBaseAddressOptions = React.useMemo(
     () =>
       dedupeAddressOptions(
         [shippingAddressOption, shipmentAddressOption].filter(
@@ -332,6 +346,7 @@ export function ShipmentDialog({
       ),
     [shipmentAddressOption, shippingAddressOption],
   )
+  const baseAddressOptions = useStableAddressOptions(computedBaseAddressOptions)
 
   const preferredAddressId = React.useMemo(() => {
     const shipmentKey = snapshotKey(shipmentAddressSnapshot)
@@ -452,7 +467,10 @@ export function ShipmentDialog({
 
   const mergeAddressOptions = React.useCallback(
     (options: ShipmentAddressOption[]) =>
-      setAddressOptions((prev) => dedupeAddressOptions([...prev, ...options])),
+      setAddressOptions((prev) => {
+        const next = dedupeAddressOptions([...prev, ...options])
+        return next.length === prev.length ? prev : next
+      }),
     [],
   )
 
