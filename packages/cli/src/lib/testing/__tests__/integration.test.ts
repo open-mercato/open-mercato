@@ -15,6 +15,8 @@ import {
   clearEphemeralEnvironmentState,
   resolveBuildCacheTtlSeconds,
   resolveAppReadyTimeoutMs,
+  resolveEphemeralPostgresImage,
+  ephemeralPostgresInitSql,
   shouldReuseBuildArtifacts,
   acquireEphemeralRuntimeLock,
   waitForApplicationReadiness,
@@ -401,6 +403,27 @@ describe('integration cache and options', () => {
     expect(resolveAppReadyTimeoutMs('integration')).toBe(90_000)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('Invalid'))
     warn.mockRestore()
+  })
+
+  it('defaults the ephemeral Postgres image to a pgvector-enabled build', () => {
+    expect(resolveEphemeralPostgresImage({})).toBe('pgvector/pgvector:pg16')
+    expect(resolveEphemeralPostgresImage({ OM_INTEGRATION_POSTGRES_IMAGE: '   ' })).toBe(
+      'pgvector/pgvector:pg16',
+    )
+  })
+
+  it('honors an OM_INTEGRATION_POSTGRES_IMAGE override for the ephemeral Postgres image', () => {
+    expect(
+      resolveEphemeralPostgresImage({ OM_INTEGRATION_POSTGRES_IMAGE: 'pgvector/pgvector:pg17' }),
+    ).toBe('pgvector/pgvector:pg17')
+  })
+
+  it('creates the vector and pgcrypto extensions in the ephemeral init SQL', () => {
+    const sql = ephemeralPostgresInitSql()
+    expect(sql).toContain('CREATE EXTENSION IF NOT EXISTS vector')
+    expect(sql).toContain('CREATE EXTENSION IF NOT EXISTS pgcrypto')
+    // Extensions are also seeded into template1 so future databases inherit them.
+    expect(sql).toContain('\\connect template1')
   })
 
   it('reuses build artifacts only with matching source fingerprint and fresh cache state', async () => {
