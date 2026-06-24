@@ -33,6 +33,7 @@ import {
   type RecordLockUiConflict,
   type RecordLockUiView,
 } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
+import { isUuid, resolveConflictId, runAcceptIncoming } from './conflictResolution'
 
 type CrudInjectionContext = {
   formId?: string
@@ -119,13 +120,6 @@ function readStringOrNull(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
-}
-
-function isUuid(value: string | null | undefined): value is string {
-  if (typeof value !== 'string') return false
-  const trimmed = value.trim()
-  if (!trimmed) return false
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmed)
 }
 
 function extractErrorStatus(error: unknown): number | null {
@@ -1197,42 +1191,41 @@ export default function RecordLockingWidget({
 
   const handleAcceptIncoming = React.useCallback(async () => {
     keepMineRetryVersionRef.current += 1
-    if (!state?.conflict || !state?.resourceKind || !state?.resourceId) return
-    let conflictId: string | undefined = isUuid(state.conflict.id) ? state.conflict.id : undefined
-    if (!conflictId) {
-      const validation = await validateBeforeSave({}, context)
-      conflictId = isUuid(validation.conflict?.id) ? validation.conflict.id : undefined
-      if (!conflictId) {
-        flash(
-          t(
-            'record_locks.conflict.refresh_required',
-            'Could not confirm conflict details. Save again to refresh conflict data.',
-          ),
-          'error',
-        )
-        return
-      }
-    }
-    await apiCallOrThrow('/api/record_locks/release', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        resourceKind: state.resourceKind,
-        resourceId: state.resourceId,
-        token: state.lock?.token ?? undefined,
-        reason: 'conflict_resolved',
-        conflictId,
-        resolution: 'accept_incoming',
-      }),
+    await runAcceptIncoming({
+      conflict: state?.conflict,
+      resourceKind: state?.resourceKind,
+      resourceId: state?.resourceId,
+      revalidateConflictId: async () => {
+        const validation = await validateBeforeSave({}, context)
+        return resolveConflictId(validation.conflict)
+      },
+      releaseIncoming: async (conflictId) => {
+        await apiCallOrThrow('/api/record_locks/release', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            resourceKind: state?.resourceKind,
+            resourceId: state?.resourceId,
+            token: state?.lock?.token ?? undefined,
+            reason: 'conflict_resolved',
+            conflictId,
+            resolution: 'accept_incoming',
+          }),
+        })
+      },
+      clearConflictState: () => {
+        setRecordLockFormState(formId, {
+          conflict: null,
+          pendingConflictId: null,
+          pendingResolution: 'normal',
+          pendingResolutionArmed: false,
+        })
+      },
+      reload: () => {
+        window.location.reload()
+      },
     })
-    setRecordLockFormState(formId, {
-      conflict: null,
-      pendingConflictId: null,
-      pendingResolution: 'normal',
-      pendingResolutionArmed: false,
-    })
-    window.location.reload()
-  }, [context, formId, state?.conflict, state?.lock?.token, state?.resourceId, state?.resourceKind, t])
+  }, [context, formId, state?.conflict, state?.lock?.token, state?.resourceId, state?.resourceKind])
 
   const handleKeepMine = React.useCallback(() => {
     if (!state?.conflict) return

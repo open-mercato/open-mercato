@@ -32,6 +32,25 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'OSS-only / exempt — sidebar preferences are a per-user (and per-role variant) single-owner preference, not a shared collaborative-edit surface; the OSS floor covers the same-user/admin two-tab race.',
   'packages/core/src/modules/perspectives/services/perspectiveService.ts':
     'OSS-only / exempt — saveUserPerspective mutates a perspective filtered by the calling user (strictly per-owner personal views, never cross-user); it is a pure em+cache lib service with no awilix request container to drive the enterprise guard. OSS floor retained.',
+  // OSS-only — sites added on `develop` after the Phase 6b record_locks migration
+  // (they ship without this branch's guard, so develop CI did not flag them). The
+  // synchronous OSS `updated_at` floor guards concurrent edits on each. They are
+  // admin/config surfaces, not collaborative merge-dialog targets; promoting any
+  // to the enterprise `enforceCommandOptimisticLockWithGuards` seam is a follow-up.
+  'packages/core/src/modules/customer_accounts/api/admin/roles/[id]/acl.ts':
+    'OSS-only — portal-customer role ACL admin edit; OSS floor guards the concurrent admin two-tab race. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/directory/api/organization-branding/route.ts':
+    'OSS-only — organization branding is single-owner admin config (directory.organization); OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/entities/api/encryption.ts':
+    'OSS-only — per-entity encryption-map admin config; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/integrations/api/[id]/credentials/route.ts':
+    'OSS-only — integration credentials are single-admin config keyed by bundle id (integrations.integration); OSS floor guards concurrent admin edits. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/integrations/api/[id]/state/route.ts':
+    'OSS-only — integration enable/disable is a single-admin toggle (integrations.integration); OSS floor guards concurrent admin edits. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/integrations/api/[id]/version/route.ts':
+    'OSS-only — integration version admin endpoint (integrations.integration); OSS floor guards concurrent admin edits. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/planner/commands/availability-date-specific.ts':
+    'OSS-only — date-specific availability rule edit; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
 }
 
 // `enforceCommandOptimisticLock(` but NOT `enforceCommandOptimisticLockWithGuards(`.

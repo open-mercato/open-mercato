@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { InboxEmail } from '../../../data/entities'
 import {
   resolveRequestContext,
@@ -62,6 +66,20 @@ export async function DELETE(req: Request) {
 
     const ctx = await resolveRequestContext(req)
 
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      resourceKind: 'inbox_ops:inbox_email',
+      resourceId: id,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
     const updated = await ctx.em.nativeUpdate(
       InboxEmail,
       {
@@ -75,6 +93,20 @@ export async function DELETE(req: Request) {
 
     if (updated === 0) {
       return NextResponse.json({ error: 'Email not found' }, { status: 404 })
+    }
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        resourceKind: 'inbox_ops:inbox_email',
+        resourceId: id,
+        operation: 'delete',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
     }
 
     return NextResponse.json({ ok: true })

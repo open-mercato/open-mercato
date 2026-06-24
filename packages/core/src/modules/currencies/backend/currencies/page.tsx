@@ -13,8 +13,9 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Plus, Star } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -53,6 +54,16 @@ export default function CurrenciesPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
+  const mutationContextId = 'currencies-list:mutation'
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   React.useEffect(() => {
     let cancelled = false
@@ -102,27 +113,41 @@ export default function CurrenciesPage() {
   const handleSetBase = React.useCallback(
     async (row: CurrencyRow) => {
       try {
-        const call = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(row.updatedAt),
-          () => apiCall('/api/currencies/currencies', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: row.id, isBase: true }),
-          }),
-        )
-
-        if (!call.ok) {
-          flash(t('currencies.flash.baseSetError'), 'error')
-          return
-        }
+        await runMutation({
+          operation: async () => {
+            const call = await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(row.updatedAt),
+              () => apiCall('/api/currencies/currencies', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: row.id, isBase: true }),
+              }),
+            )
+            if (!call.ok) {
+              throw Object.assign(new Error('[internal] currencies.setBase failed'), {
+                status: call.status,
+                ...((call.result as Record<string, unknown> | null) ?? {}),
+              })
+            }
+            return call
+          },
+          context: {
+            formId: mutationContextId,
+            resourceKind: 'currencies.currency',
+            resourceId: row.id,
+            retryLastMutation,
+          },
+          mutationPayload: { id: row.id, isBase: true },
+        })
 
         flash(t('currencies.flash.baseSet'), 'success')
         setReloadToken((token) => token + 1)
       } catch (error) {
+        if (extractOptimisticLockConflict(error)) return
         flash(t('currencies.flash.baseSetError'), 'error')
       }
     },
-    [t]
+    [mutationContextId, retryLastMutation, runMutation, t]
   )
 
   const handleDelete = React.useCallback(
@@ -134,27 +159,32 @@ export default function CurrenciesPage() {
       if (!confirmed) return
 
       try {
-        const call = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(row.updatedAt),
-          () => apiCall(`/api/currencies/currencies`, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: row.id, organizationId: row.organizationId, tenantId: row.tenantId }),
-          }),
-        )
-
-        if (!call.ok) {
-          // Route a concurrent-edit 409 through the single conflict surface (unified
-          // conflict bar, or the enterprise merge dialog when its handler is mounted);
-          // fall back to a flash for any other delete failure.
-          const conflictError = Object.assign(
-            new Error(t('currencies.flash.deleteError')),
-            { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
-          )
-          if (surfaceRecordConflict(conflictError, t, { onRefresh: () => setReloadToken((token) => token + 1) })) return
-          flash(t('currencies.flash.deleteError'), 'error')
-          return
-        }
+        await runMutation({
+          operation: async () => {
+            const call = await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(row.updatedAt),
+              () => apiCall(`/api/currencies/currencies`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: row.id, organizationId: row.organizationId, tenantId: row.tenantId }),
+              }),
+            )
+            if (!call.ok) {
+              throw Object.assign(new Error('[internal] currencies.delete failed'), {
+                status: call.status,
+                ...((call.result as Record<string, unknown> | null) ?? {}),
+              })
+            }
+            return call
+          },
+          context: {
+            formId: mutationContextId,
+            resourceKind: 'currencies.currency',
+            resourceId: row.id,
+            retryLastMutation,
+          },
+          mutationPayload: { id: row.id },
+        })
 
         flash(t('currencies.flash.deleted'), 'success')
         setReloadToken((token) => token + 1)
@@ -163,7 +193,7 @@ export default function CurrenciesPage() {
         flash(t('currencies.flash.deleteError'), 'error')
       }
     },
-    [t, confirmDialog]
+    [t, confirmDialog, mutationContextId, retryLastMutation, runMutation]
   )
 
   const columns = React.useMemo<ColumnDef<CurrencyRow>[]>(

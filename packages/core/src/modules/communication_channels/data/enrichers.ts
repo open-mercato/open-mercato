@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EnricherContext, ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { sanitizeChannelHtml } from '../lib/sanitize-channel-html'
 import {
   CommunicationChannel,
   ExternalConversation,
@@ -63,12 +64,35 @@ export type ChannelPayloadEnrichment = {
   channelPayload: Record<string, unknown> | null
   interactiveState: Record<string, unknown> | null
   channelMetadata: Record<string, unknown> | null
+  /**
+   * Server-sanitized email HTML, safe for `dangerouslySetInnerHTML`. Populated
+   * for `email/*` payloads that carry an html body, `null` otherwise. Sanitizing
+   * here keeps `sanitize-html` off the client render path.
+   */
+  sanitizedHtml: string | null
 }
 
 export type ChannelContactEnrichment = {
   contactPersonId: string | null
   assignedUserId: string | null
   subject: string | null
+}
+
+/**
+ * Sanitize channel-supplied email HTML on the server so the client widget never
+ * has to pull `sanitize-html` into the browser bundle or run sanitization on the
+ * render path. Returns the sanitized HTML for `email/*` payloads that carry an
+ * html body, and `null` otherwise. The raw `channelPayload` is left untouched so
+ * provider-package widget overrides keep their existing data contract.
+ */
+function sanitizeEmailPayloadHtml(
+  contentType: string | null | undefined,
+  payload: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!contentType || !contentType.startsWith('email/')) return null
+  const html = payload?.html
+  if (typeof html !== 'string' || html.length === 0) return null
+  return sanitizeChannelHtml(html)
 }
 
 // ── _channel + _channelPayload + _channelContact ──────────────────────────────
@@ -196,6 +220,7 @@ const messageChannelEnricher: ResponseEnricher<
         channelPayload: link.channelPayload ?? null,
         interactiveState: link.interactiveState ?? null,
         channelMetadata: link.channelMetadata ?? null,
+        sanitizedHtml: sanitizeEmailPayloadHtml(link.channelContentType, link.channelPayload),
       }
 
       const conversation = link.externalConversationId

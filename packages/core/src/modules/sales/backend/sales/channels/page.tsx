@@ -13,6 +13,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -34,9 +35,27 @@ type ChannelsResponse = {
 
 const PAGE_SIZE = 25
 
+const SAVE_CONTEXT_ID = 'sales-channels-list'
+
 export default function SalesChannelsPage() {
   const t = useT()
   const router = useRouter()
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: SAVE_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const mutationContext = React.useMemo(
+    () => ({
+      formId: SAVE_CONTEXT_ID,
+      resourceKind: 'sales.channels',
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
   const scopeVersion = useOrganizationScopeVersion()
   const [rows, setRows] = React.useState<ChannelRow[]>([])
   const [page, setPage] = React.useState(1)
@@ -139,12 +158,17 @@ export default function SalesChannelsPage() {
 
   const handleDelete = React.useCallback(async (row: ChannelRow) => {
     try {
-      await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(row.updatedAt),
-        () => deleteCrud('sales/channels', row.id, {
-          errorMessage: t('sales.channels.table.errors.delete', 'Failed to delete channel.'),
-        }),
-      )
+      await runMutation({
+        operation: () =>
+          withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(row.updatedAt),
+            () => deleteCrud('sales/channels', row.id, {
+              errorMessage: t('sales.channels.table.errors.delete', 'Failed to delete channel.'),
+            }),
+          ),
+        context: mutationContext,
+        mutationPayload: { action: 'delete', id: row.id },
+      })
       flash(t('sales.channels.table.messages.deleted', 'Channel deleted.'), 'success')
       handleRefresh()
     } catch (err) {
@@ -161,7 +185,7 @@ export default function SalesChannelsPage() {
       }
       console.error('sales.channels.delete', err)
     }
-  }, [handleRefresh, t])
+  }, [handleRefresh, mutationContext, runMutation, t])
 
   return (
     <Page>

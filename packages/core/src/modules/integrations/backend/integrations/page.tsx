@@ -45,7 +45,7 @@ type IntegrationItem = {
   hasCredentials: boolean
   healthStatus: 'healthy' | 'degraded' | 'unhealthy' | 'unconfigured'
   analytics: IntegrationAnalytics
-  updatedAt?: string | null
+  stateUpdatedAt?: string | null
 }
 
 type BundleItem = {
@@ -220,7 +220,7 @@ export default function IntegrationsMarketplacePage() {
         },
         operation: () => withScopedApiRequestHeaders(
           buildOptimisticLockHeader(updatedAt),
-          () => apiCall(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
+          () => apiCall<{ updatedAt?: string | null }>(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ isEnabled: enabled }),
@@ -231,12 +231,15 @@ export default function IntegrationsMarketplacePage() {
       if (!call.ok) {
         flash(t('integrations.detail.stateError'), 'error')
       } else {
+        const nextUpdatedAt = call.result?.updatedAt ?? null
         setData((prev) => {
           if (!prev) return prev
           return {
             ...prev,
             items: prev.items.map((item) =>
-              item.id === integrationId ? { ...item, isEnabled: enabled } : item,
+              item.id === integrationId
+                ? { ...item, isEnabled: enabled, stateUpdatedAt: nextUpdatedAt ?? item.stateUpdatedAt }
+                : item,
             ),
           }
         })
@@ -465,7 +468,7 @@ export default function IntegrationsMarketplacePage() {
                         <Switch
                           checked={item.isEnabled}
                           disabled={togglingIds.has(item.id)}
-                          onCheckedChange={(checked) => void handleToggle(item.id, checked, item.updatedAt)}
+                          onCheckedChange={(checked) => void handleToggle(item.id, checked, item.stateUpdatedAt)}
                           className="shrink-0"
                         />
                       </div>
@@ -503,7 +506,7 @@ export default function IntegrationsMarketplacePage() {
                       <Switch
                         checked={item.isEnabled}
                         disabled={togglingIds.has(item.id)}
-                        onCheckedChange={(checked) => void handleToggle(item.id, checked)}
+                        onCheckedChange={(checked) => void handleToggle(item.id, checked, item.stateUpdatedAt)}
                         className="shrink-0"
                       />
                     </div>

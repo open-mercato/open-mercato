@@ -11,6 +11,7 @@ import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
@@ -38,6 +39,16 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
   const router = useRouter()
   const pathname = usePathname()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
+  const mutationContextId = 'currencies-edit:delete'
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   const [currency, setCurrency] = React.useState<CurrencyData | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -147,27 +158,32 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
     if (!confirmed) return
 
     try {
-      const headers = buildOptimisticLockHeader(currency.updatedAt ?? currency.updated_at ?? null)
-      const call = await withScopedApiRequestHeaders(headers, () => (
-        apiCall('/api/currencies/currencies', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: currency.id, organizationId: currency.organizationId, tenantId: currency.tenantId }),
-        })
-      ))
-
-      if (!call.ok) {
-        // Route a concurrent-edit 409 through the single conflict surface (unified
-        // conflict bar, or the enterprise merge dialog when its handler is mounted);
-        // fall back to a flash for any other delete failure.
-        const conflictError = Object.assign(
-          new Error(t('currencies.flash.deleteError')),
-          { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
-        )
-        if (surfaceRecordConflict(conflictError, t)) return
-        flash(t('currencies.flash.deleteError'), 'error')
-        return
-      }
+      await runMutation({
+        operation: async () => {
+          const headers = buildOptimisticLockHeader(currency.updatedAt ?? currency.updated_at ?? null)
+          const call = await withScopedApiRequestHeaders(headers, () => (
+            apiCall('/api/currencies/currencies', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: currency.id, organizationId: currency.organizationId, tenantId: currency.tenantId }),
+            })
+          ))
+          if (!call.ok) {
+            throw Object.assign(new Error('[internal] currencies.delete failed'), {
+              status: call.status,
+              ...((call.result as Record<string, unknown> | null) ?? {}),
+            })
+          }
+          return call
+        },
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'currencies.currency',
+          resourceId: currency.id,
+          retryLastMutation,
+        },
+        mutationPayload: { id: currency.id },
+      })
 
       flash(t('currencies.flash.deleted'), 'success')
       router.push('/backend/currencies')
@@ -175,7 +191,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
       if (surfaceRecordConflict(error, t)) return
       flash(t('currencies.flash.deleteError'), 'error')
     }
-  }, [currency, t, router, confirmDialog])
+  }, [currency, t, router, confirmDialog, mutationContextId, retryLastMutation, runMutation])
 
   // Publish page-load record context to the AppShell-owned `backend:record:current`
   // mount so the enterprise record_locks widget resolves `currencies.currency` + id

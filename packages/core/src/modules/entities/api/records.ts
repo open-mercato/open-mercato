@@ -529,7 +529,8 @@ export async function DELETE(req: Request) {
   const { entityId, recordId } = parsed.data
 
   try {
-    const { resolve } = await createRequestContainer()
+    const container = await createRequestContainer()
+    const { resolve } = container
     const de = resolve('dataEngine') as any
     const em = resolve('em') as any
     const rbac = resolve('rbacService') as RbacService
@@ -540,6 +541,26 @@ export async function DELETE(req: Request) {
     if (entityKind === 'system') return systemEntityRecordsRejection(entityId)
     const isCustomEntity = entityKind === 'custom'
     await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, rbac })
+
+    try {
+      const currentUpdatedAt = await readCustomEntityRecordUpdatedAt(em, {
+        entityType: entityId,
+        entityId: recordId,
+        organizationId: targetOrgId,
+      })
+      await enforceCommandOptimisticLockWithGuards(container, {
+        resourceKind: CUSTOM_ENTITY_RECORD_RESOURCE_KIND,
+        resourceId: recordId,
+        current: currentUpdatedAt,
+        request: req,
+      })
+    } catch (lockError) {
+      if (isCrudHttpError(lockError)) {
+        return NextResponse.json(lockError.body, { status: lockError.status })
+      }
+      throw lockError
+    }
+
     await de.deleteCustomEntityRecord({ entityId, recordId, organizationId: targetOrgId, tenantId: auth.tenantId!, soft: true })
     return NextResponse.json({ ok: true })
   } catch (e) {

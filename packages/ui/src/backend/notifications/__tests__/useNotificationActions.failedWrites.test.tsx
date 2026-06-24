@@ -5,8 +5,13 @@ jest.mock('../../utils/api', () => ({
 import { act, renderHook } from '@testing-library/react'
 import * as React from 'react'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
+import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { apiFetch } from '../../utils/api'
 import { useNotificationActions } from '../useNotificationActions'
+
+function I18nWrapper({ children }: { children: React.ReactNode }) {
+  return React.createElement(I18nProvider, { locale: 'en', dict: {} }, children)
+}
 
 function makeNotification(id: string): NotificationDto {
   return {
@@ -39,8 +44,9 @@ function setFetchResult(status: number) {
 function renderActions(notifications: NotificationDto[]) {
   const setNotifications = jest.fn()
   const setUnreadCount = jest.fn()
-  const hook = renderHook(() =>
-    useNotificationActions(notifications, setNotifications, setUnreadCount),
+  const hook = renderHook(
+    () => useNotificationActions(notifications, setNotifications, setUnreadCount),
+    { wrapper: I18nWrapper },
   )
   return { hook, setNotifications, setUnreadCount }
 }
