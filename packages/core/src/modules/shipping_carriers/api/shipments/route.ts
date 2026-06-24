@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { ShippingCarrierService } from '../../lib/shipping-service'
 import { createShipmentSchema } from '../../data/validators'
 import { shippingCarriersTag } from '../openapi'
@@ -23,12 +27,39 @@ export async function POST(req: Request) {
   }
   const container = await createRequestContainer()
   const service = container.resolve('shippingCarrierService') as ShippingCarrierService
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+    userId: auth.sub ?? '',
+    resourceKind: 'shipping_carriers.shipment',
+    resourceId: parsed.data.orderId,
+    operation: 'create',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: parsed.data as unknown as Record<string, unknown>,
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
   try {
     const shipment = await service.createShipment({
       ...parsed.data,
       organizationId: auth.orgId as string,
       tenantId: auth.tenantId,
     })
+    if (guardResult?.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+        userId: auth.sub ?? '',
+        resourceKind: 'shipping_carriers.shipment',
+        resourceId: shipment.id,
+        operation: 'create',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
     return NextResponse.json({
       shipmentId: shipment.id,
       carrierShipmentId: shipment.carrierShipmentId,
