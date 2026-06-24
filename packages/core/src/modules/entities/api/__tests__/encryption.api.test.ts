@@ -2,9 +2,17 @@
 import { GET, POST } from '@open-mercato/core/modules/entities/api/encryption'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
+// Deterministic version instants. The optimistic-lock check is a pure ISO-string
+// equality compare of two version tokens (see optimistic-lock-command.ts) — it
+// never reads the wall clock — so only the relative ordering (older < newer)
+// matters, never the absolute calendar value. Anchored to a fixed historical
+// instant so these can never read as a near-future "timebomb" date.
+const CURRENT_VERSION = new Date('2020-01-02T12:00:00.000Z')
+const STALE_VERSION = new Date('2020-01-01T08:00:00.000Z')
+
 const mockMapRepo = {
   findOne: jest.fn(),
-  create: jest.fn((data) => ({ ...data, updatedAt: new Date('2026-06-01T00:00:00.000Z') })),
+  create: jest.fn((data) => ({ ...data, updatedAt: CURRENT_VERSION })),
 }
 const persistFlush = jest.fn(async () => {})
 const mockEm = {
@@ -53,7 +61,7 @@ describe('entities/encryption API', () => {
   })
 
   it('returns the map version token from the read path', async () => {
-    const updatedAt = new Date('2026-06-15T10:00:00.000Z')
+    const updatedAt = CURRENT_VERSION
     mockMapRepo.findOne.mockResolvedValueOnce({
       id: 'm-1',
       fieldsJson: [{ field: 'email', hashField: 'email_hash' }],
@@ -82,14 +90,14 @@ describe('entities/encryption API', () => {
   })
 
   it('rejects a stale write to an existing map with a 409 conflict', async () => {
-    const current = new Date('2026-06-15T12:00:00.000Z')
+    const current = CURRENT_VERSION
     mockMapRepo.findOne.mockResolvedValue({
       id: 'm-1',
       fieldsJson: [],
       isActive: true,
       updatedAt: current,
     })
-    const stale = new Date('2026-06-10T08:00:00.000Z').toISOString()
+    const stale = STALE_VERSION.toISOString()
     const payload = { entityId: 'auth:user', fields: [{ field: 'email', hashField: null }] }
     const res = await POST(new Request('http://x/api/entities/encryption', {
       method: 'POST',
@@ -112,7 +120,7 @@ describe('entities/encryption API', () => {
   })
 
   it('persists when the expected version matches the current map version', async () => {
-    const current = new Date('2026-06-15T12:00:00.000Z')
+    const current = CURRENT_VERSION
     const existing = { id: 'm-1', fieldsJson: [], isActive: true, updatedAt: current }
     mockMapRepo.findOne.mockResolvedValue(existing)
     const payload = { entityId: 'auth:user', fields: [{ field: 'email', hashField: null }] }
