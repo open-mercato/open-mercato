@@ -18,6 +18,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ProposalCard, type DisposeKind } from '../../../components/ProposalCard'
 import { AgentIoDrawer } from '../../../components/AgentIoDrawer'
 import {
+  mapAgent,
   mapProposal,
   mapRun,
   type ProposalView,
@@ -37,6 +38,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
   const [state, setState] = React.useState<PageState>('loading')
   const [proposal, setProposal] = React.useState<ProposalView | null>(null)
   const [run, setRun] = React.useState<RunView | null>(null)
+  const [agentLabel, setAgentLabel] = React.useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -66,6 +68,20 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
           return
         }
         setProposal(mapped)
+        // Best-effort resolve of the agent's display label.
+        try {
+          const agentsData = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+            '/api/agent_orchestrator/agents',
+          )
+          if (!cancelled) {
+            const found = (Array.isArray(agentsData.items) ? agentsData.items : [])
+              .map((item) => mapAgent(item as Record<string, unknown>))
+              .find((agent) => agent?.id === mapped.agentId)
+            setAgentLabel(found?.label ?? null)
+          }
+        } catch {
+          if (!cancelled) setAgentLabel(null)
+        }
         // Best-effort load of the originating run for the I/O drawer.
         try {
           const runData = await readApiResultOrThrow<RunsResponse>(
@@ -194,6 +210,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
 
         <ProposalCard
           proposal={proposal}
+          agentLabel={agentLabel ?? undefined}
           onInspect={() => setDrawerOpen(true)}
           actions={{
             canDispose: true,
