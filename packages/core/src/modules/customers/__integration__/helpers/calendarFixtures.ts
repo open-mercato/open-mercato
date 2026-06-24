@@ -1,6 +1,7 @@
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import { apiRequest } from '@open-mercato/core/helpers/integration/api';
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { formatDateRangeLabel } from '../../lib/calendar/format';
 
 /**
  * Shared fixtures + date helpers for the CRM Calendar integration specs
@@ -120,18 +121,19 @@ export function mondayWeekRange(anchor: Date): { from: Date; to: Date } {
   return { from, to };
 }
 
-const EN_MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function pad2(value: number): string {
-  return String(value).padStart(2, '0');
-}
+/**
+ * Locale the calendar UI renders under during integration runs (the app default).
+ * Pinned so specs assert the exact `Intl.formatRange` output the toolbar produces.
+ */
+const TOOLBAR_LOCALE = 'en-US';
 
 /**
- * Mirrors `CalendarToolbar.formatRangeLabel` (date-fns `'MMM dd' – 'MMM dd, yyyy'`,
- * default English locale) so specs can assert the visible range label.
+ * Mirrors the visible toolbar range label by delegating to the same production
+ * `formatDateRangeLabel` (`Intl.DateTimeFormat(...).formatRange`) the toolbar uses,
+ * so the spec assertion can never drift from the component (e.g. `Jun 15 – 21, 2026`).
  */
 export function formatToolbarRangeLabel(from: Date, to: Date): string {
-  return `${EN_MONTHS_SHORT[from.getMonth()]} ${pad2(from.getDate())} – ${EN_MONTHS_SHORT[to.getMonth()]} ${pad2(to.getDate())}, ${to.getFullYear()}`;
+  return formatDateRangeLabel(TOOLBAR_LOCALE, from, to);
 }
 
 export function escapeRegExp(value: string): string {
