@@ -8,6 +8,7 @@ import {
   enforceCommandOptimisticLock,
   enforceRecordGoneIsConflict,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentRun, AgentEvalCase } from '../data/entities'
 import { correctionAction } from '../data/validators'
 import { recordCorrection } from '../lib/trace/correctionService'
@@ -45,11 +46,17 @@ const createCorrectionCommand: CommandHandler<CreateCorrectionCommandInput, Crea
     // Resolve the eval-case input from the run when the caller did not supply it.
     let evalInput = input.evalInput
     if (evalInput === undefined && input.agentRunId) {
-      const run = await em.findOne(AgentRun, {
-        id: input.agentRunId,
-        tenantId: input.tenantId,
-        organizationId: input.organizationId,
-      })
+      const run = await findOneWithDecryption(
+        em,
+        AgentRun,
+        {
+          id: input.agentRunId,
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+        },
+        undefined,
+        { tenantId: input.tenantId, organizationId: input.organizationId },
+      )
       evalInput = run?.input ?? null
     }
 

@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentEvalCase } from '../../../data/entities'
 import {
   EVAL_CASE_EXPORT_VERSION,
@@ -44,7 +45,13 @@ export async function GET(req: Request) {
   }
   if (query.agentDefinitionId) where.agentDefinitionId = query.agentDefinitionId
 
-  const cases = await em.find(AgentEvalCase, where, { orderBy: { createdAt: 'asc' } })
+  const cases = await findWithDecryption(
+    em,
+    AgentEvalCase,
+    where,
+    { orderBy: { createdAt: 'asc' } },
+    { tenantId: auth.tenantId, organizationId: auth.orgId },
+  )
 
   const items: EvalCaseExportItem[] = cases.map((evalCase) => ({
     id: evalCase.id,
