@@ -1306,6 +1306,7 @@
   "customers.errors.company_not_found": "Empresa no encontrada",
   "customers.errors.company_people_load_failed": "No se pudieron cargar las personas vinculadas",
   "customers.errors.company_required": "Se requiere el ID de la empresa",
+  "customers.errors.context_required": "Se requiere contexto de organización e inquilino",
   "customers.errors.customer_label_tables_missing": "Faltan las tablas de etiquetas de cliente. Ejecute yarn db:migrate.",
   "customers.errors.customer_not_found": "Cliente no encontrado",
   "customers.errors.deal_companies_load_failed": "No se pudieron cargar las empresas vinculadas",

@@ -35,7 +35,7 @@ export const metadata = {
 
 async function buildContext(
   req: Request
-): Promise<{ ctx: CommandRuntimeContext; organizationId: string | null; tenantId: string | null }> {
+): Promise<{ ctx: CommandRuntimeContext; organizationId: string | null; tenantId: string | null; translate: (key: string, fallback?: string) => string }> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
   const { translate } = await resolveTranslations()
@@ -51,14 +51,14 @@ async function buildContext(
   }
   const organizationId = scope?.selectedId ?? auth.orgId ?? null
   const tenantId = auth.tenantId ?? null
-  return { ctx, organizationId, tenantId }
+  return { ctx, organizationId, tenantId, translate }
 }
 
 export async function GET(req: Request) {
   try {
-    const { ctx, organizationId, tenantId } = await buildContext(req)
+    const { ctx, organizationId, tenantId, translate } = await buildContext(req)
     if (!organizationId || !tenantId) {
-      return NextResponse.json({ error: 'Organization and tenant context required' }, { status: 400 })
+      return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })
     }
     const url = new URL(req.url)
     const pipelineId = url.searchParams.get('pipelineId')
@@ -108,12 +108,11 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { ctx, organizationId, tenantId } = await buildContext(req)
+    const { ctx, organizationId, tenantId, translate } = await buildContext(req)
     if (!organizationId || !tenantId) {
-      return NextResponse.json({ error: 'Organization and tenant context required' }, { status: 400 })
+      return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })
     }
     const body = await req.json().catch(() => ({}))
-    const { translate } = await resolveTranslations()
     const scoped = withScopedPayload(body, ctx, translate)
     const input = pipelineStageCreateSchema.parse(scoped)
 
@@ -177,12 +176,11 @@ export async function POST(req: Request) {
 
 export async function PUT(req: Request) {
   try {
-    const { ctx, organizationId, tenantId } = await buildContext(req)
+    const { ctx, organizationId, tenantId, translate } = await buildContext(req)
     if (!organizationId || !tenantId) {
-      return NextResponse.json({ error: 'Organization and tenant context required' }, { status: 400 })
+      return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })
     }
     const body = await req.json().catch(() => ({}))
-    const { translate } = await resolveTranslations()
     const scoped = withScopedPayload(body, ctx, translate)
     const input = pipelineStageUpdateSchema.parse(scoped)
 
@@ -246,12 +244,11 @@ export async function PUT(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { ctx, organizationId, tenantId } = await buildContext(req)
+    const { ctx, organizationId, tenantId, translate } = await buildContext(req)
     if (!organizationId || !tenantId) {
-      return NextResponse.json({ error: 'Organization and tenant context required' }, { status: 400 })
+      return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })
     }
     const body = await req.json().catch(() => ({}))
-    const { translate } = await resolveTranslations()
     const scoped = withScopedPayload(body, ctx, translate)
     const input = pipelineStageDeleteSchema.parse(scoped)
 

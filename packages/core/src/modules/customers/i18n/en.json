@@ -1306,6 +1306,7 @@
   "customers.errors.company_not_found": "Company not found",
   "customers.errors.company_people_load_failed": "Failed to load linked people",
   "customers.errors.company_required": "Company id is required",
+  "customers.errors.context_required": "Organization and tenant context required",
   "customers.errors.customer_label_tables_missing": "Customer label tables are missing. Run yarn db:migrate.",
   "customers.errors.customer_not_found": "Customer not found",
   "customers.errors.deal_companies_load_failed": "Failed to load linked companies",

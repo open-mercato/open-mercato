@@ -1306,6 +1306,7 @@
   "customers.errors.company_not_found": "Unternehmen nicht gefunden",
   "customers.errors.company_people_load_failed": "Verknüpfte Personen konnten nicht geladen werden",
   "customers.errors.company_required": "Unternehmens-ID ist erforderlich",
+  "customers.errors.context_required": "Organisations- und Mandantenkontext erforderlich",
   "customers.errors.customer_label_tables_missing": "Kundenlabel-Tabellen fehlen. Führen Sie yarn db:migrate aus.",
   "customers.errors.customer_not_found": "Kunde nicht gefunden",
   "customers.errors.deal_companies_load_failed": "Verknüpfte Unternehmen konnten nicht geladen werden",

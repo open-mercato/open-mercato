@@ -46,7 +46,7 @@ export async function POST(req: Request) {
     const tenantId = auth!.tenantId
     const organizationId = ctx.selectedOrganizationId
     if (!tenantId || !organizationId) {
-      return NextResponse.json({ error: 'Organization and tenant context required' }, { status: 400 })
+      return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })
     }
     const body = await req.json().catch(() => ({}))
     const scoped = withScopedPayload(body, ctx, translate)
