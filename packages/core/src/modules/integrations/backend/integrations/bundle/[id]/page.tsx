@@ -38,6 +38,7 @@ type BundleIntegration = {
   description?: string
   category?: string
   isEnabled: boolean
+  state?: { updatedAt?: string | null }
 }
 
 type BundleDetail = {
@@ -56,6 +57,7 @@ type BundleDetail = {
   bundleIntegrations: BundleIntegration[]
   state: { isEnabled: boolean }
   hasCredentials: boolean
+  credentialsUpdatedAt?: string | null
 }
 
 type BundleConfigPageProps = {
@@ -86,6 +88,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [credValues, setCredValues] = React.useState<Record<string, unknown>>({})
+  const [credentialsUpdatedAt, setCredentialsUpdatedAt] = React.useState<string | null>(null)
   const [isSavingCreds, setIsSavingCreds] = React.useState(false)
   const [togglingIds, setTogglingIds] = React.useState<Set<string>>(new Set())
 
@@ -131,11 +134,14 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     }
     setDetail(call.result)
 
-    const credCall = await apiCall<{ credentials: Record<string, unknown> }>(
+    const credCall = await apiCall<{ credentials: Record<string, unknown>; updatedAt?: string | null }>(
       `/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`,
       undefined,
       { fallback: null },
     )
+    if (credCall.ok && credCall.result) {
+      setCredentialsUpdatedAt(credCall.result.updatedAt ?? null)
+    }
     if (credCall.ok && credCall.result?.credentials) {
       const next = { ...credCall.result.credentials }
       if (currentBundleId === 'storage_s3') {
@@ -168,9 +174,8 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
           bundleId: currentBundleId,
           retryLastMutation,
         },
-        // TODO(#2373-B): thread updatedAt — integration detail/state response does not expose a record version yet
         operation: () => withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(undefined),
+          buildOptimisticLockHeader(credentialsUpdatedAt),
           () => apiCall(`/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -180,6 +185,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
       })
       if (call.ok) {
         flash(t('integrations.detail.credentials.saved'), 'success')
+        await load()
       } else {
         flash(t('integrations.detail.credentials.saveError'), 'error')
       }
@@ -188,9 +194,9 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     } finally {
       setIsSavingCreds(false)
     }
-  }, [resolveCurrentBundleId, runMutation, mutationContextId, retryLastMutation, credValues, t])
+  }, [resolveCurrentBundleId, runMutation, mutationContextId, retryLastMutation, credValues, credentialsUpdatedAt, load, t])
 
-  const handleToggle = React.useCallback(async (integrationId: string, enabled: boolean) => {
+  const handleToggle = React.useCallback(async (integrationId: string, enabled: boolean, updatedAt?: string | null) => {
     setTogglingIds((prev) => new Set(prev).add(integrationId))
     try {
       const call = await runMutation({
@@ -204,10 +210,9 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
           integrationId,
           retryLastMutation,
         },
-        // TODO(#2373-B): thread updatedAt — integration detail/state response does not expose a record version yet
         operation: () => withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(undefined),
-          () => apiCall(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
+          buildOptimisticLockHeader(updatedAt),
+          () => apiCall<{ updatedAt?: string | null }>(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ isEnabled: enabled }),
@@ -215,12 +220,15 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
         ),
       })
       if (call.ok) {
+        const nextUpdatedAt = call.result?.updatedAt ?? null
         setDetail((prev) => {
           if (!prev) return prev
           return {
             ...prev,
             bundleIntegrations: prev.bundleIntegrations.map((item) =>
-              item.id === integrationId ? { ...item, isEnabled: enabled } : item,
+              item.id === integrationId
+                ? { ...item, isEnabled: enabled, state: { updatedAt: nextUpdatedAt ?? item.state?.updatedAt ?? null } }
+                : item,
             ),
           }
         })
@@ -237,7 +245,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
   const handleBulkToggle = React.useCallback(async (enabled: boolean) => {
     if (!detail) return
     const targets = detail.bundleIntegrations.filter((item) => item.isEnabled !== enabled)
-    await Promise.all(targets.map((item) => handleToggle(item.id, enabled)))
+    await Promise.all(targets.map((item) => handleToggle(item.id, enabled, item.state?.updatedAt)))
   }, [detail, handleToggle])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.bundle.title')} /></PageBody></Page>
@@ -368,7 +376,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
                     <Switch
                       checked={item.isEnabled}
                       disabled={togglingIds.has(item.id)}
-                      onCheckedChange={(checked) => void handleToggle(item.id, checked)}
+                      onCheckedChange={(checked) => void handleToggle(item.id, checked, item.state?.updatedAt)}
                     />
                   </div>
                 </div>
