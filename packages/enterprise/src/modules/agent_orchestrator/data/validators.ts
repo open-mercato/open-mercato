@@ -566,3 +566,68 @@ export const contextBundleListQuerySchema = z
   })
   .passthrough()
 export type ContextBundleListQuery = z.infer<typeof contextBundleListQuerySchema>
+
+// ── Grounding / cite-or-abstain (Wave 3, Phase 4) ────────────────────────────
+/**
+ * A single citation a factual claim carries — an id INTO the run's
+ * `AgentContextBundle.sources` (or a `retrieve()` snippet). The grounding check
+ * resolves it against the citable sources surfaced for the run: a citation is
+ * valid iff a citable source with the same `sourceRef` + `locator` exists and its
+ * score clears the set's `minScore`. Pointers only — never raw span text.
+ */
+export const groundingCitationSchema = z.object({
+  sourceKind: contextSourceKind,
+  sourceRef: z.string().min(1),
+  locator: z.string().min(1),
+})
+export type GroundingCitation = z.infer<typeof groundingCitationSchema>
+
+/**
+ * One factual claim emitted by a FACTUAL capability's proposal. `citations` is the
+ * cite-or-abstain contract: a factual claim with zero resolvable citations is a
+ * `block` (the model's only compliant alternative is to abstain — omit the claim).
+ * `claim` is a short human label used only to point at WHICH claim lacked support
+ * in evidence (never raw PII/payload — the capability authors a redaction-safe label).
+ */
+export const groundingClaimSchema = z.object({
+  claim: z.string().min(1),
+  citations: z.array(groundingCitationSchema).default([]),
+})
+export type GroundingClaim = z.infer<typeof groundingClaimSchema>
+
+/** A citable source surfaced for the run (bundle `sources` + `retrieve()` snippets). */
+export const citableSourceSchema = z.object({
+  sourceKind: contextSourceKind,
+  sourceRef: z.string().min(1),
+  locator: z.string().min(1),
+  score: z.number(),
+})
+export type CitableSource = z.infer<typeof citableSourceSchema>
+
+/**
+ * The per-capability grounding policy body. Versioned config (a guardrail SET):
+ * declares the capability is factual + the severity of each grounding failure mode
+ * + the minimum citable-source score a citation must clear. `claimsPath` points at
+ * the array of factual claims within the proposal output (dot path, default
+ * `proposal.claims`). The `version` recorded on each check is the CONTENT-HASH of
+ * this body — editing it produces a new version; re-syncing an unchanged body is a
+ * no-op (idempotent).
+ */
+export const groundingSeverity = z.enum(['warn', 'block'])
+export type GroundingSeverity = z.infer<typeof groundingSeverity>
+
+export const guardrailSetBodySchema = z.object({
+  capability: z.string().min(1),
+  /** Marks the capability factual — only factual capabilities run the grounding gate. */
+  factual: z.boolean(),
+  kind: z.literal('grounding'),
+  /** Dot path to the factual-claims array within the proposal output. */
+  claimsPath: z.string().min(1).default('proposal.claims'),
+  /** A factual claim with zero resolvable citations. */
+  missingCitation: groundingSeverity.default('block'),
+  /** A citation that resolves to no citable source (or below `minScore`). */
+  unresolvableCitation: groundingSeverity.default('block'),
+  /** Minimum citable-source score a citation must clear to be considered resolved. */
+  minScore: z.number().default(0),
+})
+export type GuardrailSetBody = z.infer<typeof guardrailSetBodySchema>
