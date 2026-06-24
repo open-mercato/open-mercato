@@ -401,3 +401,70 @@ export const agentMetricRollupMetricsSchema = z.object({
   approveUnchangedRate: z.number().min(0).max(1).nullable(),
 })
 export type AgentMetricRollupMetrics = z.infer<typeof agentMetricRollupMetricsSchema>
+
+// ── Context bundles / TDCR assembly (context overlay, Phase 1) ──────────────
+/**
+ * Source kind a `ContextModule` may expose. `entity` = an OM structured record
+ * read via `queryEngine`/`query_index`; `document` = an ingested attachment
+ * (Phase 3); `retrieval` = a ranked `searchService` snippet (Phase 2).
+ */
+export const contextSourceKind = z.enum(['entity', 'document', 'retrieval'])
+export type ContextSourceKind = z.infer<typeof contextSourceKind>
+
+/** A source the packer selected & packed into the bundle (routed). */
+export const contextRoutedSourceSchema = z.object({
+  kind: contextSourceKind,
+  ref: z.string().min(1),
+  locator: z.string().optional(),
+  tokens: z.number().int().nonnegative(),
+  score: z.number().optional(),
+})
+export type ContextRoutedSource = z.infer<typeof contextRoutedSourceSchema>
+
+/** A candidate the packer excluded, with a reason (audit of the prune decision). */
+export const contextPrunedSourceSchema = z.object({
+  kind: z.string().min(1),
+  ref: z.string().min(1),
+  reason: z.string().min(1),
+})
+export type ContextPrunedSource = z.infer<typeof contextPrunedSourceSchema>
+
+/**
+ * Provenance for one fact in the bundle — links a routed fact back to its source
+ * so compliance lineage and guardrails grounding read the same record. Stamped at
+ * assembly time, never reconstructed.
+ */
+export const contextProvenanceSchema = z.object({
+  factId: z.string().min(1),
+  sourceKind: contextSourceKind,
+  sourceRef: z.string().min(1),
+  locator: z.string().optional(),
+})
+export type ContextProvenance = z.infer<typeof contextProvenanceSchema>
+
+/** One redaction applied before packing (P4 populates richer rules). */
+export const contextRedactionAppliedSchema = z.object({
+  field: z.string().min(1),
+  rule: z.string().min(1),
+})
+export type ContextRedactionApplied = z.infer<typeof contextRedactionAppliedSchema>
+
+export const contextBundleRoutedSourcesSchema = z.array(contextRoutedSourceSchema)
+export const contextBundlePrunedSourcesSchema = z.array(contextPrunedSourceSchema)
+export const contextBundleSourcesSchema = z.array(contextProvenanceSchema)
+export const contextBundleRedactionAppliedSchema = z.array(contextRedactionAppliedSchema)
+
+/** Query schema for GET /context-bundles (list + ?id= detail) — trace read route. */
+export const contextBundleListQuerySchema = z
+  .object({
+    page: z.coerce.number().min(1).default(1),
+    pageSize: z.coerce.number().min(1).max(100).default(50),
+    id: z.string().uuid().optional(),
+    agentRunId: z.string().uuid().optional(),
+    processId: z.string().uuid().optional(),
+    capability: z.string().optional(),
+    sortField: z.string().optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
+  })
+  .passthrough()
+export type ContextBundleListQuery = z.infer<typeof contextBundleListQuerySchema>
