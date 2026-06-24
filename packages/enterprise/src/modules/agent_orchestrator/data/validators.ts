@@ -255,6 +255,53 @@ export const evalCaseExportQuerySchema = z
   .passthrough()
 export type EvalCaseExportQuery = z.infer<typeof evalCaseExportQuerySchema>
 
+// ── Eval assertion management (F9) ──────────────────────────────────────────
+/**
+ * Create/update schemas for `AgentEvalAssertion` rows (editable → optimistic
+ * lock applies). `config` parameterizes the scorer/judge; it stays permissive
+ * (`unknown`) and is narrowed only at this zod boundary. `appliesTo` is an agent
+ * id or `'*'` (every agent). Only `deterministic` assertions are gate-graded —
+ * the route enforces that `llm_judge` is always `warn` (the judge cannot block).
+ */
+export const evalAssertionType = z.enum(['deterministic', 'llm_judge'])
+export type EvalAssertionType = z.infer<typeof evalAssertionType>
+
+export const evalAssertionSeverity = z.enum(['gate', 'warn'])
+export type EvalAssertionSeverity = z.infer<typeof evalAssertionSeverity>
+
+export const evalAssertionCreateSchema = z.object({
+  key: z.string().min(1).max(100),
+  title: z.string().min(1).max(200),
+  description: z.string().max(4000).optional(),
+  appliesTo: z.string().min(1).max(100).default('*'),
+  type: evalAssertionType,
+  severity: evalAssertionSeverity,
+  config: z.unknown().optional(),
+  enabled: z.boolean().optional(),
+})
+export type EvalAssertionCreateInput = z.infer<typeof evalAssertionCreateSchema>
+
+export const evalAssertionUpdateSchema = z
+  .object({ id: z.string().uuid() })
+  .merge(evalAssertionCreateSchema.partial())
+export type EvalAssertionUpdateInput = z.infer<typeof evalAssertionUpdateSchema>
+
+/** Query schema for GET /eval-assertions (list). */
+export const evalAssertionListQuerySchema = z
+  .object({
+    page: z.coerce.number().min(1).default(1),
+    pageSize: z.coerce.number().min(1).max(100).default(50),
+    id: z.string().uuid().optional(),
+    appliesTo: z.string().optional(),
+    type: evalAssertionType.optional(),
+    severity: evalAssertionSeverity.optional(),
+    enabled: z.coerce.boolean().optional(),
+    sortField: z.string().optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
+  })
+  .passthrough()
+export type EvalAssertionListQuery = z.infer<typeof evalAssertionListQuerySchema>
+
 // ── Metric rollups (F2) ─────────────────────────────────────────────────────
 /**
  * The `metrics` jsonb shape stored on an AgentMetricRollup row — the same KPIs

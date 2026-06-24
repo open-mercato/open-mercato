@@ -8,6 +8,8 @@ type DefaultAssertion = {
   type: AgentEvalAssertionType
   severity: AgentEvalSeverity
   config: Record<string, unknown> | null
+  /** Defaults to true. The llm_judge example ships disabled so it does not silently activate the model judge. */
+  enabled?: boolean
 }
 
 /**
@@ -41,6 +43,24 @@ const DEFAULT_ASSERTIONS: DefaultAssertion[] = [
     severity: 'warn',
     config: null,
   },
+  // A ready-to-enable model-judge example. Shipped DISABLED so the sampled
+  // llm_judge tier stays dormant until an engineer flips `enabled` on via the
+  // eval-assertions CRUD route. `config.rubric` is the string consumed by
+  // `runLlmJudgeForRun` (`rubricFor`). Always `warn` — the judge never blocks.
+  {
+    key: 'llm_judge_helpfulness',
+    title: 'LLM judge — helpfulness',
+    description: 'A sampled model judge scores how helpful, complete, and on-task the agent output is.',
+    type: 'llm_judge',
+    severity: 'warn',
+    enabled: false,
+    config: {
+      rubric:
+        'Rate whether the agent output is helpful: it directly addresses the request, is complete, ' +
+        'accurate, and on-task, with no hallucinated or contradictory claims. Pass when it is clearly ' +
+        'helpful; fail when it is off-topic, incomplete, or misleading.',
+    },
+  },
 ]
 
 export async function seedDefaultEvalAssertions(
@@ -66,6 +86,8 @@ export async function seedDefaultEvalAssertions(
         type: def.type,
         severity: def.severity,
         config: def.config,
+        enabled: def.enabled ?? true,
+        deletedAt: null,
       }),
     )
   }
