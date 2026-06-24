@@ -18,8 +18,8 @@ Migrations are **hand-authored + snapshot updated only, NOT applied** (`yarn db:
 
 | # | Wave.Phase | Spec / gap doc | Effort | Status | Commit |
 |---|-----------|----------------|--------|--------|--------|
-| 1 | W2.P1 — ContextModule registry + TDCR + `AgentContextBundle` | context spec §Phase 1 · gap-10 | M | ⬜ | |
-| 2 | W2.P2 — Retrieval source (`searchService` RRF + `query_index`), `retrieve()` | context spec §Phase 2 | M | ⬜ | |
+| 1 | W2.P1 — ContextModule registry + TDCR + `AgentContextBundle` | context spec §Phase 1 · gap-10 | M | ✅ | `ca89f1e81` — 35 suites/144 tests |
+| 2 | W2.P2 — Retrieval source (`searchService` RRF + `query_index`), `retrieve()` | context spec §Phase 2 | M | ✅ | `<pending>` — 36 suites/150 tests; `retrieve()` returns citable `RetrievedSnippet[]` (sourceRef+locator+score, locator REQUIRED) — Wave 3 grounding contract |
 | 3 | W2.P3 — Document ingest / OCR extraction pipeline | context spec §Phase 3 · gap-06 | L | ⬜ | |
 | 4 | W2.P4 — Redaction + token budget | context spec §Phase 4 | M | ⬜ | |
 | 5 | W3.P3 — Prompt-injection / untrusted-content isolation | guardrails spec §Phase 3 · gap-08 | M | ⬜ | |

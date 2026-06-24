@@ -35,6 +35,11 @@ export type ContextSourceHit = {
  * optional fill packs the remaining budget); `entityType` is the `query_index`
  * id (`<module>:<entity>`) the capability is allowed to read; `provenance` maps a
  * raw hit to its lineage stamp.
+ *
+ * `retrieval` sources (Phase 2) are searchService (RRF) backed and ALWAYS
+ * `optional` — retrieval is ranked fill, never part of the mandatory floor. They
+ * carry an optional `entityTypes` allowlist (the `query_index` ids the capability
+ * may retrieve from) instead of a single structured `entityType`.
  */
 export type ContextSourceDecl = {
   kind: ContextSourceKind
@@ -47,6 +52,18 @@ export type ContextSourceDecl = {
   fields: string[]
   /** Maps a raw hit → its provenance stamp (stamped at assembly time, never reconstructed). */
   provenance: (hit: ContextSourceHit) => ContextProvenance
+  /**
+   * `retrieval` sources only: the `query_index` entity ids the capability may
+   * retrieve from (least-privilege retrieval allowlist). Empty/undefined means
+   * the whole tenant scope is searchable (still org-scoped). Ignored for
+   * `entity`/`document` sources.
+   */
+  entityTypes?: string[]
+  /**
+   * `retrieval` sources only: max hits to pull from `searchService` before the
+   * packer trims to budget. Defaults to a conservative cap.
+   */
+  limit?: number
 }
 
 /** A per-capability context module: the typed least-privilege source allowlist. */
@@ -63,6 +80,21 @@ export function entityProvenance(entityType: string): ContextSourceDecl['provena
   return (hit: ContextSourceHit): ContextProvenance => ({
     factId: `${entityType}#${hit.ref}`,
     sourceKind: 'entity',
+    sourceRef: hit.ref,
+    ...(hit.locator ? { locator: hit.locator } : {}),
+  })
+}
+
+/**
+ * Build a provenance mapper for a `retrieval` source. The factId is
+ * `retrieval:<entityType>#<ref>` so a cited snippet is reproducibly linked to the
+ * `searchService` hit it came from; `locator` is the `<entityType>:<recordId>`
+ * pointer the guardrails grounding check uses to verify the cite.
+ */
+export function retrievalProvenance(): ContextSourceDecl['provenance'] {
+  return (hit: ContextSourceHit): ContextProvenance => ({
+    factId: `retrieval:${hit.ref}`,
+    sourceKind: 'retrieval',
     sourceRef: hit.ref,
     ...(hit.locator ? { locator: hit.locator } : {}),
   })
@@ -101,6 +133,19 @@ registerContextModule({
       priority: 0,
       fields: ['id', 'title', 'stage', 'amount', 'status'],
       provenance: entityProvenance('customers:deal'),
+    },
+    // Retrieval-ranked optional fill (Phase 2): RRF-fused searchService hits over
+    // the capability's retrieval allowlist. Always optional — packed into the
+    // budget remaining after the mandatory floor, never part of the floor.
+    {
+      kind: 'retrieval',
+      tier: 'optional',
+      entityType: 'customers:deal',
+      entityTypes: ['customers:deal', 'customers:activity'],
+      priority: 10,
+      fields: [],
+      limit: 20,
+      provenance: retrievalProvenance(),
     },
   ],
 })
