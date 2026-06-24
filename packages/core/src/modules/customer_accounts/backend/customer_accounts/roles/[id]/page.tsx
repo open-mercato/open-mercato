@@ -273,15 +273,23 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
       return
     }
     const features = Array.isArray(values.features) ? values.features : []
-    const aclCall = await apiCall(
-      `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}/acl`,
-      {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ features }),
-      },
-    )
+    // The role PUT just bumped the aggregate's `updatedAt`; the ACL write guards
+    // the SAME role aggregate, so send its NEW version (not the stale pre-edit one)
+    // to avoid a false 409 while still blocking a concurrent overwrite (#3194).
+    const roleResult = (roleCall.result ?? null) as { updatedAt?: string | null } | null
+    const aclHeaders = buildOptimisticLockHeader(roleResult?.updatedAt ?? data?.updatedAt ?? data?.updated_at ?? null)
+    const aclCall = await withScopedApiRequestHeaders(aclHeaders, () => (
+      apiCall(
+        `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}/acl`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ features }),
+        },
+      )
+    ))
     if (!aclCall.ok) {
+      if (surfaceRecordConflict({ status: aclCall.status, body: aclCall.result }, t)) return
       flash(t('customer_accounts.admin.roleDetail.error.saveAcl', 'Failed to save permissions'), 'error')
       return
     }
