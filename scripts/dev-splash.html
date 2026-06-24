@@ -133,6 +133,57 @@
         letter-spacing: 0.04em;
         cursor: pointer;
       }
+      .locale-control {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 42px;
+        padding: 0 36px 0 14px;
+        border-radius: 999px;
+        border: 1px solid var(--panel-border);
+        background: var(--surface);
+        color: var(--text);
+        cursor: pointer;
+      }
+      .locale-control::after {
+        content: "";
+        position: absolute;
+        right: 16px;
+        top: 50%;
+        width: 8px;
+        height: 8px;
+        border-right: 2px solid currentColor;
+        border-bottom: 2px solid currentColor;
+        transform: translateY(-65%) rotate(45deg);
+        pointer-events: none;
+      }
+      .locale-icon {
+        line-height: 1;
+      }
+      .locale-selected-label {
+        color: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        line-height: 1;
+        pointer-events: none;
+      }
+      .locale-select {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        appearance: none;
+        -webkit-appearance: none;
+        background: transparent;
+        color: transparent;
+        font: inherit;
+        cursor: pointer;
+        outline: none;
+        opacity: 0;
+      }
       .summary {
         color: var(--muted);
         font-size: 18px;
@@ -143,11 +194,14 @@
       }
       .stream-shell {
         display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
         gap: 10px;
+        height: 100%;
         min-height: 0;
       }
       .hero-body {
         display: grid;
+        grid-template-rows: minmax(0, 1fr);
         gap: 14px;
         min-height: 0;
         overflow-y: auto;
@@ -531,7 +585,8 @@
       }
       .list {
         gap: 10px;
-        height: clamp(176px, 22vh, 228px);
+        height: 100%;
+        min-height: 0;
         overflow-y: auto;
         padding-right: 8px;
         align-content: start;
@@ -690,7 +745,11 @@
         <div class="hero-top">
           <div class="control-row">
             <button class="control-button" id="theme-toggle" type="button">🌙 Dark</button>
-            <button class="control-button" id="locale-toggle" type="button">🌐 EN</button>
+            <label class="locale-control">
+              <span class="locale-icon" aria-hidden="true">🌐</span>
+              <span class="locale-selected-label" id="locale-selected-label"></span>
+              <select class="locale-select" id="locale-select" aria-label="Language"></select>
+            </label>
           </div>
         </div>
         <div class="hero-mark" aria-hidden="true">
@@ -781,7 +840,8 @@
       const streamHeading = document.getElementById('stream-heading')
       const targetLabel = document.getElementById('target-label')
       const themeToggle = document.getElementById('theme-toggle')
-      const localeToggle = document.getElementById('locale-toggle')
+      const localeSelect = document.getElementById('locale-select')
+      const localeSelectedLabel = document.getElementById('locale-selected-label')
       const readyUrl = document.getElementById('ready-url')
       const loginButton = document.getElementById('login-button')
       const codingShell = document.getElementById('coding-shell')
@@ -823,6 +883,7 @@
       let codingActionInFlight = false
       let gitRepoActionInFlight = false
       let codingMenuLayoutRaf = 0
+      let activityListLayoutRaf = 0
       const translations = {
         en: {
           badge: 'Open Mercato Dev',
@@ -1040,9 +1101,10 @@
         renderStaticText()
       })
 
-      localeToggle.addEventListener('click', () => {
-        const currentIndex = Math.max(0, supportedLocales.indexOf(currentLocale))
-        currentLocale = supportedLocales[(currentIndex + 1) % supportedLocales.length] || defaultLocale
+      localeSelect.addEventListener('change', () => {
+        const nextLocale = localeSelect.value
+        if (!supportedLocales.includes(nextLocale)) return
+        currentLocale = nextLocale
         localStorage.setItem(LOCALE_KEY, currentLocale)
         renderStaticText()
       })
@@ -1057,7 +1119,13 @@
       })
       window.addEventListener('resize', () => {
         scheduleCodingMenuLayout()
+        scheduleActivityListLayout()
       })
+      if (document.fonts?.ready) {
+        document.fonts.ready.then(() => {
+          scheduleActivityListLayout()
+        }).catch(() => {})
+      }
 
       function template(value, vars = {}) {
         return String(value).replace(/\{(\w+)\}/g, (_, key) => String(vars[key] ?? ''))
@@ -1071,6 +1139,15 @@
 
       function getLocaleLabel(locale) {
         return localeLabels[locale] || String(locale || '').toUpperCase()
+      }
+
+      function renderLocaleOptions() {
+        localeSelect.replaceChildren(...supportedLocales.map((locale) => {
+          const option = document.createElement('option')
+          option.value = locale
+          option.textContent = getLocaleLabel(locale)
+          return option
+        }))
       }
 
       function splitEmoji(value) {
@@ -1147,10 +1224,12 @@
         streamHeading.textContent = t('streamHeading')
         targetLabel.textContent = t('targetLabel')
         terminalHint.textContent = t('terminalHint')
-        localeToggle.textContent = '🌐 ' + getLocaleLabel(currentLocale)
+        localeSelect.value = currentLocale
+        localeSelectedLabel.textContent = getLocaleLabel(currentLocale)
         themeToggle.textContent = currentTheme === 'dark' ? t('themeDark') : t('themeLight')
         renderCodingFlow(lastState)
         renderGitRepoFlow(lastState)
+        scheduleActivityListLayout()
       }
 
       function formatActivityTimestamp(value) {
@@ -1163,9 +1242,28 @@
         }).format(date)
       }
 
+      function scheduleActivityListLayout() {
+        if (activityListLayoutRaf) {
+          window.cancelAnimationFrame(activityListLayoutRaf)
+        }
+        activityListLayoutRaf = window.requestAnimationFrame(() => {
+          activityListLayoutRaf = 0
+          updateActivityListLayout()
+        })
+      }
+
+      function updateActivityListLayout() {
+        activityList.dataset.overflowing = 'true'
+        const overflowing = activityList.scrollHeight > activityList.clientHeight + 1
+        activityList.dataset.overflowing = overflowing ? 'true' : 'false'
+        if (overflowing) {
+          activityList.scrollTop = activityList.scrollHeight
+        }
+      }
+
       function renderActivities(items) {
         if (!Array.isArray(items) || items.length === 0) return
-        const ordered = items.slice().reverse()
+        const ordered = items.slice()
         activityList.innerHTML = ordered.map((item) => {
           const key = String(item ?? '')
           if (!activitySeenAt.has(key)) {
@@ -1176,6 +1274,7 @@
           const safeTimestamp = escapeHtml(timestamp)
           return '<li><div class="activity-entry"><span class="activity-time">' + safeTimestamp + '</span><span class="activity-message">' + safeMessage + '</span></div></li>'
         }).join('')
+        scheduleActivityListLayout()
       }
 
       function renderFailure(state) {
@@ -1598,6 +1697,7 @@
       currentLocale = detectLocale()
       currentTheme = detectTheme()
       applyTheme()
+      renderLocaleOptions()
       renderStaticText()
       refresh()
       setInterval(refresh, 1000)

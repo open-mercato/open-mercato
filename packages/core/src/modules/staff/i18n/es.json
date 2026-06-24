@@ -120,6 +120,7 @@
   "staff.audit.teams.update": "Actualizar equipo",
   "staff.audit.timesheets.time_entries.create": "Crear registro de tiempo",
   "staff.audit.timesheets.time_entries.delete": "Eliminar registro de tiempo",
+  "staff.audit.timesheets.time_entries.startTimer": "Iniciar temporizador",
   "staff.audit.timesheets.time_entries.update": "Actualizar registro de tiempo",
   "staff.audit.timesheets.time_project_members.assign": "Asignar miembro del proyecto de tiempo",
   "staff.audit.timesheets.time_project_members.unassign": "Desasignar miembro del proyecto de tiempo",

@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { apiCall } from '../utils/apiCall'
+import { apiCall, apiCallOrThrow } from '../utils/apiCall'
 import { useGuardedMutation } from '../injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
@@ -49,7 +49,7 @@ export function useNotificationActions(
 
   const markAsRead = React.useCallback(async (id: string) => {
     await runMutation({
-      operation: () => apiCall(`/api/notifications/${id}/read`, { method: 'PUT' }),
+      operation: () => apiCallOrThrow(`/api/notifications/${id}/read`, { method: 'PUT' }),
       context: { formId: NOTIFICATION_ACTIONS_CONTEXT_ID, resourceKind: 'notification', retryLastMutation },
       mutationPayload: { id },
     })
@@ -95,7 +95,7 @@ export function useNotificationActions(
   const dismiss = React.useCallback(
     async (id: string) => {
       await runMutation({
-        operation: () => apiCall(`/api/notifications/${id}/dismiss`, { method: 'PUT' }),
+        operation: () => apiCallOrThrow(`/api/notifications/${id}/dismiss`, { method: 'PUT' }),
         context: { formId: NOTIFICATION_ACTIONS_CONTEXT_ID, resourceKind: 'notification', retryLastMutation },
         mutationPayload: { id },
       })
@@ -126,7 +126,7 @@ export function useNotificationActions(
     if (!dismissUndo) return
     await runMutation({
       operation: () =>
-        apiCall(`/api/notifications/${dismissUndo.notification.id}/restore`, {
+        apiCallOrThrow(`/api/notifications/${dismissUndo.notification.id}/restore`, {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ status: dismissUndo.previousStatus }),
@@ -164,7 +164,7 @@ export function useNotificationActions(
 
   const markAllRead = React.useCallback(async () => {
     await runMutation({
-      operation: () => apiCall('/api/notifications/mark-all-read', { method: 'PUT' }),
+      operation: () => apiCallOrThrow('/api/notifications/mark-all-read', { method: 'PUT' }),
       context: { formId: NOTIFICATION_ACTIONS_CONTEXT_ID, resourceKind: 'notification', retryLastMutation },
       mutationPayload: {},
     })

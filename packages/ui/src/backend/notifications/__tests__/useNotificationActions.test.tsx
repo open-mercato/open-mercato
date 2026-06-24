@@ -5,11 +5,13 @@ import { act, renderHook } from '@testing-library/react'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
 
 const apiCallMock = jest.fn()
+const apiCallOrThrowMock = jest.fn()
 const runMutationMock = jest.fn()
 const retryLastMutation = jest.fn(async () => true)
 
 jest.mock('../../utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
+  apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
 }))
 
 jest.mock('../../injection/useGuardedMutation', () => ({
@@ -59,6 +61,8 @@ describe('useNotificationActions guarded mutations', () => {
   beforeEach(() => {
     apiCallMock.mockReset()
     apiCallMock.mockResolvedValue({ ok: true, result: {} })
+    apiCallOrThrowMock.mockReset()
+    apiCallOrThrowMock.mockResolvedValue({ ok: true, result: {} })
     runMutationMock.mockReset()
     runMutationMock.mockImplementation(
       async ({ operation }: { operation: () => Promise<unknown> }) => operation(),
@@ -76,7 +80,7 @@ describe('useNotificationActions guarded mutations', () => {
     expect(input.context.resourceKind).toBe('notification')
     expect(input.context.retryLastMutation).toBe(retryLastMutation)
     expect(input.mutationPayload).toEqual({ id: 'n1' })
-    expect(apiCallMock).toHaveBeenCalledWith('/api/notifications/n1/read', { method: 'PUT' })
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith('/api/notifications/n1/read', { method: 'PUT' })
   })
 
   it('routes executeAction through the guarded mutation path and returns the href', async () => {
@@ -106,7 +110,7 @@ describe('useNotificationActions guarded mutations', () => {
     const input = lastRunMutationInput()
     expect(input.context.resourceKind).toBe('notification')
     expect(input.mutationPayload).toEqual({ id: 'n1' })
-    expect(apiCallMock).toHaveBeenCalledWith('/api/notifications/n1/dismiss', { method: 'PUT' })
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith('/api/notifications/n1/dismiss', { method: 'PUT' })
   })
 
   it('routes undoDismiss through the guarded mutation path', async () => {
@@ -116,6 +120,7 @@ describe('useNotificationActions guarded mutations', () => {
     })
     runMutationMock.mockClear()
     apiCallMock.mockClear()
+    apiCallOrThrowMock.mockClear()
     await act(async () => {
       await result.current.undoDismiss()
     })
@@ -123,7 +128,7 @@ describe('useNotificationActions guarded mutations', () => {
     const input = lastRunMutationInput()
     expect(input.context.resourceKind).toBe('notification')
     expect(input.mutationPayload).toEqual({ id: 'n1', status: 'unread' })
-    expect(apiCallMock).toHaveBeenCalledWith(
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith(
       '/api/notifications/n1/restore',
       expect.objectContaining({ method: 'PUT' }),
     )
@@ -137,6 +142,6 @@ describe('useNotificationActions guarded mutations', () => {
     expect(runMutationMock).toHaveBeenCalledTimes(1)
     const input = lastRunMutationInput()
     expect(input.context.resourceKind).toBe('notification')
-    expect(apiCallMock).toHaveBeenCalledWith('/api/notifications/mark-all-read', { method: 'PUT' })
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith('/api/notifications/mark-all-read', { method: 'PUT' })
   })
 })
