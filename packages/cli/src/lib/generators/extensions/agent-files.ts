@@ -10,7 +10,7 @@ import { resolveStandaloneSourceMirrorBase } from '../scanner'
  * deterministic fs side effect from `generateOutput()`:
  *
  *   1. The committed, git-tracked registry manifest
- *      `packages/core/src/modules/agent_orchestrator/generated/file-agents.generated.ts`
+ *      `packages/enterprise/src/modules/agent_orchestrator/generated/file-agents.generated.ts`
  *      (raw JSON-Schema, recompiled to Zod at load by `ensureAgentsLoaded`).
  *   2. OpenCode agent `.md` files under `docker/opencode/agents/` (container
  *      delivery: dev bind-mount, prod Dockerfile COPY).
@@ -882,7 +882,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
       const manifestPath = path.join(
         repoRoot,
         'packages',
-        'core',
+        'enterprise',
         'src',
         'modules',
         'agent_orchestrator',

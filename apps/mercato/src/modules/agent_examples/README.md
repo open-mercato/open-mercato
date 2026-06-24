@@ -39,7 +39,7 @@ any mutation tool. An agent can only read and propose — never write directly.
 
    ```ts
    import type { AiAgentDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
-   import { defineAgent } from '@open-mercato/core/modules/agent_orchestrator/lib/sdk/defineAgent'
+   import { defineAgent } from '@open-mercato/enterprise/modules/agent_orchestrator/lib/sdk/defineAgent'
    import { ticketTriageResult } from './data/validators'
 
    export const aiAgents: AiAgentDefinition[] = [

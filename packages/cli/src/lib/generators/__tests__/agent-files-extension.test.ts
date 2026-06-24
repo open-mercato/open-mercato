@@ -86,7 +86,7 @@ describe('createAgentFilesExtension', () => {
 
     const manifestPath = path.join(
       repoRoot,
-      'packages/core/src/modules/agent_orchestrator/generated/file-agents.generated.ts',
+      'packages/enterprise/src/modules/agent_orchestrator/generated/file-agents.generated.ts',
     )
     expect(fs.existsSync(manifestPath)).toBe(true)
     const manifest = fs.readFileSync(manifestPath, 'utf8')
@@ -166,7 +166,7 @@ describe('createAgentFilesExtension', () => {
 
     // Manifest carries skillsContent and the unioned tool allowlist.
     const manifest = fs.readFileSync(
-      path.join(repoRoot, 'packages/core/src/modules/agent_orchestrator/generated/file-agents.generated.ts'),
+      path.join(repoRoot, 'packages/enterprise/src/modules/agent_orchestrator/generated/file-agents.generated.ts'),
       'utf8',
     )
     expect(manifest).toContain('skillsContent')

@@ -19,7 +19,7 @@
 import {
   signTraceIngest,
   TRACE_INGEST_HEADERS,
-} from '@open-mercato/core/modules/agent_orchestrator/lib/trace/ingestAuth'
+} from '@open-mercato/enterprise/modules/agent_orchestrator/lib/trace/ingestAuth'
 
 const BASE_URL = (process.env.BASE_URL ?? 'http://localhost:3000').replace(/\/$/, '')
 

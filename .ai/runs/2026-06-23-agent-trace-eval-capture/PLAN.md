@@ -1,11 +1,11 @@
 # Implementation Plan & Progress — Agent Orchestrator: Trace, Evaluation & Correction Capture
 
 > **Run folder:** `.ai/runs/2026-06-23-agent-trace-eval-capture/`
-> **Spec:** `.ai/specs/agent-orchestrator/next/2026-06-19-agent-trace-eval-capture.md`
-> **Eval-harness detail:** `.ai/specs/agent-orchestrator/next/2026-06-20-agent-eval-harness-and-metrics.md`
+> **Spec:** `.ai/specs/enterprise/agent-orchestrator/next/2026-06-19-agent-trace-eval-capture.md`
+> **Eval-harness detail:** `.ai/specs/enterprise/agent-orchestrator/next/2026-06-20-agent-eval-harness-and-metrics.md`
 > **Backing gaps:** gap-04 (eval harness), gap-05 (metrics), gap-19 (retention/partitioning)
-> **Baseline (build ON this):** `.ai/specs/agent-orchestrator/00-IMPLEMENTED-BASELINE.md`
-> **Module:** `packages/core/src/modules/agent_orchestrator/` · subdomain `lib/trace/`
+> **Baseline (build ON this):** `.ai/specs/enterprise/agent-orchestrator/00-IMPLEMENTED-BASELINE.md`
+> **Module:** `packages/enterprise/src/modules/agent_orchestrator/` · subdomain `lib/trace/`
 > **Status:** NOT STARTED · **Created:** 2026-06-23
 
 ## Context
@@ -251,7 +251,7 @@ gap-12 — also needs DPO/legal call on fairness, gap-13); context knowledge pla
     handoff · Agents registry · Playground · **Engineer trace inspector**. Not done: widget-injection into
     `workflows` My-Tasks (chose own pages) + guard-results panel (needs guardrails overlay).
 - 2026-06-24: **Follow-up spec written** for all deferred/remaining work →
-  `.ai/specs/agent-orchestrator/next/2026-06-24-trace-eval-pr4b-and-followups.md` (F1 S3 offload · F2 rollups+
+  `.ai/specs/enterprise/agent-orchestrator/next/2026-06-24-trace-eval-pr4b-and-followups.md` (F1 S3 offload · F2 rollups+
   scheduler · F3 partitioning · F4 ACL rollout · F5 encryption.ts · F6 dispose-hook test · F7 i18n · F8 runner
   stamping · F9 llm_judge assertion mgmt · F10 guard-results [blocked]). Each item has verified building blocks
   to start cold (`schedulerService` DI + `ScheduleRegistration`, `storageService` proxy, `tenantEncryptionService`).
