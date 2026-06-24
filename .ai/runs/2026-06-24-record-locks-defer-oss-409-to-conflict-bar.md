@@ -70,4 +70,7 @@ blast radius, same behavior.
 
 - [x] 2.1 Targeted validation (enterprise jest + typecheck on changed files) — record_locks 12/72, predicate suite 10/10
 - [x] 2.2 Full validation gate (build:packages, generate, i18n, typecheck 21/21, enterprise test 49/417, build:app) — all green
-- [ ] 2.3 Open PR, close #3550 with explanation + credit, normalize labels
+- [x] 2.3 Open PR, close #3550 with explanation + credit, normalize labels — PR #3569; #3550 closed; labels review/bug/enterprise/needs-qa/priority-medium/risk-medium
+
+## Changelog
+- PR #3569 opened against develop. Independent re-implementation of #3550's #3504 fix, authored in-house; #3550 closed with credit to @adeptofvoltron. Automated review (2 finders + verify) returned no actionable findings. Left in `review` (not self-routed to merge-queue) because the author is the maintainer — a human reviewer + QA should own the merge given the commercial-enterprise provenance.
