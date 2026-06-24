@@ -36,6 +36,14 @@ export const features = [
     module: 'agent_orchestrator',
     dependsOn: ['agent_orchestrator.eval.manage'],
   },
+  // Runtime guardrails overlay.
+  { id: 'agent_orchestrator.guardrail.read', title: 'View guardrail checks', module: 'agent_orchestrator' },
+  {
+    id: 'agent_orchestrator.guardrail.manage',
+    title: 'Manage guardrail sets',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.guardrail.read'],
+  },
 ]
 
 export default features

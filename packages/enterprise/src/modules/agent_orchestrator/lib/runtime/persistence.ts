@@ -1,6 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { type AgentResult, type AgentProposalPayload } from '../../data/validators'
+import { type AgentResult, type AgentProposalPayload, type GuardResults } from '../../data/validators'
 
 /**
  * Shared persistence + scope helpers used by BOTH agent runtimes (in-process
@@ -128,6 +128,8 @@ export async function createProposal(
     confidence: number | null
     processId: string | null
     stepId: string | null
+    /** Output-phase guardrail verdict checks attached at creation (Phase 1). */
+    guardResults?: GuardResults | null
   },
 ): Promise<void> {
   await commandBus.execute('agent_orchestrator.proposals.create', { input, ctx: commandCtx })

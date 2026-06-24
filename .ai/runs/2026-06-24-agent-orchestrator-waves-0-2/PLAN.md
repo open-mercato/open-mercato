@@ -26,7 +26,7 @@ Baseline before run: 26 suites / 111 tests pass.
 | 5 | F7 — i18n flatten + de/es/pl | M | ✅ (already done) | en.json already flat; de/es/pl fully translated (387 keys each, only legit loanwords identical to EN); `i18n:check-sync` + `check-values` clean for agent_orchestrator. No change needed. (Only `workflows` has a sync issue — out of scope.) |
 | 6 | F2 — `AgentMetricRollup` + scheduler + worker | M | ✅ | entity+migration+snapshot, metricRollupService (canonical windows, bucketed idempotency), worker, 300s scheduler in setup, metrics route prefers rollup w/ live fallback; metric-rollup.test.ts (31 suites/125 tests). Overview page repoint = TODO follow-up. |
 | 7 | F9 — `llm_judge` assertion management | M | ✅ | CRUD route (4 verbs gated eval.manage, optimistic lock) + backend page (i18n ×4, check-sync green) + seeded disabled llm_judge_helpfulness example + create→enable→judge test (32 suites/129 tests) |
-| 8 | Guardrails P1 — output-schema + tool-scope | M | ☐ | |
+| 8 | Guardrails P1 — output-schema + tool-scope | M | ✅ | AgentGuardrailCheck entity + guard_results col (migration+snapshot), guardrail.tripped event, guardrail.read/manage ACL, GuardrailService (checkOutput schema+tool_scope; checkInput stub), read route, runtime post-call wiring (block fails, pass non-disruptive), guardrails-output.test.ts (33 suites/133 tests) |
 
 ## Deferred (flagged for follow-up)
 

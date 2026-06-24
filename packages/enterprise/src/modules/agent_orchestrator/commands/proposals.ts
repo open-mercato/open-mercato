@@ -3,7 +3,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { AgentProposal } from '../data/entities'
-import { agentProposalSchema } from '../data/validators'
+import { agentProposalSchema, guardResultsSchema } from '../data/validators'
 import { emitAgentOrchestratorEvent } from '../events'
 
 const createAgentProposalSchema = z.object({
@@ -15,6 +15,8 @@ const createAgentProposalSchema = z.object({
   confidence: z.number().nullable().optional(),
   processId: z.string().uuid().nullable().optional(),
   stepId: z.string().nullable().optional(),
+  /** Output-phase guardrail verdict checks (Phase 1). Null when guardrails are off. */
+  guardResults: guardResultsSchema.nullable().optional(),
 })
 export type CreateAgentProposalInput = z.infer<typeof createAgentProposalSchema>
 
@@ -33,6 +35,7 @@ const createAgentProposalCommand: CommandHandler<CreateAgentProposalInput, { pro
       confidence: input.confidence ?? null,
       processId: input.processId ?? null,
       stepId: input.stepId ?? null,
+      guardResults: input.guardResults ?? null,
       disposition: 'pending',
     })
     em.persist(proposal)

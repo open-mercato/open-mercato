@@ -16,7 +16,7 @@ export { features } from './acl'
 // Public re-exports (single source of the SDK + result contract).
 export { defineAgent, getAgentEntry, listAgentEntries } from './lib/sdk/defineAgent'
 export type { DefineAgentInput, AgentRegistryEntry, AgentResultKind } from './lib/sdk/defineAgent'
-export { AgentRuntimeService, AgentNotFoundError, AgentOutputInvalidError } from './lib/runtime/agentRuntime'
+export { AgentRuntimeService, AgentNotFoundError, AgentOutputInvalidError, AgentGuardrailBlockedError } from './lib/runtime/agentRuntime'
 export type { AgentRunCtx } from './lib/runtime/agentRuntime'
 export { AgentWorkflowBridgeService } from './lib/runtime/invokeAgentForWorkflow'
 export type {
@@ -34,6 +34,10 @@ export {
   dealHealthCheckResult,
   disposeProposalSchema,
   proposalListQuerySchema,
+  guardrailVerdictSchema,
+  guardrailCheckSchema,
+  guardrailEvidenceSchema,
+  guardResultsSchema,
 } from './data/validators'
 export type {
   ProposedAction,
@@ -43,7 +47,18 @@ export type {
   ProposalDisposition,
   DisposeProposalInput,
   ProposalListQuery,
+  GuardrailVerdict,
+  GuardrailCheck,
+  GuardrailEvidence,
+  GuardResults,
+  GuardrailPhaseInput,
+  GuardrailKindInput,
+  GuardrailResultInput,
 } from './data/validators'
+
+// Runtime guardrails (Phase 1) — service + constant for cross-module consumers.
+export { GuardrailService, GUARDRAIL_SET_VERSION } from './lib/guardrails/guardrailService'
+export type { CheckOutputArgs, CheckInputArgs } from './lib/guardrails/guardrailService'
 
 // Disposition seam (area 03) — consumed inline by area 02's INVOKE_AGENT executor.
 export type {
