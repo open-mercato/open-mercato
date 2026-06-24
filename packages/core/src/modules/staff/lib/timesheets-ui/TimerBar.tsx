@@ -9,6 +9,7 @@ import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ProjectColorDot } from './ProjectColorDot'
 import { startTimerEntry } from './startTimer'
+import { resolveTimerActionError } from './timerErrors'
 
 type ProjectOption = {
   id: string
@@ -151,9 +152,9 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
       setActiveEntryId(entryId)
       setActiveProjectId(selectedProjectId)
       startElapsedCounter(new Date().toISOString())
-    } catch {
+    } catch (err) {
       flash(
-        t('staff.timesheets.my.timer.startError', 'Failed to start timer'),
+        resolveTimerActionError(err, t('staff.timesheets.my.timer.startError', 'Failed to start timer')),
         'error',
       )
     } finally {
@@ -176,9 +177,9 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
       setDescription('')
       stopElapsedCounter()
       onTimerStopped()
-    } catch {
+    } catch (err) {
       flash(
-        t('staff.timesheets.my.timer.stopError', 'Failed to stop timer'),
+        resolveTimerActionError(err, t('staff.timesheets.my.timer.stopError', 'Failed to stop timer')),
         'error',
       )
     } finally {
@@ -284,11 +285,10 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
       {isRunning ? (
         <IconButton
           type="button"
-          variant="outline"
+          variant="destructive"
           size="default"
           onClick={handleStop}
           disabled={isStopping}
-          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           aria-label={t('staff.timesheets.my.timer.stop', 'Stop timer')}
         >
           <Square className="size-4" />
@@ -296,11 +296,10 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
       ) : (
         <IconButton
           type="button"
-          variant="outline"
+          variant="primary"
           size="default"
           onClick={handleStart}
           disabled={isStarting || !selectedProjectId}
-          className="bg-primary text-primary-foreground hover:bg-primary/90"
           aria-label={t('staff.timesheets.my.timer.start', 'Start timer')}
         >
           <Play className="size-4" />

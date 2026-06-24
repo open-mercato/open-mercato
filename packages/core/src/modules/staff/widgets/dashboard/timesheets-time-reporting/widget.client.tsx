@@ -7,6 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { startTimerEntry } from '../../../lib/timesheets-ui/startTimer'
+import { resolveTimerActionError } from '../../../lib/timesheets-ui/timerErrors'
 import { DEFAULT_SETTINGS, hydrateSettings, type TimeReportingSettings } from './config'
 
 type ProjectOption = { id: string; name: string; code: string | null }
@@ -153,7 +154,7 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
       await loadState()
     } catch (err) {
       console.error('staff.timesheets.timeReporting.start', err)
-      setError(t('staff.timesheets.widgets.timeReporting.startError', 'Failed to start timer'))
+      setError(resolveTimerActionError(err, t('staff.timesheets.widgets.timeReporting.startError', 'Failed to start timer')))
     } finally {
       setActionLoading(false)
     }
@@ -167,7 +168,7 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
       await loadState()
     } catch (err) {
       console.error('staff.timesheets.timeReporting.stop', err)
-      setError(t('staff.timesheets.widgets.timeReporting.stopError', 'Failed to stop timer'))
+      setError(resolveTimerActionError(err, t('staff.timesheets.widgets.timeReporting.stopError', 'Failed to stop timer')))
     } finally {
       setActionLoading(false)
     }
@@ -194,7 +195,7 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
   if (error) {
     return (
       <div className="flex h-full items-center justify-center py-8">
-        <p className="text-sm text-destructive">{error}</p>
+        <p role="alert" className="text-sm text-destructive">{error}</p>
       </div>
     )
   }
