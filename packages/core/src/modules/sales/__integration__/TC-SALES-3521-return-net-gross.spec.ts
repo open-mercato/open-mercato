@@ -66,8 +66,8 @@ test.describe('TC-SALES-3521: order → return net/gross invariant', () => {
       expect(linesRes.ok(), `GET order-lines failed: ${linesRes.status()}`).toBeTruthy()
       const linesBody = (await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(linesRes)) ?? {}
       const line = (linesBody.items ?? []).find((item) => item.id === orderLineId) ?? {}
-      const lineNet = Number(line.totalNetAmount ?? 0)
-      const lineGross = Number(line.totalGrossAmount ?? 0)
+      const lineNet = Number(line.total_net_amount ?? line.totalNetAmount ?? 0)
+      const lineGross = Number(line.total_gross_amount ?? line.totalGrossAmount ?? 0)
       expect(lineGross).toBeGreaterThan(0)
       expect(lineNet).toBeGreaterThan(0)
 
