@@ -6,6 +6,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { formatTimeRangeLabel } from '../../lib/calendar/format'
 import type { CalendarItem, CalendarPlatform } from './types'
 
 const SHOW_TIME_MIN_HEIGHT_PX = 44
@@ -63,12 +64,7 @@ export function resolveEventTone(item: CalendarItem, nowMs: number): EventTone {
 }
 
 export function formatTimeRange(locale: string, start: Date, end: Date): string {
-  const formatter = new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit' })
-  try {
-    return formatter.formatRange(start, end)
-  } catch {
-    return `${formatter.format(start)} - ${formatter.format(end)}`
-  }
+  return formatTimeRangeLabel(locale, start, end)
 }
 
 function participantLabel(participant: CalendarItem['participants'][number]): string {
