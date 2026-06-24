@@ -8,6 +8,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import type { EditorRelatedTo } from '../../../lib/calendar/editorPayload'
+import { composeAccessibleName } from '../../../lib/calendar/labels'
 import {
   fetchDealsForEntity,
   searchRelatedEntities,
@@ -178,6 +179,7 @@ export function RelatedToField({
                   variant="ghost"
                   role="option"
                   aria-selected={value?.id === option.id}
+                  aria-label={composeAccessibleName([option.label, option.subtitle, kindLabel(option.kind)])}
                   onClick={() => {
                     onChange({ id: option.id, kind: option.kind, label: option.label })
                     if (value?.id !== option.id) onDealChange(null)

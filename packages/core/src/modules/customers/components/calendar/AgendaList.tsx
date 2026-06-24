@@ -7,11 +7,12 @@ import { isToday } from 'date-fns/isToday'
 import { isTomorrow } from 'date-fns/isTomorrow'
 import { startOfDay } from 'date-fns/startOfDay'
 import { CalendarClock } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { eventDisplayTitle, pluralCategory } from '../../lib/calendar/labels'
 import type { AgendaListProps, CalendarCategory, CalendarItem } from './types'
 
 const MAX_AVATARS_PER_ROW = 2
@@ -84,8 +85,15 @@ function buildDayGroups(anchor: Date, horizonDays: number, items: CalendarItem[]
 
 function AgendaDayHeader({ date, count }: { date: Date; count: number }) {
   const t = useT()
+  const locale = useLocale()
   const todayMarker = isToday(date)
   const tomorrowMarker = !todayMarker && isTomorrow(date)
+  const countKey = `customers.calendar.agenda.eventsCount.${pluralCategory(locale, count)}`
+  const resolvedCount = t(countKey, { count })
+  const countLabel =
+    resolvedCount === countKey
+      ? t('customers.calendar.agenda.eventsCount.other', '{count} events', { count })
+      : resolvedCount
   return (
     <div className="flex w-full items-center gap-2 bg-muted/50 px-3 py-2.5 sm:px-5">
       <span className="text-sm font-semibold text-foreground">{groupLabelOf(date)}</span>
@@ -95,11 +103,7 @@ function AgendaDayHeader({ date, count }: { date: Date; count: number }) {
         </span>
       ) : null}
       <span aria-hidden="true" className="w-2.5 shrink-0" />
-      <span className="text-xs font-medium text-muted-foreground">
-        {count === 1
-          ? t('customers.calendar.agenda.eventCount', '1 event')
-          : t('customers.calendar.agenda.eventsCount', '{count} events', { count })}
-      </span>
+      <span className="text-xs font-medium text-muted-foreground">{countLabel}</span>
     </div>
   )
 }
@@ -116,6 +120,7 @@ function AgendaRow({
   const t = useT()
   const canceled = item.status === 'canceled'
   const done = item.status === 'done'
+  const title = eventDisplayTitle(item.title, t('customers.calendar.grid.untitled', 'Untitled'))
   const typeLabel = typeLabels?.[item.interactionType] ?? deriveTypeLabel(item.interactionType)
   const platformLabels: Record<string, string> = {
     zoom: t('customers.calendar.platformFull.zoom', 'Zoom'),
@@ -135,7 +140,7 @@ function AgendaRow({
     <Button
       type="button"
       variant="ghost"
-      aria-label={`${item.title} · ${ariaTime}`}
+      aria-label={`${title} · ${ariaTime}`}
       onClick={() => onItemClick(item)}
       className={cn(
         'h-auto w-full justify-start whitespace-normal rounded-none bg-background px-3 py-3 text-left transition-colors hover:bg-muted/30 sm:gap-3.5 sm:px-5',
@@ -161,7 +166,7 @@ function AgendaRow({
             canceled && 'line-through',
           )}
         >
-          {item.title}
+          {title}
         </span>
         <span className="truncate text-xs text-muted-foreground">
           {locationLabel ? `${typeLabel} · ${locationLabel}` : typeLabel}
