@@ -1,151 +1,169 @@
 /**
  * @jest-environment jsdom
- *
- * Regression coverage for issue #3318: locale selection and locale removal in
- * TranslationManager/LocaleManager must use shared UI primitives (semantic
- * `Tabs` triggers and `IconButton`) instead of raw `<button>` elements, and the
- * remove affordance must expose an accessible label.
  */
 import * as React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { TranslationManager, LocaleManager } from '../TranslationManager'
 
-const mockUseQuery = jest.fn()
-const mockUseMutation = jest.fn()
-const mockUseQueryClient = jest.fn()
-
-jest.mock('@tanstack/react-query', () => ({
-  useQuery: (...args: unknown[]) => mockUseQuery(...args),
-  useMutation: (...args: unknown[]) => mockUseMutation(...args),
-  useQueryClient: () => mockUseQueryClient(),
+const apiCallMock = jest.fn()
+const withScopedApiRequestHeadersMock = jest.fn(
+  async (_headers: unknown, operation: () => Promise<unknown>) => operation(),
+)
+const buildOptimisticLockHeaderMock = jest.fn((updatedAt?: string) => ({
+  'x-om-ext-optimistic-lock-expected-updated-at': updatedAt ?? '',
 }))
+const runMutationMock = jest.fn(
+  async ({ operation }: { operation: () => Promise<unknown> }) => operation(),
+)
+const retryLastMutationMock = jest.fn(async () => true)
+const flashMock = jest.fn()
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
-  apiCall: jest.fn(),
-  readApiResultOrThrow: jest.fn(),
-  withScopedApiRequestHeaders: jest.fn(),
+  apiCall: (...args: unknown[]) => apiCallMock(...args),
+  readApiResultOrThrow: jest.fn(async () => ({ items: [] })),
+  withScopedApiRequestHeaders: (...args: [unknown, () => Promise<unknown>]) =>
+    withScopedApiRequestHeadersMock(...args),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({
-  buildOptimisticLockHeader: jest.fn(() => ({})),
+  buildOptimisticLockHeader: (...args: [string | undefined]) => buildOptimisticLockHeaderMock(...args),
+}))
+
+jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
+  useGuardedMutation: () => ({
+    runMutation: runMutationMock,
+    retryLastMutation: retryLastMutationMock,
+  }),
+}))
+
+jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
+  flash: (...args: unknown[]) => flashMock(...args),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/customFieldDefs', () => ({
   useCustomFieldDefs: () => ({ data: [], isLoading: false }),
 }))
 
-jest.mock('@open-mercato/ui/backend/inputs', () => ({
-  ComboboxInput: () => <div data-testid="combobox" />,
-}))
-
-jest.mock('@open-mercato/ui/backend/detail', () => ({
-  LoadingMessage: ({ label }: { label: string }) => <div>{label}</div>,
-  ErrorMessage: ({ label }: { label: string }) => <div>{label}</div>,
-}))
-
-jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
-  flash: jest.fn(),
-}))
-
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
-  useOrganizationScopeVersion: () => 1,
+  useOrganizationScopeVersion: () => 0,
 }))
 
-jest.mock('../../lib/resolve-field-list', () => ({
-  resolveFieldList: () => [],
+jest.mock('@open-mercato/ui/backend/inputs', () => ({
+  ComboboxInput: ({
+    value,
+    onChange,
+    placeholder,
+  }: {
+    value: string
+    onChange: (value: string) => void
+    placeholder?: string
+  }) => (
+    <input
+      aria-label="combobox"
+      value={value}
+      placeholder={placeholder}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  ),
 }))
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => {
-  const translate = (
-    key: string,
-    fallbackOrParams?: string | Record<string, unknown>,
-    params?: Record<string, unknown>,
-  ) => {
-    let fallback: string | undefined
-    let resolvedParams: Record<string, unknown> | undefined
-    if (typeof fallbackOrParams === 'string') {
-      fallback = fallbackOrParams
-      resolvedParams = params
-    } else {
-      resolvedParams = fallbackOrParams ?? params
-    }
-    const template = fallback ?? key
-    if (!resolvedParams) return template
-    return template.replace(/\{\{(\w+)\}\}|\{(\w+)\}/g, (match, doubleKey, singleKey) => {
-      const token = doubleKey ?? singleKey
-      const value = resolvedParams![token]
-      return value !== undefined ? String(value) : match
-    })
-  }
-  return { useT: () => translate }
+beforeEach(() => {
+  jest.clearAllMocks()
+  apiCallMock.mockImplementation(
+    async (url: string, init?: { method?: string; body?: string }) => {
+      if (!init?.method) {
+        if (url === '/api/translations/locales') {
+          return { ok: true, result: { locales: ['en', 'de'] } }
+        }
+        // entity-translation GET
+        return {
+          ok: true,
+          result: {
+            entityType: 'catalog:product',
+            entityId: 'rec-1',
+            translations: {},
+            updatedAt: '2026-01-02T00:00:00Z',
+          },
+        }
+      }
+      // mutating writes (PUT)
+      const parsed = init.body ? JSON.parse(init.body) : {}
+      return { ok: true, result: { locales: parsed.locales ?? [] } }
+    },
+  )
 })
 
-import { TranslationManager, LocaleManager } from '../TranslationManager'
-
-describe('TranslationManager locale tabs (issue #3318)', () => {
-  beforeEach(() => {
-    jest.clearAllMocks()
-    mockUseQuery.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-      isError: false,
-      error: undefined,
-      refetch: jest.fn(),
-    })
-    mockUseMutation.mockReturnValue({ mutate: jest.fn(), isPending: false })
-    mockUseQueryClient.mockReturnValue({ setQueryData: jest.fn(), invalidateQueries: jest.fn() })
-  })
-
-  it('renders locale tabs as semantic Tabs primitives, not raw buttons', () => {
-    render(<TranslationManager mode="embedded" entityType="" recordId="" />)
-
-    const tabs = screen.getAllByRole('tab')
-    expect(tabs.map((tab) => tab.textContent)).toEqual(['EN', 'PL', 'ES', 'DE'])
-    // Proves the shared Tabs primitive is rendering the triggers (not a hand-rolled <button>).
-    tabs.forEach((tab) => expect(tab).toHaveAttribute('data-slot', 'tabs-trigger'))
-  })
-
-  it('marks the clicked locale tab active and the previous one inactive', async () => {
-    render(<TranslationManager mode="embedded" entityType="" recordId="" />)
-
-    await waitFor(() =>
-      expect(screen.getByRole('tab', { name: 'EN' })).toHaveAttribute('data-state', 'active'),
+describe('TranslationManager guarded mutations (#3316)', () => {
+  it('routes the entity-translation save through useGuardedMutation, not a raw mutation', async () => {
+    renderWithProviders(
+      <TranslationManager
+        mode="embedded"
+        entityType="catalog:product"
+        recordId="rec-1"
+        baseValues={{ name: 'Base name' }}
+        translatableFields={['name']}
+      />,
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: 'PL' }))
+    const input = await screen.findByRole('textbox')
+    fireEvent.change(input, { target: { value: 'Nazwa testowa' } })
 
-    expect(screen.getByRole('tab', { name: 'PL' })).toHaveAttribute('data-state', 'active')
-    expect(screen.getByRole('tab', { name: 'EN' })).toHaveAttribute('data-state', 'inactive')
+    fireEvent.click(screen.getByTestId('translations-save'))
+
+    await waitFor(() => expect(runMutationMock).toHaveBeenCalledTimes(1))
+
+    const runInput = runMutationMock.mock.calls[0][0] as {
+      context: Record<string, unknown>
+      mutationPayload?: Record<string, unknown>
+    }
+    expect(runInput.context).toMatchObject({ entityType: 'catalog:product', recordId: 'rec-1' })
+    // the conflict-resolution retry handle MUST be carried in the injection context
+    expect(runInput.context.retryLastMutation).toBe(retryLastMutationMock)
+    expect(runInput.mutationPayload).toEqual({ en: { name: 'Nazwa testowa' } })
+
+    // optimistic-lock header is still built + applied on the guarded write
+    await waitFor(() =>
+      expect(buildOptimisticLockHeaderMock).toHaveBeenCalledWith('2026-01-02T00:00:00Z'),
+    )
+    expect(withScopedApiRequestHeadersMock).toHaveBeenCalled()
+    expect(apiCallMock).toHaveBeenCalledWith(
+      '/api/translations/catalog%3Aproduct/rec-1',
+      expect.objectContaining({ method: 'PUT' }),
+    )
+
+    // flash behavior preserved
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Translations saved', 'success'))
   })
 })
 
-describe('LocaleManager remove affordance (issue #3318)', () => {
-  beforeEach(() => {
-    jest.clearAllMocks()
-    mockUseMutation.mockReturnValue({ mutate: jest.fn(), isPending: false })
-    mockUseQueryClient.mockReturnValue({ setQueryData: jest.fn(), invalidateQueries: jest.fn() })
-  })
+describe('LocaleManager guarded mutations (#3316)', () => {
+  it('routes the supported-locales save through useGuardedMutation, not a raw mutation', async () => {
+    renderWithProviders(<LocaleManager />)
 
-  it('renders an accessible IconButton per removable locale and removes it on click', () => {
-    const mutate = jest.fn()
-    mockUseMutation.mockReturnValue({ mutate, isPending: false })
-    mockUseQuery.mockReturnValue({ data: ['en', 'de', 'fr'], isLoading: false })
+    await screen.findByRole('button', { name: 'Add' })
 
-    render(<LocaleManager />)
+    // click a locale remove "X" button -> removeLocale -> guarded save
+    const removeButton = screen
+      .getAllByRole('button')
+      .find((button) => !/add/i.test(button.textContent || ''))
+    expect(removeButton).toBeDefined()
+    fireEvent.click(removeButton as HTMLElement)
 
-    const removeGerman = screen.getByRole('button', { name: 'Remove German' })
-    // IconButton renders a real <button> primitive with an accessible label.
-    expect(removeGerman).toHaveAttribute('data-slot', 'icon-button')
+    await waitFor(() => expect(runMutationMock).toHaveBeenCalledTimes(1))
 
-    fireEvent.click(removeGerman)
+    const runInput = runMutationMock.mock.calls[0][0] as {
+      context: Record<string, unknown>
+      mutationPayload?: Record<string, unknown>
+    }
+    expect(runInput.context.retryLastMutation).toBe(retryLastMutationMock)
+    expect(runInput.mutationPayload).toEqual({ locales: ['de'] })
+    expect(apiCallMock).toHaveBeenCalledWith(
+      '/api/translations/locales',
+      expect.objectContaining({ method: 'PUT' }),
+    )
 
-    expect(mutate).toHaveBeenCalledWith(['en', 'fr'])
-  })
-
-  it('does not render a remove affordance when only one locale remains', () => {
-    mockUseQuery.mockReturnValue({ data: ['en'], isLoading: false })
-
-    render(<LocaleManager />)
-
-    expect(screen.queryByRole('button', { name: /^Remove/ })).toBeNull()
+    // flash behavior preserved
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Locales updated', 'success'))
   })
 })

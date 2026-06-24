@@ -11,6 +11,10 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
+import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
+import { resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
+import { SortDir } from '@open-mercato/shared/lib/query/types'
 import { resolveLabelActorUserId } from './auth'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -27,6 +31,8 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
   POST: { requireAuth: true, requireFeatures: ['customers.people.manage'] },
 }
+
+const DECRYPT_CONCURRENCY = 8
 
 const querySchema = z.object({
   entityId: z.string().uuid().optional(),
@@ -72,12 +78,30 @@ export async function GET(req: Request) {
       throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
     }
 
-    // Load all labels for this user
-    const labels = await findWithDecryption(em, CustomerLabel, {
+    // `label` is encrypted at rest; SQL can't sort it meaningfully, so the
+    // candidate set is decrypted and sorted in memory below.
+    const cap = resolveEncryptedSortMaxRows()
+    const candidateLabels = await em.find(CustomerLabel, {
       tenantId: auth.tenantId,
       organizationId,
       userId: actorUserId,
-    }, { orderBy: { label: 'asc' } }, { tenantId: auth.tenantId, organizationId })
+    } as FilterQuery<CustomerLabel>, cap !== null ? { limit: cap, orderBy: { id: 'asc' } } : {})
+    if (cap !== null && candidateLabels.length >= cap) {
+      console.warn('[customers/labels.GET] encrypted sort candidate scan hit OM_ENCRYPTED_SORT_MAX_ROWS cap; results may be incomplete', {
+        cap,
+        tenantId: auth.tenantId,
+        organizationId,
+      })
+    }
+
+    await mapWithConcurrency(candidateLabels, DECRYPT_CONCURRENCY, (label) =>
+      decryptEntitiesWithFallbackScope(label, { em, tenantId: auth.tenantId, organizationId }),
+    )
+
+    const labels = sortRowsInMemory(
+      candidateLabels as unknown as Record<string, unknown>[],
+      [{ field: 'label', dir: SortDir.Asc }],
+    ) as unknown as CustomerLabel[]
 
     // If entityId provided, also load assignments for that entity
     let assignedLabelIds: string[] = []

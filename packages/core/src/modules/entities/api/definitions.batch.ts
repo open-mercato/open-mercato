@@ -8,6 +8,10 @@ import { z } from 'zod'
 import { invalidateDefinitionsCache } from './definitions.cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { mergeEntityFieldsetConfig, normalizeEntityFieldsetConfig } from '../lib/fieldsets'
+import {
+  beginEntitiesMutationGuard,
+  FIELD_DEFINITION_RESOURCE_KIND,
+} from './definitions.mutation-guard'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
@@ -66,6 +70,17 @@ export async function POST(req: Request) {
   try {
     cache = resolve('cache') as CacheStrategy
   } catch {}
+
+  const guard = await beginEntitiesMutationGuard({
+    container,
+    auth,
+    req,
+    resourceKind: FIELD_DEFINITION_RESOURCE_KIND,
+    resourceId: entityId,
+    operation: 'custom',
+    mutationPayload: { entityId, definitionCount: definitions.length },
+  })
+  if (guard.blockedResponse) return guard.blockedResponse
 
   await em.begin()
   try {
@@ -133,6 +148,8 @@ export async function POST(req: Request) {
     try { await em.rollback() } catch {}
     return NextResponse.json({ error: 'Failed to save definitions batch' }, { status: 500 })
   }
+
+  await guard.runAfterSuccess()
 
   await invalidateDefinitionsCache(cache, {
     tenantId: auth.tenantId ?? null,
