@@ -17,6 +17,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { useRecordsEntityGuard } from '@open-mercato/core/modules/entities/components/useRecordsEntityGuard'
@@ -67,6 +68,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
 }
 
 function RecordsPageInner({ params }: { params: { entityId?: string } }) {
+  const t = useT()
   const entityId = decodeURIComponent(params?.entityId || '')
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'id', desc: false }])
   const [page, setPage] = React.useState(1)
@@ -80,6 +82,16 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
   const [loading, setLoading] = React.useState(false)
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const deleteMutationContextId = `entities.user.records.${entityId}:single-delete`
+  const { runMutation: runDeleteMutation, retryLastMutation: retryDeleteMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: deleteMutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
   const { data: cfDefs = [] } = useCustomFieldDefs(entityId, {
     enabled: Boolean(entityId),
     keyExtras: [scopeVersion],
@@ -367,22 +379,33 @@ export RECORD_ID="<record uuid>"`}</code></pre>
               items={[
                 { id: 'edit', label: 'Edit', href: `/backend/entities/user/${encodeURIComponent(entityId)}/records/${encodeURIComponent(String((row as any).id))}` },
                 { id: 'delete', label: 'Delete', destructive: true, onSelect: async () => {
+                  const recordId = String((row as any).id)
                   try {
                     const confirmed = await confirm({
                       title: 'Delete this record?',
                       variant: 'destructive',
                     })
                     if (!confirmed) return
-                    const deleteCall = await withScopedApiRequestHeaders(
-                      buildOptimisticLockHeader((row as any).updatedAt),
-                      () => apiCall(
-                        `/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(String((row as any).id))}`,
-                        { method: 'DELETE' },
-                      ),
-                    )
-                    if (!deleteCall.ok) {
-                      await raiseCrudError(deleteCall.response, 'Failed to delete record')
-                    }
+                    await runDeleteMutation({
+                      operation: async () => {
+                        const deleteCall = await withScopedApiRequestHeaders(
+                          buildOptimisticLockHeader((row as any).updatedAt),
+                          () => apiCall(
+                            `/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`,
+                            { method: 'DELETE' },
+                          ),
+                        )
+                        if (!deleteCall.ok) {
+                          await raiseCrudError(deleteCall.response, 'Failed to delete record')
+                        }
+                      },
+                      context: {
+                        formId: deleteMutationContextId,
+                        resourceKind: 'entities.record',
+                        resourceId: recordId,
+                        retryLastMutation: retryDeleteMutation,
+                      },
+                    })
                     const j = await readApiResultOrThrow<RecordsResponse>(
                       `/api/entities/records?entityId=${encodeURIComponent(entityId)}&page=${page}&pageSize=${pageSize}`,
                       undefined,

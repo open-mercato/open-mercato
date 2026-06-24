@@ -6,7 +6,29 @@ import type { ActivitiesDataAdapter, ActivitySummary } from '@open-mercato/ui/ba
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
-export function createResourceActivitiesAdapter(translator: Translator): ActivitiesDataAdapter {
+export type ResourceActivitiesGuardedMutation = <T>(
+  runner: () => Promise<T>,
+  payload?: Record<string, unknown>,
+) => Promise<T>
+
+export type CreateResourceActivitiesAdapterOptions = {
+  runMutation?: ResourceActivitiesGuardedMutation
+}
+
+export function createResourceActivitiesAdapter(
+  translator: Translator,
+  options: CreateResourceActivitiesAdapterOptions = {},
+): ActivitiesDataAdapter {
+  const runWrite = async <T,>(
+    runner: () => Promise<T>,
+    payload: Record<string, unknown>,
+  ): Promise<T> => {
+    if (options.runMutation) {
+      return options.runMutation(runner, payload)
+    }
+    return runner()
+  }
+
   return {
     list: async ({ entityId }) => {
       const params = new URLSearchParams({
@@ -23,19 +45,23 @@ export function createResourceActivitiesAdapter(translator: Translator): Activit
       return Array.isArray(payload?.items) ? (payload.items as ActivitySummary[]) : []
     },
     create: async ({ entityId, activityType, subject, body, occurredAt, customFields }) => {
-      await createCrud('resources/activities', {
+      const payload = {
         entityId,
         activityType,
         subject: subject ?? undefined,
         body: body ?? undefined,
         occurredAt: occurredAt ?? undefined,
         ...(customFields ? { customFields } : {}),
-      }, {
-        errorMessage: translator('resources.resources.detail.activities.error', 'Failed to save activity'),
-      })
+      }
+      await runWrite(
+        () => createCrud('resources/activities', payload, {
+          errorMessage: translator('resources.resources.detail.activities.error', 'Failed to save activity'),
+        }),
+        { operation: 'createActivity', entityId, activityType },
+      )
     },
     update: async ({ id, patch }) => {
-      await updateCrud('resources/activities', {
+      const payload = {
         id,
         entityId: patch.entityId,
         activityType: patch.activityType,
@@ -43,15 +69,22 @@ export function createResourceActivitiesAdapter(translator: Translator): Activit
         body: patch.body ?? undefined,
         occurredAt: patch.occurredAt ?? undefined,
         ...(patch.customFields ? { customFields: patch.customFields } : {}),
-      }, {
-        errorMessage: translator('resources.resources.detail.activities.error', 'Failed to save activity'),
-      })
+      }
+      await runWrite(
+        () => updateCrud('resources/activities', payload, {
+          errorMessage: translator('resources.resources.detail.activities.error', 'Failed to save activity'),
+        }),
+        { operation: 'updateActivity', id },
+      )
     },
     delete: async ({ id }) => {
-      await deleteCrud('resources/activities', {
-        id,
-        errorMessage: translator('resources.resources.detail.activities.deleteError', 'Failed to delete activity.'),
-      })
+      await runWrite(
+        () => deleteCrud('resources/activities', {
+          id,
+          errorMessage: translator('resources.resources.detail.activities.deleteError', 'Failed to delete activity.'),
+        }),
+        { operation: 'deleteActivity', id },
+      )
     },
   }
 }
