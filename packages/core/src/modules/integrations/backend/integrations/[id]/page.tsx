@@ -48,6 +48,10 @@ import {
   resolveIntegrationDetailWidgetSpotId,
   resolveRequestedIntegrationDetailTab,
 } from '../detail-page-widgets'
+import {
+  refreshIntegrationDetailPanels,
+  refreshIntegrationRunActivityPanels,
+} from '../detail-page-refresh'
 import { isValidCredentialUrl } from '../../../lib/credentials-field-validation'
 
 type CredentialField = IntegrationCredentialField
@@ -538,8 +542,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     spotId: detailWidgetSpotId,
   })
   const refreshDetail = React.useCallback(async () => {
-    await loadDetail({ showLoading: false })
-    await loadCredentials()
+    await refreshIntegrationDetailPanels({ loadDetail, loadCredentials })
   }, [loadCredentials, loadDetail])
   const refreshLogs = React.useCallback(async () => {
     await loadLogs()
@@ -556,13 +559,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     }
     if (options?.showLoading) setIsRefreshingRunActivity(true)
     try {
-      const call = await apiCall<DataSyncRunDetail>(
-        `/api/data_sync/runs/${encodeURIComponent(runIdFromUrl)}`,
-        undefined,
-        { fallback: null },
-      )
-      await loadLogs()
-      await loadDetail({ showLoading: false })
+      const [call] = await Promise.all([
+        apiCall<DataSyncRunDetail>(
+          `/api/data_sync/runs/${encodeURIComponent(runIdFromUrl)}`,
+          undefined,
+          { fallback: null },
+        ),
+        refreshIntegrationRunActivityPanels({ loadLogs, loadDetail }),
+      ])
       if (call.ok && call.result) {
         setActiveRunDetail(call.result)
         setActiveRunRefreshedAt(new Date().toISOString())

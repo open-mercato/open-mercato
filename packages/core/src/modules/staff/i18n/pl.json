@@ -120,6 +120,7 @@
   "staff.audit.teams.update": "Zaktualizuj zespół",
   "staff.audit.timesheets.time_entries.create": "Utwórz wpis czasu",
   "staff.audit.timesheets.time_entries.delete": "Usuń wpis czasu",
+  "staff.audit.timesheets.time_entries.startTimer": "Uruchom licznik czasu",
   "staff.audit.timesheets.time_entries.update": "Zaktualizuj wpis czasu",
   "staff.audit.timesheets.time_project_members.assign": "Przypisz członka projektu czasu",
   "staff.audit.timesheets.time_project_members.unassign": "Usuń przypisanie członka projektu czasu",

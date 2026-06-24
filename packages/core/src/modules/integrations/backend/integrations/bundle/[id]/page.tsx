@@ -18,6 +18,7 @@ import {
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { CredentialFieldType, IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
@@ -91,6 +92,14 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
   const [isSavingCreds, setIsSavingCreds] = React.useState(false)
   const [togglingIds, setTogglingIds] = React.useState<Set<string>>(new Set())
 
+  const mutationContextId = React.useMemo(
+    () => `integrations.bundle:${bundleId ?? 'unknown'}`,
+    [bundleId],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: mutationContextId,
+  })
+
   const resolveCurrentBundleId = React.useCallback(() => {
     return bundleId ?? (
       typeof window !== 'undefined'
@@ -153,51 +162,85 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     const currentBundleId = resolveCurrentBundleId()
     if (!currentBundleId) return
     setIsSavingCreds(true)
-    const call = await withScopedApiRequestHeaders(
-      buildOptimisticLockHeader(credentialsUpdatedAt),
-      () => apiCall(`/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credentials: credValues }),
-      }, { fallback: null }),
-    )
-    if (call.ok) {
-      flash(t('integrations.detail.credentials.saved'), 'success')
-      await load()
-    } else {
+    try {
+      const call = await runMutation({
+        mutationPayload: { bundleId: currentBundleId, credentials: credValues },
+        context: {
+          formId: mutationContextId,
+          operation: 'update',
+          actionId: 'save-credentials',
+          resourceKind: 'integrations.bundle',
+          resourceId: currentBundleId,
+          bundleId: currentBundleId,
+          retryLastMutation,
+        },
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(credentialsUpdatedAt),
+          () => apiCall(`/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credentials: credValues }),
+          }, { fallback: null }),
+        ),
+      })
+      if (call.ok) {
+        flash(t('integrations.detail.credentials.saved'), 'success')
+        await load()
+      } else {
+        flash(t('integrations.detail.credentials.saveError'), 'error')
+      }
+    } catch {
       flash(t('integrations.detail.credentials.saveError'), 'error')
+    } finally {
+      setIsSavingCreds(false)
     }
-    setIsSavingCreds(false)
-  }, [resolveCurrentBundleId, credValues, credentialsUpdatedAt, load, t])
+  }, [resolveCurrentBundleId, runMutation, mutationContextId, retryLastMutation, credValues, credentialsUpdatedAt, load, t])
 
   const handleToggle = React.useCallback(async (integrationId: string, enabled: boolean, updatedAt?: string | null) => {
     setTogglingIds((prev) => new Set(prev).add(integrationId))
-    const call = await withScopedApiRequestHeaders(
-      buildOptimisticLockHeader(updatedAt),
-      () => apiCall<{ updatedAt?: string | null }>(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isEnabled: enabled }),
-      }, { fallback: null }),
-    )
-    if (call.ok) {
-      const nextUpdatedAt = call.result?.updatedAt ?? null
-      setDetail((prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          bundleIntegrations: prev.bundleIntegrations.map((item) =>
-            item.id === integrationId
-              ? { ...item, isEnabled: enabled, state: { updatedAt: nextUpdatedAt ?? item.state?.updatedAt ?? null } }
-              : item,
-          ),
-        }
+    try {
+      const call = await runMutation({
+        mutationPayload: { integrationId, isEnabled: enabled },
+        context: {
+          formId: mutationContextId,
+          operation: 'update',
+          actionId: 'toggle-state',
+          resourceKind: 'integrations.integration',
+          resourceId: integrationId,
+          integrationId,
+          retryLastMutation,
+        },
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt),
+          () => apiCall<{ updatedAt?: string | null }>(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isEnabled: enabled }),
+          }, { fallback: null }),
+        ),
       })
-    } else {
+      if (call.ok) {
+        const nextUpdatedAt = call.result?.updatedAt ?? null
+        setDetail((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            bundleIntegrations: prev.bundleIntegrations.map((item) =>
+              item.id === integrationId
+                ? { ...item, isEnabled: enabled, state: { updatedAt: nextUpdatedAt ?? item.state?.updatedAt ?? null } }
+                : item,
+            ),
+          }
+        })
+      } else {
+        flash(t('integrations.detail.stateError'), 'error')
+      }
+    } catch {
       flash(t('integrations.detail.stateError'), 'error')
+    } finally {
+      setTogglingIds((prev) => { const next = new Set(prev); next.delete(integrationId); return next })
     }
-    setTogglingIds((prev) => { const next = new Set(prev); next.delete(integrationId); return next })
-  }, [t])
+  }, [runMutation, mutationContextId, retryLastMutation, t])
 
   const handleBulkToggle = React.useCallback(async (enabled: boolean) => {
     if (!detail) return

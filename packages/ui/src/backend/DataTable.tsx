@@ -40,6 +40,7 @@ import { PerspectiveSidebar } from './PerspectiveSidebar'
 import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
 import { formatWithPublicDateFormat, normalizeDateFormatPattern } from '../primitives/date-format'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { readVersionedPreference, writeVersionedPreference, clearVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from './FlashMessages'
 import { useConfirmDialog } from './confirm-dialog'
@@ -484,6 +485,19 @@ type PerspectiveSnapshot = {
   updatedAt: number
 }
 
+// Versioned-envelope discriminator for the persisted perspective snapshot. Bump
+// when the snapshot shape changes incompatibly and add a read-old migration
+// branch; see `@open-mercato/shared/lib/browser/versionedPreference`.
+const PERSPECTIVE_SNAPSHOT_VERSION = 1
+
+type StoredPerspectiveSnapshot = { perspectiveId?: unknown; settings?: unknown; updatedAt?: unknown }
+
+function isStoredPerspectiveSnapshot(value: unknown): value is StoredPerspectiveSnapshot {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const settings = (value as Record<string, unknown>).settings
+  return typeof settings === 'object' && settings !== null
+}
+
 function readPerspectiveCookie(tableId: string): string | null {
   if (typeof document === 'undefined') return null
   const key = `${PERSPECTIVE_COOKIE_PREFIX}:${tableId}`
@@ -500,40 +514,31 @@ function writePerspectiveCookie(tableId: string, perspectiveId: string | null): 
   document.cookie = `${key}=${value}; Path=/; ${expires}; SameSite=Lax`
 }
 
-function readPerspectiveSnapshot(tableId: string): PerspectiveSnapshot | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(`${PERSPECTIVE_STORAGE_PREFIX}:${tableId}`)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return null
-    const perspectiveId =
-      typeof parsed.perspectiveId === 'string' && parsed.perspectiveId.trim().length > 0
-        ? parsed.perspectiveId
-        : null
-    const settings = typeof parsed.settings === 'object' && parsed.settings !== null
-      ? parsed.settings as PerspectiveSettings
+export function readPerspectiveSnapshot(tableId: string): PerspectiveSnapshot | null {
+  const parsed = readVersionedPreference<StoredPerspectiveSnapshot | null>(
+    `${PERSPECTIVE_STORAGE_PREFIX}:${tableId}`,
+    PERSPECTIVE_SNAPSHOT_VERSION,
+    (value): value is StoredPerspectiveSnapshot | null => isStoredPerspectiveSnapshot(value),
+    null,
+    { legacyIsValid: (value): value is StoredPerspectiveSnapshot | null => isStoredPerspectiveSnapshot(value) },
+  )
+  if (!parsed) return null
+  const perspectiveId =
+    typeof parsed.perspectiveId === 'string' && parsed.perspectiveId.trim().length > 0
+      ? parsed.perspectiveId
       : null
-    const updatedAt = typeof parsed.updatedAt === 'number' ? parsed.updatedAt : Date.now()
-    if (!settings) return null
-    return { perspectiveId, settings, updatedAt }
-  } catch {
-    return null
-  }
+  const settings = parsed.settings as PerspectiveSettings
+  const updatedAt = typeof parsed.updatedAt === 'number' ? parsed.updatedAt : Date.now()
+  return { perspectiveId, settings, updatedAt }
 }
 
-function writePerspectiveSnapshot(tableId: string, snapshot: PerspectiveSnapshot | null) {
-  if (typeof window === 'undefined') return
+export function writePerspectiveSnapshot(tableId: string, snapshot: PerspectiveSnapshot | null) {
   const key = `${PERSPECTIVE_STORAGE_PREFIX}:${tableId}`
-  try {
-    if (!snapshot) {
-      window.localStorage.removeItem(key)
-      return
-    }
-    window.localStorage.setItem(key, JSON.stringify(snapshot))
-  } catch {
-    // ignore storage errors
+  if (!snapshot) {
+    clearVersionedPreference(key)
+    return
   }
+  writeVersionedPreference(key, PERSPECTIVE_SNAPSHOT_VERSION, snapshot)
 }
 
 function sanitizePerspectiveSettings(source?: PerspectiveSettings | null): PerspectiveSettings | null {

@@ -34,6 +34,12 @@ This ensures design decisions are documented and the codebase remains well-under
 - Reference related issues or discussions; add screenshots or recordings for UI tweaks.
 - Tag maintainers early if you need design or architectural guidance.
 
+### Package Previews
+
+PRs do not publish npm canary packages automatically. Maintainers can add `publish-pkg-preview` to publish pkg.pr.new package previews for the current PR commit. If a fresh preview is needed after more commits, remove and re-add the label.
+
+The legacy npm canary snapshot path is still available for comparison by adding `publish-npm-snapshot` on a trusted same-repository PR branch. That workflow publishes real npm canary packages and runs standalone app integration against the exact snapshot, so use it only when pkg.pr.new previews are not enough evidence.
+
 ## Helpful Resources
 
 - 📚 Documentation: [docs.openmercato.com](https://docs.openmercato.com/)
