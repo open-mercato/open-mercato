@@ -58,8 +58,8 @@ that verifies the create-user tenant-scope guard end-to-end via the public API.
 
 ### Phase 1: Author the integration spec
 
-- [ ] 1.1 Write TC-AUTH-052 spec covering the 3 act/assert cases + teardown
+- [x] 1.1 Write TC-AUTH-052 spec covering the 3 act/assert cases + teardown — 5854d80bb
 
 ### Phase 2: Validate
 
-- [ ] 2.1 Typecheck core package and lint the new spec
+- [x] 2.1 Typecheck core package and lint the new spec — esbuild transpile OK; tsc -p (ignoreDeprecations workaround for the worktree's TS 5.9.3 vs config's "6.0") exits 0; eslint clean (only the unrelated Next pages-dir plugin warning)
