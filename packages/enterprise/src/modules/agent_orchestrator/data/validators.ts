@@ -454,6 +454,61 @@ export const contextBundlePrunedSourcesSchema = z.array(contextPrunedSourceSchem
 export const contextBundleSourcesSchema = z.array(contextProvenanceSchema)
 export const contextBundleRedactionAppliedSchema = z.array(contextRedactionAppliedSchema)
 
+// ── Document ingest / OCR extraction (context overlay, Phase 3) ─────────────
+/**
+ * A document locator points a fact back into its source document — the page (and
+ * optional region) the fact was extracted from. The string form persisted on the
+ * bundle is `page:<n>` or `page:<n>#<x0>,<y0>,<x1>,<y1>` so it round-trips through
+ * the existing `ContextProvenance.locator`/`ContextRoutedSource.locator` string
+ * columns without a schema change. Structured here for typed assembly; serialized
+ * by `formatDocumentLocator`.
+ */
+export const documentRegionSchema = z.tuple([
+  z.number(),
+  z.number(),
+  z.number(),
+  z.number(),
+])
+export type DocumentRegion = z.infer<typeof documentRegionSchema>
+
+export const documentLocatorSchema = z.object({
+  page: z.number().int().positive(),
+  region: documentRegionSchema.optional(),
+})
+export type DocumentLocator = z.infer<typeof documentLocatorSchema>
+
+/**
+ * One typed fact extracted from a document. Carries full lineage: the source
+ * attachment id (`sourceRef`), the page/region `locator`, and a `confidence`
+ * score in [0,1]. Extracted `value` is UNTRUSTED data (attacker-controllable
+ * document content) — never an instruction; Wave 3 guardrails treat it as such.
+ */
+export const documentFactSchema = z.object({
+  /** Field name within the doc-type schema (e.g. `invoice_total`, `policy_number`). */
+  field: z.string().min(1),
+  /** Extracted value — UNTRUSTED document content, never an instruction. */
+  value: z.string(),
+  /** Source attachment id (FK id → attachments; NOT an ORM relation). */
+  sourceRef: z.string().min(1),
+  /** Page/region the fact was extracted from (lineage → contestability). */
+  locator: documentLocatorSchema,
+  /** Extraction confidence in [0,1]; low-confidence facts are excludable from routing. */
+  confidence: z.number().min(0).max(1),
+})
+export type DocumentFact = z.infer<typeof documentFactSchema>
+
+/** Result of one document ingest run: the doc-type classification + its typed facts. */
+export const documentExtractionSchema = z.object({
+  /** Source attachment id the facts were extracted from. */
+  sourceRef: z.string().min(1),
+  /** Classified document type (e.g. `invoice`, `claim_form`, `unknown`). */
+  docType: z.string().min(1),
+  /** The swappable OCR/extraction provider id that produced the facts. */
+  engine: z.string().min(1),
+  facts: z.array(documentFactSchema),
+})
+export type DocumentExtraction = z.infer<typeof documentExtractionSchema>
+
 /** Query schema for GET /context-bundles (list + ?id= detail) — trace read route. */
 export const contextBundleListQuerySchema = z
   .object({

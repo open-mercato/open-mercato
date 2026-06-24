@@ -20,6 +20,8 @@ import { DbAgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
 import { DispositionServiceImpl } from './lib/disposition/dispositionService'
 import { AgentWorkflowBridgeService } from './lib/runtime/invokeAgentForWorkflow'
 import { ContextResolverImpl } from './lib/context/contextResolver'
+import { DocumentIngestServiceImpl } from './lib/context/documentIngest'
+import { resolveDefaultOcrProvider } from './lib/context/documentOcrProvider'
 import type { DispositionService } from './lib/disposition/dispositionService'
 
 export function register(container: AppContainer) {
@@ -59,6 +61,16 @@ export function register(container: AppContainer) {
     // persists one append-only AgentContextBundle per run. Resolves `queryEngine`
     // lazily from the container at call time.
     agentContextResolver: asFunction(() => new ContextResolverImpl(container)).scoped(),
+    // Context overlay (Phase 3): document ingest / OCR extraction. The OCR/layout
+    // engine is swappable behind `agentDocumentOcrProvider` (default = the elevated
+    // OpenAI vision-OCR path, wrapping the attachments OcrService). The ingest
+    // service runs OCR → classify → field-extract and emits typed facts each
+    // carrying provenance (source attachment id + page/region locator) + confidence,
+    // which the ContextResolver folds into the bundle as citable `document` sources.
+    agentDocumentOcrProvider: asFunction(() => resolveDefaultOcrProvider(container)).scoped(),
+    agentDocumentIngestService: asFunction(
+      () => new DocumentIngestServiceImpl(container, { provider: resolveDefaultOcrProvider(container) }),
+    ).scoped(),
     agentWorkflowBridge: asFunction(
       ({ agentRuntime, dispositionService }: { agentRuntime: AgentRuntimeService; dispositionService: DispositionService }) =>
         new AgentWorkflowBridgeService({
