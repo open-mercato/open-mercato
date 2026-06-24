@@ -12,7 +12,12 @@ export ANTHROPIC_API_KEY=sk-ant-...      # or OPENAI_API_KEY=sk-...
 yarn generate
 yarn db:migrate                          # creates agent_runs + agent_proposals
 
-# 3. Grant the agent_orchestrator.* features to existing roles
+# 3. Grant the agent_orchestrator.* features to existing roles.
+#    REQUIRED AFTER EVERY DEPLOY that tightens a route gate: the run list
+#    (/runs, /runs/:id), /agents/:id/metrics, corrections, and eval routes now
+#    require trace.view (not agents.view). setup.ts already grants trace.view to
+#    the operator/engineer/employee personas, so this sync deterministically
+#    restores their access — skip it and existing-tenant operators get a 403.
 yarn mercato auth sync-role-acls
 
 # 4. (optional) seed the demo agent is code-based (already discovered by step 2's generate);
@@ -167,3 +172,4 @@ Open the proposal in the **Caseload**, then:
 - **Caseload empty after a human-review run** → confirm the instance is `PAUSED` in Workflows → Instances and you have `agent_orchestrator.proposals.view`.
 - **`apply` step fails** → `deal.id` must be a real `customers` deal id for the `UPDATE_ENTITY` write; for pure agent testing use the Playground (no DB).
 - **Confidence always high/low** → tune `probability` / `daysInStage` / `recentActivity` in the sample, or change the node's `onResult.autoApproveThreshold` in the workflow.
+- **403 on the run list (`/runs`, `/runs/:id`), metrics, corrections, or eval after a deploy** → those gates require `agent_orchestrator.trace.view`, which existing operator/engineer roles did not hold before the gate tightening. Run `yarn mercato auth sync-role-acls` (§0 step 3) to re-apply `defaultRoleFeatures` and restore access.
