@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { clearRolePerspectives } from '@open-mercato/core/modules/perspectives/services/perspectiveService'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -48,12 +52,41 @@ export async function DELETE(req: Request, ctx: { params: { tableId: string; rol
   const role = await em.findOne(Role, { id: roleId, deletedAt: null, ...(scope as any) } as any)
   if (!role) return NextResponse.json({ error: 'Role not found' }, { status: 404 })
 
-  await clearRolePerspectives(em, cache, {
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: auth.tenantId ?? '',
+    organizationId: auth.orgId ?? null,
+    userId: auth.sub,
+    resourceKind: 'perspectives.role_perspective',
+    resourceId: roleId,
+    operation: 'delete',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: { tableId, roleId },
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
+
+  const clearedCount = await clearRolePerspectives(em, cache, {
     tableId,
     tenantId: auth.tenantId ?? null,
     organizationId: auth.orgId ?? null,
     roleIds: [roleId],
   })
+
+  if (clearedCount > 0 && guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: auth.tenantId ?? '',
+      organizationId: auth.orgId ?? null,
+      userId: auth.sub,
+      resourceKind: 'perspectives.role_perspective',
+      resourceId: roleId,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata ?? null,
+    })
+  }
 
   return NextResponse.json({ success: true })
 }

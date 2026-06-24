@@ -1,0 +1,6 @@
+export const SALES_DOCUMENT_NUMBER_COLUMN_MAX_WIDTH = '220px'
+
+export const SALES_DOCUMENT_NUMBER_COLUMN_META = {
+  sticky: true,
+  maxWidth: SALES_DOCUMENT_NUMBER_COLUMN_MAX_WIDTH,
+} as const

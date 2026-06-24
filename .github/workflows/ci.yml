@@ -22,6 +22,9 @@ env:
   # the same as unset. Kept explicit here to match the snapshot env and
   # to make the intent obvious in CI logs.
   OM_OPTIMISTIC_LOCK: 'all'
+  # Keep build-time and runtime onboarding config aligned so the browser
+  # integration suite can exercise the self-service verification flow.
+  SELF_SERVICE_ONBOARDING_ENABLED: 'true'
 
 on:
   push:
@@ -60,7 +63,7 @@ jobs:
       shard_matrix: ${{ steps.integration-scope.outputs.shard_matrix }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Fetch base branch for change detection
         # Needed so the scope step can diff against the PR base.
@@ -221,7 +224,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -279,7 +282,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -322,7 +325,7 @@ jobs:
     needs: [prepare, audit, lint]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Fetch base branch for change detection
         if: github.event_name == 'pull_request'
@@ -357,11 +360,22 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cache/pip
-          key: pip-markitdown-v1
+          key: pip-markitdown-v2
           restore-keys: pip-markitdown-
 
+      - name: Upgrade pip
+        # Upgrade pip in its own invocation: the system pip (24.0) resolver
+        # backtracks through markitdown versions and dead-ends on markdownify
+        # (ResolutionImpossible). A combined `pip install --upgrade pip markitdown`
+        # does NOT help because the newer resolver only takes effect on the next
+        # invocation. Splitting the upgrade out lets the install below run on the
+        # modern resolver.
+        run: python3 -m pip install --upgrade pip
+
       - name: Install markitdown CLI
-        run: python3 -m pip install --upgrade pip markitdown
+        # Pin the version so resolution is deterministic and a future
+        # markitdown/markdownify release cannot break CI without an explicit bump.
+        run: python3 -m pip install 'markitdown==0.1.6'
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
@@ -472,7 +486,7 @@ jobs:
           fi
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -625,7 +639,7 @@ jobs:
     if: needs.prepare.outputs.shard_matrix != '["none"]'
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -708,7 +722,7 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository)
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
