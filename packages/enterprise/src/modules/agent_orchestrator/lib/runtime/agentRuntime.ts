@@ -1,9 +1,11 @@
 import type { AwilixContainer } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { runAiAgentObject } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime'
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { getAgentEntry, ensureAgentsLoaded, type AgentRegistryEntry } from '../sdk/defineAgent'
-import { type AgentResult } from '../../data/validators'
+import { type AgentResult, type GuardResults, type GuardrailKindInput, type GuardrailPhaseInput } from '../../data/validators'
+import { GuardrailService, persistVerdict, GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
 import { OpenCodeAgentRunner } from './openCodeAgentRunner'
 import { withRunContext } from './runContext'
 import {
@@ -28,10 +30,35 @@ export class AgentNotFoundError extends Error {
 }
 
 export class AgentOutputInvalidError extends Error {
-  readonly code = 'agent_output_invalid'
+  readonly code: string = 'agent_output_invalid'
   constructor(agentId: string, detail: string) {
     super(`[internal] agent "${agentId}" produced output failing its result schema: ${detail}`)
     this.name = 'AgentOutputInvalidError'
+  }
+}
+
+/**
+ * A runtime guardrail `block` verdict. Carries the typed reason
+ * `{ phase, kind, guardrailSetVersion }` so the workflow can route to retry /
+ * escalate / USER_TASK. The schema-kind block subclasses AgentOutputInvalidError
+ * to preserve the existing fail semantics callers/tests rely on (a schema-invalid
+ * output is still an AgentOutputInvalidError).
+ */
+export class AgentGuardrailBlockedError extends AgentOutputInvalidError {
+  override readonly code: string = 'agent_guardrail_blocked'
+  readonly phase: GuardrailPhaseInput
+  readonly kind: GuardrailKindInput
+  readonly guardrailSetVersion: string
+  constructor(
+    agentId: string,
+    detail: string,
+    reason: { phase: GuardrailPhaseInput; kind: GuardrailKindInput; guardrailSetVersion: string },
+  ) {
+    super(agentId, detail)
+    this.name = 'AgentGuardrailBlockedError'
+    this.phase = reason.phase
+    this.kind = reason.kind
+    this.guardrailSetVersion = reason.guardrailSetVersion
   }
 }
 
@@ -143,12 +170,52 @@ export class AgentRuntimeService {
       throw err
     }
 
+    // POST-CALL output guardrail hook (Phase 1): the per-capability proposal
+    // contract IS the agent's declared outcome schema; the capability IS the
+    // agentId. Schema-validity and a tool-scope backstop are recorded as
+    // append-only AgentGuardrailCheck rows for full audit BEFORE the run can fail.
+    const guardrailService = new GuardrailService(this.container)
+    const verdict = await guardrailService.checkOutput({
+      capability: agentId,
+      schema: entry.schema,
+      output: rawObject,
+      allowedTools: entry.tools,
+    })
+    const guardEm = (this.container.resolve('em') as EntityManager).fork()
+    const guardScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId, agentRunId: runId }
+
     const parsed = entry.schema.safeParse(rawObject)
-    if (!parsed.success) {
-      const detail = parsed.error.message
+    if (!parsed.success || verdict.result === 'block') {
+      // Persist the block check(s) + emit `guardrail.tripped` BEFORE failing the
+      // run, then preserve the existing AgentOutputInvalidError fail semantics.
+      // Output checks at this point have no proposal yet → proposalId null.
+      await persistVerdict({ em: guardEm }, guardScope, {
+        verdict,
+        capability: agentId,
+        phase: 'output',
+        proposalId: null,
+      })
+      const detail = parsed.success ? 'guardrail block' : parsed.error.message
       await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
+      const blocked = verdict.blockedReason
+      if (blocked) {
+        throw new AgentGuardrailBlockedError(agentId, detail, {
+          phase: blocked.phase,
+          kind: blocked.kind,
+          guardrailSetVersion: GUARDRAIL_SET_VERSION,
+        })
+      }
       throw new AgentOutputInvalidError(agentId, detail)
     }
+
+    // Pass/warn: persist the audit rows (one per check). A pass verdict records
+    // pass rows but otherwise does NOT change behavior; warn proceeds + flags.
+    const guardResults: GuardResults = await persistVerdict({ em: guardEm }, guardScope, {
+      verdict,
+      capability: agentId,
+      phase: 'output',
+      proposalId: null,
+    })
 
     const result = shapeResult(entry.resultKind, parsed.data)
 
@@ -168,6 +235,7 @@ export class AgentRuntimeService {
         confidence: result.proposal.confidence ?? null,
         processId: ctx.processId ?? null,
         stepId: ctx.stepId ?? null,
+        guardResults,
       })
     }
 

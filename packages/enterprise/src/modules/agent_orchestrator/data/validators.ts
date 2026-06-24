@@ -302,6 +302,87 @@ export const evalAssertionListQuerySchema = z
   .passthrough()
 export type EvalAssertionListQuery = z.infer<typeof evalAssertionListQuerySchema>
 
+// ── Runtime guardrails (Phase 1) ────────────────────────────────────────────
+/**
+ * Guardrail phase/kind/result unions — mirror the TS string-unions on the
+ * AgentGuardrailCheck entity (kept as Zod enums for runtime validation of the
+ * verdict + persisted check shape).
+ */
+export const guardrailPhase = z.enum(['input', 'output'])
+export type GuardrailPhaseInput = z.infer<typeof guardrailPhase>
+
+export const guardrailKind = z.enum([
+  'prompt_injection',
+  'pii',
+  'grounding',
+  'schema',
+  'moderation',
+  'tool_scope',
+])
+export type GuardrailKindInput = z.infer<typeof guardrailKind>
+
+export const guardrailResult = z.enum(['pass', 'warn', 'block'])
+export type GuardrailResultInput = z.infer<typeof guardrailResult>
+
+/**
+ * Redacted-only evidence carried on an AgentGuardrailCheck / verdict check. NEVER
+ * raw PII or plaintext spans — only a redacted detail string and pointers/offsets
+ * into the encrypted artifact store. Phase 1 populates `detail` (e.g. the schema
+ * error path) and `pointers`; richer redaction lands with the PII phase.
+ */
+export const guardrailEvidenceSchema = z
+  .object({
+    /** Short, redacted human/debug detail — never raw PII (schema-error path etc.). */
+    detail: z.string().optional(),
+    /** storage-s3 keys / offsets into the encrypted artifact store. */
+    pointers: z.array(z.string()).optional(),
+  })
+  .passthrough()
+export type GuardrailEvidence = z.infer<typeof guardrailEvidenceSchema>
+
+/** One check within a verdict (and the shape attached to the proposal's guardResults). */
+export const guardrailCheckSchema = z.object({
+  kind: guardrailKind,
+  result: guardrailResult,
+  guardrailSetVersion: z.string().min(1),
+  evidence: guardrailEvidenceSchema.optional(),
+})
+export type GuardrailCheck = z.infer<typeof guardrailCheckSchema>
+
+/**
+ * The verdict GuardrailService.checkInput/checkOutput returns. `result` is the
+ * worst severity across `checks`; `blockedReason` is set only on a `block`.
+ */
+export const guardrailVerdictSchema = z.object({
+  result: guardrailResult,
+  checks: z.array(guardrailCheckSchema),
+  blockedReason: z
+    .object({ phase: guardrailPhase, kind: guardrailKind })
+    .optional(),
+})
+export type GuardrailVerdict = z.infer<typeof guardrailVerdictSchema>
+
+/** The `guardResults` jsonb attached to an AgentProposal (the verdict's checks). */
+export const guardResultsSchema = z.array(guardrailCheckSchema)
+export type GuardResults = z.infer<typeof guardResultsSchema>
+
+/** Query schema for GET /guardrail-checks (list + ?id= detail). */
+export const guardrailCheckListQuerySchema = z
+  .object({
+    page: z.coerce.number().min(1).default(1),
+    pageSize: z.coerce.number().min(1).max(100).default(50),
+    id: z.string().uuid().optional(),
+    agentRunId: z.string().uuid().optional(),
+    proposalId: z.string().uuid().optional(),
+    phase: guardrailPhase.optional(),
+    kind: guardrailKind.optional(),
+    result: guardrailResult.optional(),
+    sortField: z.string().optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
+  })
+  .passthrough()
+export type GuardrailCheckListQuery = z.infer<typeof guardrailCheckListQuerySchema>
+
 // ── Metric rollups (F2) ─────────────────────────────────────────────────────
 /**
  * The `metrics` jsonb shape stored on an AgentMetricRollup row — the same KPIs
