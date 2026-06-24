@@ -1,8 +1,23 @@
 import { z } from 'zod'
+import type { AwilixContainer } from 'awilix'
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveNotificationService, type NotificationService } from './notificationService'
+
+/**
+ * Mutation-guard resource kind for notification rows.
+ */
+export const NOTIFICATION_RESOURCE_KIND = 'notifications.notification'
+
+/**
+ * Mutation-guard resource kind for notification delivery settings.
+ */
+export const NOTIFICATION_SETTINGS_RESOURCE_KIND = 'notifications.settings'
 
 /**
  * Notification scope context for service calls
@@ -64,6 +79,65 @@ export async function resolveNotificationContext(req: Request): Promise<Notifica
 }
 
 /**
+ * Mutation-guard options for a notification write.
+ */
+export interface NotificationMutationGuardOptions {
+  resourceKind: string
+  resourceId?: string | null
+  operation: 'create' | 'update' | 'delete' | 'custom'
+  payload?: Record<string, unknown> | null
+}
+
+export type GuardedNotificationWriteResult<T> =
+  | { ok: true; result: T }
+  | { ok: false; response: Response }
+
+/**
+ * Run a notification write through the mutation guard lifecycle.
+ * Validates before the mutation, performs the write, then runs after-success
+ * hooks only when the write succeeded and the guard requested them. Returns the
+ * guard's own block response when validation fails so authorization behavior and
+ * conflict shapes are preserved.
+ */
+export async function runGuardedNotificationWrite<T>(
+  container: AwilixContainer,
+  scope: NotificationScope,
+  req: Request,
+  options: NotificationMutationGuardOptions,
+  write: () => Promise<T>,
+): Promise<GuardedNotificationWriteResult<T>> {
+  const guardScope = {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId: scope.userId ?? '',
+    resourceKind: options.resourceKind,
+    resourceId: options.resourceId ?? '',
+    operation: options.operation,
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+  }
+
+  const guardResult = await validateCrudMutationGuard(container, {
+    ...guardScope,
+    mutationPayload: options.payload ?? null,
+  })
+  if (guardResult && !guardResult.ok) {
+    return { ok: false, response: Response.json(guardResult.body, { status: guardResult.status }) }
+  }
+
+  const result = await write()
+
+  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      ...guardScope,
+      metadata: guardResult.metadata ?? null,
+    })
+  }
+
+  return { ok: true, result }
+}
+
+/**
  * Create a POST handler for bulk notification creation routes.
  * Used by batch, role, and feature notification endpoints.
  */
@@ -72,7 +146,7 @@ export function createBulkNotificationRoute<TSchema extends z.ZodTypeAny>(
   serviceMethod: 'createBatch' | 'createForRole' | 'createForFeature'
 ) {
   return async function POST(req: Request) {
-    const { service, scope } = await resolveNotificationContext(req)
+    const { service, scope, ctx } = await resolveNotificationContext(req)
 
     const body = await req.json().catch(() => ({}))
     const parsed = schema.safeParse(body)
@@ -81,7 +155,19 @@ export function createBulkNotificationRoute<TSchema extends z.ZodTypeAny>(
     }
 
     try {
-      const notifications = await service[serviceMethod](parsed.data as never, scope)
+      const guarded = await runGuardedNotificationWrite(
+        ctx.container,
+        scope,
+        req,
+        {
+          resourceKind: NOTIFICATION_RESOURCE_KIND,
+          operation: 'create',
+          payload: parsed.data as Record<string, unknown>,
+        },
+        () => service[serviceMethod](parsed.data as never, scope),
+      )
+      if (!guarded.ok) return guarded.response
+      const notifications = guarded.result
 
       return Response.json({
         ok: true,
@@ -144,10 +230,21 @@ export function createSingleNotificationActionRoute(
 ) {
   return async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
     const { id } = await params
-    const { service, scope } = await resolveNotificationContext(req)
+    const { service, scope, ctx } = await resolveNotificationContext(req)
 
     try {
-      await service[serviceMethod](id, scope)
+      const guarded = await runGuardedNotificationWrite(
+        ctx.container,
+        scope,
+        req,
+        {
+          resourceKind: NOTIFICATION_RESOURCE_KIND,
+          resourceId: id,
+          operation: 'update',
+        },
+        () => service[serviceMethod](id, scope),
+      )
+      if (!guarded.ok) return guarded.response
     } catch (error) {
       const errorResponse = notificationCrudErrorResponse(error)
       if (errorResponse) return errorResponse
