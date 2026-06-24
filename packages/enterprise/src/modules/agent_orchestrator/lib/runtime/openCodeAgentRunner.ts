@@ -111,12 +111,20 @@ export class OpenCodeAgentRunner {
     const openCodeAgentName = agentId.replace(/[^a-z0-9_-]/gi, '_')
     const commandCtx = buildCommandContext(this.container, ctx)
 
+    // Open the OpenCode session BEFORE creating the run so its id can be stamped
+    // as `externalRunId`. Trace ingestion correlates on `(runtime, externalRunId)`,
+    // so stamping the session id at creation lets a later trace POST upsert THIS
+    // row instead of creating a duplicate.
+    const session = await this.client.createSession()
+
     const runId = await createRun(this.commandBus, commandCtx, {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       agentId,
       input,
       parentRunId: ctx.parentRunId ?? null,
+      runtime: 'opencode',
+      externalRunId: session.id,
     })
 
     // Mint a fresh per-run session token scoped to the caller (their roles,
@@ -152,7 +160,6 @@ export class OpenCodeAgentRunner {
     })
 
     try {
-      const session = await this.client.createSession()
       const message = this.buildMessage(sessionToken, input)
 
       const capturedOutcome = await this.driveSession({

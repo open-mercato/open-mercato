@@ -12,6 +12,15 @@ const createAgentRunSchema = z.object({
   input: z.unknown(),
   /** Parent run id for a nested sub-agent run (Phase 4); null/absent for top-level runs. */
   parentRunId: z.string().uuid().nullable().optional(),
+  /**
+   * Runtime that produced this run; half of the trace-ingestion idempotency key
+   * `(runtime, externalRunId)`. Stamped at creation so a later trace POST for the
+   * same run upserts THIS row instead of creating a duplicate. Optional + nullable
+   * so existing callers keep compiling.
+   */
+  runtime: z.string().min(1).nullable().optional(),
+  /** Runtime-native run id; the other half of the ingestion idempotency key. */
+  externalRunId: z.string().min(1).nullable().optional(),
 })
 export type CreateAgentRunInput = z.infer<typeof createAgentRunSchema>
 
@@ -41,6 +50,8 @@ const createAgentRunCommand: CommandHandler<CreateAgentRunInput, { runId: string
       status: 'running' as AgentRunStatus,
       input: input.input,
       parentRunId: input.parentRunId ?? null,
+      runtime: input.runtime ?? null,
+      externalRunId: input.externalRunId ?? null,
     })
     em.persist(run)
     await em.flush()
