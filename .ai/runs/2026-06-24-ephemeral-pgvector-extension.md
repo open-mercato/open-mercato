@@ -54,5 +54,5 @@ docker-compose stacks that already use a pgvector-enabled image.
 
 ### Phase 2: Validation
 
-- [ ] 2.1 Run targeted CLI unit tests + typecheck for changed package
-- [ ] 2.2 Full validation gate and self-review
+- [x] 2.1 Run targeted CLI unit tests + typecheck for changed package — typecheck 21/21, cli tests 987 pass
+- [x] 2.2 Full validation gate and self-review — build:packages + generate + typecheck + cli tests + eslint green; build:app/full-test scoped out (CLI test-runner-only change)
