@@ -9,6 +9,8 @@ import {
   type GuardrailEvidence,
   type UntrustedSpan,
   type AttemptedTool,
+  type CitableSource,
+  type GuardrailSetBody,
 } from '../../data/validators'
 import { emitAgentOrchestratorEvent } from '../../events'
 import {
@@ -17,6 +19,7 @@ import {
   scoreToResult,
   type InjectionRiskResult,
 } from './promptInjection'
+import { checkGrounding } from './grounding'
 
 /**
  * The versioned guardrail set that produced a verdict. Phase 1 stamps a constant
@@ -55,6 +58,19 @@ export type CheckOutputArgs = {
    * the read allowlist.
    */
   attemptedTools?: AttemptedTool[]
+  /**
+   * The capability's grounding set (Wave 3, Phase 4). Present ONLY for capabilities
+   * declared FACTUAL — non-factual capabilities pass `undefined` and the grounding
+   * gate is a no-op (no `grounding` check is produced). Carries the resolved set
+   * body + its content-hash `groundingSetVersion` and the run's surfaced CITABLE
+   * sources (bundle `sources` + `retrieve()` snippets) the cite-or-abstain check
+   * resolves citations against.
+   */
+  grounding?: {
+    set: GuardrailSetBody
+    groundingSetVersion: string
+    citableSources: CitableSource[]
+  }
 }
 
 export type CheckInputArgs = {
@@ -163,6 +179,22 @@ export class GuardrailService {
     //    injection detector is fully evaded: untrusted document text can never reach
     //    a raw-write tool ("LLM proposes, OM disposes").
     checks.push(this.checkToolScope(args.attemptedTools ?? [], args.allowedTools ?? []))
+
+    // 3. Grounding (Wave 3, Phase 4): for a FACTUAL capability, every material
+    //    proposal claim must trace to a CITED source from the run's bundle /
+    //    retrieve() snippets (cite-or-abstain). Deterministic; composes via the
+    //    same worstResult + persistVerdict path. Non-factual capabilities pass no
+    //    `grounding` set, so this is a no-op for them.
+    if (args.grounding && args.grounding.set.factual) {
+      checks.push(
+        checkGrounding({
+          output: args.output,
+          set: args.grounding.set,
+          citableSources: args.grounding.citableSources,
+          version: args.grounding.groundingSetVersion,
+        }),
+      )
+    }
 
     const result = worstResult(checks)
     const blockedCheck = checks.find((check) => check.result === 'block')

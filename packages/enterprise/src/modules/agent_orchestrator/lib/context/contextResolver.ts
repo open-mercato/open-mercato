@@ -19,7 +19,7 @@ import {
 import { estimateTokens, packCandidates, type PackCandidate } from './packer'
 import { readRetrievalSource } from './retrievalSource'
 import type { DocumentExtraction } from '../../data/validators'
-import type { ContextRedactionApplied, UntrustedSpan } from '../../data/validators'
+import type { ContextRedactionApplied, UntrustedSpan, CitableSource } from '../../data/validators'
 import {
   documentExtractionToCandidates,
   documentProvenance,
@@ -88,6 +88,15 @@ export type AssembleResult = {
    * capability routes no untrusted content.
    */
   untrustedSpans: UntrustedSpan[]
+  /**
+   * The CITABLE sources routed into this bundle — every routed source with a
+   * resolvable `locator`, carrying its `score`. Surfaced (not separately persisted;
+   * derived from the bundle's `routedSources`) so the Wave-3 grounding
+   * (cite-or-abstain) guardrail can resolve a factual proposal's citations against
+   * exactly what the agent was given. A routed source without a locator is excluded
+   * (a citation must always resolve to a pointer).
+   */
+  citableSources: CitableSource[]
 }
 
 export type RetrieveScope = {
@@ -247,6 +256,18 @@ export class ContextResolverImpl implements ContextResolver {
             : JSON.stringify(candidate.hit.record),
       }))
 
+    // Derive the citable sources (grounding cite target) from the routed set:
+    // every routed source with a locator, carrying its score (a routed entity read
+    // has a certain score of 1; retrieval/document carry their ranked score).
+    const citableSources: CitableSource[] = packed.routedSources
+      .filter((source) => typeof source.locator === 'string' && source.locator.length > 0)
+      .map((source) => ({
+        sourceKind: source.kind,
+        sourceRef: source.ref,
+        locator: source.locator as string,
+        score: typeof source.score === 'number' ? source.score : 1,
+      }))
+
     // Validate the jsonb shapes at the Zod boundary before persisting.
     const routedSources = contextBundleRoutedSourcesSchema.parse(packed.routedSources)
     const prunedSources = contextBundlePrunedSourcesSchema.parse(packed.prunedSources)
@@ -275,7 +296,7 @@ export class ContextResolverImpl implements ContextResolver {
     em.persist(bundle)
     await em.flush()
 
-    return { bundle, payloadRef: bundle.payloadRef ?? null, untrustedSpans }
+    return { bundle, payloadRef: bundle.payloadRef ?? null, untrustedSpans, citableSources }
   }
 
   /**

@@ -38,6 +38,10 @@ export {
   guardrailCheckSchema,
   guardrailEvidenceSchema,
   guardResultsSchema,
+  guardrailSetBodySchema,
+  groundingClaimSchema,
+  groundingCitationSchema,
+  citableSourceSchema,
 } from './data/validators'
 export type {
   ProposedAction,
@@ -54,11 +58,25 @@ export type {
   GuardrailPhaseInput,
   GuardrailKindInput,
   GuardrailResultInput,
+  GuardrailSetBody,
+  GroundingClaim,
+  GroundingCitation,
+  CitableSource,
 } from './data/validators'
 
 // Runtime guardrails (Phase 1) — service + constant for cross-module consumers.
 export { GuardrailService, GUARDRAIL_SET_VERSION } from './lib/guardrails/guardrailService'
 export type { CheckOutputArgs, CheckInputArgs } from './lib/guardrails/guardrailService'
+
+// Runtime guardrails (Phase 4) — grounding sets + cite-or-abstain check.
+export {
+  registerGroundingSet,
+  resolveGroundingSet,
+  listGroundingSets,
+  guardrailSetVersionFor,
+} from './lib/guardrails/groundingSets'
+export { checkGrounding, evaluateGrounding } from './lib/guardrails/grounding'
+export { syncGroundingSets, resolveCurrentGroundingSet } from './lib/guardrails/syncGroundingSets'
 
 // Context overlay (Phase 1) — TDCR resolver + registry + provenance schemas for
 // trace ("context assembled" panel), guardrails grounding, and compliance lineage.

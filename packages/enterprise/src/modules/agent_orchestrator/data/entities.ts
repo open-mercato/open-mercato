@@ -690,6 +690,48 @@ export class AgentGuardrailCheck {
   createdAt: Date = new Date()
 }
 
+/**
+ * A versioned guardrail SET for one capability (Wave 3, Phase 4 — grounding).
+ * Append-only by version (omits `updated_at`/`deleted_at`): each row pins a
+ * capability's policy body under a CONTENT-HASH `version`. The grounding sync
+ * (setup.ts `seedDefaults`) upserts one row per `(organizationId, capability,
+ * version)` — re-syncing an unchanged body is a no-op (idempotent), and editing
+ * the body produces a new content-hash → a new append-only version. The
+ * `guardrailSetVersion` recorded on every grounding `AgentGuardrailCheck` is this
+ * `version`, so a verdict is replayable against the exact policy that produced it.
+ * Other modules referenced by FK id only.
+ */
+@Entity({ tableName: 'agent_guardrail_sets' })
+@Index({ name: 'agent_guardrail_sets_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_guardrail_sets_capability_idx', properties: ['organizationId', 'capability'] })
+@Unique({ name: 'agent_guardrail_sets_version_uq', properties: ['organizationId', 'capability', 'version'] })
+export class AgentGuardrailSet {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'capability', type: 'varchar', length: 100 })
+  capability!: string
+
+  /** Content-hash of the canonical set body — the durable version key. */
+  @Property({ name: 'version', type: 'varchar', length: 64 })
+  version!: string
+
+  /** The grounding policy body. Shape enforced by Zod in data/validators.ts. */
+  @Property({ name: 'body', type: 'jsonb' })
+  body!: unknown
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
 export type AgentProposalDisposition =
   | 'pending' | 'auto_approved' | 'approved' | 'edited' | 'rejected'
 

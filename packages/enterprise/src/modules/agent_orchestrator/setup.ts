@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { seedAgentOrchestratorExamples } from './lib/seeds'
 import { seedDefaultEvalAssertions } from './lib/eval/defaultAssertions'
+import { syncGroundingSets } from './lib/guardrails/syncGroundingSets'
 import { AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE } from './lib/queue'
 
 /** Mirrors the @open-mercato/scheduler ScheduleRegistration field names. */
@@ -100,6 +101,15 @@ export const setup: ModuleSetupConfig = {
   // of the box. Idempotent — re-running creates nothing new.
   seedDefaults: async (ctx) => {
     await seedDefaultEvalAssertions(ctx.em, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
+
+    // Wave 3, Phase 4: sync the per-capability grounding guardrail SETS to
+    // `agent_guardrail_sets`, content-hash idempotent (re-run with no body change
+    // writes nothing; editing a body produces a new append-only version). The
+    // synced `version` is recorded on every grounding AgentGuardrailCheck.
+    await syncGroundingSets(ctx.em, {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
     })

@@ -12,6 +12,7 @@ import {
   AgentEvalResult,
   AgentMetricRollup,
   AgentGuardrailCheck,
+  AgentGuardrailSet,
   AgentContextBundle,
 } from './data/entities'
 import { AgentRuntimeService } from './lib/runtime/agentRuntime'
@@ -36,6 +37,7 @@ export function register(container: AppContainer) {
     AgentEvalResult: asValue(AgentEvalResult),
     AgentMetricRollup: asValue(AgentMetricRollup),
     AgentGuardrailCheck: asValue(AgentGuardrailCheck),
+    AgentGuardrailSet: asValue(AgentGuardrailSet),
     AgentContextBundle: asValue(AgentContextBundle),
     // CLASSIC injection mode resolves deps by parameter name — destructure the
     // real dependency names (not a `cradle` param) and use .proxy() so the
