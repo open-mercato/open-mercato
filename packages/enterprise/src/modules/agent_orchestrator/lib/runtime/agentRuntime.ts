@@ -4,7 +4,7 @@ import { runAiAgentObject } from '@open-mercato/ai-assistant/modules/ai_assistan
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { getAgentEntry, ensureAgentsLoaded, type AgentRegistryEntry } from '../sdk/defineAgent'
-import { type AgentResult, type GuardResults, type GuardrailKindInput, type GuardrailPhaseInput } from '../../data/validators'
+import { type AgentResult, type GuardResults, type GuardrailKindInput, type GuardrailPhaseInput, type UntrustedSpan } from '../../data/validators'
 import { GuardrailService, persistVerdict, GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
 import { resolveContextModule } from '../context/registry'
@@ -144,11 +144,12 @@ export class AgentRuntimeService {
     // capabilities that declare a ContextModule get a bundle; the rest are a safe
     // no-op so existing toolless agents are unaffected. Best-effort: an assembly
     // failure must not abort the run (the bundle is evidence, not a gate in P1).
+    let untrustedSpans: UntrustedSpan[] = []
     if (resolveContextModule(agentId)) {
       try {
         const contextEm = (this.container.resolve('em') as EntityManager).fork()
         const resolver = new ContextResolverImpl(this.container)
-        await resolver.assemble(contextEm, {
+        const assembled = await resolver.assemble(contextEm, {
           tenantId: ctx.tenantId,
           organizationId: ctx.organizationId,
           agentRunId: runId,
@@ -157,6 +158,7 @@ export class AgentRuntimeService {
           capability: agentId,
           budget: DEFAULT_CONTEXT_TOKEN_BUDGET,
         })
+        untrustedSpans = assembled.untrustedSpans
       } catch (contextErr) {
         if (!(contextErr instanceof ContextModuleNotFoundError)) {
           console.warn(
@@ -164,6 +166,34 @@ export class AgentRuntimeService {
             contextErr instanceof Error ? contextErr.message : contextErr,
           )
         }
+      }
+    }
+
+    // PRE-CALL input guardrail (Wave 3, Phase 3): screen the UNTRUSTED
+    // document/retrieval spans assembled above for injected-instruction patterns
+    // BEFORE the model call. A `block` persists the prompt_injection check + emits
+    // `guardrail.tripped`, then fails the step with a typed reason (never reaches
+    // disposition); a `warn`/`pass` records the audit rows and proceeds. The
+    // always-on output tool-scope backstop holds even if this layer is evaded.
+    const inputGuardrail = new GuardrailService(this.container)
+    const inputVerdict = await inputGuardrail.checkInput({ capability: agentId, untrustedSpans })
+    if (inputVerdict.checks.length > 0) {
+      const inputGuardEm = (this.container.resolve('em') as EntityManager).fork()
+      const inputScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId, agentRunId: runId }
+      await persistVerdict({ em: inputGuardEm }, inputScope, {
+        verdict: inputVerdict,
+        capability: agentId,
+        phase: 'input',
+        proposalId: null,
+      })
+      if (inputVerdict.result === 'block' && inputVerdict.blockedReason) {
+        const detail = '[internal] pre-call guardrail block (prompt_injection)'
+        await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
+        throw new AgentGuardrailBlockedError(agentId, detail, {
+          phase: inputVerdict.blockedReason.phase,
+          kind: inputVerdict.blockedReason.kind,
+          guardrailSetVersion: GUARDRAIL_SET_VERSION,
+        })
       }
     }
 

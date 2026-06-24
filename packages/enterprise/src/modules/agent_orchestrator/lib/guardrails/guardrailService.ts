@@ -7,8 +7,16 @@ import {
   type GuardrailVerdict,
   type GuardrailCheck,
   type GuardrailEvidence,
+  type UntrustedSpan,
+  type AttemptedTool,
 } from '../../data/validators'
 import { emitAgentOrchestratorEvent } from '../../events'
+import {
+  detectSpanInjection,
+  injectionEvidence,
+  scoreToResult,
+  type InjectionRiskResult,
+} from './promptInjection'
 
 /**
  * The versioned guardrail set that produced a verdict. Phase 1 stamps a constant
@@ -32,17 +40,31 @@ export type CheckOutputArgs = {
   output: unknown
   /**
    * The agent's effective read-only tool allowlist (the `ai_assistant` allowedTools
-   * concept). Object-mode proposals carry NO tool calls, so the tool-scope check is
-   * a structural backstop that always passes in Phase 1; the allowlist is threaded
-   * so the same mechanism is reused, not a second policy engine.
+   * concept, threaded by the runtime). The tool-scope check reuses THIS allowlist
+   * rather than building a second policy engine. Object-mode proposals carry no
+   * tool calls, so when `attemptedTools` is empty the check is a structural pass;
+   * when a tool/action IS attempted it is the HARD backstop ("LLM proposes, OM
+   * disposes") — an attempt outside this allowlist `block`s regardless of how it
+   * was elicited (untrusted document text can NEVER authorize a tool call).
    */
   allowedTools?: string[]
+  /**
+   * Tool/action attempts surfaced by the runtime for the tool-scope backstop. Empty
+   * for pure object-mode proposals (structural pass). The agent's mutation policy is
+   * `read-only` (propose-only), so any `isMutation` attempt blocks even if it is on
+   * the read allowlist.
+   */
+  attemptedTools?: AttemptedTool[]
 }
 
 export type CheckInputArgs = {
   capability: string
-  /** The assembled context to screen (pre-call). */
-  context?: unknown
+  /**
+   * The UNTRUSTED `document`/`retrieval` spans assembled by the Wave-2
+   * ContextResolver. Screened in-memory for injected-instruction patterns; the raw
+   * text NEVER reaches evidence. Trusted `entity` spans are not passed here.
+   */
+  untrustedSpans?: UntrustedSpan[]
 }
 
 /**
@@ -74,14 +96,42 @@ export class GuardrailService {
   constructor(private readonly container: AwilixContainer) {}
 
   /**
-   * Phase 1 input gate is a pass-through stub: pre-call moderation/PII screening
-   * lands in Phase 2. Returns a `pass` verdict with no checks so callers may wire
-   * the hook now without changing behavior.
+   * PRE-CALL input gate (Wave 3, Phase 3): screen the UNTRUSTED `document`/
+   * `retrieval` spans for injected-instruction patterns via the deterministic
+   * detector (GAP-08 layer 2). Each flagged span raises a risk score; the worst
+   * score across spans maps to a single `prompt_injection` check (`block`/`warn`).
+   * No untrusted spans → a `pass` verdict with no checks (toolless / entity-only
+   * runs are unaffected). Deterministic; no model calls (the escalated model judge,
+   * GAP-08 layer 3, is dark-launched behind a flag and not wired here).
+   *
+   * Evidence is POINTERS ONLY — provenance locators + matched rule ids, never raw
+   * span text. (Phase 2 moderation/PII screening composes here later as additional
+   * `kind:'moderation'`/`kind:'pii'` checks behind the same gate.)
    */
-  // Phase 2: moderation/PII — screen the assembled context here behind the
-  // provider-agnostic moderation DI seam and emit `kind:'moderation'` checks.
-  async checkInput(_args: CheckInputArgs): Promise<GuardrailVerdict> {
-    return guardrailVerdictSchema.parse({ result: 'pass', checks: [] })
+  async checkInput(args: CheckInputArgs): Promise<GuardrailVerdict> {
+    const spans = args.untrustedSpans ?? []
+    const checks: GuardrailCheck[] = []
+
+    if (spans.length > 0) {
+      const verdicts = spans.map((span) => detectSpanInjection(span))
+      const worstScore = verdicts.reduce((max, verdict) => Math.max(max, verdict.score), 0)
+      const result: InjectionRiskResult = scoreToResult(worstScore)
+      const check: GuardrailCheck = {
+        kind: 'prompt_injection',
+        result,
+        guardrailSetVersion: GUARDRAIL_SET_VERSION,
+        ...(result !== 'pass' ? { evidence: injectionEvidence(verdicts) } : {}),
+      }
+      checks.push(check)
+    }
+
+    const result = worstResult(checks)
+    const blockedCheck = checks.find((check) => check.result === 'block')
+    return guardrailVerdictSchema.parse({
+      result,
+      checks,
+      ...(blockedCheck ? { blockedReason: { phase: 'input', kind: blockedCheck.kind } } : {}),
+    })
   }
 
   /**
@@ -103,12 +153,16 @@ export class GuardrailService {
       checks.push({ kind: 'schema', result: 'block', guardrailSetVersion: GUARDRAIL_SET_VERSION, evidence })
     }
 
-    // 2. Tool-scope backstop: object-mode proposals carry no tool calls, so this
-    //    is structurally a pass. We reuse the `ai_assistant` allowedTools concept
-    //    (threaded by the runtime) rather than building a second policy engine —
-    //    a future read-only tool-loop / external runtime would surface a
-    //    violation here. Documented pass-backstop for Phase 1.
-    checks.push({ kind: 'tool_scope', result: 'pass', guardrailSetVersion: GUARDRAIL_SET_VERSION })
+    // 2. Tool-scope HARD backstop (Wave 3, Phase 3): reuse the `ai_assistant`
+    //    allowedTools allowlist + the read-only mutation policy rather than a second
+    //    policy engine. Object-mode proposals carry no tool calls, so with no
+    //    attempted tools this is a structural pass. When the runtime DOES surface a
+    //    tool/action attempt, ANY attempt outside the allowlist — or any mutation
+    //    attempt at all under the propose-only `read-only` policy — `block`s
+    //    regardless of how it was elicited. This is the layer that holds even if the
+    //    injection detector is fully evaded: untrusted document text can never reach
+    //    a raw-write tool ("LLM proposes, OM disposes").
+    checks.push(this.checkToolScope(args.attemptedTools ?? [], args.allowedTools ?? []))
 
     const result = worstResult(checks)
     const blockedCheck = checks.find((check) => check.result === 'block')
@@ -117,6 +171,32 @@ export class GuardrailService {
       checks,
       ...(blockedCheck ? { blockedReason: { phase: 'output', kind: blockedCheck.kind } } : {}),
     })
+  }
+
+  /**
+   * Tool-scope backstop check. Deterministic; reuses the `ai_assistant` allowlist
+   * (read-only tools the agent may call) under the propose-only `read-only`
+   * mutation policy. A `block` is produced when ANY attempted tool is either not on
+   * the allowlist or is a mutation tool (which the `read-only` policy forbids
+   * outright). Evidence names the offending tool id only (an allowlist key, never
+   * untrusted data). No attempts → structural `pass`.
+   */
+  private checkToolScope(attempted: AttemptedTool[], allowedTools: string[]): GuardrailCheck {
+    const allowed = new Set(allowedTools)
+    const offending = attempted.find(
+      (tool) => tool.isMutation === true || !allowed.has(tool.name),
+    )
+    if (!offending) {
+      return { kind: 'tool_scope', result: 'pass', guardrailSetVersion: GUARDRAIL_SET_VERSION }
+    }
+    const reason = offending.isMutation
+      ? 'mutation tool blocked by read-only policy'
+      : 'tool not on capability allowlist'
+    const evidence: GuardrailEvidence = {
+      detail: `tool_scope: ${reason}`,
+      tool: offending.name,
+    }
+    return { kind: 'tool_scope', result: 'block', guardrailSetVersion: GUARDRAIL_SET_VERSION, evidence }
   }
 }
 
