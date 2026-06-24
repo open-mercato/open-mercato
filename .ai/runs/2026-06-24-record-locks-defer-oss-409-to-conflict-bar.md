@@ -62,9 +62,9 @@ blast radius, same behavior.
 
 ### Phase 1: Implement fix + tests
 
-- [ ] 1.1 Add `lib/optimisticLockFloor.ts` (`isOptimisticLockFloorConflict`, `classifyUnmatchedSaveError`)
-- [ ] 1.2 Gate the widget's no-payload-409 fallback-dialog branch via `classifyUnmatchedSaveError`
-- [ ] 1.3 Add `__tests__/optimisticLockFloor.test.ts` (predicate + classifier guard, incl. #3504 defer case)
+- [x] 1.1 Add `lib/optimisticLockFloor.ts` (`isOptimisticLockFloorConflict`, `classifyUnmatchedSaveError`) — ad5212870
+- [x] 1.2 Gate the widget's no-payload-409 fallback-dialog branch via `classifyUnmatchedSaveError` — ad5212870
+- [x] 1.3 Add `__tests__/optimisticLockFloor.test.ts` (predicate + classifier guard, incl. #3504 defer case) — ad5212870 (10 cases; record_locks suite 12/72 green)
 
 ### Phase 2: Validate + ship
 
