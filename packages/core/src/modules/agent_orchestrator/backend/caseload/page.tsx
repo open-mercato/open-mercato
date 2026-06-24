@@ -11,6 +11,7 @@ import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primiti
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { mapProposal, formatConfidence, type ProposalView } from '../../components/types'
 import { verbAccentClass } from '../../components/cockpitStatus'
@@ -64,6 +65,12 @@ export default function AgentCaseloadPage() {
       cancelled = true
     }
   }, [segment, reloadToken, t])
+
+  // Live-refresh when a proposal is created, disposed, or becomes ready
+  // (DOM Event Bridge, tenant/org-scoped server-side).
+  useAppEvent('agent_orchestrator.proposal.*', () => {
+    setReloadToken((token) => token + 1)
+  })
 
   const decideRows = React.useMemo(
     () =>
