@@ -73,6 +73,10 @@ flash consistently (current behavior — a pre-existing body-vs-query `?id=` del
 ### Phase 3: Validation + PR
 
 - [x] 3.1 Validation: `playwright --list` compiles all 3 tests; `tsc -p packages/core` reports 0 errors in the new specs (199 pre-existing `#generated` TS2307 errors are env-only, no `yarn generate` in this fresh worktree). Full `yarn test`/`build:app` gate runs in CI — `yarn test` is unit-only and does not execute these `__integration__` Playwright specs (they run via `yarn test:integration` against an ephemeral env).
-- [ ] 3.2 Code-review + BC self-review
-- [ ] 3.3 Open PR against develop, normalize labels
-- [ ] 3.4 Run om-auto-review-pr and apply fixes
+- [x] 3.2 Code-review + BC self-review — additive test-only files; no contract surface touched
+- [x] 3.3 Opened PR #3567 against develop; labels review, skip-qa, priority-low, risk-low
+- [x] 3.4 Independent adversarial review pass — 0 actional defects (all selectors/assertions/payloads verified against source); no fixes required
+
+## Changelog
+
+- 2026-06-24 — PR #3567 opened. Adversarial review returned clean (no actionable findings). Status: complete.
