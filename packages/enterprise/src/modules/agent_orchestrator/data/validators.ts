@@ -336,6 +336,18 @@ export const guardrailEvidenceSchema = z
     detail: z.string().optional(),
     /** storage-s3 keys / offsets into the encrypted artifact store. */
     pointers: z.array(z.string()).optional(),
+    /**
+     * Prompt-injection detector rule ids that fired (redaction-safe — the rule id,
+     * never the matched text). See `lib/guardrails/promptInjection.ts`.
+     */
+    rules: z.array(z.string()).optional(),
+    /** Count of untrusted spans flagged (a number, never the span content). */
+    flaggedSpans: z.number().int().nonnegative().optional(),
+    /**
+     * The tool/action that triggered a tool-scope `block` (the tool id, which is a
+     * configured allowlist key — not user/untrusted data).
+     */
+    tool: z.string().optional(),
   })
   .passthrough()
 export type GuardrailEvidence = z.infer<typeof guardrailEvidenceSchema>
@@ -365,6 +377,37 @@ export type GuardrailVerdict = z.infer<typeof guardrailVerdictSchema>
 /** The `guardResults` jsonb attached to an AgentProposal (the verdict's checks). */
 export const guardResultsSchema = z.array(guardrailCheckSchema)
 export type GuardResults = z.infer<typeof guardResultsSchema>
+
+/**
+ * One UNTRUSTED span screened by the pre-call prompt-injection check (Wave 3,
+ * Phase 3). `text` is attacker-controllable document/retrieval content — the
+ * detector reads it but it is NEVER persisted to evidence (only the provenance
+ * locator + matched rule ids are). Mirrors the `document`/`retrieval` sources the
+ * Wave-2 ContextResolver assembles.
+ */
+export const untrustedSpanSchema = z.object({
+  sourceKind: z.enum(['document', 'retrieval']),
+  /** Source attachment id / retrieval ref — a pointer, never the content. */
+  sourceRef: z.string().min(1),
+  /** `page:N[#bbox]` (document) or the retrieval locator — a pointer into the artifact. */
+  locator: z.string().min(1),
+  /** The raw untrusted text. Screened in-memory; never written to evidence. */
+  text: z.string(),
+})
+export type UntrustedSpan = z.infer<typeof untrustedSpanSchema>
+
+/**
+ * A tool/action the model attempted (output phase tool-scope backstop). Untrusted
+ * document text must NEVER authorize a tool call — the tool-scope check rejects any
+ * attempt outside the per-capability `ai_assistant` allowlist regardless of how it
+ * was elicited. `isMutation` reflects the tool's registered mutation flag (a
+ * read-only agent under `read-only` policy may invoke NO mutation tool).
+ */
+export const attemptedToolSchema = z.object({
+  name: z.string().min(1),
+  isMutation: z.boolean().optional(),
+})
+export type AttemptedTool = z.infer<typeof attemptedToolSchema>
 
 /** Query schema for GET /guardrail-checks (list + ?id= detail). */
 export const guardrailCheckListQuerySchema = z
