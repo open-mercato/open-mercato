@@ -31,6 +31,7 @@ import {
   type RecordLockUiConflict,
   type RecordLockUiView,
 } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
+import { isOssOptimisticLockConflict } from '@open-mercato/enterprise/modules/record_locks/lib/conflictSurface'
 
 type CrudInjectionContext = {
   formId?: string
@@ -1049,7 +1050,13 @@ export default function RecordLockingWidget({
           })
           return
         }
-        if (extractErrorStatus(detail.error) === 409) {
+        // Defer to the shared OSS conflict bar for optimistic-lock 409s: the
+        // merge dialog cannot resolve them and rendering both surfaces at once
+        // violates the single-surface invariant (issue #3504 / S3).
+        if (
+          extractErrorStatus(detail.error) === 409
+          && !isOssOptimisticLockConflict(detail.error)
+        ) {
           applyConflictPayload(buildFallbackConflict(currentState))
         }
         return
