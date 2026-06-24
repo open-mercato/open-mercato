@@ -4,8 +4,9 @@ import { runAiAgentObject } from '@open-mercato/ai-assistant/modules/ai_assistan
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { getAgentEntry, ensureAgentsLoaded, type AgentRegistryEntry } from '../sdk/defineAgent'
-import { type AgentResult, type GuardResults, type GuardrailKindInput, type GuardrailPhaseInput, type UntrustedSpan } from '../../data/validators'
+import { type AgentResult, type CitableSource, type GuardResults, type GuardrailKindInput, type GuardrailPhaseInput, type GuardrailSetBody, type UntrustedSpan } from '../../data/validators'
 import { GuardrailService, persistVerdict, GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
+import { resolveCurrentGroundingSet } from '../guardrails/syncGroundingSets'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
 import { resolveContextModule } from '../context/registry'
 import { OpenCodeAgentRunner } from './openCodeAgentRunner'
@@ -145,6 +146,7 @@ export class AgentRuntimeService {
     // no-op so existing toolless agents are unaffected. Best-effort: an assembly
     // failure must not abort the run (the bundle is evidence, not a gate in P1).
     let untrustedSpans: UntrustedSpan[] = []
+    let citableSources: CitableSource[] = []
     if (resolveContextModule(agentId)) {
       try {
         const contextEm = (this.container.resolve('em') as EntityManager).fork()
@@ -159,6 +161,7 @@ export class AgentRuntimeService {
           budget: DEFAULT_CONTEXT_TOKEN_BUDGET,
         })
         untrustedSpans = assembled.untrustedSpans
+        citableSources = assembled.citableSources
       } catch (contextErr) {
         if (!(contextErr instanceof ContextModuleNotFoundError)) {
           console.warn(
@@ -243,12 +246,42 @@ export class AgentRuntimeService {
     // contract IS the agent's declared outcome schema; the capability IS the
     // agentId. Schema-validity and a tool-scope backstop are recorded as
     // append-only AgentGuardrailCheck rows for full audit BEFORE the run can fail.
+    // Resolve the capability's CURRENT grounding set (Wave 3, Phase 4). Present
+    // only for capabilities declared factual + synced (setup.ts) — non-factual
+    // capabilities resolve null and the grounding gate is skipped entirely. Read
+    // through a forked EM, scoped by org; a resolution failure must not abort the
+    // run (the other output checks still run), so it is best-effort.
+    let grounding:
+      | { set: GuardrailSetBody; groundingSetVersion: string; citableSources: CitableSource[] }
+      | undefined
+    try {
+      const groundingEm = (this.container.resolve('em') as EntityManager).fork()
+      const groundingSet = await resolveCurrentGroundingSet(
+        groundingEm,
+        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        agentId,
+      )
+      if (groundingSet) {
+        grounding = {
+          set: groundingSet.body as GuardrailSetBody,
+          groundingSetVersion: groundingSet.version,
+          citableSources,
+        }
+      }
+    } catch (groundingErr) {
+      console.warn(
+        '[internal] agent_orchestrator: grounding set resolution failed',
+        groundingErr instanceof Error ? groundingErr.message : groundingErr,
+      )
+    }
+
     const guardrailService = new GuardrailService(this.container)
     const verdict = await guardrailService.checkOutput({
       capability: agentId,
       schema: entry.schema,
       output: rawObject,
       allowedTools: entry.tools,
+      grounding,
     })
     const guardEm = (this.container.resolve('em') as EntityManager).fork()
     const guardScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId, agentRunId: runId }
