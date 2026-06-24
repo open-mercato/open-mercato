@@ -74,6 +74,14 @@ export async function createRun(
     input: unknown
     /** Nested sub-agent run trace (Phase 4); omit/null for top-level runs. */
     parentRunId?: string | null
+    /**
+     * Runtime that produced this run + its runtime-native run id — the
+     * trace-ingestion idempotency key `(runtime, externalRunId)`. Stamped at
+     * creation so a later trace POST upserts THIS row. Optional/nullable: the
+     * in-process path has no external session id, so it stamps `runtime` only.
+     */
+    runtime?: string | null
+    externalRunId?: string | null
   },
 ): Promise<string> {
   const { result } = await commandBus.execute<typeof input, { runId: string }>(
