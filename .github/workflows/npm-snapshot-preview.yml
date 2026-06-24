@@ -1,34 +1,38 @@
-name: Develop Snapshot Release
+name: NPM Snapshot Preview
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 on:
-  push:
-    branches: [develop]
+  pull_request:
+    types: [labeled]
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: read
 
-# Serialize snapshot runs per branch — queue rather than cancel.
-# cancel-in-progress: false is intentional: cancelling mid-publish would
-# leave some packages at the new version and others at the previous one,
-# making the npm registry inconsistent. Queuing is the safe behaviour.
+# Serialize npm snapshot preview runs per PR. Cancelling mid-publish can leave
+# the registry with only part of the lockstep package set published.
 concurrency:
-  group: snapshot-${{ github.ref }}
+  group: npm-snapshot-preview-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
   snapshot:
-    name: Publish Snapshot
+    name: Publish NPM Snapshot Preview
     permissions:
       contents: read
+      issues: write
+      pull-requests: read
       id-token: write  # required for npm provenance attestation
     outputs:
       snapshot_version: ${{ steps.release.outputs.version }}
       publish_tag: ${{ steps.channel.outputs.publish_tag }}
       packages_json: ${{ steps.release.outputs.packages_json }}
     runs-on: ubuntu-latest
+    # Requires npm credentials, so only trusted same-repository PR branches can run it.
+    if: github.event.label.name == 'publish-npm-snapshot' && github.event.pull_request.head.repo.full_name == github.repository
     env:
       YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -41,7 +45,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          node-version: 'lts/*'
 
       - name: Enable Corepack
         run: corepack enable
@@ -75,11 +79,9 @@ jobs:
             --channel "${{ steps.channel.outputs.channel }}" \
             --tag "${{ steps.channel.outputs.publish_tag }}"
 
-          # Extract published version for downstream jobs
           VERSION=$(jq -r '.version' packages/shared/package.json)
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
-          # Build packages list for PR comment
           PACKAGES_JSON=$(find packages -name package.json -not -path "*/node_modules/*" -exec cat {} \; | \
             jq -s --arg version "$VERSION" \
               '[.[] | select(.private != true and .version == $version) | {name: .name, version: .version}]')
@@ -99,32 +101,16 @@ jobs:
           EOF
 
           {
-            echo "## Snapshot Release"
+            echo "## NPM Snapshot Preview"
             echo ""
             echo "- Release kind: \`${{ steps.channel.outputs.release_kind }}\`"
             echo "- Dist-tag: \`${{ steps.channel.outputs.publish_tag }}\`"
             echo "- Exact snapshot version: \`${{ steps.release.outputs.version }}\`"
-
-            if [ -n "${{ steps.channel.outputs.moving_install_target }}" ]; then
-              echo "- Moving install target: \`${{ steps.channel.outputs.moving_install_target }}\`"
-            fi
-
             echo ""
             echo "| Package | Version |"
             echo "|---------|---------|"
             jq -r '.[] | "| `\(.name)` | `\(.version)` |"' /tmp/packages.json
             echo ""
-
-            if [ -n "${{ steps.channel.outputs.moving_install_target }}" ]; then
-              echo "### Moving Develop Channel"
-              echo ""
-              echo '```bash'
-              echo 'yarn add @open-mercato/core@develop'
-              echo 'npx create-mercato-app@develop my-app'
-              echo '```'
-              echo ""
-            fi
-
             echo "### Exact Snapshot"
             echo ""
             echo '```bash'
@@ -132,6 +118,60 @@ jobs:
             echo "npx create-mercato-app@${{ steps.release.outputs.version }} my-app"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on PR
+        if: steps.release.outputs.package_count != '0'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const packages = ${{ steps.release.outputs.packages_json }};
+            const marker = '<!-- npm-snapshot-preview-comment -->';
+
+            let table = '| Package | Version |\n|---------|---------|';
+            for (const pkg of packages) {
+              table += `\n| \`${pkg.name}\` | \`${pkg.version}\` |`;
+            }
+
+            const createAppPkg = packages.find(p => p.name === 'create-mercato-app');
+            const createAppVersion = createAppPkg?.version || 'VERSION';
+
+            const body = `${marker}
+            ## NPM Snapshot Preview Published
+
+            The following packages have been published to npm under the \`${{ steps.channel.outputs.publish_tag }}\` dist-tag:
+
+            ${table}
+
+            ### Create a new app
+
+            \`\`\`bash
+            npx create-mercato-app@${createAppVersion} my-app
+            \`\`\`
+            `;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
 
   standalone-integration:
     name: Standalone App Integration Tests
@@ -154,14 +194,13 @@ jobs:
           --health-retries 5
 
     steps:
-      # --- Monorepo setup (for test infrastructure) ---
       - name: Checkout monorepo
         uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          node-version: 'lts/*'
 
       - name: Enable Corepack
         run: corepack enable
@@ -175,7 +214,6 @@ jobs:
           yarn generate
           yarn build:packages
 
-      # --- Wait for npm propagation ---
       - name: Wait for npm registry propagation
         run: |
           VERSION="${{ needs.snapshot.outputs.snapshot_version }}"
@@ -203,7 +241,6 @@ jobs:
             fi
           done
 
-      # --- Scaffold & build standalone app ---
       - name: Scaffold standalone app
         run: npx "create-mercato-app@${{ needs.snapshot.outputs.snapshot_version }}" /tmp/standalone-app --skip-agentic-setup --registry https://registry.npmjs.org
 
@@ -241,11 +278,6 @@ jobs:
 
       - name: Install standalone app dependencies
         working-directory: /tmp/standalone-app
-        # The scaffolded app ships an empty yarn.lock.template; `yarn install`
-        # must resolve ~1.6k deps fresh. Yarn 4.12 auto-enables hardened mode
-        # on pull_request workflows, which forces immutable installs and fails
-        # with YN0028. Disable both for this scaffolded-app install only — the
-        # monorepo install above still runs with --immutable.
         env:
           YARN_ENABLE_HARDENED_MODE: '0'
           YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
@@ -268,8 +300,6 @@ jobs:
 
       - name: Build standalone app
         working-directory: /tmp/standalone-app
-        env:
-          NODE_OPTIONS: --max-old-space-size=8192
         run: yarn build
 
       - name: Start standalone app
@@ -292,7 +322,6 @@ jobs:
           tail -n 200 /tmp/standalone-app.log || true
           exit 1
 
-      # --- Run integration tests ---
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
 

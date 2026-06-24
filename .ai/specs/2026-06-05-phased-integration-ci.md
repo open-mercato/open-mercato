@@ -19,7 +19,7 @@ The model:
 | `extended` | Non-fork PR with `extended-integration` label, or manual workflow input | Baseline plus tagged expensive suites: undo, broad CrudForm, optimistic-lock matrix, custom-field matrix, queue/realtime, long request suites | Only when requested or required by policy |
 | `full` | Push to `develop`/`main`, shared-path PRs, and every PR targeting `main` | All monorepo integration specs, sharded, with coverage | Yes for release PRs and protected branch pushes |
 | `standalone-sentinel` | Standalone-impact paths or `extended-integration` label on a non-fork PR | Minimal create-app installed-package smoke coverage | Required for standalone-impact PRs |
-| `standalone-full` | Snapshot/develop/release pipeline and every release PR to `main` | Full standalone app integration against published/snapshot packages | Yes before release |
+| `standalone-full` | Develop snapshot/release pipeline, every release PR to `main`, and PRs explicitly labeled `publish-npm-snapshot` | Full standalone app integration against published/snapshot packages | Yes before release and opt-in npm snapshot previews |
 
 The critical safety rule: unknown paths, unknown metadata, fork restrictions, or manifest mismatches always fall back to current/full behavior. This spec extends the implemented CI performance work in [`.ai/specs/implemented/2026-04-10-ci-cd-performance.md`](implemented/2026-04-10-ci-cd-performance.md) and the label workflow in [`.ai/specs/implemented/2026-04-13-pr-label-workflow.md`](implemented/2026-04-13-pr-label-workflow.md).
 
@@ -44,7 +44,7 @@ Running all of these on every affected PR defeats the purpose of affected select
 
 1. **Do not challenge current developer habits.** Opening a PR and pushing commits must keep working. Developers should not need to learn a new command or remember a new label for normal PRs.
 2. **Release PRs to `main` must run all suites automatically.** A release branch cannot rely on a human remembering to add `extended-integration`.
-3. **Fork PRs must remain safe.** Do not run privileged snapshot/standalone publishing or non-fork-only paths for untrusted forks. If full release evidence is needed for a fork-originated change, a maintainer must replay it from a trusted branch.
+3. **Fork PRs must remain safe.** Do not run privileged npm snapshot/standalone publishing or non-fork-only paths for untrusted forks. If full release evidence is needed for a fork-originated change, a maintainer must replay it from a trusted branch.
 4. **Fail closed.** If a path classifier, metadata parser, label expression, or prebuilt manifest cannot decide safely, run the broader phase.
 5. **No silent coverage drops.** Existing specs with no phase metadata continue to run in `baseline` until intentionally reclassified.
 6. **Standalone parity remains protected.** The cheap sentinel can speed PRs, but `standalone-full` remains required before release.
@@ -156,7 +156,7 @@ Standalone coverage gets two lanes:
 | Lane | Trigger | Scope |
 |---|---|---|
 | `standalone-sentinel` | non-fork PR touching standalone-impact paths, or `extended-integration` label with standalone-impact paths | create-app scaffold/install/generate/initialize/login, one CRUD API, one backend UI load, queue helper path, enterprise-enabled module check |
-| `standalone-full` | snapshot/develop pipeline and every release PR to `main` | current full standalone integration, ideally using published snapshot package versions |
+| `standalone-full` | develop snapshot pipeline, every release PR to `main`, and PRs explicitly labeled `publish-npm-snapshot` | current full standalone integration, ideally using published snapshot package versions |
 
 Standalone-impact paths:
 
@@ -171,7 +171,7 @@ Standalone-impact paths:
 Fork rule:
 
 - Fork PRs may run baseline monorepo integration.
-- Fork PRs do not run privileged snapshot publishing or trusted standalone flows.
+- Fork PRs do not run privileged npm snapshot publishing or trusted standalone flows.
 - If a fork PR targets `main` or changes standalone-impact paths, merging requires a maintainer replay from a trusted branch with full evidence.
 
 ---
