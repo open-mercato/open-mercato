@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Download, Filter } from 'lucide-react'
+import { Download, Filter, Bot, ShieldCheck, Pencil, Wallet } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -197,7 +197,7 @@ export default function AgentsRegistryPage() {
           <div className="flex items-center gap-2">
             <span className="w-9 text-sm tabular-nums">{pct}%</span>
             <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
-              <div className="h-full rounded-full bg-foreground/60" style={{ width: `${Math.min(100, (pct / 40) * 100)}%` }} />
+              <div className="h-full rounded-full bg-brand-violet" style={{ width: `${Math.min(100, (pct / 40) * 100)}%` }} />
             </div>
           </div>
         )
@@ -271,13 +271,13 @@ export default function AgentsRegistryPage() {
         </div>
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard label={t('agent_orchestrator.agents.kpi.active', 'Active agents')} sub={t('agent_orchestrator.agents.kpi.activeSub', '{gated} gated, {review} review', { gated: gatedCount, review: reviewCount })}>
+          <StatCard icon={Bot} label={t('agent_orchestrator.agents.kpi.active', 'Active agents')} sub={t('agent_orchestrator.agents.kpi.activeSub', '{gated} gated, {review} review', { gated: gatedCount, review: reviewCount })}>
             <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{rows.length.toLocaleString('en-US')}</span>
           </StatCard>
-          <StatCard label={t('agent_orchestrator.agents.kpi.avgEval', 'Avg eval pass')}>
+          <StatCard icon={ShieldCheck} label={t('agent_orchestrator.agents.kpi.avgEval', 'Avg eval pass')}>
             <PendingChip label={t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')} />
           </StatCard>
-          <StatCard label={t('agent_orchestrator.agents.kpi.avgOverride', 'Avg override')}>
+          <StatCard icon={Pencil} label={t('agent_orchestrator.agents.kpi.avgOverride', 'Avg override')}>
             {avgOverride == null ? (
               <PendingChip label={t('agent_orchestrator.agents.list.pending.noData', 'No data')} />
             ) : (
@@ -287,7 +287,7 @@ export default function AgentsRegistryPage() {
               </span>
             )}
           </StatCard>
-          <StatCard label={t('agent_orchestrator.agents.kpi.spend', 'Spend (7d)')}>
+          <StatCard icon={Wallet} label={t('agent_orchestrator.agents.kpi.spend', 'Spend (7d)')}>
             <PendingChip label={t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')} />
           </StatCard>
         </div>
@@ -351,14 +351,18 @@ function PendingChip({ label }: { label: string }) {
   )
 }
 
-function StatCard({ label, sub, children }: { label: string; sub?: string; children: React.ReactNode }) {
+function StatCard({ icon: Icon, label, sub, children }: { icon: React.ComponentType<{ className?: string }>; label: string; sub?: string; children: React.ReactNode }) {
   return (
-    <div className="flex h-full flex-col rounded-2xl bg-gradient-to-br from-brand-lime via-brand-lime/80 to-brand-lime/40">
-      <div className="px-4 pb-2.5 pt-3 text-sm font-semibold text-brand-lime-foreground">{label}</div>
-      <div className="mx-1.5 mb-1.5 flex flex-1 flex-col rounded-xl bg-card p-4">
-        <div className="flex min-h-9 items-end">{children}</div>
-        {sub && <div className="mt-1 text-xs text-muted-foreground">{sub}</div>}
+    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm text-muted-foreground">{label}</p>
+        <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-brand-violet">
+          <Icon className="size-4" />
+        </span>
       </div>
+      <div className="mt-2 flex min-h-9 items-center gap-2">{children}</div>
+      {sub && <p className="mt-1 text-xs text-muted-foreground">{sub}</p>}
+      <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-brand-lime via-brand-lime to-brand-violet" />
     </div>
   )
 }

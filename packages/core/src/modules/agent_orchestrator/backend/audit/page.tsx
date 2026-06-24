@@ -1,19 +1,294 @@
 "use client"
 
+import * as React from 'react'
+import { useRouter } from 'next/navigation'
+import type { ColumnDef } from '@tanstack/react-table'
+import { Download, Filter } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { Avatar } from '@open-mercato/ui/primitives/avatar'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { mapAgent } from '../../components/types'
 
-export default function AgentAuditStubPage() {
+type Disposition = 'pending' | 'approved' | 'edited' | 'rejected' | 'auto_approved'
+
+type AuditRow = {
+  id: string
+  when: string | null
+  agentId: string
+  agentLabel: string
+  claim: string
+  disposition: Disposition
+  operator: string | null
+  reason: string | null
+}
+
+const dispositionVariant: StatusMap<Disposition> = {
+  approved: 'success',
+  auto_approved: 'success',
+  edited: 'warning',
+  rejected: 'error',
+  pending: 'neutral',
+}
+const APPROVED = ['approved', 'auto_approved']
+const OVERRIDDEN = ['edited', 'rejected']
+
+function asString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+}
+function fieldOf(item: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = asString(item[key])
+    if (value) return value
+  }
+  return ''
+}
+function dispositionOf(value: string): Disposition {
+  return (['approved', 'edited', 'rejected', 'auto_approved'] as string[]).includes(value)
+    ? (value as Disposition)
+    : 'pending'
+}
+function formatWhen(value: string | null): string {
+  if (!value) return '—'
+  const parsed = Date.parse(value)
+  if (Number.isNaN(parsed)) return '—'
+  return new Date(parsed).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+async function fetchItems(path: string): Promise<Array<Record<string, unknown>>> {
+  const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(path, undefined, { fallback: { items: [] } })
+  if (!call.ok || !Array.isArray(call.result?.items)) return []
+  return call.result.items
+}
+
+export default function AgentAuditPage() {
   const t = useT()
+  const router = useRouter()
+  const [rows, setRows] = React.useState<AuditRow[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+  const [page, setPage] = React.useState(1)
+  const [pageSize, setPageSize] = React.useState(20)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setIsLoading(true)
+      setError(null)
+      const agentsCall = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        '/api/agent_orchestrator/agents',
+        undefined,
+        { fallback: { items: [] } },
+      )
+      if (cancelled) return
+      if (!agentsCall.ok) {
+        setError(t('agent_orchestrator.agents.list.error'))
+        setIsLoading(false)
+        return
+      }
+      const agentLabels = new Map<string, string>()
+      for (const item of Array.isArray(agentsCall.result?.items) ? agentsCall.result.items : []) {
+        const agent = mapAgent(item)
+        if (agent) agentLabels.set(agent.id, agent.label || agent.id)
+      }
+
+      const [proposals, runs] = await Promise.all([
+        fetchItems('/api/agent_orchestrator/proposals?pageSize=100'),
+        fetchItems('/api/agent_orchestrator/runs?pageSize=100'),
+      ])
+      if (cancelled) return
+
+      const runById = new Map<string, Record<string, unknown>>()
+      for (const run of runs) {
+        const runId = fieldOf(run, 'id')
+        if (runId) runById.set(runId, run)
+      }
+
+      const built: AuditRow[] = proposals.map((proposal) => {
+        const agentId = fieldOf(proposal, 'agent_id', 'agentId')
+        const runId = fieldOf(proposal, 'run_id', 'runId')
+        const run = runById.get(runId)
+        const input = run ? asObject(run.input) : null
+        const claim = (input && fieldOf(input, 'claimId', 'claim_id', 'dealId', 'deal_id', 'reference')) || (runId ? runId.slice(0, 12) : fieldOf(proposal, 'id').slice(0, 12))
+        return {
+          id: fieldOf(proposal, 'id'),
+          when: fieldOf(proposal, 'created_at', 'createdAt') || null,
+          agentId,
+          agentLabel: agentLabels.get(agentId) || agentId || '—',
+          claim,
+          disposition: dispositionOf(fieldOf(proposal, 'disposition') || 'pending'),
+          operator: fieldOf(proposal, 'disposition_by', 'dispositionBy') || null,
+          reason: fieldOf(proposal, 'disposition_reason', 'dispositionReason') || null,
+        }
+      })
+      built.sort((a, b) => Date.parse(b.when || '') - Date.parse(a.when || ''))
+      setRows(built)
+      setIsLoading(false)
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [t])
+
+  const columns = React.useMemo<ColumnDef<AuditRow>[]>(() => [
+    {
+      accessorKey: 'when',
+      header: t('agent_orchestrator.audit.col.when', 'When'),
+      cell: ({ row }) => <span className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">{formatWhen(row.original.when)}</span>,
+    },
+    {
+      accessorKey: 'agentLabel',
+      header: t('agent_orchestrator.audit.col.agent', 'Agent'),
+      meta: { maxWidth: '280px' },
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2.5">
+          <Avatar label={row.original.agentLabel} size="sm" />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium text-foreground">{row.original.agentLabel}</div>
+            <div className="truncate font-mono text-xs text-muted-foreground">{row.original.agentId}</div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      accessorKey: 'claim',
+      header: t('agent_orchestrator.audit.col.claim', 'Claim'),
+      cell: ({ row }) => <span className="font-mono text-xs text-foreground">{row.original.claim}</span>,
+    },
+    {
+      accessorKey: 'disposition',
+      header: t('agent_orchestrator.audit.col.action', 'Action'),
+      cell: ({ row }) => (
+        <StatusBadge variant={dispositionVariant[row.original.disposition]} dot>
+          {t(`agent_orchestrator.disposition.${row.original.disposition}`, titleCase(row.original.disposition))}
+        </StatusBadge>
+      ),
+    },
+    {
+      accessorKey: 'operator',
+      header: t('agent_orchestrator.audit.col.operator', 'Operator'),
+      cell: ({ row }) => row.original.operator
+        ? <span className="text-sm text-foreground">{row.original.operator}</span>
+        : <span className="text-sm text-muted-foreground">—</span>,
+    },
+    {
+      accessorKey: 'reason',
+      header: t('agent_orchestrator.audit.col.reason', 'Reason'),
+      meta: { maxWidth: '320px' },
+      cell: ({ row }) => row.original.reason
+        ? <span className="block truncate text-sm text-muted-foreground" title={row.original.reason}>{row.original.reason}</span>
+        : <span className="text-sm text-muted-foreground">—</span>,
+    },
+  ], [t])
+
+  if (isLoading) {
+    return (
+      <Page>
+        <PageBody>
+          <LoadingMessage label={t('agent_orchestrator.audit.title', 'Audit log')} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  const total = rows.length
+  const approvedCount = rows.filter((row) => APPROVED.includes(row.disposition)).length
+  const overriddenCount = rows.filter((row) => OVERRIDDEN.includes(row.disposition)).length
+  const pendingCount = rows.filter((row) => row.disposition === 'pending').length
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize)
+
   return (
     <Page>
-      <PageBody>
-        <EmptyState
-          title={t('agent_orchestrator.overview.needsAttention.title')}
-          description={t('agent_orchestrator.overview.emptyDescription')}
-        />
+      <PageBody className="space-y-5">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-lg font-semibold">{t('agent_orchestrator.audit.title', 'Audit log')}</h1>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm">
+              <Filter className="mr-2 size-4" />
+              {t('agent_orchestrator.agents.actions.filters', 'Filters')}
+            </Button>
+            <Button variant="outline" size="sm">
+              <Download className="mr-2 size-4" />
+              {t('agent_orchestrator.agents.actions.export', 'Export')}
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard label={t('agent_orchestrator.audit.kpi.total', 'Decisions')}>
+            <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{total.toLocaleString('en-US')}</span>
+          </StatCard>
+          <StatCard label={t('agent_orchestrator.audit.kpi.approved', 'Approved')}>
+            <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{approvedCount.toLocaleString('en-US')}</span>
+          </StatCard>
+          <StatCard label={t('agent_orchestrator.audit.kpi.overridden', 'Overridden')}>
+            <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{overriddenCount.toLocaleString('en-US')}</span>
+          </StatCard>
+          <StatCard label={t('agent_orchestrator.audit.kpi.pending', 'Pending')}>
+            <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{pendingCount.toLocaleString('en-US')}</span>
+          </StatCard>
+        </div>
+
+        {rows.length === 0 ? (
+          <EmptyState
+            title={t('agent_orchestrator.audit.empty', 'No agent decisions yet')}
+            description={t('agent_orchestrator.audit.emptyDescription', 'Agent proposals and their dispositions will appear here once agents start running.')}
+          />
+        ) : (
+          <DataTable<AuditRow>
+            columns={columns}
+            data={pagedRows}
+            sortable
+            pagination={{
+              page,
+              pageSize,
+              total,
+              totalPages,
+              onPageChange: setPage,
+              pageSizeOptions: [10, 20, 50],
+              onPageSizeChange: (next) => { setPageSize(next); setPage(1) },
+            }}
+            columnChooser={{ auto: true }}
+            perspective={{ tableId: 'agent_orchestrator.audit.list', align: 'right' }}
+            onRowClick={(row) => router.push(`/backend/caseload/${encodeURIComponent(row.id)}`)}
+          />
+        )}
       </PageBody>
     </Page>
+  )
+}
+
+function titleCase(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function StatCard({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex h-full flex-col rounded-xl bg-gradient-to-br from-brand-lime via-brand-lime/80 to-brand-lime/40">
+      <div className="px-3.5 pb-1.5 pt-2 text-xs font-semibold text-brand-lime-foreground">{label}</div>
+      <div className="mx-1 mb-1 flex flex-1 flex-col rounded-lg bg-card p-3.5">
+        <div className="flex min-h-9 items-end">{children}</div>
+      </div>
+    </div>
   )
 }
