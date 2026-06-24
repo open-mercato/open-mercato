@@ -12,9 +12,11 @@ import type { ContextProvenance, ContextSourceKind } from '../../data/validators
  * record.
  *
  * Phase 1 implements `entity` sources (structured records via `queryEngine`/
- * `query_index`) with a mandatory floor. `retrieval` (P2) and `document` (P3) tiers
- * are declared by the same interface and assembled by later phases — the resolver
- * leaves clean seams (`retrieve()` hook, packer interface) for them.
+ * `query_index`) with a mandatory floor; Phase 2 the `retrieval` tier. The
+ * `document` tier (P3) is fed per-run through the document-ingest pipeline
+ * (`documentIngest.ts` → `documentSource.ts`): extracted facts are folded into the
+ * candidate pool as citable `document` sources with provenance + confidence, so a
+ * `document` source need not be registry-declared (it rides on the run's documents).
  */
 
 /** A raw candidate record read from a source, before redaction/packing. */
