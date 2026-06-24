@@ -48,9 +48,9 @@ docker-compose stacks that already use a pgvector-enabled image.
 
 ### Phase 1: Provision pgvector in the ephemeral DB
 
-- [ ] 1.1 Add an env-overridable `resolveEphemeralPostgresImage()` helper defaulting to a pgvector-enabled image
-- [ ] 1.2 Add an initdb SQL constant that creates `vector` + `pgcrypto`, and wire both into the GenericContainer start
-- [ ] 1.3 Add unit tests for the image resolver (default + override) and the init SQL contents
+- [x] 1.1 Add an env-overridable `resolveEphemeralPostgresImage()` helper defaulting to a pgvector-enabled image — 4c0168e65
+- [x] 1.2 Add an initdb SQL constant that creates `vector` + `pgcrypto`, and wire both into the GenericContainer start — 4c0168e65
+- [x] 1.3 Add unit tests for the image resolver (default + override) and the init SQL contents — 4c0168e65
 
 ### Phase 2: Validation
 
