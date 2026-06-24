@@ -1,4 +1,4 @@
-import { computeAvailableReturnQuantity } from '../returnQuantity'
+import { computeAvailableReturnQuantity, sumShippedQuantityByLine } from '../returnQuantity'
 
 describe('computeAvailableReturnQuantity (issue #1540)', () => {
   it('returns 0 when nothing remains', () => {
@@ -50,5 +50,38 @@ describe('computeAvailableReturnQuantity shipped cap (issue #3034)', () => {
 
   it('ignores a non-finite shipped quantity and falls back to ordered quantity', () => {
     expect(computeAvailableReturnQuantity({ quantity: 4, returnedQuantity: 0, shippedQuantity: Number.NaN })).toBe(4)
+  })
+})
+
+describe('sumShippedQuantityByLine (issue #3034 UI parity)', () => {
+  it('returns an empty map for missing or empty shipment lists', () => {
+    expect(sumShippedQuantityByLine(null).size).toBe(0)
+    expect(sumShippedQuantityByLine(undefined).size).toBe(0)
+    expect(sumShippedQuantityByLine([]).size).toBe(0)
+  })
+
+  it('sums shipped quantities per order line across shipments', () => {
+    const result = sumShippedQuantityByLine([
+      { items: [{ orderLineId: 'line-a', quantity: 2 }, { orderLineId: 'line-b', quantity: 1 }] },
+      { items: [{ orderLineId: 'line-a', quantity: 3 }] },
+    ])
+    expect(result.get('line-a')).toBe(5)
+    expect(result.get('line-b')).toBe(1)
+  })
+
+  it('accepts snake_case order line ids and string quantities', () => {
+    const result = sumShippedQuantityByLine([
+      { items: [{ order_line_id: 'line-c', quantity: '4' }] },
+    ])
+    expect(result.get('line-c')).toBe(4)
+  })
+
+  it('skips entries without an order line id or items array', () => {
+    const result = sumShippedQuantityByLine([
+      { items: [{ quantity: 5 }] },
+      { items: null },
+      {},
+    ])
+    expect(result.size).toBe(0)
   })
 })

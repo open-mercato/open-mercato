@@ -12,6 +12,7 @@ import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/ba
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { computeAvailableReturnQuantity } from '@open-mercato/core/modules/sales/lib/returnQuantity'
 import { handleSectionMutationError } from './optimisticLock'
 
@@ -21,6 +22,7 @@ export type ReturnOrderLine = {
   lineNumber: number | null
   quantity: number
   returnedQuantity: number
+  shippedQuantity?: number
   thumbnail?: string | null
 }
 
@@ -136,7 +138,9 @@ export function ReturnDialog({ open, orderId, lines, documentUpdatedAt, onClose,
         onClose()
         return
       }
-      flash(t('sales.returns.errors.create', 'Failed to create return.'), 'error')
+      const status = typeof (err as { status?: unknown })?.status === 'number' ? (err as { status: number }).status : null
+      const serverMessage = status ? normalizeCrudServerError(err).message?.trim() : ''
+      flash(serverMessage && serverMessage.length ? serverMessage : t('sales.returns.errors.create', 'Failed to create return.'), 'error')
     } finally {
       setSaving(false)
     }
