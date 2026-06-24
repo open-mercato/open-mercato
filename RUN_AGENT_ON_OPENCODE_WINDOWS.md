@@ -183,7 +183,7 @@ docker compose up -d opencode  # restart — hot-reload is not guaranteed
 ```
 
 Keep agents **propose-only**: read-only `tools` allowlist, no `isMutation:true` tools (rejected
-at load). See `packages/core/src/modules/agent_orchestrator/AGENTS.md`.
+at load). See `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md`.
 
 ---
 

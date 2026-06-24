@@ -1006,7 +1006,7 @@ read-only MCP tools (`agent_orchestrator.submit_outcome` / `load_skill` / `run_s
 all `agent_orchestrator.agents.run`) that file agents call; propose-only rests on the
 generated read-only `tools` allowlist + the per-run session-token ACL — the MCP HTTP server
 does NOT strip `isMutation` tools, so a file agent that declares one is rejected at load.
-See `packages/core/src/modules/agent_orchestrator/AGENTS.md`.
+See `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md`.
 
 ## Rules for the Debug Panel
 
