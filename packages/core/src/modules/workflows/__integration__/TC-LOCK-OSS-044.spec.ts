@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test'
+import { test, expect, type APIRequestContext, type Locator, type Page, type Request } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
@@ -335,26 +335,64 @@ test.describe('TC-LOCK-OSS-044: workflows definition + custom-entity optimistic-
  * read-back rather than asserting post-click badge text, and drive the live
  * conflict-banner case through the **row action** (its `onSelect` stays on the
  * list). Definitions are given an `AAA …` name so they sort to page 1 of the
- * `workflowName ASC` list without needing a search.
+ * `workflowName ASC` list without needing a search — safe because these are the
+ * only specs that create `AAA`-prefixed workflow definitions, each is deleted in
+ * its own `finally`, and the integration suite runs against a fresh ephemeral DB,
+ * so page 1 (20 rows) is never crowded out from under the row locator.
  */
 const DEFINITIONS_LIST_PATH = '/backend/definitions'
 
 /**
- * Open the row's RowActions (⋮) menu and click a `role="menuitem"` by name.
+ * Open the row's RowActions (⋮) menu and click the Enable/Disable `menuitem`,
+ * returning the single toggle `PUT` request the browser fired.
+ *
  * The menu is portalled to document.body and the list re-renders as data
- * settles, so the trigger/menu can detach between "open" and "click"; retry the
- * open+click atomically inside `toPass` (mirrors the SAL-13 list pattern).
+ * settles, so the trigger/menu can detach between "open" and "click"; we retry
+ * the open+click atomically inside `toPass` (mirrors the SAL-13 list pattern).
+ * Crucially the retry is guarded by `firedRequest`: once the toggle PUT has been
+ * observed we stop clicking, so a click that dispatched the request but then
+ * threw on a detached element cannot fire a *second* toggle (which would flip
+ * `enabled` back and break the read-back / change the menu item label).
+ *
+ * Only the browser fetch (via `apiCall`) raises `page.on('request')`; the
+ * out-of-band bump uses `page.request` (APIRequestContext) which does NOT, so
+ * `firedRequest` captures exactly the in-browser toggle.
  */
-async function clickRowAction(row: Locator, page: Page, name: RegExp): Promise<void> {
+async function toggleViaRowActionAndCapturePut(
+  row: Locator,
+  page: Page,
+  definitionId: string,
+  name: RegExp,
+): Promise<Request> {
   const actionsTrigger = row.getByRole('button', { name: /open actions/i })
   const item = page.getByRole('menuitem', { name })
-  await expect(async () => {
-    if (!(await item.isVisible().catch(() => false))) {
-      await actionsTrigger.click({ timeout: 2_000 }).catch(() => {})
-      await expect(item).toBeVisible({ timeout: 1_500 })
+  let firedRequest: Request | null = null
+  const onRequest = (request: Request) => {
+    if (
+      !firedRequest &&
+      request.method() === 'PUT' &&
+      request.url().includes(`${DEFINITIONS_BASE}/${definitionId}`)
+    ) {
+      firedRequest = request
     }
-    await item.click({ timeout: 2_000 })
-  }).toPass({ timeout: 20_000 })
+  }
+  page.on('request', onRequest)
+  try {
+    await expect(async () => {
+      if (firedRequest) return
+      if (!(await item.isVisible().catch(() => false))) {
+        await actionsTrigger.click({ timeout: 2_000 }).catch(() => {})
+        await expect(item).toBeVisible({ timeout: 1_500 })
+      }
+      await item.click({ timeout: 2_000 })
+      // Confirm the click actually dispatched the toggle before the loop exits,
+      // so a no-op click never leaves us thinking the PUT fired.
+      await expect(() => expect(firedRequest).not.toBeNull()).toPass({ timeout: 2_000 })
+    }).toPass({ timeout: 20_000 })
+  } finally {
+    page.off('request', onRequest)
+  }
+  return firedRequest as unknown as Request
 }
 
 async function createToggleDefinition(
@@ -436,15 +474,8 @@ test.describe('TC-LOCK-OSS-044: workflow-definition list toggle optimistic-lock 
       await expect(row).toBeVisible({ timeout: 20_000 })
 
       // The row-action "Disable" item `stopPropagation`s (stays on the list) and
-      // PUTs the same toggle carrying the per-row lock header.
-      const lockHeaderPut = page.waitForRequest(
-        (request) =>
-          request.method() === 'PUT' &&
-          request.url().includes(`${DEFINITIONS_BASE}/${definitionId}`),
-        { timeout: 20_000 },
-      )
-      await clickRowAction(row, page, /^disable$/i)
-      const putRequest = await lockHeaderPut
+      // PUTs the same toggle carrying the per-row lock header (single fire).
+      const putRequest = await toggleViaRowActionAndCapturePut(row, page, definitionId, /^disable$/i)
       expect(
         putRequest.headers()[OPTIMISTIC_LOCK_HEADER_NAME],
         'row-action toggle PUT must carry the optimistic-lock expected-updated-at header equal to the row updatedAt',
@@ -487,7 +518,7 @@ test.describe('TC-LOCK-OSS-044: workflow-definition list toggle optimistic-lock 
           response.url().includes(`${DEFINITIONS_BASE}/${definitionId}`),
         { timeout: 20_000 },
       )
-      await clickRowAction(row, page, /^disable$/i)
+      await toggleViaRowActionAndCapturePut(row, page, definitionId, /^disable$/i)
       const response = await refusedToggle
       expect(response.status(), 'stale list toggle should be refused with 409').toBe(409)
 
