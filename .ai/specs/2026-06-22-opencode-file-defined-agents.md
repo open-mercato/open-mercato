@@ -5,10 +5,10 @@
 - **Scope**: OSS
 - **Owners**: Agent Orchestrator
 - **Related**:
-  - `.ai/specs/agent-orchestrator/` (orchestrator spec corpus — start at `README.md` + `00-IMPLEMENTED-BASELINE.md`)
-  - `.ai/specs/agent-orchestrator/archive/superseded/2026-06-19-agent-runtime-options-opencode-vs-in-process.md` (runtime trade-off analysis — decision now implemented)
+  - `.ai/specs/enterprise/agent-orchestrator/` (orchestrator spec corpus — start at `README.md` + `00-IMPLEMENTED-BASELINE.md`)
+  - `.ai/specs/enterprise/agent-orchestrator/archive/superseded/2026-06-19-agent-runtime-options-opencode-vs-in-process.md` (runtime trade-off analysis — decision now implemented)
   - `packages/ai-assistant/AGENTS.md` (OpenCode + MCP integration)
-  - `packages/core/src/modules/agent_orchestrator/AGENTS.md` (in-process SDK)
+  - `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md` (in-process SDK)
 
 ## 1. Summary
 
@@ -76,7 +76,7 @@ result, and (c) wiring OpenCode as a selectable backend behind the existing
 
 ## 4. Background — current state
 
-- **In-process orchestrator** (`packages/core/src/modules/agent_orchestrator/`):
+- **In-process orchestrator** (`packages/enterprise/src/modules/agent_orchestrator/`):
   `defineAgent()` registers `{ id, resultKind, schema (Zod), instructions, tools,
   skills, subAgents }` in a module-level registry; `AgentRuntimeService.run()`
   runs object mode (or a read-only tool loop), validates output, persists
@@ -503,7 +503,7 @@ All changes are **additive** — no FROZEN/STABLE surface is renamed or removed:
 ### 17.2 File-level touch points (grounded)
 - **Generator**: `packages/cli/src/lib/generators/extensions/` (new `agent-files.ts`), registered in `generators/index.ts`; reuse `scanner.ts`. Emits OpenCode agent files + the registry.
 - **Container delivery**: `docker/opencode/` (Dockerfile `COPY` for prod-B; `docker-compose*.yml` volume for dev-A — mirrors the existing `opencode.jsonc` mount). Image `opencode-mvp`.
-- **MCP tools**: add `submit_outcome` + `load_skill` to `packages/core/src/modules/agent_orchestrator/ai-tools.ts` (same `defineAiTool` path already proven by `delegate_agent`; discovered by `tool-loader.ts`).
+- **MCP tools**: add `submit_outcome` + `load_skill` to `packages/enterprise/src/modules/agent_orchestrator/ai-tools.ts` (same `defineAiTool` path already proven by `delegate_agent`; discovered by `tool-loader.ts`).
 - **Runner + dispatch**: `agent_orchestrator/lib/runtime/agentRuntime.ts` (dispatch on `runtime`) + new `lib/runtime/openCodeAgentRunner.ts`; reuse `OpenCodeClient` (`opencode-client.ts`) + session-token minting (`apiKeyService.generateSessionToken`).
 - **Registry/loader**: `lib/sdk/defineAgent.ts` (add `runtime` to entry) + `ensureAgentsLoaded()` (load file registry); OUTCOME→validator compiler in `lib/sdk/outcomeSchema.ts` (new).
 - **Skills reuse**: `lib/sdk/skillMarkdown.ts` (already parses SKILL.md frontmatter).

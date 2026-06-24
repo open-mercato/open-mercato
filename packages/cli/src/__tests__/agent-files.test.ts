@@ -31,7 +31,7 @@ function makeRepo(): {
     manifestPath: path.join(
       root,
       'packages',
-      'core',
+      'enterprise',
       'src',
       'modules',
       'agent_orchestrator',

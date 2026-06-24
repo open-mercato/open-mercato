@@ -7721,7 +7721,9 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/enterprise@workspace:packages/enterprise"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
+    "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
     "@simplewebauthn/browser": "npm:^13.3.0"
