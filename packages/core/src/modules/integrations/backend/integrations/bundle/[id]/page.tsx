@@ -17,6 +17,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { CredentialFieldType, IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
@@ -87,6 +88,14 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
   const [isSavingCreds, setIsSavingCreds] = React.useState(false)
   const [togglingIds, setTogglingIds] = React.useState<Set<string>>(new Set())
 
+  const mutationContextId = React.useMemo(
+    () => `integrations.bundle:${bundleId ?? 'unknown'}`,
+    [bundleId],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: mutationContextId,
+  })
+
   const resolveCurrentBundleId = React.useCallback(() => {
     return bundleId ?? (
       typeof window !== 'undefined'
@@ -147,42 +156,76 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     if (!currentBundleId) return
     setIsSavingCreds(true)
     // optimistic-lock-exempt: integration credentials are a single-admin config blob keyed by an immutable bundle id; the integration detail/state/credentials responses expose no per-record version and this is not a collaborative-edit surface (record_locks Phase 6b decision).
-    const call = await apiCall(`/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ credentials: credValues }),
-    }, { fallback: null })
-    if (call.ok) {
-      flash(t('integrations.detail.credentials.saved'), 'success')
-    } else {
+    try {
+      const call = await runMutation({
+        mutationPayload: { bundleId: currentBundleId, credentials: credValues },
+        context: {
+          formId: mutationContextId,
+          operation: 'update',
+          actionId: 'save-credentials',
+          resourceKind: 'integrations.bundle',
+          resourceId: currentBundleId,
+          bundleId: currentBundleId,
+          retryLastMutation,
+        },
+        operation: () => apiCall(`/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credentials: credValues }),
+        }, { fallback: null }),
+      })
+      if (call.ok) {
+        flash(t('integrations.detail.credentials.saved'), 'success')
+      } else {
+        flash(t('integrations.detail.credentials.saveError'), 'error')
+      }
+    } catch {
       flash(t('integrations.detail.credentials.saveError'), 'error')
+    } finally {
+      setIsSavingCreds(false)
     }
-    setIsSavingCreds(false)
-  }, [resolveCurrentBundleId, credValues, t])
+  }, [resolveCurrentBundleId, runMutation, mutationContextId, retryLastMutation, credValues, t])
 
   const handleToggle = React.useCallback(async (integrationId: string, enabled: boolean) => {
     setTogglingIds((prev) => new Set(prev).add(integrationId))
     // optimistic-lock-exempt: integration enablement is a single-admin on/off toggle keyed by an immutable integration id; the state response exposes no per-record version and this is not a collaborative-edit surface (record_locks Phase 6b decision).
-    const call = await apiCall(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isEnabled: enabled }),
-    }, { fallback: null })
-    if (call.ok) {
-      setDetail((prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          bundleIntegrations: prev.bundleIntegrations.map((item) =>
-            item.id === integrationId ? { ...item, isEnabled: enabled } : item,
-          ),
-        }
+    try {
+      const call = await runMutation({
+        mutationPayload: { integrationId, isEnabled: enabled },
+        context: {
+          formId: mutationContextId,
+          operation: 'update',
+          actionId: 'toggle-state',
+          resourceKind: 'integrations.integration',
+          resourceId: integrationId,
+          integrationId,
+          retryLastMutation,
+        },
+        operation: () => apiCall(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isEnabled: enabled }),
+        }, { fallback: null }),
       })
-    } else {
+      if (call.ok) {
+        setDetail((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            bundleIntegrations: prev.bundleIntegrations.map((item) =>
+              item.id === integrationId ? { ...item, isEnabled: enabled } : item,
+            ),
+          }
+        })
+      } else {
+        flash(t('integrations.detail.stateError'), 'error')
+      }
+    } catch {
       flash(t('integrations.detail.stateError'), 'error')
+    } finally {
+      setTogglingIds((prev) => { const next = new Set(prev); next.delete(integrationId); return next })
     }
-    setTogglingIds((prev) => { const next = new Set(prev); next.delete(integrationId); return next })
-  }, [t])
+  }, [runMutation, mutationContextId, retryLastMutation, t])
 
   const handleBulkToggle = React.useCallback(async (enabled: boolean) => {
     if (!detail) return

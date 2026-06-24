@@ -31,6 +31,7 @@ import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
+import { readVersionedPreference, writeVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
 import { cloneSidebarGroups } from './sidebar/customization-helpers'
 import type { SectionNavGroup } from './section-page/types'
 import { InjectionSpot } from './injection/InjectionSpot'
@@ -62,6 +63,25 @@ import {
   GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID,
   GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID,
 } from './injection/spotIds'
+
+// Versioned-envelope discriminator for the persisted sidebar open/closed group
+// map. This is a structured value (a record), so it carries a version so future
+// shape changes can migrate or safely discard stale data; legacy bare
+// `Record<string, boolean>` values are migrated forward on the next write. The
+// neighbouring `om:sidebarCollapsed` / `om:progress:expanded` flags are trivial
+// scalar booleans and deliberately stay raw (see their write sites). See
+// `@open-mercato/shared/lib/browser/versionedPreference`.
+const SIDEBAR_OPEN_GROUPS_KEY = 'om:sidebarOpenGroups'
+const SIDEBAR_OPEN_GROUPS_VERSION = 1
+
+function isBooleanRecord(value: unknown): value is Record<string, boolean> {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'boolean')
+  )
+}
 
 export type ShellLogo = {
   src: string
@@ -624,22 +644,23 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   }, [mobileOpen])
 
   React.useEffect(() => {
-    try {
-      const savedOpen = typeof window !== 'undefined' ? localStorage.getItem('om:sidebarOpenGroups') : null
-      if (!savedOpen) return
-      const parsed = JSON.parse(savedOpen) as Record<string, boolean>
-      setOpenGroups((prev) => {
-        const next = { ...prev }
-        for (const group of resolvedGroups) {
-          const key = resolveGroupKey(group)
-          if (key in parsed) next[key] = !!parsed[key]
-          else if (group.name in parsed) next[key] = !!parsed[group.name]
-        }
-        return next
-      })
-    } catch {
-      // ignore localStorage errors to avoid breaking hydration
-    }
+    const parsed = readVersionedPreference<Record<string, boolean>>(
+      SIDEBAR_OPEN_GROUPS_KEY,
+      SIDEBAR_OPEN_GROUPS_VERSION,
+      isBooleanRecord,
+      {},
+      { legacyIsValid: isBooleanRecord },
+    )
+    if (Object.keys(parsed).length === 0) return
+    setOpenGroups((prev) => {
+      const next = { ...prev }
+      for (const group of resolvedGroups) {
+        const key = resolveGroupKey(group)
+        if (key in parsed) next[key] = !!parsed[key]
+        else if (group.name in parsed) next[key] = !!parsed[group.name]
+      }
+      return next
+    })
   }, [resolvedGroups])
 
   const toggleGroup = (groupId: string) => setOpenGroups((prev) => ({ ...prev, [groupId]: prev[groupId] === false }))
@@ -652,6 +673,9 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   // private/incognito mode (storage blocked) or when cookies are disabled —
   // the persisted preference is purely a UX nice-to-have, never functional, so
   // swallow the failure and let the component fall back to the default state.
+  // This is a trivial scalar flag ('1' | '0') with no schema to evolve, so it is
+  // intentionally kept raw rather than wrapped in a versioned envelope (the
+  // versioning threshold lives in `@open-mercato/shared/lib/browser/versionedPreference`).
   React.useEffect(() => {
     try { localStorage.setItem('om:sidebarCollapsed', collapsed ? '1' : '0') } catch { /* localStorage blocked (private mode) — non-critical */ }
     try {
@@ -678,7 +702,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     previousSidebarModeRef.current = sidebarMode
   }, [sidebarMode, collapsed])
   React.useEffect(() => {
-    try { localStorage.setItem('om:sidebarOpenGroups', JSON.stringify(openGroups)) } catch { /* localStorage blocked (private mode) — non-critical */ }
+    writeVersionedPreference(SIDEBAR_OPEN_GROUPS_KEY, SIDEBAR_OPEN_GROUPS_VERSION, openGroups)
   }, [openGroups])
 
   // Ensure current route's group is expanded on load

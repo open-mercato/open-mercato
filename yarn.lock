@@ -23996,6 +23996,7 @@ __metadata:
     openapi-typescript: "npm:^7.13.0"
     pdfjs-dist: "npm:^6.0.227"
     pg: "npm:8.22.0"
+    pkg-pr-new: "npm:0.0.75"
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
     react-email: "npm:^6.6.3"
@@ -24736,6 +24737,15 @@ __metadata:
   dependencies:
     find-up: "npm:^6.3.0"
   checksum: 10/94298b20a446bfbbd66604474de8a0cdd3b8d251225170970f15d9646f633e056c80520dd5b4c1d1050c9fed8f6a9e5054b141c93806439452efe72e57562c03
+  languageName: node
+  linkType: hard
+
+"pkg-pr-new@npm:0.0.75":
+  version: 0.0.75
+  resolution: "pkg-pr-new@npm:0.0.75"
+  bin:
+    pkg-pr-new: bin/cli.js
+  checksum: 10/5160a67a955a50a5842cc43a5143e16f15e48bd5beaf6368ee4f3c532fd79e8ba703ffffd9479945b7ed52f65ce11990e2e24c96b6efd7dd30a326236721bd90
   languageName: node
   linkType: hard
 
