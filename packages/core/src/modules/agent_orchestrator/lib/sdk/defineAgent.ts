@@ -14,7 +14,7 @@ export type AgentResultKind = 'actionable' | 'informative'
  * registered via `registerFileAgent`, and run on the OpenCode runtime. The field
  * is additive (BC-safe): every existing agent stays `'in-process'`.
  */
-export type AgentRuntime = 'in-process' | 'opencode'
+export type AgentRuntime = 'in-process' | 'opencode' | 'external'
 
 /**
  * Tool id of the built-in delegation tool (declared in agent_orchestrator's
@@ -350,7 +350,13 @@ async function loadFileAgents(): Promise<void> {
  * call this first so they never read an empty registry.
  */
 export async function ensureAgentsLoaded(): Promise<void> {
-  if (registry.size > 0) return
+  // NOTE: do NOT short-circuit on `registry.size > 0`. In-process agents register
+  // via `ai-agents.ts` import side-effects (e.g. the global AiAssistantLauncher
+  // triggers `loadAgentRegistry()` on every backoffice page), so the registry is
+  // often already non-empty before the first call here. File-defined (OpenCode)
+  // agents only load inside `loadAllAgentModules()` → `loadFileAgents()`, so a
+  // size-based early return would skip them entirely. The memoized
+  // `agentsLoadPromise` already guarantees the full load runs exactly once.
   if (!agentsLoadPromise) {
     agentsLoadPromise = loadAllAgentModules()
       .then(() => undefined)
