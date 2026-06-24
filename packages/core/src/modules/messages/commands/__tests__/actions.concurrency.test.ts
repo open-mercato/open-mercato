@@ -6,6 +6,7 @@ const TENANT_ID = '55555555-5555-4555-8555-555555555555'
 const ORG_ID = '66666666-6666-4666-8666-666666666666'
 const USER_ID = '44444444-4444-4444-8444-444444444444'
 const MESSAGE_ID = '11111111-1111-4111-8111-111111111111'
+const ACTION_ID = 'do-it'
 const TARGET_COMMAND_ID = 'messages.test.target_command'
 
 type ActionState = {
@@ -13,7 +14,7 @@ type ActionState = {
   actionTakenByUserId: string | null
 }
 
-function buildMessage(state: ActionState) {
+function buildMessageView(state: ActionState) {
   return {
     id: MESSAGE_ID,
     type: 'default',
@@ -24,16 +25,12 @@ function buildMessage(state: ActionState) {
     parentMessageId: null,
     sentAt: new Date('2026-03-01T12:00:00.000Z'),
     deletedAt: null,
-    get actionTaken() {
-      return state.actionTaken
-    },
-    set actionTaken(value: string | null) {
-      state.actionTaken = value
-    },
+    actionTaken: state.actionTaken,
+    actionTakenByUserId: state.actionTakenByUserId,
     actionData: {
       actions: [
         {
-          id: 'do-it',
+          id: ACTION_ID,
           label: 'Do it',
           commandId: TARGET_COMMAND_ID,
           isTerminal: true,
@@ -43,10 +40,15 @@ function buildMessage(state: ActionState) {
   }
 }
 
-function buildEmFork(message: ReturnType<typeof buildMessage>, state: ActionState) {
+// Stateful EntityManager fork. The `nativeUpdate` mock models the production
+// atomic compare-and-set: a claim (`WHERE action_taken IS NULL`) only succeeds
+// while the action is un-taken, and a release (`SET action_taken = NULL`) makes
+// the action retriable again. Every fork shares the same `state` so concurrent
+// requests and sequential retries observe a single source of truth.
+function buildEmFork(state: ActionState, onClaim?: () => void) {
   return {
     findOne: jest.fn(async (entity: unknown) => {
-      if (entity === Message) return message
+      if (entity === Message) return buildMessageView(state)
       if (entity === MessageRecipient) {
         return {
           id: '33333333-3333-4333-8333-333333333333',
@@ -61,28 +63,44 @@ function buildEmFork(message: ReturnType<typeof buildMessage>, state: ActionStat
       if (entity === MessageObject) return []
       return []
     }),
-    nativeUpdate: jest.fn(async (_entity: unknown, _where: unknown, data: Record<string, unknown>) => {
-      // Model the claim-release: resetting action_taken back to null makes the
-      // action retriable again.
-      if (data && 'actionTaken' in data && data.actionTaken === null) {
-        state.actionTaken = null
-        state.actionTakenByUserId = null
-      }
-      return 1
-    }),
+    nativeUpdate: jest.fn(
+      async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+        const isClaim = where?.actionTaken === null && data?.actionTaken != null
+        if (isClaim) {
+          if (state.actionTaken == null) {
+            state.actionTaken = data.actionTaken as string
+            state.actionTakenByUserId = (data.actionTakenByUserId as string) ?? null
+            onClaim?.()
+            return 1
+          }
+          return 0
+        }
+        const isRelease = data && 'actionTaken' in data && data.actionTaken === null
+        if (isRelease) {
+          state.actionTaken = null
+          state.actionTakenByUserId = null
+          return 1
+        }
+        return 0
+      },
+    ),
     flush: jest.fn(async () => {}),
   }
 }
 
+function buildContainer(emFork: ReturnType<typeof buildEmFork>, commandBus: unknown) {
+  return {
+    resolve: (name: string) => {
+      if (name === 'em') return { fork: () => emFork }
+      if (name === 'commandBus') return commandBus
+      return null
+    },
+  } as never
+}
+
 function buildCtx(emFork: ReturnType<typeof buildEmFork>, commandBus: unknown) {
   return {
-    container: {
-      resolve: (name: string) => {
-        if (name === 'em') return { fork: () => emFork }
-        if (name === 'commandBus') return commandBus
-        return null
-      },
-    } as never,
+    container: buildContainer(emFork, commandBus),
     auth: { sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID } as never,
     organizationScope: null,
     selectedOrganizationId: ORG_ID,
@@ -93,7 +111,7 @@ function buildCtx(emFork: ReturnType<typeof buildEmFork>, commandBus: unknown) {
 function buildInput() {
   return {
     messageId: MESSAGE_ID,
-    actionId: 'do-it',
+    actionId: ACTION_ID,
     tenantId: TENANT_ID,
     organizationId: ORG_ID,
     userId: USER_ID,
@@ -115,24 +133,18 @@ describe('messages.actions.execute terminal-action concurrency (#3261)', () => {
     const command = commandRegistry.get('messages.actions.execute')
     expect(command).toBeTruthy()
 
+    const sequence: string[] = []
     const state: ActionState = { actionTaken: null, actionTakenByUserId: null }
-    const message = buildMessage(state)
-    const emFork = buildEmFork(message, state)
+    const emFork = buildEmFork(state, () => sequence.push('claim'))
 
-    const commandSequence: string[] = []
     const commandBus = {
-      execute: jest.fn(async (commandId: string, opts: { input: { actionId?: string; userId?: string } }) => {
-        commandSequence.push(commandId)
-        if (commandId === 'messages.actions.record_terminal') {
-          if (state.actionTaken == null) {
-            state.actionTaken = opts.input.actionId ?? 'do-it'
-            state.actionTakenByUserId = opts.input.userId ?? USER_ID
-            return { result: { ok: true }, logEntry: { id: 'log-terminal' } }
-          }
-          throw Object.assign(new Error('Action already taken'), { actionTaken: state.actionTaken })
-        }
+      execute: jest.fn(async (commandId: string) => {
         if (commandId === TARGET_COMMAND_ID) {
+          sequence.push('target')
           return { result: { done: true }, logEntry: { id: 'log-target' } }
+        }
+        if (commandId === 'messages.actions.record_terminal') {
+          return { result: { ok: true }, logEntry: { id: 'log-terminal' } }
         }
         throw new Error(`Unexpected command ${commandId}`)
       }),
@@ -140,13 +152,58 @@ describe('messages.actions.execute terminal-action concurrency (#3261)', () => {
 
     await command!.execute(buildInput(), buildCtx(emFork, commandBus))
 
-    // The terminal claim must be recorded BEFORE the target command runs, otherwise
-    // a concurrent duplicate request can run the target command's side effects too.
-    const recordIndex = commandSequence.indexOf('messages.actions.record_terminal')
-    const targetIndex = commandSequence.indexOf(TARGET_COMMAND_ID)
-    expect(recordIndex).toBeGreaterThanOrEqual(0)
+    // The terminal action must be reserved (atomic compare-and-set) BEFORE the
+    // target command runs, otherwise a concurrent duplicate request could also
+    // execute the target command's side effects.
+    const claimIndex = sequence.indexOf('claim')
+    const targetIndex = sequence.indexOf('target')
+    expect(claimIndex).toBeGreaterThanOrEqual(0)
     expect(targetIndex).toBeGreaterThanOrEqual(0)
-    expect(recordIndex).toBeLessThan(targetIndex)
+    expect(claimIndex).toBeLessThan(targetIndex)
+  })
+
+  it('releases the claim when the target command throws so the action can be retried', async () => {
+    const command = commandRegistry.get('messages.actions.execute')
+    expect(command).toBeTruthy()
+
+    const state: ActionState = { actionTaken: null, actionTakenByUserId: null }
+    const emFork = buildEmFork(state)
+
+    let targetRuns = 0
+    let failNextTarget = true
+    const commandBus = {
+      execute: jest.fn(async (commandId: string) => {
+        if (commandId === TARGET_COMMAND_ID) {
+          targetRuns += 1
+          if (failNextTarget) {
+            failNextTarget = false
+            throw new Error('boom')
+          }
+          return { result: { done: true }, logEntry: { id: 'log-target' } }
+        }
+        if (commandId === 'messages.actions.record_terminal') {
+          return { result: { ok: true }, logEntry: { id: 'log-terminal' } }
+        }
+        throw new Error(`Unexpected command ${commandId}`)
+      }),
+    }
+
+    // First attempt: the target command throws, so the reservation must be
+    // released and the original error surfaced as the existing 'Action failed'.
+    await expect(command!.execute(buildInput(), buildCtx(emFork, commandBus))).rejects.toThrow(
+      'Action failed',
+    )
+    // The failed attempt must not leave the action claimed — otherwise it would
+    // be permanently stuck and could never be retried.
+    expect(state.actionTaken).toBeNull()
+    expect(targetRuns).toBe(1)
+
+    // Retry: a second request now succeeds because the claim was released, while
+    // idempotency still holds — the target command runs exactly once per success.
+    const result = await command!.execute(buildInput(), buildCtx(emFork, commandBus))
+    expect(result).toMatchObject({ ok: true, actionId: ACTION_ID })
+    expect(state.actionTaken).toBe(ACTION_ID)
+    expect(targetRuns).toBe(2)
   })
 
   it('runs the target command only once when two requests race the same terminal action', async () => {
@@ -154,26 +211,19 @@ describe('messages.actions.execute terminal-action concurrency (#3261)', () => {
     expect(command).toBeTruthy()
 
     const state: ActionState = { actionTaken: null, actionTakenByUserId: null }
-    const message = buildMessage(state)
-    const emFork = buildEmFork(message, state)
+    const emFork = buildEmFork(state)
 
     let targetRuns = 0
     const targetGate = deferred<void>()
     const commandBus = {
-      execute: jest.fn(async (commandId: string, opts: { input: { actionId?: string; userId?: string } }) => {
-        if (commandId === 'messages.actions.record_terminal') {
-          // Atomic claim: only the first request may reserve the terminal action.
-          if (state.actionTaken == null) {
-            state.actionTaken = opts.input.actionId ?? 'do-it'
-            state.actionTakenByUserId = opts.input.userId ?? USER_ID
-            return { result: { ok: true }, logEntry: { id: 'log-terminal' } }
-          }
-          throw Object.assign(new Error('Action already taken'), { actionTaken: state.actionTaken })
-        }
+      execute: jest.fn(async (commandId: string) => {
         if (commandId === TARGET_COMMAND_ID) {
           targetRuns += 1
           await targetGate.promise
           return { result: { done: true }, logEntry: { id: 'log-target' } }
+        }
+        if (commandId === 'messages.actions.record_terminal') {
+          return { result: { ok: true }, logEntry: { id: 'log-terminal' } }
         }
         throw new Error(`Unexpected command ${commandId}`)
       }),
@@ -205,7 +255,7 @@ describe('messages.actions.execute terminal-action concurrency (#3261)', () => {
     expect(targetRuns).toBe(1)
     expect(firstResult.status).toBe('fulfilled')
     if (firstResult.status === 'fulfilled') {
-      expect(firstResult.value).toMatchObject({ ok: true, actionId: 'do-it' })
+      expect(firstResult.value).toMatchObject({ ok: true, actionId: ACTION_ID })
     }
     expect(secondResult.status).toBe('rejected')
     if (secondResult.status === 'rejected') {

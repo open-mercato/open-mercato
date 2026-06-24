@@ -6,7 +6,7 @@ export const metadata: ModuleInfo = {
   version: '0.1.0',
   description: 'Business Rules Engine for defining, managing, and executing business logic and automation rules.',
   author: 'Patryk Lewczuk',
-  license: 'Proprietary',
+  license: 'MIT',
 }
 
 // Export rule engine types and functions for programmatic usage

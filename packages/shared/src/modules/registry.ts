@@ -214,6 +214,7 @@ export type ModuleInjectionWidgetEntry = {
   moduleId: string
   key: string
   source: 'app' | 'package'
+  widgetId?: string
   loader: () => Promise<InjectionAnyWidgetModule<any, any>>
 }
 

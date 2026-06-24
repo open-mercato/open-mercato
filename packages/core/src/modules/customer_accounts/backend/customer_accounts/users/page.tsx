@@ -500,7 +500,7 @@ export default function CustomerAccountsPage() {
                 })}
               </p>
               <p className="mt-0.5 text-xs text-status-info-text">
-                {t('customer_accounts.admin.portalInfo.credentials', 'Demo credentials: alice.johnson@example.com / password123')}
+                {t('customer_accounts.admin.portalInfo.credentials', 'Demo credentials: alice.johnson@example.com / Password123!')}
               </p>
             </div>
             <div className="flex shrink-0 flex-col gap-2">
