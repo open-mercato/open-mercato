@@ -6,6 +6,8 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { getAgentEntry, ensureAgentsLoaded, type AgentRegistryEntry } from '../sdk/defineAgent'
 import { type AgentResult, type GuardResults, type GuardrailKindInput, type GuardrailPhaseInput } from '../../data/validators'
 import { GuardrailService, persistVerdict, GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
+import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
+import { resolveContextModule } from '../context/registry'
 import { OpenCodeAgentRunner } from './openCodeAgentRunner'
 import { withRunContext } from './runContext'
 import {
@@ -68,6 +70,13 @@ export type AgentRuntimeDeps = {
 }
 
 /**
+ * Default token budget for a TDCR context assembly when the caller does not pass
+ * one (Phase 1 — the INVOKE_AGENT node config wires a per-capability budget in a
+ * later phase). Conservative; the packer prunes optional fill that exceeds it.
+ */
+export const DEFAULT_CONTEXT_TOKEN_BUDGET = 4000
+
+/**
  * In-process runtime that runs an agent in object mode under the caller scope,
  * validates the structured output against the agent's result schema, persists a
  * thin AgentRun (and, for actionable results, an AgentProposal) through the
@@ -127,6 +136,36 @@ export class AgentRuntimeService {
       // nulls, so leaving externalRunId null is correct here.
       runtime: 'in-process',
     })
+
+    // Context overlay (Phase 1): assemble + persist one append-only
+    // AgentContextBundle for this run BEFORE the model call (TDCR is on the
+    // synchronous INVOKE_AGENT path). Called directly from the run path — there
+    // is no pluggable workflow activity registry. Capability = the agent id. Only
+    // capabilities that declare a ContextModule get a bundle; the rest are a safe
+    // no-op so existing toolless agents are unaffected. Best-effort: an assembly
+    // failure must not abort the run (the bundle is evidence, not a gate in P1).
+    if (resolveContextModule(agentId)) {
+      try {
+        const contextEm = (this.container.resolve('em') as EntityManager).fork()
+        const resolver = new ContextResolverImpl(this.container)
+        await resolver.assemble(contextEm, {
+          tenantId: ctx.tenantId,
+          organizationId: ctx.organizationId,
+          agentRunId: runId,
+          processId: ctx.processId ?? null,
+          stepId: ctx.stepId ?? null,
+          capability: agentId,
+          budget: DEFAULT_CONTEXT_TOKEN_BUDGET,
+        })
+      } catch (contextErr) {
+        if (!(contextErr instanceof ContextModuleNotFoundError)) {
+          console.warn(
+            '[internal] agent_orchestrator: context assembly failed',
+            contextErr instanceof Error ? contextErr.message : contextErr,
+          )
+        }
+      }
+    }
 
     // Load the caller's effective ACL so the agent's read-only tools (e.g.
     // customers.get_deal, gated by customers.deals.view) pass their feature

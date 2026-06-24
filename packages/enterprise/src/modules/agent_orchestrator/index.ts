@@ -60,6 +60,52 @@ export type {
 export { GuardrailService, GUARDRAIL_SET_VERSION } from './lib/guardrails/guardrailService'
 export type { CheckOutputArgs, CheckInputArgs } from './lib/guardrails/guardrailService'
 
+// Context overlay (Phase 1) — TDCR resolver + registry + provenance schemas for
+// trace ("context assembled" panel), guardrails grounding, and compliance lineage.
+export {
+  ContextResolverImpl,
+  ContextModuleNotFoundError,
+  assembleInputSchema,
+  registerContextModule,
+  resolveContextModule,
+  listContextCapabilities,
+  entityProvenance,
+  estimateTokens,
+  packCandidates,
+} from './lib/context'
+export type {
+  ContextResolver,
+  AssembleInput,
+  AssembleResult,
+  RetrieveScope,
+  RetrievedSnippet,
+  ContextModule,
+  ContextSourceDecl,
+  ContextSourceHit,
+  PackCandidate,
+  PackResult,
+} from './lib/context'
+export {
+  contextSourceKind,
+  contextRoutedSourceSchema,
+  contextPrunedSourceSchema,
+  contextProvenanceSchema,
+  contextRedactionAppliedSchema,
+  contextBundleRoutedSourcesSchema,
+  contextBundlePrunedSourcesSchema,
+  contextBundleSourcesSchema,
+  contextBundleRedactionAppliedSchema,
+  contextBundleListQuerySchema,
+} from './data/validators'
+export type {
+  ContextSourceKind,
+  ContextRoutedSource,
+  ContextPrunedSource,
+  ContextProvenance,
+  ContextRedactionApplied,
+  ContextBundleListQuery,
+} from './data/validators'
+
 // Disposition seam (area 03) — consumed inline by area 02's INVOKE_AGENT executor.
 export type {
   DispositionService,

@@ -12,12 +12,14 @@ import {
   AgentEvalResult,
   AgentMetricRollup,
   AgentGuardrailCheck,
+  AgentContextBundle,
 } from './data/entities'
 import { AgentRuntimeService } from './lib/runtime/agentRuntime'
 import { GuardrailService } from './lib/guardrails/guardrailService'
 import { DbAgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
 import { DispositionServiceImpl } from './lib/disposition/dispositionService'
 import { AgentWorkflowBridgeService } from './lib/runtime/invokeAgentForWorkflow'
+import { ContextResolverImpl } from './lib/context/contextResolver'
 import type { DispositionService } from './lib/disposition/dispositionService'
 
 export function register(container: AppContainer) {
@@ -32,6 +34,7 @@ export function register(container: AppContainer) {
     AgentEvalResult: asValue(AgentEvalResult),
     AgentMetricRollup: asValue(AgentMetricRollup),
     AgentGuardrailCheck: asValue(AgentGuardrailCheck),
+    AgentContextBundle: asValue(AgentContextBundle),
     // CLASSIC injection mode resolves deps by parameter name — destructure the
     // real dependency names (not a `cradle` param) and use .proxy() so the
     // cradle is passed and deps resolve lazily (matches sales/di.ts).
@@ -50,6 +53,12 @@ export function register(container: AppContainer) {
     // both backed by the same DB — the in-process Map seam does not work because
     // the runner and the submit_outcome MCP tool run in different processes.
     agentRunSessionStore: asFunction(() => new DbAgentRunSessionStore(container)).scoped(),
+    // Context overlay (Phase 1): hybrid TDCR resolver. Resolves the per-capability
+    // ContextModule (code-first registry, fails closed), reads the mandatory floor
+    // via the queryEngine (org-scoped query_index), packs under a token budget, and
+    // persists one append-only AgentContextBundle per run. Resolves `queryEngine`
+    // lazily from the container at call time.
+    agentContextResolver: asFunction(() => new ContextResolverImpl(container)).scoped(),
     agentWorkflowBridge: asFunction(
       ({ agentRuntime, dispositionService }: { agentRuntime: AgentRuntimeService; dispositionService: DispositionService }) =>
         new AgentWorkflowBridgeService({
