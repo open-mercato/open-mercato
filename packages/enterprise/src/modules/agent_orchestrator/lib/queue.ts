@@ -2,8 +2,15 @@ import { createModuleQueue, type Queue } from '@open-mercato/queue'
 
 export const AGENT_ORCHESTRATOR_LLM_JUDGE_QUEUE = 'agent-orchestrator-llm-judge'
 
+/** F2: per-org metric rollup queue — the scheduler enqueues one job per org per interval. */
+export const AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE = 'agent-orchestrator-metric-rollup'
+
 export type LlmJudgeJobPayload = {
   runId: string
+  scope: { tenantId: string; organizationId: string }
+}
+
+export type MetricRollupJobPayload = {
   scope: { tenantId: string; organizationId: string }
 }
 

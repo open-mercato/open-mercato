@@ -523,6 +523,51 @@ export class AgentEvalResult {
   createdAt: Date = new Date()
 }
 
+/**
+ * A precomputed per-agent KPI window (F2 metric rollups). Append-only (omits
+ * `updated_at`/`deleted_at`): each row is an immutable snapshot of an agent's
+ * metrics over a fixed `[windowStart, windowEnd)`. The rollup worker recomputes
+ * and re-stamps a row idempotently per `(organizationId, agentId, windowStart)`
+ * so the metrics endpoint reads a stable window with a live fallback instead of
+ * a capped live scan. `metrics` jsonb shape is validated by the Zod schema in
+ * data/validators.ts. Other modules referenced by FK id only.
+ */
+@Entity({ tableName: 'agent_metric_rollups' })
+@Index({ name: 'agent_metric_rollups_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_metric_rollups_lookup_idx', properties: ['organizationId', 'agentId', 'windowStart'] })
+export class AgentMetricRollup {
+  [OptionalProps]?: 'computedAt' | 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** Agent definition id — mirrors AgentRun.agentId (NOT agentDefinitionId). */
+  @Property({ name: 'agent_id', type: 'varchar', length: 100 })
+  agentId!: string
+
+  @Property({ name: 'window_start', type: Date })
+  windowStart!: Date
+
+  @Property({ name: 'window_end', type: Date })
+  windowEnd!: Date
+
+  @Property({ name: 'computed_at', type: Date, onCreate: () => new Date() })
+  computedAt: Date = new Date()
+
+  /** override/eval-pass/approve-unchanged/latency/cost/count KPIs (validated by Zod). */
+  @Property({ name: 'metrics', type: 'jsonb' })
+  metrics!: unknown
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
 export type AgentRunSessionStatus = 'pending' | 'completed'
 
 /**
