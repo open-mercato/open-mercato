@@ -90,6 +90,8 @@ function resolvePathnameId(pathname: string): string | undefined {
   return decodeURIComponent(runId)
 }
 
+const LOG_PAGE_SIZE = 50
+
 export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const pathname = usePathname()
   const router = useRouter()
@@ -105,6 +107,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [logs, setLogs] = React.useState<LogEntry[]>([])
   const [isLoadingLogs, setIsLoadingLogs] = React.useState(false)
+  const [logsTotal, setLogsTotal] = React.useState(0)
+  const [logsPage, setLogsPage] = React.useState(1)
+  const logsPageRef = React.useRef(1)
 
   const resolveCurrentRunId = React.useCallback(() => {
     return runId ?? (
@@ -140,18 +145,22 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
     setIsLoading(false)
   }, [resolveCurrentRunId, t])
 
-  const loadLogs = React.useCallback(async () => {
+  const loadLogs = React.useCallback(async (page?: number) => {
     const currentRunId = resolveCurrentRunId()
     if (!currentRunId) return
+    const targetPage = page ?? logsPageRef.current
     setIsLoadingLogs(true)
-    const params = new URLSearchParams({ runId: currentRunId, pageSize: '50' })
-    const call = await apiCall<{ items: LogEntry[] }>(
+    const params = new URLSearchParams({ runId: currentRunId, pageSize: String(LOG_PAGE_SIZE), page: String(targetPage) })
+    const call = await apiCall<{ items: LogEntry[]; total?: number }>(
       `/api/integrations/logs?${params.toString()}`,
       undefined,
-      { fallback: { items: [] } },
+      { fallback: { items: [], total: 0 } },
     )
     if (call.ok && call.result) {
       setLogs(call.result.items)
+      if (typeof call.result.total === 'number') setLogsTotal(call.result.total)
+      logsPageRef.current = targetPage
+      setLogsPage(targetPage)
     }
     setIsLoadingLogs(false)
   }, [resolveCurrentRunId])
@@ -431,6 +440,35 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                 }))}
                 emptyMessage={t('data_sync.runs.detail.noLogs')}
               />
+            )}
+            {logsTotal > LOG_PAGE_SIZE && (
+              <div className="mt-4 flex items-center justify-between gap-2">
+                <span className="text-sm text-muted-foreground">
+                  {t('data_sync.runs.detail.logs.range', '{from}–{to} of {total}', {
+                    from: (logsPage - 1) * LOG_PAGE_SIZE + 1,
+                    to: Math.min(logsPage * LOG_PAGE_SIZE, logsTotal),
+                    total: logsTotal,
+                  })}
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={logsPage <= 1 || isLoadingLogs}
+                    onClick={() => { void loadLogs(logsPage - 1) }}
+                  >
+                    {t('data_sync.runs.detail.logs.previous', 'Previous')}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={logsPage * LOG_PAGE_SIZE >= logsTotal || isLoadingLogs}
+                    onClick={() => { void loadLogs(logsPage + 1) }}
+                  >
+                    {t('data_sync.runs.detail.logs.next', 'Next')}
+                  </Button>
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>
