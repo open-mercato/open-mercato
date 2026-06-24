@@ -15,6 +15,7 @@ export {
   resolveContextModule,
   listContextCapabilities,
   entityProvenance,
+  retrievalProvenance,
 } from './registry'
 export type {
   ContextModule,
@@ -23,3 +24,5 @@ export type {
 } from './registry'
 export { estimateTokens, packCandidates } from './packer'
 export type { PackCandidate, PackResult } from './packer'
+export { readRetrievalSource } from './retrievalSource'
+export type { SearchServiceLike, SearchHit, RetrievalScope } from './retrievalSource'
