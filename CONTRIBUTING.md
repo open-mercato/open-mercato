@@ -36,9 +36,9 @@ This ensures design decisions are documented and the codebase remains well-under
 
 ### Package Previews
 
-PRs do not publish npm canary packages automatically. Maintainers can add `publish-pkg-preview` to publish pkg.pr.new package previews for the current PR commit. If a fresh preview is needed after more commits, remove and re-add the label.
+PRs do not publish npm canary packages automatically. Maintainers can publish pkg.pr.new package previews for a PR by dispatching the `Package Previews` workflow manually with the PR number — run it from the Actions tab, with `gh workflow run package-previews.yml --ref develop -f pr_number=<PR>`, or via the `om-auto-publish-pr` skill. To publish a fresh preview after more commits, re-run the dispatch with the same PR number.
 
-The legacy npm canary snapshot path is still available for comparison by adding `publish-npm-snapshot` on a trusted same-repository PR branch. That workflow publishes real npm canary packages and runs standalone app integration against the exact snapshot, so use it only when pkg.pr.new previews are not enough evidence.
+The legacy npm canary snapshot path is still available for comparison by dispatching the `NPM Snapshot Preview` workflow manually with the PR number on a trusted same-repository PR branch. That workflow publishes real npm canary packages and runs standalone app integration against the exact snapshot, so use it only when pkg.pr.new previews are not enough evidence. Both preview workflows are restricted to same-repository PR branches.
 
 ## Helpful Resources
 
