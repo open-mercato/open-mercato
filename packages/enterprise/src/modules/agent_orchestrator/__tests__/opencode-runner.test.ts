@@ -252,6 +252,29 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     expect(deleteSessionApiKeyMock).toHaveBeenCalledTimes(1)
   })
 
+  it('stamps the declared model (alongside runtime) on runs.create so the cockpit can show/filter runs by model', async () => {
+    const entry = registerExampleFileAgent()
+    const { calls, commandBus, container } = makeHarness()
+    const sessionTokenRef = { value: '' }
+    const agentSentRef = { value: undefined as string | undefined }
+    const client = makeFakeClient({ outcome: validOutcome, sessionTokenRef, agentSentRef, container })
+
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: client,
+    })
+
+    await runner.run(entry, { dealId: 'deal-1' }, runCtx)
+
+    const createCall = calls.find((c) => c.id === 'agent_orchestrator.runs.create')!
+    // model comes from the registry entry's declared defaultModel (was always null before).
+    expect(createCall.input.model).toBe('claude-sonnet-4-6')
+    // runtime + externalRunId remain stamped (F8) — model is additive alongside them.
+    expect(createCall.input.runtime).toBe('opencode')
+    expect(createCall.input.externalRunId).toBe('ses_fake_1')
+  })
+
   it('fails the run when the agent never submits an outcome (idle without outcome, after the corrective nudge)', async () => {
     const entry = registerExampleFileAgent()
     const { calls, commandBus, container } = makeHarness()
