@@ -82,6 +82,8 @@ export async function createRun(
      */
     runtime?: string | null
     externalRunId?: string | null
+    /** Declared model id (e.g. `anthropic/claude-sonnet-4-5`); null when the agent uses the tenant default. */
+    model?: string | null
   },
 ): Promise<string> {
   const { result } = await commandBus.execute<typeof input, { runId: string }>(

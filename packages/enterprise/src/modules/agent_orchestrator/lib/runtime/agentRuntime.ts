@@ -126,6 +126,7 @@ export class AgentRuntimeService {
       // stamped. The `(runtime, externalRunId)` unique index allows multiple
       // nulls, so leaving externalRunId null is correct here.
       runtime: 'in-process',
+      model: entry.defaultModel ?? null,
     })
 
     // Load the caller's effective ACL so the agent's read-only tools (e.g.
