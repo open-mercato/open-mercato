@@ -146,7 +146,6 @@ export default function AgentsRegistryPage() {
             <Avatar label={agent.label || agent.id} size="sm" />
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-foreground">{agent.label || agent.id}</div>
-              <div className="truncate font-mono text-xs text-muted-foreground">{agent.id}</div>
             </div>
           </div>
         )
