@@ -1,18 +1,84 @@
 import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
 import { matchCacheKeyPattern } from '../patterns'
 
+const EXPIRED_SWEEP_WRITE_INTERVAL = 256
+
 /**
- * In-memory cache strategy with tag support
- * Fast but data is lost when process restarts
+ * Upper bound on entries scanned by a single amortized sweep pass. Keeps the
+ * sweep O(budget) instead of O(store size) so a large, hot store never pays a
+ * full-store scan latency spike on the `set()` that crosses the sweep interval.
+ * The scan walks from the LRU head, where expired-and-cold entries accumulate;
+ * anything beyond the budget is reclaimed on a later sweep, on access, by LRU
+ * eviction once the cap is exceeded, or by an explicit `cleanup()`.
  */
-export function createMemoryStrategy(options?: { defaultTtl?: number }): CacheStrategy {
+const EXPIRED_SWEEP_MAX_SCAN = 1_000
+
+/**
+ * Default upper bound on the number of entries a memory cache retains.
+ * Bounds memory for long-lived (process-wide) instances; LRU eviction drops
+ * the least-recently-used entries once the cap is exceeded. Override via the
+ * `maxEntries` option (or `CACHE_MEMORY_MAX_ENTRIES`); a non-positive value
+ * disables the cap (unbounded — only safe for short-lived instances).
+ */
+export const DEFAULT_MEMORY_MAX_ENTRIES = 50_000
+
+function normalizeMaxEntries(raw?: number): number {
+  if (raw === undefined) return DEFAULT_MEMORY_MAX_ENTRIES
+  if (!Number.isFinite(raw) || raw <= 0) return Number.POSITIVE_INFINITY
+  return Math.floor(raw)
+}
+
+/**
+ * In-memory cache strategy with tag support.
+ * Fast but data is lost when process restarts.
+ *
+ * Bounded by an LRU cap (`maxEntries`, default {@link DEFAULT_MEMORY_MAX_ENTRIES},
+ * env-tunable via `CACHE_MEMORY_MAX_ENTRIES` resolved in the cache service) so a
+ * process-shared instance (OM_BOOTSTRAP_CACHE, long-lived workers, memory-backed
+ * CRUD list cache) cannot grow without limit on user-controllable key
+ * cardinality. Recency is refreshed on read (Map re-insertion), the oldest
+ * entries are evicted on write, and expired entries are reclaimed by an
+ * amortized sweep every N writes — no per-instance timer, so the per-request
+ * default stays leak-free (a per-instance setInterval would pin every request's
+ * Maps for the process lifetime).
+ */
+export function createMemoryStrategy(options?: { defaultTtl?: number; maxEntries?: number }): CacheStrategy {
   const store = new Map<string, CacheEntry>()
   const tagIndex = new Map<string, Set<string>>() // tag -> Set of keys
   const defaultTtl = options?.defaultTtl
+  const maxEntries = normalizeMaxEntries(options?.maxEntries)
+  let writesSinceSweep = 0
+  // Lightweight observability counters so operators can tell whether the bound
+  // is actively protecting the process. Process-global for this instance, not
+  // tenant-scoped; surfaced via stats().
+  let evictions = 0
+  let sweeps = 0
+  let lastSweepReclaimed = 0
 
   function isExpired(entry: CacheEntry): boolean {
     if (entry.expiresAt === null) return false
     return Date.now() > entry.expiresAt
+  }
+
+  // LRU bookkeeping: re-insert on read so the most-recently-used entry moves
+  // to the tail (Map preserves insertion order), mirroring the rbacDefaultCache
+  // precedent; evictIfNeeded then drops from the head (least-recently-used).
+  function touchKey(key: string, entry: CacheEntry): void {
+    if (maxEntries === Number.POSITIVE_INFINITY) return
+    store.delete(key)
+    store.set(key, entry)
+  }
+
+  function evictIfNeeded(): void {
+    if (maxEntries === Number.POSITIVE_INFINITY) return
+    while (store.size > maxEntries) {
+      const oldest = store.keys().next().value
+      if (typeof oldest !== 'string') break
+      const entry = store.get(oldest)
+      store.delete(oldest)
+      if (entry) removeFromTagIndex(oldest, entry.tags)
+      evictions++
+    }
   }
 
   function cleanupExpiredEntry(key: string, entry: CacheEntry): void {
@@ -50,6 +116,29 @@ export function createMemoryStrategy(options?: { defaultTtl?: number }): CacheSt
     }
   }
 
+  // Amortized reclamation of already-expired entries. Runs every N writes
+  // instead of on a timer, keeping the no-shared-state property that makes the
+  // per-request default safe. Independent of the LRU cap so expired-but-cold
+  // entries are reclaimed even when the store stays under `maxEntries`. The
+  // scan is budgeted (EXPIRED_SWEEP_MAX_SCAN entries from the LRU head per pass)
+  // so it stays O(budget) on large stores instead of scanning every entry.
+  function sweepExpiredIfDue(): void {
+    if (++writesSinceSweep < EXPIRED_SWEEP_WRITE_INTERVAL) return
+    writesSinceSweep = 0
+    sweeps++
+    let scanned = 0
+    let reclaimed = 0
+    for (const [key, entry] of store.entries()) {
+      if (scanned >= EXPIRED_SWEEP_MAX_SCAN) break
+      scanned++
+      if (isExpired(entry)) {
+        cleanupExpiredEntry(key, entry)
+        reclaimed++
+      }
+    }
+    lastSweepReclaimed = reclaimed
+  }
+
   const get = async (key: string, options?: CacheGetOptions): Promise<CacheValue | null> => {
     const entry = store.get(key)
     if (!entry) return null
@@ -62,6 +151,7 @@ export function createMemoryStrategy(options?: { defaultTtl?: number }): CacheSt
       return null
     }
 
+    touchKey(key, entry)
     return entry.value
   }
 
@@ -86,6 +176,8 @@ export function createMemoryStrategy(options?: { defaultTtl?: number }): CacheSt
 
     store.set(key, entry)
     addToTagIndex(key, tags)
+    sweepExpiredIfDue()
+    evictIfNeeded()
   }
 
   const has = async (key: string): Promise<boolean> => {
@@ -142,14 +234,20 @@ export function createMemoryStrategy(options?: { defaultTtl?: number }): CacheSt
     return allKeys.filter((key) => matchCacheKeyPattern(key, pattern))
   }
 
-  const stats = async (): Promise<{ size: number; expired: number }> => {
+  const stats = async (): Promise<{
+    size: number
+    expired: number
+    evictions: number
+    sweeps: number
+    lastSweepReclaimed: number
+  }> => {
     let expired = 0
     for (const entry of store.values()) {
       if (isExpired(entry)) {
         expired++
       }
     }
-    return { size: store.size, expired }
+    return { size: store.size, expired, evictions, sweeps, lastSweepReclaimed }
   }
 
   const cleanup = async (): Promise<number> => {

@@ -1,6 +1,10 @@
 import { z } from 'zod'
 import { restoreNotificationSchema } from '../../../data/validators'
-import { resolveNotificationContext } from '../../../lib/routeHelpers'
+import {
+  NOTIFICATION_RESOURCE_KIND,
+  resolveNotificationContext,
+  runGuardedNotificationWrite,
+} from '../../../lib/routeHelpers'
 
 export const metadata = {
   PUT: { requireAuth: true },
@@ -8,12 +12,24 @@ export const metadata = {
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const { service, scope } = await resolveNotificationContext(req)
+  const { service, scope, ctx } = await resolveNotificationContext(req)
 
   const body = await req.json().catch(() => ({}))
   const input = restoreNotificationSchema.parse(body)
 
-  await service.restoreDismissed(id, input.status, scope)
+  const guarded = await runGuardedNotificationWrite(
+    ctx.container,
+    scope,
+    req,
+    {
+      resourceKind: NOTIFICATION_RESOURCE_KIND,
+      resourceId: id,
+      operation: 'update',
+      payload: input as Record<string, unknown>,
+    },
+    () => service.restoreDismissed(id, input.status, scope),
+  )
+  if (!guarded.ok) return guarded.response
 
   return Response.json({ ok: true })
 }

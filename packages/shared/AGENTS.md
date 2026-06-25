@@ -35,12 +35,14 @@ yarn workspace @open-mercato/shared build
 | `api/` | When building scoped API payloads | `@open-mercato/shared/lib/api/scoped` |
 | `auth/` | When you need wildcard-aware feature matching or shared auth helpers | `@open-mercato/shared/lib/auth/featureMatch` |
 | `boolean/` | When parsing boolean strings from env/query params | `@open-mercato/shared/lib/boolean` |
+| `browser/` | When persisting client UI state to `localStorage` — use the safe wrappers and the versioned-envelope helper instead of raw `localStorage` reads/writes | `@open-mercato/shared/lib/browser/safeLocalStorage`, `@open-mercato/shared/lib/browser/versionedPreference` |
 | `commands/` | When implementing undo/redo command pattern | `@open-mercato/shared/lib/commands` |
 | `commands/flush` | When a command mutates entities across multiple phases (scalar + relation syncs) — wraps phases in a single atomic flush | `@open-mercato/shared/lib/commands/flush` — `withAtomicFlush(em, phases, { transaction? })` |
 | `commands/runCrudCommandWrite` | When a command writes an entity + custom fields + CRUD/index side effects in one logical operation — composes fork → atomic flush → custom-field write → side-effect queue in the only correct order. **Prefer this over composing the primitives by hand for new commands.** | `@open-mercato/shared/lib/commands/runCrudCommandWrite` — `runCrudCommandWrite({ ctx, entityId, action, scope, phases, customFields?, events?, indexer?, sideEffect })` |
 | `crud/` | When building CRUD routes | `@open-mercato/shared/lib/crud` |
 | `custom-fields/` | When handling custom field payloads | `@open-mercato/shared/lib/custom-fields` |
 | `data/` | When you need `DataEngine` or `QueryEngine` types | `@open-mercato/shared/lib/data/engine` |
+| `db/` | When resolving the ORM/connection-pool config (`resolvePoolConfig`, pool/timeout env knobs) | `@open-mercato/shared/lib/db/mikro` |
 | `di/` | When setting up dependency injection (Awilix) | `@open-mercato/shared/lib/di` |
 | `encryption/` | When querying encrypted entities (MUST use instead of raw `em.find`) | `@open-mercato/shared/lib/encryption/find` |
 | `i18n/` | When translating strings — `useT()` client-side, `resolveTranslations()` server-side | `@open-mercato/shared/lib/i18n/context` or `/server` |
@@ -66,6 +68,17 @@ When you need shared type definitions, import from these:
 
 ## Key Patterns
 
+### Database Connection Pool — MUST keep total demand under `max_connections`
+
+The MikroORM pool is configured from env via `resolvePoolConfig(process.env)` in
+`@open-mercato/shared/lib/db/mikro` (pure and unit-testable). Each process gets
+its own pool (`DB_POOL_MAX`, default 20). Because background worker jobs each run
+in their own request container (one pooled connection per in-flight job), the
+peak connection demand of all processes against one database is additive.
+
+- **Invariant:** `web_pool_max + worker_pool_max + scheduler/overhead ≤ Postgres max_connections` (with headroom). Violating it lets background work starve the request/onboarding path — see `packages/queue/AGENTS.md` → Connection Budget.
+- Tune per process with `DB_POOL_MAX` (and the opt-in `DB_STATEMENT_TIMEOUT_MS` / `DB_LOCK_TIMEOUT_MS`; `idle_in_transaction` defaults to a finite 120s). Bound the worker's job concurrency with `OM_WORKERS_DB_CONNECTION_BUDGET`.
+
 ### Encryption — MUST use instead of raw ORM queries
 
 ```typescript
@@ -78,6 +91,24 @@ const results = await findWithDecryption(em, 'Entity', filter, { tenantId, organ
 ```typescript
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 ```
+
+### Browser Storage — use the shared helpers instead of raw `localStorage`
+
+Persisted client UI state MUST go through the shared `browser/` helpers, never raw `window.localStorage` reads/writes scattered per component:
+
+```typescript
+import { readJsonFromLocalStorage, writeJsonToLocalStorage } from '@open-mercato/shared/lib/browser/safeLocalStorage'
+import { readVersionedPreference, writeVersionedPreference, clearVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
+```
+
+- `safeLocalStorage` — SSR-safe, error-swallowing JSON get/set/remove. Use for raw values.
+- `versionedPreference` — wraps a value in a `{ v, data }` envelope so schema changes can migrate or safely discard stale data. `readVersionedPreference(key, version, isValid, fallback, { legacyIsValid })` validates the envelope, discards version-mismatched or malformed data, and (when `legacyIsValid` is supplied) migrates a pre-envelope bare value forward on the next write. `readVersionedIdSet`/`writeVersionedIdSet` are convenience wrappers for the common "set of ids" shape.
+
+**Versioning threshold** — when to reach for `versionedPreference` vs. a raw scalar:
+
+- **Trivial scalar flags** (a single boolean/number/string with no schema to evolve, e.g. `om:sidebarCollapsed`, `om:progress:expanded`) MAY stay raw via `safeLocalStorage` (or a plain `'1'`/`'0'`). Add a one-line comment noting the deliberate choice.
+- **Structured values** (objects, records, arrays of objects — anything whose shape can change incompatibly, e.g. a perspective snapshot, a model-picker selection, a sessions cache) MUST use a versioned envelope so a future shape change can migrate or discard old data instead of crashing or silently corrupting state.
+- A slot that already carries its own inline version discriminator (e.g. `{ v, ... }` checked on read) is already migratable and need not be re-wrapped — re-wrapping changes the on-disk format and discards existing user data.
 
 ### i18n — MUST use for all user-facing strings
 

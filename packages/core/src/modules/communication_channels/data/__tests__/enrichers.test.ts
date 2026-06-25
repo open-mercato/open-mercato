@@ -1,4 +1,5 @@
 import { enrichers } from '../enrichers'
+import { CommunicationChannel, ExternalConversation, MessageChannelLink } from '../entities'
 import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
 
 const findEnricher = (id: string): ResponseEnricher => {
@@ -8,8 +9,8 @@ const findEnricher = (id: string): ResponseEnricher => {
 }
 
 describe('communication_channels enrichers — registration', () => {
-  it('exports exactly 4 enrichers, all targeting messages.message', () => {
-    expect(enrichers).toHaveLength(4)
+  it('exports exactly 2 enrichers, all targeting messages.message', () => {
+    expect(enrichers).toHaveLength(2)
     for (const e of enrichers) {
       expect(e.targetEntity).toBe('messages.message')
     }
@@ -122,5 +123,123 @@ describe('messageReactionsEnricher — batched lookup (no N+1)', () => {
     // A per-record (N+1) implementation would hit the data source 25 times;
     // the batched enricher issues exactly one query for the whole page.
     expect(find).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('communication_channels enrichers — no duplicate MessageChannelLink lookups (#3183)', () => {
+  // em.find branches on the entity argument so we can count per-entity queries.
+  // findWithDecryption is a thin wrapper over em.find(entity, where, options),
+  // so each entity passed to findWithDecryption surfaces here as call[0].
+  function makeFind() {
+    return jest.fn(async (entity: unknown) => {
+      if (entity === MessageChannelLink) {
+        return [
+          {
+            messageId: 'm1',
+            externalConversationId: 'c1',
+            providerKey: 'slack',
+            channelType: 'chat',
+            direction: 'inbound',
+            deliveryStatus: 'sent',
+            channelContentType: 'text',
+            channelPayload: { blocks: [] },
+            interactiveState: null,
+            channelMetadata: null,
+          },
+          {
+            messageId: 'm2',
+            externalConversationId: 'c1',
+            providerKey: 'slack',
+            channelType: 'chat',
+            direction: 'outbound',
+            deliveryStatus: null,
+            channelContentType: null,
+            channelPayload: null,
+            interactiveState: null,
+            channelMetadata: null,
+          },
+        ]
+      }
+      if (entity === ExternalConversation) {
+        return [{ id: 'c1', channelId: 'ch1', contactPersonId: 'p1', assignedUserId: 'u9', subject: 'Hello' }]
+      }
+      if (entity === CommunicationChannel) {
+        return [{ id: 'ch1', capabilities: { reactions: true } }]
+      }
+      // MessageReaction → none
+      return []
+    })
+  }
+
+  it('runs the full enrichment pass with a single MessageChannelLink (and ExternalConversation) query', async () => {
+    const find = makeFind()
+    const ctx = {
+      organizationId: 'org',
+      tenantId: 'tenant',
+      userId: 'user-1',
+      em: { find },
+      container: { resolve: () => null },
+    } as any
+
+    // Mirror the enricher-runner: every active enricher runs sequentially over the
+    // same page, threading the progressively enriched records and sharing one em.
+    let items: any[] = [{ id: 'm1' }, { id: 'm2' }]
+    for (const e of enrichers) {
+      items = (await e.enrichMany!(items, ctx)) as any[]
+    }
+
+    const linkQueries = find.mock.calls.filter((c) => c[0] === MessageChannelLink)
+    const conversationQueries = find.mock.calls.filter((c) => c[0] === ExternalConversation)
+    // Before #3183 the channel/payload/contact enrichers each issued their own
+    // MessageChannelLink $in query (3 total) and two of them queried
+    // ExternalConversation (2 total). A single batched channel enricher loads each
+    // batch once per pass.
+    expect(linkQueries).toHaveLength(1)
+    expect(conversationQueries).toHaveLength(1)
+  })
+
+  it('the merged channel enricher produces _channel, _channelPayload and _channelContact in one pass', async () => {
+    const find = makeFind()
+    const ctx = {
+      organizationId: 'org',
+      tenantId: 'tenant',
+      userId: 'user-1',
+      em: { find },
+      container: { resolve: () => null },
+    } as any
+
+    const enricher = findEnricher('communication_channels.message-channel')
+    const out = (await enricher.enrichMany!(
+      [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }] as any,
+      ctx,
+    )) as any[]
+
+    // m1: link → conversation → channel all resolve.
+    expect(out[0]._channel).toMatchObject({
+      providerKey: 'slack',
+      channelType: 'chat',
+      direction: 'inbound',
+      deliveryStatus: 'sent',
+      capabilities: { reactions: true },
+    })
+    expect(out[0]._channelPayload).toMatchObject({
+      channelContentType: 'text',
+      channelPayload: { blocks: [] },
+    })
+    expect(out[0]._channelContact).toMatchObject({
+      contactPersonId: 'p1',
+      assignedUserId: 'u9',
+      subject: 'Hello',
+    })
+
+    // m2: link + resolvable conversation/channel, but it is an outbound payload-less row.
+    expect(out[1]._channel).not.toBeNull()
+    expect(out[1]._channelPayload).not.toBeNull()
+    expect(out[1]._channelContact).toMatchObject({ contactPersonId: 'p1' })
+
+    // m3: no link → every channel field is null.
+    expect(out[2]._channel).toBeNull()
+    expect(out[2]._channelPayload).toBeNull()
+    expect(out[2]._channelContact).toBeNull()
   })
 })

@@ -4,6 +4,7 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import { getCustomerAuthFromRequest, requireCustomerFeature } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { inviteUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
@@ -95,6 +96,15 @@ export async function POST(req: Request) {
       displayName: parsed.data.displayName || null,
     },
   )
+
+  void emitCustomerAccountsEvent('customer_accounts.user.invited', {
+    invitationId: invitation.id,
+    email: invitation.email,
+    customerEntityId: invitation.customerEntityId || null,
+    invitedByType: 'portal',
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+  }).catch(() => undefined)
 
   try {
     await sendCustomerInvitationEmail({

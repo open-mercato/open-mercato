@@ -34,12 +34,13 @@ import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { apiCall, withScopedApiRequestHeaders } from './utils/apiCall'
 import { buildOptimisticLockHeader } from './utils/optimisticLock'
-import { surfaceRecordConflict } from './conflicts'
+import { useGuardedMutation } from './injection/useGuardedMutation'
 import { raiseCrudError } from './utils/serverErrors'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
 import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
 import { formatWithPublicDateFormat, normalizeDateFormatPattern } from '../primitives/date-format'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { readVersionedPreference, writeVersionedPreference, clearVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from './FlashMessages'
 import { useConfirmDialog } from './confirm-dialog'
@@ -367,10 +368,14 @@ const EMPTY_FILTER_VALUES: FilterValues = Object.freeze({}) as FilterValues
 //   sticky right-0  → shadow falls to the LEFT  (use `before:` + `-left-2` + `to-l`)
 //   sticky left-0   → shadow falls to the RIGHT (use `after:`  + `-right-2` + `to-r`)
 // `foreground/8` matches the `--shadow-md` token opacity (8%) and is theme-aware.
+// Column pinning (and these shadows) is md-and-up only: below `md` the pinned
+// first column + actions column can be wider than the whole viewport, which
+// leaves the scrollable middle columns no visible window at all — narrow
+// screens fall back to plain horizontal scroll so every column stays reachable.
 const STICKY_RIGHT_SHADOW_CLASS =
-  'before:absolute before:inset-y-0 before:-left-2 before:w-2 before:bg-gradient-to-l before:from-foreground/8 before:to-transparent before:pointer-events-none'
+  'md:before:absolute md:before:inset-y-0 md:before:-left-2 md:before:w-2 md:before:bg-gradient-to-l md:before:from-foreground/8 md:before:to-transparent md:before:pointer-events-none'
 const STICKY_LEFT_SHADOW_CLASS =
-  'after:absolute after:inset-y-0 after:-right-2 after:w-2 after:bg-gradient-to-r after:from-foreground/8 after:to-transparent after:pointer-events-none'
+  'md:after:absolute md:after:inset-y-0 md:after:-right-2 md:after:w-2 md:after:bg-gradient-to-r md:after:from-foreground/8 md:after:to-transparent md:after:pointer-events-none'
 
 type BulkActionExecuteResult = {
   ok: boolean
@@ -480,6 +485,19 @@ type PerspectiveSnapshot = {
   updatedAt: number
 }
 
+// Versioned-envelope discriminator for the persisted perspective snapshot. Bump
+// when the snapshot shape changes incompatibly and add a read-old migration
+// branch; see `@open-mercato/shared/lib/browser/versionedPreference`.
+const PERSPECTIVE_SNAPSHOT_VERSION = 1
+
+type StoredPerspectiveSnapshot = { perspectiveId?: unknown; settings?: unknown; updatedAt?: unknown }
+
+function isStoredPerspectiveSnapshot(value: unknown): value is StoredPerspectiveSnapshot {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const settings = (value as Record<string, unknown>).settings
+  return typeof settings === 'object' && settings !== null
+}
+
 function readPerspectiveCookie(tableId: string): string | null {
   if (typeof document === 'undefined') return null
   const key = `${PERSPECTIVE_COOKIE_PREFIX}:${tableId}`
@@ -496,40 +514,31 @@ function writePerspectiveCookie(tableId: string, perspectiveId: string | null): 
   document.cookie = `${key}=${value}; Path=/; ${expires}; SameSite=Lax`
 }
 
-function readPerspectiveSnapshot(tableId: string): PerspectiveSnapshot | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(`${PERSPECTIVE_STORAGE_PREFIX}:${tableId}`)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return null
-    const perspectiveId =
-      typeof parsed.perspectiveId === 'string' && parsed.perspectiveId.trim().length > 0
-        ? parsed.perspectiveId
-        : null
-    const settings = typeof parsed.settings === 'object' && parsed.settings !== null
-      ? parsed.settings as PerspectiveSettings
+export function readPerspectiveSnapshot(tableId: string): PerspectiveSnapshot | null {
+  const parsed = readVersionedPreference<StoredPerspectiveSnapshot | null>(
+    `${PERSPECTIVE_STORAGE_PREFIX}:${tableId}`,
+    PERSPECTIVE_SNAPSHOT_VERSION,
+    (value): value is StoredPerspectiveSnapshot | null => isStoredPerspectiveSnapshot(value),
+    null,
+    { legacyIsValid: (value): value is StoredPerspectiveSnapshot | null => isStoredPerspectiveSnapshot(value) },
+  )
+  if (!parsed) return null
+  const perspectiveId =
+    typeof parsed.perspectiveId === 'string' && parsed.perspectiveId.trim().length > 0
+      ? parsed.perspectiveId
       : null
-    const updatedAt = typeof parsed.updatedAt === 'number' ? parsed.updatedAt : Date.now()
-    if (!settings) return null
-    return { perspectiveId, settings, updatedAt }
-  } catch {
-    return null
-  }
+  const settings = parsed.settings as PerspectiveSettings
+  const updatedAt = typeof parsed.updatedAt === 'number' ? parsed.updatedAt : Date.now()
+  return { perspectiveId, settings, updatedAt }
 }
 
-function writePerspectiveSnapshot(tableId: string, snapshot: PerspectiveSnapshot | null) {
-  if (typeof window === 'undefined') return
+export function writePerspectiveSnapshot(tableId: string, snapshot: PerspectiveSnapshot | null) {
   const key = `${PERSPECTIVE_STORAGE_PREFIX}:${tableId}`
-  try {
-    if (!snapshot) {
-      window.localStorage.removeItem(key)
-      return
-    }
-    window.localStorage.setItem(key, JSON.stringify(snapshot))
-  } catch {
-    // ignore storage errors
+  if (!snapshot) {
+    clearVersionedPreference(key)
+    return
   }
+  writeVersionedPreference(key, PERSPECTIVE_SNAPSHOT_VERSION, snapshot)
 }
 
 function sanitizePerspectiveSettings(source?: PerspectiveSettings | null): PerspectiveSettings | null {
@@ -1175,6 +1184,7 @@ export function DataTable<T>({
           perspectives: [],
           defaultPerspectiveId: null,
           rolePerspectives: [],
+          manageableRolePerspectives: [],
           roles: [],
           canApplyToRoles: false,
         }
@@ -1707,9 +1717,49 @@ export function DataTable<T>({
   }
 
   const perspectiveQueryKey: [string, string | null] = ['table-perspectives', perspectiveTableId]
+  const rolePerspectivesForLocking = React.useMemo(
+    () => perspectiveData?.manageableRolePerspectives ?? perspectiveData?.rolePerspectives ?? [],
+    [perspectiveData],
+  )
+
+  type PerspectiveMutationContext = {
+    formId: string
+    resourceKind: 'perspective'
+    retryLastMutation: () => Promise<boolean>
+  }
+  const perspectiveMutationContextId = `data-table-perspectives:${perspectiveTableId ?? 'unknown'}`
+  const { runMutation: runPerspectiveMutation, retryLastMutation: retryPerspectiveMutation } =
+    useGuardedMutation<PerspectiveMutationContext>({
+      contextId: perspectiveMutationContextId,
+      blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+    })
+  const perspectiveMutationContext = React.useMemo<PerspectiveMutationContext>(
+    () => ({
+      formId: perspectiveMutationContextId,
+      resourceKind: 'perspective',
+      retryLastMutation: retryPerspectiveMutation,
+    }),
+    [perspectiveMutationContextId, retryPerspectiveMutation],
+  )
+
   const savePerspectiveMutation = useMutation<PerspectiveSaveResponse, Error, SavePerspectivePayload>({
     mutationFn: async (input) => {
       if (!perspectiveTableId) throw new Error('Missing table id')
+      const roleExpectedUpdatedAtByRoleId: Record<string, string> = {}
+      const roleExpectedUpdatedAtByPerspectiveId: Record<string, string> = {}
+      for (const roleId of input.applyToRoles) {
+        const rolePerspectives = rolePerspectivesForLocking.filter((p) => p.roleId === roleId)
+        const matching = rolePerspectives.find((p) => p.name.trim() === input.name.trim()) ?? null
+        const defaultPerspective = input.setRoleDefault
+          ? rolePerspectives.find((p) => p.isDefault) ?? null
+          : null
+        for (const candidate of [matching, defaultPerspective]) {
+          if (!candidate?.updatedAt) continue
+          roleExpectedUpdatedAtByPerspectiveId[candidate.id] = candidate.updatedAt
+        }
+        const roleFallback = matching ?? defaultPerspective
+        if (roleFallback?.updatedAt) roleExpectedUpdatedAtByRoleId[roleId] = roleFallback.updatedAt
+      }
       const payload = {
         perspectiveId: input.perspectiveId ?? undefined,
         name: input.name,
@@ -1717,6 +1767,12 @@ export function DataTable<T>({
         isDefault: input.isDefault,
         applyToRoles: input.applyToRoles,
         setRoleDefault: input.setRoleDefault,
+        ...(Object.keys(roleExpectedUpdatedAtByRoleId).length > 0
+          ? { roleExpectedUpdatedAtByRoleId }
+          : {}),
+        ...(Object.keys(roleExpectedUpdatedAtByPerspectiveId).length > 0
+          ? { roleExpectedUpdatedAtByPerspectiveId }
+          : {}),
       }
       if (process.env.NODE_ENV !== 'production') {
         // eslint-disable-next-line no-console
@@ -1725,26 +1781,32 @@ export function DataTable<T>({
       const existing = input.perspectiveId
         ? perspectiveData?.perspectives.find((p) => p.id === input.perspectiveId) ?? null
         : null
-      const call = await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(existing?.updatedAt ?? null),
-        () => apiCall<PerspectiveSaveResponse>(
-          `/api/perspectives/${encodeURIComponent(perspectiveTableId)}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          },
-        ),
-      )
-      if (call.status === 404) {
-        throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` to regenerate module routes and restart the dev server.'))
-      }
-      if (!call.ok) {
-        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
-      }
-      const result = call.result
-      if (!result) throw new Error(t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
-      return result
+      return runPerspectiveMutation({
+        operation: async () => {
+          const call = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(existing?.updatedAt ?? null),
+            () => apiCall<PerspectiveSaveResponse>(
+              `/api/perspectives/${encodeURIComponent(perspectiveTableId)}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+            ),
+          )
+          if (call.status === 404) {
+            throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` to regenerate module routes and restart the dev server.'))
+          }
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
+          }
+          const result = call.result
+          if (!result) throw new Error(t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
+          return result
+        },
+        context: perspectiveMutationContext,
+        mutationPayload: payload,
+      })
     },
     onSuccess: (data) => {
       if (perspectiveTableId) {
@@ -1754,11 +1816,12 @@ export function DataTable<T>({
         applyPerspectiveSettings(data.perspective.settings, data.perspective.id)
       }
     },
-    onError: (error) => {
+    onError: () => {
+      // Conflict surfacing is handled inside `runPerspectiveMutation`
+      // (surfaceRecordConflict); only the cache refresh remains here.
       if (perspectiveTableId) {
         void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
       }
-      surfaceRecordConflict(error, t)
     },
   })
 
@@ -1782,14 +1845,24 @@ export function DataTable<T>({
   const deletePerspectiveMutation = useMutation<void, Error, { perspectiveId: string }>({
     mutationFn: async ({ perspectiveId }) => {
       if (!perspectiveTableId) throw new Error('Missing table id')
-      const call = await apiCall(
-        `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`,
-        { method: 'DELETE' },
-      )
-      if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
-      if (!call.ok) {
-        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.delete', 'Failed to delete perspective'))
-      }
+      const existing = perspectiveData?.perspectives.find((p) => p.id === perspectiveId) ?? null
+      await runPerspectiveMutation({
+        operation: async () => {
+          const call = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(existing?.updatedAt ?? null),
+            () => apiCall(
+              `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`,
+              { method: 'DELETE' },
+            ),
+          )
+          if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.delete', 'Failed to delete perspective'))
+          }
+        },
+        context: perspectiveMutationContext,
+        mutationPayload: { perspectiveId },
+      })
     },
     onMutate: ({ perspectiveId }) => {
       setDeletingIds((prev) => prev.includes(perspectiveId) ? prev : [...prev, perspectiveId])
@@ -1813,19 +1886,47 @@ export function DataTable<T>({
         initialPerspectiveAppliedRef.current = false
       }
     },
+    onError: () => {
+      // Conflict surfacing is handled inside `runPerspectiveMutation`
+      // (surfaceRecordConflict); only the cache refresh remains here.
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+      }
+    },
   })
 
-  const clearRoleMutation = useMutation<void, Error, { roleId: string }>({
-    mutationFn: async ({ roleId }) => {
+  const clearRoleMutation = useMutation<void, Error, {
+    roleId: string
+    updatedAt?: string | null
+    expectedUpdatedAtByPerspectiveId?: Record<string, string>
+  }>({
+    mutationFn: async ({ roleId, updatedAt, expectedUpdatedAtByPerspectiveId }) => {
       if (!perspectiveTableId) throw new Error('Missing table id')
-      const call = await apiCall(
-        `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`,
-        { method: 'DELETE' },
-      )
-      if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
-      if (!call.ok) {
-        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.clearRoles', 'Failed to clear role perspectives'))
-      }
+      const hasPerRowVersions = expectedUpdatedAtByPerspectiveId
+        && Object.keys(expectedUpdatedAtByPerspectiveId).length > 0
+      await runPerspectiveMutation({
+        operation: async () => {
+          const call = await withScopedApiRequestHeaders(
+            hasPerRowVersions ? {} : buildOptimisticLockHeader(updatedAt ?? null),
+            () => apiCall(
+              `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`,
+              hasPerRowVersions
+                ? {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ roleExpectedUpdatedAtByPerspectiveId: expectedUpdatedAtByPerspectiveId }),
+                }
+                : { method: 'DELETE' },
+            ),
+          )
+          if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.clearRoles', 'Failed to clear role perspectives'))
+          }
+        },
+        context: perspectiveMutationContext,
+        mutationPayload: { roleId },
+      })
     },
     onMutate: ({ roleId }) => {
       setRoleClearingIds((prev) => prev.includes(roleId) ? prev : [...prev, roleId])
@@ -1847,6 +1948,13 @@ export function DataTable<T>({
           initialSnapshotRef.current = null
           initialPerspectiveAppliedRef.current = false
         }
+      }
+    },
+    onError: () => {
+      // Conflict surfacing is handled inside `runPerspectiveMutation`
+      // (surfaceRecordConflict); only the cache refresh remains here.
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
       }
     },
   })
@@ -1871,9 +1979,18 @@ export function DataTable<T>({
     await deletePerspectiveMutation.mutateAsync({ perspectiveId })
   }, [deletePerspectiveMutation])
 
-  const handleClearRole = React.useCallback(async (roleId: string) => {
-    await clearRoleMutation.mutateAsync({ roleId })
-  }, [clearRoleMutation])
+  const handleClearRole = React.useCallback(async (perspective: RolePerspectiveDto) => {
+    const expectedUpdatedAtByPerspectiveId = Object.fromEntries(
+      rolePerspectivesForLocking
+        .filter((item) => item.roleId === perspective.roleId && item.updatedAt)
+        .map((item) => [item.id, item.updatedAt as string]),
+    )
+    await clearRoleMutation.mutateAsync({
+      roleId: perspective.roleId,
+      updatedAt: perspective.updatedAt ?? null,
+      expectedUpdatedAtByPerspectiveId,
+    })
+  }, [clearRoleMutation, rolePerspectivesForLocking])
 
   const handleColumnChooserToggle = React.useCallback((key: string) => {
     const column = table.getColumn(key)
@@ -2708,7 +2825,7 @@ export function DataTable<T>({
                   const columnMeta = (header.column.columnDef as any)?.meta
                   const priority = resolvePriority(header.column)
                   const isFirstDataColumn = headerIndex === 0
-                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` sticky left-0 z-10 bg-background ${STICKY_LEFT_SHADOW_CLASS}` : ''
+                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : ''
                   const headerCellContent = header.isPlaceholder ? null : (
                     <Button
                       variant="ghost"
@@ -2741,7 +2858,7 @@ export function DataTable<T>({
                   <TableHead
                     className={cn(
                       actionsColumnAlign === 'center' ? 'w-0 text-center' : 'w-0 text-right',
-                      stickyActionsColumn && `sticky right-0 z-20 bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
+                      stickyActionsColumn && `md:sticky md:right-0 md:z-20 md:bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
                     )}
                   >
                     {t('ui.dataTable.actionsColumn', 'Actions')}
@@ -2863,7 +2980,7 @@ export function DataTable<T>({
                       ) : content
 
                       return (
-                        <TableCell key={cell.id} className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` sticky left-0 z-10 bg-background ${STICKY_LEFT_SHADOW_CLASS}` : '')}>
+                        <TableCell key={cell.id} className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : '')}>
                           {wrappedContent}
                         </TableCell>
                       )
@@ -2872,7 +2989,7 @@ export function DataTable<T>({
                       <TableCell
                         className={cn(
                           actionsColumnAlign === 'center' ? 'text-center whitespace-nowrap' : 'text-right whitespace-nowrap',
-                          stickyActionsColumn && `sticky right-0 z-10 bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
+                          stickyActionsColumn && `md:sticky md:right-0 md:z-10 md:bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
                         )}
                         data-actions-cell
                       >

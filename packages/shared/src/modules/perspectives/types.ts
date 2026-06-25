@@ -29,6 +29,7 @@ export type PerspectivesIndexResponse = {
   perspectives: PerspectiveDto[]
   defaultPerspectiveId: string | null
   rolePerspectives: RolePerspectiveDto[]
+  manageableRolePerspectives: RolePerspectiveDto[]
   roles: Array<{ id: string; name: string; hasPerspective: boolean; hasDefault: boolean }>
   canApplyToRoles: boolean
 }
