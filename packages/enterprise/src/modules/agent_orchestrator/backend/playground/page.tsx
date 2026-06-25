@@ -28,25 +28,6 @@ type AgentResult =
   | { kind: 'informative'; data: unknown }
   | { kind: 'actionable'; proposal: { actions: unknown[]; confidence?: number; rationale?: string } }
 
-/**
- * Per-agent example inputs surfaced via the "Insert sample" button. Keyed by the
- * stable agent id; the demo `deals.health_check` agent accepts an inline `deal`
- * (no DB lookup, deterministic in the playground) or a `dealId`.
- */
-const SAMPLE_INPUTS: Record<string, unknown> = {
-  'deals.health_check': {
-    deal: {
-      id: 'demo-deal-1',
-      name: 'Acme Corp — Enterprise plan',
-      stage: 'Proposal',
-      value: 48000,
-      probability: 0.65,
-      daysInStage: 12,
-      recentActivity: 'Sent revised pricing; awaiting procurement sign-off.',
-    },
-  },
-}
-
 export default function AgentPlaygroundPage() {
   const t = useT()
   const searchParams = useSearchParams()
@@ -87,10 +68,11 @@ export default function AgentPlaygroundPage() {
     [agents, agentId],
   )
 
-  const sampleInput = React.useMemo(
-    () => (agentId && agentId in SAMPLE_INPUTS ? SAMPLE_INPUTS[agentId] : undefined),
-    [agentId],
-  )
+  // Per-agent example input ships with the agent definition (code agents via
+  // `defineAgent({ sampleInput })`, file agents via `agents/<id>/SAMPLE.json`)
+  // and arrives on the agent list payload — the Playground no longer hardcodes
+  // samples. The button hides when an agent declares none.
+  const sampleInput = selectedAgent?.sampleInput
 
   const run = React.useCallback(async () => {
     if (!agentId) {
@@ -168,7 +150,7 @@ export default function AgentPlaygroundPage() {
             <label className="text-sm font-medium" htmlFor="ao-pg-input">
               {t('agent_orchestrator.playground.inputLabel')}
             </label>
-            {sampleInput ? (
+            {sampleInput !== undefined ? (
               <Button
                 type="button"
                 variant="outline"

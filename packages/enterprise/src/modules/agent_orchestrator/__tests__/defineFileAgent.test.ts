@@ -109,6 +109,32 @@ describe('loadFileAgentDir', () => {
     expect(loaded!.openCodeAgentFile).toContain('submit_outcome')
   })
 
+  it('reads an optional SAMPLE.json into entry.sampleInput (and ignores a malformed one)', () => {
+    const good = makeAgentDir({ agentMd: VALID_AGENT_MD, outcome: VALID_OUTCOME })
+    fs.writeFileSync(
+      path.join(good, 'SAMPLE.json'),
+      JSON.stringify({ deal: { id: 'demo-deal-1', stage: 'Proposal' } }),
+      'utf8',
+    )
+    created.push(good)
+    expect(loadFileAgentDir(good)!.entry.sampleInput).toEqual({
+      deal: { id: 'demo-deal-1', stage: 'Proposal' },
+    })
+
+    // No SAMPLE.json → undefined.
+    const none = makeAgentDir({ agentMd: VALID_AGENT_MD, outcome: VALID_OUTCOME })
+    created.push(none)
+    expect(loadFileAgentDir(none)!.entry.sampleInput).toBeUndefined()
+
+    // Malformed SAMPLE.json never blocks loading — the sample is just dropped.
+    const bad = makeAgentDir({ agentMd: VALID_AGENT_MD, outcome: VALID_OUTCOME })
+    fs.writeFileSync(path.join(bad, 'SAMPLE.json'), '{ not valid', 'utf8')
+    created.push(bad)
+    const loadedBad = loadFileAgentDir(bad)
+    expect(loadedBad).not.toBeNull()
+    expect(loadedBad!.entry.sampleInput).toBeUndefined()
+  })
+
   it('returns null when AGENT.md or OUTCOME.md is missing', () => {
     const onlyAgentMd = makeAgentDir({ agentMd: VALID_AGENT_MD })
     const onlyOutcome = makeAgentDir({ outcome: VALID_OUTCOME })

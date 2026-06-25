@@ -31,6 +31,10 @@ export const aiAgents: AiAgentDefinition[] = [
       'Every field is REQUIRED. Never invent details that are not in the ticket.',
     ].join(' '),
     result: { kind: 'informative', schema: ticketTriageResult },
+    sampleInput: {
+      subject: 'Charged twice this month',
+      body: 'Hi, I was billed for two subscriptions this month but I only have one account. Please refund the duplicate charge.',
+    },
   }),
 
   // `support.triage_batch` is a MANAGER agent that demonstrates the
@@ -56,6 +60,22 @@ export const aiAgents: AiAgentDefinition[] = [
     ].join(' '),
     subAgents: ['support.ticket_triage'],
     result: { kind: 'informative', schema: triageBatchResult },
+    sampleInput: {
+      tickets: [
+        {
+          subject: 'Charged twice this month',
+          body: 'I was billed for two subscriptions this month but I only have one account. Please refund the duplicate charge.',
+        },
+        {
+          subject: 'How do I export my data?',
+          body: 'I would like to download a CSV of my orders for last quarter. Where can I find that?',
+        },
+        {
+          subject: 'Site is completely down',
+          body: 'Our whole team is getting 500 errors on every page since this morning. This is blocking all of us.',
+        },
+      ],
+    },
   }),
 ]
 
