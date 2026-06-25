@@ -18,7 +18,8 @@
 | 3 | 3.3 | Unit tests: Ollama reachable/unreachable/timeout, availability propagation, save guard | done | 1969322b1 |
 | 4 | 4.1 | UI: provider cards reflect real availability (disable + reason), `source`/inheritance (DS-compliant) | done | c2b41da63 |
 | 4 | 4.2 | Integration test (TC-SEARCH-011): unreachable provider rejected by API save guard | done | c209ae0bb |
-| 4 | 4.3 | Docs: search/core AGENTS.md + RELEASE_NOTES | done | a10de0060 |
+| 4 | 4.3 | Docs: search/core AGENTS.md + UPGRADE_NOTES | done | a10de0060 |
+| 4 | 4.4 | Post-review fix: migrate behavior-change notes out of unused `RELEASE_NOTES.md` into `UPGRADE_NOTES.md` (new `0.6.4 → 0.6.5` window); remove `RELEASE_NOTES.md`; repoint spec/run-folder references | done | _pending_ |
 
 Source spec: `.ai/specs/2026-06-15-tenant-scoped-search-settings.md` (PR #3093, tracking issue #3092)
 
@@ -79,7 +80,7 @@ Make vector/fulltext search **settings** tenant-scoped (fix cross-tenant overwri
 
 - 4.1 Provider cards reflect real availability (disable + reason), surface `source`/inheritance + Refresh control, DS-compliant.
 - 4.2 Integration test: unreachable provider blocked in UI and rejected by API.
-- 4.3 Update `packages/search/AGENTS.md`, `packages/core/AGENTS.md`, RELEASE_NOTES.
+- 4.3 Update `packages/search/AGENTS.md`, `packages/core/AGENTS.md`, UPGRADE_NOTES.
 
 ## Environment / fork notes
 
