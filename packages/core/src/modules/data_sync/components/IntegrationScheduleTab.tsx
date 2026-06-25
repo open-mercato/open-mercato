@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -146,6 +147,9 @@ function buildScheduleEditors(
 export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
+  const { runMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: 'data_sync.integrationTab',
+  })
   const [option, setOption] = React.useState<SyncOption | null>(null)
   const [schedules, setSchedules] = React.useState<Record<string, SyncScheduleEditorState>>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -222,18 +226,32 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
     setRunningKey(scheduleKey)
     try {
       const scheduleState = schedules[scheduleKey] ?? buildDefaultScheduleState(entityType)
-      // optimistic-lock-exempt: starts a new sync run (create), not a concurrent record edit
-      const call = await apiCall<{ id: string }>('/api/data_sync/run', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
+      const call = await runMutation({
+        // optimistic-lock-exempt: starts a new sync run (create), not a concurrent record edit
+        operation: () => apiCall<{ id: string }>('/api/data_sync/run', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            integrationId: props.integrationId,
+            entityType,
+            direction,
+            fullSync: scheduleState.fullSync,
+            batchSize: 100,
+          }),
+        }, { fallback: null }),
+        mutationPayload: {
           integrationId: props.integrationId,
           entityType,
           direction,
           fullSync: scheduleState.fullSync,
           batchSize: 100,
-        }),
-      }, { fallback: null })
+        },
+        context: {
+          operation: 'create',
+          actionId: 'start-sync-run',
+          integrationId: props.integrationId,
+        },
+      })
 
       if (!call.ok) {
         throw new Error((call.result as { error?: string } | null)?.error ?? 'Failed to start sync')
@@ -246,7 +264,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
     } finally {
       setRunningKey(null)
     }
-  }, [option?.canStartRun, props.hasCredentials, props.integrationId, props.isEnabled, schedules, t])
+  }, [option?.canStartRun, props.hasCredentials, props.integrationId, props.isEnabled, runMutation, schedules, t])
 
   const handleSaveSchedule = React.useCallback(async (entityType: string, direction: 'import' | 'export', scheduleKey: string) => {
     const scheduleState = schedules[scheduleKey] ?? buildDefaultScheduleState(entityType)
@@ -255,23 +273,40 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
       // Keyed upsert (POST). When the server resolves an existing row the save
       // version-checks against this schedule's loaded `updatedAt`; for a brand
       // new row the header is empty so the create path is unaffected.
-      const call = await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(scheduleState.updatedAt),
-        () => apiCall<SyncScheduleRecord>('/api/data_sync/schedules', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            integrationId: props.integrationId,
-            entityType,
-            direction,
-            scheduleType: scheduleState.scheduleType,
-            scheduleValue: scheduleState.scheduleValue,
-            timezone: scheduleState.timezone,
-            fullSync: scheduleState.fullSync,
-            isEnabled: scheduleState.isEnabled,
-          }),
-        }, { fallback: null }),
-      )
+      const call = await runMutation({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(scheduleState.updatedAt),
+          () => apiCall<SyncScheduleRecord>('/api/data_sync/schedules', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              integrationId: props.integrationId,
+              entityType,
+              direction,
+              scheduleType: scheduleState.scheduleType,
+              scheduleValue: scheduleState.scheduleValue,
+              timezone: scheduleState.timezone,
+              fullSync: scheduleState.fullSync,
+              isEnabled: scheduleState.isEnabled,
+            }),
+          }, { fallback: null }),
+        ),
+        mutationPayload: {
+          integrationId: props.integrationId,
+          entityType,
+          direction,
+          scheduleType: scheduleState.scheduleType,
+          scheduleValue: scheduleState.scheduleValue,
+          timezone: scheduleState.timezone,
+          fullSync: scheduleState.fullSync,
+          isEnabled: scheduleState.isEnabled,
+        },
+        context: {
+          operation: 'update',
+          actionId: 'save-sync-schedule',
+          integrationId: props.integrationId,
+        },
+      })
 
       if (!call.ok || !call.result) {
         const conflictError = Object.assign(
@@ -304,7 +339,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
     } finally {
       setSavingKey(null)
     }
-  }, [props.integrationId, schedules, t, updateScheduleEditor])
+  }, [props.integrationId, runMutation, schedules, t, updateScheduleEditor])
 
   const handleDeleteSchedule = React.useCallback(async (entityType: string, scheduleKey: string) => {
     const scheduleState = schedules[scheduleKey]
@@ -315,12 +350,21 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
 
     setDeletingKey(scheduleKey)
     try {
-      const call = await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(scheduleState.updatedAt),
-        () => apiCall(`/api/data_sync/schedules/${encodeURIComponent(scheduleState.id as string)}`, {
-          method: 'DELETE',
-        }, { fallback: null }),
-      )
+      const call = await runMutation({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(scheduleState.updatedAt),
+          () => apiCall(`/api/data_sync/schedules/${encodeURIComponent(scheduleState.id as string)}`, {
+            method: 'DELETE',
+          }, { fallback: null }),
+        ),
+        mutationPayload: {
+          scheduleId: scheduleState.id,
+        },
+        context: {
+          operation: 'delete',
+          actionId: 'delete-sync-schedule',
+        },
+      })
 
       if (!call.ok) {
         throw new Error((call.result as { error?: string } | null)?.error ?? 'Failed to delete schedule')
@@ -337,7 +381,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
     } finally {
       setDeletingKey(null)
     }
-  }, [schedules, t, updateScheduleEditor])
+  }, [runMutation, schedules, t, updateScheduleEditor])
 
   if (isLoading) {
     return (
