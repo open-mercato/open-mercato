@@ -7,6 +7,7 @@ import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import type { EditorParticipant } from '../../../lib/calendar/editorPayload'
+import { composeAccessibleName } from '../../../lib/calendar/labels'
 import { searchPeopleOptions, type PersonOption } from './lookups'
 import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS, PersonChip, UppercaseBadge } from './inputs'
 
@@ -119,6 +120,11 @@ export function PeopleField({
                   variant="ghost"
                   role="option"
                   aria-selected={false}
+                  aria-label={composeAccessibleName([
+                    option.name,
+                    option.email,
+                    option.isCustomer ? t('customers.calendar.editor.customerBadge', 'Customer') : null,
+                  ])}
                   onClick={() => {
                     const participant: EditorParticipant = {
                       userId: option.userId,

@@ -61,11 +61,11 @@ describe('TenantSelect', () => {
     })
   })
 
-  it('requests pageSize=100 from the directory tenants endpoint', async () => {
-    let capturedUrl: string | undefined
-    ;(readApiResultOrThrow as jest.Mock).mockImplementationOnce(async (url: string) => {
-      capturedUrl = url
-      return { items: [{ id: 't-100', name: 'Tenant A', isActive: true }] }
+  it('requests only one page when the first page is not full', async () => {
+    const capturedUrls: string[] = []
+    ;(readApiResultOrThrow as jest.Mock).mockImplementation(async (url: string) => {
+      capturedUrls.push(url)
+      return { items: [{ id: 't-100', name: 'Tenant A', isActive: true }], totalPages: 1 }
     })
 
     renderWithProviders(<TenantSelect />, { dict })
@@ -74,8 +74,36 @@ describe('TenantSelect', () => {
       expect(screen.getByRole('option', { name: 'Tenant A' })).toBeInTheDocument()
     })
 
-    expect(capturedUrl).toContain('pageSize=100')
-    expect(capturedUrl).not.toContain('pageSize=200')
+    expect(capturedUrls).toHaveLength(1)
+    expect(capturedUrls[0]).toContain('page=1')
+    expect(capturedUrls[0]).toContain('pageSize=100')
+  })
+
+  it('pages through every tenant when more than one page exists', async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: `t-${String(index).padStart(3, '0')}`,
+      name: `Tenant ${String(index).padStart(3, '0')}`,
+      isActive: true,
+    }))
+    const secondPage = [{ id: 't-extra', name: 'Tenant Beyond First Page', isActive: true }]
+    const capturedUrls: string[] = []
+    ;(readApiResultOrThrow as jest.Mock).mockImplementation(async (url: string) => {
+      capturedUrls.push(url)
+      if (url.includes('page=2')) {
+        return { items: secondPage, totalPages: 2 }
+      }
+      return { items: firstPage, totalPages: 2 }
+    })
+
+    renderWithProviders(<TenantSelect includeEmptyOption />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'Tenant Beyond First Page' })).toBeInTheDocument()
+    })
+
+    expect(capturedUrls.some((url) => url.includes('page=1'))).toBe(true)
+    expect(capturedUrls.some((url) => url.includes('page=2'))).toBe(true)
+    expect(screen.getByRole('option', { name: 'Tenant 000' })).toBeInTheDocument()
   })
 
   it('auto-selects first tenant when value is null and includeEmptyOption is false', async () => {

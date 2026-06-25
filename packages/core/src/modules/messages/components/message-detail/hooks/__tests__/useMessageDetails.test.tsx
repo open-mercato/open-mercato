@@ -42,6 +42,7 @@ jest.mock('../useMessageDetailsQueries', () => ({
     attachmentsQuery: { isLoading: false },
     attachments: [],
     refreshDetailWithoutAutoMarkRead: jest.fn(),
+    suppressAutoMarkRead: jest.fn(),
     listItemComponentKey: null,
     contentComponentKey: null,
     actionsComponentKey: null,

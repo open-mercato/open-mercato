@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import { format } from 'date-fns/format'
 import { CalendarRange, ListFilter, Settings } from 'lucide-react'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -18,7 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDateRangeLabel } from '../../lib/calendar/format'
 import type {
   CalendarFiltersValue,
   CalendarRangePreset,
@@ -32,10 +32,6 @@ const STATUS_OPTIONS = ['planned', 'done', 'canceled'] as const
 const ALL_OPTION = 'all'
 
 const EMPTY_FILTERS: CalendarFiltersValue = { types: [], status: null, ownerUserId: null }
-
-function formatRangeLabel(from: Date, to: Date): string {
-  return `${format(from, 'MMM dd')} – ${format(to, 'MMM dd, yyyy')}`
-}
 
 export function CalendarToolbar(props: CalendarToolbarProps) {
   const {
@@ -54,6 +50,7 @@ export function CalendarToolbar(props: CalendarToolbarProps) {
     onOpenSettings,
   } = props
   const t = useT()
+  const locale = useLocale()
   const [rangeOpen, setRangeOpen] = React.useState(false)
   const [filtersOpen, setFiltersOpen] = React.useState(false)
   const [pendingFilters, setPendingFilters] = React.useState<CalendarFiltersValue>(filters)
@@ -128,7 +125,7 @@ export function CalendarToolbar(props: CalendarToolbarProps) {
                 className="min-w-0 text-muted-foreground sm:-ml-px sm:rounded-l-none"
               >
                 <CalendarRange aria-hidden="true" />
-                <span className="truncate">{formatRangeLabel(range.from, range.to)}</span>
+                <span className="truncate">{formatDateRangeLabel(locale, range.from, range.to)}</span>
               </Button>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-auto min-w-0 p-2">

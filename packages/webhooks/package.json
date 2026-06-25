@@ -73,7 +73,7 @@
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "svix": "^1.95.2"
+    "svix": "^1.96.0"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
@@ -91,7 +91,8 @@
     "jest": "^30.4.2",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "ts-jest": "^29.4.11"
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
   },
   "publishConfig": {
     "access": "public"

@@ -3,6 +3,7 @@
 import React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -49,6 +50,10 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
   const [availableRoles, setAvailableRoles] = React.useState<RoleOption[]>([])
   const [isLoadingRoles, setIsLoadingRoles] = React.useState(true)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+
+  const { runMutation } = useGuardedMutation<{ entityType: string }>({
+    contextId: 'customer_accounts:account-status-invite',
+  })
 
   React.useEffect(() => {
     let cancelled = false
@@ -124,28 +129,35 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
 
     setIsSubmitting(true)
     try {
-      const call = await apiCall<{ ok: boolean; error?: string }>(
-        '/api/customer_accounts/admin/users-invite',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            email: trimmedEmail,
-            roleIds: selectedRoleIds,
-            displayName: displayName.trim() || undefined,
-            customerEntityId: personEntityId,
-          }),
+      await runMutation({
+        context: { entityType: 'customer_accounts:user' },
+        mutationPayload: { customerEntityId: personEntityId, roleIds: selectedRoleIds },
+        operation: async () => {
+          // optimistic-lock-exempt: creates a new portal invitation, not a concurrent record edit
+          const call = await apiCall<{ ok: boolean; error?: string }>(
+            '/api/customer_accounts/admin/users-invite',
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                email: trimmedEmail,
+                roleIds: selectedRoleIds,
+                displayName: displayName.trim() || undefined,
+                customerEntityId: personEntityId,
+              }),
+            },
+          )
+
+          if (!call.ok) {
+            const errorMessage = (call.result as Record<string, unknown> | null)?.error as string | undefined
+            flash(errorMessage || t('customer_accounts.widgets.invite.error.failed', 'Failed to send invitation'), 'error')
+            return
+          }
+
+          flash(t('customer_accounts.widgets.invite.success', 'Invitation sent successfully'), 'success')
+          onSuccess()
         },
-      )
-
-      if (!call.ok) {
-        const errorMessage = (call.result as Record<string, unknown> | null)?.error as string | undefined
-        flash(errorMessage || t('customer_accounts.widgets.invite.error.failed', 'Failed to send invitation'), 'error')
-        return
-      }
-
-      flash(t('customer_accounts.widgets.invite.success', 'Invitation sent successfully'), 'success')
-      onSuccess()
+      })
     } catch {
       flash(t('customer_accounts.widgets.invite.error.failed', 'Failed to send invitation'), 'error')
     } finally {

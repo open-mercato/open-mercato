@@ -110,11 +110,14 @@ packages/cache/node_modules/*
 newrelic_agent.log
 /generated/
 .queue
+.worktrees/
 
 # Dev Container auto-generated compose volumes
 .devcontainer/docker-compose.volumes.yml
 # Dev Container personal overrides (local bind mounts, env vars, etc.)
 .devcontainer/docker-compose.local.yml
+# Personal compose overrides (auto-discovered by docker-exec.mjs)
+docker-compose.*.local.yml
 
 # OpenCode local config (generated at runtime, may contain secrets)
 docker/opencode/opencode.jsonc

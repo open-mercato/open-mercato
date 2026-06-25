@@ -14,6 +14,7 @@
   "shipping_carriers.create.error.create": "Sendung konnte nicht erstellt werden.",
   "shipping_carriers.create.error.fetchDropOffPoints": "Abgabepunkte konnten nicht abgerufen werden.",
   "shipping_carriers.create.error.fetchRates": "Preise konnten nicht abgerufen werden.",
+  "shipping_carriers.create.error.idempotencyConflict": "Diese Sendung wurde bereits übermittelt. Aktualisieren Sie die Seite, bevor Sie es erneut versuchen.",
   "shipping_carriers.create.error.invalidEmail": "Ungültige E-Mail-Adresse.",
   "shipping_carriers.create.error.invalidPhone": "Ungültige Telefonnummer.",
   "shipping_carriers.create.error.loadProviders": "Transporteure konnten nicht geladen werden.",

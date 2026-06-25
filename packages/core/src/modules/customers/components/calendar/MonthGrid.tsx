@@ -11,6 +11,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { getVisibleRange } from '../../lib/calendar/range'
+import { eventDisplayTitle } from '../../lib/calendar/labels'
 import type { CalendarItem, MonthGridProps } from './types'
 
 const MAX_PILLS_PER_DAY = 2
@@ -61,7 +62,9 @@ function groupItemsByDay(items: CalendarItem[]): Map<string, CalendarItem[]> {
 }
 
 function MonthPill({ item, onItemClick }: { item: CalendarItem; onItemClick: (item: CalendarItem) => void }) {
+  const t = useT()
   const canceled = item.status === 'canceled'
+  const title = eventDisplayTitle(item.title, t('customers.calendar.grid.untitled', 'Untitled'))
   const timeLabel = item.allDay ? '' : ` · ${formatTime(item.start)} – ${formatTime(item.end)}`
   const tintStyle = item.color
     ? { backgroundColor: `${item.color}${SOFT_TINT_ALPHA}`, color: item.color }
@@ -70,7 +73,7 @@ function MonthPill({ item, onItemClick }: { item: CalendarItem; onItemClick: (it
     <Button
       type="button"
       variant="ghost"
-      aria-label={`${item.title}${timeLabel}`}
+      aria-label={`${title}${timeLabel}`}
       onClick={(event) => {
         event.stopPropagation()
         onItemClick(item)
@@ -94,7 +97,7 @@ function MonthPill({ item, onItemClick }: { item: CalendarItem; onItemClick: (it
           canceled && 'line-through',
         )}
       >
-        {item.title}
+        {title}
       </span>
     </Button>
   )

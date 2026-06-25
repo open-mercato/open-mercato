@@ -20,7 +20,7 @@ export async function GET(req: Request) {
 
   const ctx = { tenantId: auth.tenantId, organizationId: auth.orgId }
 
-  await progressService.markStaleJobsFailed(auth.tenantId)
+  await progressService.markStaleJobsFailed(auth.tenantId, undefined, auth.orgId)
 
   const [jobs, recentlyCompleted] = await Promise.all([
     progressService.getActiveJobs(ctx),
