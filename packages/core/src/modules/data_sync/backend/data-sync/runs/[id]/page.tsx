@@ -5,6 +5,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LogList, type LogListEntry } from '@open-mercato/ui/backend/LogList'
 import { Progress } from '@open-mercato/ui/primitives/progress'
@@ -16,6 +17,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { RotateCcw, XCircle } from 'lucide-react'
+import { getSyncRunStatusVariant } from '../../../../lib/syncRunStatus'
 
 type SyncRunDetail = {
   id: string
@@ -68,15 +70,6 @@ function formatEtaSeconds(seconds: number): string {
   const hours = Math.floor(seconds / 3600)
   const minutes = Math.ceil((seconds % 3600) / 60)
   return `${hours}h ${minutes}m`
-}
-
-const STATUS_STYLES: Record<string, string> = {
-  pending: 'bg-gray-100 text-gray-800',
-  running: 'bg-blue-100 text-blue-800',
-  completed: 'bg-green-100 text-green-800',
-  failed: 'bg-red-100 text-red-800',
-  cancelled: 'bg-yellow-100 text-yellow-800',
-  paused: 'bg-orange-100 text-orange-800',
 }
 
 type SyncRunDetailPageProps = {
@@ -306,9 +299,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
           statusBadge={(
             <div className="mt-2 flex flex-wrap gap-2">
               <Badge variant="outline">{t(`data_sync.dashboard.direction.${run.direction}`)}</Badge>
-              <Badge variant="secondary" className={STATUS_STYLES[run.status] ?? ''}>
+              <StatusBadge variant={getSyncRunStatusVariant(run.status)}>
                 {t(`data_sync.dashboard.status.${run.status}`)}
-              </Badge>
+              </StatusBadge>
               {run.triggeredBy ? <Badge variant="outline">{run.triggeredBy}</Badge> : null}
             </div>
           )}
@@ -334,9 +327,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
               <CardTitle>{t('data_sync.runs.detail.progress')}</CardTitle>
-              <Badge variant="secondary" className={STATUS_STYLES[progressStatus] ?? ''}>
+              <StatusBadge variant={getSyncRunStatusVariant(progressStatus)}>
                 {t(`data_sync.dashboard.status.${progressStatus}`)}
-              </Badge>
+              </StatusBadge>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -377,37 +370,37 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <Card>
             <CardContent className="pt-6 text-center">
-              <div className="text-2xl font-bold text-green-600">{run.createdCount}</div>
+              <div className="text-2xl font-bold text-status-success-text">{run.createdCount}</div>
               <p className="text-sm text-muted-foreground">{t('data_sync.runs.detail.counters.created')}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6 text-center">
-              <div className="text-2xl font-bold text-blue-600">{run.updatedCount}</div>
+              <div className="text-2xl font-bold text-status-info-text">{run.updatedCount}</div>
               <p className="text-sm text-muted-foreground">{t('data_sync.runs.detail.counters.updated')}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6 text-center">
-              <div className="text-2xl font-bold text-gray-600">{run.skippedCount}</div>
+              <div className="text-2xl font-bold text-muted-foreground">{run.skippedCount}</div>
               <p className="text-sm text-muted-foreground">{t('data_sync.runs.detail.counters.skipped')}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6 text-center">
-              <div className="text-2xl font-bold text-red-600">{run.failedCount}</div>
+              <div className="text-2xl font-bold text-status-error-text">{run.failedCount}</div>
               <p className="text-sm text-muted-foreground">{t('data_sync.runs.detail.counters.failed')}</p>
             </CardContent>
           </Card>
         </div>
 
         {run.lastError && (
-          <Card className="border-red-200 bg-red-50">
+          <Card className="border-status-error-border bg-status-error-bg">
             <CardHeader>
-              <CardTitle className="text-red-800">{t('data_sync.runs.detail.error')}</CardTitle>
+              <CardTitle className="text-status-error-text">{t('data_sync.runs.detail.error')}</CardTitle>
             </CardHeader>
             <CardContent>
-              <pre className="text-sm text-red-700 whitespace-pre-wrap">{run.lastError}</pre>
+              <pre className="text-sm text-status-error-text whitespace-pre-wrap">{run.lastError}</pre>
             </CardContent>
           </Card>
         )}

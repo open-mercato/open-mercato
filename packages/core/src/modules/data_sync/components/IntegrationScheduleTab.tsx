@@ -19,8 +19,10 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getSyncSummaryVariant } from '../lib/syncRunStatus'
 import {
   CalendarClock,
   Play,
@@ -404,13 +406,13 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className={props.isEnabled ? 'border-emerald-300 text-emerald-700' : 'border-amber-300 text-amber-700'}>
+            <Badge variant={getSyncSummaryVariant(props.isEnabled ? 'enabled' : 'disabled')}>
               {props.isEnabled ? <ShieldCheck className="mr-2 h-3.5 w-3.5" /> : <ShieldAlert className="mr-2 h-3.5 w-3.5" />}
               {props.isEnabled
                 ? t('data_sync.dashboard.start.status.enabled', 'Integration enabled')
                 : t('data_sync.dashboard.start.status.disabled', 'Integration disabled')}
             </Badge>
-            <Badge variant="outline" className={props.hasCredentials ? 'border-sky-300 text-sky-700' : 'border-amber-300 text-amber-700'}>
+            <Badge variant={getSyncSummaryVariant(props.hasCredentials ? 'ready' : 'missing')}>
               <CalendarClock className="mr-2 h-3.5 w-3.5" />
               {props.hasCredentials
                 ? t('data_sync.dashboard.start.status.credentialsReady', 'Credentials ready')
@@ -521,22 +523,22 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
                     </td>
                     <td className="px-3 py-3">
                       <label className="flex min-h-10 items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
+                        <Switch
                           checked={scheduleState.fullSync}
-                          onChange={(event) => updateScheduleEditor(row.key, { fullSync: event.target.checked }, row.entityType)}
+                          onCheckedChange={(checked) => updateScheduleEditor(row.key, { fullSync: checked }, row.entityType)}
                           disabled={controlsDisabled}
+                          aria-label={t('data_sync.dashboard.start.fullSync', 'Run as full sync')}
                         />
                         <span>{t('data_sync.integrationTab.fullSyncShort', 'Full')}</span>
                       </label>
                     </td>
                     <td className="px-3 py-3">
                       <label className="flex min-h-10 items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
+                        <Switch
                           checked={scheduleState.isEnabled}
-                          onChange={(event) => updateScheduleEditor(row.key, { isEnabled: event.target.checked }, row.entityType)}
+                          onCheckedChange={(checked) => updateScheduleEditor(row.key, { isEnabled: checked }, row.entityType)}
                           disabled={controlsDisabled}
+                          aria-label={t('data_sync.dashboard.schedule.enabled', 'Schedule enabled')}
                         />
                         <span>{scheduleState.isEnabled ? t('data_sync.dashboard.schedule.status.shortEnabled', 'Scheduled') : t('data_sync.dashboard.schedule.status.shortDisabled', 'Paused')}</span>
                       </label>

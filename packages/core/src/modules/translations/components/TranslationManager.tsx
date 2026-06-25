@@ -3,12 +3,15 @@
 import * as React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Save, Plus, X } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -18,6 +21,9 @@ import { ISO_639_1, isValidIso639, getIso639Label } from '@open-mercato/shared/l
 import { formatEntityLabel, buildEntityListUrl, getRecordLabel, resolveBaseValue } from '../lib/helpers'
 import { resolveFieldList } from '../lib/resolve-field-list'
 import type { ResolvedField } from '../lib/resolve-field-list'
+
+const TRANSLATION_MUTATION_CONTEXT_ID = 'translations.entity-translations'
+const SUPPORTED_LOCALES_MUTATION_CONTEXT_ID = 'translations.supported-locales'
 
 type TranslationManagerProps = {
   entityType?: string
@@ -218,6 +224,16 @@ export function TranslationManager({
     }
   }, [translationSignature, translationData])
 
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    entityType: string
+    recordId: string
+    resourceKind: string
+    resourceId: string
+    data: TranslationsResponse | null
+    retryLastMutation: () => Promise<boolean>
+  }>({ contextId: TRANSLATION_MUTATION_CONTEXT_ID })
+
   const mutation = useMutation({
     mutationFn: async () => {
       if (!entityType || !recordId) {
@@ -239,21 +255,35 @@ export function TranslationManager({
         console.warn('[translations] Save skipped: payload is empty — no locale contains any non-empty field')
         throw new Error(t('translations.manager.errors.nothingToSave', 'Nothing to save — enter a translation first'))
       }
-      const res = await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(translationData?.updatedAt),
-        () => apiCall(
-          `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(body),
-          },
-        ),
-      )
-      if (!res.ok) {
-        throw new Error(t('translations.manager.errors.save', 'Failed to save translations'))
-      }
-      return true
+      return runMutation({
+        operation: async () => {
+          const res = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(translationData?.updatedAt),
+            () => apiCall(
+              `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(body),
+              },
+            ),
+          )
+          if (!res.ok) {
+            throw new Error(t('translations.manager.errors.save', 'Failed to save translations'))
+          }
+          return true
+        },
+        context: {
+          formId: TRANSLATION_MUTATION_CONTEXT_ID,
+          entityType,
+          recordId,
+          resourceKind: 'translation',
+          resourceId: recordId,
+          data: translationData ?? null,
+          retryLastMutation,
+        },
+        mutationPayload: body,
+      })
     },
     onSuccess: () => {
       flash(t('translations.manager.flash.saved', 'Translations saved'), 'success')
@@ -309,27 +339,15 @@ export function TranslationManager({
   }
 
   const renderLocaleTabs = () => (
-    <div className="flex gap-1 border-b">
-      {locales.map((locale) => {
-        const isActive = activeLocale === locale
-        return (
-          <button
-            key={locale}
-            type="button"
-            data-state={isActive ? 'active' : 'inactive'}
-            data-locale={locale}
-            className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-              isActive
-                ? 'border-b-2 border-accent-indigo text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setActiveLocale(locale)}
-          >
+    <Tabs variant="underline" value={activeLocale} onValueChange={setActiveLocale}>
+      <TabsList>
+        {locales.map((locale) => (
+          <TabsTrigger key={locale} value={locale}>
             {locale.toUpperCase()}
-          </button>
-        )
-      })}
-    </div>
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
   )
 
   const renderFieldTable = () => {
@@ -541,16 +559,32 @@ export function LocaleManager() {
   const { data: locales = [], isLoading } = useTranslationLocales()
   const [newLocale, setNewLocale] = React.useState('')
 
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({ contextId: SUPPORTED_LOCALES_MUTATION_CONTEXT_ID })
+
   const mutation = useMutation({
     mutationFn: async (updatedLocales: string[]) => {
       // optimistic-lock-exempt: single-row tenant supported-locales settings list — no per-record version / concurrent record edit
-      const res = await apiCall<{ locales: string[] }>('/api/translations/locales', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ locales: updatedLocales }),
+      return runMutation({
+        operation: async () => {
+          const res = await apiCall<{ locales: string[] }>('/api/translations/locales', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ locales: updatedLocales }),
+          })
+          if (!res.ok) throw new Error('Failed to save locales')
+          return res.result?.locales ?? updatedLocales
+        },
+        context: {
+          formId: SUPPORTED_LOCALES_MUTATION_CONTEXT_ID,
+          resourceKind: 'translation-locales',
+          retryLastMutation,
+        },
+        mutationPayload: { locales: updatedLocales },
       })
-      if (!res.ok) throw new Error('Failed to save locales')
-      return res.result?.locales ?? updatedLocales
     },
     onSuccess: (result) => {
       queryClient.setQueryData(['translation-locales'], result)
@@ -603,14 +637,17 @@ export function LocaleManager() {
           >
             {locale.toUpperCase()}{getIso639Label(locale) ? ` — ${getIso639Label(locale)}` : ''}
             {locales.length > 1 && (
-              <button
-                type="button"
-                className="rounded-full p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+              <IconButton
+                variant="ghost"
+                size="xs"
+                fullRadius
+                aria-label={t('translations.locales.remove', 'Remove {{locale}}', { locale: getIso639Label(locale) ?? locale.toUpperCase() })}
+                title={t('translations.locales.remove', 'Remove {{locale}}', { locale: getIso639Label(locale) ?? locale.toUpperCase() })}
                 onClick={() => removeLocale(locale)}
                 disabled={mutation.isPending}
               >
                 <X className="h-3 w-3" />
-              </button>
+              </IconButton>
             )}
           </span>
         ))}
