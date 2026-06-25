@@ -84,7 +84,7 @@ function buildTagSet(tags: string[] | undefined, prefixes: TenantPrefixes, inclu
   return Array.from(scoped)
 }
 
-function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
+function createTenantAwareWrapper(base: CacheStrategy, reportsBoundedCounters: boolean): CacheStrategy {
   function normalizeDeletionCount(raw: number): number {
     if (!raw) return raw
     if (!Number.isFinite(raw)) return raw
@@ -170,7 +170,17 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
       const expiresAt = metadata?.expiresAt ?? null
       if (expiresAt !== null && expiresAt <= now) expired++
     }
-    return { size, expired }
+    // size/expired stay tenant-scoped (derived from this tenant's meta keys).
+    // Only memory-backed strategies track the process-global bound counters, so
+    // skip the extra base.stats() round-trip for redis/sqlite/jsonfile and omit
+    // the optional fields (the stats() contract marks them optional). Keyed off
+    // the configured strategy: a backend degraded to the memory fallback
+    // intentionally does not surface these diagnostics.
+    if (!reportsBoundedCounters) {
+      return { size, expired }
+    }
+    const { evictions, sweeps, lastSweepReclaimed } = await base.stats()
+    return { size, expired, evictions, sweeps, lastSweepReclaimed }
   }
 
   const cleanup = base.cleanup
@@ -231,8 +241,9 @@ export function createCacheService(options?: CacheServiceOptions): CacheStrategy
 
   const baseStrategy = createStrategyForType(strategyType, options, defaultTtl, maxEntries)
   const resilientStrategy = withDependencyFallback(baseStrategy, strategyType, defaultTtl, maxEntries)
+  const reportsBoundedCounters = strategyType === 'memory'
 
-  return createTenantAwareWrapper(resilientStrategy)
+  return createTenantAwareWrapper(resilientStrategy, reportsBoundedCounters)
 }
 
 /**
@@ -274,7 +285,13 @@ export class CacheService implements CacheStrategy {
     return this.strategy.keys(pattern)
   }
 
-  async stats(): Promise<{ size: number; expired: number }> {
+  async stats(): Promise<{
+    size: number
+    expired: number
+    evictions?: number
+    sweeps?: number
+    lastSweepReclaimed?: number
+  }> {
     return this.strategy.stats()
   }
 

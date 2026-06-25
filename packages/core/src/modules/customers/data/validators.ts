@@ -44,6 +44,21 @@ const clearableDomainSchema = z.preprocess(
   z.string().trim().max(200).nullable().optional(),
 )
 
+// Plain optional string fields that map to nullable columns: blanking a previously-set
+// value on edit must transmit null to clear it, not be silently dropped. See #3050.
+const clearableStringSchema = (max: number) =>
+  z.preprocess(emptyStringToNull, z.string().trim().max(max).nullable().optional())
+
+// Annual revenue maps to a nullable numeric column. `''`/whitespace/null all clear it;
+// `.nullable()` short-circuits before coercion so null does not coerce to 0. See #3050.
+const clearableRevenueSchema = z.preprocess(
+  (value) => {
+    if (typeof value === 'string' && value.trim().length === 0) return null
+    return value
+  },
+  z.coerce.number().min(0).nullable().optional(),
+)
+
 const interactionPhoneNumberSchema = z.string().trim().max(50).optional().nullable()
 
 const scopedSchema = z.object({
@@ -70,7 +85,8 @@ const displayNameSchema = z.string().trim().min(1).max(200)
 
 const baseEntitySchema = {
   displayName: displayNameSchema,
-  description: z.string().trim().max(4000).optional(),
+  // Nullable so a blanked description on edit clears the column instead of being dropped. See #3050.
+  description: clearableStringSchema(4000),
   ownerUserId: uuid().optional(),
   primaryEmail: clearableEmailSchema,
   primaryPhone: phoneSchema,
@@ -99,13 +115,14 @@ const personFirstNameSchema = z.string().trim().min(1).max(120)
 const personLastNameSchema = z.string().trim().min(1).max(120)
 
 const companyDetailsSchema = {
-  legalName: z.string().trim().max(200).optional(),
-  brandName: z.string().trim().max(200).optional(),
+  // Nullable so blanked values on edit clear the columns instead of being dropped. See #3050.
+  legalName: clearableStringSchema(200),
+  brandName: clearableStringSchema(200),
   domain: clearableDomainSchema,
   websiteUrl: clearableUrlSchema,
   industry: z.string().trim().max(150).optional(),
-  sizeBucket: z.string().trim().max(100).optional(),
-  annualRevenue: z.coerce.number().min(0).optional(),
+  sizeBucket: clearableStringSchema(100),
+  annualRevenue: clearableRevenueSchema,
 }
 
 export const personCreateSchema = scopedSchema.extend({

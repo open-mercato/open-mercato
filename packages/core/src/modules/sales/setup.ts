@@ -63,6 +63,7 @@ export const setup: ModuleSetupConfig = {
       'sales.payments.manage',
       'sales.returns.view',
       'sales.returns.create',
+      'sales.returns.manage',
       'sales.invoices.manage',
       'sales.credit_memos.manage',
     ],

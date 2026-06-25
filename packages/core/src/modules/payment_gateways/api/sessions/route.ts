@@ -5,6 +5,13 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createSessionSchema } from '../../data/validators'
 import type { PaymentGatewayService } from '../../lib/gateway-service'
 import { paymentGatewaysTag } from '../openapi'
+import {
+  resolveUserFeatures,
+  runPaymentGatewayMutationGuardAfterSuccess,
+  runPaymentGatewayMutationGuards,
+} from '../guards'
+
+const gatewayTransactionResourceKind = 'payment_gateways.gateway_transaction'
 
 export const metadata = {
   path: '/payment_gateways/sessions',
@@ -24,6 +31,28 @@ export async function POST(req: Request) {
   }
 
   const container = await createRequestContainer()
+  const guardResult = await runPaymentGatewayMutationGuards(
+    container,
+    {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      userId: auth.sub ?? '',
+      resourceKind: gatewayTransactionResourceKind,
+      resourceId: null,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: parsed.data as Record<string, unknown>,
+    },
+    resolveUserFeatures(auth),
+  )
+  if (!guardResult.ok) {
+    return NextResponse.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
+
   const service = container.resolve('paymentGatewayService') as PaymentGatewayService
 
   try {
@@ -45,6 +74,17 @@ export async function POST(req: Request) {
 
     const redirectUrl = session.redirectUrl
       ?? (session.clientSession?.type === 'redirect' ? session.clientSession.redirectUrl : null)
+
+    await runPaymentGatewayMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      userId: auth.sub ?? '',
+      resourceKind: gatewayTransactionResourceKind,
+      resourceId: transaction.id,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    })
 
     return NextResponse.json({
       transactionId: transaction.id,

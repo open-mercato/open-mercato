@@ -14,6 +14,8 @@
  *   - deleteMessage    → gmail.users.messages.trash (move to trash; matches `deleteMessage: true` capability)
  */
 
+import { fetchWithTimeout, FetchTimeoutError } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+
 const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1'
 
 export interface GmailApiAuth {
@@ -198,23 +200,23 @@ class FetchGmailApiClient implements GmailApiClient {
     while (attempt <= GMAIL_MAX_RETRIES) {
       let res: Response
       try {
-        res = await fetch(url.toString(), {
+        res = await fetchWithTimeout(url.toString(), {
           method,
           headers,
           body: payload,
           // Bound each attempt so a stalled connection fails fast instead of
           // hanging on undici's multi-minute default and pinning the worker slot.
-          signal: AbortSignal.timeout(resolveGmailRequestTimeoutMs()),
+          timeoutMs: resolveGmailRequestTimeoutMs(),
         })
       } catch (err) {
         // A timed-out/aborted connection is transient — let the bounded retry
-        // loop retry it rather than propagating a raw error. `AbortSignal.timeout`
-        // rejects fetch with a `TimeoutError` DOMException; an externally-aborted
-        // request surfaces as `AbortError`. Match on the `name` field (not
-        // `instanceof Error`, since DOMException does not subclass Error across
-        // realms) — treat both as transient.
+        // loop retry it rather than propagating a raw error. `fetchWithTimeout`
+        // surfaces an elapsed timeout as `FetchTimeoutError`; an externally-aborted
+        // request still surfaces as an `AbortError` DOMException. Match the
+        // `FetchTimeoutError` type and the abort `name` field (DOMException does
+        // not subclass Error across realms) — treat both as transient.
         const errName = (err as { name?: unknown } | null)?.name
-        const aborted = errName === 'TimeoutError' || errName === 'AbortError'
+        const aborted = err instanceof FetchTimeoutError || errName === 'TimeoutError' || errName === 'AbortError'
         if (!aborted) throw err
         const timeoutError = new GmailApiError(
           `Gmail API ${method} ${url.pathname} timed out`,

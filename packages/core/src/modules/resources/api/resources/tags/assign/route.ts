@@ -10,6 +10,10 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
+import {
   resourcesResourceTagAssignmentSchema,
   type ResourcesResourceTagAssignmentInput,
 } from '../../../../data/validators'
@@ -37,16 +41,54 @@ async function buildContext(
   return { ctx, translate }
 }
 
+function resolveActorId(ctx: CommandRuntimeContext): string {
+  const auth = ctx.auth
+  if (auth && typeof auth.sub === 'string' && auth.sub.trim().length > 0) return auth.sub
+  if (auth && typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId
+  if (auth && typeof auth.keyId === 'string' && auth.keyId.trim().length > 0) return auth.keyId
+  return 'system'
+}
+
 export async function POST(req: Request) {
   try {
     const { ctx, translate } = await buildContext(req)
     const body = await req.json().catch(() => ({}))
     const input = parseScopedCommandInput(resourcesResourceTagAssignmentSchema, body, ctx, translate)
+    const actorId = resolveActorId(ctx)
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      userId: actorId,
+      resourceKind: 'resources.resourceTagAssignment',
+      resourceId: input.resourceId,
+      operation: 'custom',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<ResourcesResourceTagAssignmentInput, { assignmentId: string }>(
       'resources.resourceTags.assign',
       { input, ctx },
     )
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+        userId: actorId,
+        resourceKind: 'resources.resourceTagAssignment',
+        resourceId: input.resourceId,
+        operation: 'custom',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+
     const response = NextResponse.json({ id: result?.assignmentId ?? null }, { status: 201 })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(

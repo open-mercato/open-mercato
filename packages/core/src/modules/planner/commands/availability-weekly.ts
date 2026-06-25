@@ -2,16 +2,26 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
-import { PlannerAvailabilityRule } from '../data/entities'
+import { PlannerAvailabilityRule, PlannerAvailabilityRuleSet } from '../data/entities'
 import {
   plannerAvailabilityWeeklyReplaceSchema,
   type PlannerAvailabilityWeeklyReplaceInput,
 } from '../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { PlannerAvailabilityKind, PlannerAvailabilitySubjectType } from '../data/entities'
+import {
+  enforceCommandOptimisticLock,
+  enforceRecordGoneIsConflict,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 
 const AVAILABILITY_RULE_RESOURCE_KIND = 'planner.availability.rule'
+
+// Canonical resource kind for the parent rule set, matching the tag the CRUD
+// factory derives for `planner.availability-rule-sets.*` commands. Weekly
+// replace mutates the rule set's child `availability_rules`, so the parent is
+// the optimistic-lock consistency boundary (document-aggregate pattern).
+const AVAILABILITY_RULE_SET_RESOURCE_KIND = 'planner.availability.rule.set'
 
 const DAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
 
@@ -164,6 +174,38 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<PlannerAvailabilityWeekly
     const now = new Date()
 
     await em.transactional(async (trx) => {
+      // The weekly rules of a rule set are a sub-resource of that rule set: the
+      // parent is the optimistic-lock consistency boundary. Guard the parent's
+      // version (so a stale weekly save loses to a concurrent rule-set
+      // change/delete) and bump its `updated_at` after the replace (so a
+      // concurrent rule-set delete/update with a stale token conflicts). See #2927.
+      let ruleSet: PlannerAvailabilityRuleSet | null = null
+      if (parsed.subjectType === 'ruleset') {
+        ruleSet = await trx.findOne(PlannerAvailabilityRuleSet, {
+          id: parsed.subjectId,
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+          deletedAt: null,
+        })
+        if (ruleSet) {
+          enforceCommandOptimisticLock({
+            resourceKind: AVAILABILITY_RULE_SET_RESOURCE_KIND,
+            resourceId: ruleSet.id,
+            current: ruleSet.updatedAt,
+            request: ctx.request ?? null,
+          })
+        } else {
+          // The rule set was deleted concurrently. When the client opted into
+          // optimistic locking, surface the unified conflict instead of
+          // silently writing orphan rules; otherwise preserve legacy behavior.
+          enforceRecordGoneIsConflict({
+            resourceKind: AVAILABILITY_RULE_SET_RESOURCE_KIND,
+            resourceId: parsed.subjectId,
+            request: ctx.request ?? null,
+          })
+        }
+      }
+
       const existing = await trx.find(PlannerAvailabilityRule, {
         tenantId: parsed.tenantId,
         organizationId: parsed.organizationId,
@@ -206,6 +248,11 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<PlannerAvailabilityWeekly
         })
         trx.persist(record)
       })
+
+      if (ruleSet) {
+        ruleSet.updatedAt = now
+        trx.persist(ruleSet)
+      }
 
       await trx.flush()
     })
