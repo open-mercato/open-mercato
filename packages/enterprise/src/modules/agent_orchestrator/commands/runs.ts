@@ -21,6 +21,8 @@ const createAgentRunSchema = z.object({
   runtime: z.string().min(1).nullable().optional(),
   /** Runtime-native run id; the other half of the ingestion idempotency key. */
   externalRunId: z.string().min(1).nullable().optional(),
+  /** Declared model id; stamped so the cockpit can show/filter runs by model. Null when the agent uses the tenant default. */
+  model: z.string().min(1).max(100).nullable().optional(),
 })
 export type CreateAgentRunInput = z.infer<typeof createAgentRunSchema>
 
@@ -52,6 +54,7 @@ const createAgentRunCommand: CommandHandler<CreateAgentRunInput, { runId: string
       parentRunId: input.parentRunId ?? null,
       runtime: input.runtime ?? null,
       externalRunId: input.externalRunId ?? null,
+      model: input.model ?? null,
     })
     em.persist(run)
     await em.flush()

@@ -160,6 +160,7 @@ export class AgentRuntimeService {
       // stamped. The `(runtime, externalRunId)` unique index allows multiple
       // nulls, so leaving externalRunId null is correct here.
       runtime: 'in-process',
+      model: entry.defaultModel ?? null,
     })
 
     // Context overlay (Phase 1): assemble + persist one append-only
