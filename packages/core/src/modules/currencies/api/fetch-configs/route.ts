@@ -4,6 +4,8 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { CurrencyFetchConfig } from '../../data/entities'
 import {
   createFetchConfig,
@@ -107,6 +109,20 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'ID required' }, { status: 400 })
     }
 
+    const existing = await em.findOne(CurrencyFetchConfig, {
+      id,
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+    })
+    if (existing) {
+      enforceCommandOptimisticLock({
+        resourceKind: 'currencies.currency_fetch_config',
+        resourceId: existing.id,
+        current: existing.updatedAt ?? null,
+        request: req,
+      })
+    }
+
     const config = await updateFetchConfig(em, id, data, {
       tenantId: auth.tenantId,
       organizationId: auth.orgId,
@@ -115,6 +131,9 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({ config })
   } catch (err: any) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
     return NextResponse.json({ error: err.message }, { status: 400 })
   } finally {
     await (container as any).dispose?.()
@@ -138,6 +157,20 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'ID required' }, { status: 400 })
     }
 
+    const existing = await em.findOne(CurrencyFetchConfig, {
+      id,
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+    })
+    if (existing) {
+      enforceCommandOptimisticLock({
+        resourceKind: 'currencies.currency_fetch_config',
+        resourceId: existing.id,
+        current: existing.updatedAt ?? null,
+        request: req,
+      })
+    }
+
     await deleteFetchConfig(em, id, {
       tenantId: auth.tenantId,
       organizationId: auth.orgId,
@@ -146,6 +179,9 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (err: any) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
     return NextResponse.json({ error: err.message }, { status: 400 })
   } finally {
     await (container as any).dispose?.()
