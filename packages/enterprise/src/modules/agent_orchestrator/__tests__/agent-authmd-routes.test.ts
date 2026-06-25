@@ -23,7 +23,7 @@ jest.mock('../lib/identity/agentAuthMdService', () => {
 })
 
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { GET as discoveryGET } from '../api/identity/.well-known/route'
+import { GET as discoveryGET } from '../api/identity/well-known/route'
 import { POST as agentAuthPOST } from '../api/identity/agent/auth/route'
 
 const ORG = '22222222-2222-4222-8222-222222222222'
@@ -48,7 +48,7 @@ function authRequest(body: unknown) {
   })
 }
 
-describe('GET /identity/.well-known (Wave 4 Phase 4)', () => {
+describe('GET /identity/well-known (Wave 4 Phase 4)', () => {
   const prev = process.env.JWT_SECRET
   beforeAll(() => {
     process.env.JWT_SECRET = 'test'

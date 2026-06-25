@@ -10,7 +10,7 @@ There are two non-interactive credential paths. Both mint the SAME kind of token
 request) through one shared mint core — there is no parallel token system. The
 interactive password/SSO login flow is never exposed to a `kind='agent'` principal.
 
-## Discovery (`GET /api/agent_orchestrator/identity/.well-known`)
+## Discovery (`GET /api/agent_orchestrator/identity/well-known`)
 
 Public, read-only, secret-free. Advertises where to authenticate and what the
 platform supports:
