@@ -24,6 +24,9 @@ const events = [
   // Runtime guardrails overlay. Emitted for `block` AND `warn` results so the
   // cockpit live-updates (clientBroadcast) and business_rules ACTION rules react.
   { id: 'agent_orchestrator.guardrail.tripped', label: 'Agent Guardrail Tripped', entity: 'guardrail', category: 'lifecycle', clientBroadcast: true },
+  // Identity overlay (Wave 4 Phase 3) — an external agent's delegation grant was
+  // revoked; downstream auditors react and the cockpit live-updates.
+  { id: 'agent_orchestrator.delegation_grant.revoked', label: 'Agent Delegation Grant Revoked', entity: 'delegation_grant', category: 'lifecycle', clientBroadcast: true },
 ] as const
 
 export const eventsConfig = createModuleEvents({

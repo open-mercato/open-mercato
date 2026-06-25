@@ -54,6 +54,14 @@ export const features = [
     module: 'agent_orchestrator',
     dependsOn: ['agent_orchestrator.identity.read'],
   },
+  // External-agent OAuth (Wave 4 Phase 3) — mint client-credentials tokens and
+  // create/revoke delegation grants for external (`oauth_client`) principals.
+  {
+    id: 'agent_orchestrator.identity.tokens',
+    title: 'Manage external agent tokens and delegation grants',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.identity.manage'],
+  },
 ]
 
 export default features

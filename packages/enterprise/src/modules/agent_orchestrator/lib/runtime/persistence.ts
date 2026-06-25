@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { type AgentResult, type AgentProposalPayload, type GuardResults } from '../../data/validators'
+import { withAuditedCommand } from '../identity/agentWriteScope'
 
 /**
  * Shared persistence + scope helpers used by BOTH agent runtimes (in-process
@@ -114,9 +115,14 @@ export async function createRun(
     externalRunId?: string | null
   },
 ): Promise<string> {
-  const { result } = await commandBus.execute<typeof input, { runId: string }>(
-    'agent_orchestrator.runs.create',
-    { input, ctx: commandCtx },
+  // Audited-command scope (Phase 3, layer B-b): the agent's own AgentRun write
+  // goes through the audited Command path, so it passes the flush-time no-bypass
+  // guard while a raw `em.flush()` under the same agent actor would throw.
+  const { result } = await withAuditedCommand(() =>
+    commandBus.execute<typeof input, { runId: string }>(
+      'agent_orchestrator.runs.create',
+      { input, ctx: commandCtx },
+    ),
   )
   return result.runId
 }
@@ -126,13 +132,15 @@ export async function completeRun(
   commandCtx: CommandRuntimeContext,
   input: { runId: string; output: AgentResult; resultKind: 'informative' | 'actionable' },
 ): Promise<void> {
-  await commandBus.execute<
-    { runId: string; status: 'ok'; output: AgentResult; resultKind: 'informative' | 'actionable' },
-    { runId: string }
-  >('agent_orchestrator.runs.complete', {
-    input: { runId: input.runId, status: 'ok', output: input.output, resultKind: input.resultKind },
-    ctx: commandCtx,
-  })
+  await withAuditedCommand(() =>
+    commandBus.execute<
+      { runId: string; status: 'ok'; output: AgentResult; resultKind: 'informative' | 'actionable' },
+      { runId: string }
+    >('agent_orchestrator.runs.complete', {
+      input: { runId: input.runId, status: 'ok', output: input.output, resultKind: input.resultKind },
+      ctx: commandCtx,
+    }),
+  )
 }
 
 export async function failRun(
@@ -140,9 +148,11 @@ export async function failRun(
   commandCtx: CommandRuntimeContext,
   input: { runId: string; errorMessage: string },
 ): Promise<void> {
-  await commandBus.execute<{ runId: string; errorMessage: string }, { runId: string }>(
-    'agent_orchestrator.runs.fail',
-    { input, ctx: commandCtx },
+  await withAuditedCommand(() =>
+    commandBus.execute<{ runId: string; errorMessage: string }, { runId: string }>(
+      'agent_orchestrator.runs.fail',
+      { input, ctx: commandCtx },
+    ),
   )
 }
 
@@ -162,7 +172,9 @@ export async function createProposal(
     guardResults?: GuardResults | null
   },
 ): Promise<void> {
-  await commandBus.execute('agent_orchestrator.proposals.create', { input, ctx: commandCtx })
+  await withAuditedCommand(() =>
+    commandBus.execute('agent_orchestrator.proposals.create', { input, ctx: commandCtx }),
+  )
 }
 
 /**

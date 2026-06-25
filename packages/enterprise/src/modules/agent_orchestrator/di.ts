@@ -15,8 +15,18 @@ import {
   AgentGuardrailSet,
   AgentContextBundle,
   AgentPrincipal,
+  AgentDelegationGrant,
 } from './data/entities'
 import { provisionAgentPrincipal, resolveAgentPrincipal } from './lib/identity/agentPrincipalService'
+import {
+  createAgentDelegationGrant,
+  resolveAgentDelegationGrant,
+} from './lib/identity/agentDelegationGrantService'
+import {
+  issueAgentToken,
+  verifyAgentToken,
+  provisionAgentClientSecret,
+} from './lib/identity/agentTokenService'
 import { AgentRuntimeService } from './lib/runtime/agentRuntime'
 import { GuardrailService } from './lib/guardrails/guardrailService'
 import { DbAgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
@@ -42,6 +52,7 @@ export function register(container: AppContainer) {
     AgentGuardrailSet: asValue(AgentGuardrailSet),
     AgentContextBundle: asValue(AgentContextBundle),
     AgentPrincipal: asValue(AgentPrincipal),
+    AgentDelegationGrant: asValue(AgentDelegationGrant),
     // Identity overlay (Wave 4, Phase 1): provisions a non-interactive agent
     // `User` (kind='agent') + a scoped `Role` so every internal-agent write is
     // attributed to a concrete actor id. Idempotent + org-scoped. The bound
@@ -49,6 +60,21 @@ export function register(container: AppContainer) {
     agentPrincipalService: asFunction(() => ({
       provision: provisionAgentPrincipal.bind(null, container),
       resolve: resolveAgentPrincipal.bind(null, container),
+    })).scoped(),
+    // Identity overlay (Wave 4, Phase 3): external-agent OAuth client-credentials
+    // token server + delegation grants. The `/token` server mints a scoped,
+    // short-lived, revocable JWT (signAudienceJwt('agent', …)) bound to the
+    // principal + an active AgentDelegationGrant; verification re-checks the grant
+    // per request so revocation is immediate. Built on api_keys (bcrypt secret) +
+    // jwt.ts — no hand-rolled crypto. The bound functions resolve `em` at call time.
+    agentTokenService: asFunction(() => ({
+      issue: issueAgentToken.bind(null, container),
+      verify: verifyAgentToken.bind(null, container),
+      provisionClientSecret: provisionAgentClientSecret.bind(null, container),
+    })).scoped(),
+    agentDelegationGrantService: asFunction(() => ({
+      create: createAgentDelegationGrant.bind(null, container),
+      resolve: resolveAgentDelegationGrant.bind(null, container),
     })).scoped(),
     // CLASSIC injection mode resolves deps by parameter name — destructure the
     // real dependency names (not a `cradle` param) and use .proxy() so the
