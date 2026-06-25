@@ -103,6 +103,39 @@ describe('createAgentFilesExtension', () => {
     expect(dockerContent).toContain('write: deny')
   })
 
+  it('emits an agent SAMPLE.json into the manifest as sampleInput', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
+    fs.writeFileSync(
+      path.join(agentDir, 'SAMPLE.json'),
+      JSON.stringify({ deal: { id: 'demo-deal-1', stage: 'Proposal' } }),
+      'utf8',
+    )
+
+    const extension = createAgentFilesExtension()
+    extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase))
+    extension.generateOutput()
+
+    const manifest = fs.readFileSync(
+      path.join(repoRoot, 'packages/enterprise/src/modules/agent_orchestrator/generated/file-agents.generated.ts'),
+      'utf8',
+    )
+    expect(manifest).toContain('sampleInput: {"deal":{"id":"demo-deal-1","stage":"Proposal"}}')
+  })
+
+  it('fails generation on a malformed SAMPLE.json', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
+    fs.writeFileSync(path.join(agentDir, 'SAMPLE.json'), '{ not valid json', 'utf8')
+
+    const extension = createAgentFilesExtension()
+    expect(() =>
+      extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase)),
+    ).toThrow(/malformed SAMPLE\.json/)
+  })
+
   it('fails generation on a malformed agent dir (missing OUTCOME.md)', () => {
     const fixture = makeRepoFixture()
     repoRoot = fixture.repoRoot

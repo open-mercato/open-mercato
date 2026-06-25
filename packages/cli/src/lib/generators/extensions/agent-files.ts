@@ -80,6 +80,8 @@ type DiscoveredAgent = {
   maxSteps?: number
   provider?: string
   model?: string
+  /** Optional `SAMPLE.json` example input for the Playground "Insert sample" button. */
+  sampleInput?: unknown
 }
 
 const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/
@@ -239,6 +241,24 @@ function assertOutcomeSchemaSupported(node: unknown, where: string, path = '$'):
 
 function sanitizeAgentName(id: string): string {
   return id.replace(/[^a-z0-9_-]/gi, '_')
+}
+
+/**
+ * Read the optional `agents/<id>/SAMPLE.json` example input emitted into the
+ * manifest for the Playground "Insert sample" button. Pure JSON (no markdown),
+ * so a missing file is fine; a malformed one fails generation LOUDLY (naming the
+ * dir) rather than being silently dropped. Must stay in sync with
+ * `lib/sdk/defineFileAgent.ts` `loadSampleInput`.
+ */
+function discoverSampleInput(dir: string): unknown {
+  const samplePath = path.join(dir, 'SAMPLE.json')
+  if (!fs.existsSync(samplePath)) return undefined
+  try {
+    return JSON.parse(fs.readFileSync(samplePath, 'utf8'))
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    throw new Error(`[internal] malformed SAMPLE.json at ${dir}: ${detail}`)
+  }
 }
 
 /**
@@ -525,6 +545,7 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
       maxSteps: agent.maxSteps,
       provider: agent.provider,
       model: agent.model,
+      sampleInput: discoverSampleInput(dir),
     })
   }
   return subAgents
@@ -674,6 +695,9 @@ function renderDescriptor(agent: DiscoveredAgent, indent: string): string {
   if (agent.maxSteps != null) optional.push(`${indent}  maxSteps: ${agent.maxSteps},`)
   if (agent.provider != null) optional.push(`${indent}  provider: ${JSON.stringify(agent.provider)},`)
   if (agent.model != null) optional.push(`${indent}  model: ${JSON.stringify(agent.model)},`)
+  if (agent.sampleInput !== undefined) {
+    optional.push(`${indent}  sampleInput: ${JSON.stringify(agent.sampleInput)},`)
+  }
   const skillsContent = agent.skillsContent.map((skill) => ({
     id: skill.id,
     instructions: skill.instructions,
@@ -758,6 +782,11 @@ export type FileAgentDescriptor = {
   maxSteps?: number
   provider?: string
   model?: string
+  /**
+   * Optional example \`input\` for the Playground "Insert sample" button, read
+   * from \`agents/<id>/SAMPLE.json\`. Any JSON value the agent accepts as input.
+   */
+  sampleInput?: unknown
 }
 
 export const fileAgentDescriptors: FileAgentDescriptor[] = [${
@@ -855,6 +884,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
         maxSteps: agent.maxSteps,
         provider: agent.provider,
         model: agent.model,
+        sampleInput: discoverSampleInput(dir),
       })
     }
   }

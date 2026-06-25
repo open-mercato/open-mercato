@@ -90,6 +90,8 @@ export type AgentView = {
   runtime: AgentRuntime
   tools: string[]
   skills: string[]
+  /** Optional example input for the Playground "Insert sample" button. */
+  sampleInput?: unknown
 }
 
 export type SkillDetailView = {
@@ -243,6 +245,7 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
     runtime,
     tools: Array.isArray(item.tools) ? item.tools.filter((tool): tool is string => typeof tool === 'string') : [],
     skills: Array.isArray(item.skills) ? item.skills.filter((skill): skill is string => typeof skill === 'string') : [],
+    sampleInput: item.sampleInput,
   }
 }
 

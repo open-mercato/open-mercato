@@ -67,6 +67,14 @@ export interface DefineAgentInput {
   runtime?: AgentRuntime
   /** Zod from data/validators.ts; IS the output.schema (single source). */
   result: { kind: AgentResultKind; schema: ZodTypeAny }
+  /**
+   * Optional example `input` surfaced by the Playground's "Insert sample"
+   * button. Co-located with the agent so each agent ships its own runnable
+   * example instead of the Playground hardcoding per-agent samples. Any JSON
+   * value the agent accepts as input. Additive/BC-safe: agents without it just
+   * hide the button.
+   */
+  sampleInput?: unknown
 }
 
 export interface AgentRegistryEntry {
@@ -87,6 +95,8 @@ export interface AgentRegistryEntry {
   loop?: { maxSteps?: number }
   /** Runtime the agent executes on. Always set (default `'in-process'`). */
   runtime: AgentRuntime
+  /** Optional Playground "Insert sample" input (see DefineAgentInput). */
+  sampleInput?: unknown
 }
 
 const registry = new Map<string, AgentRegistryEntry>()
@@ -131,6 +141,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     defaultModel: input.defaultModel,
     loop: input.loop,
     runtime: 'in-process',
+    sampleInput: input.sampleInput,
   })
   const skillSections = resolvedSkills.map(
     (skill) => `## Skill: ${skill.label}\n${skill.instructions}`,
@@ -331,6 +342,7 @@ async function loadFileAgents(): Promise<void> {
         defaultModel: descriptor.model,
         loop: descriptor.maxSteps != null ? { maxSteps: descriptor.maxSteps } : undefined,
         runtime: 'opencode',
+        sampleInput: descriptor.sampleInput,
       })
       // Phase 3: register the agent's resolved skill content into the runtime
       // lookup so `load_skill` can return it without fs access. Optional + BC: a
