@@ -16,6 +16,8 @@ const agentItemSchema = z.object({
   skills: z.array(z.string()),
   label: z.string(),
   description: z.string(),
+  // Optional per-agent example input for the Playground "Insert sample" button.
+  sampleInput: z.unknown().optional(),
 })
 
 const agentListResponseSchema = z.object({
@@ -36,6 +38,7 @@ export async function GET(req: Request) {
     skills: entry.skills,
     label: entry.label,
     description: entry.description,
+    sampleInput: entry.sampleInput,
   }))
   return NextResponse.json({ items })
 }
