@@ -530,6 +530,7 @@
   "notices.cookies.dismiss": "Odrzuć",
   "notices.demo.and": "i",
   "notices.demo.description": "Ta instancja jest udostępniana wyłącznie do celów demonstracyjnych. Dane mogą zostać zresetowane w dowolnym momencie i nie są przechowywane przez żaden gwarantowany okres.",
+  "notices.demo.dismiss": "Zamknij komunikat demonstracyjny",
   "notices.demo.installLink": "Zainstaluj Open Mercato lokalnie",
   "notices.demo.reviewLinks": "Przejrzyj nasze",
   "notices.demo.superadminQuestion": "Potrzebujesz trwałego dostępu superadministratora?",

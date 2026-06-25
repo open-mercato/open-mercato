@@ -122,6 +122,8 @@ export const messageDetailResponseSchema = z.object({
   })),
   thread: z.array(messageThreadItemSchema),
   isRead: z.boolean(),
+  conversationArchived: z.boolean(),
+  conversationAllUnread: z.boolean(),
 })
 
 export const messageTokenDetailResponseSchema = z.object({

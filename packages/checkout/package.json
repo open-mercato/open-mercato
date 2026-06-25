@@ -1,6 +1,7 @@
 {
   "name": "@open-mercato/checkout",
   "version": "0.6.5",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -81,7 +82,8 @@
     "jest": "^30.4.2",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "ts-jest": "^29.4.11"
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
   },
   "publishConfig": {
     "access": "public"

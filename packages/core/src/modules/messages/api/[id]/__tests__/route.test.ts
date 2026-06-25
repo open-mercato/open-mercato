@@ -209,6 +209,110 @@ describe('messages /api/messages/[id] GET', () => {
       { tenantId, organizationId },
     )
   })
+
+  async function getDetailWithRecipientStatus(status: 'archived' | 'unread' | 'read') {
+    const actorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const threadId = '11111111-1111-4111-8111-111111111111'
+    const anchorId = '22222222-2222-4222-8222-222222222222'
+
+    const anchorMessage = {
+      id: anchorId,
+      threadId,
+      senderUserId: actorUserId,
+      organizationId,
+      tenantId,
+      deletedAt: null,
+      isDraft: false,
+      type: 'system',
+      visibility: 'internal',
+      sourceEntityType: null,
+      sourceEntityId: null,
+      externalEmail: null,
+      externalName: null,
+      parentMessageId: null,
+      subject: 'Subject',
+      body: 'Body',
+      bodyFormat: 'markdown',
+      priority: 'normal',
+      sentAt: new Date('2026-02-24T10:00:00.000Z'),
+      actionData: null,
+      actionTaken: null,
+      actionTakenAt: null,
+      actionTakenByUserId: null,
+    }
+    const threadMessages = [{
+      id: anchorId,
+      senderUserId: actorUserId,
+      body: 'Body',
+      bodyFormat: 'markdown',
+      sentAt: anchorMessage.sentAt,
+    }]
+
+    const em = {
+      findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === MessageRecipient && where.messageId === anchorId) {
+          return {
+            messageId: anchorId,
+            recipientUserId: actorUserId,
+            status,
+            readAt: status === 'read' ? new Date('2026-02-24T10:05:00.000Z') : null,
+            archivedAt: status === 'archived' ? new Date('2026-02-24T10:05:00.000Z') : null,
+            deletedAt: null,
+          }
+        }
+        return null
+      }),
+      find: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === MessageObject) return []
+        if (entity === MessageRecipient && typeof where.recipientUserId === 'string') {
+          return [{ messageId: anchorId, status }]
+        }
+        return []
+      }),
+    }
+
+    findWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown) => {
+      if (entity === Message) return threadMessages
+      if (entity === User) return [{ id: actorUserId, name: 'Actor User', email: 'actor@example.com' }]
+      return []
+    })
+    findOneWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown) => {
+      if (entity === Message) return anchorMessage
+      if (entity === User) return { id: actorUserId, name: 'Actor User', email: 'actor@example.com' }
+      return null
+    })
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container: { resolve: (name: string) => (name === 'em' ? em : null) } },
+      scope: { tenantId, organizationId, userId: actorUserId },
+    })
+
+    const response = await GET(
+      new Request(`http://localhost/api/messages/${anchorId}?skipMarkRead=1`),
+      { params: { id: anchorId } },
+    )
+    expect(response.status).toBe(200)
+    return response.json() as Promise<{ conversationArchived?: boolean; conversationAllUnread?: boolean }>
+  }
+
+  it('reports conversationArchived when every actor recipient row is archived', async () => {
+    const payload = await getDetailWithRecipientStatus('archived')
+    expect(payload.conversationArchived).toBe(true)
+    expect(payload.conversationAllUnread).toBe(false)
+  })
+
+  it('reports conversationAllUnread when every actor recipient row is unread', async () => {
+    const payload = await getDetailWithRecipientStatus('unread')
+    expect(payload.conversationAllUnread).toBe(true)
+    expect(payload.conversationArchived).toBe(false)
+  })
+
+  it('reports neither flag when the conversation is read', async () => {
+    const payload = await getDetailWithRecipientStatus('read')
+    expect(payload.conversationArchived).toBe(false)
+    expect(payload.conversationAllUnread).toBe(false)
+  })
 })
 
 describe('messages /api/messages/[id] PATCH', () => {

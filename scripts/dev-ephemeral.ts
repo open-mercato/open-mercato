@@ -128,7 +128,7 @@ const autoOpenSplash = !classic
 const splashChildStateFilePath = path.join(projectRootDirectory, '.mercato', 'dev-ephemeral-splash-child-state.json')
 const warmupReadyFilePath = path.join(projectRootDirectory, '.mercato', 'dev-ephemeral-warmup-ready.json')
 const splashState = {
-  mode: 'dev',
+  mode: 'ephemeral',
   phase: 'Ephemeral dev environment is starting...',
   detail: 'Preparing isolated PostgreSQL and app runtime',
   failed: false,
