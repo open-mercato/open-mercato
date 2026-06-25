@@ -63,6 +63,7 @@ export function useMessageDetails(id: string) {
     onDeleted: () => router.push('/backend/messages'),
     onMarkedUnread: () => router.push('/backend/messages'),
     refreshDetailWithoutAutoMarkRead: queryState.refreshDetailWithoutAutoMarkRead,
+    suppressAutoMarkRead: queryState.suppressAutoMarkRead,
   })
 
   const conversationState = useMessageDetailsConversation({

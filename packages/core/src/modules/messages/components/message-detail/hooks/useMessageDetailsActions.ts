@@ -40,6 +40,7 @@ type UseMessageDetailsActionsInput = {
   onDeleted: () => void
   onMarkedUnread: () => void
   refreshDetailWithoutAutoMarkRead: () => Promise<MessageDetail | null>
+  suppressAutoMarkRead: () => void
 }
 
 export function useMessageDetailsActions({
@@ -52,6 +53,7 @@ export function useMessageDetailsActions({
   onDeleted,
   onMarkedUnread,
   refreshDetailWithoutAutoMarkRead,
+  suppressAutoMarkRead,
 }: UseMessageDetailsActionsInput) {
   const [replyOpen, setReplyOpen] = React.useState(false)
   const [forwardOpen, setForwardOpen] = React.useState(false)
@@ -193,6 +195,7 @@ export function useMessageDetailsActions({
   }, [id, runConversationAction, t])
 
   const markConversationUnread = React.useCallback(async (messageId?: string) => {
+    suppressAutoMarkRead()
     const targetMessageId = messageId ?? id
     await runConversationAction('markAllUnread', {
       url: `/api/messages/${encodeURIComponent(targetMessageId)}/conversation/read`,
@@ -200,7 +203,7 @@ export function useMessageDetailsActions({
       successMessage: t('messages.flash.conversationMarkedUnread', 'Conversation marked unread.'),
       onSuccess: onMarkedUnread,
     })
-  }, [id, onMarkedUnread, runConversationAction, t])
+  }, [id, onMarkedUnread, runConversationAction, suppressAutoMarkRead, t])
 
   const deleteConversation = React.useCallback(async (messageId?: string) => {
     const targetMessageId = messageId ?? id
@@ -366,12 +369,15 @@ export function useMessageDetailsActions({
   }, [detail?.actionData?.actions])
 
   const toggleRead = React.useCallback(async () => {
+    if (detail?.isRead) {
+      suppressAutoMarkRead()
+    }
     await requestAndRefresh(
       `/api/messages/${encodeURIComponent(id)}/read`,
       detail?.isRead ? 'DELETE' : 'PUT',
       detail?.isRead ? { skipDetailAutoMarkRead: true, onSuccess: onMarkedUnread } : undefined,
     )
-  }, [detail?.isRead, id, onMarkedUnread, requestAndRefresh])
+  }, [detail?.isRead, id, onMarkedUnread, requestAndRefresh, suppressAutoMarkRead])
 
   const toggleArchive = React.useCallback(async () => {
     await requestAndRefresh(
