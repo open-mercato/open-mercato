@@ -24,7 +24,9 @@ describe('consentIntegrity secret resolution', () => {
 
   beforeEach(() => {
     delete process.env.CONSENT_INTEGRITY_SECRET
+    delete process.env.AUTH_SECRET
     delete process.env.NEXTAUTH_SECRET
+    delete process.env.JWT_SECRET
     delete process.env.NODE_ENV
   })
 
@@ -80,6 +82,22 @@ describe('consentIntegrity secret resolution', () => {
   it('falls back to NEXTAUTH_SECRET in production without throwing', () => {
     process.env.NODE_ENV = 'production'
     process.env.NEXTAUTH_SECRET = 'nextauth-prod-secret'
+    const { computeConsentIntegrityHash } = loadModule()
+
+    expect(() => computeConsentIntegrityHash(sampleInput)).not.toThrow()
+  })
+
+  it('falls back to AUTH_SECRET in production without throwing', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.AUTH_SECRET = 'auth-prod-secret'
+    const { computeConsentIntegrityHash } = loadModule()
+
+    expect(() => computeConsentIntegrityHash(sampleInput)).not.toThrow()
+  })
+
+  it('falls back to JWT_SECRET in production without throwing', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.JWT_SECRET = 'jwt-prod-secret'
     const { computeConsentIntegrityHash } = loadModule()
 
     expect(() => computeConsentIntegrityHash(sampleInput)).not.toThrow()

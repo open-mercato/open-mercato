@@ -719,11 +719,13 @@ async function resolveAddressSnapshot(
   addressId?: string | null,
 ): Promise<Record<string, unknown> | null> {
   if (!addressId) return null;
-  const address = await em.findOne(CustomerAddress, {
-    id: addressId,
-    organizationId,
-    tenantId,
-  });
+  const address = await findOneWithDecryption(
+    em,
+    CustomerAddress,
+    { id: addressId, organizationId, tenantId },
+    undefined,
+    { tenantId, organizationId },
+  );
   if (!address) return null;
 
   return {

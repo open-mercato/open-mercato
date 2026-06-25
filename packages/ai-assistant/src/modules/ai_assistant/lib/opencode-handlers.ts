@@ -4,6 +4,8 @@
  * These handlers can be used by Next.js API routes to interact with OpenCode.
  */
 
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { findApiKeyByOpencodeSessionId } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import {
   createOpenCodeClient,
   type OpenCodeClient,
@@ -19,6 +21,61 @@ function getClient(): OpenCodeClient {
   return clientInstance
 }
 
+/**
+ * Auth context required to resume or answer an existing OpenCode session.
+ *
+ * The runtime asserts that the OpenCode session id presented by the caller is
+ * bound to an api_key row whose `sessionUserId`, `tenantId`, and
+ * `organizationId` exactly match this triple — otherwise we refuse the
+ * request with `OpenCodeSessionOwnershipError`.
+ */
+export type OpenCodeAuthContext = {
+  userId: string
+  tenantId: string | null
+  organizationId: string | null
+}
+
+/**
+ * Thrown when an OpenCode session resume / answer attempt cannot be tied to
+ * an api_key row owned by the current authenticated principal.
+ *
+ * `code === 'session_unbound'` means the OpenCode session id has no api_key
+ * binding (either it never existed, or auth context was missing).
+ * `code === 'session_owner_mismatch'` means the binding exists but belongs to
+ * a different user / tenant / organization.
+ *
+ * Both variants surface the same opaque user-facing message — callers MUST
+ * NOT leak the discriminator into HTTP responses or SSE events.
+ */
+export class OpenCodeSessionOwnershipError extends Error {
+  readonly code: 'session_owner_mismatch' | 'session_unbound'
+  constructor(code: 'session_owner_mismatch' | 'session_unbound', message: string) {
+    super(message)
+    this.code = code
+    this.name = 'OpenCodeSessionOwnershipError'
+  }
+}
+
+async function assertOpencodeSessionOwnership(
+  em: EntityManager,
+  opencodeSessionId: string,
+  auth: OpenCodeAuthContext
+): Promise<void> {
+  const row = await findApiKeyByOpencodeSessionId(em, opencodeSessionId)
+  if (!row) {
+    throw new OpenCodeSessionOwnershipError('session_unbound', 'Session not available')
+  }
+  const rowTenantId = row.tenantId ?? null
+  const rowOrgId = row.organizationId ?? null
+  if (
+    row.sessionUserId !== auth.userId ||
+    rowTenantId !== auth.tenantId ||
+    rowOrgId !== auth.organizationId
+  ) {
+    throw new OpenCodeSessionOwnershipError('session_owner_mismatch', 'Session not available')
+  }
+}
+
 export type OpenCodeTestRequest = {
   message: string
   sessionId?: string
@@ -26,6 +83,25 @@ export type OpenCodeTestRequest = {
     providerID: string
     modelID: string
   }
+  /**
+   * Authenticated principal that owns this chat turn.
+   *
+   * Optional at the type level for source-compatibility, but REQUIRED at
+   * runtime whenever the caller resumes an existing `sessionId`. New call
+   * sites MUST always pass it — see the security fix in
+   * `.ai/specs/2026-05-23-fix-opencode-session-ownership.md`.
+   *
+   * @since 0.6.0
+   */
+  auth?: OpenCodeAuthContext
+  /**
+   * MikroORM `EntityManager` used to look up the api_key binding for
+   * ownership checks. Optional at the type level for source-compatibility,
+   * but REQUIRED at runtime whenever `auth` is passed.
+   *
+   * @since 0.6.0
+   */
+  em?: EntityManager
 }
 
 export type OpenCodeTestResponse = {
@@ -58,7 +134,7 @@ export async function handleOpenCodeMessage(
 ): Promise<OpenCodeTestResponse> {
   const client = getClient()
 
-  const { message, sessionId, model } = request
+  const { message, sessionId, model, auth, em } = request
 
   if (!message) {
     throw new Error('Message is required')
@@ -67,6 +143,15 @@ export async function handleOpenCodeMessage(
   // Create or get session
   let session
   if (sessionId) {
+    if (!auth || !em) {
+      // Fail closed — resuming an existing OpenCode session without an auth
+      // context is the very scenario this guard prevents (cross-user resume).
+      throw new OpenCodeSessionOwnershipError(
+        'session_unbound',
+        'OpenCode session resume requires auth context'
+      )
+    }
+    await assertOpencodeSessionOwnership(em, sessionId, auth)
     session = await client.getSession(sessionId)
   } else {
     session = await client.createSession()
@@ -248,7 +333,7 @@ export async function handleOpenCodeMessageStreaming(
   onEvent: (event: OpenCodeStreamEvent) => Promise<void>
 ): Promise<void> {
   const client = getClient()
-  const { message, sessionId, model } = request
+  const { message, sessionId, model, auth, em } = request
   const startTime = Date.now()
 
   // Accumulators for usage summary
@@ -269,6 +354,24 @@ export async function handleOpenCodeMessageStreaming(
     // Create or get session
     let session
     if (sessionId) {
+      if (!auth || !em) {
+        // Fail closed — resuming an existing OpenCode session without an
+        // auth context is exactly what this guard prevents (cross-user
+        // resume). Use the streaming error-event shape used elsewhere in
+        // this function and surface the same opaque message regardless of
+        // which ownership variant failed.
+        await onEvent({ type: 'error', error: 'Session not available' })
+        return
+      }
+      try {
+        await assertOpencodeSessionOwnership(em, sessionId, auth)
+      } catch (err) {
+        if (err instanceof OpenCodeSessionOwnershipError) {
+          await onEvent({ type: 'error', error: 'Session not available' })
+          return
+        }
+        throw err
+      }
       session = await client.getSession(sessionId)
     } else {
       session = await client.createSession()
@@ -642,6 +745,19 @@ export async function handleOpenCodeMessageStreaming(
 }
 
 /**
+ * Optional ownership guard for {@link handleOpenCodeAnswer}.
+ *
+ * Pass `{ auth, em }` to enforce that the question being answered belongs to
+ * an OpenCode session bound to the current authenticated principal. Required
+ * at runtime for any caller resuming a session — see the security fix in
+ * `.ai/specs/2026-05-23-fix-opencode-session-ownership.md`.
+ */
+export type OpenCodeAnswerOwnershipOptions = {
+  auth?: OpenCodeAuthContext
+  em?: EntityManager
+}
+
+/**
  * Answer a pending question and continue processing.
  * Uses polling to check for completion/next question.
  */
@@ -649,11 +765,53 @@ export async function handleOpenCodeAnswer(
   questionId: string,
   answer: number,
   sessionId: string,
-  onEvent: (event: OpenCodeStreamEvent) => Promise<void>
+  onEvent: (event: OpenCodeStreamEvent) => Promise<void>,
+  ownership?: OpenCodeAnswerOwnershipOptions
 ): Promise<void> {
   const client = getClient()
 
   try {
+    // Resolve the question's actual sessionID via OpenCode's pending list.
+    // This is the only trustworthy source: the caller-supplied `sessionId`
+    // could be tampered with, but the question's `sessionID` is whatever
+    // OpenCode actually emitted when the question was raised. If those two
+    // do not match — or if the question is unknown/stale — refuse early.
+    const pending = await client.getPendingQuestions()
+    const matchingQuestion = pending.find((q) => q.id === questionId)
+    if (!matchingQuestion) {
+      await onEvent({ type: 'error', error: 'Session not available' })
+      return
+    }
+    if (matchingQuestion.sessionID !== sessionId) {
+      // The caller named a session id that does not own this question —
+      // refuse with the same opaque message used for ownership failures.
+      await onEvent({ type: 'error', error: 'Session not available' })
+      return
+    }
+
+    // Now assert ownership against the question's own sessionID (not the
+    // caller-supplied `sessionId`, which we have already cross-checked).
+    if (ownership?.auth && ownership?.em) {
+      try {
+        await assertOpencodeSessionOwnership(
+          ownership.em,
+          matchingQuestion.sessionID,
+          ownership.auth
+        )
+      } catch (err) {
+        if (err instanceof OpenCodeSessionOwnershipError) {
+          await onEvent({ type: 'error', error: 'Session not available' })
+          return
+        }
+        throw err
+      }
+    } else {
+      // Fail closed when ownership context is missing — never answer a
+      // question against an unverified OpenCode session.
+      await onEvent({ type: 'error', error: 'Session not available' })
+      return
+    }
+
     // Answer the question
     await client.answerQuestion(questionId, answer)
     await onEvent({ type: 'thinking' })
@@ -714,11 +872,65 @@ export async function handleOpenCodeAnswer(
 }
 
 /**
+ * Get pending OpenCode questions whose sessions are owned by the given
+ * authenticated principal.
+ *
+ * Replaces the cross-user-leaky `getPendingQuestions()` overload. For each
+ * pending question, the helper resolves its `sessionID` to the api_key row
+ * via {@link findApiKeyByOpencodeSessionId} and keeps the question only when
+ * the row's `sessionUserId / tenantId / organizationId` exactly matches the
+ * auth triple.
+ *
+ * Questions whose sessions have no api_key binding (and therefore cannot be
+ * owned by anyone yet) are dropped.
+ */
+export async function getOwnedPendingQuestions(
+  em: EntityManager,
+  auth: OpenCodeAuthContext
+): Promise<OpenCodeQuestion[]> {
+  const client = getClient()
+  const all = await client.getPendingQuestions()
+  if (!Array.isArray(all) || all.length === 0) return []
+
+  const owned: OpenCodeQuestion[] = []
+  for (const question of all) {
+    const sessionId = question?.sessionID
+    if (!sessionId) continue
+    const row = await findApiKeyByOpencodeSessionId(em, sessionId)
+    if (!row) continue
+    if (
+      row.sessionUserId !== auth.userId ||
+      (row.tenantId ?? null) !== auth.tenantId ||
+      (row.organizationId ?? null) !== auth.organizationId
+    ) {
+      continue
+    }
+    owned.push(question)
+  }
+  return owned
+}
+
+/**
  * Get pending questions for a session.
+ *
+ * @deprecated since 0.6.0 — the original unscoped overload returned ALL
+ * pending questions across every OpenCode session and leaked cross-user /
+ * cross-tenant information (see security fix
+ * `.ai/specs/2026-05-24-fix-opencode-session-ownership.md`). The overload
+ * is kept as an importable symbol for source-compatibility (BC §3) but
+ * now throws on call. Migrate callers to {@link getOwnedPendingQuestions}
+ * with an authenticated principal.
+ *
+ * Throws an error rather than silently returning `[]` so stale callers
+ * surface during integration rather than producing "no questions ever"
+ * symptoms that would mask a regression.
  */
 export async function getPendingQuestions(): Promise<OpenCodeQuestion[]> {
-  const client = getClient()
-  return client.getPendingQuestions()
+  throw new Error(
+    'getPendingQuestions() is no longer safe to call without an auth context — ' +
+      'use getOwnedPendingQuestions(em, auth) instead. See ' +
+      '.ai/specs/2026-05-24-fix-opencode-session-ownership.md'
+  )
 }
 
 // Re-export the question type

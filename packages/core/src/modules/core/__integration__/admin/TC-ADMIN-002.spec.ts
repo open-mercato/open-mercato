@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { createApiKeyFixture } from '@open-mercato/core/modules/core/__integration__/helpers/apiKeysFixtures';
+import { login } from '@open-mercato/core/helpers/integration/auth';
+import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
+import { createApiKeyFixture } from '@open-mercato/core/helpers/integration/apiKeysFixtures';
 
 type Page = import('@playwright/test').Page;
 type Locator = import('@playwright/test').Locator;

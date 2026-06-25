@@ -109,7 +109,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
+    const entity = await requireCustomerEntity(em, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId }, undefined, 'Customer not found')
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
 
     const address = em.create(CustomerAddress, {
@@ -198,7 +198,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
       throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for address create' })
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await requireCustomerEntity(em, after.entityId, undefined, 'Customer not found')
+    const entity = await requireCustomerEntity(em, after.entityId, { tenantId: after.tenantId, organizationId: after.organizationId }, undefined, 'Customer not found')
     let address = await findOneWithDecryption(
       em,
       CustomerAddress,
@@ -293,7 +293,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
     ensureOrganizationScope(ctx, address.organizationId)
 
     if (parsed.entityId !== undefined) {
-      const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
+      const entity = await requireCustomerEntity(em, parsed.entityId, { tenantId: address.tenantId, organizationId: address.organizationId }, undefined, 'Customer not found')
       ensureSameScope(entity, address.organizationId, address.tenantId)
       address.entity = entity
     }
@@ -396,7 +396,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let address = await em.findOne(CustomerAddress, { id: before.id })
-    const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
+    const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
     if (!address) {
       address = em.create(CustomerAddress, {
         id: before.id,
@@ -523,7 +523,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
+      const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
       let address = await em.findOne(CustomerAddress, { id: before.id })
       if (!address) {
         address = em.create(CustomerAddress, {

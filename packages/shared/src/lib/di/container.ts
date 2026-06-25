@@ -164,7 +164,7 @@ export async function createRequestContainer(): Promise<AppContainer> {
     // sent) it short-circuits at validateMutation. Module-level di.ts
     // registrations override this default via Awilix replace semantics —
     // see the enterprise `record_locks` module for the canonical override.
-    // Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md
+    // Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md
     crudMutationGuardService: asFunction(({ em: scopedEm }: { em: EntityManager }) =>
       createOptimisticLockGuardService({
         getEm: () => scopedEm,

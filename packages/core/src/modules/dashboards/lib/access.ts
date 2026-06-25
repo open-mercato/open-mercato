@@ -50,50 +50,47 @@ export async function resolveAllowedWidgetIds(
     }
   }
 
-  if (allowedByUser && allowedByUser.size === 0) {
-    return Array.from(allowedByUser)
-  }
-
-  // Aggregate role-level settings
-  const userRoles = await findWithDecryption(
-    em,
-    UserRole,
-    { user: ctx.userId as any, deletedAt: null },
-    { populate: ['role'] },
-    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-  )
-  const roleRecords = await em.find(DashboardRoleWidgets, {
-    roleId: { $in: userRoles.map((ur) => String(ur.role?.id || ur.role)) },
-    deletedAt: null,
-  })
-
-  const byRole = new Map<string, DashboardRoleWidgets>()
-  for (const record of roleRecords) {
-    const role = String(record.roleId)
-    if (record.tenantId && ctx.tenantId && record.tenantId !== ctx.tenantId) continue
-    if (record.tenantId && !ctx.tenantId) continue
-    if (record.organizationId && ctx.organizationId && record.organizationId !== ctx.organizationId) continue
-    if (record.organizationId && !ctx.organizationId) continue
-    const current = byRole.get(role)
-    if (!current || specificity(record) > specificity(current)) {
-      byRole.set(role, record)
-    }
-  }
-
-  const allowedByRole = new Set<string>()
-  for (const record of byRole.values()) {
-    for (const id of record.widgetIdsJson) {
-      if (allWidgetIds.includes(id)) allowedByRole.add(id)
-    }
-  }
-
   let baseSet: Set<string>
   if (allowedByUser) {
+    // A user override fully determines visibility, so role-level lookups would
+    // be discarded — skip them entirely. An empty override is handled by the
+    // shared `baseSet.size === 0` guard below.
     baseSet = allowedByUser
-  } else if (allowedByRole.size > 0) {
-    baseSet = allowedByRole
   } else {
-    baseSet = new Set(allWidgetIds)
+    // No user override: aggregate role-level settings.
+    const userRoles = await findWithDecryption(
+      em,
+      UserRole,
+      { user: ctx.userId as any, deletedAt: null },
+      { populate: ['role'] },
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    )
+    const roleRecords = await em.find(DashboardRoleWidgets, {
+      roleId: { $in: userRoles.map((ur) => String(ur.role?.id || ur.role)) },
+      deletedAt: null,
+    })
+
+    const byRole = new Map<string, DashboardRoleWidgets>()
+    for (const record of roleRecords) {
+      const role = String(record.roleId)
+      if (record.tenantId && ctx.tenantId && record.tenantId !== ctx.tenantId) continue
+      if (record.tenantId && !ctx.tenantId) continue
+      if (record.organizationId && ctx.organizationId && record.organizationId !== ctx.organizationId) continue
+      if (record.organizationId && !ctx.organizationId) continue
+      const current = byRole.get(role)
+      if (!current || specificity(record) > specificity(current)) {
+        byRole.set(role, record)
+      }
+    }
+
+    const allowedByRole = new Set<string>()
+    for (const record of byRole.values()) {
+      for (const id of record.widgetIdsJson) {
+        if (allWidgetIds.includes(id)) allowedByRole.add(id)
+      }
+    }
+
+    baseSet = allowedByRole.size > 0 ? allowedByRole : new Set(allWidgetIds)
   }
 
   if (baseSet.size === 0) return []

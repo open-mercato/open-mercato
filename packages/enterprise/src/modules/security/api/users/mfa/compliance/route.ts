@@ -8,6 +8,7 @@ import {
   mapSecurityUsersError,
   resolveSecurityUsersContext,
 } from '../../_shared'
+import type { MfaAdminAuthScope } from '../../../../services/MfaAdminService'
 
 const querySchema = z.object({
   tenantId: z.string().uuid().optional(),
@@ -48,10 +49,12 @@ export async function GET(req: Request) {
       return securityApiError(400, 'Tenant context is required.')
     }
     const isSuperAdmin = await resolveIsSuperAdmin({ auth: context.auth, container: context.container })
-    const items = await context.mfaAdminService.bulkComplianceCheck(tenantId, {
-      tenantId: context.auth.tenantId ?? null,
+    const scope: MfaAdminAuthScope = {
+      tenantId: (context.auth.tenantId as string | null | undefined) ?? null,
+      organizationId: (context.auth.orgId as string | null | undefined) ?? null,
       isSuperAdmin,
-    })
+    }
+    const items = await context.mfaAdminService.bulkComplianceCheck(tenantId, scope)
     return NextResponse.json({ items })
   } catch (error) {
     return await mapSecurityUsersError(error)

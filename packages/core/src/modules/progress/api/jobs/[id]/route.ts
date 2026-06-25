@@ -26,6 +26,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const job = await em.findOne(ProgressJob, {
     id: params.id,
     tenantId: auth.tenantId,
+    ...(auth.orgId ? { organizationId: auth.orgId } : {}),
   })
 
   if (!job) {
@@ -74,7 +75,11 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const existing = await em.findOne(ProgressJob, { id: params.id, tenantId: auth.tenantId })
+  const existing = await em.findOne(ProgressJob, {
+    id: params.id,
+    tenantId: auth.tenantId,
+    ...(auth.orgId ? { organizationId: auth.orgId } : {}),
+  })
   if (!existing) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }

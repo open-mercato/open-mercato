@@ -75,7 +75,11 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
     },
 
     async updateProgress(jobId, input, ctx) {
-      const job = await em.findOneOrFail(ProgressJob, { id: jobId, tenantId: ctx.tenantId })
+      const job = await em.findOneOrFail(ProgressJob, {
+        id: jobId,
+        tenantId: ctx.tenantId,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
+      })
       if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
         return job
       }
@@ -197,6 +201,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       const job = await em.findOneOrFail(ProgressJob, {
         id: jobId,
         tenantId: ctx.tenantId,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
         cancellable: true,
         status: { $in: ['pending', 'running'] },
       })
@@ -279,6 +284,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       return em.findOne(ProgressJob, {
         id: jobId,
         tenantId: ctx.tenantId,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
       })
     },
 

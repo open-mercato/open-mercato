@@ -38,7 +38,7 @@ import {
  * `aiAgentConfigEntries` to populate the agent registry,
  * `aiAgentOverrideEntries` to apply cross-module replacements, and
  * `allAiAgentExtensions` to append safe metadata after the base load. See spec
- * `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md`.
+ * `.ai/specs/implemented/2026-04-30-ai-overrides-and-module-disable.md`.
  */
 export function createAiAgentsExtension(): GeneratorExtension {
   const imports = [] as Array<ReturnType<typeof namespaceImportSpec>>

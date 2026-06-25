@@ -8,11 +8,15 @@ import type { McpClientInterface, ToolInfo, ToolResult } from './types'
  */
 export type StdioClientOptions = {
   transport: 'stdio'
-  /** API key secret (passed to server via --api-key) */
+  /**
+   * API key secret. Delivered to the spawned server via the
+   * `OPEN_MERCATO_API_KEY` environment variable, never as a command-line
+   * argument (argv is world-readable via `ps`/`/proc/<pid>/cmdline`).
+   */
   apiKeySecret: string
   /** Command to run (default: 'yarn') */
   command?: string
-  /** Arguments for the command (default: mercato mcp:serve with api-key) */
+  /** Arguments for the command (default: mercato ai_assistant mcp:serve, no secret on argv) */
   args?: string[]
   /** Working directory (default: process.cwd()) */
   cwd?: string
@@ -72,12 +76,12 @@ export class McpClient implements McpClientInterface {
    */
   private static async connectStdio(options: StdioClientOptions): Promise<McpClient> {
     const command = options.command ?? 'yarn'
+    // The API key is passed via OPEN_MERCATO_API_KEY in the child env (below),
+    // never on argv — command-line arguments are readable by any local user.
     const args = options.args ?? [
       'mercato',
       'ai_assistant',
       'mcp:serve',
-      '--api-key',
-      options.apiKeySecret,
     ]
     const cwd = options.cwd ?? process.cwd()
 
@@ -85,7 +89,7 @@ export class McpClient implements McpClientInterface {
       command,
       args,
       cwd,
-      env: process.env as Record<string, string>,
+      env: { ...process.env, OPEN_MERCATO_API_KEY: options.apiKeySecret } as Record<string, string>,
       stderr: 'pipe',
     })
     transport.stderr?.on('data', (data) => {

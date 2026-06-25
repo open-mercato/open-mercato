@@ -60,7 +60,7 @@ The default `yarn install-skills` ships only the **core** tier. Every other tier
 
 | Tier | Default? | Skills | What's inside |
 |------|----------|--------|---------------|
-| `core` | yes | 14 | Daily-driver skills installed by default. |
+| `core` | yes | 15 | Daily-driver skills installed by default. |
 | `automation` | opt-in | 17 | PR/issue automation skills. Opt-in; agent-driven workflows. |
 | `security` | opt-in | 2 | Security audit skills. Opt-in. |
 | `migration` | opt-in | 1 | One-shot, version-pinned migrations. Install only when needed. |
@@ -163,6 +163,8 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 | `om-skill-creator` | Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Claude's capabilities with specialized knowledge, workflows, or tool integrations. |
 | `om-fix-specs` | Normalize spec filenames in .ai/specs and .ai/specs/enterprise to the date+slug convention. Use this when legacy `SPEC-*` / `SPEC-ENT-*` names need to be cleaned up, when filename collisions appear after dropping numeric prefixes, or when links must be updated after normalization. |
 | `om-migrate-mikro-orm` | Migrate custom module code from MikroORM v6 to v7. Fixes v7 type errors (FilterQuery, RequiredEntityData), replaces Knex raw queries with Kysely, migrates persistAndFlush/removeAndFlush, updates decorator imports. Triggers on "mikro-orm v7", "persistAndFlush deprecated", "knex to kysely". |
+| `om-create-ai-agent` | Scaffold AI agents (`ai-agents.ts`) and MCP tools (`ai-tools.ts`) for Open Mercato modules. Use when adding a new AI agent definition, configuring tool allowlists, mutation policies, or model selection. Triggers on "add ai agent", "create ai tool", "ai-agents.ts", "ai-tools.ts". |
+| `om-help` | Open Mercato workflow navigator. Use when asking "what should I do now?", "which skill?", "next steps?", "where do I start?", or "how do I add/build X in Open Mercato?". Covers navigation (recommends the next skill based on git/spec/PR state) and knowledge (answers how-to questions grounded in AGENTS.md). |
 
 ### automation
 
@@ -183,6 +185,7 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 | `om-sync-merged-pr-issues` | Reconcile recently merged (and recently closed-but-not-merged) PRs with the GitHub issue tracker — auto-close issues they authoritatively fix via `fixes`/`closes`/`resolves` keywords or `closingIssuesReferences`, and post informational comments on issues whose PRs were closed without merging. Use for post-merge housekeeping and release prep. Respects claim locks. |
 | `om-auto-update-changelog` | Draft a CHANGELOG.md release entry in the house emoji-driven format for every PR merged since the last release, then delegate to `om-auto-create-pr` so it lands as a docs PR against `develop`. Honors the Supersede Credit Rule for carried-forward fork PRs. Use at release time. |
 | `om-auto-qa-scenarios` | Generate a human QA report for a window of merged PRs (date floor, PR-number floor, or default last 7 days) and ship it as a docs-only PR against `develop`. Groups work into P0/P1/P2 testing routes with click paths, verification points, and risk callouts. Writes markdown + HTML under `.ai/analysis/`. Hands off to `om-auto-continue-pr` if it cannot finish in one pass. |
+| `om-auto-verify-pr-ui` | Manually QA a GitHub PR's UI by number without merging it. Checks the PR out in an isolated worktree, boots it locally against the ephemeral integration environment, derives a UI QA scenario from the diff, drives it with Playwright while capturing screenshots, and posts the screenshots plus a pass/fail verification report as a PR comment to help QA reviewers. When the PR diff defines no integration test, also posts a follow-up comment with a ready-to-implement integration-test scenario (recommending /om-integration-tests). Use when the user says "verify PR <n> in the UI", "QA PR <n>", "run the UI for PR <n>", "screenshot PR <n>", or "self-QA PR <n>". |
 
 ### security
 

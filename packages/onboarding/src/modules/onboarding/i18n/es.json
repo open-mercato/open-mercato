@@ -77,7 +77,10 @@
   "onboarding.preparing.descriptionWithTenant": "Estamos terminando de preparar el entorno de demostración para {tenant}. Le enviaremos un correo con el enlace correcto de acceso al tenant en cuanto esté listo.",
   "onboarding.preparing.emailNotice": "No necesita mantener esta página abierta. Le enviaremos un correo cuando todo esté listo.",
   "onboarding.preparing.homeCta": "Ir a la página principal",
+  "onboarding.preparing.loginCta": "Abrir acceso al tenant",
   "onboarding.preparing.redirecting": "Su espacio de trabajo ya está listo. Ahora le redirigimos a la página de acceso del tenant.",
+  "onboarding.preparing.statusErrorBody": "No pudimos comprobar el estado del espacio de trabajo. Es posible que aún se esté preparando; esta página seguirá intentándolo.",
+  "onboarding.preparing.statusErrorTitle": "Falló la comprobación de estado",
   "onboarding.preparing.title": "Estamos preparando su espacio de trabajo",
   "onboarding.readyEmail.body": "Su espacio de trabajo de Open Mercato para {organizationName} ya está listo. Use el enlace seguro de abajo para iniciar sesión.",
   "onboarding.readyEmail.cta": "Abrir acceso",
@@ -87,5 +90,11 @@
   "onboarding.readyEmail.preview": "Su espacio de trabajo está listo. Use su enlace seguro de acceso para iniciar sesión.",
   "onboarding.readyEmail.subject": "Su espacio de trabajo de Open Mercato está listo",
   "onboarding.subtitle": "Cuéntenos un poco sobre usted y configuraremos todo.",
-  "onboarding.title": "Cree su espacio de trabajo en Open Mercato"
+  "onboarding.title": "Cree su espacio de trabajo en Open Mercato",
+  "onboarding.verifyStatus.alreadyExists": "Ya tenemos una cuenta con este correo electrónico. Intente iniciar sesión o restablecer su contraseña.",
+  "onboarding.verifyStatus.error": "No pudimos completar la verificación. Intente de nuevo o comuníquese con soporte.",
+  "onboarding.verifyStatus.invalid": "El enlace de verificación no es válido o caducó. Envíe de nuevo el formulario de onboarding para recibir un enlace nuevo.",
+  "onboarding.verifyStatus.originNotAllowed": "El enlace de verificación se abrió desde un origen no permitido. Revise APP_URL y APP_ALLOWED_ORIGINS y abra el enlace de nuevo.",
+  "onboarding.verifyStatus.redirectMisconfigured": "El enlace de verificación no puede redirigir de forma segura porque APP_URL no coincide con la URL que procesó la solicitud. Revise APP_URL y APP_ALLOWED_ORIGINS y abra el enlace de nuevo.",
+  "onboarding.verifyStatus.urlNotConfigured": "La verificación de onboarding no está configurada. APP_URL debe estar definido antes de usar enlaces de verificación."
 }

@@ -53,7 +53,7 @@ type DictionaryDefault = {
 type CustomFieldValuesPayload = Parameters<DataEngine['setCustomFields']>[0]['values']
 type ProgressBarHandle = ReturnType<typeof createProgressBar>
 
-const DEAL_STATUS_DEFAULTS: DictionaryDefault[] = [
+export const DEAL_STATUS_DEFAULTS: DictionaryDefault[] = [
   { value: 'open', label: 'Open', color: '#2563eb', icon: 'lucide:circle' },
   { value: 'closed', label: 'Closed', color: '#6b7280', icon: 'lucide:check-circle' },
   { value: 'win', label: 'Win', color: '#22c55e', icon: 'lucide:trophy' },
@@ -61,7 +61,7 @@ const DEAL_STATUS_DEFAULTS: DictionaryDefault[] = [
   { value: 'in_progress', label: 'In progress', color: '#f59e0b', icon: 'lucide:activity' },
 ]
 
-const PIPELINE_STAGE_DEFAULTS: DictionaryDefault[] = [
+export const PIPELINE_STAGE_DEFAULTS: DictionaryDefault[] = [
   { value: 'opportunity', label: 'Opportunity', color: '#38bdf8', icon: 'lucide:target' },
   { value: 'marketing_qualified_lead', label: 'Marketing Qualified Lead', color: '#a855f7', icon: 'lucide:sparkles' },
   { value: 'sales_qualified_lead', label: 'Sales Qualified Lead', color: '#f97316', icon: 'lucide:users' },
@@ -72,14 +72,14 @@ const PIPELINE_STAGE_DEFAULTS: DictionaryDefault[] = [
   { value: 'stalled', label: 'Stalled', color: '#6b7280', icon: 'lucide:alert-circle' },
 ]
 
-const ENTITY_STATUS_DEFAULTS: DictionaryDefault[] = [
+export const ENTITY_STATUS_DEFAULTS: DictionaryDefault[] = [
   { value: 'active', label: 'Active', color: '#22c55e', icon: 'lucide:user-check' },
   { value: 'inactive', label: 'Inactive', color: '#94a3b8', icon: 'lucide:pause-circle' },
   { value: 'pending', label: 'Pending', color: '#f59e0b', icon: 'lucide:clock' },
   { value: 'archived', label: 'Archived', color: '#64748b', icon: 'lucide:archive' },
 ]
 
-const ENTITY_LIFECYCLE_STAGE_DEFAULTS: DictionaryDefault[] = [
+export const ENTITY_LIFECYCLE_STAGE_DEFAULTS: DictionaryDefault[] = [
   { value: 'lead', label: 'Lead', color: '#3b82f6', icon: 'lucide:sparkles' },
   { value: 'prospect', label: 'Prospect', color: '#8b5cf6', icon: 'lucide:eye' },
   { value: 'customer', label: 'Customer', color: '#22c55e', icon: 'lucide:handshake' },
@@ -88,7 +88,7 @@ const ENTITY_LIFECYCLE_STAGE_DEFAULTS: DictionaryDefault[] = [
   { value: 'other', label: 'Other', color: '#94a3b8', icon: 'lucide:circle' },
 ]
 
-const ENTITY_SOURCE_DEFAULTS: DictionaryDefault[] = [
+export const ENTITY_SOURCE_DEFAULTS: DictionaryDefault[] = [
   { value: 'linkedin', label: 'LinkedIn', color: '#0a66c2', icon: 'lucide:linkedin' },
   { value: 'email', label: 'Email', color: '#3b82f6', icon: 'lucide:mail' },
   { value: 'web_form', label: 'Web form', color: '#22c55e', icon: 'lucide:globe' },
@@ -113,6 +113,7 @@ const ADDRESS_TYPE_DEFAULTS: DictionaryDefault[] = [
 const ACTIVITY_TYPE_DEFAULTS: DictionaryDefault[] = [
   { value: 'call', label: 'Call', color: '#2563eb', icon: 'lucide:phone-call' },
   { value: 'email', label: 'Email', color: '#16a34a', icon: 'lucide:mail' },
+  { value: 'event', label: 'Event', color: '#6366f1', icon: 'lucide:calendar' },
   { value: 'meeting', label: 'Meeting', color: '#f59e0b', icon: 'lucide:users' },
   { value: 'note', label: 'Note', color: '#a855f7', icon: 'lucide:notebook' },
   { value: 'task', label: 'Task', color: '#ef4444', icon: 'lucide:check-square' },
@@ -291,7 +292,7 @@ function isoDaysFromNow(days: number, options?: { hour?: number; minute?: number
   return base.toISOString()
 }
 
-const CUSTOMER_EXAMPLES: ExampleCompany[] = [
+export const CUSTOMER_EXAMPLES: ExampleCompany[] = [
   {
     slug: 'brightside-solar',
     displayName: 'Brightside Solar',
@@ -307,7 +308,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
     primaryPhone: '+1 415-555-0148',
     source: 'partner_referral',
     lifecycleStage: 'customer',
-    status: 'customer',
+    status: 'active',
     custom: {
       relationship_health: 'healthy',
       renewal_quarter: 'Q3',
@@ -364,7 +365,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         phone: '+1 628-555-0199',
         timezone: 'America/Los_Angeles',
         linkedInUrl: 'https://www.linkedin.com/in/danielcho-energy/',
-        source: 'outbound_campaign',
+        source: 'cold_outreach',
         custom: {
           buying_role: 'economic_buyer',
           preferred_pronouns: 'he/him',
@@ -438,7 +439,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         valueCurrency: 'USD',
         expectedCloseAt: isoDaysFromNow(65),
         probability: 40,
-        source: 'inbound_web',
+        source: 'web_form',
         custom: {
           competitive_risk: 'high',
           implementation_complexity: 'complex',
@@ -513,7 +514,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
       'Boston-based analytics platform helping consumer brands optimize merchandising decisions.',
     primaryEmail: 'info@harborviewanalytics.com',
     primaryPhone: '+1 617-555-0024',
-    source: 'industry_event',
+    source: 'event',
     lifecycleStage: 'prospect',
     status: 'active',
     custom: {
@@ -545,7 +546,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         phone: '+1 617-555-0168',
         timezone: 'America/New_York',
         linkedInUrl: 'https://www.linkedin.com/in/arjunpatel-sales/',
-        source: 'industry_event',
+        source: 'event',
         custom: {
           buying_role: 'economic_buyer',
           preferred_pronouns: 'he/him',
@@ -563,7 +564,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         phone: '+1 617-555-0179',
         timezone: 'America/New_York',
         linkedInUrl: 'https://www.linkedin.com/in/lenaortiz-retail/',
-        source: 'industry_event',
+        source: 'event',
         custom: {
           buying_role: 'champion',
           preferred_pronouns: 'she/her',
@@ -582,7 +583,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         valueCurrency: 'USD',
         expectedCloseAt: isoDaysFromNow(-25),
         probability: 100,
-        source: 'industry_event',
+        source: 'event',
         custom: {
           competitive_risk: 'low',
           implementation_complexity: 'standard',
@@ -637,7 +638,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         valueCurrency: 'USD',
         expectedCloseAt: isoDaysFromNow(120),
         probability: 35,
-        source: 'outbound_campaign',
+        source: 'cold_outreach',
         custom: {
           competitive_risk: 'medium',
           implementation_complexity: 'complex',
@@ -715,7 +716,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
     primaryPhone: '+1 512-555-0456',
     source: 'customer_referral',
     lifecycleStage: 'customer',
-    status: 'customer',
+    status: 'active',
     custom: {
       relationship_health: 'healthy',
       renewal_quarter: 'Q1',

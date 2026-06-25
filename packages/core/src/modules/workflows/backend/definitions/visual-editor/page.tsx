@@ -6,10 +6,10 @@ import { NodeEditDialog } from '../../../components/NodeEditDialog'
 import { EdgeEditDialog } from '../../../components/EdgeEditDialog'
 import { NodeEditDialogCrudForm } from '../../../components/NodeEditDialogCrudForm'
 import { EdgeEditDialogCrudForm } from '../../../components/EdgeEditDialogCrudForm'
-import { Node, Edge, addEdge, Connection, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange } from '@xyflow/react'
+import type { Node, Edge, Connection } from '@xyflow/react'
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
+import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, appendWorkflowEdge, ValidationError } from '../../../lib/graph-utils'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
 import { workflowDefinitionDataSchema } from '../../../data/validators'
 import { Page } from '@open-mercato/ui/backend/Page'
@@ -36,7 +36,7 @@ import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { CircleQuestionMark, Info, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
+import { CircleQuestionMark, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
 import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggersEditor'
 import { MobileVisualEditor } from '../../../components/mobile/MobileVisualEditor'
@@ -169,16 +169,18 @@ export default function VisualEditorPage() {
     loadDefinition()
   }, [definitionId])
 
-  // Handle node changes from ReactFlow
-  const handleNodesChange = useCallback((changes: NodeChange[]) => {
+  // Handle node changes from ReactFlow. The lazy graph applies React Flow's
+  // change reducers internally (#3169) and hands back the resolved nodes, so
+  // this page never imports the @xyflow/react runtime.
+  const handleNodesChange = useCallback((nextNodes: Node[]) => {
     if (isCodeOnly) return
-    setNodes((nds) => applyNodeChanges(changes, nds))
+    setNodes(nextNodes)
   }, [isCodeOnly])
 
-  // Handle edge changes from ReactFlow
-  const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
+  // Handle edge changes from ReactFlow (resolved edges from the lazy graph).
+  const handleEdgesChange = useCallback((nextEdges: Edge[]) => {
     if (isCodeOnly) return
-    setEdges((eds) => applyEdgeChanges(changes, eds))
+    setEdges(nextEdges)
   }, [isCodeOnly])
 
   // Handle adding new node from palette
@@ -285,7 +287,7 @@ export default function VisualEditorPage() {
       },
     }
 
-    setEdges((eds) => addEdge(newEdge, eds))
+    setEdges((eds) => appendWorkflowEdge(eds, newEdge))
   }, [])
 
   // Validate workflow
@@ -1139,7 +1141,6 @@ export default function VisualEditorPage() {
 
               {/* Instructions */}
               <Alert variant="info" className="mt-6">
-                <Info className="size-4" />
                 <AlertTitle className="text-xs">{t('workflows.visualEditor.howToUse', 'How to use:')}</AlertTitle>
                 <div className="mt-2">
                   <ul className="list-inside list-disc space-y-1 text-xs">
