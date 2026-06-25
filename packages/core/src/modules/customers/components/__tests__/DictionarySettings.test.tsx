@@ -9,10 +9,23 @@ import DictionarySettings from '../DictionarySettings'
 const apiCallOrThrowMock = jest.fn()
 const readApiResultOrThrowMock = jest.fn()
 const confirmMock = jest.fn()
+const runMutationMock = jest.fn(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
+  withScopedApiRequestHeaders: (_headers: unknown, fn: () => Promise<unknown>) => fn(),
+}))
+
+jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({
+  buildOptimisticLockHeader: () => ({}),
+}))
+
+jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
+  useGuardedMutation: () => ({
+    runMutation: (...args: unknown[]) => runMutationMock(...(args as [{ operation: () => Promise<unknown> }])),
+    retryLastMutation: jest.fn(),
+  }),
 }))
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
@@ -129,5 +142,47 @@ describe('DictionarySettings', () => {
       expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
     })
     expect(scrollIntoView.mock.contexts).toContain(target)
+  })
+
+  it('routes a confirmed dictionary delete through the guarded mutation runner', async () => {
+    confirmMock.mockResolvedValue(true)
+    apiCallOrThrowMock.mockResolvedValue(undefined)
+    readApiResultOrThrowMock.mockImplementation(async (path: string) => {
+      if (path === '/api/customers/dictionaries/statuses') {
+        return {
+          items: [
+            {
+              id: 'status-1',
+              value: 'active',
+              label: 'Active',
+              updatedAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        }
+      }
+      return { items: [] }
+    })
+
+    renderWithProviders(<DictionarySettings />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'delete-Statuses' }))
+
+    await waitFor(() => {
+      expect(runMutationMock).toHaveBeenCalledTimes(1)
+    })
+    expect(runMutationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          resourceKind: 'customers.dictionary',
+          retryLastMutation: expect.any(Function),
+        }),
+        mutationPayload: expect.objectContaining({ action: 'delete', id: 'status-1', kind: 'statuses' }),
+      }),
+    )
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+      '/api/customers/dictionaries/statuses/status-1',
+      { method: 'DELETE' },
+      expect.any(Object),
+    )
   })
 })

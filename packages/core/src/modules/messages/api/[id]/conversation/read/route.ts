@@ -2,6 +2,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { attachOperationMetadataHeader } from '../../../../lib/operationMetadata'
 import { resolveMessageContext } from '../../../../lib/routeHelpers'
+import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../../../guards'
 import {
   conversationMutationResponseSchema,
   errorResponseSchema,
@@ -14,6 +15,28 @@ export const metadata = {
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   const { ctx, scope } = await resolveMessageContext(req)
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
+
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.conversation',
+      resourceId: params.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: null,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
 
   try {
     const { result, logEntry } = await commandBus.execute('messages.conversation.mark_unread_for_actor', {
@@ -37,6 +60,16 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     attachOperationMetadataHeader(response, logEntry, {
       resourceKind: 'messages.conversation',
       resourceId: params.id,
+    })
+    await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.conversation',
+      resourceId: params.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
     })
     return response
   } catch (error) {

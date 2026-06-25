@@ -10,6 +10,7 @@ import {
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -183,6 +184,24 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
   const [dialog, setDialog] = React.useState<DialogState | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
 
+  const saveContextId = `customers-dictionary-${kind}`
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: saveContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const mutationContext = React.useMemo(
+    () => ({
+      formId: saveContextId,
+      resourceKind: 'customers.dictionary',
+      retryLastMutation,
+    }),
+    [retryLastMutation, saveContextId],
+  )
+
   const inheritedActionBlocked = t('customers.config.dictionaries.inherited.blocked', 'Inherited entries can only be edited from the parent organization.')
   const inheritedTooltip = t('customers.config.dictionaries.inherited.tooltip', 'Managed in parent organization')
   const inheritedLabel = t('customers.config.dictionaries.inherited.label', 'Inherited')
@@ -276,13 +295,18 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
     })
     if (!confirmed) return
     try {
-      await withScopedApiRequestHeaders(buildOptimisticLockHeader(entry.updatedAt), () =>
-        apiCallOrThrow(
-          `/api/customers/dictionaries/${kind}/${encodeURIComponent(entry.id)}`,
-          { method: 'DELETE' },
-          { errorMessage: errorDelete },
-        ),
-      )
+      await runMutation({
+        operation: () =>
+          withScopedApiRequestHeaders(buildOptimisticLockHeader(entry.updatedAt), () =>
+            apiCallOrThrow(
+              `/api/customers/dictionaries/${kind}/${encodeURIComponent(entry.id)}`,
+              { method: 'DELETE' },
+              { errorMessage: errorDelete },
+            ),
+          ),
+        context: mutationContext,
+        mutationPayload: { action: 'delete', id: entry.id, kind },
+      })
       flash(successDelete, 'success')
       await loadEntries()
     } catch (err) {
@@ -300,7 +324,7 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
       const messageValue = err instanceof Error ? err.message : errorDelete
       flash(messageValue, 'error')
     }
-  }, [confirm, deleteConfirmTemplate, errorDelete, formatCountMessage, inheritedActionBlocked, kind, loadEntries, roleTypeDeleteBlockedText, roleTypeDeleteBlockedTitle, successDelete, t])
+  }, [confirm, deleteConfirmTemplate, errorDelete, formatCountMessage, inheritedActionBlocked, kind, loadEntries, mutationContext, roleTypeDeleteBlockedText, roleTypeDeleteBlockedTitle, runMutation, successDelete, t])
 
   const submitForm = React.useCallback(async (values: DictionaryFormValues) => {
     const payload = {
@@ -312,15 +336,20 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
     setSubmitting(true)
     try {
       if (!dialog || dialog.mode === 'create') {
-        await apiCallOrThrow(
-          `/api/customers/dictionaries/${kind}`,
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          },
-          { errorMessage: errorSave },
-        )
+        await runMutation({
+          operation: () =>
+            apiCallOrThrow(
+              `/api/customers/dictionaries/${kind}`,
+              {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage: errorSave },
+            ),
+          context: mutationContext,
+          mutationPayload: { action: 'create', kind, ...payload },
+        })
         flash(successSave, 'success')
       } else if (dialog.mode === 'edit') {
         const target = dialog.entry
@@ -339,17 +368,22 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
           closeDialog()
           return
         }
-        await withScopedApiRequestHeaders(buildOptimisticLockHeader(target.updatedAt), () =>
-          apiCallOrThrow(
-            `/api/customers/dictionaries/${kind}/${encodeURIComponent(target.id)}`,
-            {
-              method: 'PATCH',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(body),
-            },
-            { errorMessage: errorSave },
-          ),
-        )
+        await runMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(buildOptimisticLockHeader(target.updatedAt), () =>
+              apiCallOrThrow(
+                `/api/customers/dictionaries/${kind}/${encodeURIComponent(target.id)}`,
+                {
+                  method: 'PATCH',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify(body),
+                },
+                { errorMessage: errorSave },
+              ),
+            ),
+          context: mutationContext,
+          mutationPayload: { action: 'update', id: target.id, kind, ...body },
+        })
         flash(successSave, 'success')
       }
       closeDialog()
@@ -360,7 +394,7 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
     } finally {
       setSubmitting(false)
     }
-  }, [closeDialog, dialog, errorSave, inheritedActionBlocked, kind, loadEntries, successSave])
+  }, [closeDialog, dialog, errorSave, inheritedActionBlocked, kind, loadEntries, mutationContext, runMutation, successSave])
 
   const currentValues = React.useMemo<DictionaryFormValues>(() => {
     if (dialog && dialog.mode === 'edit') {

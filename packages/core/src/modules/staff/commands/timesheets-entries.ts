@@ -7,15 +7,18 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { StaffTimeEntry, StaffTimeProject, type StaffTimeEntrySource } from '../data/entities'
+import { StaffTimeEntry, StaffTimeEntrySegment, StaffTimeProject, type StaffTimeEntrySource } from '../data/entities'
+import { emitStaffEvent } from '../events'
 
 const timeEntryCrudIndexer: CrudIndexerConfig<StaffTimeEntry> = {
   entityType: 'staff:staff_time_entry',
 }
 import {
   staffTimeEntryCreateSchema,
+  staffTimeEntryStartTimerSchema,
   staffTimeEntryUpdateSchema,
   type StaffTimeEntryCreateInput,
+  type StaffTimeEntryStartTimerInput,
   type StaffTimeEntryUpdateInput,
 } from '../data/validators'
 import { staffTimeEntryCrudEvents } from '../lib/crud'
@@ -281,6 +284,167 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
   }),
 }
 
+const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEntryId: string }> = {
+  id: 'staff.timesheets.time_entries.start_timer',
+  async execute(rawInput, ctx) {
+    const parsed = staffTimeEntryStartTimerSchema.parse(rawInput)
+    ensureTenantScope(ctx, parsed.tenantId)
+    ensureOrganizationScope(ctx, parsed.organizationId)
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+
+    // Ownership enforcement mirrors createTimeEntryCommand: callers without
+    // `staff.timesheets.manage_all` can only start their own timer, so the
+    // request body's staffMemberId can't start a timer under a colleague's id.
+    let effectiveStaffMemberId = parsed.staffMemberId
+    if (!(await callerHasManageAll(ctx))) {
+      const callerStaffMemberId = await resolveCallerStaffMemberId(em, ctx)
+      if (!callerStaffMemberId) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(403, {
+          error: translate('staff.timesheets.errors.noStaffMember', 'No staff member linked to your account.'),
+        })
+      }
+      effectiveStaffMemberId = callerStaffMemberId
+    }
+
+    await assertTimeProjectInScope(em, parsed.timeProjectId ?? null, parsed.tenantId, parsed.organizationId)
+
+    const scopeCtx = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
+
+    // Create the timer entry AND start it inside a single transaction so a
+    // partial failure can never leave an orphaned, never-started timer entry
+    // (issue #3311 — the legacy two-request create-then-start flow). The
+    // single-active-timer invariant (#2855) is re-checked here so a second
+    // surface cannot create a parallel running timer for the same staff member.
+    const { entry, startedAt } = await em.transactional(async (trx) => {
+      const otherRunningEntry = await findOneWithDecryption(
+        trx,
+        StaffTimeEntry,
+        {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+          staffMemberId: effectiveStaffMemberId,
+          startedAt: { $ne: null },
+          endedAt: null,
+          deletedAt: null,
+        },
+        {},
+        scopeCtx,
+      )
+      if (otherRunningEntry) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(409, {
+          error: translate(
+            'staff.timesheets.errors.timerAlreadyRunning',
+            'Another timer is already running. Stop it before starting a new one.',
+          ),
+        })
+      }
+
+      const startedAt = new Date()
+      const entry = trx.create(StaffTimeEntry, {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+        staffMemberId: effectiveStaffMemberId,
+        date: parsed.date,
+        durationMinutes: 0,
+        startedAt,
+        endedAt: null,
+        notes: parsed.notes ?? null,
+        timeProjectId: parsed.timeProjectId ?? null,
+        customerId: null,
+        dealId: null,
+        orderId: null,
+        source: 'timer',
+        createdAt: startedAt,
+        updatedAt: startedAt,
+        deletedAt: null,
+      })
+      // Flush so the DB-generated id is populated before the work segment
+      // references it; both writes commit together when the transaction closes.
+      await trx.flush()
+
+      const segmentData = {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+        timeEntryId: entry.id,
+        startedAt,
+        segmentType: 'work' as const,
+      }
+      trx.create(StaffTimeEntrySegment, segmentData as never)
+      await trx.flush()
+
+      return { entry, startedAt }
+    })
+
+    await emitCrudSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      action: 'created',
+      entity: entry,
+      identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
+      events: staffTimeEntryCrudEvents,
+      indexer: timeEntryCrudIndexer,
+    })
+
+    void emitStaffEvent('staff.timesheets.time_entry.timer_started', {
+      id: entry.id,
+      staffMemberId: effectiveStaffMemberId,
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+      startedAt: startedAt.toISOString(),
+    }, { persistent: true }).catch((err) => {
+      console.error('[staff.timesheets] emit timer_started failed', err)
+    })
+
+    return { timeEntryId: entry.id }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const snapshot = await loadTimeEntrySnapshot(em, result.timeEntryId)
+    if (!snapshot) return null
+    return { snapshot }
+  },
+  buildLog: async ({ result, ctx }) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const snapshot = await loadTimeEntrySnapshot(em, result.timeEntryId)
+    if (!snapshot) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('staff.audit.timesheets.time_entries.startTimer', 'Start timer'),
+      resourceKind: 'staff.timesheets.time_entry',
+      resourceId: snapshot.id,
+      tenantId: snapshot.tenantId,
+      organizationId: snapshot.organizationId,
+      snapshotAfter: snapshot,
+      payload: {
+        undo: {
+          after: snapshot,
+        } satisfies TimeEntryUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<TimeEntryUndoPayload>(logEntry)
+    const after = payload?.after
+    if (!after) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const entry = await em.findOne(StaffTimeEntry, { id: after.id })
+    if (entry) {
+      entry.deletedAt = new Date()
+      await em.flush()
+
+      await emitCrudUndoSideEffects({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        action: 'deleted',
+        entity: entry,
+        identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
+        events: staffTimeEntryCrudEvents,
+      })
+    }
+  },
+}
+
 const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEntryId: string }> = {
   id: 'staff.timesheets.time_entries.update',
   async prepare(rawInput, ctx) {
@@ -531,5 +695,6 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
 }
 
 registerCommand(createTimeEntryCommand)
+registerCommand(startTimerCommand)
 registerCommand(updateTimeEntryCommand)
 registerCommand(deleteTimeEntryCommand)

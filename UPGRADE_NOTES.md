@@ -22,6 +22,35 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.6.5 → 0.6.6 (unreleased)
+
+### Versioned browser-storage envelopes for shared UI preference slots (#3457)
+
+Several shared UI surfaces that persist client state to `localStorage` — DataTable perspective snapshots, the AppShell sidebar collapsed-groups set, the AI model picker selection, and the AI chat sessions cache — now write through a shared **versioned-envelope** helper (`packages/shared/src/lib/browser/versionedPreference.ts`) instead of bare JSON. On disk each of these slots now carries a `{ v, data }` shape with an explicit version discriminator, rather than the raw value it stored before.
+
+**No manual action is required for end users.** The `localStorage` **keys are unchanged**, and `readVersionedPreference(...)` migrates a pre-envelope (legacy bare) value forward automatically on the next write when a `legacyIsValid` guard is supplied (as it is for every slot migrated in #3457). Stored data that is version-mismatched or malformed is safely discarded back to the documented fallback instead of crashing or silently corrupting UI state, so a downgrade/upgrade across this boundary simply re-derives defaults at worst.
+
+**Action for module authors who read/write these persisted slots directly.** If your module reads or writes one of these shared `localStorage` keys (or adds its own structured preference slot), go through the helper rather than `safeLocalStorage`/raw `localStorage`:
+
+```ts
+import {
+  readVersionedPreference,
+  writeVersionedPreference,
+  // readVersionedIdSet / writeVersionedIdSet for the common "set of ids" shape
+} from '@open-mercato/shared/lib/browser/versionedPreference'
+
+// read: validate the envelope, discard stale/mismatched data, migrate a legacy bare value forward
+const value = readVersionedPreference(key, version, isValid, fallback, { legacyIsValid })
+// write: wraps as { v: version, data: value }
+writeVersionedPreference(key, version, value)
+```
+
+Follow the **versioning threshold** documented in [`packages/shared/AGENTS.md`](packages/shared/AGENTS.md) when deciding whether a slot needs an envelope: trivial scalar flags (a single boolean/number/string with no schema to evolve, e.g. `om:sidebarCollapsed`) MAY stay raw via `safeLocalStorage`; **structured values** (objects, records, arrays of objects whose shape can change incompatibly) MUST use a versioned envelope so a future shape change can migrate or discard old data. A slot that already carries its own inline `{ v, ... }` discriminator is already migratable and MUST NOT be re-wrapped — re-wrapping changes the on-disk format and discards existing user data.
+
+This is a refactor with no API, event-ID, DI, or DB-schema contract change. Related: #3457 (this change), and the sibling persisted-storage audit tracked in #3174 / #3393.
+
+---
+
 ## 0.6.3 → 0.6.4 (2026-06-08)
 
 ### Tenant-ownership & per-module ACL authorization hardening (#2612)
