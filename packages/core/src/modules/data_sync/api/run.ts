@@ -9,6 +9,10 @@ import type { SyncRunService } from '../lib/sync-run-service'
 import { runSyncSchema } from '../data/validators'
 import { startDataSyncRun } from '../lib/start-run'
 import { getDataSyncAdapter } from '../lib/adapter-registry'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['data_sync.run'] },
@@ -80,6 +84,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'A sync run is already in progress for this integration and entity direction' }, { status: 409 })
     }
 
+    const guardResult = await validateCrudMutationGuard(container, {
+      tenantId: auth.tenantId,
+      organizationId: scope.organizationId,
+      userId: auth.sub,
+      resourceKind: 'data_sync.run',
+      resourceId: parsed.data.integrationId,
+      operation: 'custom',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: parsed.data,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
     const cursor = parsed.data.fullSync
       ? null
       : await syncRunService.resolveCursor(parsed.data.integrationId, parsed.data.entityType, parsed.data.direction, scope)
@@ -100,6 +119,20 @@ export async function POST(req: Request) {
         batchSize: parsed.data.batchSize,
       },
     })
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: auth.tenantId,
+        organizationId: scope.organizationId,
+        userId: auth.sub,
+        resourceKind: 'data_sync.run',
+        resourceId: run.id,
+        operation: 'custom',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
 
     return NextResponse.json({ id: run.id, progressJobId: progressJob?.id ?? null }, { status: 201 })
   } catch (error) {

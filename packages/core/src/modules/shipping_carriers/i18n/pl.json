@@ -14,6 +14,7 @@
   "shipping_carriers.create.error.create": "Nie udało się utworzyć przesyłki.",
   "shipping_carriers.create.error.fetchDropOffPoints": "Nie udało się pobrać punktów nadania.",
   "shipping_carriers.create.error.fetchRates": "Nie udało się pobrać stawek.",
+  "shipping_carriers.create.error.idempotencyConflict": "Ta przesyłka została już wysłana. Odśwież stronę przed ponowną próbą.",
   "shipping_carriers.create.error.invalidEmail": "Nieprawidłowy adres e-mail.",
   "shipping_carriers.create.error.invalidPhone": "Nieprawidłowy numer telefonu.",
   "shipping_carriers.create.error.loadProviders": "Nie udało się załadować przewoźników.",

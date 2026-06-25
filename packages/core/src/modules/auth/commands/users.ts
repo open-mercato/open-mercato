@@ -205,6 +205,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     )
     if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
     const tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
+    assertTargetTenantInScope(resolveActorTenantScope(ctx), tenantId, 'Organization not found')
 
     const emailHash = computeEmailHash(parsed.email)
     // Email is unique per-tenant, not globally (see Migration20260610120000:

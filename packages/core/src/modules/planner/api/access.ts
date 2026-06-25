@@ -79,3 +79,12 @@ export async function assertAvailabilityWriteAccess(
   }
   return access
 }
+
+export function resolveAvailabilityActorId(auth: AuthContext): string {
+  if (auth) {
+    if (typeof auth.sub === 'string' && auth.sub.trim().length > 0) return auth.sub
+    if (typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId
+    if (typeof auth.keyId === 'string' && auth.keyId.trim().length > 0) return auth.keyId
+  }
+  return 'system'
+}

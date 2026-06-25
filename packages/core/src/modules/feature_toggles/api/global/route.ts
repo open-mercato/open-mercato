@@ -49,6 +49,21 @@ const listFields = [
   'updated_at',
 ]
 
+export const transformFeatureToggleListItem = (item: Record<string, unknown>) => {
+  if (!item) return item
+  return {
+    id: item.id,
+    identifier: item.identifier,
+    name: item.name,
+    description: item.description ?? null,
+    category: item.category ?? null,
+    type: item.type,
+    defaultValue: item.default_value,
+    createdAt: item.created_at,
+    updatedAt: item.updated_at,
+  }
+}
+
 const buildFilters = (query: FeatureToggleListQuery): Record<string, unknown> => {
   const filters: Record<string, unknown> = {}
   const search = query.search?.trim()
@@ -105,20 +120,7 @@ const crud = makeCrudRoute({
       updatedAt: 'updated_at',
       type: 'type',
     },
-    transformItem: (item: Record<string, unknown>) => {
-      if (!item) return item
-      return {
-        id: item.id,
-        identifier: item.identifier,
-        name: item.name,
-        description: item.description ?? null,
-        category: item.category ?? null,
-        type: item.type,
-        defaultValue: item.default_value,
-        created_at: item.created_at,
-        updated_at: item.updated_at,
-      }
-    },
+    transformItem: transformFeatureToggleListItem,
     buildFilters: async (query) => buildFilters(query),
   },
   actions: {

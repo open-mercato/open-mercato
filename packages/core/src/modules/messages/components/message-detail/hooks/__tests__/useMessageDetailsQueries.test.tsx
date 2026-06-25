@@ -145,6 +145,32 @@ describe('useMessageDetailsQueries.refreshDetailWithoutAutoMarkRead', () => {
   })
 })
 
+describe('useMessageDetailsQueries.suppressAutoMarkRead (#3576)', () => {
+  it('auto-marks read on the initial detail fetch', async () => {
+    apiCallMock.mockResolvedValue({ ok: true, status: 200, result: { id: 'msg-1' } })
+
+    const queryClient = { setQueryData: jest.fn(), getQueryData: jest.fn() }
+    setupHook(queryClient)
+    expect(lastDetailQueryFn).toBeTruthy()
+
+    await lastDetailQueryFn!()
+    expect(apiCallMock).toHaveBeenCalledWith('/api/messages/msg-1')
+  })
+
+  it('skips auto-mark-read on subsequent refetches once suppressed', async () => {
+    apiCallMock.mockResolvedValue({ ok: true, status: 200, result: { id: 'msg-1' } })
+
+    const queryClient = { setQueryData: jest.fn(), getQueryData: jest.fn() }
+    const { result } = setupHook(queryClient)
+    expect(lastDetailQueryFn).toBeTruthy()
+
+    result.current.suppressAutoMarkRead()
+    await lastDetailQueryFn!()
+
+    expect(apiCallMock).toHaveBeenCalledWith('/api/messages/msg-1?skipMarkRead=1')
+  })
+})
+
 describe('useMessageDetailsQueries derived state', () => {
   it('surfaces a deleted-message error when detail data is null and the query succeeded', () => {
     apiCallMock.mockResolvedValue({ ok: false, status: 404, result: null })

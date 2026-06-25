@@ -34,6 +34,41 @@ This ensures design decisions are documented and the codebase remains well-under
 - Reference related issues or discussions; add screenshots or recordings for UI tweaks.
 - Tag maintainers early if you need design or architectural guidance.
 
+### Enterprise Module Contributions
+
+> [!IMPORTANT]
+> **We cannot accept external contributions to the enterprise module.**
+
+The `@open-mercato/enterprise` package (`packages/enterprise/`) is commercial,
+proprietary software governed by its own [license](packages/enterprise/LICENSE.md) — not
+the open-source terms that cover the rest of this repository. Because of the licensing and
+intellectual-property / IP-transfer constraints around that package, **we are unable to
+review, accept, or merge pull requests that modify anything under `packages/enterprise/`**,
+even when they are otherwise high quality.
+
+What this means in practice:
+
+- Do not open PRs that add to, modify, refactor, or reverse-engineer files under
+  `packages/enterprise/`. They will be closed without merge.
+- The Contributor License Agreement (see [`apps/docs/cla.md`](apps/docs/cla.md)) governs
+  contributions to the open-source projects only; it does not grant rights to the
+  commercial enterprise codebase, so it cannot be used to upstream enterprise changes.
+- If you have found a bug in an enterprise module, please report it through your
+  commercial support channel or open an issue describing the problem (without proposing a
+  code change to the package).
+- If you want to build or extend enterprise functionality, reach out about the
+  [Open Mercato Partnership Program](packages/enterprise/README.md) and commercial
+  licensing instead.
+
+Contributions to every other package and app in this repository are welcome — only the
+`packages/enterprise/` tree is off-limits.
+
+### Package Previews
+
+PRs do not publish npm canary packages automatically. Maintainers can publish pkg.pr.new package previews for a PR by dispatching the `Package Previews` workflow manually with the PR number — run it from the Actions tab, with `gh workflow run package-previews.yml --ref develop -f pr_number=<PR>`, or via the `om-auto-publish-pr` skill. To publish a fresh preview after more commits, re-run the dispatch with the same PR number.
+
+The legacy npm canary snapshot path is still available for comparison by dispatching the `NPM Snapshot Preview` workflow manually with the PR number on a trusted same-repository PR branch. That workflow publishes real npm canary packages and runs standalone app integration against the exact snapshot, so use it only when pkg.pr.new previews are not enough evidence. Both preview workflows are restricted to same-repository PR branches.
+
 ## Helpful Resources
 
 - 📚 Documentation: [docs.openmercato.com](https://docs.openmercato.com/)
