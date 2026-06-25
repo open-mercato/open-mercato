@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { modules } from '@/.mercato/generated/modules.generated'
+import { modules } from '@/.mercato/generated/modules.runtime.generated'
 import { resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
 import { buildOpenApiDocument, sanitizeOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'

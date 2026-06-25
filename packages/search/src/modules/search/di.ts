@@ -4,6 +4,7 @@ import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { EmbeddingService, createPgVectorDriver, createChromaDbDriver, createQdrantDriver } from '../../vector'
 import { createVectorIndexingQueue, type VectorIndexJobPayload } from '../../queue/vector-indexing'
 import { createFulltextIndexingQueue, type FulltextIndexJobPayload } from '../../queue/fulltext-indexing'
+import { createEmbeddingProviderProbe } from './lib/provider-probe'
 import type { Queue } from '@open-mercato/queue'
 
 /**
@@ -47,5 +48,6 @@ export function register(container: AppContainer) {
     vectorDrivers: asValue(drivers),
     vectorIndexQueue: asValue(vectorIndexQueue),
     fulltextIndexQueue: asValue(fulltextIndexQueue),
+    embeddingProviderProbe: asValue(createEmbeddingProviderProbe(container)),
   })
 }

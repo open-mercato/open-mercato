@@ -311,7 +311,7 @@ Use the global launcher to find every assistant you can access, or embed `<AiCha
 - [Getting started](https://docs.openmercato.com/framework/ai-assistant/overview)
 - [How to configure it](https://docs.openmercato.com/framework/ai-assistant/settings)
 - [User guide](https://docs.openmercato.com/user-guide/ai-assistant)
-- [Legacy MCP assistant docs](.ai/specs/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md)
+- [Legacy MCP assistant docs](.ai/specs/implemented/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md)
 
 ## Data Encryption
 
@@ -325,6 +325,7 @@ Architecture in two lines: Vault/KMS (or a derived-key fallback) issues per-tena
 - `latest` is the stable npm channel published from `main`.
 - `develop` is the moving prerelease channel published from pushes to `develop`.
 - Exact snapshot versions remain installable for debugging or rollback when you need to pin one specific build.
+- PR package previews are opt-in. Run the `Package Previews` workflow manually with the PR number, or use the `om-auto-publish-pr` skill / `gh workflow run`, to publish pkg.pr.new previews without publishing to npm. Run `NPM Snapshot Preview` manually only when you need the legacy npm canary snapshot and standalone validation path.
 
 Examples:
 

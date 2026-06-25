@@ -1,6 +1,6 @@
 {
   "name": "create-mercato-app",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "type": "module",
   "description": "Create a new Open Mercato application",
   "main": "./dist/index.js",
@@ -21,8 +21,8 @@
     "tar": "^7.5.16"
   },
   "devDependencies": {
-    "@types/node": "^25.9.2",
-    "esbuild": "^0.28.0",
+    "@types/node": "^26.0.0",
+    "esbuild": "^0.28.1",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   },

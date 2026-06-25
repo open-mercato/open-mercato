@@ -85,6 +85,12 @@ export function generateShared(config: AgenticConfig): void {
     'ai/skills/om-integration-builder/references/adapter-contracts.md',
     join(targetDir, '.ai', 'skills', 'om-integration-builder', 'references', 'adapter-contracts.md'),
   )
+  if (existsSync(join(AGENTIC_DIR, 'ai', 'skills', 'om-integration-builder', 'STANDALONE.md'))) {
+    copyFile(
+      'ai/skills/om-integration-builder/STANDALONE.md',
+      join(targetDir, '.ai', 'skills', 'om-integration-builder', 'STANDALONE.md'),
+    )
+  }
 
   // system-extension skill
   copyFile(
@@ -146,6 +152,20 @@ export function generateShared(config: AgenticConfig): void {
   copyFile(
     'ai/skills/om-integration-tests/SKILL.md',
     join(targetDir, '.ai', 'skills', 'om-integration-tests', 'SKILL.md'),
+  )
+
+  // help / workflow navigator skill
+  copyFile(
+    'ai/skills/om-help/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'SKILL.md'),
+  )
+  copyFile(
+    'ai/skills/om-help/references/skills-catalog.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'references', 'skills-catalog.md'),
+  )
+  copyFile(
+    'ai/skills/om-help/references/workflow-sequences.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'references', 'workflow-sequences.md'),
   )
 
   // 0.4.10 -> 0.5.0 upgrade companion skill

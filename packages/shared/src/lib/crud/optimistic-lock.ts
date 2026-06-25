@@ -28,7 +28,7 @@
  * container / em access. Stateful checks that need to read current DB state
  * MUST go through the DI service path (this file).
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md
  */
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type {

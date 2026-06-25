@@ -7,6 +7,7 @@ import { attachmentIdsPayloadSchema, unlinkAttachmentPayloadSchema } from '../..
 import { getMessageAttachments, linkAttachmentsToMessage } from '../../../lib/attachments'
 import { attachOperationMetadataHeader } from '../../../lib/operationMetadata'
 import { resolveMessageContext } from '../../../lib/routeHelpers'
+import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../../guards'
 import {
   attachmentIdsPayloadSchema as attachmentIdsOpenApiSchema,
   errorResponseSchema,
@@ -95,6 +96,27 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: message.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input as Record<string, unknown>,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
   const { logEntry } = await commandBus.execute('messages.attachments.link_to_draft', {
     input: {
       messageId: message.id,
@@ -117,6 +139,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   attachOperationMetadataHeader(response, logEntry, {
     resourceKind: 'messages.message',
     resourceId: params.id,
+  })
+  await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId: scope.userId,
+    resourceKind: 'messages.message',
+    resourceId: message.id,
+    operation: 'update',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
   })
   return response
 }
@@ -150,6 +182,27 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   }
 
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: message.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input as Record<string, unknown>,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
   const { logEntry } = await commandBus.execute('messages.attachments.unlink_from_draft', {
     input: {
       messageId: message.id,
@@ -172,6 +225,16 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   attachOperationMetadataHeader(response, logEntry, {
     resourceKind: 'messages.message',
     resourceId: params.id,
+  })
+  await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId: scope.userId,
+    resourceKind: 'messages.message',
+    resourceId: message.id,
+    operation: 'update',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
   })
   return response
 }

@@ -677,7 +677,7 @@ let warnedLegacyClientPath = false
 /**
  * Resolve the OAuth client config for a Gmail refresh, preferring the new
  * `RefreshCredentialsInput.oauthClient` field (Spec A,
- * .ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md).
+ * .ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md).
  *
  * Falls back to the deprecated `credentials._client` read path for one
  * minor release so existing tests keep working. The legacy path emits a

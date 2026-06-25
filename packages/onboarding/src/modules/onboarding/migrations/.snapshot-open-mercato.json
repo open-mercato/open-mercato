@@ -176,6 +176,16 @@
           "length": 6,
           "mappedType": "datetime"
         },
+        "preparation_started_at": {
+          "name": "preparation_started_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
         "preparation_completed_at": {
           "name": "preparation_completed_at",
           "type": "timestamptz",

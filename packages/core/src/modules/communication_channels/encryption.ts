@@ -31,7 +31,7 @@ import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryptio
  *     contact resolution looks addresses up by value (see the address blind-index
  *     follow-up in customers/lib/findPeopleByAddresses.ts).
  *
- * See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`
+ * See `.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`
  * (§ 3 Encryption posture).
  */
 export const defaultEncryptionMaps: ModuleEncryptionMap[] = [

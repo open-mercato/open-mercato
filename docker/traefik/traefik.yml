@@ -1,5 +1,5 @@
 # Traefik static configuration for Open Mercato custom-domain routing.
-# Phase 3 of `.ai/specs/2026-04-08-portal-custom-domain-routing.md`.
+# Phase 3 of `.ai/specs/implemented/2026-04-08-portal-custom-domain-routing.md`.
 #
 # Routers, services, and middlewares are declared via Docker labels on the
 # `app` service in docker-compose.fullapp.yml / docker-compose.fullapp.dev.yml,

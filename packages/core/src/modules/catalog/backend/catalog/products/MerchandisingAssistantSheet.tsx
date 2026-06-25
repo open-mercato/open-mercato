@@ -428,12 +428,13 @@ export function MerchandisingAssistantSheet({
               </div>
               <div className="flex flex-col gap-0.5">
                 {agents.map((agent) => (
-                  <button
+                  <Button
                     key={agent.id}
                     type="button"
+                    variant="ghost"
                     onClick={() => handleSelectAgent(agent.id)}
                     data-ai-merchandising-agent-option={agent.id}
-                    className="flex items-start gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+                    className="h-auto w-full items-start justify-start gap-2 whitespace-normal rounded-sm px-2 py-2 text-left text-sm font-normal"
                   >
                     <span className="mt-0.5 inline-flex size-6 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
                       {agent.icon}
@@ -444,7 +445,7 @@ export function MerchandisingAssistantSheet({
                         {agent.description}
                       </span>
                     </span>
-                  </button>
+                  </Button>
                 ))}
               </div>
             </PopoverContent>

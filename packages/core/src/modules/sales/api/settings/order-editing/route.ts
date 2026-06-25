@@ -12,6 +12,11 @@ import { salesEditingSettingsSchema, salesSettingsUpsertSchema } from '../../../
 import { loadSalesSettings } from '../../../commands/settings'
 import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT } from '../../../lib/documentNumberTokens'
 import { withScopedPayload } from '../../utils'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { ensureSalesDictionary } from '../../../lib/dictionaries'
 import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 
@@ -114,22 +119,51 @@ export async function GET(req: Request) {
 export async function PUT(req: Request) {
   try {
     const { ctx, translate, organizationId, tenantId, em } = await resolveSettingsContext(req)
-    const payload = await req.json().catch(() => ({}))
+    const payload = (await readJsonSafe<Record<string, unknown>>(req, {})) ?? {}
     const scoped = withScopedPayload(payload, ctx, translate)
     const parsed = salesEditingSettingsSchema.parse(scoped)
+
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId,
+      organizationId,
+      userId: ctx.auth!.sub,
+      resourceKind: 'sales.settings',
+      resourceId: organizationId,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: parsed,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
 
     const current = await loadSalesSettings(em, { tenantId, organizationId })
     const commandInput = salesSettingsUpsertSchema.parse({
       ...parsed,
       orderNumberFormat: parsed.orderNumberFormat ?? current?.orderNumberFormat ?? DEFAULT_ORDER_NUMBER_FORMAT,
       quoteNumberFormat: parsed.quoteNumberFormat ?? current?.quoteNumberFormat ?? DEFAULT_QUOTE_NUMBER_FORMAT,
-      orderNextNumber: payload?.orderNextNumber,
-      quoteNextNumber: payload?.quoteNextNumber,
+      orderNextNumber: payload.orderNextNumber,
+      quoteNextNumber: payload.quoteNextNumber,
     })
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const response = await commandBus.execute('sales.settings.save', { input: commandInput, ctx })
     const result = (response as { result?: { orderCustomerEditableStatuses?: string[] | null; orderAddressEditableStatuses?: string[] | null } }).result
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId,
+        organizationId,
+        userId: ctx.auth!.sub,
+        resourceKind: 'sales.settings',
+        resourceId: organizationId,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
 
     const orderStatuses = await loadStatusOptions(em, tenantId, organizationId)
 

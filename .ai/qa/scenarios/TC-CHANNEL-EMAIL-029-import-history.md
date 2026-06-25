@@ -10,7 +10,7 @@ Communications Hub / Channel-IMAP / Operator UX
 High — primary demo path for "We can't scan a new user's 1M-message inbox on connect."
 
 ## Description
-Verify that the explicit `Import history` dialog on `/backend/profile/communication-channels` pulls older messages from a connected IMAP channel and reports progress via the existing `ProgressTopBar`, per Spec B § Phase B6 ([`.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`](../../specs/2026-05-27-email-integration-inbound-reliability-and-threading.md)).
+Verify that the explicit `Import history` dialog on `/backend/profile/communication-channels` pulls older messages from a connected IMAP channel and reports progress via the existing `ProgressTopBar`, per Spec B § Phase B6 ([`.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`](../../specs/2026-05-27-email-integration-inbound-reliability-and-threading.md)).
 
 The route, command, worker, IMAP adapter `importHistory()`, and concurrency guard are covered by unit tests; this scenario exercises the live end-to-end flow against a real (or dockerised) IMAP server.
 

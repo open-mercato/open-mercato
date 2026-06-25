@@ -76,49 +76,13 @@ import { useAiChatUpload } from './useAiChatUpload'
 import { useAiShortcuts } from './useAiShortcuts'
 import { LoopTracePanel, type LoopTracePanelTrace } from './LoopTracePanel'
 import { AiIcon } from './AiIcon'
+import { readModelPickerValue, writeModelPickerValue } from './modelPickerStorage'
 
 // Cap inline previews so we do not blow past localStorage quota (~5MB on most
 // browsers). Images larger than this still upload + send to the LLM as inline
 // base64 server-side; only the in-chat preview is dropped on reload.
 const PREVIEW_DATA_URL_MAX_BYTES = 2 * 1024 * 1024
 const COMPACT_FOOTER_MAX_WIDTH = 640
-
-const MODEL_PICKER_STORAGE_PREFIX = 'om-ai-model-picker:'
-
-function readModelPickerValue(agentId: string): ModelPickerValue | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(`${MODEL_PICKER_STORAGE_PREFIX}${agentId}`)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as unknown
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      typeof (parsed as Record<string, unknown>).providerId === 'string' &&
-      typeof (parsed as Record<string, unknown>).modelId === 'string'
-    ) {
-      const value = parsed as ModelPickerValue
-      return { providerId: value.providerId, modelId: value.modelId }
-    }
-    return null
-  } catch {
-    return null
-  }
-}
-
-function writeModelPickerValue(agentId: string, value: ModelPickerValue | null): void {
-  if (typeof window === 'undefined') return
-  try {
-    const key = `${MODEL_PICKER_STORAGE_PREFIX}${agentId}`
-    if (value === null) {
-      window.localStorage.removeItem(key)
-    } else {
-      window.localStorage.setItem(key, JSON.stringify({ providerId: value.providerId, modelId: value.modelId }))
-    }
-  } catch {
-    // Quota exceeded / privacy mode — silently ignore.
-  }
-}
 
 interface ModelsApiResponse {
   agentId: string
@@ -432,7 +396,7 @@ function formatToolCaption(call: AiChatToolCallSnapshot): string {
 
 /**
  * Visible agent task plan rendered above raw tool-call rows. Phase 1
- * implementation of spec `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`:
+ * implementation of spec `.ai/specs/implemented/2026-05-13-ai-chat-visible-task-plan.md`:
  * compact, fixed-height rows with icon + label + status badge so the
  * panel does not jump while streaming. Source of truth is the
  * client-local `taskPlan` array on the assistant message.

@@ -64,7 +64,7 @@ describe('integrations credentials PUT route — URL validation', () => {
     ;(createRequestContainer as jest.Mock).mockResolvedValue({
       resolve: (key: string) => {
         if (key === 'integrationCredentialsService') {
-          return { getSchema: () => akeneoSchema, save: saveMock, resolve: jest.fn().mockResolvedValue(null) }
+          return { getSchema: () => akeneoSchema, save: saveMock, resolve: jest.fn().mockResolvedValue(null), resolveUpdatedAt: jest.fn().mockResolvedValue(null) }
         }
         throw new Error(`unexpected resolve(${key})`)
       },
@@ -129,7 +129,7 @@ describe('integrations credentials route — secret masking (issue #2253)', () =
     ;(createRequestContainer as jest.Mock).mockResolvedValue({
       resolve: (key: string) => {
         if (key === 'integrationCredentialsService') {
-          return { getSchema: () => secretSchema, save: saveMock, resolve: resolveMock }
+          return { getSchema: () => secretSchema, save: saveMock, resolve: resolveMock, resolveUpdatedAt: jest.fn().mockResolvedValue(null) }
         }
         throw new Error(`unexpected resolve(${key})`)
       },

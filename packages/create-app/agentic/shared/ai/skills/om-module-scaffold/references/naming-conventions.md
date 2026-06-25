@@ -1,5 +1,7 @@
 # Naming Conventions Quick Reference
 
+> **Source of truth:** `AGENTS.md` (Naming Conventions / Conventions, Architecture Rules, Multi-tenant scoping) owns these rules. This file is an example-oriented cheat sheet for scaffolding — when it disagrees with `AGENTS.md`, `AGENTS.md` wins.
+
 ## Module & Files
 
 | Element | Convention | Example |
@@ -25,17 +27,7 @@
 
 ## Standard Entity Columns
 
-Every tenant-scoped entity MUST include:
-
-```typescript
-id: string              // UUID v4 primary key
-organization_id: string // Tenant organization (indexed)
-tenant_id: string       // Tenant ID (indexed)
-is_active: boolean      // Soft active flag (default: true)
-created_at: Date        // Creation timestamp
-updated_at: Date        // Last update timestamp (auto-updated)
-deleted_at: Date | null // Soft delete timestamp
-```
+Every tenant-scoped entity MUST carry the standard columns (`id`, `organization_id`, `tenant_id`, `is_active`, `created_at`, `updated_at`, `deleted_at`) with `organization_id`/`tenant_id` indexed. See `AGENTS.md` → Conventions / Multi-tenant scoping for the authoritative list and types.
 
 ## API Routes
 
@@ -55,6 +47,4 @@ All HTTP methods live in a **single** `api/<entities>/route.ts` that exports nam
 
 ## Cross-Module References
 
-- Store as `uuid` FK field: `customer_id`, `order_id`
-- Never use `@ManyToOne` / `@OneToMany` decorators across modules
-- Fetch related data via separate API calls or enrichers
+Store cross-module links as `uuid` FK fields (`customer_id`, `order_id`) and fetch related data via separate API calls or enrichers — never `@ManyToOne` / `@OneToMany` decorators across modules. See `AGENTS.md` → Architecture Rules for the authoritative rule.
