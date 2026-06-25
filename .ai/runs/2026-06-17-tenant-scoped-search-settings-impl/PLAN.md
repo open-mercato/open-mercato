@@ -20,6 +20,7 @@
 | 4 | 4.2 | Integration test (TC-SEARCH-011): unreachable provider rejected by API save guard | done | c209ae0bb |
 | 4 | 4.3 | Docs: search/core AGENTS.md + UPGRADE_NOTES | done | a10de0060 |
 | 4 | 4.4 | Post-review fix: migrate behavior-change notes out of unused `RELEASE_NOTES.md` into `UPGRADE_NOTES.md` (new `0.6.4 → 0.6.5` window); remove `RELEASE_NOTES.md`; repoint spec/run-folder references | done | a046b605d |
+| 4 | 4.5 | Resolve `develop` merge conflict: fold the `#3092` notes into the existing `0.6.5 → 0.6.6 (unreleased)` window (v0.6.5 already released ⇒ ships in 0.6.6), dropping the stale `0.6.4 → 0.6.5` header | done | 114829921 |
 
 Source spec: `.ai/specs/2026-06-15-tenant-scoped-search-settings.md` (PR #3093, tracking issue #3092)
 
