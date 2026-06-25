@@ -1,6 +1,7 @@
 {
   "name": "@open-mercato/channel-gmail",
   "version": "0.6.5",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -64,7 +65,7 @@
     "@open-mercato/core": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "@types/mailparser": "^3.4.5",
-    "mailparser": "^3.7.1"
+    "mailparser": "^3.9.11"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
@@ -82,7 +83,8 @@
     "jest": "^30.4.2",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "ts-jest": "^29.4.11"
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
   },
   "publishConfig": {
     "access": "public"

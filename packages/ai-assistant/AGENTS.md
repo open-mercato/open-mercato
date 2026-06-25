@@ -1464,6 +1464,15 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 
 ## Changelog
 
+### 2026-06-24 - MCP dev server loads ai-tools for @app local modules (#3524)
+
+**What changed** (`lib/generated-registry-loader.ts`):
+- `rewriteGeneratedAliasImports` now also rewrites the `../../src/...` relative imports the generator emits for `@app` local modules (e.g. `from "../../src/modules/<id>/ai-tools"`), resolving them against the generated file's directory (`<appRoot>/.mercato/generated`) to absolute `file://` URLs with the same `.ts`-suffix probe used for `@/` aliases. Previously only `@/` aliases were rewritten, so the `../../src/...` specifier passed through `esbuild.transform` (transpile-only) into the compiled `.mjs` and Node ESM threw `ERR_MODULE_NOT_FOUND` resolving the extensionless `.ts`-only target. Package-backed modules (`@open-mercato/*`) were never affected — their bare specifiers resolve through `node_modules` to compiled `.js`.
+
+**Files**: `lib/generated-registry-loader.ts`. Regression test: `lib/__tests__/generated-registry-loader.test.ts` (3 cases covering static import, dynamic `import()`, and `.ts`-suffix resolution for the `../../src/...` shape).
+
+**Backward compatibility**: Strictly additive — the `rewriteGeneratedAliasImports(source, appRoot)` signature is unchanged, and `@/` aliases, bare package imports, and sibling `./` imports keep their prior behavior. Only previously-broken `../../src/...` specifiers change (from unresolved to resolved).
+
 ### 2026-06-11 - Harden latent MCP server-config module (#2672)
 
 **What changed** (`lib/mcp-server-config.ts`, currently dead code — no callers):

@@ -235,8 +235,15 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               : currentProductId
         if (resolvedProductId) setCurrentProductId(resolvedProductId)
         const metadata = typeof record.metadata === 'object' && record.metadata ? { ...(record.metadata as Record<string, unknown>) } : {}
-        const attachments = await fetchVariantAttachments(variantId!)
-        const priceDrafts = await loadVariantPrices(variantId!, priceKinds)
+        const [attachments, priceDrafts, productRes] = await Promise.all([
+          fetchVariantAttachments(variantId!),
+          loadVariantPrices(variantId!, priceKinds),
+          resolvedProductId
+            ? apiCall<ProductResponse>(
+                `/api/catalog/products?id=${encodeURIComponent(resolvedProductId)}&page=1&pageSize=1`,
+              )
+            : Promise.resolve(null),
+        ])
         const priceIdMap: Record<string, string> = {}
         const priceVersionMap: Record<string, string | null> = {}
         Object.entries(priceDrafts).forEach(([kindId, draft]) => {
@@ -250,10 +257,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
         const customDefaults = extractCustomFieldEntries(record)
         let loadedOptionDefinitions: OptionDefinition[] = []
         if (resolvedProductId) {
-          const productRes = await apiCall<ProductResponse>(
-            `/api/catalog/products?id=${encodeURIComponent(resolvedProductId)}&page=1&pageSize=1`,
-          )
-          if (productRes.ok) {
+          if (productRes?.ok) {
             const product = Array.isArray(productRes.result?.items) ? productRes.result?.items?.[0] : undefined
             if (product) {
               setProductTitle(typeof product.title === 'string' ? product.title : '')
@@ -311,12 +315,9 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             : typeof (record as any).taxRateId === 'string'
               ? (record as any).taxRateId
               : null
-        if (variantTaxRateId) {
-          const selectedVariantTaxRate = await fetchTaxRateById(variantTaxRateId).catch(() => null)
-          if (selectedVariantTaxRate && !cancelled) {
-            setTaxRates((current) => mergeTaxRateSummaries(current, selectedVariantTaxRate))
-          }
-        }
+        // The variant's own tax rate is hydrated into the select options by the
+        // dedicated tax-rate effect (it watches initialValues.taxRateId), so it no
+        // longer needs a serial fetch inside the primary loader.
         if (!cancelled) {
           const optionValues =
             typeof record.option_values === 'object' && record.option_values
@@ -345,6 +346,18 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             name: typeof record.name === 'string' ? record.name : '',
             sku: typeof record.sku === 'string' ? record.sku : '',
             barcode: typeof record.barcode === 'string' ? record.barcode : '',
+            gtinType:
+              typeof record.gtin_type === 'string'
+                ? record.gtin_type
+                : typeof record.gtinType === 'string'
+                  ? record.gtinType
+                  : null,
+            hsCode:
+              typeof record.hs_code === 'string'
+                ? record.hs_code
+                : typeof record.hsCode === 'string'
+                  ? record.hsCode
+                  : '',
             isDefault: record.is_default === true || record.isDefault === true,
             isActive: record.is_active !== false && record.isActive !== false,
             optionValues: normalizedOptionValues,
@@ -381,7 +394,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     }
     load()
     return () => { cancelled = true }
-  }, [variantId, t, currentProductId, fetchTaxRateById, priceKinds])
+  }, [variantId, t, currentProductId, priceKinds])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     const list: CrudFormGroup[] = [
@@ -600,6 +613,8 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               name,
               sku: values.sku?.trim() || undefined,
               barcode: values.barcode?.trim() || undefined,
+              gtinType: values.gtinType ?? null,
+              hsCode: values.hsCode?.trim() || null,
               isDefault: Boolean(values.isDefault),
               isActive: values.isActive !== false,
               optionValues: Object.keys(values.optionValues ?? {}).length ? values.optionValues : undefined,
