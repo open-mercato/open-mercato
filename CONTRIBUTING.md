@@ -34,6 +34,35 @@ This ensures design decisions are documented and the codebase remains well-under
 - Reference related issues or discussions; add screenshots or recordings for UI tweaks.
 - Tag maintainers early if you need design or architectural guidance.
 
+### Enterprise Module Contributions
+
+> [!IMPORTANT]
+> **We cannot accept external contributions to the enterprise module.**
+
+The `@open-mercato/enterprise` package (`packages/enterprise/`) is commercial,
+proprietary software governed by its own [license](packages/enterprise/LICENSE.md) — not
+the open-source terms that cover the rest of this repository. Because of the licensing and
+intellectual-property / IP-transfer constraints around that package, **we are unable to
+review, accept, or merge pull requests that modify anything under `packages/enterprise/`**,
+even when they are otherwise high quality.
+
+What this means in practice:
+
+- Do not open PRs that add to, modify, refactor, or reverse-engineer files under
+  `packages/enterprise/`. They will be closed without merge.
+- The Contributor License Agreement (see [`apps/docs/cla.md`](apps/docs/cla.md)) governs
+  contributions to the open-source projects only; it does not grant rights to the
+  commercial enterprise codebase, so it cannot be used to upstream enterprise changes.
+- If you have found a bug in an enterprise module, please report it through your
+  commercial support channel or open an issue describing the problem (without proposing a
+  code change to the package).
+- If you want to build or extend enterprise functionality, reach out about the
+  [Open Mercato Partnership Program](packages/enterprise/README.md) and commercial
+  licensing instead.
+
+Contributions to every other package and app in this repository are welcome — only the
+`packages/enterprise/` tree is off-limits.
+
 ### Package Previews
 
 PRs do not publish npm canary packages automatically. Maintainers can add `publish-pkg-preview` to publish pkg.pr.new package previews for the current PR commit. If a fresh preview is needed after more commits, remove and re-add the label.
