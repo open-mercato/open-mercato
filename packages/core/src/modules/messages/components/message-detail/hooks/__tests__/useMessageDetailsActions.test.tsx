@@ -42,6 +42,8 @@ function setup(detailOverrides: Partial<MessageDetail> = {}) {
   const refetch = jest.fn().mockResolvedValue(null)
   const refreshDetailWithoutAutoMarkRead = jest.fn().mockResolvedValue(null)
   const onDeleted = jest.fn()
+  const onMarkedUnread = jest.fn()
+  const suppressAutoMarkRead = jest.fn()
   const detailQuery = { refetch } as unknown as UseQueryResult<MessageDetail | null, Error>
   const detail = {
     id: 'message-1',
@@ -58,10 +60,12 @@ function setup(detailOverrides: Partial<MessageDetail> = {}) {
     attachments: [],
     isArchived: false,
     onDeleted,
+    onMarkedUnread,
     refreshDetailWithoutAutoMarkRead,
+    suppressAutoMarkRead,
   }))
 
-  return { ...view, refetch, refreshDetailWithoutAutoMarkRead, onDeleted }
+  return { ...view, refetch, refreshDetailWithoutAutoMarkRead, onDeleted, onMarkedUnread, suppressAutoMarkRead }
 }
 
 describe('useMessageDetailsActions guarded writes (#3258)', () => {
@@ -193,6 +197,81 @@ describe('useMessageDetailsActions guarded writes (#3258)', () => {
     // surfacing), and the failure is reported via flash rather than navigation.
     expect(mockRunMutation).toHaveBeenCalledTimes(1)
     expect(onDeleted).not.toHaveBeenCalled()
+    expect(mockFlash).toHaveBeenCalledWith(expect.any(String), 'error')
+  })
+})
+
+describe('useMessageDetailsActions mark-unread redirect (#3576)', () => {
+  beforeEach(() => {
+    mockApiCall.mockReset()
+    mockFlash.mockReset()
+    mockRunMutation.mockReset()
+    mockRetryLastMutation.mockReset()
+    mockUseGuardedMutation.mockClear()
+    mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
+    mockApiCall.mockResolvedValue(okResult({ ok: true }))
+  })
+
+  it('navigates back to the inbox after marking a read message unread', async () => {
+    const { result, onMarkedUnread, refreshDetailWithoutAutoMarkRead, refetch, suppressAutoMarkRead } = setup({ isRead: true })
+
+    await act(async () => {
+      await result.current.toggleRead()
+    })
+
+    expect(mockApiCall).toHaveBeenCalledWith('/api/messages/message-1/read', { method: 'DELETE' })
+    expect(refreshDetailWithoutAutoMarkRead).toHaveBeenCalledTimes(1)
+    expect(refetch).not.toHaveBeenCalled()
+    expect(onMarkedUnread).toHaveBeenCalledTimes(1)
+    // Suppress auto-mark-read so a late SSE-driven detail refetch cannot silently re-mark it read.
+    expect(suppressAutoMarkRead).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not navigate when marking an unread message read', async () => {
+    const { result, onMarkedUnread, refetch, suppressAutoMarkRead } = setup({ isRead: false })
+
+    await act(async () => {
+      await result.current.toggleRead()
+    })
+
+    expect(mockApiCall).toHaveBeenCalledWith('/api/messages/message-1/read', { method: 'PUT' })
+    expect(refetch).toHaveBeenCalledTimes(1)
+    expect(onMarkedUnread).not.toHaveBeenCalled()
+    expect(suppressAutoMarkRead).not.toHaveBeenCalled()
+  })
+
+  it('navigates back to the inbox after marking a conversation unread', async () => {
+    const { result, onMarkedUnread, refreshDetailWithoutAutoMarkRead, refetch, suppressAutoMarkRead } = setup()
+
+    await act(async () => {
+      await result.current.markConversationUnread()
+    })
+
+    expect(mockApiCall).toHaveBeenCalledWith('/api/messages/message-1/conversation/read', { method: 'DELETE' })
+    expect(mockFlash).toHaveBeenCalledWith('Conversation marked unread.', 'success')
+    expect(onMarkedUnread).toHaveBeenCalledTimes(1)
+    // Navigation supersedes the in-place refresh, so the detail is never re-fetched.
+    expect(refreshDetailWithoutAutoMarkRead).not.toHaveBeenCalled()
+    expect(refetch).not.toHaveBeenCalled()
+    // Suppress auto-mark-read so a late SSE-driven detail refetch cannot silently re-mark it read.
+    expect(suppressAutoMarkRead).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not navigate when the mark-unread request fails', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: false,
+      status: 500,
+      result: { error: 'boom' },
+      response: {} as Response,
+      cacheStatus: null,
+    })
+    const { result, onMarkedUnread } = setup({ isRead: true })
+
+    await act(async () => {
+      await result.current.toggleRead()
+    })
+
+    expect(onMarkedUnread).not.toHaveBeenCalled()
     expect(mockFlash).toHaveBeenCalledWith(expect.any(String), 'error')
   })
 })

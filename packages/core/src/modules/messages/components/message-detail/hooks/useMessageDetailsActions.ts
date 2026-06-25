@@ -18,6 +18,7 @@ import { isSafeNavigationHref, parseObjectActionId, toErrorMessage } from '../ut
 
 type RequestAndRefreshOptions = {
   skipDetailAutoMarkRead?: boolean
+  onSuccess?: () => void
 }
 
 type ConversationActionKind =
@@ -42,7 +43,9 @@ type UseMessageDetailsActionsInput = {
   attachments: MessageAttachment[] | undefined
   isArchived: boolean
   onDeleted: () => void
+  onMarkedUnread: () => void
   refreshDetailWithoutAutoMarkRead: () => Promise<MessageDetail | null>
+  suppressAutoMarkRead: () => void
 }
 
 export function useMessageDetailsActions({
@@ -53,7 +56,9 @@ export function useMessageDetailsActions({
   attachments,
   isArchived,
   onDeleted,
+  onMarkedUnread,
   refreshDetailWithoutAutoMarkRead,
+  suppressAutoMarkRead,
 }: UseMessageDetailsActionsInput) {
   const [replyOpen, setReplyOpen] = React.useState(false)
   const [forwardOpen, setForwardOpen] = React.useState(false)
@@ -93,6 +98,7 @@ export function useMessageDetailsActions({
         context: { resourceKind: 'message', messageId: id, action: 'state-change', retryLastMutation },
         mutationPayload: { messageId: id, action: 'state-change', url, method },
       })
+      options?.onSuccess?.()
     } catch (err) {
       flash(
         err instanceof Error
@@ -203,14 +209,15 @@ export function useMessageDetailsActions({
   }, [id, runConversationAction, t])
 
   const markConversationUnread = React.useCallback(async (messageId?: string) => {
+    suppressAutoMarkRead()
     const targetMessageId = messageId ?? id
     await runConversationAction('markAllUnread', {
       url: `/api/messages/${encodeURIComponent(targetMessageId)}/conversation/read`,
       method: 'DELETE',
       successMessage: t('messages.flash.conversationMarkedUnread', 'Conversation marked unread.'),
-      skipDetailAutoMarkRead: true,
+      onSuccess: onMarkedUnread,
     })
-  }, [id, runConversationAction, t])
+  }, [id, onMarkedUnread, runConversationAction, suppressAutoMarkRead, t])
 
   const markConversationRead = React.useCallback(async (messageId?: string) => {
     const targetMessageId = messageId ?? id
@@ -385,12 +392,15 @@ export function useMessageDetailsActions({
   }, [detail?.actionData?.actions])
 
   const toggleRead = React.useCallback(async () => {
+    if (detail?.isRead) {
+      suppressAutoMarkRead()
+    }
     await requestAndRefresh(
       `/api/messages/${encodeURIComponent(id)}/read`,
       detail?.isRead ? 'DELETE' : 'PUT',
-      detail?.isRead ? { skipDetailAutoMarkRead: true } : undefined,
+      detail?.isRead ? { skipDetailAutoMarkRead: true, onSuccess: onMarkedUnread } : undefined,
     )
-  }, [detail?.isRead, id, requestAndRefresh])
+  }, [detail?.isRead, id, onMarkedUnread, requestAndRefresh, suppressAutoMarkRead])
 
   const toggleArchive = React.useCallback(async () => {
     await requestAndRefresh(
