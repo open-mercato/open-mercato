@@ -164,7 +164,7 @@ describe('auth.md / ID-JAG self-registration (Wave 4 Phase 4)', () => {
     else process.env.AGENT_ID_JAG_ISSUERS = prevIssuers
   })
 
-  describe('discovery (/.well-known)', () => {
+  describe('discovery (/well-known)', () => {
     it('advertises the endpoints + grant types and contains no secrets', () => {
       const meta = getAgentAuthDiscovery()
       expect(meta.token_endpoint).toBe('/api/agent_orchestrator/identity/token')

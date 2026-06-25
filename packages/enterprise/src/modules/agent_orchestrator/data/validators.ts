@@ -761,7 +761,7 @@ export type RevokeAgentDelegationGrantInput = z.infer<typeof revokeAgentDelegati
 export const ID_JAG_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:jwt-bearer' as const
 
 /**
- * The public `/.well-known` agent-auth discovery metadata. Read-only and free of
+ * The public `/well-known` agent-auth discovery metadata. Read-only and free of
  * secrets — it advertises WHERE to authenticate, the supported grant types
  * (client-credentials now + the ID-JAG / JWT-bearer flow), and the audience an
  * external assertion must target. JWKS/issuer verification material is NEVER
