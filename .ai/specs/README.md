@@ -99,6 +99,8 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Sales Payments Tenant Scope](implemented/2026-06-06-sales-recompute-order-payment-totals-tenant-scope.md) | 2026-06-06 | sales(payments): scope `recomputeOrderPaymentTotals` order lookups by tenant/organization | Defence-in-depth scope filter + `ensureSameScope` on 7 `findOne(SalesOrder, …)` sites in `payments.ts` (#2111) |
 | [Checkout Cookie sessionVersion](implemented/2026-06-06-checkout-access-cookie-non-reversible-session-version.md) | 2026-06-06 | Derive checkout access cookie sessionVersion | Non-reversible HMAC-SHA256 derivation of the embedded `sessionVersion` so the bcrypt `passwordHash` never appears in the client-readable cookie payload (#2675) |
 | [Organization Sidebar Logo](2026-06-08-organization-sidebar-logo.md) | 2026-06-08 | Organization Sidebar Logo | Organization-level backend sidebar logo branding with additive `organizations.logo_url`, branding API, Directory settings UI, and admin nav brand payload |
+| [Dictionary Custom Field Multiselect](2026-06-19-dictionary-custom-field-multiselect.md) | 2026-06-19 | Dictionary Custom Field Multiselect | Dictionary-backed custom fields can opt into multi-select CRUD form rendering while reusing existing EAV array persistence |
+| [Package Previews](2026-06-22-label-based-package-previews.md) | 2026-06-22 | Label-Based Package Previews | Label-triggered pkg.pr.new previews with npm canary snapshots moved behind a separate opt-in label |
 
 ### Implemented Specifications
 

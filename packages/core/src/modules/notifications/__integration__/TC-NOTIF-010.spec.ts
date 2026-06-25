@@ -42,6 +42,21 @@ test.describe('TC-NOTIF-010: Notification action execution', () => {
       expect(body).toHaveProperty('result')
       expect(body?.result).toBeNull()
       expect(body?.href).toBe(`/backend/example/${sourceEntityId}`)
+
+      // A repeated/duplicate action must be rejected without re-running the side
+      // effect — the notification is already actioned.
+      const duplicate = await apiRequest(
+        request,
+        'POST',
+        `/api/notifications/${encodeURIComponent(notificationId)}/action`,
+        { token, data: { actionId: 'approve', payload: {} } },
+      )
+      expect(
+        duplicate.status(),
+        'a repeated POST /api/notifications/{id}/action should return 409',
+      ).toBe(409)
+      const duplicateBody = await readJsonSafe<{ ok?: boolean; error?: string }>(duplicate)
+      expect(duplicateBody?.ok).not.toBe(true)
     } finally {
       await dismissNotificationIfExists(request, token, notificationId)
     }

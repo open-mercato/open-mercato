@@ -290,19 +290,35 @@ export default function PaymentTransactionsPage() {
   const handleRefreshStatus = React.useCallback(async () => {
     if (!selectedId) return
     setIsRefreshingStatus(true)
-    const call = await apiCall(`/api/payment_gateways/status?transactionId=${encodeURIComponent(selectedId)}`, undefined, { fallback: null })
-    if (!call.ok) {
-      flash(t('payment_gateways.transactions.error.refreshStatus', 'Failed to refresh transaction status'), 'error')
+    try {
+      await runMutation({
+        operation: async () => {
+          await apiCallOrThrow('/api/payment_gateways/status', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ transactionId: selectedId }),
+          })
+        },
+        context: {
+          entityType: 'payment_gateways:gateway_transaction',
+          entityId: selectedId,
+        },
+        mutationPayload: { transactionId: selectedId },
+      })
+      await Promise.all([
+        loadRows(),
+        loadDetail(selectedId),
+      ])
+      flash(t('payment_gateways.transactions.success.refreshStatus', 'Transaction status refreshed'), 'success')
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : t('payment_gateways.transactions.error.refreshStatus', 'Failed to refresh transaction status')
+      flash(message, 'error')
+    } finally {
       setIsRefreshingStatus(false)
-      return
     }
-    await Promise.all([
-      loadRows(),
-      loadDetail(selectedId),
-    ])
-    flash(t('payment_gateways.transactions.success.refreshStatus', 'Transaction status refreshed'), 'success')
-    setIsRefreshingStatus(false)
-  }, [loadDetail, loadRows, selectedId, t])
+  }, [loadDetail, loadRows, runMutation, selectedId, t])
 
   const handleCapturePayment = React.useCallback(async () => {
     if (!selectedId) return

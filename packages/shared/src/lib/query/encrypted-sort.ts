@@ -24,6 +24,19 @@ export function fieldNameCandidates(field: string): string[] {
   return Array.from(new Set(candidates))
 }
 
+/**
+ * Opt-in cap on how many candidate rows the plaintext-sort path may fetch
+ * for sort-column decryption. Unset or invalid input means uncapped — the
+ * default must stay byte-identical to the pre-cap behavior.
+ */
+export function resolveEncryptedSortMaxRows(): number | null {
+  const raw = process.env.OM_ENCRYPTED_SORT_MAX_ROWS
+  if (raw === undefined || raw === '') return null
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) return null
+  return Math.floor(parsed)
+}
+
 export async function resolveEncryptedSortFields(
   service: QueryEncryptionService | null | undefined,
   entity: EntityId,
