@@ -67,6 +67,7 @@ export const setup: ModuleSetupConfig = {
       'agent_orchestrator.trace.correct',
       'agent_orchestrator.guardrail.read',
       'agent_orchestrator.context.read',
+      'agent_orchestrator.identity.read',
     ],
     operator: [
       'agent_orchestrator.agents.view',
@@ -76,6 +77,7 @@ export const setup: ModuleSetupConfig = {
       'agent_orchestrator.trace.correct',
       'agent_orchestrator.guardrail.read',
       'agent_orchestrator.context.read',
+      'agent_orchestrator.identity.read',
     ],
     engineer: [
       'agent_orchestrator.agents.view',
@@ -88,6 +90,8 @@ export const setup: ModuleSetupConfig = {
       'agent_orchestrator.guardrail.read',
       'agent_orchestrator.guardrail.manage',
       'agent_orchestrator.context.read',
+      'agent_orchestrator.identity.read',
+      'agent_orchestrator.identity.manage',
     ],
   },
 
