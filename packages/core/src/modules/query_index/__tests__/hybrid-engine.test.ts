@@ -177,7 +177,10 @@ function resolveFirstRow(
     return config.hasIndexAny ? { entity_id: 'x' } : undefined
   }
   if (table === 'custom_entities') {
-    return undefined
+    // Active-registration probe used by isCustomEntity. Returns a row only when the
+    // fixture explicitly seeds `rows.custom_entities` (simulating an active overlay /
+    // registration row); existing fixtures that omit it keep the unregistered behavior.
+    return (config.rows?.custom_entities ?? []).length ? (config.rows!.custom_entities[0]) : undefined
   }
   return undefined
 }
@@ -1020,6 +1023,60 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
 
     const chains = db._chains as ChainLog[]
     expect(chains.some((chain) => chain.table === 'customer_deals')).toBe(true)
+  })
+
+  test('an active custom_entities registration row must not reroute a table-backed ORM entity away from its base table', async () => {
+    // Regression for the read-path asymmetry: isCustomEntity used to probe `custom_entities`
+    // FIRST and treat any active row as "doc storage", AHEAD of ORM-table resolution. An
+    // active overlay/registration row for an ORM-backed system id therefore hijacked every
+    // list/detail read of the whole entity type into the (empty) doc-storage table — the
+    // #2939 failure mode reachable via a metadata overlay alone. The ORM-backed guard now
+    // runs first, so the row is ignored for classification.
+    const db = createFakeKysely({
+      baseTable: 'customer_deals',
+      hasIndexAny: false,
+      baseCount: 282,
+      indexCount: 0,
+      customFieldKeys: {},
+      rows: {
+        custom_entities: [{ id: 'overlay-1' }],
+        custom_entities_storage: [{ entity_id: 'stray-doc-record' }],
+      },
+    })
+    const em = buildEmWithOrmMetadata(db, { CustomerDeal: 'customer_deals' })
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent: jest.fn() }))
+
+    await expect((engine as any).isCustomEntity('customers:customer_deal')).resolves.toBe(false)
+
+    await engine.query('customers:customer_deal', {
+      fields: ['id', 'title', 'pipeline_stage_id'],
+      includeCustomFields: true,
+      organizationIds: ['org1'],
+      tenantId: 't1',
+    })
+
+    const chains = db._chains as ChainLog[]
+    expect(chains.some((chain) => chain.table === 'customer_deals')).toBe(true)
+    expect(chains.some((chain) => chain.table === 'custom_entities_storage' && chain.selects.length > 0)).toBe(false)
+  })
+
+  test('a genuinely custom entity (no ORM table) with an active registration still routes to doc storage', async () => {
+    // Guards against the reorder over-reaching: an id that is NOT ORM-backed must still
+    // classify as custom when it has an active `custom_entities` registration row.
+    const db = createFakeKysely({
+      baseTable: 'unused',
+      hasIndexAny: false,
+      baseCount: 0,
+      indexCount: 0,
+      customFieldKeys: {},
+      rows: { custom_entities: [{ id: 'reg-1' }] },
+    })
+    const em = buildEmWithOrmMetadata(db, {})
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent: jest.fn() }))
+
+    await expect((engine as any).isCustomEntity('example:custom_thing')).resolves.toBe(true)
   })
 
   test('module-declared custom entities without an ORM table keep doc-storage routing (read/write symmetry)', async () => {
