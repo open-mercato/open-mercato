@@ -82,27 +82,61 @@ describe('GET /api/directory/tenants pagination', () => {
     expect(options.offset).toBe(0)
   })
 
-  it('falls back to fetch-all + JS slice when a custom-field filter must be matched in memory', async () => {
-    // Custom-field values live in a separate store and are matched in JS, so the
-    // full set must be loaded before filtering — pagination cannot be pushed down.
+  it('resolves custom-field filters via a bounded id query and pushes pagination to findAndCount', async () => {
+    // Custom-field values live in a separate store. The route must resolve the
+    // matching tenant ids from that store, then push pagination to the database
+    // instead of loading the whole tenant table and slicing in memory.
     buildCustomFieldFiltersFromQuery.mockResolvedValue({ 'cf:tier': { $in: ['gold'] } })
     const gold1 = makeTenant(1)
     const gold2 = makeTenant(2)
-    const silver = makeTenant(3)
-    em.find.mockResolvedValue([gold1, gold2, silver])
+
+    em.find.mockImplementation(async (entity: { name: string }) => {
+      if (entity.name === 'CustomFieldDef') return [{ key: 'tier', kind: 'text' }]
+      if (entity.name === 'CustomFieldValue') {
+        return [{ recordId: gold1.id }, { recordId: gold2.id }]
+      }
+      throw new Error(`Unexpected em.find for entity ${entity.name}`)
+    })
+    em.findAndCount.mockResolvedValue([[gold1, gold2], 2])
     loadCustomFieldValues.mockResolvedValue({
       [gold1.id]: { cf_tier: 'gold' },
       [gold2.id]: { cf_tier: 'gold' },
-      [silver.id]: { cf_tier: 'silver' },
     })
 
     const res = await GET(new Request('http://localhost/api/directory/tenants?page=1&pageSize=50&cf_tier=gold'))
 
-    expect(em.findAndCount).not.toHaveBeenCalled()
-    expect(em.find).toHaveBeenCalledTimes(1)
+    // The whole tenant table is never loaded: only the custom-field store is
+    // queried via em.find; the tenant page goes through findAndCount.
+    const tenantFinds = em.find.mock.calls.filter(([entity]) => entity?.name === 'Tenant')
+    expect(tenantFinds).toHaveLength(0)
+    expect(em.findAndCount).toHaveBeenCalledTimes(1)
+    const [, where, options] = em.findAndCount.mock.calls[0]
+    expect(where.id).toEqual({ $in: [gold1.id, gold2.id] })
+    expect(options).toEqual(expect.objectContaining({ limit: 50, offset: 0 }))
+
     expect(res.status).toBe(200)
     const body = (await res.json()) as { items: { id: string }[]; total: number }
     expect(body.total).toBe(2)
     expect(body.items.map((it) => it.id)).toEqual([gold1.id, gold2.id])
+  })
+
+  it('short-circuits without loading any tenants when a custom-field filter matches nothing', async () => {
+    buildCustomFieldFiltersFromQuery.mockResolvedValue({ 'cf:tier': { $in: ['platinum'] } })
+    em.find.mockImplementation(async (entity: { name: string }) => {
+      if (entity.name === 'CustomFieldDef') return [{ key: 'tier', kind: 'text' }]
+      if (entity.name === 'CustomFieldValue') return []
+      throw new Error(`Unexpected em.find for entity ${entity.name}`)
+    })
+
+    const res = await GET(new Request('http://localhost/api/directory/tenants?page=1&pageSize=50&cf_tier=platinum'))
+
+    expect(em.findAndCount).not.toHaveBeenCalled()
+    const tenantFinds = em.find.mock.calls.filter(([entity]) => entity?.name === 'Tenant')
+    expect(tenantFinds).toHaveLength(0)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { items: unknown[]; total: number; totalPages: number }
+    expect(body.items).toHaveLength(0)
+    expect(body.total).toBe(0)
+    expect(body.totalPages).toBe(1)
   })
 })

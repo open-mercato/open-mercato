@@ -157,6 +157,32 @@ export type ProductFormValues = {
   tags: string[];
   optionSchemaId?: string | null;
   updatedAt?: string | null;
+  countryOfOriginCode: string;
+  pkwiuCode: string;
+  cnCode: string;
+  hsCode: string;
+  taxClassificationCode: string;
+  gtuCodes: string[];
+  ageMin: string;
+  isExciseGood: boolean;
+  exciseCategory: string | null;
+  requiresPrescription: boolean;
+  hazmatClass: string;
+  unNumber: string;
+  hazmatPackingGroup: string | null;
+  containsLithiumBattery: boolean;
+  launchAt: string;
+  endOfLifeAt: string;
+  availableFrom: string;
+  availableUntil: string;
+  minOrderQty: string;
+  maxOrderQty: string;
+  orderQtyIncrement: string;
+  requiresShipping: boolean;
+  isQuoteOnly: boolean;
+  seoTitle: string;
+  seoDescription: string;
+  canonicalUrl: string;
 };
 
 const optionalPositiveNumberInput = z.preprocess((value) => {
@@ -251,6 +277,45 @@ export const productFormSchema = z
     channelIds: z.array(z.string().uuid()).optional(),
     tags: z.array(z.string().trim().min(1).max(100)).optional(),
     optionSchemaId: z.string().uuid().nullable().optional(),
+    countryOfOriginCode: z
+      .string()
+      .trim()
+      .regex(/^([A-Za-z]{2})?$/, 'catalog.products.validation.countryCodeInvalid')
+      .optional(),
+    pkwiuCode: z.string().trim().max(32).optional(),
+    cnCode: z.string().trim().max(32).optional(),
+    hsCode: z.string().trim().max(32).optional(),
+    taxClassificationCode: z.string().trim().max(64).optional(),
+    gtuCodes: z.array(z.string()).optional(),
+    ageMin: optionalBoundedIntegerInput(0, 120),
+    isExciseGood: z.boolean().optional(),
+    exciseCategory: z.string().nullable().optional(),
+    requiresPrescription: z.boolean().optional(),
+    hazmatClass: z.string().trim().max(32).optional(),
+    unNumber: z
+      .string()
+      .trim()
+      .regex(/^((?:UN)?[0-9]{4})?$/i, 'catalog.products.validation.unNumberInvalid')
+      .optional(),
+    hazmatPackingGroup: z.string().nullable().optional(),
+    containsLithiumBattery: z.boolean().optional(),
+    launchAt: z.string().optional(),
+    endOfLifeAt: z.string().optional(),
+    availableFrom: z.string().optional(),
+    availableUntil: z.string().optional(),
+    minOrderQty: optionalBoundedIntegerInput(1, 100000000),
+    maxOrderQty: optionalBoundedIntegerInput(1, 100000000),
+    orderQtyIncrement: optionalBoundedIntegerInput(1, 100000000),
+    requiresShipping: z.boolean().optional(),
+    isQuoteOnly: z.boolean().optional(),
+    seoTitle: z.string().trim().max(255).optional(),
+    seoDescription: z.string().trim().max(1000).optional(),
+    canonicalUrl: z
+      .string()
+      .trim()
+      .max(500)
+      .regex(/^(https?:\/\/\S+)?$/, 'catalog.products.validation.canonicalUrlInvalid')
+      .optional(),
   })
   .passthrough()
   .refine(
@@ -260,12 +325,34 @@ export const productFormSchema = z
   .refine(
     (data) => !data.defaultSalesUnit || (data.defaultUnit != null && data.defaultUnit.length > 0),
     { message: 'catalog.products.validation.baseUnitRequired', path: ['defaultUnit'] }
+  )
+  .refine(
+    (data) =>
+      data.minOrderQty === undefined ||
+      data.maxOrderQty === undefined ||
+      data.maxOrderQty >= data.minOrderQty,
+    { message: 'catalog.products.validation.orderQtyRange', path: ['maxOrderQty'] }
+  )
+  .refine(
+    (data) =>
+      !data.launchAt ||
+      !data.endOfLifeAt ||
+      new Date(data.endOfLifeAt) >= new Date(data.launchAt),
+    { message: 'catalog.products.validation.lifecycleDateRange', path: ['endOfLifeAt'] }
+  )
+  .refine(
+    (data) =>
+      !data.availableFrom ||
+      !data.availableUntil ||
+      new Date(data.availableUntil) >= new Date(data.availableFrom),
+    { message: 'catalog.products.validation.availabilityDateRange', path: ['availableUntil'] }
   );
 
 export const PRODUCT_FORM_STEPS = [
   "general",
   "organize",
   "uom",
+  "compliance",
   "variants",
 ] as const;
 
@@ -302,10 +389,185 @@ export const BASE_INITIAL_VALUES: ProductFormValues = {
   channelIds: [],
   tags: [],
   optionSchemaId: null,
+  countryOfOriginCode: "",
+  pkwiuCode: "",
+  cnCode: "",
+  hsCode: "",
+  taxClassificationCode: "",
+  gtuCodes: [],
+  ageMin: "",
+  isExciseGood: false,
+  exciseCategory: null,
+  requiresPrescription: false,
+  hazmatClass: "",
+  unNumber: "",
+  hazmatPackingGroup: null,
+  containsLithiumBattery: false,
+  launchAt: "",
+  endOfLifeAt: "",
+  availableFrom: "",
+  availableUntil: "",
+  minOrderQty: "",
+  maxOrderQty: "",
+  orderQtyIncrement: "",
+  requiresShipping: true,
+  isQuoteOnly: false,
+  seoTitle: "",
+  seoDescription: "",
+  canonicalUrl: "",
 };
 
 export const isConfigurableProductType = (type: string): boolean =>
   (CATALOG_CONFIGURABLE_PRODUCT_TYPES as readonly string[]).includes(type);
+
+const complianceTrimOrNull = (value: string | null | undefined): string | null => {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed.length ? trimmed : null;
+};
+
+const compliancePositiveIntOrNull = (
+  value: string | number | null | undefined,
+): number | null => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && Number.isInteger(value) ? value : null;
+  }
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed.length) return null;
+  const numeric = Number(trimmed);
+  return Number.isFinite(numeric) && Number.isInteger(numeric) ? numeric : null;
+};
+
+const complianceDateOrNull = (value: string | null | undefined): string | null => {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed.length) return null;
+  const parsed = new Date(trimmed);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+};
+
+export const buildComplianceProductPayload = (
+  values: ProductFormValues,
+): Record<string, unknown> => ({
+  countryOfOriginCode: complianceTrimOrNull(values.countryOfOriginCode),
+  pkwiuCode: complianceTrimOrNull(values.pkwiuCode),
+  cnCode: complianceTrimOrNull(values.cnCode),
+  hsCode: complianceTrimOrNull(values.hsCode),
+  taxClassificationCode: complianceTrimOrNull(values.taxClassificationCode),
+  gtuCodes:
+    Array.isArray(values.gtuCodes) && values.gtuCodes.length
+      ? values.gtuCodes
+      : null,
+  ageMin: compliancePositiveIntOrNull(values.ageMin),
+  isExciseGood: values.isExciseGood === true,
+  exciseCategory: complianceTrimOrNull(values.exciseCategory),
+  requiresPrescription: values.requiresPrescription === true,
+  hazmatClass: complianceTrimOrNull(values.hazmatClass),
+  unNumber: complianceTrimOrNull(values.unNumber),
+  hazmatPackingGroup: complianceTrimOrNull(values.hazmatPackingGroup),
+  containsLithiumBattery: values.containsLithiumBattery === true,
+  launchAt: complianceDateOrNull(values.launchAt),
+  endOfLifeAt: complianceDateOrNull(values.endOfLifeAt),
+  availableFrom: complianceDateOrNull(values.availableFrom),
+  availableUntil: complianceDateOrNull(values.availableUntil),
+  minOrderQty: compliancePositiveIntOrNull(values.minOrderQty),
+  maxOrderQty: compliancePositiveIntOrNull(values.maxOrderQty),
+  orderQtyIncrement: compliancePositiveIntOrNull(values.orderQtyIncrement),
+  requiresShipping: values.requiresShipping !== false,
+  isQuoteOnly: values.isQuoteOnly === true,
+  seoTitle: complianceTrimOrNull(values.seoTitle),
+  seoDescription: complianceTrimOrNull(values.seoDescription),
+  canonicalUrl: complianceTrimOrNull(values.canonicalUrl),
+});
+
+export type ComplianceFormValues = Pick<
+  ProductFormValues,
+  | "countryOfOriginCode"
+  | "pkwiuCode"
+  | "cnCode"
+  | "hsCode"
+  | "taxClassificationCode"
+  | "gtuCodes"
+  | "ageMin"
+  | "isExciseGood"
+  | "exciseCategory"
+  | "requiresPrescription"
+  | "hazmatClass"
+  | "unNumber"
+  | "hazmatPackingGroup"
+  | "containsLithiumBattery"
+  | "launchAt"
+  | "endOfLifeAt"
+  | "availableFrom"
+  | "availableUntil"
+  | "minOrderQty"
+  | "maxOrderQty"
+  | "orderQtyIncrement"
+  | "requiresShipping"
+  | "isQuoteOnly"
+  | "seoTitle"
+  | "seoDescription"
+  | "canonicalUrl"
+>;
+
+export const complianceFormValuesFromApiRecord = (
+  record: Record<string, unknown>,
+): ComplianceFormValues => {
+  const pick = (...keys: string[]): unknown => {
+    for (const key of keys) {
+      if (record[key] !== undefined && record[key] !== null) return record[key];
+    }
+    return null;
+  };
+  const str = (value: unknown): string => (typeof value === "string" ? value : "");
+  const strOrNull = (value: unknown): string | null =>
+    typeof value === "string" && value.length ? value : null;
+  const numStr = (value: unknown): string =>
+    typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+  const boolWithDefault = (value: unknown, fallback: boolean): boolean =>
+    typeof value === "boolean" ? value : fallback;
+  const dateInput = (value: unknown): string =>
+    typeof value === "string" && value.length >= 10 ? value.slice(0, 10) : "";
+  const stringArray = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value.filter((entry): entry is string => typeof entry === "string")
+      : [];
+  return {
+    countryOfOriginCode: str(pick("country_of_origin_code", "countryOfOriginCode")),
+    pkwiuCode: str(pick("pkwiu_code", "pkwiuCode")),
+    cnCode: str(pick("cn_code", "cnCode")),
+    hsCode: str(pick("hs_code", "hsCode")),
+    taxClassificationCode: str(pick("tax_classification_code", "taxClassificationCode")),
+    gtuCodes: stringArray(pick("gtu_codes", "gtuCodes")),
+    ageMin: numStr(pick("age_min", "ageMin")),
+    isExciseGood: boolWithDefault(pick("is_excise_good", "isExciseGood"), false),
+    exciseCategory: strOrNull(pick("excise_category", "exciseCategory")),
+    requiresPrescription: boolWithDefault(
+      pick("requires_prescription", "requiresPrescription"),
+      false,
+    ),
+    hazmatClass: str(pick("hazmat_class", "hazmatClass")),
+    unNumber: str(pick("un_number", "unNumber")),
+    hazmatPackingGroup: strOrNull(pick("hazmat_packing_group", "hazmatPackingGroup")),
+    containsLithiumBattery: boolWithDefault(
+      pick("contains_lithium_battery", "containsLithiumBattery"),
+      false,
+    ),
+    launchAt: dateInput(pick("launch_at", "launchAt")),
+    endOfLifeAt: dateInput(pick("end_of_life_at", "endOfLifeAt")),
+    availableFrom: dateInput(pick("available_from", "availableFrom")),
+    availableUntil: dateInput(pick("available_until", "availableUntil")),
+    minOrderQty: numStr(pick("min_order_qty", "minOrderQty")),
+    maxOrderQty: numStr(pick("max_order_qty", "maxOrderQty")),
+    orderQtyIncrement: numStr(pick("order_qty_increment", "orderQtyIncrement")),
+    requiresShipping: boolWithDefault(
+      pick("requires_shipping", "requiresShipping"),
+      true,
+    ),
+    isQuoteOnly: boolWithDefault(pick("is_quote_only", "isQuoteOnly"), false),
+    seoTitle: str(pick("seo_title", "seoTitle")),
+    seoDescription: str(pick("seo_description", "seoDescription")),
+    canonicalUrl: str(pick("canonical_url", "canonicalUrl")),
+  };
+};
 
 export const createInitialProductFormValues = (): ProductFormValues => ({
   ...BASE_INITIAL_VALUES,
