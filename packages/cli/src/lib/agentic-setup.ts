@@ -447,6 +447,19 @@ function generateCursor(config: AgenticConfig): void {
   ensureSkillsLink(join(targetDir, '.cursor', 'skills'), join('..', '.ai', 'skills'))
 }
 
+function generateGithubCopilot(config: AgenticConfig): void {
+  const { targetDir } = config
+  const srcDir = join(AGENTIC_DIR, 'github-copilot')
+
+  writeTemplate(srcDir, 'copilot-instructions.md.template', join(targetDir, '.github', 'copilot-instructions.md'), config)
+  copyFile(srcDir, 'instructions/entity-guard.instructions.md', join(targetDir, '.github', 'instructions', 'entity-guard.instructions.md'))
+  copyFile(srcDir, 'instructions/generated-guard.instructions.md', join(targetDir, '.github', 'instructions', 'generated-guard.instructions.md'))
+  copyFile(srcDir, 'mcp.json.example', join(targetDir, '.vscode', 'mcp.json.example'))
+
+  // Symlink .github/skills → ../.ai/skills
+  ensureSkillsLink(join(targetDir, '.github', 'skills'), join('..', '.ai', 'skills'))
+}
+
 function ensureSkillsLink(linkPath: string, target: string): void {
   ensureDir(linkPath)
   if (existsSync(linkPath) && !lstatSync(linkPath).isSymbolicLink()) {
@@ -464,8 +477,9 @@ const TOOLS = [
   { key: '1', label: 'Claude Code     (Anthropic)', id: 'claude-code' },
   { key: '2', label: 'Codex           (OpenAI)', id: 'codex' },
   { key: '3', label: 'Cursor          (Anysphere)', id: 'cursor' },
-  { key: '4', label: 'Multiple tools  (select individually)', id: 'multiple' },
-  { key: '5', label: 'Skip — set up manually later', id: 'skip' },
+  { key: '4', label: 'GitHub Copilot  (GitHub)', id: 'github-copilot' },
+  { key: '5', label: 'Multiple tools  (select individually)', id: 'multiple' },
+  { key: '6', label: 'Skip — set up manually later', id: 'skip' },
 ] as const
 
 const SELECTABLE = TOOLS.filter((t) => t.id !== 'multiple' && t.id !== 'skip')
@@ -483,9 +497,9 @@ async function promptSelection(ask: AskFn): Promise<string[]> {
 
   const answer = (await ask('   Enter number(s) separated by comma [1]: ')).trim() || '1'
 
-  if (answer === '5') return ['skip']
+  if (answer === '6') return ['skip']
 
-  if (answer === '4') {
+  if (answer === '5') {
     const selected: string[] = []
     for (const tool of SELECTABLE) {
       const yn = await ask(`   Include ${tool.label}? [y/N]: `)
@@ -536,6 +550,7 @@ export async function runAgenticSetup(
   if (selectedIds.includes('claude-code')) generateClaudeCode(config)
   if (selectedIds.includes('codex')) generateCodex(config)
   if (selectedIds.includes('cursor')) generateCursor(config)
+  if (selectedIds.includes('github-copilot')) generateGithubCopilot(config)
 
   console.log('')
   console.log('   Agentic setup complete:')
@@ -547,6 +562,9 @@ export async function runAgenticSetup(
   }
   if (selectedIds.includes('cursor')) {
     console.log('   ✓ Cursor — .cursor/rules/, .cursor/hooks/, .cursor/mcp.json.example')
+  }
+  if (selectedIds.includes('github-copilot')) {
+    console.log('   ✓ GitHub Copilot — .github/copilot-instructions.md, .github/instructions/, .vscode/mcp.json.example')
   }
   console.log('')
 }

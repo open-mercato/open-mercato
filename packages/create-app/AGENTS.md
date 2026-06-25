@@ -164,11 +164,15 @@ packages/create-app/agentic/
 ├── codex/                       # Codex tool config
 │   ├── enforcement-rules.md     # Prepended to AGENTS.md with marker comments
 │   └── mcp.json.example
-└── cursor/                      # Cursor tool config
-    ├── rules/*.mdc              # Glob-scoped rules (alwaysApply + entity/generated guards)
-    ├── hooks.json               # afterFileEdit hook registration
-    ├── hooks/entity-migration-check.mjs  # Plain ESM (no tsx dependency)
-    └── mcp.json.example
+├── cursor/                      # Cursor tool config
+│   ├── rules/*.mdc              # Glob-scoped rules (alwaysApply + entity/generated guards)
+│   ├── hooks.json               # afterFileEdit hook registration
+│   ├── hooks/entity-migration-check.mjs  # Plain ESM (no tsx dependency)
+│   └── mcp.json.example
+└── github-copilot/             # GitHub Copilot tool config (no hook mechanism — text only)
+    ├── copilot-instructions.md.template  # → .github/copilot-instructions.md ({{PROJECT_NAME}})
+    ├── instructions/*.instructions.md    # Path-scoped guards via `applyTo` globs
+    └── mcp.json.example                  # → .vscode/mcp.json.example ("servers" key)
 ```
 
 ### When to Update `agentic/`
@@ -185,3 +189,5 @@ packages/create-app/agentic/
 - The Codex generator patches `AGENTS.md` (created by shared generator) — ordering matters
 - `{{PROJECT_NAME}}` is the only placeholder; resolved from `path.basename(targetDir)`
 - Cursor hook is `.mjs` (no tsx dep); Claude Code hook is `.ts` (needs tsx in devDependencies)
+- GitHub Copilot has no hook mechanism, so its migration/generated guards are instruction text only (`.github/copilot-instructions.md` + `.github/instructions/*.instructions.md` with `applyTo` globs); MCP example lands at `.vscode/mcp.json.example` and uses the VS Code `"servers"` key (not `"mcpServers"`)
+- A new tool id must be added in BOTH generators — `packages/create-app/src/setup/tools/<tool>.ts` (+ `wizard.ts`) and `packages/cli/src/lib/agentic-setup.ts` — plus the idempotency map in `packages/cli/src/lib/agentic-init.ts`. Renumber the `multiple`/`skip` wizard keys when inserting
