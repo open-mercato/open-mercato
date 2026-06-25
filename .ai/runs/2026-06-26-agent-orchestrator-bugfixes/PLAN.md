@@ -92,7 +92,7 @@
 
 ## Progress
 
-- [ ] PR-A (#3629) — org-scope fix + fail-closed + test
-- [ ] PR-A — audit `invokeAgentForWorkflow.ts` org derivation
+- [x] PR-A (#3629) — org-scope fix + fail-closed + test (branch `fix/3629-agent-run-org-scope`; `run/route.ts` now resolves `resolveOrganizationScopeForRequest` and fails closed when no single org is selected; regression test `agent-run-org-scope.test.ts`, 3 cases; enterprise typecheck + 244 unit tests green)
+- [x] PR-A — audit `invokeAgentForWorkflow.ts` org derivation — **safe, no change**: it takes `organizationId` from the workflow instance ctx (a persisted concrete org), not from live request header scope
 - [ ] PR-B (#3632) — executor transaction/rollback fix + durable FAILED + message + template + tests
 - [ ] PR-C (#3628) — OpenCode trace capture + ingest + tests (confirm in-process parity decision)
