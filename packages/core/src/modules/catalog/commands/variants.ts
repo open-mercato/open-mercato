@@ -25,6 +25,8 @@ import {
   type VariantCreateInput,
   type VariantUpdateInput,
 } from '../data/validators'
+import { isValidGtin, normalizeGtinValue } from '../lib/gtin'
+import type { CatalogGtinType } from '../data/types'
 import {
   cloneJson,
   commandActorScope,
@@ -59,6 +61,8 @@ type VariantSnapshot = {
   name: string | null
   sku: string | null
   barcode: string | null
+  gtinType: CatalogGtinType | null
+  hsCode: string | null
   statusEntryId: string | null
   isDefault: boolean
   isActive: boolean
@@ -86,6 +90,8 @@ const VARIANT_CHANGE_KEYS = [
   'name',
   'sku',
   'barcode',
+  'gtinType',
+  'hsCode',
   'statusEntryId',
   'isDefault',
   'isActive',
@@ -127,6 +133,8 @@ async function loadVariantSnapshot(
     name: record.name ?? null,
     sku: record.sku ?? null,
     barcode: record.barcode ?? null,
+    gtinType: record.gtinType ?? null,
+    hsCode: record.hsCode ?? null,
     statusEntryId: record.statusEntryId ?? null,
     isDefault: record.isDefault,
     isActive: record.isActive,
@@ -154,6 +162,8 @@ function variantSeedFromSnapshot(snapshot: VariantSnapshot): Record<string, unkn
     name: snapshot.name ?? null,
     sku: snapshot.sku ?? null,
     barcode: snapshot.barcode ?? null,
+    gtinType: snapshot.gtinType ?? null,
+    hsCode: snapshot.hsCode ?? null,
     statusEntryId: snapshot.statusEntryId ?? null,
     isDefault: snapshot.isDefault,
     isActive: snapshot.isActive,
@@ -176,6 +186,8 @@ function applyVariantSnapshot(record: CatalogProductVariant, snapshot: VariantSn
   record.name = snapshot.name ?? null
   record.sku = snapshot.sku ?? null
   record.barcode = snapshot.barcode ?? null
+  record.gtinType = snapshot.gtinType ?? null
+  record.hsCode = snapshot.hsCode ?? null
   record.statusEntryId = snapshot.statusEntryId ?? null
   record.isDefault = snapshot.isDefault
   record.isActive = snapshot.isActive
@@ -592,6 +604,12 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     const resolvedOptionValues =
       parsed.optionValues ?? (metadataSplit.hadOptionValues ? metadataSplit.optionValues : null)
 
+    const gtinType = parsed.gtinType ?? null
+    const barcode =
+      gtinType && parsed.barcode
+        ? normalizeGtinValue(gtinType, parsed.barcode)
+        : (parsed.barcode ?? null)
+
     const now = new Date()
     const record = em.create(CatalogProductVariant, {
       organizationId: product.organizationId,
@@ -599,7 +617,9 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       product,
       name: parsed.name ?? null,
       sku: parsed.sku ?? null,
-      barcode: parsed.barcode ?? null,
+      barcode,
+      gtinType,
+      hsCode: parsed.hsCode ?? null,
       statusEntryId: parsed.statusEntryId ?? null,
       isDefault: parsed.isDefault ?? false,
       isActive: parsed.isActive ?? true,
@@ -812,6 +832,27 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
       ? await resolveVariantTaxRate(em, product, parsed.taxRateId ?? null, parsed.taxRate)
       : null
 
+    // Re-validate GTIN against the merged record state: a partial update may
+    // carry only one of (gtinType, barcode) while the other half is stored.
+    let normalizedGtinBarcode: string | null = null
+    if (parsed.gtinType !== undefined || parsed.barcode !== undefined) {
+      const effectiveGtinType =
+        parsed.gtinType !== undefined ? (parsed.gtinType ?? null) : (record.gtinType ?? null)
+      if (effectiveGtinType) {
+        const effectiveBarcode =
+          parsed.barcode !== undefined ? (parsed.barcode ?? null) : (record.barcode ?? null)
+        if (!effectiveBarcode || !effectiveBarcode.trim().length) {
+          await throwGtinBarcodeRequiredError()
+        } else {
+          const normalized = normalizeGtinValue(effectiveGtinType, effectiveBarcode)
+          if (!isValidGtin(effectiveGtinType, normalized)) {
+            await throwInvalidGtinError()
+          }
+          normalizedGtinBarcode = normalized
+        }
+      }
+    }
+
     let previousDefaultVariantId: string | null = null
     try {
       await withAtomicFlush(
@@ -821,6 +862,9 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
             if (parsed.name !== undefined) record.name = parsed.name ?? null
             if (parsed.sku !== undefined) record.sku = parsed.sku ?? null
             if (parsed.barcode !== undefined) record.barcode = parsed.barcode ?? null
+            if (parsed.gtinType !== undefined) record.gtinType = parsed.gtinType ?? null
+            if (parsed.hsCode !== undefined) record.hsCode = parsed.hsCode ?? null
+            if (normalizedGtinBarcode !== null) record.barcode = normalizedGtinBarcode
             if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
             if (parsed.isDefault !== undefined) record.isDefault = parsed.isDefault
             if (parsed.isActive !== undefined) record.isActive = parsed.isActive
@@ -1159,6 +1203,45 @@ async function throwDuplicateVariantSkuError(): Promise<never> {
   })
 }
 
+async function throwDuplicateVariantGtinError(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  const message = translate(
+    'catalog.variants.errors.gtinExists',
+    'Another variant already uses this identifier.',
+  )
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { barcode: message },
+    details: [{ path: ['barcode'], message, code: 'duplicate', origin: 'validation' }],
+  })
+}
+
+async function throwGtinBarcodeRequiredError(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  const message = translate(
+    'catalog.variants.validation.gtinBarcodeRequired',
+    'A barcode value is required when an identifier type is set.',
+  )
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { barcode: message },
+    details: [{ path: ['barcode'], message, code: 'invalid', origin: 'validation' }],
+  })
+}
+
+async function throwInvalidGtinError(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  const message = translate(
+    'catalog.variants.validation.gtinChecksum',
+    'The barcode does not match the selected identifier type.',
+  )
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { barcode: message },
+    details: [{ path: ['barcode'], message, code: 'invalid', origin: 'validation' }],
+  })
+}
+
 async function rethrowVariantUniqueConstraint(error: unknown): Promise<never> {
   if (error instanceof UniqueConstraintViolationException) {
     const constraint = getErrorConstraint(error)
@@ -1168,6 +1251,12 @@ async function rethrowVariantUniqueConstraint(error: unknown): Promise<never> {
       message.includes('catalog_product_variants_sku_unique')
     ) {
       await throwDuplicateVariantSkuError()
+    }
+    if (
+      constraint === 'catalog_product_variants_gtin_scope_unique' ||
+      message.includes('catalog_product_variants_gtin_scope_unique')
+    ) {
+      await throwDuplicateVariantGtinError()
     }
   }
   throw error

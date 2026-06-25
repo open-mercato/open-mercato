@@ -360,6 +360,7 @@ function buildRegistryConfig(registryUrl: string): string {
 
 const FILE_RENAMES: Record<string, string> = {
   gitignore: '.gitignore',
+  gitattributes: '.gitattributes',
 }
 
 const SKIP_DIRS = new Set(['__tests__', '__integration__'])

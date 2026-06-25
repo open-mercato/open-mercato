@@ -10,8 +10,12 @@ import { isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/syst
 import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  beginEntitiesMutationGuard,
+  ENTITY_DEFINITION_RESOURCE_KIND,
+} from './definitions.mutation-guard'
 
-const CUSTOM_ENTITY_DEFINITION_RESOURCE_KIND = 'entities.entity'
+const CUSTOM_ENTITY_DEFINITION_RESOURCE_KIND = ENTITY_DEFINITION_RESOURCE_KIND
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -110,7 +114,8 @@ export async function POST(req: Request) {
   }
   const input = parsed.data
 
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
+  const { resolve } = container
   const em = resolve('em') as any
 
   // A registration for a module-declared, table-backed system entity would flip
@@ -140,6 +145,18 @@ export async function POST(req: Request) {
       throw lockError
     }
   }
+
+  const guard = await beginEntitiesMutationGuard({
+    container,
+    auth,
+    req,
+    resourceKind: ENTITY_DEFINITION_RESOURCE_KIND,
+    resourceId: ent ? ent.id : input.entityId,
+    operation: ent ? 'update' : 'create',
+    mutationPayload: input as unknown as Record<string, unknown>,
+  })
+  if (guard.blockedResponse) return guard.blockedResponse
+
   if (!ent) ent = em.create(CustomEntity, { ...where, createdAt: new Date() })
   ent.label = input.label
   ent.description = input.description ?? null
@@ -150,6 +167,7 @@ export async function POST(req: Request) {
   ent.updatedAt = new Date()
   em.persist(ent)
   await em.flush()
+  await guard.runAfterSuccess()
   // Invalidate sidebar/nav cache for tenant scope (also when tenantId is null)
   try {
     const cache = (await createRequestContainer()).resolve('cache') as any
@@ -168,17 +186,31 @@ export async function DELETE(req: Request) {
   const entityId = body?.entityId
   if (!entityId) return NextResponse.json({ error: 'entityId is required' }, { status: 400 })
 
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
+  const { resolve } = container
   const em = resolve('em') as any
 
   const where: any = { entityId, organizationId: auth.orgId ?? null, tenantId: auth.tenantId ?? null }
   const ent = await em.findOne(CustomEntity, where)
   if (!ent) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const guard = await beginEntitiesMutationGuard({
+    container,
+    auth,
+    req,
+    resourceKind: ENTITY_DEFINITION_RESOURCE_KIND,
+    resourceId: ent.id,
+    operation: 'delete',
+    mutationPayload: { entityId },
+  })
+  if (guard.blockedResponse) return guard.blockedResponse
+
   ent.isActive = false
   ent.updatedAt = new Date()
   ent.deletedAt = ent.deletedAt ?? new Date()
   em.persist(ent)
   await em.flush()
+  await guard.runAfterSuccess()
   // Invalidate sidebar/nav cache for tenant scope (also when tenantId is null)
   try {
     const cache = (await createRequestContainer()).resolve('cache') as any

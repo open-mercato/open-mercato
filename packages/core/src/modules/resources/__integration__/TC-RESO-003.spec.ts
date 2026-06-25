@@ -58,14 +58,14 @@ test.describe('TC-RESO-003: Resource Types CRUD + referential delete guard', () 
       await expect
         .poll(
           async () => {
-            const items = await listResourceTypes(request, token, `?search=${encodeURIComponent(typeName)}&pageSize=50`);
+            const items = await listResourceTypes(request, token, `?search=${encodeURIComponent(typeName)}&pageSize=50&withResourceCounts=true`);
             return items.some((item) => item.id === typeId);
           },
           { timeout: 8000, message: 'created resource type should appear in search results' },
         )
         .toBe(true);
 
-      const created = (await listResourceTypes(request, token, `?search=${encodeURIComponent(typeName)}&pageSize=50`)).find(
+      const created = (await listResourceTypes(request, token, `?search=${encodeURIComponent(typeName)}&pageSize=50&withResourceCounts=true`)).find(
         (item) => item.id === typeId,
       );
       expect(created, 'created type present in search').toBeTruthy();
@@ -122,7 +122,7 @@ test.describe('TC-RESO-003: Resource Types CRUD + referential delete guard', () 
       await expect
         .poll(
           async () => {
-            const items = await listResourceTypes(request, token, `?ids=${encodeURIComponent(typeId!)}`);
+            const items = await listResourceTypes(request, token, `?ids=${encodeURIComponent(typeId!)}&withResourceCounts=true`);
             return items[0]?.resourceCount ?? null;
           },
           { timeout: 8000, message: 'type resourceCount should reflect the linked resource' },
