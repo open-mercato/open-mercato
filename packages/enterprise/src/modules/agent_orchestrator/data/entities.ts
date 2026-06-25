@@ -732,6 +732,75 @@ export class AgentGuardrailSet {
   createdAt: Date = new Date()
 }
 
+/**
+ * Which authentication path an agent principal uses (agent identity spec).
+ * `internal` = in-process `INVOKE_AGENT` step, NO network auth and NO interactive
+ * credential (Phase 1; the only mode provisioned today). `oauth_client` =
+ * net-new OAuth client-credentials `/token` server (Phase 3). `authmd` =
+ * `auth.md` / ID-JAG self-registration (Phase 4). The non-`internal` modes are
+ * declared here as forward-compatible seams; only `internal` is provisioned now.
+ */
+export type AgentCredentialMode = 'internal' | 'oauth_client' | 'authmd'
+
+/**
+ * Links an AI agent to its provisioned non-interactive `auth.User` (`kind='agent'`)
+ * and a scoped, least-privilege `auth.Role`, so every agent action is attributed
+ * to a concrete user id through the same Command/CRUD/ACL/audit pipeline as a
+ * human (agent identity & on-behalf-of spec, Wave 4 Phase 1). Editable (revoke /
+ * disable) → carries `updated_at` for optimistic locking. Other modules
+ * (`auth.User`, `auth.Role`, the agent definition) are referenced by FK id only —
+ * NOT as ORM relations — per the cross-module decoupling rule.
+ */
+// One LIVE principal per (organization_id, agent_definition_id) is enforced by a
+// partial unique index (`agent_principals_org_agent_uq`) over live rows
+// (`WHERE deleted_at IS NULL`), owned by raw SQL in Migration20260625050000. A
+// `@Unique` decorator can't express a partial index (it would block re-provisioning
+// after a soft-delete), so the entity omits it — the migration is the source of
+// truth. Mirrors `users_tenant_email_hash_uniq` in the auth module.
+@Entity({ tableName: 'agent_principals' })
+@Index({ name: 'agent_principals_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_principals_user_idx', properties: ['userId'] })
+export class AgentPrincipal {
+  [OptionalProps]?: 'credentialMode' | 'enabled' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** FK id → auth.User (kind='agent'); NOT an ORM relation. */
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  /** FK id → the agent definition (the `defineAgent`/file-agent id). */
+  @Property({ name: 'agent_definition_id', type: 'varchar', length: 100 })
+  agentDefinitionId!: string
+
+  /** FK id → auth.Role (scoped, least privilege); NOT an ORM relation. */
+  @Property({ name: 'role_id', type: 'uuid' })
+  roleId!: string
+
+  /** Selects the auth path explicitly; only `internal` is provisioned in Phase 1. */
+  @Property({ name: 'credential_mode', type: 'varchar', length: 20, default: 'internal' })
+  credentialMode: AgentCredentialMode = 'internal'
+
+  @Property({ name: 'enabled', type: 'boolean', default: true })
+  enabled: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 export type AgentProposalDisposition =
   | 'pending' | 'auto_approved' | 'approved' | 'edited' | 'rejected'
 

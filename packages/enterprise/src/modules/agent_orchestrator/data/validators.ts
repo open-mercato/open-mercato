@@ -631,3 +631,44 @@ export const guardrailSetBodySchema = z.object({
   minScore: z.number().default(0),
 })
 export type GuardrailSetBody = z.infer<typeof guardrailSetBodySchema>
+
+// ── Agent identity & on-behalf-of (Wave 4, Phase 1) ──────────────────────────
+/**
+ * The authentication path an `AgentPrincipal` uses. `internal` (the only mode
+ * provisioned in Phase 1) = in-process `INVOKE_AGENT`, NO network auth and NO
+ * interactive credential. `oauth_client` (Phase 3) + `authmd` (Phase 4) are
+ * forward-compatible external seams declared now, provisioned later.
+ */
+export const agentCredentialMode = z.enum(['internal', 'oauth_client', 'authmd'])
+export type AgentCredentialModeInput = z.infer<typeof agentCredentialMode>
+
+/**
+ * Input to provision (idempotently) an agent principal: the agent definition id,
+ * the human-readable name stamped on the provisioned agent `User`, the scoped
+ * feature grants for the agent's least-privilege `Role`, and the credential mode.
+ * The provisioning service derives the agent `User` email + role name
+ * deterministically from `agentDefinitionId` + scope, so a re-run is a no-op.
+ */
+export const provisionAgentPrincipalSchema = z.object({
+  agentDefinitionId: z.string().min(1).max(100),
+  displayName: z.string().min(1).max(200).optional(),
+  /** Least-privilege ACL feature ids granted to the agent's scoped role. */
+  roleFeatures: z.array(z.string().min(1)).default([]),
+  credentialMode: agentCredentialMode.default('internal'),
+})
+export type ProvisionAgentPrincipalInput = z.infer<typeof provisionAgentPrincipalSchema>
+
+/** Query schema for GET /identity/principals (list + ?id= detail). */
+export const agentPrincipalListQuerySchema = z
+  .object({
+    page: z.coerce.number().min(1).default(1),
+    pageSize: z.coerce.number().min(1).max(100).default(50),
+    id: z.string().uuid().optional(),
+    agentDefinitionId: z.string().optional(),
+    credentialMode: agentCredentialMode.optional(),
+    enabled: z.coerce.boolean().optional(),
+    sortField: z.string().optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
+  })
+  .passthrough()
+export type AgentPrincipalListQuery = z.infer<typeof agentPrincipalListQuerySchema>

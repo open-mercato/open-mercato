@@ -46,6 +46,14 @@ export const features = [
   },
   // Context overlay — read the assembled context bundles (trace "context assembled" panel).
   { id: 'agent_orchestrator.context.read', title: 'View agent context bundles', module: 'agent_orchestrator' },
+  // Identity overlay (Wave 4) — provision/manage agent principals and their scoped roles.
+  { id: 'agent_orchestrator.identity.read', title: 'View agent principals', module: 'agent_orchestrator' },
+  {
+    id: 'agent_orchestrator.identity.manage',
+    title: 'Manage agent principals (provision agent users + scoped roles)',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.identity.read'],
+  },
 ]
 
 export default features

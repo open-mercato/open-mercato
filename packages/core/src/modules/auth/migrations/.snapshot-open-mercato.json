@@ -602,6 +602,22 @@
           "enumItems": [],
           "mappedType": "boolean"
         },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(20)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 20,
+          "precision": null,
+          "scale": null,
+          "default": "'human'",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "string"
+        },
         "last_login_at": {
           "name": "last_login_at",
           "type": "timestamptz",
