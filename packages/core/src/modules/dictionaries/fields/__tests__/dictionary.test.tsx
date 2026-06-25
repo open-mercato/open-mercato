@@ -58,7 +58,7 @@ describe('dictionary field defEditor', () => {
   it('renders the shared Checkbox primitive instead of a native checkbox input', async () => {
     renderEditor({ configJson: { dictionaryId: 'dict-1', dictionaryInlineCreate: true } })
 
-    const checkbox = await screen.findByRole('checkbox')
+    const checkbox = await screen.findByLabelText('Allow inline creation inside forms')
     expect(checkbox.tagName).toBe('BUTTON')
     expect(checkbox).toHaveAttribute('data-state', 'checked')
   })
@@ -67,7 +67,7 @@ describe('dictionary field defEditor', () => {
     const onChange = jest.fn()
     renderEditor({ configJson: { dictionaryId: 'dict-1', dictionaryInlineCreate: true } }, onChange)
 
-    const checkbox = await screen.findByRole('checkbox')
+    const checkbox = await screen.findByLabelText('Allow inline creation inside forms')
     fireEvent.click(checkbox)
     expect(onChange).toHaveBeenCalledWith({ dictionaryInlineCreate: false })
   })
@@ -75,8 +75,19 @@ describe('dictionary field defEditor', () => {
   it('disables the inline-create checkbox until a dictionary is selected', async () => {
     renderEditor({ configJson: {} })
 
-    const checkbox = await screen.findByRole('checkbox')
+    const checkbox = await screen.findByLabelText('Allow inline creation inside forms')
     expect(checkbox).toBeDisabled()
+  })
+
+  it('toggles multi-value dictionary fields and clears scalar defaults', async () => {
+    const onChange = jest.fn()
+    renderEditor({ configJson: { dictionaryId: 'dict-1', defaultValue: 'north' } }, onChange)
+
+    const checkbox = await screen.findByLabelText('Allow selecting multiple entries')
+    expect(checkbox).toHaveAttribute('data-state', 'unchecked')
+
+    fireEvent.click(checkbox)
+    expect(onChange).toHaveBeenCalledWith({ multi: true, defaultValue: undefined })
   })
 
   it('uses the design-system error token (not text-red-600) for load failures', async () => {

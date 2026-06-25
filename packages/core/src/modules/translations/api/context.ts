@@ -17,6 +17,13 @@ export type TranslationsRouteContext = {
   commandCtx: CommandRuntimeContext
 }
 
+export function resolveTranslationsActorId(auth: TranslationsRouteContext['auth']): string {
+  if (typeof auth.sub === 'string' && auth.sub.trim().length > 0) return auth.sub
+  if (typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId
+  if (typeof auth.keyId === 'string' && auth.keyId.trim().length > 0) return auth.keyId
+  return 'system'
+}
+
 export async function resolveTranslationsRouteContext(req: Request): Promise<TranslationsRouteContext> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)

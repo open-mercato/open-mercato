@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Switch } from '@open-mercato/ui/primitives/switch'
@@ -40,16 +41,35 @@ export default function CurrencyFetchingConfig() {
   // Available providers that should be configured
   const availableProviders = useMemo(() => ['NBP', 'Raiffeisen Bank Polska'], [])
 
+  const mutationContextId = 'currencies-fetch-configs:mutation'
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId?: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+
   const createProviderConfig = useCallback(async (provider: string) => {
     try {
-      await apiCall('/api/currencies/fetch-configs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider,
-          isEnabled: false,
-          syncTime: '09:00',
+      await runMutation({
+        operation: () => apiCall('/api/currencies/fetch-configs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider,
+            isEnabled: false,
+            syncTime: '09:00',
+          }),
         }),
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'currencies.fetch_config',
+          retryLastMutation,
+        },
+        mutationPayload: { provider, isEnabled: false, syncTime: '09:00' },
       })
     } catch (err: any) {
       // Ignore errors for duplicate providers
@@ -57,7 +77,7 @@ export default function CurrencyFetchingConfig() {
         throw err
       }
     }
-  }, [])
+  }, [mutationContextId, retryLastMutation, runMutation])
 
   const initializeMissingProviders = useCallback(async (providers: string[]) => {
     setInitializing(true)
@@ -105,19 +125,38 @@ export default function CurrencyFetchingConfig() {
 
   const toggleEnabled = useCallback(async (configId: string, currentValue: boolean, updatedAt?: string | null) => {
     try {
-      const { result } = await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(updatedAt),
-        () =>
-          apiCall('/api/currencies/fetch-configs', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: configId,
-              isEnabled: !currentValue,
-            }),
-          }),
-      )
+      const call = await runMutation({
+        operation: async () => {
+          const response = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(updatedAt),
+            () =>
+              apiCall('/api/currencies/fetch-configs', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  id: configId,
+                  isEnabled: !currentValue,
+                }),
+              }),
+          )
+          if (!response.ok) {
+            throw Object.assign(new Error('[internal] currencies.fetchConfig.toggle failed'), {
+              status: response.status,
+              ...((response.result as Record<string, unknown> | null) ?? {}),
+            })
+          }
+          return response
+        },
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'currencies.fetch_config',
+          resourceId: configId,
+          retryLastMutation,
+        },
+        mutationPayload: { id: configId, isEnabled: !currentValue },
+      })
 
+      const result = call.result as { config?: FetchConfig } | null
       if (result?.config) {
         setConfigs((prev) =>
           prev.map((c) => (c.id === configId ? (result.config as FetchConfig) : c))
@@ -130,47 +169,77 @@ export default function CurrencyFetchingConfig() {
         )
       }
     } catch (err: any) {
+      if (extractOptimisticLockConflict(err)) return
       flash(err.message || t('currencies.fetch.error_update_config'), 'error')
     }
-  }, [t])
+  }, [mutationContextId, retryLastMutation, runMutation, t])
 
   const updateSyncTime = useCallback(async (configId: string, syncTime: string, updatedAt?: string | null) => {
     try {
-      const { result } = await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(updatedAt),
-        () =>
-          apiCall('/api/currencies/fetch-configs', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: configId,
-              syncTime: syncTime || null,
-            }),
-          }),
-      )
+      const call = await runMutation({
+        operation: async () => {
+          const response = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(updatedAt),
+            () =>
+              apiCall('/api/currencies/fetch-configs', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  id: configId,
+                  syncTime: syncTime || null,
+                }),
+              }),
+          )
+          if (!response.ok) {
+            throw Object.assign(new Error('[internal] currencies.fetchConfig.updateSyncTime failed'), {
+              status: response.status,
+              ...((response.result as Record<string, unknown> | null) ?? {}),
+            })
+          }
+          return response
+        },
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'currencies.fetch_config',
+          resourceId: configId,
+          retryLastMutation,
+        },
+        mutationPayload: { id: configId, syncTime: syncTime || null },
+      })
 
+      const result = call.result as { config?: FetchConfig } | null
       if (result?.config) {
         setConfigs((prev) =>
           prev.map((c) => (c.id === configId ? (result.config as FetchConfig) : c))
         )
       }
     } catch (err: any) {
+      if (extractOptimisticLockConflict(err)) return
       flash(err.message || t('currencies.fetch.error_update_sync_time'), 'error')
     }
-  }, [t])
+  }, [mutationContextId, retryLastMutation, runMutation, t])
 
   const fetchNow = useCallback(async (provider: string) => {
     setFetching(provider)
 
     try {
-      const { result } = await apiCall('/api/currencies/fetch-rates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          providers: [provider],
+      const call = await runMutation({
+        operation: () => apiCall('/api/currencies/fetch-rates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            providers: [provider],
+          }),
         }),
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'currencies.fetch_rates',
+          retryLastMutation,
+        },
+        mutationPayload: { providers: [provider] },
       })
 
+      const result = call.result as { byProvider?: Record<string, { count: number; errors?: string[] }> } | null
       if (result) {
         const byProvider = result.byProvider as Record<string, { count: number; errors?: string[] }>
         const count = byProvider?.[provider]?.count || 0
@@ -187,7 +256,7 @@ export default function CurrencyFetchingConfig() {
     } finally {
       setFetching(null)
     }
-  }, [t, loadConfigs])
+  }, [mutationContextId, retryLastMutation, runMutation, t, loadConfigs])
 
   useEffect(() => {
     loadConfigs()
