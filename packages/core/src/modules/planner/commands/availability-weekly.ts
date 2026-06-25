@@ -21,12 +21,17 @@ import { plannerAvailabilityRuleSetCrudEvents } from '../lib/crud'
 import { E } from '#generated/entities.ids.generated'
 
 const AVAILABILITY_RULE_RESOURCE_KIND = 'planner.availability.rule'
-const AVAILABILITY_RULE_SET_RESOURCE_KIND = E.planner.planner_availability_rule_set
 const AVAILABILITY_RULE_SET_CACHE_RESOURCE_KIND = 'planner.availability-rule-set'
 
 const availabilityRuleSetCrudIndexer: CrudIndexerConfig<PlannerAvailabilityRuleSet> = {
   entityType: E.planner.planner_availability_rule_set,
 }
+
+// Canonical resource kind for the parent rule set, matching the tag the CRUD
+// factory derives for `planner.availability-rule-sets.*` commands. Weekly
+// replace mutates the rule set's child `availability_rules`, so the parent is
+// the optimistic-lock consistency boundary (document-aggregate pattern).
+const AVAILABILITY_RULE_SET_RESOURCE_KIND = 'planner.availability.rule.set'
 
 const DAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
 
@@ -186,6 +191,11 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<PlannerAvailabilityWeekly
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
 
+    // The weekly rules of a rule set are a sub-resource of that rule set: the
+    // parent is the optimistic-lock consistency boundary. Guard the parent's
+    // version (so a stale weekly save loses to a concurrent rule-set
+    // change/delete) and bump its `updated_at` after the replace (so a
+    // concurrent rule-set delete/update with a stale token conflicts). See #2927.
     const touchedRuleSet = await em.transactional(async (trx): Promise<PlannerAvailabilityRuleSet | null> => {
       let ruleSet: PlannerAvailabilityRuleSet | null = null
       if (parsed.subjectType === 'ruleset') {
@@ -195,18 +205,21 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<PlannerAvailabilityWeekly
           organizationId: parsed.organizationId,
           deletedAt: null,
         })
-        if (!ruleSet) {
-          enforceRecordGoneIsConflict({
-            resourceKind: AVAILABILITY_RULE_SET_RESOURCE_KIND,
-            resourceId: parsed.subjectId,
-            request: ctx.request,
-          })
-        } else {
+        if (ruleSet) {
           enforceCommandOptimisticLock({
             resourceKind: AVAILABILITY_RULE_SET_RESOURCE_KIND,
             resourceId: ruleSet.id,
             current: ruleSet.updatedAt,
-            request: ctx.request,
+            request: ctx.request ?? null,
+          })
+        } else {
+          // The rule set was deleted concurrently. When the client opted into
+          // optimistic locking, surface the unified conflict instead of
+          // silently writing orphan rules; otherwise preserve legacy behavior.
+          enforceRecordGoneIsConflict({
+            resourceKind: AVAILABILITY_RULE_SET_RESOURCE_KIND,
+            resourceId: parsed.subjectId,
+            request: ctx.request ?? null,
           })
         }
       }

@@ -9,7 +9,11 @@ import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/er
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { plannerAvailabilityWeeklyReplaceSchema } from '../data/validators'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
-import { assertAvailabilityWriteAccess } from './access'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
+import { assertAvailabilityWriteAccess, resolveAvailabilityActorId } from './access'
 
 export const metadata = {
   POST: { requireAuth: true },
@@ -55,8 +59,25 @@ export async function POST(req: Request) {
     const payload = await req.json().catch(() => ({}))
     const input = parseScopedCommandInput(plannerAvailabilityWeeklyReplaceSchema, payload, ctx, translate)
     await assertAvailabilityWriteAccess(ctx, { subjectType: input.subjectType, subjectId: input.subjectId }, translate)
+    const guardInput = {
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      userId: resolveAvailabilityActorId(ctx.auth),
+      resourceKind: 'planner.availability',
+      resourceId: input.subjectId,
+      operation: 'custom' as const,
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    }
+    const guardResult = await validateCrudMutationGuard(ctx.container, { ...guardInput, mutationPayload: input })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const { logEntry } = await commandBus.execute('planner.availability.weekly.replace', { input, ctx })
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, { ...guardInput, metadata: guardResult.metadata ?? null })
+    }
     const response = NextResponse.json({ ok: true })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(

@@ -13,7 +13,8 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Plus } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -53,6 +54,16 @@ export default function ExchangeRatesPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
+  const mutationContextId = 'currencies-exchange-rates-list:mutation'
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   React.useEffect(() => {
     let cancelled = false
@@ -111,27 +122,41 @@ export default function ExchangeRatesPage() {
       if (!confirmed) return
 
       try {
-        const call = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(row.updatedAt),
-          () => apiCall(`/api/currencies/exchange-rates`, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: row.id, organizationId: row.organizationId, tenantId: row.tenantId }),
-          }),
-        )
-
-        if (!call.ok) {
-          flash(t('exchangeRates.flash.deleteError'), 'error')
-          return
-        }
+        await runMutation({
+          operation: async () => {
+            const call = await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(row.updatedAt),
+              () => apiCall(`/api/currencies/exchange-rates`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: row.id, organizationId: row.organizationId, tenantId: row.tenantId }),
+              }),
+            )
+            if (!call.ok) {
+              throw Object.assign(new Error('[internal] currencies.exchangeRate.delete failed'), {
+                status: call.status,
+                ...((call.result as Record<string, unknown> | null) ?? {}),
+              })
+            }
+            return call
+          },
+          context: {
+            formId: mutationContextId,
+            resourceKind: 'currencies.exchange_rate',
+            resourceId: row.id,
+            retryLastMutation,
+          },
+          mutationPayload: { id: row.id },
+        })
 
         flash(t('exchangeRates.flash.deleted'), 'success')
         setReloadToken((token) => token + 1)
       } catch (error) {
+        if (extractOptimisticLockConflict(error)) return
         flash(t('exchangeRates.flash.deleteError'), 'error')
       }
     },
-    [t, confirmDialog]
+    [t, confirmDialog, mutationContextId, retryLastMutation, runMutation]
   )
 
   const columns = React.useMemo<ColumnDef<ExchangeRateRow>[]>(

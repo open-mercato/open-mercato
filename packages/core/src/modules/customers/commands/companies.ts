@@ -518,7 +518,10 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       websiteUrl: parsed.websiteUrl ?? null,
       industry: parsed.industry ?? null,
       sizeBucket: parsed.sizeBucket ?? null,
-      annualRevenue: parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null,
+      annualRevenue:
+        parsed.annualRevenue !== undefined && parsed.annualRevenue !== null
+          ? String(parsed.annualRevenue)
+          : null,
     })
 
     await withAtomicFlush(em, [
