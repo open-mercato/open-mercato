@@ -18,7 +18,7 @@ import { WorkflowLegend } from '../../../components/WorkflowLegend'
 import { MobileInstanceOverview } from '../../../components/mobile/MobileInstanceOverview'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import { definitionToGraph } from '../../../lib/graph-utils'
-import { Node } from '@xyflow/react'
+import type { Node } from '@xyflow/react'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 export default function WorkflowInstanceDetailPage({ params }: { params?: { id?: string } }) {

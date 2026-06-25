@@ -92,6 +92,20 @@ describe('GET /api/notifications/unread-count caching', () => {
     expect(cache.set).not.toHaveBeenCalled()
   })
 
+  it('falls back to the database count when the cache read throws', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    const { GET } = await loadRoute()
+    cache.get.mockRejectedValue(new Error('cache backend unavailable'))
+    count.mockResolvedValue(9)
+
+    const res = await GET(new Request('http://localhost/api/notifications/unread-count'))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ unreadCount: 9 })
+    expect(cache.get).toHaveBeenCalledTimes(1)
+    expect(count).toHaveBeenCalledTimes(1)
+  })
+
   it('uses a user-only key that ignores the organization axis', async () => {
     process.env.ENABLE_CRUD_API_CACHE = 'true'
     const { GET } = await loadRoute()

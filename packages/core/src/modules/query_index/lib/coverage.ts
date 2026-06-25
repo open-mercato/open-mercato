@@ -16,6 +16,19 @@ type CoverageRow = {
   refreshed_at: Date | string | null
 }
 
+export type CoverageSnapshot = CoverageRow & {
+  baseCount: number
+  indexedCount: number
+  vectorIndexedCount: number
+}
+
+export type CoverageBatchScope = {
+  entityTypes: readonly string[]
+  tenantId?: string | null
+  organizationId?: string | null
+  withDeleted?: boolean
+}
+
 export type CoverageAdjustment = {
   entityType: string
   tenantId: string | null
@@ -184,6 +197,56 @@ export async function readCoverageSnapshot(
     indexedCount: toCount(row.indexed_count),
     vectorIndexedCount: toCount(row.vector_indexed_count),
   }
+}
+
+export async function readCoverageSnapshots(
+  db: Kysely<any>,
+  batch: CoverageBatchScope
+): Promise<Map<string, CoverageSnapshot>> {
+  const entityTypes = Array.from(
+    new Set((batch.entityTypes ?? []).map((id) => String(id || '')).filter((id) => id.length > 0))
+  )
+  const result = new Map<string, CoverageSnapshot>()
+  if (entityTypes.length === 0) return result
+
+  const withDeleted = batch.withDeleted === true
+  let query = db
+    .selectFrom('entity_index_coverage' as any)
+    .select([
+      'entity_type' as any,
+      'base_count' as any,
+      'indexed_count' as any,
+      'vector_indexed_count' as any,
+      'refreshed_at' as any,
+      'organization_id' as any,
+    ])
+    .where('entity_type' as any, 'in', entityTypes)
+    .where('with_deleted' as any, '=', withDeleted)
+    .orderBy('refreshed_at' as any, 'desc')
+  query = batch.tenantId == null
+    ? query.where('tenant_id' as any, 'is', null as any)
+    : query.where('tenant_id' as any, '=', batch.tenantId)
+  query = applyOrganizationCondition(query as any, 'organization_id', batch.organizationId ?? null)
+
+  const rows = await query.execute() as Array<CoverageRow & { entity_type: string }>
+  for (const row of rows ?? []) {
+    const entityType = String(row.entity_type || '')
+    // Rows are ordered by refreshed_at desc, so the first row seen per entity is the latest.
+    if (!entityType || result.has(entityType)) continue
+    const refreshedAt = row.refreshed_at instanceof Date
+      ? row.refreshed_at
+      : (row.refreshed_at ? new Date(row.refreshed_at) : null)
+    result.set(entityType, {
+      base_count: row.base_count,
+      indexed_count: row.indexed_count,
+      vector_indexed_count: row.vector_indexed_count,
+      refreshed_at: refreshedAt ?? null,
+      baseCount: toCount(row.base_count),
+      indexedCount: toCount(row.indexed_count),
+      vectorIndexedCount: toCount(row.vector_indexed_count),
+    })
+  }
+  return result
 }
 
 export async function applyCoverageAdjustments(
