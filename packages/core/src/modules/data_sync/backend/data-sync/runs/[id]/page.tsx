@@ -9,6 +9,7 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LogList, type LogListEntry } from '@open-mercato/ui/backend/LogList'
 import { Progress } from '@open-mercato/ui/primitives/progress'
+import { Pagination } from '@open-mercato/ui/primitives/pagination'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -442,33 +443,13 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
               />
             )}
             {logsTotal > LOG_PAGE_SIZE && (
-              <div className="mt-4 flex items-center justify-between gap-2">
-                <span className="text-sm text-muted-foreground">
-                  {t('data_sync.runs.detail.logs.range', '{from}–{to} of {total}', {
-                    from: (logsPage - 1) * LOG_PAGE_SIZE + 1,
-                    to: Math.min(logsPage * LOG_PAGE_SIZE, logsTotal),
-                    total: logsTotal,
-                  })}
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={logsPage <= 1 || isLoadingLogs}
-                    onClick={() => { void loadLogs(logsPage - 1) }}
-                  >
-                    {t('data_sync.runs.detail.logs.previous', 'Previous')}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={logsPage * LOG_PAGE_SIZE >= logsTotal || isLoadingLogs}
-                    onClick={() => { void loadLogs(logsPage + 1) }}
-                  >
-                    {t('data_sync.runs.detail.logs.next', 'Next')}
-                  </Button>
-                </div>
-              </div>
+              <Pagination
+                className="mt-4"
+                page={logsPage}
+                pageSize={LOG_PAGE_SIZE}
+                total={logsTotal}
+                onPageChange={(next) => { void loadLogs(next) }}
+              />
             )}
           </CardContent>
         </Card>
