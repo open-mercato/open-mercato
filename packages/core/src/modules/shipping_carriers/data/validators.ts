@@ -56,6 +56,11 @@ export const trackingQuerySchema = z.object({
   path: ['shipmentId'],
 })
 
+export const trackingRefreshSchema = z.object({
+  providerKey: z.string().min(1),
+  shipmentId: z.string().uuid(),
+})
+
 export const cancelShipmentSchema = z.object({
   providerKey: z.string().min(1),
   shipmentId: z.string().uuid(),

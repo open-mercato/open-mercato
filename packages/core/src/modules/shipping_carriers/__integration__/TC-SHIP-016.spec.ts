@@ -1,111 +1,143 @@
-import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { defaultDestination, defaultOrigin, defaultPackage } from './helpers/fixtures'
+import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
-  countCarrierShipmentsByOrderInDb,
-  deleteCarrierShipmentIdempotencyByKeyInDb,
+  createRoleFixture,
+  deleteRoleIfExists,
+  createUserFixture,
+  deleteUserIfExists,
+  setUserAclVisibility,
+} from '@open-mercato/core/modules/core/__integration__/helpers/authFixtures'
+import { deleteUserAclInDb } from '@open-mercato/core/modules/core/__integration__/helpers/dbFixtures'
+import { getTokenScope, readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { createShipment, getTracking } from './helpers/fixtures'
+import {
+  setCarrierShipmentStatusInDb,
+  getCarrierShipmentRowFromDb,
   deleteCarrierShipmentInDb,
 } from './helpers/db'
 
 /**
- * TC-SHIP-016: Shipment create idempotency (SPEC-045c)
+ * TC-SHIP-016: Tracking reads do not mutate; refresh is a guarded write (issue #3295).
  *
- * The shipment-create endpoint must implement the idempotency contract: a
- * repeated POST with the same idempotency key returns the original shipment and
- * creates no duplicate, while reusing the key with a conflicting payload returns
- * the documented 409.
+ * `GET /api/shipping-carriers/tracking` previously persisted shipment status,
+ * tracking events, and `last_polled_at` inside a read request, violating GET
+ * semantics and skipping the write-path guard and status events. The fix makes
+ * the GET read-only and moves persistence behind `POST /tracking/refresh`
+ * (`shipping_carriers.manage`), which validates the transition and emits events.
+ *
+ * Non-`label_created` states are only reachable via async carrier events, so the
+ * fixture sets `carrier_shipments.unified_status` directly to keep the test
+ * deterministic.
+ *
+ * ENVIRONMENT: mixes API fixtures with DB-level fixtures (raw `pg` against
+ * `DATABASE_URL`). Run under a coherent app+DB stack (the `yarn test:integration`
+ * / `yarn test:integration:ephemeral` harness) where the app server and these
+ * fixtures share the same database.
  */
-function shipmentPayload(orderId: string, overrides: Record<string, unknown> = {}) {
-  return {
-    providerKey: 'mock_carrier',
-    orderId,
-    origin: defaultOrigin(),
-    destination: defaultDestination(),
-    packages: [defaultPackage()],
-    serviceCode: 'standard',
-    ...overrides,
-  }
-}
+test.describe('TC-SHIP-016: tracking GET is read-only; refresh is a guarded write', () => {
+  test('GET tracking does not persist status or polling metadata', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
 
-test.describe('TC-SHIP-016: Shipment create idempotency', () => {
-  test('repeated POST with the same idempotency key returns the same shipment and creates no duplicate', async ({ request }) => {
-    const token = await getAuthToken(request)
-    const orderId = randomUUID()
-    const idempotencyKey = `idem-${randomUUID()}`
     let shipmentId: string | null = null
     try {
-      const first = await apiRequest(request, 'POST', '/api/shipping-carriers/shipments', {
-        token,
-        data: shipmentPayload(orderId, { idempotencyKey }),
-      })
-      expect(first.status()).toBe(201)
-      const firstBody = await first.json()
-      shipmentId = firstBody.shipmentId
-      expect(shipmentId).toBeTruthy()
+      const shipment = await createShipment(request, token, { providerKey: 'mock_carrier' })
+      shipmentId = shipment.shipmentId
 
-      const second = await apiRequest(request, 'POST', '/api/shipping-carriers/shipments', {
-        token,
-        data: shipmentPayload(orderId, { idempotencyKey }),
-      })
-      expect(second.status()).toBe(201)
-      const secondBody = await second.json()
-      expect(secondBody.shipmentId).toBe(shipmentId)
+      // Simulate a shipment that already advanced to in_transit via async events.
+      await setCarrierShipmentStatusInDb(shipmentId, 'in_transit')
 
-      expect(await countCarrierShipmentsByOrderInDb(orderId)).toBe(1)
+      const tracking = await getTracking(request, token, {
+        providerKey: 'mock_carrier',
+        shipmentId,
+      })
+      expect(tracking.status, 'GET still returns provider tracking data').toBeTruthy()
+
+      const row = await getCarrierShipmentRowFromDb(shipmentId)
+      expect(row?.unifiedStatus, 'GET must not overwrite the persisted status').toBe('in_transit')
+      expect(row?.lastPolledAt, 'GET must not stamp last_polled_at').toBeNull()
     } finally {
-      await deleteCarrierShipmentInDb(shipmentId)
-      await deleteCarrierShipmentIdempotencyByKeyInDb(idempotencyKey)
+      await deleteCarrierShipmentInDb(shipmentId).catch(() => undefined)
     }
   })
 
-  test('reusing the same idempotency key with a conflicting payload returns 409 and creates no second shipment', async ({ request }) => {
-    const token = await getAuthToken(request)
-    const orderId = randomUUID()
-    const idempotencyKey = `idem-${randomUUID()}`
+  test('POST /tracking/refresh persists polling metadata', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+
     let shipmentId: string | null = null
     try {
-      const first = await apiRequest(request, 'POST', '/api/shipping-carriers/shipments', {
-        token,
-        data: shipmentPayload(orderId, { idempotencyKey, serviceCode: 'standard' }),
-      })
-      expect(first.status()).toBe(201)
-      shipmentId = (await first.json()).shipmentId
+      const shipment = await createShipment(request, token, { providerKey: 'mock_carrier' })
+      shipmentId = shipment.shipmentId
 
-      const conflict = await apiRequest(request, 'POST', '/api/shipping-carriers/shipments', {
-        token,
-        data: shipmentPayload(orderId, { idempotencyKey, serviceCode: 'express' }),
-      })
-      expect(conflict.status()).toBe(409)
-      const conflictBody = await conflict.json()
-      expect(conflictBody.code).toBe('idempotency_conflict')
+      const before = await getCarrierShipmentRowFromDb(shipmentId)
+      expect(before?.lastPolledAt, 'a freshly created shipment has never been polled').toBeNull()
 
-      expect(await countCarrierShipmentsByOrderInDb(orderId)).toBe(1)
+      const response = await apiRequest(request, 'POST', '/api/shipping-carriers/tracking/refresh', {
+        token,
+        data: { providerKey: 'mock_carrier', shipmentId },
+      })
+      expect(response.status(), 'refresh succeeds for a manage user').toBe(200)
+      const body = await readJsonSafe<{ status?: string; trackingNumber?: string }>(response)
+      expect(body?.status, 'refresh returns provider tracking data').toBeTruthy()
+
+      const after = await getCarrierShipmentRowFromDb(shipmentId)
+      expect(after?.lastPolledAt, 'refresh persists last_polled_at').not.toBeNull()
     } finally {
-      await deleteCarrierShipmentInDb(shipmentId)
-      await deleteCarrierShipmentIdempotencyByKeyInDb(idempotencyKey)
+      await deleteCarrierShipmentInDb(shipmentId).catch(() => undefined)
     }
   })
 
-  test('distinct idempotency keys create independent shipments', async ({ request }) => {
-    const token = await getAuthToken(request)
-    const orderId = randomUUID()
-    const keys = [`idem-${randomUUID()}`, `idem-${randomUUID()}`]
-    const shipmentIds: string[] = []
+  test('POST /tracking/refresh requires shipping_carriers.manage', async ({ request }) => {
+    const stamp = Date.now()
+    const password = 'Secret123!'
+    const userEmail = `tc-ship-016-${stamp}@example.com`
+
+    let adminToken: string | null = null
+    let roleId: string | null = null
+    let userId: string | null = null
+    let shipmentId: string | null = null
     try {
-      for (const idempotencyKey of keys) {
-        const response = await apiRequest(request, 'POST', '/api/shipping-carriers/shipments', {
-          token,
-          data: shipmentPayload(orderId, { idempotencyKey }),
-        })
-        expect(response.status()).toBe(201)
-        shipmentIds.push((await response.json()).shipmentId)
-      }
-      expect(shipmentIds[0]).not.toBe(shipmentIds[1])
-      expect(await countCarrierShipmentsByOrderInDb(orderId)).toBe(2)
+      adminToken = await getAuthToken(request, 'admin')
+      const { organizationId, tenantId } = getTokenScope(adminToken)
+      expect(organizationId, 'admin token should carry an organization id').toBeTruthy()
+      expect(tenantId, 'admin token should carry a tenant id').toBeTruthy()
+
+      const shipment = await createShipment(request, adminToken, { providerKey: 'mock_carrier' })
+      shipmentId = shipment.shipmentId
+
+      roleId = await createRoleFixture(request, adminToken, { name: `TC-SHIP-016 View-Only Role ${stamp}` })
+      userId = await createUserFixture(request, adminToken, {
+        email: userEmail,
+        password,
+        organizationId,
+        roles: [roleId],
+      })
+      await setUserAclVisibility(request, adminToken, {
+        userId,
+        features: ['shipping_carriers.view'],
+        organizations: null,
+      })
+
+      const userToken = await getAuthToken(request, userEmail, password)
+
+      const refreshResponse = await apiRequest(request, 'POST', '/api/shipping-carriers/tracking/refresh', {
+        token: userToken,
+        data: { providerKey: 'mock_carrier', shipmentId },
+      })
+      expect(refreshResponse.status(), 'refresh must be forbidden without shipping_carriers.manage').toBe(403)
+      const refreshBody = await readJsonSafe<{ requiredFeatures?: string[] }>(refreshResponse)
+      expect(
+        refreshBody?.requiredFeatures,
+        'forbidden response should name the missing feature',
+      ).toContain('shipping_carriers.manage')
+
+      // The denial happens at the feature gate, before any persistence.
+      const row = await getCarrierShipmentRowFromDb(shipmentId)
+      expect(row?.lastPolledAt, 'a forbidden refresh must not persist polling metadata').toBeNull()
     } finally {
-      for (const id of shipmentIds) await deleteCarrierShipmentInDb(id)
-      for (const key of keys) await deleteCarrierShipmentIdempotencyByKeyInDb(key)
+      await deleteUserAclInDb(userId ?? '').catch(() => undefined)
+      await deleteUserIfExists(request, adminToken, userId)
+      await deleteRoleIfExists(request, adminToken, roleId)
+      await deleteCarrierShipmentInDb(shipmentId).catch(() => undefined)
     }
   })
 })

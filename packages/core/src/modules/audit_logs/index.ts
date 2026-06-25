@@ -6,7 +6,7 @@ export const metadata: ModuleInfo = {
   version: '0.1.0',
   description: 'Tracks user actions and data accesses with undo support scaffolding.',
   author: 'Open Mercato Team',
-  license: 'Proprietary',
+  license: 'MIT',
 }
 
 export { features } from './acl'

@@ -14,7 +14,13 @@ import {
   resolveShipmentIdempotency,
   ShipmentIdempotencyConflictError,
 } from './shipment-idempotency'
-import { isValidShippingTransition, ShipmentCancelNotAllowedError } from './status-sync'
+import {
+  getTerminalShippingEvent,
+  isValidShippingTransition,
+  ShipmentCancelNotAllowedError,
+  syncShipmentStatus,
+  TERMINAL_SHIPPING_STATUSES,
+} from './status-sync'
 
 export function createShippingCarrierService(deps: {
   em: EntityManager
@@ -204,16 +210,46 @@ export function createShippingCarrierService(deps: {
           },
         )
         : null
-      const tracking = await adapter.getTracking({
+      return adapter.getTracking({
         shipmentId: shipment?.carrierShipmentId ?? input.shipmentId,
         trackingNumber: input.trackingNumber ?? shipment?.trackingNumber,
         credentials,
       })
-      if (shipment) {
-        shipment.unifiedStatus = tracking.status
-        shipment.trackingEvents = tracking.events
-        shipment.lastPolledAt = new Date()
-        await em.flush()
+    },
+
+    async refreshTracking(input: {
+      providerKey: string
+      shipmentId: string
+      organizationId: string
+      tenantId: string
+    }) {
+      const scope = { organizationId: input.organizationId, tenantId: input.tenantId }
+      const shipment = await findShipmentOrThrow(input.shipmentId, scope)
+      const { adapter, credentials } = await resolveAdapter(input.providerKey, scope)
+      const tracking = await adapter.getTracking({
+        shipmentId: shipment.carrierShipmentId,
+        trackingNumber: shipment.trackingNumber,
+        credentials,
+      })
+      const previousStatus = shipment.unifiedStatus
+      shipment.trackingEvents = tracking.events
+      shipment.lastPolledAt = new Date()
+      const transitionApplied = syncShipmentStatus(shipment, tracking.status)
+      await em.flush()
+      if (transitionApplied) {
+        const eventPayload = {
+          shipmentId: shipment.id,
+          providerKey: input.providerKey,
+          previousStatus,
+          newStatus: tracking.status,
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+        }
+        await emitShippingEvent('shipping_carriers.shipment.status_changed', eventPayload)
+        if (TERMINAL_SHIPPING_STATUSES.has(tracking.status)) {
+          const terminalEvent = getTerminalShippingEvent(tracking.status)
+          if (terminalEvent) await emitShippingEvent(terminalEvent, eventPayload)
+        }
       }
       return tracking
     },

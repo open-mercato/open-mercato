@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   fetchProviders,
@@ -9,6 +10,7 @@ import {
   createShipment,
   fetchDropOffPoints,
 } from './shipmentApi'
+import type { CreateShipmentParams } from './shipmentApi'
 import type {
   WizardStep,
   Provider,
@@ -105,6 +107,9 @@ export const useShipmentWizard = (): ShipmentWizard => {
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { runMutation, retryLastMutation } = useGuardedMutation({
+    contextId: 'shipping_carriers.shipment.create',
+  })
   const orderId = searchParams?.get('orderId') ?? null
 
   const [step, setStep] = React.useState<WizardStep>('provider')
@@ -195,7 +200,7 @@ export const useShipmentWizard = (): ShipmentWizard => {
   const handleSubmit = async () => {
     if (!selectedProvider || !selectedRate || !orderId) return
     setIsSubmitting(true)
-    const payload = {
+    const payload: CreateShipmentParams = {
       providerKey: selectedProvider,
       orderId,
       origin,
@@ -218,23 +223,39 @@ export const useShipmentWizard = (): ShipmentWizard => {
       idempotencyKeyRef.current = crypto.randomUUID()
       idempotencySignatureRef.current = signature
     }
-    const result = await createShipment({ ...payload, idempotencyKey: idempotencyKeyRef.current })
-    setIsSubmitting(false)
-    if (result.ok) {
-      idempotencyKeyRef.current = null
-      idempotencySignatureRef.current = null
-      flash(t('shipping_carriers.create.success', 'Shipment created successfully.'), 'success')
-      router.push(backHref)
-    } else if (result.code === 'idempotency_conflict') {
-      flash(
-        t(
-          'shipping_carriers.create.error.idempotencyConflict',
-          'This shipment was already submitted. Refresh the page before retrying.',
-        ),
-        'error',
-      )
-    } else {
-      flash(t('shipping_carriers.create.error.create', result.error), 'error')
+    const submitPayload: CreateShipmentParams = { ...payload, idempotencyKey: idempotencyKeyRef.current }
+    try {
+      const result = await runMutation({
+        operation: () => createShipment(submitPayload),
+        context: {
+          operation: 'create',
+          resourceKind: 'shipping_carriers.shipment',
+          resourceId: orderId,
+          retryLastMutation,
+        },
+        mutationPayload: submitPayload as unknown as Record<string, unknown>,
+      })
+      if (result.ok) {
+        idempotencyKeyRef.current = null
+        idempotencySignatureRef.current = null
+        flash(t('shipping_carriers.create.success', 'Shipment created successfully.'), 'success')
+        router.push(backHref)
+      } else if (result.code === 'idempotency_conflict') {
+        flash(
+          t(
+            'shipping_carriers.create.error.idempotencyConflict',
+            'This shipment was already submitted. Refresh the page before retrying.',
+          ),
+          'error',
+        )
+      } else {
+        flash(t('shipping_carriers.create.error.create', result.error), 'error')
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('shipping_carriers.create.error.create', 'Failed to create shipment.')
+      flash(t('shipping_carriers.create.error.create', message), 'error')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
