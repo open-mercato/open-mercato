@@ -32,7 +32,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import {
   Select,
@@ -2741,17 +2741,18 @@ export default function DealsKanbanPage(): React.ReactElement {
           </div>
         ) : firstError ? (
           <div className="max-w-xl">
-            <ErrorNotice
-              message={
-                firstError instanceof Error
+            <Alert variant="destructive">
+              <AlertTitle>{translateWithFallback(t, 'ui.errors.defaultTitle', 'Something went wrong')}</AlertTitle>
+              <AlertDescription>
+                {firstError instanceof Error
                   ? firstError.message
                   : translateWithFallback(
                       t,
                       'customers.deals.pipeline.loadError',
                       'Failed to load deals.',
-                    )
-              }
-            />
+                    )}
+              </AlertDescription>
+            </Alert>
           </div>
         ) : (
           <DndContext

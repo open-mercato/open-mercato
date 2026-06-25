@@ -159,7 +159,7 @@ export function ActionsDropdown({
         <div
           ref={menuRef}
           role="menu"
-          className="fixed w-52 rounded-md border bg-background p-1 shadow-md focus-visible:outline-none z-dropdown"
+          className="fixed min-w-52 w-max max-w-xs rounded-md border bg-background p-1 shadow-md focus-visible:outline-none z-dropdown"
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           style={{
@@ -176,7 +176,7 @@ export function ActionsDropdown({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="w-full justify-start"
+                className="w-full justify-start h-auto min-h-8 py-1.5 whitespace-normal text-left leading-snug"
                 role="menuitem"
                 disabled={item.disabled}
                 onClick={() => {

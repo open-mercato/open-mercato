@@ -382,6 +382,13 @@ export async function POST(req: Request) {
     if (entityKind === 'system') return systemEntityRecordsRejection(entityId)
     const isCustomEntity = entityKind === 'custom'
     await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, rbac })
+    // Strip reserved record/system columns the edit form echoes back from the loaded record
+    // (`id`, plus `updated_at`/`updatedAt` used for optimistic locking). They are not custom
+    // fields; without this they validate as cf_id / cf_updated_at / cf_updatedAt and are
+    // rejected as "Unknown custom field", which fails EVERY custom-entity edit-form save.
+    for (const reservedKey of ['id', 'created_at', 'createdAt', 'updated_at', 'updatedAt', 'deleted_at', 'deletedAt']) {
+      delete (values as any)[reservedKey]
+    }
     const norm = normalizeValues(values)
 
     // Validate against custom field definitions
@@ -448,6 +455,13 @@ export async function PUT(req: Request) {
     if (entityKind === 'system') return systemEntityRecordsRejection(entityId)
     const isCustomEntity = entityKind === 'custom'
     await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, rbac })
+    // Strip reserved record/system columns the edit form echoes back from the loaded record
+    // (`id`, plus `updated_at`/`updatedAt` used for optimistic locking). They are not custom
+    // fields; without this they validate as cf_id / cf_updated_at / cf_updatedAt and are
+    // rejected as "Unknown custom field", which fails EVERY custom-entity edit-form save.
+    for (const reservedKey of ['id', 'created_at', 'createdAt', 'updated_at', 'updatedAt', 'deleted_at', 'deletedAt']) {
+      delete (values as any)[reservedKey]
+    }
     const norm = normalizeValues(values)
 
     // Validate against custom field definitions
@@ -539,6 +553,26 @@ export async function DELETE(req: Request) {
     if (entityKind === 'system') return systemEntityRecordsRejection(entityId)
     const isCustomEntity = entityKind === 'custom'
     await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, rbac })
+
+    try {
+      const currentUpdatedAt = await readCustomEntityRecordUpdatedAt(em, {
+        entityType: entityId,
+        entityId: recordId,
+        organizationId: targetOrgId,
+      })
+      enforceCommandOptimisticLock({
+        resourceKind: CUSTOM_ENTITY_RECORD_RESOURCE_KIND,
+        resourceId: recordId,
+        current: currentUpdatedAt,
+        request: req,
+      })
+    } catch (lockError) {
+      if (isCrudHttpError(lockError)) {
+        return NextResponse.json(lockError.body, { status: lockError.status })
+      }
+      throw lockError
+    }
+
     await de.deleteCustomEntityRecord({ entityId, recordId, organizationId: targetOrgId, tenantId: auth.tenantId!, soft: true })
     return NextResponse.json({ ok: true })
   } catch (e) {

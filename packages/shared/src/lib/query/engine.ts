@@ -561,6 +561,12 @@ export class BasicQueryEngine implements QueryEngine {
       // Selection (base columns only here; cf:* handled later)
       if (isSortKeysProjection) {
         q = q.select(sql.ref(qualify('id')).as('id'))
+        if (await this.columnExists(table, 'tenant_id')) {
+          q = q.select(sql.ref(qualify('tenant_id')).as('tenant_id'))
+        }
+        if (await this.columnExists(table, 'organization_id')) {
+          q = q.select(sql.ref(qualify('organization_id')).as('organization_id'))
+        }
         for (const s of resolvedSorts) {
           if (!s.field.startsWith('cf:')) q = q.select(sql.ref(qualify(s.field)).as(s.field))
         }
