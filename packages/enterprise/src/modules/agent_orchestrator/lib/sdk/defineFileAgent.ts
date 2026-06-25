@@ -145,6 +145,24 @@ function sanitizeAgentName(id: string): string {
   return id.replace(/[^a-z0-9_-]/gi, '_')
 }
 
+/**
+ * Read the optional `agents/<id>/SAMPLE.json` example input, surfaced by the
+ * Playground's "Insert sample" button. Pure JSON (no markdown/frontmatter) so it
+ * needs no custom parser. Returns undefined when the file is absent or invalid
+ * (a malformed sample must never block agent loading — the button just hides).
+ * Must stay in sync with the generator's `discoverSampleInput`.
+ */
+function loadSampleInput(dir: string): unknown {
+  const samplePath = path.join(dir, 'SAMPLE.json')
+  if (!fs.existsSync(samplePath)) return undefined
+  try {
+    return JSON.parse(fs.readFileSync(samplePath, 'utf8'))
+  } catch {
+    console.warn(`[internal] malformed SAMPLE.json at ${dir}; ignoring.`)
+    return undefined
+  }
+}
+
 function renderToolPermissionLine(toolName: string): string {
   return `  ${JSON.stringify(toolName)}: true`
 }
@@ -480,6 +498,7 @@ function loadSubAgentDir(dir: string): LoadedFileAgent {
     defaultModel: agent.model,
     loop: agent.maxSteps != null ? { maxSteps: agent.maxSteps } : undefined,
     runtime: 'opencode',
+    sampleInput: loadSampleInput(dir),
   }
 
   const openCodeAgentFile = renderOpenCodeAgentFile({
@@ -598,6 +617,7 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
     defaultModel: agent.model,
     loop: agent.maxSteps != null ? { maxSteps: agent.maxSteps } : undefined,
     runtime: 'opencode',
+    sampleInput: loadSampleInput(dir),
   }
 
   const openCodeAgentFile = renderOpenCodeAgentFile({

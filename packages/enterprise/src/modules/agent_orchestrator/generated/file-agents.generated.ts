@@ -52,6 +52,11 @@ export type FileAgentDescriptor = {
   maxSteps?: number
   provider?: string
   model?: string
+  /**
+   * Optional example `input` for the Playground "Insert sample" button, read
+   * from `agents/<id>/SAMPLE.json`. Any JSON value the agent accepts as input.
+   */
+  sampleInput?: unknown
 }
 
 export const fileAgentDescriptors: FileAgentDescriptor[] = [
@@ -85,11 +90,13 @@ export const fileAgentDescriptors: FileAgentDescriptor[] = [
       maxSteps: 6,
       provider: "anthropic",
       model: "claude-sonnet-4-5",
+      sampleInput: {"deal":{"id":"demo-deal-1","name":"Acme Corp — Enterprise plan","stage":"Proposal","value":48000,"probability":0.65,"daysInStage":12,"activities":[{"type":"email","at":"2026-06-18","summary":"Sent revised pricing proposal."},{"type":"call","at":"2026-06-20","summary":"Procurement asked about volume discounts."},{"type":"meeting","at":"2026-06-23","summary":"Demo with the security team."}]}},
     },
     ],
     maxSteps: 12,
     provider: "anthropic",
     model: "claude-sonnet-4-5",
+    sampleInput: {"deal":{"id":"demo-deal-1","name":"Acme Corp — Enterprise plan","stage":"Proposal","value":48000,"probability":0.65,"daysInStage":12,"recentActivity":"Sent revised pricing; awaiting procurement sign-off."}},
   },
   {
     id: "support.resolution_advisor",
@@ -107,5 +114,6 @@ export const fileAgentDescriptors: FileAgentDescriptor[] = [
     maxSteps: 12,
     provider: "anthropic",
     model: "claude-sonnet-4-5",
+    sampleInput: {"subject":"Still can't process payouts","body":"Third day our payouts are stuck and support hasn't replied. This is blocking our whole finance team.","customerEmail":"vip@acme.test"},
   },
 ]

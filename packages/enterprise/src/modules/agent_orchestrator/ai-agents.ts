@@ -52,6 +52,18 @@ export const aiAgents: AiAgentDefinition[] = [
     // contributes its read-only `customers.analyze_deals` tool to this agent.
     skills: ['deals.stage_playbook'],
     result: { kind: 'actionable', schema: dealHealthCheckResult },
+    // Inline `deal` so the Playground runs deterministically (no DB lookup).
+    sampleInput: {
+      deal: {
+        id: 'demo-deal-1',
+        name: 'Acme Corp — Enterprise plan',
+        stage: 'Proposal',
+        value: 48000,
+        probability: 0.65,
+        daysInStage: 12,
+        recentActivity: 'Sent revised pricing; awaiting procurement sign-off.',
+      },
+    },
   }),
 ]
 
