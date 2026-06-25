@@ -6,11 +6,15 @@ import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib
 import { envDisablesAutoIndexing, resolveAutoIndexingEnabled, SEARCH_AUTO_INDEX_CONFIG_KEY } from '../../lib/auto-indexing'
 import {
   resolveEmbeddingConfig,
+  resolveEmbeddingConfigResult,
   saveEmbeddingConfig,
   getConfiguredProviders,
   detectConfigChange,
   getEffectiveDimension,
 } from '../../lib/embedding-config'
+import type { EmbeddingConfigSource } from '../../lib/embedding-config'
+import { checkAllProviders } from '../../lib/provider-probe'
+import type { EmbeddingProviderProbe, ProviderAvailabilityEntry } from '../../lib/provider-probe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EmbeddingProviderConfig, EmbeddingProviderId, VectorDriver } from '../../../../vector'
 import { EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG, EmbeddingService } from '../../../../vector'
@@ -46,7 +50,9 @@ type SettingsResponse = {
     autoIndexingLocked: boolean
     lockReason: string | null
     embeddingConfig: EmbeddingProviderConfig | null
+    embeddingConfigSource: EmbeddingConfigSource
     configuredProviders: EmbeddingProviderId[]
+    providerAvailability: ProviderAvailabilityEntry[]
     indexedDimension: number | null
     reindexRequired: boolean
     documentCount: number | null
@@ -65,6 +71,26 @@ const unauthorized = async () => {
 const configUnavailable = async () => {
   const { t } = await resolveTranslations()
   return NextResponse.json({ error: t('search.api.errors.configUnavailable', 'Configuration service unavailable') }, { status: 503 })
+}
+
+function resolveProbe(container: { resolve: <T = unknown>(name: string) => T }): EmbeddingProviderProbe | null {
+  try {
+    return container.resolve<EmbeddingProviderProbe>('embeddingProviderProbe')
+  } catch {
+    return null
+  }
+}
+
+async function resolveProviderAvailability(
+  container: { resolve: <T = unknown>(name: string) => T },
+): Promise<ProviderAvailabilityEntry[]> {
+  const probe = resolveProbe(container)
+  if (!probe) return []
+  try {
+    return await checkAllProviders(probe)
+  } catch {
+    return []
+  }
 }
 
 async function getIndexedDimension(container: { resolve: <T = unknown>(name: string) => T }): Promise<number | null> {
@@ -107,14 +133,17 @@ export async function GET(req: Request) {
     let autoIndexingEnabled = !lockedByEnv
     if (!lockedByEnv) {
       try {
-        autoIndexingEnabled = await resolveAutoIndexingEnabled(container, { defaultValue: true })
+        autoIndexingEnabled = await resolveAutoIndexingEnabled(container, { defaultValue: true, scope: { tenantId: auth.tenantId } })
       } catch {
         autoIndexingEnabled = true
       }
     }
 
-    const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null })
+    const { config: embeddingConfig, source: embeddingConfigSource } = await resolveEmbeddingConfigResult(container, {
+      scope: { tenantId: auth.tenantId },
+    })
     const configuredProviders = getConfiguredProviders()
+    const providerAvailability = await resolveProviderAvailability(container)
     const indexedDimension = await getIndexedDimension(container)
 
     const effectiveDimension = embeddingConfig
@@ -139,7 +168,9 @@ export async function GET(req: Request) {
         autoIndexingLocked: lockedByEnv,
         lockReason: lockedByEnv ? 'env' : null,
         embeddingConfig,
+        embeddingConfigSource,
         configuredProviders,
+        providerAvailability,
         indexedDimension,
         reindexRequired,
         documentCount,
@@ -190,10 +221,10 @@ export async function POST(req: Request) {
           { status: 409 },
         )
       }
-      await service.setValue('vector', SEARCH_AUTO_INDEX_CONFIG_KEY, parsed.data.autoIndexingEnabled)
+      await service.setValue('vector', SEARCH_AUTO_INDEX_CONFIG_KEY, parsed.data.autoIndexingEnabled, { tenantId: auth.tenantId })
     }
 
-    let embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null })
+    let embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null, scope: { tenantId: auth.tenantId } })
     let reindexRequired = false
     let indexedDimension = await getIndexedDimension(container)
 
@@ -216,6 +247,7 @@ export async function POST(req: Request) {
         )
       }
 
+      // Reject an unsafe user-supplied Ollama base URL before doing anything with it (SSRF guard).
       if (newConfig.providerId === 'ollama' && newConfig.baseUrl != null) {
         try {
           assertSafeOllamaBaseUrl(newConfig.baseUrl)
@@ -233,6 +265,24 @@ export async function POST(req: Request) {
             )
           }
           throw err
+        }
+      }
+
+      // Save-time availability guard: never persist a provider the probe reports unreachable.
+      const probe = resolveProbe(container)
+      if (probe) {
+        const availability = await probe.checkAvailability(newConfig.providerId)
+        if (!availability.available) {
+          return NextResponse.json(
+            {
+              error: t(
+                'search.api.errors.providerUnavailable',
+                `Provider ${providerInfo.name} is not available: ${availability.reason ?? 'unreachable'}`,
+              ),
+              reason: availability.reason ?? null,
+            },
+            { status: 409 },
+          )
         }
       }
 
@@ -279,7 +329,7 @@ export async function POST(req: Request) {
         }
       }
 
-      await saveEmbeddingConfig(container, change.newConfig)
+      await saveEmbeddingConfig(container, change.newConfig, { scope: { tenantId: auth.tenantId } })
       embeddingConfig = change.newConfig
 
       try {
@@ -296,7 +346,7 @@ export async function POST(req: Request) {
     let autoIndexingEnabled = !lockedByEnv
     if (!lockedByEnv) {
       try {
-        autoIndexingEnabled = await resolveAutoIndexingEnabled(container, { defaultValue: true })
+        autoIndexingEnabled = await resolveAutoIndexingEnabled(container, { defaultValue: true, scope: { tenantId: auth.tenantId } })
       } catch {
         autoIndexingEnabled = true
       }
@@ -307,6 +357,10 @@ export async function POST(req: Request) {
       ? await getVectorDocumentCount(container, auth.tenantId, auth.orgId)
       : null
 
+    const { source: embeddingConfigSource } = await resolveEmbeddingConfigResult(container, {
+      scope: { tenantId: auth.tenantId },
+    })
+
     return toJson({
       settings: {
         openaiConfigured: openAiConfigured(),
@@ -314,7 +368,9 @@ export async function POST(req: Request) {
         autoIndexingLocked: lockedByEnv,
         lockReason: lockedByEnv ? 'env' : null,
         embeddingConfig,
+        embeddingConfigSource,
         configuredProviders: getConfiguredProviders(),
+        providerAvailability: await resolveProviderAvailability(container),
         indexedDimension,
         reindexRequired,
         documentCount: updatedDocumentCount,
