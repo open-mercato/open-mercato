@@ -749,3 +749,82 @@ export const revokeAgentDelegationGrantSchema = z
   })
   .partial()
 export type RevokeAgentDelegationGrantInput = z.infer<typeof revokeAgentDelegationGrantSchema>
+
+// ── auth.md / ID-JAG self-registration (Wave 4 Phase 4) ──────────────────────
+
+/**
+ * The OAuth grant type the platform exposes for the ID-JAG / JWT-bearer flow.
+ * RFC 7523 (`urn:ietf:params:oauth:grant-type:jwt-bearer`) is the standard
+ * external agents present an issuer-signed identity assertion under. Additive —
+ * the OAuth-now `client_credentials` grant is unchanged.
+ */
+export const ID_JAG_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:jwt-bearer' as const
+
+/**
+ * The public `/.well-known` agent-auth discovery metadata. Read-only and free of
+ * secrets — it advertises WHERE to authenticate, the supported grant types
+ * (client-credentials now + the ID-JAG / JWT-bearer flow), and the audience an
+ * external assertion must target. JWKS/issuer verification material is NEVER
+ * exposed here (the platform validates the assertion server-side against its
+ * trusted-issuer registry — there is no client-fetched key set to leak).
+ */
+export const agentAuthDiscoverySchema = z.object({
+  issuer: z.string().min(1),
+  /** Absolute path of the OAuth client-credentials token endpoint (RFC 6749 §4.4). */
+  token_endpoint: z.string().min(1),
+  /** Absolute path of the ID-JAG / JWT-bearer self-registration endpoint. */
+  agent_auth_endpoint: z.string().min(1),
+  grant_types_supported: z.array(z.string().min(1)),
+  /** The audience an external ID-JAG assertion MUST target to be accepted. */
+  agent_assertion_audience: z.string().min(1),
+  /** The minted access token's audience (an agent token, isolated from staff/customer). */
+  token_audience: z.string().min(1),
+  token_endpoint_auth_methods_supported: z.array(z.string().min(1)),
+})
+export type AgentAuthDiscovery = z.infer<typeof agentAuthDiscoverySchema>
+
+/**
+ * RFC 7523 §2.1 JWT-bearer token request carrying an issuer-signed ID-JAG
+ * assertion. Only the JWT-bearer grant is accepted here (a non-conforming
+ * `grant_type` → `unsupported_grant_type`). `assertion` is the compact JWS the
+ * provider signed; `scope` is OPTIONAL and only ever NARROWS within the resolved
+ * grant. Tenant/org are NEVER read from the request — they are derived from the
+ * resolved/onboarded principal, so a caller cannot self-assign a cross-tenant scope.
+ */
+export const idJagTokenRequestSchema = z.object({
+  grant_type: z.literal(ID_JAG_GRANT_TYPE),
+  /** The compact issuer-signed identity assertion (ID-JAG / JWT-bearer). */
+  assertion: z.string().min(1).max(8000),
+  /** Optional space-delimited scope subset; intersected with the grant's scopes. */
+  scope: z.string().max(2000).optional(),
+})
+export type IdJagTokenRequest = z.infer<typeof idJagTokenRequestSchema>
+
+/**
+ * The validated claims of an issuer-signed ID-JAG assertion. `iss` selects the
+ * trusted-issuer verification key (server-side registry — never client-supplied);
+ * `aud` MUST equal the platform's assertion audience (a wrong-audience assertion
+ * is rejected, mirroring the token-side audience isolation). `sub` is the external
+ * agent's stable subject — the idempotency key for onboarding. `org_id`/`tenant_id`
+ * bind the assertion to a concrete tenant the issuer is authorized for; the
+ * onboarding service verifies the issuer is allowed to provision into that org.
+ * Tenant/org are taken from the SIGNED assertion, never from request input.
+ */
+export const idJagAssertionClaimsSchema = z.object({
+  iss: z.string().min(1),
+  sub: z.string().min(1),
+  aud: z.string().min(1),
+  /** The tenant the issuer is provisioning the agent into (must be issuer-authorized). */
+  tenant_id: z.string().uuid(),
+  /** The organization the issuer is provisioning the agent into (must be issuer-authorized). */
+  org_id: z.string().uuid(),
+  /** The agent definition id the external agent maps to. */
+  agent_definition_id: z.string().min(1).max(100),
+  /** The human delegator the agent acts on behalf of, or null/absent for system grants. */
+  delegator_user_id: z.string().uuid().nullable().optional(),
+  /** Requested `<capability>:<action>` scopes; the onboarded grant carries these. */
+  scopes: z.array(z.string().min(1)).optional(),
+  /** Optional display name stamped on the provisioned agent `User`. */
+  display_name: z.string().min(1).max(200).optional(),
+})
+export type IdJagAssertionClaims = z.infer<typeof idJagAssertionClaimsSchema>

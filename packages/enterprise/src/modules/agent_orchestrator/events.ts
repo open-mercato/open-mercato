@@ -27,6 +27,9 @@ const events = [
   // Identity overlay (Wave 4 Phase 3) — an external agent's delegation grant was
   // revoked; downstream auditors react and the cockpit live-updates.
   { id: 'agent_orchestrator.delegation_grant.revoked', label: 'Agent Delegation Grant Revoked', entity: 'delegation_grant', category: 'lifecycle', clientBroadcast: true },
+  // Identity overlay (Wave 4 Phase 4) — an external agent self-registered via the
+  // ID-JAG / auth.md flow (issuer-signed assertion → scoped principal + grant).
+  { id: 'agent_orchestrator.agent_principal.registered', label: 'Agent Principal Registered (ID-JAG)', entity: 'agent_principal', category: 'lifecycle', clientBroadcast: true },
 ] as const
 
 export const eventsConfig = createModuleEvents({
