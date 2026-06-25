@@ -935,7 +935,11 @@ export class HybridQueryEngine implements QueryEngine {
         const cap = resolveEncryptedSortMaxRows()
         const phase1Root = db.selectFrom(`${baseTable} as b` as any)
         let phase1 = await applyQueryShape(phase1Root)
-        const sortFieldNames = Array.from(new Set(['id', ...resolvedSorts.map((s) => String(s.field))]))
+        const scopeFieldNames = [
+          hasTenantColumn ? 'tenant_id' : null,
+          hasOrganizationColumn ? 'organization_id' : null,
+        ].filter((field): field is string => field !== null)
+        const sortFieldNames = Array.from(new Set(['id', ...scopeFieldNames, ...resolvedSorts.map((s) => String(s.field))]))
         phase1 = applySelection(phase1, sortFieldNames)
         if (cap !== null) {
           phase1 = phase1.limit(cap).orderBy(qualify('id'), 'asc' as any)
