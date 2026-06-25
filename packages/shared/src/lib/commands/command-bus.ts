@@ -486,6 +486,7 @@ export class CommandBus {
       tenantId: secondary?.tenantId ?? primary?.tenantId ?? null,
       organizationId: secondary?.organizationId ?? primary?.organizationId ?? null,
       actorUserId: secondary?.actorUserId ?? primary?.actorUserId ?? null,
+      onBehalfOfUserId: secondary?.onBehalfOfUserId ?? primary?.onBehalfOfUserId ?? null,
       actionLabel: secondary?.actionLabel ?? primary?.actionLabel ?? null,
       resourceKind: secondary?.resourceKind ?? primary?.resourceKind ?? null,
       resourceId: secondary?.resourceId ?? primary?.resourceId ?? null,
@@ -525,11 +526,18 @@ export class CommandBus {
     const tenantId = metadata.tenantId ?? options.ctx.auth?.tenantId ?? null
     const organizationId =
       metadata.organizationId ?? options.ctx.selectedOrganizationId ?? options.ctx.auth?.orgId ?? null
-    const actorUserId = metadata.actorUserId ?? options.ctx.auth?.sub ?? null
+    // On-behalf-of attribution (Wave 4 P2): when `ctx.runAs` is set the actor is
+    // the agent principal and the human it acts for is recorded separately. This
+    // funnels agent writes through the SAME ActionLog path as a human's — only the
+    // attribution differs (actorUserId=agent, onBehalfOfUserId=human, source='agent').
+    const runAs = options.ctx.runAs ?? null
+    const actorUserId = runAs?.actorUserId ?? metadata.actorUserId ?? options.ctx.auth?.sub ?? null
+    const onBehalfOfUserId = runAs ? (runAs.onBehalfOfUserId ?? null) : (metadata.onBehalfOfUserId ?? null)
     const payload: Record<string, unknown> = {
       tenantId: tenantId ?? undefined,
       organizationId: organizationId ?? undefined,
       actorUserId: actorUserId ?? undefined,
+      onBehalfOfUserId: onBehalfOfUserId ?? undefined,
       commandId,
     }
 
@@ -547,6 +555,13 @@ export class CommandBus {
       if ('snapshotAfter' in metadata && metadata.snapshotAfter !== undefined) payload.snapshotAfter = metadata.snapshotAfter
       if ('changes' in metadata && metadata.changes !== undefined && metadata.changes !== null) payload.changes = metadata.changes
       if ('context' in metadata && metadata.context !== undefined && metadata.context !== null) payload.context = metadata.context
+    }
+
+    if (runAs) {
+      // Stamp the audit source so `deriveActionLogSource` projects `sourceKey='agent'`.
+      // Merge into any caller-provided context rather than replacing it.
+      const baseContext = asRecord(payload.context) ?? {}
+      payload.context = { ...baseContext, source: runAs.source }
     }
 
     const redoEnvelope = wrapRedoPayload('commandPayload' in payload ? (payload.commandPayload as unknown) : undefined, options.input)

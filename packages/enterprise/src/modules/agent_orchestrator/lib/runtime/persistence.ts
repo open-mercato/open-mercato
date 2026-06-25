@@ -24,6 +24,24 @@ export type AgentRunCtx = {
    * delegations are traceable via `agent_runs.parent_run_id`.
    */
   parentRunId?: string
+  /**
+   * On-behalf-of attribution (Agent Identity & On-Behalf-Of, Wave 4 P2). When the
+   * run executes under a provisioned agent principal, this carries the agent's
+   * `auth.User` id (the actor stamped on every write) and the invoking human's
+   * `auth.User` id (recorded as `onBehalfOfUserId`). When set, `buildCommandContext`
+   * threads it onto `CommandRuntimeContext.runAs` so the audited Command path
+   * attributes every ActionLog to the agent on behalf of the human, with
+   * `sourceKey='agent'`. Omitted for legacy/playground runs (no principal yet),
+   * which keep the prior `ctx.userId`-derived attribution.
+   */
+  runAs?: AgentRunAs
+}
+
+export type AgentRunAs = {
+  /** The provisioned agent principal's `auth.User` id — actor on every write. */
+  agentUserId: string
+  /** The invoking human's `auth.User` id, or null for system-invoked agent runs. */
+  onBehalfOfUserId?: string | null
 }
 
 export function buildCommandContext(
@@ -40,6 +58,18 @@ export function buildCommandContext(
     organizationScope: null,
     selectedOrganizationId: ctx.organizationId,
     organizationIds: [ctx.organizationId],
+    // When the run is bound to a provisioned agent principal, every ActionLog the
+    // command path writes is attributed to the agent (actor) on behalf of the
+    // human, sourced `'agent'` — through the SAME audited path, no parallel route.
+    ...(ctx.runAs
+      ? {
+          runAs: {
+            actorUserId: ctx.runAs.agentUserId,
+            onBehalfOfUserId: ctx.runAs.onBehalfOfUserId ?? null,
+            source: 'agent' as const,
+          },
+        }
+      : {}),
   }
 }
 

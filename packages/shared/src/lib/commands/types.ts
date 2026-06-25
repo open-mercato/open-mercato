@@ -27,6 +27,28 @@ export type CommandRuntimeContext = {
    * surrounding work as a single atomic, single-locked operation.
    */
   transactionalEm?: EntityManager
+  /**
+   * On-behalf-of attribution for non-human principals (Agent Identity &
+   * On-Behalf-Of, Wave 4 P2). When an agent runs on behalf of a human, the
+   * orchestrator's `runAs` wrapper sets this so every `ActionLog` the command
+   * path writes records `actorUserId = runAs.actorUserId` (the agent principal's
+   * `auth.User` id), `onBehalfOfUserId = runAs.onBehalfOfUserId` (the invoking
+   * human, or null for system-invoked agents), and `sourceKey = runAs.source`
+   * (`'agent'`). Additive + optional: callers that omit it keep the existing
+   * `ctx.auth.sub`-derived attribution unchanged. This threads agent attribution
+   * through the SAME audited Command/CRUD path as a human action — not a parallel
+   * audit path.
+   */
+  runAs?: CommandRunAsContext
+}
+
+export type CommandRunAsContext = {
+  /** The actor stamped on every ActionLog this context produces (agent `auth.User` id). */
+  actorUserId: string
+  /** The human (or system) principal the actor acts on behalf of; null when system-invoked. */
+  onBehalfOfUserId?: string | null
+  /** The audit source key for the attributed writes; `'agent'` for agent runs. */
+  source: 'agent'
 }
 
 export type CommandLogMetadata = {
@@ -34,6 +56,7 @@ export type CommandLogMetadata = {
   tenantId?: string | null
   organizationId?: string | null
   actorUserId?: string | null
+  onBehalfOfUserId?: string | null
   actionLabel?: string | null
   resourceKind?: string | null
   resourceId?: string | null
