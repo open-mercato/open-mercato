@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isCrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -308,6 +308,12 @@ export async function POST(req: Request, ctx: { params: { tableId: string } }) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    if (isUniqueViolation(err)) {
+      return NextResponse.json({
+        error: 'A view with this name already exists.',
+        code: 'duplicate_name',
+      }, { status: 409 })
+    }
     throw err
   }
 
@@ -380,7 +386,7 @@ const perspectivesPostDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Validation failed or invalid roles provided', schema: perspectivesErrorSchema },
     { status: 401, description: 'Authentication required', schema: perspectivesErrorSchema },
     { status: 403, description: 'Missing perspectives.role_defaults feature for role updates', schema: perspectivesErrorSchema },
-    { status: 409, description: 'Optimistic lock conflict', schema: perspectivesErrorSchema },
+    { status: 409, description: 'Optimistic lock conflict or perspective name already exists', schema: perspectivesErrorSchema },
   ],
 }
 

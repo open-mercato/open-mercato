@@ -296,6 +296,23 @@ export async function saveUserPerspective(
       current: entity.updatedAt ?? null,
       request: options.request ?? null,
     })
+    if (entity.name !== input.name) {
+      const duplicate = await em.findOne(Perspective, {
+        userId: scope.userId,
+        tenantId,
+        organizationId,
+        tableId,
+        name: input.name,
+        id: { $ne: entity.id } as any,
+        deletedAt: null,
+      })
+      if (duplicate) {
+        throw new CrudHttpError(409, {
+          error: 'A view with this name already exists.',
+          code: 'duplicate_name',
+        })
+      }
+    }
   } else {
     entity = await em.findOne(Perspective, {
       userId: scope.userId,

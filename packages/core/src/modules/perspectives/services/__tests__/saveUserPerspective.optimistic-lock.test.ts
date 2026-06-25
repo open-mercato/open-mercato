@@ -38,6 +38,16 @@ function makeEm(entity: ReturnType<typeof existingEntity> | null) {
   }
 }
 
+function makeEmFindOneSequence(entities: Array<Record<string, unknown> | null>) {
+  return {
+    findOne: jest.fn(async () => entities.shift() ?? null),
+    create: jest.fn((_ctor: unknown, data: Record<string, unknown>) => ({ ...data })),
+    persist: jest.fn(),
+    flush: jest.fn(async () => undefined),
+    nativeUpdate: jest.fn(async () => undefined),
+  }
+}
+
 function existingRoleEntity(overrides: Partial<ReturnType<typeof existingRoleEntityBase>> = {}) {
   return { ...existingRoleEntityBase(), ...overrides }
 }
@@ -144,6 +154,26 @@ describe('saveUserPerspective optimistic locking (#2055 saved views)', () => {
       request: requestWithHeader(STALE_VERSION),
     })).resolves.toBeTruthy()
     expect(em.flush).toHaveBeenCalled()
+  })
+
+  it('throws a 409 when renaming a view to another active view name in the same scope', async () => {
+    const target = { ...existingEntity(), name: 'Other View' }
+    const duplicate = { ...existingEntity(), id: '123e4567-e89b-12d3-a456-426614174201', name: 'My View' }
+    const em = makeEmFindOneSequence([target, duplicate])
+    let caught: unknown
+    try {
+      await saveUserPerspective(em as never, null, {
+        scope,
+        tableId: 'customers',
+        input: { ...baseInput, perspectiveId: PERSPECTIVE_ID },
+        request: requestWithHeader(CURRENT_VERSION),
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect(isCrudHttpError(caught)).toBe(true)
+    expect((caught as { status: number }).status).toBe(409)
+    expect(em.flush).not.toHaveBeenCalled()
   })
 })
 
