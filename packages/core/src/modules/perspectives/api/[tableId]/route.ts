@@ -96,15 +96,26 @@ export async function GET(_req: Request, ctx: { params: { tableId: string } }) {
   const availableRoles = canApplyToRoles
     ? await em.find(Role, { ...roleScope as any, deletedAt: null } as any, { orderBy: { name: 'asc' } })
     : assignedRoles
+  const manageableRoleIds = canApplyToRoles
+    ? availableRoles.map((role) => role.id)
+    : assignedRoleIds
 
   const state = await loadPerspectivesState(em, cache, {
     scope: buildScope(auth),
     tableId,
     roleIds: assignedRoleIds,
   })
+  const manageableState = manageableRoleIds.length === assignedRoleIds.length
+    && manageableRoleIds.every((roleId) => assignedRoleIds.includes(roleId))
+    ? state
+    : await loadPerspectivesState(em, cache, {
+      scope: buildScope(auth),
+      tableId,
+      roleIds: manageableRoleIds,
+    })
 
   const rolePerspectiveByRole = new Map<string, { hasDefault: boolean; count: number }>()
-  for (const item of state.rolePerspectives) {
+  for (const item of manageableState.rolePerspectives) {
     const entry = rolePerspectiveByRole.get(item.roleId) ?? { hasDefault: false, count: 0 }
     entry.count += 1
     entry.hasDefault = entry.hasDefault || item.isDefault
@@ -116,6 +127,10 @@ export async function GET(_req: Request, ctx: { params: { tableId: string } }) {
     perspectives: state.personal,
     defaultPerspectiveId: state.personalDefaultId,
     rolePerspectives: state.rolePerspectives.map((rp) => ({
+      ...rp,
+      roleName: availableRoles.find((role) => role.id === rp.roleId)?.name ?? assignedRoles.find((role) => role.id === rp.roleId)?.name ?? null,
+    })),
+    manageableRolePerspectives: manageableState.rolePerspectives.map((rp) => ({
       ...rp,
       roleName: availableRoles.find((role) => role.id === rp.roleId)?.name ?? assignedRoles.find((role) => role.id === rp.roleId)?.name ?? null,
     })),
@@ -269,6 +284,9 @@ export async function POST(req: Request, ctx: { params: { tableId: string } }) {
               settings: parsed.data.settings,
               setDefault: parsed.data.setRoleDefault ?? false,
             },
+            expectedUpdatedAtByRoleId: parsed.data.roleExpectedUpdatedAtByRoleId,
+            expectedUpdatedAtByPerspectiveId: parsed.data.roleExpectedUpdatedAtByPerspectiveId,
+            request: req,
           })
         }
       },
@@ -279,6 +297,9 @@ export async function POST(req: Request, ctx: { params: { tableId: string } }) {
             tenantId: auth.tenantId ?? null,
             organizationId: auth.orgId ?? null,
             roleIds: clearRoleIds,
+            expectedUpdatedAtByRoleId: parsed.data.roleExpectedUpdatedAtByRoleId,
+            expectedUpdatedAtByPerspectiveId: parsed.data.roleExpectedUpdatedAtByPerspectiveId,
+            request: req,
           })
         }
       },
@@ -365,7 +386,7 @@ const perspectivesPostDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Validation failed or invalid roles provided', schema: perspectivesErrorSchema },
     { status: 401, description: 'Authentication required', schema: perspectivesErrorSchema },
     { status: 403, description: 'Missing perspectives.role_defaults feature for role updates', schema: perspectivesErrorSchema },
-    { status: 409, description: 'Perspective name already exists', schema: perspectivesErrorSchema },
+    { status: 409, description: 'Optimistic lock conflict or perspective name already exists', schema: perspectivesErrorSchema },
   ],
 }
 

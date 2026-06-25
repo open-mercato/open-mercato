@@ -1,7 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import {
+  buildOptimisticLockConflictBody,
+  enforceCommandOptimisticLock,
+  enforceRecordGoneIsConflict,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { Perspective, RolePerspective } from '../data/entities'
 import type {
   PerspectiveSettings,
@@ -43,6 +47,50 @@ export type PerspectivesState = {
   personal: ResolvedPerspective[]
   personalDefaultId: string | null
   rolePerspectives: ResolvedRolePerspective[]
+}
+
+type ExpectedUpdatedAtById = Record<string, string | Date | null | undefined>
+
+const PERSPECTIVE_RESOURCE_KIND = 'perspectives.perspective'
+const ROLE_PERSPECTIVE_RESOURCE_KIND = 'perspectives.role_perspective'
+
+function resolveRoleLockInput(
+  expectedUpdatedAtByRoleId: ExpectedUpdatedAtById | null | undefined,
+  roleId: string,
+  request: Request | Headers | null | undefined,
+): Pick<Parameters<typeof enforceCommandOptimisticLock>[0], 'expected' | 'request'> {
+  if (expectedUpdatedAtByRoleId && Object.prototype.hasOwnProperty.call(expectedUpdatedAtByRoleId, roleId)) {
+    return { expected: expectedUpdatedAtByRoleId[roleId] ?? null, request: null }
+  }
+  return { expected: undefined, request: request ?? null }
+}
+
+function resolveRoleRecordLockInput(
+  expectedUpdatedAtByPerspectiveId: ExpectedUpdatedAtById | null | undefined,
+  expectedUpdatedAtByRoleId: ExpectedUpdatedAtById | null | undefined,
+  record: RolePerspective,
+  request: Request | Headers | null | undefined,
+): Pick<Parameters<typeof enforceCommandOptimisticLock>[0], 'expected' | 'request'> {
+  if (expectedUpdatedAtByPerspectiveId && Object.prototype.hasOwnProperty.call(expectedUpdatedAtByPerspectiveId, record.id)) {
+    return { expected: expectedUpdatedAtByPerspectiveId[record.id] ?? null, request: null }
+  }
+  return resolveRoleLockInput(expectedUpdatedAtByRoleId, record.roleId, request)
+}
+
+function firstExpectedUpdatedAt(expectedUpdatedAtById: ExpectedUpdatedAtById | null | undefined): string | Date | null {
+  if (!expectedUpdatedAtById) return null
+  for (const value of Object.values(expectedUpdatedAtById)) {
+    if (value instanceof Date) return value
+    if (typeof value === 'string' && value.trim().length > 0) return value
+  }
+  return null
+}
+
+function throwMissingRoleRecordVersionConflict(record: RolePerspective): never {
+  const current = record.updatedAt instanceof Date && Number.isFinite(record.updatedAt.getTime())
+    ? record.updatedAt.toISOString()
+    : new Date(0).toISOString()
+  throw new CrudHttpError(409, buildOptimisticLockConflictBody(current, current))
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000
@@ -243,7 +291,7 @@ export async function saveUserPerspective(
       throw Object.assign(new Error('Perspective not found'), { code: 'NOT_FOUND' })
     }
     enforceCommandOptimisticLock({
-      resourceKind: 'perspectives.perspective',
+      resourceKind: PERSPECTIVE_RESOURCE_KIND,
       resourceId: entity.id,
       current: entity.updatedAt ?? null,
       request: options.request ?? null,
@@ -326,7 +374,12 @@ export async function saveUserPerspective(
 export async function deleteUserPerspective(
   em: EntityManager,
   cache: CacheStrategy | null | undefined,
-  options: { scope: PerspectiveScope; tableId: string; perspectiveId: string },
+  options: {
+    scope: PerspectiveScope
+    tableId: string
+    perspectiveId: string
+    request?: Request | Headers | null
+  },
 ): Promise<boolean> {
   const { scope, tableId, perspectiveId } = options
   const tenantId = scope.tenantId ?? null
@@ -340,7 +393,21 @@ export async function deleteUserPerspective(
     tableId,
     deletedAt: null,
   })
-  if (!existing) return false
+  if (!existing) {
+    enforceRecordGoneIsConflict({
+      resourceKind: PERSPECTIVE_RESOURCE_KIND,
+      resourceId: perspectiveId,
+      request: options.request ?? null,
+    })
+    return false
+  }
+
+  enforceCommandOptimisticLock({
+    resourceKind: PERSPECTIVE_RESOURCE_KIND,
+    resourceId: existing.id,
+    current: existing.updatedAt ?? null,
+    request: options.request ?? null,
+  })
 
   existing.deletedAt = new Date()
   existing.isDefault = false
@@ -361,6 +428,9 @@ export async function saveRolePerspectives(
     tenantId?: string | null
     organizationId?: string | null
     input: RolePerspectiveSaveInput
+    expectedUpdatedAtByRoleId?: ExpectedUpdatedAtById
+    expectedUpdatedAtByPerspectiveId?: ExpectedUpdatedAtById
+    request?: Request | Headers | null
   },
 ): Promise<ResolvedRolePerspective[]> {
   const { tableId, input } = options
@@ -369,7 +439,7 @@ export async function saveRolePerspectives(
   const now = new Date()
   const touchedRoleIds = new Set<string>()
 
-  const results: ResolvedRolePerspective[] = []
+  const resultRecords: RolePerspective[] = []
 
   // Prefetch every matching role perspective in a single query, then index by role id
   // so the loop resolves create/update without a lookup per role.
@@ -384,6 +454,22 @@ export async function saveRolePerspectives(
       deletedAt: null,
     })
     for (const existing of existingRecords) recordByRole.set(existing.roleId, existing)
+  }
+  const defaultRecordsByRole = new Map<string, RolePerspective[]>()
+  if (input.setDefault === true && input.roleIds.length) {
+    const existingDefaultRecords = await em.find(RolePerspective, {
+      roleId: { $in: input.roleIds },
+      tableId,
+      tenantId,
+      organizationId,
+      isDefault: true,
+      deletedAt: null,
+    })
+    for (const existing of existingDefaultRecords) {
+      const records = defaultRecordsByRole.get(existing.roleId) ?? []
+      records.push(existing)
+      defaultRecordsByRole.set(existing.roleId, records)
+    }
   }
 
   for (const roleId of input.roleIds) {
@@ -403,6 +489,17 @@ export async function saveRolePerspectives(
       em.persist(record)
       recordByRole.set(roleId, record)
     } else {
+      enforceCommandOptimisticLock({
+        resourceKind: ROLE_PERSPECTIVE_RESOURCE_KIND,
+        resourceId: record.id,
+        current: record.updatedAt ?? null,
+        ...resolveRoleRecordLockInput(
+          options.expectedUpdatedAtByPerspectiveId,
+          options.expectedUpdatedAtByRoleId,
+          record,
+          options.request ?? null,
+        ),
+      })
       record.settingsJson = input.settings
       record.updatedAt = now
       if (input.setDefault === true) record.isDefault = true
@@ -410,6 +507,20 @@ export async function saveRolePerspectives(
     }
 
     if (input.setDefault === true) {
+      for (const defaultRecord of defaultRecordsByRole.get(roleId) ?? []) {
+        if (defaultRecord.id === record.id) continue
+        enforceCommandOptimisticLock({
+          resourceKind: ROLE_PERSPECTIVE_RESOURCE_KIND,
+          resourceId: defaultRecord.id,
+          current: defaultRecord.updatedAt ?? null,
+          ...resolveRoleRecordLockInput(
+            options.expectedUpdatedAtByPerspectiveId,
+            options.expectedUpdatedAtByRoleId,
+            defaultRecord,
+            options.request ?? null,
+          ),
+        })
+      }
       await em.nativeUpdate(
         RolePerspective,
         {
@@ -418,6 +529,7 @@ export async function saveRolePerspectives(
           tenantId,
           organizationId,
           id: { $ne: record.id } as any,
+          isDefault: true,
           deletedAt: null,
         },
         { isDefault: false, updatedAt: now },
@@ -426,7 +538,7 @@ export async function saveRolePerspectives(
     }
 
     touchedRoleIds.add(roleId)
-    results.push(toResolvedRolePerspective(record))
+    resultRecords.push(record)
   }
 
   if (input.roleIds.length) {
@@ -438,7 +550,7 @@ export async function saveRolePerspectives(
     await cache.deleteByTags(tags)
   }
 
-  return results
+  return resultRecords.map(toResolvedRolePerspective)
 }
 
 export async function clearRolePerspectives(
@@ -449,12 +561,63 @@ export async function clearRolePerspectives(
     tenantId?: string | null
     organizationId?: string | null
     roleIds: string[]
+    expectedUpdatedAtByRoleId?: ExpectedUpdatedAtById
+    expectedUpdatedAtByPerspectiveId?: ExpectedUpdatedAtById
+    request?: Request | Headers | null
   },
 ): Promise<number> {
   const { tableId, roleIds } = options
   const tenantId = options.tenantId ?? null
   const organizationId = options.organizationId ?? null
   if (!roleIds.length) return 0
+
+  const existingRecords = await em.find(RolePerspective, {
+    roleId: { $in: roleIds as any },
+    tableId,
+    tenantId,
+    organizationId,
+    deletedAt: null,
+  })
+  const recordsByRole = new Map<string, RolePerspective[]>()
+  for (const record of existingRecords) {
+    const records = recordsByRole.get(record.roleId) ?? []
+    records.push(record)
+    recordsByRole.set(record.roleId, records)
+  }
+
+  for (const roleId of roleIds) {
+    const records = recordsByRole.get(roleId) ?? []
+    const lockInput = resolveRoleLockInput(options.expectedUpdatedAtByRoleId, roleId, options.request ?? null)
+    if (!records.length) {
+      const expected = firstExpectedUpdatedAt(options.expectedUpdatedAtByPerspectiveId)
+      enforceRecordGoneIsConflict({
+        resourceKind: ROLE_PERSPECTIVE_RESOURCE_KIND,
+        resourceId: roleId,
+        expected: expected ?? lockInput.expected,
+        request: expected ? null : lockInput.request,
+      })
+      continue
+    }
+    for (const record of records) {
+      if (
+        options.expectedUpdatedAtByPerspectiveId
+        && !Object.prototype.hasOwnProperty.call(options.expectedUpdatedAtByPerspectiveId, record.id)
+      ) {
+        throwMissingRoleRecordVersionConflict(record)
+      }
+      enforceCommandOptimisticLock({
+        resourceKind: ROLE_PERSPECTIVE_RESOURCE_KIND,
+        resourceId: record.id,
+        current: record.updatedAt ?? null,
+        ...resolveRoleRecordLockInput(
+          options.expectedUpdatedAtByPerspectiveId,
+          options.expectedUpdatedAtByRoleId,
+          record,
+          options.request ?? null,
+        ),
+      })
+    }
+  }
 
   const affected = await em.nativeUpdate(
     RolePerspective,

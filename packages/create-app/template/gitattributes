@@ -1,7 +1,7 @@
 # Normalize all text files to LF on checkout for every platform so Windows
 # (CRLF) clones cannot corrupt files consumed by Docker, shell, and Next.js.
-# A CRLF in docker-compose turned NODE_ENV into "development\r", which disabled
-# Next.js dev optimizations and triggered an OOM compilation loop (see #3470).
+# A CRLF in docker-compose turns NODE_ENV into "development\r", which disables
+# Next.js dev optimizations and can trigger an OOM compilation loop.
 # text=auto leaves detected binary files (images, fonts, archives) untouched.
 * text=auto eol=lf
 
