@@ -439,6 +439,7 @@
   "customers.changelog.showingWithPeriod": "Showing {{shown}} of {{total}} entries · last {{days}} days",
   "customers.changelog.source.api": "API",
   "customers.changelog.source.system": "System",
+  "customers.changelog.source.agent": "Agente",
   "customers.changelog.source.ui": "UI",
   "customers.changelog.title": "Change log",
   "customers.changelog.user.system": "System",

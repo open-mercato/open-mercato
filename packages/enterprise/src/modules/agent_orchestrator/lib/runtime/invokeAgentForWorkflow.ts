@@ -2,6 +2,8 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AgentProposal } from '../../data/entities'
 import type { AgentRuntimeService } from './agentRuntime'
+import type { AgentRunAs } from './persistence'
+import { resolveAgentPrincipal } from '../identity/agentPrincipalService'
 import type {
   DispositionService,
   DispositionOnResult,
@@ -59,12 +61,20 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
   ): Promise<InvokeAgentForWorkflowOutcome> {
     const { agentId, input, onResult, ctx } = args
 
+    // On-behalf-of attribution (Wave 4 P2): if this agent has a provisioned
+    // principal, run as the agent (actor) on behalf of the invoking human, so
+    // every ActionLog the run writes is attributed agent→human, sourced 'agent',
+    // through the SAME audited Command path. When no principal is provisioned yet
+    // the run keeps its prior `userId`-derived attribution (additive, fail-open).
+    const runAs = await this.resolveRunAs(agentId, ctx)
+
     const result = await this.agentRuntime.run(agentId, input, {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       userId: ctx.userId ?? '',
       processId: ctx.processId,
       stepId: ctx.stepId,
+      ...(runAs ? { runAs } : {}),
     })
 
     if (result.kind === 'informative') {
@@ -98,5 +108,27 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
     return outcome.kind === 'auto_approved'
       ? { kind: 'auto_approved', proposalId: outcome.proposalId, payload: proposal.payload }
       : { kind: 'user_task', proposalId: outcome.proposalId }
+  }
+
+  /**
+   * Resolves the on-behalf-of attribution for an `INVOKE_AGENT` run. Returns the
+   * agent principal's `auth.User` id (actor) + the invoking human (`onBehalfOfUserId`)
+   * when the agent is provisioned and enabled; null otherwise (fail-open — the run
+   * keeps its `userId`-derived attribution until a principal exists). Org-scoped.
+   */
+  private async resolveRunAs(
+    agentId: string,
+    ctx: InvokeAgentForWorkflowArgs['ctx'],
+  ): Promise<AgentRunAs | null> {
+    const principal = await resolveAgentPrincipal(
+      this.container,
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      agentId,
+    )
+    if (!principal || !principal.enabled) return null
+    return {
+      agentUserId: principal.userId,
+      onBehalfOfUserId: ctx.userId ?? null,
+    }
   }
 }
