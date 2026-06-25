@@ -51,10 +51,10 @@ and a weekday "today" never adds a spurious weekend column.
 
 ### Phase 1: Add the integration test
 
-- [ ] 1.1 Write `TC-CAL-010.spec.ts` (weekend-today visible, weekday-today no weekend column, toggle-still-works)
-- [ ] 1.2 Typecheck the core package and lint the new spec
+- [x] 1.1 Write `TC-CAL-010.spec.ts` (weekend-today visible, weekday-today no weekend column, toggle-still-works) — f58fedd5c
+- [x] 1.2 Validate the new spec (esbuild syntax/resolve OK; `page.clock.setFixedTime` confirmed in Playwright 1.59 types). Note: local `tsc` cannot run core's tsconfig (`ignoreDeprecations: "6.0"` needs TS6; the worktree resolves TS 5.9.3) — environment quirk, not this change; CI typechecks with TS6. — f58fedd5c
 
 ### Phase 2: Validation & PR
 
-- [ ] 2.1 Run the validation gate (typecheck; spec is integration-only so unit `yarn test` is unaffected)
+- [ ] 2.1 Run the validation gate
 - [ ] 2.2 Self code-review + BC review, open PR, normalize labels, run auto-review-pr
