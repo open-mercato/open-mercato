@@ -18,6 +18,7 @@ import { isSafeNavigationHref, parseObjectActionId, toErrorMessage } from '../ut
 
 type RequestAndRefreshOptions = {
   skipDetailAutoMarkRead?: boolean
+  onSuccess?: () => void
 }
 
 type ConversationActionKind = 'archiveConversation' | 'deleteConversation' | 'markAllUnread'
@@ -37,6 +38,7 @@ type UseMessageDetailsActionsInput = {
   attachments: MessageAttachment[] | undefined
   isArchived: boolean
   onDeleted: () => void
+  onMarkedUnread: () => void
   refreshDetailWithoutAutoMarkRead: () => Promise<MessageDetail | null>
 }
 
@@ -48,6 +50,7 @@ export function useMessageDetailsActions({
   attachments,
   isArchived,
   onDeleted,
+  onMarkedUnread,
   refreshDetailWithoutAutoMarkRead,
 }: UseMessageDetailsActionsInput) {
   const [replyOpen, setReplyOpen] = React.useState(false)
@@ -88,6 +91,7 @@ export function useMessageDetailsActions({
         context: { resourceKind: 'message', messageId: id, action: 'state-change', retryLastMutation },
         mutationPayload: { messageId: id, action: 'state-change', url, method },
       })
+      options?.onSuccess?.()
     } catch (err) {
       flash(
         err instanceof Error
@@ -194,9 +198,9 @@ export function useMessageDetailsActions({
       url: `/api/messages/${encodeURIComponent(targetMessageId)}/conversation/read`,
       method: 'DELETE',
       successMessage: t('messages.flash.conversationMarkedUnread', 'Conversation marked unread.'),
-      skipDetailAutoMarkRead: true,
+      onSuccess: onMarkedUnread,
     })
-  }, [id, runConversationAction, t])
+  }, [id, onMarkedUnread, runConversationAction, t])
 
   const deleteConversation = React.useCallback(async (messageId?: string) => {
     const targetMessageId = messageId ?? id
@@ -365,9 +369,9 @@ export function useMessageDetailsActions({
     await requestAndRefresh(
       `/api/messages/${encodeURIComponent(id)}/read`,
       detail?.isRead ? 'DELETE' : 'PUT',
-      detail?.isRead ? { skipDetailAutoMarkRead: true } : undefined,
+      detail?.isRead ? { skipDetailAutoMarkRead: true, onSuccess: onMarkedUnread } : undefined,
     )
-  }, [detail?.isRead, id, requestAndRefresh])
+  }, [detail?.isRead, id, onMarkedUnread, requestAndRefresh])
 
   const toggleArchive = React.useCallback(async () => {
     await requestAndRefresh(

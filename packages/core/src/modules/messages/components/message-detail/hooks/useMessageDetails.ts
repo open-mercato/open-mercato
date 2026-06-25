@@ -61,6 +61,7 @@ export function useMessageDetails(id: string) {
     attachments: queryState.attachments,
     isArchived,
     onDeleted: () => router.push('/backend/messages'),
+    onMarkedUnread: () => router.push('/backend/messages'),
     refreshDetailWithoutAutoMarkRead: queryState.refreshDetailWithoutAutoMarkRead,
   })
 
