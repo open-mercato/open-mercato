@@ -14,7 +14,9 @@ import {
   AgentGuardrailCheck,
   AgentGuardrailSet,
   AgentContextBundle,
+  AgentPrincipal,
 } from './data/entities'
+import { provisionAgentPrincipal, resolveAgentPrincipal } from './lib/identity/agentPrincipalService'
 import { AgentRuntimeService } from './lib/runtime/agentRuntime'
 import { GuardrailService } from './lib/guardrails/guardrailService'
 import { DbAgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
@@ -39,6 +41,15 @@ export function register(container: AppContainer) {
     AgentGuardrailCheck: asValue(AgentGuardrailCheck),
     AgentGuardrailSet: asValue(AgentGuardrailSet),
     AgentContextBundle: asValue(AgentContextBundle),
+    AgentPrincipal: asValue(AgentPrincipal),
+    // Identity overlay (Wave 4, Phase 1): provisions a non-interactive agent
+    // `User` (kind='agent') + a scoped `Role` so every internal-agent write is
+    // attributed to a concrete actor id. Idempotent + org-scoped. The bound
+    // functions resolve `em` from the container at call time.
+    agentPrincipalService: asFunction(() => ({
+      provision: provisionAgentPrincipal.bind(null, container),
+      resolve: resolveAgentPrincipal.bind(null, container),
+    })).scoped(),
     // CLASSIC injection mode resolves deps by parameter name — destructure the
     // real dependency names (not a `cradle` param) and use .proxy() so the
     // cradle is passed and deps resolve lazily (matches sales/di.ts).
