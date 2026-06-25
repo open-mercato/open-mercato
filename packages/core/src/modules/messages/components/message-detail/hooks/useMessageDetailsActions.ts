@@ -20,7 +20,12 @@ type RequestAndRefreshOptions = {
   skipDetailAutoMarkRead?: boolean
 }
 
-type ConversationActionKind = 'archiveConversation' | 'deleteConversation' | 'markAllUnread'
+type ConversationActionKind =
+  | 'archiveConversation'
+  | 'unarchiveConversation'
+  | 'deleteConversation'
+  | 'markAllUnread'
+  | 'markAllRead'
 
 type MessageDetailMutationContext = {
   resourceKind: 'message' | 'conversation'
@@ -188,6 +193,15 @@ export function useMessageDetailsActions({
     })
   }, [id, runConversationAction, t])
 
+  const unarchiveConversation = React.useCallback(async (messageId?: string) => {
+    const targetMessageId = messageId ?? id
+    await runConversationAction('unarchiveConversation', {
+      url: `/api/messages/${encodeURIComponent(targetMessageId)}/conversation/archive`,
+      method: 'DELETE',
+      successMessage: t('messages.flash.conversationUnarchived', 'Conversation restored from archive.'),
+    })
+  }, [id, runConversationAction, t])
+
   const markConversationUnread = React.useCallback(async (messageId?: string) => {
     const targetMessageId = messageId ?? id
     await runConversationAction('markAllUnread', {
@@ -195,6 +209,15 @@ export function useMessageDetailsActions({
       method: 'DELETE',
       successMessage: t('messages.flash.conversationMarkedUnread', 'Conversation marked unread.'),
       skipDetailAutoMarkRead: true,
+    })
+  }, [id, runConversationAction, t])
+
+  const markConversationRead = React.useCallback(async (messageId?: string) => {
+    const targetMessageId = messageId ?? id
+    await runConversationAction('markAllRead', {
+      url: `/api/messages/${encodeURIComponent(targetMessageId)}/conversation/read`,
+      method: 'PUT',
+      successMessage: t('messages.flash.conversationMarkedRead', 'Conversation marked read.'),
     })
   }, [id, runConversationAction, t])
 
@@ -393,8 +416,10 @@ export function useMessageDetailsActions({
     toggleRead,
     toggleArchive,
     archiveConversation,
+    unarchiveConversation,
     deleteConversation,
     markConversationUnread,
+    markConversationRead,
     requestAndRefresh,
     handleDelete,
     handleDeleteDialogKeyDown,
