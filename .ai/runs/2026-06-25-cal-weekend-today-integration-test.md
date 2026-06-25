@@ -56,5 +56,10 @@ and a weekday "today" never adds a spurious weekend column.
 
 ### Phase 2: Validation & PR
 
-- [ ] 2.1 Run the validation gate
-- [ ] 2.2 Self code-review + BC review, open PR, normalize labels, run auto-review-pr
+- [x] 2.1 Run the validation gate (esbuild syntax/resolve OK; Playwright clock API type-confirmed; tsc/jest gate blocked by TS6 env quirk — documented) — fc1a813b6
+- [x] 2.2 Self code-review + BC review (test-only, no contract surface), open PR #3592, normalize labels (review/skip-qa/priority-low/risk-low), adversarial spec review — PR #3592
+  - Adversarial review verdict: mechanics all correct (clock-before-nav, default Week view at 1280px, `${dd} ${EEE}` header regexes, hidden-locator `.first().toBeHidden()`, fresh-context-per-test isolation, date determinism). Only flag = the #3544 dependency, by design for a standalone guard and documented in the PR body. No code changes needed.
+
+## Changelog
+
+- 2026-06-25 — Opened PR #3592 (standalone, against develop). Must merge AFTER #3544 (the `keepWeekendDate` fix is not yet in develop, so the guard is intentionally red until then).
