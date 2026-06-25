@@ -45,6 +45,7 @@ Suggested implementation order (dependencies first):
 | 7 | **Compliance / AI-Act / DSAR / fairness** — explanation, contest, erasure (person-affecting agents) | [`next/2026-06-19-agent-decision-transparency-and-ai-act.md`](./next/2026-06-19-agent-decision-transparency-and-ai-act.md) | gap-11, 12, 13 |
 | 8 | **Retention / archival** — partitioning + S3 archival, ≥6yr audit tiers | _(gap only)_ | gap-19 |
 | + | **Operations UI (full cockpit)** — Admin KPIs + Engineer trace/eval inspector on the built cockpit (needs #2) | [`next/2026-06-19-agent-operations-ui.md`](./next/2026-06-19-agent-operations-ui.md) | — |
+| + | **Process subject + caseload projection** — claim-anchored `AgentProcess` read-model + `subject` reference backing the "Processes" / "Process detail" pages (needs #2, complements the cockpit) | [`next/2026-06-25-agent-process-subject-and-caseload-projection.md`](./next/2026-06-25-agent-process-subject-and-caseload-projection.md) | — |
 
 Before implementing any overlay, run the spec-writing / pre-implement skills and reconcile the
 spec's assumptions against the shipped code (some specs predate the MVP-inversion and the
