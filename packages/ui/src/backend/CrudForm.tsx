@@ -2689,6 +2689,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     for (const injectedId of injectedFieldIdSet) {
       delete coreValues[injectedId]
     }
+    if (customEntity) {
+      const allowedKeys = new Set(cfDefinitions.map((definition) => definition.key).filter(Boolean))
+      for (const key of Object.keys(coreValues)) {
+        if (!allowedKeys.has(key)) delete coreValues[key]
+      }
+    }
 
     let parsedValues: TValues
     if (schema) {
@@ -2721,6 +2727,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           const projectedCoreValues = { ...(result.data as Record<string, unknown>) }
           for (const injectedId of injectedFieldIdSet) {
             delete projectedCoreValues[injectedId]
+          }
+          if (customEntity) {
+            const allowedKeys = new Set(cfDefinitions.map((definition) => definition.key).filter(Boolean))
+            for (const key of Object.keys(projectedCoreValues)) {
+              if (!allowedKeys.has(key)) delete projectedCoreValues[key]
+            }
           }
           coreSubmitValues = schema
             ? schema.parse(collapseDotPathFields(projectedCoreValues, dotPathBaseFieldIds))
