@@ -1,8 +1,9 @@
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createExternalIdMappingService } from '../id-mapping'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
+  findWithDecryption: jest.fn(),
 }))
 
 describe('createExternalIdMappingService', () => {
@@ -103,5 +104,114 @@ describe('createExternalIdMappingService', () => {
     expect(existingByLocalId.deletedAt).toBeInstanceOf(Date)
     expect(em.flush).toHaveBeenCalledTimes(1)
     expect(persist).not.toHaveBeenCalled()
+  })
+
+  describe('deleteExternalIdMapping', () => {
+    it('soft-deletes the matching mapping and returns true', async () => {
+      const existing = {
+        id: 'mapping-1',
+        integrationId: 'sync_magento',
+        internalEntityType: 'sales_order',
+        internalEntityId: 'order-1',
+        externalId: 'magento-1',
+        deletedAt: null as Date | null,
+      }
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(existing)
+
+      const em = { flush: jest.fn().mockResolvedValue(undefined) }
+      const service = createExternalIdMappingService(em as never)
+      const result = await service.deleteExternalIdMapping(
+        'sync_magento',
+        'sales_order',
+        'order-1',
+        { organizationId: 'org-1', tenantId: 'tenant-1' },
+      )
+
+      expect(result).toBe(true)
+      expect(existing.deletedAt).toBeInstanceOf(Date)
+      expect(em.flush).toHaveBeenCalledTimes(1)
+      const where = (findOneWithDecryption as jest.Mock).mock.calls[0][2]
+      expect(where).toMatchObject({
+        integrationId: 'sync_magento',
+        internalEntityType: 'sales_order',
+        internalEntityId: 'order-1',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        deletedAt: null,
+      })
+    })
+
+    it('returns false and does not flush when no mapping exists', async () => {
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(null)
+
+      const em = { flush: jest.fn().mockResolvedValue(undefined) }
+      const service = createExternalIdMappingService(em as never)
+      const result = await service.deleteExternalIdMapping(
+        'sync_magento',
+        'sales_order',
+        'order-missing',
+        { organizationId: 'org-1', tenantId: 'tenant-1' },
+      )
+
+      expect(result).toBe(false)
+      expect(em.flush).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('deleteExternalIdMappings', () => {
+    it('soft-deletes every matching mapping and returns the count', async () => {
+      const rows = [
+        { id: 'mapping-1', internalEntityId: 'order-1', deletedAt: null as Date | null },
+        { id: 'mapping-2', internalEntityId: 'order-2', deletedAt: null as Date | null },
+      ]
+      ;(findWithDecryption as jest.Mock).mockResolvedValueOnce(rows)
+
+      const em = { flush: jest.fn().mockResolvedValue(undefined) }
+      const service = createExternalIdMappingService(em as never)
+      const result = await service.deleteExternalIdMappings(
+        'sync_magento',
+        'sales_order',
+        ['order-1', 'order-2', 'order-1'],
+        { organizationId: 'org-1', tenantId: 'tenant-1' },
+      )
+
+      expect(result).toBe(2)
+      expect(rows[0].deletedAt).toBeInstanceOf(Date)
+      expect(rows[1].deletedAt).toBeInstanceOf(Date)
+      expect(em.flush).toHaveBeenCalledTimes(1)
+      const where = (findWithDecryption as jest.Mock).mock.calls[0][2]
+      expect(where.internalEntityId).toEqual({ $in: ['order-1', 'order-2'] })
+    })
+
+    it('returns 0 without querying or flushing for an empty id list', async () => {
+      const em = { flush: jest.fn().mockResolvedValue(undefined) }
+      const service = createExternalIdMappingService(em as never)
+      const result = await service.deleteExternalIdMappings(
+        'sync_magento',
+        'sales_order',
+        [],
+        { organizationId: 'org-1', tenantId: 'tenant-1' },
+      )
+
+      expect(result).toBe(0)
+      expect(findWithDecryption as jest.Mock).not.toHaveBeenCalled()
+      expect(em.flush).not.toHaveBeenCalled()
+    })
+
+    it('returns 0 and does not flush when nothing matches', async () => {
+      ;(findWithDecryption as jest.Mock).mockResolvedValueOnce([])
+
+      const em = { flush: jest.fn().mockResolvedValue(undefined) }
+      const service = createExternalIdMappingService(em as never)
+      const result = await service.deleteExternalIdMappings(
+        'sync_magento',
+        'sales_order',
+        ['order-x'],
+        { organizationId: 'org-1', tenantId: 'tenant-1' },
+      )
+
+      expect(result).toBe(0)
+      expect(em.flush).not.toHaveBeenCalled()
+    })
   })
 })

@@ -8,9 +8,15 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
+const mockRunMutation = jest.fn(({ operation }: { operation: () => unknown }) => operation())
+const mockRetryLastMutation = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
+}))
+
+jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
+  useGuardedMutation: () => ({ runMutation: mockRunMutation, retryLastMutation: mockRetryLastMutation }),
 }))
 
 jest.mock('next/link', () => ({ children, href }: any) => <a href={href}>{children}</a>)
@@ -176,5 +182,32 @@ describe('CurrenciesPage', () => {
       expect(deleteCall).toBeDefined()
       expect(deleteCall[0]).toBe('/api/currencies/currencies')
     })
+  })
+
+  // Regression for #3191: every non-CrudForm write must route through the
+  // guarded mutation so global injections, scoped headers, and the unified
+  // optimistic-lock conflict handling run consistently.
+  it('routes set-base through the guarded mutation', async () => {
+    render(<CurrenciesPage />)
+    await waitFor(() => expect(apiCall).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByTestId('row-action-set-base'))
+
+    await waitFor(() => expect(mockRunMutation).toHaveBeenCalled())
+    const ctx = mockRunMutation.mock.calls.at(-1)?.[0]?.context
+    expect(ctx?.resourceKind).toBe('currencies.currency')
+    expect(typeof ctx?.retryLastMutation).toBe('function')
+  })
+
+  it('routes delete through the guarded mutation', async () => {
+    render(<CurrenciesPage />)
+    await waitFor(() => expect(apiCall).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByTestId('row-action-delete'))
+
+    await waitFor(() => expect(mockRunMutation).toHaveBeenCalled())
+    const ctx = mockRunMutation.mock.calls.at(-1)?.[0]?.context
+    expect(ctx?.resourceKind).toBe('currencies.currency')
+    expect(typeof ctx?.retryLastMutation).toBe('function')
   })
 })
