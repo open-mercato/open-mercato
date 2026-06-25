@@ -27,7 +27,33 @@ Migrations are **hand-authored + snapshot updated only, NOT applied** (`yarn db:
 | 7 | W4.P1 — `User.kind` + `AgentPrincipal` provisioning | identity spec §Phase 1 | M | ✅ | `39803f955` — enterprise 41 suites/189 tests; auth 526 tests pass. Additive `User.kind` (NOT NULL default 'human', auth migration `…20260625050000`) + `AgentPrincipal` entity/table + idempotent provisioning (non-interactive agent User, scoped Role). credentialMode internal\|oauth_client\|authmd. Migrations NOT applied. |
 | 8 | W4.P2 — `ActionLog.onBehalfOfUserId` + `runAs` propagation + audit chain | identity spec §Phase 2 | M | ✅ | `173c3e0f7` — enterprise 43 suites/199, shared commands 15/121, audit_logs 9/53. Additive `ActionLog.onBehalfOfUserId`(nullable+idx)+`'agent'` source; `runAs` on `CommandRuntimeContext` stamps actor=agent/onBehalfOf=human via existing Command path; `/audit/by-instigator/:humanUserId` route+UI. Migration `audit_logs/…20260625120000` NOT applied. P3 hooks off `ctx.runAs`. |
 | 9 | W4.P3 — External OAuth `/token` + `AgentDelegationGrant` + 3-layer no-bypass | identity spec §Phase 3 · gap-16 | L | ✅ | `39b7f098a` — enterprise 46 suites/221 tests; OAuth client-credentials /token (signAudienceJwt + api_keys precedent, server-derived scope/org), AgentDelegationGrant + optimistic-locked /revoke, fail-closed flush-time no-bypass subscriber (AsyncLocalStorage agent-actor + audited-command scopes, both runtimes) + propose-only + release-gate test. New `agent_delegation_grants` table NOT applied. Module-confined (no core/shared edits). |
-| 10 | W4.P4 — ID-JAG self-registration (`/.well-known` + `/agent/auth`) | identity spec §Phase 4 | M | ✅ | `<pending>` — enterprise 48 suites/239 tests; ID-JAG (RFC 7523 JWT-bearer) self-registration: `/.well-known` discovery + `/agent/auth` (verify issuer+aud+sig via shared verifyJwt → idempotent authmd principal+grant on issuer/subject/audience seam cols → shared mint core). No migration, no generated churn, reuses P3 services. **Wave 4 complete — all 3 waves done.** |
+| 10 | W4.P4 — ID-JAG self-registration (`/.well-known` + `/agent/auth`) | identity spec §Phase 4 | M | ✅ | `5cada5341` — enterprise 48 suites/239 tests; ID-JAG (RFC 7523 JWT-bearer) self-registration: `/.well-known` discovery + `/agent/auth` (verify issuer+aud+sig via shared verifyJwt → idempotent authmd principal+grant on issuer/subject/audience seam cols → shared mint core). No migration, no generated churn, reuses P3 services. **Wave 4 complete — all 3 waves done.** |
+
+## Outcome (2026-06-25)
+
+All 10 phases complete — one commit each (`ca89f1e81` → `5cada5341`). Module test suite grew from
+33 suites/133 tests (start of run) to **48 suites / 239 tests**, all passing; enterprise + shared typecheck
+clean; core has no new errors (only the known pre-existing orphan, below). Waves 2, 3, 4 all done.
+
+Commits: P1 `ca89f1e81` · P2 `8c847c6d8` · P3 `441352215` · P4 `1c89bb516` · GuardP3 `439778ad3` ·
+GuardP4 `a67f10684` · IdP1 `39803f955` · IdP2 `173c3e0f7` · IdP3 `39b7f098a` · IdP4 `5cada5341`.
+
+### Maintainer handoff (outside this run's scope)
+- **Apply migrations** (NOT applied this run). New/changed tables: `agent_context_bundles` (`…020000`),
+  `agent_guardrail_sets` (`…040000`), `agent_principals` (`…050000`), `agent_delegation_grants` (`…060000`)
+  in enterprise; `auth.users.kind` (auth `…050000`); `audit_logs.action_logs.on_behalf_of_user_id` +
+  index (audit_logs `…120000`). Use `OM_ENABLE_ENTERPRISE_MODULES=true OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true
+  yarn workspace @open-mercato/app db:migrate` (root `yarn db:migrate` strips the env via turbo).
+- **Sync ACLs** — new features `agent_orchestrator.context.read`, `identity.read`, `identity.manage`,
+  `identity.tokens` (+ guardrail.* already synced). Regenerate the registry WITH the enterprise flags, then
+  `… mercato auth sync-role-acls` (same gotcha as the prior run — sync reads the generated registry).
+- **Env for external-agent auth**: set `AGENT_ID_JAG_ISSUERS` (trusted issuer registry) to enable the P4
+  ID-JAG `/agent/auth` path; empty = fail-closed (no external self-registration).
+
+### Deferred (flagged, not in this run's scope)
+- Context P3 async IDP queue worker + standalone extractions table (follow-up behind `DocumentOcrProvider`).
+- Guardrails injection model-judge layer-3 (dark-launched) + grounding LLM-faithfulness warn tier.
+- Wave 0 leftovers F1 (S3 offload), F3 (partitioning), and Guardrails P2 (moderation/PII) — all still deferred.
 
 ## Notes / decisions
 
