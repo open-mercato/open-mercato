@@ -24,7 +24,8 @@ import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -47,6 +48,10 @@ import {
   resolveIntegrationDetailWidgetSpotId,
   resolveRequestedIntegrationDetailTab,
 } from '../detail-page-widgets'
+import {
+  refreshIntegrationDetailPanels,
+  refreshIntegrationRunActivityPanels,
+} from '../detail-page-refresh'
 import { isValidCredentialUrl } from '../../../lib/credentials-field-validation'
 
 type CredentialField = IntegrationCredentialField
@@ -101,8 +106,10 @@ type IntegrationDetail = {
     lastHealthCheckedAt: string | null
     lastHealthLatencyMs: number | null
     enabledAt: string | null
+    updatedAt: string | null
   }
   hasCredentials: boolean
+  credentialsUpdatedAt?: string | null
   healthStatus: 'healthy' | 'degraded' | 'unhealthy' | 'unconfigured'
   analytics: IntegrationLogAnalytics
 }
@@ -419,6 +426,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const [isNotFound, setIsNotFound] = React.useState(false)
 
   const [credValues, setCredValues] = React.useState<Record<string, unknown>>({})
+  const [credentialsUpdatedAt, setCredentialsUpdatedAt] = React.useState<string | null>(null)
   const [credentialsFormKey, setCredentialsFormKey] = React.useState(0)
   const [isSavingCredentials, setIsSavingCredentials] = React.useState(false)
 
@@ -482,11 +490,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const loadCredentials = React.useCallback(async () => {
     const currentIntegrationId = resolveCurrentIntegrationId()
     if (!currentIntegrationId) return
-    const call = await apiCall<{ credentials: Record<string, unknown> }>(
+    const call = await apiCall<{ credentials: Record<string, unknown>; updatedAt?: string | null }>(
       `/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`,
       undefined,
       { fallback: null },
     )
+    if (call.ok && call.result) {
+      setCredentialsUpdatedAt(call.result.updatedAt ?? null)
+    }
     if (call.ok && call.result?.credentials) {
       const next = { ...call.result.credentials }
       if (currentIntegrationId === 'storage_s3') {
@@ -531,8 +542,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     spotId: detailWidgetSpotId,
   })
   const refreshDetail = React.useCallback(async () => {
-    await loadDetail({ showLoading: false })
-    await loadCredentials()
+    await refreshIntegrationDetailPanels({ loadDetail, loadCredentials })
   }, [loadCredentials, loadDetail])
   const refreshLogs = React.useCallback(async () => {
     await loadLogs()
@@ -549,13 +559,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     }
     if (options?.showLoading) setIsRefreshingRunActivity(true)
     try {
-      const call = await apiCall<DataSyncRunDetail>(
-        `/api/data_sync/runs/${encodeURIComponent(runIdFromUrl)}`,
-        undefined,
-        { fallback: null },
-      )
-      await loadLogs()
-      await loadDetail({ showLoading: false })
+      const [call] = await Promise.all([
+        apiCall<DataSyncRunDetail>(
+          `/api/data_sync/runs/${encodeURIComponent(runIdFromUrl)}`,
+          undefined,
+          { fallback: null },
+        ),
+        refreshIntegrationRunActivityPanels({ loadLogs, loadDetail }),
+      ])
       if (call.ok && call.result) {
         setActiveRunDetail(call.result)
         setActiveRunRefreshedAt(new Date().toISOString())
@@ -667,11 +678,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       const call = await runMutationWithContext({
         actionId: 'toggle-state',
         mutationPayload: { integrationId: currentIntegrationId, isEnabled: enabled },
-        operation: () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/state`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ isEnabled: enabled }),
-        }, { fallback: null }),
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(detail?.state.updatedAt),
+          () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/state`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isEnabled: enabled }),
+          }, { fallback: null }),
+        ),
       })
       if (call.ok) {
         setDetail((prev) => prev ? {
@@ -683,6 +697,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           },
         } : prev)
         flash(t('integrations.detail.stateUpdated'), 'success')
+        void refreshDetail()
       } else {
         flash(t('integrations.detail.stateError'), 'error')
       }
@@ -691,7 +706,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     } finally {
       setIsTogglingState(false)
     }
-  }, [resolveCurrentIntegrationId, runMutationWithContext, t])
+  }, [detail?.state.updatedAt, refreshDetail, resolveCurrentIntegrationId, runMutationWithContext, t])
 
   const handleSaveCredentials = React.useCallback(async (values: Record<string, unknown>) => {
     const currentIntegrationId = resolveCurrentIntegrationId()
@@ -715,17 +730,21 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         actionId: 'save-credentials',
         tabId: 'credentials',
         mutationPayload: { integrationId: currentIntegrationId, credentials: sanitizedValues },
-        operation: () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ credentials: sanitizedValues }),
-        }, { fallback: null }),
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(credentialsUpdatedAt),
+          () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credentials: sanitizedValues }),
+          }, { fallback: null }),
+        ),
       })
 
       if (call.ok) {
         setCredValues(sanitizedValues)
         setCredentialsFormKey((current) => current + 1)
         flash(t('integrations.detail.credentials.saved'), 'success')
+        void loadCredentials()
         return
       }
 
@@ -741,7 +760,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     } finally {
       setIsSavingCredentials(false)
     }
-  }, [resolveCurrentIntegrationId, runMutationWithContext, t])
+  }, [credentialsUpdatedAt, loadCredentials, resolveCurrentIntegrationId, runMutationWithContext, t])
 
   const handleVersionChange = React.useCallback(async (version: string) => {
     const currentIntegrationId = resolveCurrentIntegrationId()
@@ -751,22 +770,26 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         actionId: 'change-version',
         tabId: 'version',
         mutationPayload: { integrationId: currentIntegrationId, apiVersion: version },
-        operation: () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/version`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ apiVersion: version }),
-        }, { fallback: null }),
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(detail?.state.updatedAt),
+          () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/version`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiVersion: version }),
+          }, { fallback: null }),
+        ),
       })
       if (call.ok) {
         setDetail((prev) => prev ? { ...prev, state: { ...prev.state, apiVersion: version } } : prev)
         flash(t('integrations.detail.version.saved'), 'success')
+        void refreshDetail()
       } else {
         flash(t('integrations.detail.version.saveError'), 'error')
       }
     } catch {
       flash(t('integrations.detail.version.saveError'), 'error')
     }
-  }, [resolveCurrentIntegrationId, runMutationWithContext, t])
+  }, [detail?.state.updatedAt, refreshDetail, resolveCurrentIntegrationId, runMutationWithContext, t])
 
   const handleHealthCheck = React.useCallback(async () => {
     const currentIntegrationId = resolveCurrentIntegrationId()

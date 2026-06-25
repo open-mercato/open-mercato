@@ -10,6 +10,11 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { staffLeaveRequestDecisionSchema, type StaffLeaveRequestDecisionInput } from '../../../data/validators'
+import {
+  resolveUserFeatures,
+  runStaffMutationGuardAfterSuccess,
+  runStaffMutationGuards,
+} from '../../guards'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['staff.leave_requests.manage'] },
@@ -39,11 +44,51 @@ export async function POST(req: Request) {
     const { ctx, translate } = await buildContext(req)
     const body = await req.json().catch(() => ({}))
     const input = parseScopedCommandInput(staffLeaveRequestDecisionSchema, body, ctx, translate)
+
+    const auth = ctx.auth
+    const tenantId = auth?.tenantId ?? ''
+    const organizationId = ctx.selectedOrganizationId ?? null
+    const guardResult = await runStaffMutationGuards(
+      ctx.container,
+      {
+        tenantId,
+        organizationId,
+        userId: auth?.sub ?? '',
+        resourceKind: 'staff.leave_request',
+        resourceId: input.id,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        mutationPayload: input,
+      },
+      resolveUserFeatures(auth),
+    )
+    if (!guardResult.ok) {
+      return NextResponse.json(
+        guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+        { status: guardResult.errorStatus ?? 422 },
+      )
+    }
+
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<StaffLeaveRequestDecisionInput, { requestId: string }>(
       'staff.leave-requests.accept',
       { input, ctx },
     )
+
+    if (guardResult.afterSuccessCallbacks.length) {
+      await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+        tenantId,
+        organizationId,
+        userId: auth?.sub ?? '',
+        resourceKind: 'staff.leave_request',
+        resourceId: result?.requestId ?? input.id,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+      })
+    }
+
     const response = NextResponse.json({ ok: true, id: result?.requestId ?? null }, { status: 200 })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(

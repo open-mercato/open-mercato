@@ -4,7 +4,6 @@ import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { getDashboardWidgets, loadDashboardWidgetModule } from './widgetRegistry'
@@ -355,11 +354,11 @@ export function DashboardScreen() {
 
   if (error && layout.length === 0) {
     return (
-      <ErrorNotice
-        title={t('dashboard.unavailable')}
-        message={error}
-        action={<Button variant="outline" onClick={handleRefresh}>{t('dashboard.retry')}</Button>}
-      />
+      <Alert variant="destructive">
+        <AlertTitle>{t('dashboard.unavailable')}</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+        <div className="mt-2"><Button variant="outline" onClick={handleRefresh}>{t('dashboard.retry')}</Button></div>
+      </Alert>
     )
   }
 
@@ -401,11 +400,11 @@ export function DashboardScreen() {
       </div>
 
       {error && layout.length > 0 && (
-        <ErrorNotice
-          title={t('dashboard.error.partial')}
-          message={error}
-          action={<Button variant="ghost" onClick={handleRefresh}>{t('dashboard.error.reload')}</Button>}
-        />
+        <Alert variant="destructive">
+          <AlertTitle>{t('dashboard.error.partial')}</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+          <div className="mt-2"><Button variant="ghost" onClick={handleRefresh}>{t('dashboard.error.reload')}</Button></div>
+        </Alert>
       )}
 
       <InjectionSpot spotId={dashboardBeforeSpotId} context={injectionContext} />
