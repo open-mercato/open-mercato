@@ -23,7 +23,7 @@ import {
   ConnectionMode,
   MarkerType,
 } from '@xyflow/react'
-import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, ParallelForkNode, ParallelJoinNode} from './nodes'
+import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, ParallelForkNode, ParallelJoinNode, InvokeAgentNode} from './nodes'
 import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
 import { STATUS_COLORS } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
@@ -149,6 +149,7 @@ export default function WorkflowGraphImpl({
       waitForTimer: WaitForTimerNode,
       parallelFork: ParallelForkNode,
       parallelJoin: ParallelJoinNode,
+      invokeAgent: InvokeAgentNode,
     }),
     []
   )

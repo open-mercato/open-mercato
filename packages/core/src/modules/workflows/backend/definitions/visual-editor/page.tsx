@@ -1004,7 +1004,7 @@ export default function VisualEditorPage() {
               <p className="mb-3 text-xs text-muted-foreground">{t('workflows.visualEditor.tapToAdd')}</p>
 
               <div className="flex gap-2 overflow-x-auto pb-1">
-                {(['start', 'userTask', 'automated', 'waitForSignal', 'waitForTimer', 'subWorkflow', 'end'] as const).map((nodeType) => {
+                {(['start', 'userTask', 'automated', 'invokeAgent', 'waitForSignal', 'waitForTimer', 'subWorkflow', 'end'] as const).map((nodeType) => {
                   const Icon = NODE_TYPE_ICONS[nodeType]
                   return (
                     <button
@@ -1076,6 +1076,21 @@ export default function VisualEditorPage() {
                   </div>
                   <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.automated.title}</div>
                   <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.automated.description}</div>
+                </button>
+
+                {/* INVOKE_AGENT Step */}
+                <button
+                  onClick={() => handleAddNode('invokeAgent')}
+                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
+                >
+                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.invokeAgent} opacity-60 transition-opacity group-hover:opacity-100`}>
+                    {(() => {
+                      const Icon = NODE_TYPE_ICONS.invokeAgent
+                      return <Icon className="h-4 w-4" />
+                    })()}
+                  </div>
+                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.invokeAgent.title}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.invokeAgent.description}</div>
                 </button>
 
                 {/* WAIT_FOR_SIGNAL Step */}
@@ -1212,6 +1227,7 @@ function getDefaultLabel(nodeType: string): string {
     decision: 'Decision Point',
     waitForSignal: 'Wait for Signal',
     waitForTimer: 'Wait for Timer',
+    invokeAgent: 'Invoke Agent',
   }
   return labels[nodeType] || 'New Step'
 }
@@ -1225,6 +1241,7 @@ function getDefaultBadge(nodeType: string): string {
     decision: 'Decision',
     waitForSignal: 'Wait for Signal',
     waitForTimer: 'Wait for Timer',
+    invokeAgent: 'Invoke Agent',
   }
   return badges[nodeType] || 'Task'
 }

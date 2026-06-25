@@ -57,7 +57,7 @@ ${pc.bold('Options:')}
   --init-git         Initialize a local Git repository after scaffolding
   --no-init-git      Do not prompt for or initialize a local Git repository
   --agents <list>    Set up agent tooling non-interactively (skips the wizard):
-                     comma-separated claude-code,codex,cursor — or 'all' / 'none'
+                     comma-separated claude-code,codex,cursor,github-copilot — or 'all' / 'none'
   --skip-agentic-setup  Skip the agentic setup wizard (alias for --agents none)
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
