@@ -220,6 +220,8 @@ export function MessageDetailPageClient({ id }: { id: string }) {
   const firstConversationMessageId = state.conversationItems[0]?.id ?? null
   const latestConversationMessageId = state.conversationItems[state.conversationItems.length - 1]?.id ?? null
   const canRunConversationActions = Boolean(firstConversationMessageId)
+  const conversationArchived = Boolean(detail.conversationArchived)
+  const conversationAllUnread = Boolean(detail.conversationAllUnread)
 
   return (
     <div className="space-y-3">
@@ -228,6 +230,8 @@ export function MessageDetailPageClient({ id }: { id: string }) {
         priority={(detail.priority as 'low' | 'normal' | 'high' | 'urgent') ?? 'normal'}
         canReply={!detail.isDraft && detail.typeDefinition.allowReply && Boolean(firstConversationMessageId)}
         canForwardAll={!detail.isDraft && detail.typeDefinition.allowForward && Boolean(latestConversationMessageId)}
+        conversationArchived={conversationArchived}
+        conversationAllUnread={conversationAllUnread}
         actionsDisabled={Boolean(state.activeConversationAction)}
         activeActionId={state.activeConversationAction}
         onReply={() => {
@@ -244,13 +248,21 @@ export function MessageDetailPageClient({ id }: { id: string }) {
             messageId: latestConversationMessageId,
           })
         }}
-        onArchiveConversation={() => {
+        onToggleArchiveConversation={() => {
           if (!canRunConversationActions) return
-          void state.archiveConversation(firstConversationMessageId ?? undefined)
+          if (conversationArchived) {
+            void state.unarchiveConversation(firstConversationMessageId ?? undefined)
+          } else {
+            void state.archiveConversation(firstConversationMessageId ?? undefined)
+          }
         }}
-        onMarkAllUnread={() => {
+        onToggleReadConversation={() => {
           if (!canRunConversationActions) return
-          void state.markConversationUnread(firstConversationMessageId ?? undefined)
+          if (conversationAllUnread) {
+            void state.markConversationRead(firstConversationMessageId ?? undefined)
+          } else {
+            void state.markConversationUnread(firstConversationMessageId ?? undefined)
+          }
         }}
         onDeleteConversation={() => {
           if (!canRunConversationActions || state.activeConversationAction) return

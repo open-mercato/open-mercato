@@ -3,6 +3,10 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { actionEditSchema, validateActionPayloadForType } from '../../../../../data/validators'
 import { emitInboxOpsEvent } from '../../../../../events'
 import { resolveCache, invalidateCountsCache } from '../../../../../lib/cache'
@@ -55,8 +59,37 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: payloadValidation.error }, { status: 400 })
     }
 
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      resourceKind: 'inbox_ops:inbox_proposal_action',
+      resourceId: action.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: parsed.data,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
     action.payload = mergedPayload
     await ctx.em.flush()
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        resourceKind: 'inbox_ops:inbox_proposal_action',
+        resourceId: action.id,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
 
     const cache = resolveCache(ctx.container)
     await runWithCacheTenant(ctx.tenantId, () => invalidateCountsCache(cache, ctx.tenantId))

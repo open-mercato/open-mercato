@@ -184,7 +184,24 @@ export async function buildProductFilters(
     tenantId: ctx.auth?.tenantId ?? null,
   };
   const term = sanitizeSearchTerm(query.search);
-  if (term) {
+  const channelFilterIds = parseIdList(query.channelIds);
+  const categoryFilterIds = parseIdList(query.categoryIds);
+  const tagFilterIds = parseIdList(query.tagIds);
+  const customFieldset =
+    typeof query.customFieldset === "string" &&
+    query.customFieldset.trim().length
+      ? query.customFieldset.trim()
+      : null;
+  const tenantId = ctx.auth?.tenantId ?? null;
+
+  // These prequeries are independent — each only feeds the final product-id
+  // intersection, none depends on another's result — so dispatch them together
+  // instead of awaiting one after another (#3179). A task returns null when its
+  // filter is inactive (intersection skipped) or the matched product-id list
+  // (possibly empty) when active, preserving the "active filter with no matches
+  // => empty result" behavior.
+  const searchTask = async (): Promise<string[] | null> => {
+    if (!term) return null;
     const like = `%${escapeLikePattern(term)}%`;
     const searchMatches = await findWithDecryption(
       em,
@@ -203,14 +220,13 @@ export async function buildProductFilters(
       { fields: ["id"] },
       scope,
     );
-    const productIds = searchMatches
+    return searchMatches
       .map((product) => product.id)
       .filter((id): id is string => typeof id === "string" && id.length > 0);
-    intersectProductIds(productIds);
-  }
+  };
 
-  const channelFilterIds = parseIdList(query.channelIds);
-  if (channelFilterIds.length) {
+  const channelTask = async (): Promise<string[] | null> => {
+    if (!channelFilterIds.length) return null;
     const offerRows = await findWithDecryption(
       em,
       CatalogOffer,
@@ -222,18 +238,17 @@ export async function buildProductFilters(
       { fields: ["id", "product"] },
       scope,
     );
-    const productIds = offerRows
+    return offerRows
       .map((offer) =>
         typeof offer.product === "string"
           ? offer.product
           : (offer.product?.id ?? null),
       )
       .filter((id): id is string => !!id);
-    intersectProductIds(productIds);
-  }
+  };
 
-  const categoryFilterIds = parseIdList(query.categoryIds);
-  if (categoryFilterIds.length) {
+  const categoryTask = async (): Promise<string[] | null> => {
+    if (!categoryFilterIds.length) return null;
     const assignments = await findWithDecryption(
       em,
       CatalogProductCategoryAssignment,
@@ -241,18 +256,17 @@ export async function buildProductFilters(
       { fields: ["id", "product"] },
       scope,
     );
-    const productIds = assignments
+    return assignments
       .map((assignment) =>
         typeof assignment.product === "string"
           ? assignment.product
           : (assignment.product?.id ?? null),
       )
       .filter((id): id is string => !!id);
-    intersectProductIds(productIds);
-  }
+  };
 
-  const tagFilterIds = parseIdList(query.tagIds);
-  if (tagFilterIds.length) {
+  const tagTask = async (): Promise<string[] | null> => {
+    if (!tagFilterIds.length) return null;
     const assignments = await findWithDecryption(
       em,
       CatalogProductTagAssignment,
@@ -260,36 +274,49 @@ export async function buildProductFilters(
       { fields: ["id", "product"] },
       scope,
     );
-    const productIds = assignments
+    return assignments
       .map((assignment) =>
         typeof assignment.product === "string"
           ? assignment.product
           : (assignment.product?.id ?? null),
       )
       .filter((id): id is string => !!id);
-    intersectProductIds(productIds);
+  };
+
+  const customFieldTask = async (): Promise<Record<string, unknown>> => {
+    try {
+      const scopedEm = ctx.container.resolve("em") as EntityManager;
+      return await buildCustomFieldFiltersFromQuery({
+        entityIds: [E.catalog.catalog_product],
+        query,
+        em: scopedEm,
+        tenantId,
+        fieldset: customFieldset ?? undefined,
+      });
+    } catch (err) {
+      // Custom field filter parsing may fail for non-existent or misconfigured fields.
+      // Fall back to base filters to avoid blocking the product listing.
+      if (process.env.NODE_ENV === 'development') console.warn('[catalog:products] custom field filter error', err);
+      return {};
+    }
+  };
+
+  const [searchIds, channelIds, categoryIds, tagIds, cfFilters] =
+    await Promise.all([
+      searchTask(),
+      channelTask(),
+      categoryTask(),
+      tagTask(),
+      customFieldTask(),
+    ]);
+
+  // Apply intersections in the original order; intersection is commutative, so
+  // the result is identical to the previous sequential pass. An empty array is
+  // still intersected (active filter that matched nothing); null is skipped.
+  for (const productIds of [searchIds, channelIds, categoryIds, tagIds]) {
+    if (productIds) intersectProductIds(productIds);
   }
-  const customFieldset =
-    typeof query.customFieldset === "string" &&
-    query.customFieldset.trim().length
-      ? query.customFieldset.trim()
-      : null;
-  const tenantId = ctx.auth?.tenantId ?? null;
-  try {
-    const scopedEm = ctx.container.resolve("em") as EntityManager;
-    const cfFilters = await buildCustomFieldFiltersFromQuery({
-      entityIds: [E.catalog.catalog_product],
-      query,
-      em: scopedEm,
-      tenantId,
-      fieldset: customFieldset ?? undefined,
-    });
-    Object.assign(filters, cfFilters);
-  } catch (err) {
-    // Custom field filter parsing may fail for non-existent or misconfigured fields.
-    // Fall back to base filters to avoid blocking the product listing.
-    if (process.env.NODE_ENV === 'development') console.warn('[catalog:products] custom field filter error', err);
-  }
+  Object.assign(filters, cfFilters);
   applyRestrictedProducts();
   return filters;
 }
@@ -655,6 +682,11 @@ async function decorateProductsAfterList(
       item.categories = categories;
       item.categoryIds = categories.map((category) => category.id);
       item.tags = tagsByProduct.get(id) ?? [];
+      if (item.is_quote_only === true) {
+        item.pricing = null;
+        pricingEntries.push(null);
+        continue;
+      }
       const priceCandidates = pricesByProduct.get(id) ?? [];
       const normalizedQuantityForPricing = (() => {
         if (!requestQuantityUnitKey) return pricingContext.quantity;
@@ -798,6 +830,32 @@ const crud = makeCrudRoute({
       F.dimensions,
       F.is_configurable,
       F.is_active,
+      "country_of_origin_code",
+      "pkwiu_code",
+      "cn_code",
+      "hs_code",
+      "tax_classification_code",
+      "gtu_codes",
+      "age_min",
+      "is_excise_good",
+      "excise_category",
+      "requires_prescription",
+      "hazmat_class",
+      "un_number",
+      "hazmat_packing_group",
+      "contains_lithium_battery",
+      "launch_at",
+      "end_of_life_at",
+      "available_from",
+      "available_until",
+      "min_order_qty",
+      "max_order_qty",
+      "order_qty_increment",
+      "requires_shipping",
+      "is_quote_only",
+      "seo_title",
+      "seo_description",
+      "canonical_url",
       F.metadata,
       "custom_fieldset_code",
       "option_schema_id",
@@ -943,6 +1001,32 @@ const productListItemSchema = z.object({
   dimensions: z.record(z.string(), z.unknown()).nullable().optional(),
   is_configurable: z.boolean().nullable().optional(),
   is_active: z.boolean().nullable().optional(),
+  country_of_origin_code: z.string().nullable().optional(),
+  pkwiu_code: z.string().nullable().optional(),
+  cn_code: z.string().nullable().optional(),
+  hs_code: z.string().nullable().optional(),
+  tax_classification_code: z.string().nullable().optional(),
+  gtu_codes: z.array(z.string()).nullable().optional(),
+  age_min: z.number().nullable().optional(),
+  is_excise_good: z.boolean().nullable().optional(),
+  excise_category: z.string().nullable().optional(),
+  requires_prescription: z.boolean().nullable().optional(),
+  hazmat_class: z.string().nullable().optional(),
+  un_number: z.string().nullable().optional(),
+  hazmat_packing_group: z.string().nullable().optional(),
+  contains_lithium_battery: z.boolean().nullable().optional(),
+  launch_at: z.string().nullable().optional(),
+  end_of_life_at: z.string().nullable().optional(),
+  available_from: z.string().nullable().optional(),
+  available_until: z.string().nullable().optional(),
+  min_order_qty: z.number().nullable().optional(),
+  max_order_qty: z.number().nullable().optional(),
+  order_qty_increment: z.number().nullable().optional(),
+  requires_shipping: z.boolean().nullable().optional(),
+  is_quote_only: z.boolean().nullable().optional(),
+  seo_title: z.string().nullable().optional(),
+  seo_description: z.string().nullable().optional(),
+  canonical_url: z.string().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   custom_fieldset_code: z.string().nullable().optional(),
   option_schema_id: z.string().uuid().nullable().optional(),
