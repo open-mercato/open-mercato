@@ -672,3 +672,80 @@ export const agentPrincipalListQuerySchema = z
   })
   .passthrough()
 export type AgentPrincipalListQuery = z.infer<typeof agentPrincipalListQuerySchema>
+
+// ── External OAuth client-credentials + delegation grant (Wave 4 Phase 3) ─────
+
+/**
+ * RFC 6749 §4.4 client-credentials token request. Only `client_credentials` is
+ * accepted (a non-conforming `grant_type` is rejected → `unsupported_grant_type`).
+ * `scope` is OPTIONAL and only ever NARROWS within the grant's server-side scope
+ * — the client can never widen beyond what the AgentDelegationGrant authorizes.
+ * Tenant/organization are NEVER read from client input; they are derived from the
+ * authenticated principal + grant so a client cannot mint a cross-tenant token.
+ */
+export const oauthTokenRequestSchema = z.object({
+  grant_type: z.literal('client_credentials'),
+  client_id: z.string().min(1).max(200),
+  client_secret: z.string().min(1).max(500),
+  /** Optional space-delimited scope subset; intersected with the grant's scopes. */
+  scope: z.string().max(2000).optional(),
+})
+export type OAuthTokenRequest = z.infer<typeof oauthTokenRequestSchema>
+
+/** RFC 6749 §5.1 access-token response. No secret is ever echoed. */
+export const oauthTokenResponseSchema = z.object({
+  access_token: z.string(),
+  token_type: z.literal('Bearer'),
+  expires_in: z.number().int().positive(),
+  scope: z.string(),
+})
+export type OAuthTokenResponse = z.infer<typeof oauthTokenResponseSchema>
+
+/**
+ * The audience-scoped JWT claims minted for an external agent. `aud:'agent'`
+ * isolates the signing key (an agent token can never be replayed as a staff or
+ * customer session). `scope`/`tenantId`/`organizationId`/`grantId` are
+ * server-derived and unforgeable by the client. Verification re-loads the grant
+ * by `grantId` and rejects when it is revoked/expired (revocation is immediate).
+ */
+export const agentTokenClaimsSchema = z.object({
+  iss: z.literal('open-mercato'),
+  aud: z.literal('agent'),
+  /** The agent principal's `auth.User` id — the actor on every attributed write. */
+  sub: z.string().uuid(),
+  /** The human delegator this agent acts on behalf of, or null when none. */
+  obo: z.string().uuid().nullable(),
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  /** Space-delimited `<capability>:<action>` scope grants. */
+  scope: z.string(),
+  /** FK id → agent_delegation_grants; the per-request revocation check key. */
+  grantId: z.string().uuid(),
+})
+export type AgentTokenClaims = z.infer<typeof agentTokenClaimsSchema>
+
+/**
+ * Input to create an AgentDelegationGrant — links an external (`oauth_client`)
+ * AgentPrincipal to the human delegator + the scopes it may mint tokens for.
+ * Tenant/organization come from the authenticated request scope, never the body.
+ */
+export const createAgentDelegationGrantSchema = z.object({
+  /** FK id → agent_principals (the external principal this grant authorizes). */
+  agentPrincipalId: z.string().uuid(),
+  /** FK id → auth.User — the human delegating authority to the agent. */
+  delegatorUserId: z.string().uuid(),
+  /** `<capability>:<action>` scopes the minted token may carry (non-empty). */
+  scopes: z.array(z.string().min(1)).min(1),
+  /** Optional hard expiry; tokens never outlive this even before revocation. */
+  expiresAt: z.coerce.date().nullable().optional(),
+})
+export type CreateAgentDelegationGrantInput = z.infer<typeof createAgentDelegationGrantSchema>
+
+/** Body for POST /identity/grants/:id/revoke (optimistic-lock token optional). */
+export const revokeAgentDelegationGrantSchema = z
+  .object({
+    /** Optional expected `updated_at` token (also accepted via the standard header). */
+    expectedUpdatedAt: z.string().optional(),
+  })
+  .partial()
+export type RevokeAgentDelegationGrantInput = z.infer<typeof revokeAgentDelegationGrantSchema>

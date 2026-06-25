@@ -11,6 +11,8 @@ import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/cont
 import { resolveContextModule } from '../context/registry'
 import { OpenCodeAgentRunner } from './openCodeAgentRunner'
 import { withRunContext } from './runContext'
+import { withAgentActor } from '../identity/agentWriteScope'
+import { registerAgentKindNoBypassSubscriber } from '../identity/agentNoBypassSubscriber'
 import {
   type AgentRunCtx,
   buildCommandContext,
@@ -103,19 +105,41 @@ export class AgentRuntimeService {
     const entry = getAgentEntry(agentId)
     if (!entry) throw new AgentNotFoundError(agentId)
 
-    // Dispatch on the agent's declared runtime. File-defined (OpenCode) agents
-    // run on the OpenCode runtime via a dedicated runner; everything else uses
-    // the existing in-process object-mode path (unchanged).
-    if (entry.runtime === 'opencode') {
-      const runner = new OpenCodeAgentRunner({
-        container: this.container,
-        commandBus: this.commandBus,
-        openCodeClient: this.container.resolve('openCodeClient'),
-      })
-      return runner.run(entry, input, ctx)
+    // Runtime no-bypass enforcement (Wave 4 Phase 3, layer B-b). When the run is
+    // bound to a provisioned agent principal (`ctx.runAs`), bind the async-scoped
+    // agent-actor context for the WHOLE run and register the fail-closed flush-time
+    // subscriber on the EM. From here on any write reaching `em.flush()` that is
+    // NOT inside the agent's own audited Command write throws — making a raw
+    // `em.flush()` bypass impossible at runtime. Unprincipalled (legacy/playground)
+    // runs keep their prior behavior (no actor scope, guard never fires).
+    const dispatch = (): Promise<AgentResult> => {
+      // Dispatch on the agent's declared runtime. File-defined (OpenCode) agents
+      // run on the OpenCode runtime via a dedicated runner; everything else uses
+      // the existing in-process object-mode path (unchanged).
+      if (entry.runtime === 'opencode') {
+        const runner = new OpenCodeAgentRunner({
+          container: this.container,
+          commandBus: this.commandBus,
+          openCodeClient: this.container.resolve('openCodeClient'),
+        })
+        return runner.run(entry, input, ctx)
+      }
+      return this.runInProcess(agentId, entry, input, ctx)
     }
 
-    return this.runInProcess(agentId, entry, input, ctx)
+    if (ctx.runAs) {
+      try {
+        registerAgentKindNoBypassSubscriber(this.container.resolve('em') as EntityManager)
+      } catch {
+        // best-effort registration; the actor scope below still fails closed for
+        // any EM that did get the subscriber (the shared request EM).
+      }
+      return withAgentActor(
+        { agentUserId: ctx.runAs.agentUserId, onBehalfOfUserId: ctx.runAs.onBehalfOfUserId ?? null },
+        dispatch,
+      )
+    }
+    return dispatch()
   }
 
   private async runInProcess(

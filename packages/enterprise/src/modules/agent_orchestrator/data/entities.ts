@@ -801,6 +801,84 @@ export class AgentPrincipal {
   deletedAt?: Date | null
 }
 
+/**
+ * An external agent's delegation grant (agent identity & on-behalf-of spec, Wave 4
+ * Phase 3). Links an external `AgentPrincipal` (`credentialMode='oauth_client'`)
+ * to the human delegator + the scopes it may mint OAuth client-credentials tokens
+ * for, and is the per-request REVOCATION spine: the `/token` server refuses to
+ * mint while every minted token re-checks `revokedAt`/`expiresAt` on the NEXT
+ * write, so revoking stops further agent action immediately rather than at token
+ * expiry. The `issuer`/`subject`/`audience` columns are forward-compatible seams
+ * for the later `auth.md`/ID-JAG path (Phase 4) — null for the OAuth-now path, so
+ * the same record bridges both with no schema change. Editable (revoke) → carries
+ * `updated_at` for optimistic locking. Dual tenancy (tenant_id + organization_id);
+ * reads filter by organization_id. Other modules (`auth.User`, the agent
+ * principal) are referenced by FK id only — NOT as ORM relations.
+ */
+@Entity({ tableName: 'agent_delegation_grants' })
+@Index({ name: 'agent_delegation_grants_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_delegation_grants_principal_idx', properties: ['organizationId', 'agentPrincipalId'] })
+export class AgentDelegationGrant {
+  [OptionalProps]?: 'delegatorUserId' | 'expiresAt' | 'revokedAt' | 'revokedByUserId'
+    | 'issuer' | 'subject' | 'audience' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** FK id → agent_principals (the external principal); NOT an ORM relation. */
+  @Property({ name: 'agent_principal_id', type: 'uuid' })
+  agentPrincipalId!: string
+
+  /** FK id → the agent principal's `auth.User` (actor on every attributed write). */
+  @Property({ name: 'agent_user_id', type: 'uuid' })
+  agentUserId!: string
+
+  /** FK id → auth.User — the human delegating authority; null for system grants. */
+  @Property({ name: 'delegator_user_id', type: 'uuid', nullable: true })
+  delegatorUserId?: string | null
+
+  /** `<capability>:<action>` scopes the minted token may carry. */
+  @Property({ name: 'scopes', type: 'jsonb' })
+  scopes!: string[]
+
+  /** Optional hard expiry; tokens never outlive this even before revocation. */
+  @Property({ name: 'expires_at', type: Date, nullable: true })
+  expiresAt?: Date | null
+
+  /** When set, every token bound to this grant is denied on its next request. */
+  @Property({ name: 'revoked_at', type: Date, nullable: true })
+  revokedAt?: Date | null
+
+  /** FK id → auth.User who revoked the grant. */
+  @Property({ name: 'revoked_by_user_id', type: 'uuid', nullable: true })
+  revokedByUserId?: string | null
+
+  /** Forward-compatible ID-JAG seam (Phase 4); null for the OAuth-now path. */
+  @Property({ name: 'issuer', type: 'varchar', length: 500, nullable: true })
+  issuer?: string | null
+
+  @Property({ name: 'subject', type: 'varchar', length: 500, nullable: true })
+  subject?: string | null
+
+  @Property({ name: 'audience', type: 'varchar', length: 500, nullable: true })
+  audience?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 export type AgentProposalDisposition =
   | 'pending' | 'auto_approved' | 'approved' | 'edited' | 'rejected'
 
