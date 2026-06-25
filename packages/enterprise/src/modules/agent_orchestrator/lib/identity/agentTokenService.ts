@@ -132,6 +132,51 @@ function narrowScope(grantedScopes: string[], requested: string | undefined): st
 }
 
 /**
+ * The shared token-mint core: given an already-resolved external `AgentPrincipal`
+ * and a LIVE, ACTIVE `AgentDelegationGrant` in its OWN org, mint a short-lived,
+ * scoped, revocable, audience-bound JWT (`signAudienceJwt('agent', …)`). Scope +
+ * tenant + org are SERVER-DERIVED from the principal + grant — never widenable by
+ * any caller. The TTL never outlives the grant's hard expiry. Returns null when
+ * the grant is inactive or already past expiry.
+ *
+ * Both credential paths funnel through this: the OAuth client-credentials
+ * `/token` server (after a bcrypt client-secret check) and the ID-JAG `/agent/auth`
+ * self-registration endpoint (after an issuer-signed assertion check). There is no
+ * parallel token system — every agent token is minted here, so the no-bypass +
+ * propose-only invariants and per-request revocation hold identically for both.
+ */
+export function mintAgentTokenForGrant(
+  principal: AgentPrincipal,
+  grant: AgentDelegationGrant,
+  requestedScope?: string,
+): IssueAgentTokenResult | null {
+  if (!isGrantActive(grant)) return null
+
+  const scopeString = narrowScope(grant.scopes, requestedScope)
+
+  let ttlSeconds = DEFAULT_AGENT_TOKEN_TTL_SECONDS
+  if (grant.expiresAt) {
+    const remaining = Math.floor((grant.expiresAt.getTime() - Date.now()) / 1000)
+    if (remaining <= 0) return null
+    ttlSeconds = Math.min(ttlSeconds, remaining)
+  }
+
+  const claims: AgentTokenClaims = {
+    iss: AGENT_TOKEN_ISSUER,
+    aud: AGENT_TOKEN_AUDIENCE,
+    sub: principal.userId,
+    obo: grant.delegatorUserId ?? null,
+    tenantId: principal.tenantId,
+    organizationId: principal.organizationId,
+    scope: scopeString,
+    grantId: grant.id,
+  }
+
+  const accessToken = signAudienceJwt(AGENT_TOKEN_AUDIENCE, claims, ttlSeconds)
+  return { accessToken, expiresInSeconds: ttlSeconds, scope: scopeString, grantId: grant.id }
+}
+
+/**
  * The OAuth client-credentials token mint. Verifies the client credentials for an
  * external agent principal with an ACTIVE (non-revoked, non-expired)
  * `AgentDelegationGrant`, then mints a short-lived, scoped, revocable
@@ -163,31 +208,9 @@ export async function issueAgentToken(
     },
     { orderBy: { createdAt: 'DESC' } },
   )
-  if (!grant || !isGrantActive(grant)) return null
+  if (!grant) return null
 
-  const scopeString = narrowScope(grant.scopes, args.requestedScope)
-
-  // TTL never outlives the grant's hard expiry.
-  let ttlSeconds = DEFAULT_AGENT_TOKEN_TTL_SECONDS
-  if (grant.expiresAt) {
-    const remaining = Math.floor((grant.expiresAt.getTime() - Date.now()) / 1000)
-    if (remaining <= 0) return null
-    ttlSeconds = Math.min(ttlSeconds, remaining)
-  }
-
-  const claims: AgentTokenClaims = {
-    iss: AGENT_TOKEN_ISSUER,
-    aud: AGENT_TOKEN_AUDIENCE,
-    sub: principal.userId,
-    obo: grant.delegatorUserId ?? null,
-    tenantId: principal.tenantId,
-    organizationId: principal.organizationId,
-    scope: scopeString,
-    grantId: grant.id,
-  }
-
-  const accessToken = signAudienceJwt(AGENT_TOKEN_AUDIENCE, claims, ttlSeconds)
-  return { accessToken, expiresInSeconds: ttlSeconds, scope: scopeString, grantId: grant.id }
+  return mintAgentTokenForGrant(principal, grant, args.requestedScope)
 }
 
 export type VerifiedAgentToken = {

@@ -27,6 +27,11 @@ import {
   verifyAgentToken,
   provisionAgentClientSecret,
 } from './lib/identity/agentTokenService'
+import {
+  getAgentAuthDiscovery,
+  registerAgentViaIdJag,
+  verifyIdJagAssertion,
+} from './lib/identity/agentAuthMdService'
 import { AgentRuntimeService } from './lib/runtime/agentRuntime'
 import { GuardrailService } from './lib/guardrails/guardrailService'
 import { DbAgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
@@ -75,6 +80,20 @@ export function register(container: AppContainer) {
     agentDelegationGrantService: asFunction(() => ({
       create: createAgentDelegationGrant.bind(null, container),
       resolve: resolveAgentDelegationGrant.bind(null, container),
+    })).scoped(),
+    // Identity overlay (Wave 4, Phase 4): auth.md / ID-JAG self-registration. An
+    // external agent presents an issuer-signed identity assertion (RFC 7523
+    // JWT-bearer); the service validates issuer + audience + signature against the
+    // server-side trusted-issuer registry, idempotently onboards a scoped
+    // AgentPrincipal (credentialMode='authmd') + AgentDelegationGrant (issuer/
+    // subject/audience populated), and mints a token via the SAME core the OAuth
+    // /token server uses — an additional credential PATH, not a parallel token
+    // system. `discovery` is the secret-free /.well-known metadata. The bound
+    // functions resolve `em` at call time.
+    agentAuthMdService: asFunction(() => ({
+      discovery: getAgentAuthDiscovery,
+      verifyAssertion: verifyIdJagAssertion,
+      register: registerAgentViaIdJag.bind(null, container),
     })).scoped(),
     // CLASSIC injection mode resolves deps by parameter name — destructure the
     // real dependency names (not a `cradle` param) and use .proxy() so the
