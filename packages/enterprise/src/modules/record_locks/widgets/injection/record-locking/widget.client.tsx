@@ -11,7 +11,6 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { BACKEND_MUTATION_ERROR_EVENT } from '@open-mercato/ui/backend/injection/mutationEvents'
 import { registerRecordLockConflictHandler } from '@open-mercato/ui/backend/conflicts'
-import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useSearchParams } from 'next/navigation'
 import { Mail } from 'lucide-react'
 import {
@@ -34,6 +33,7 @@ import {
   type RecordLockUiView,
 } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
 import { isUuid, resolveConflictId, runAcceptIncoming } from './conflictResolution'
+import { isOptimisticLockFloorConflict } from '@open-mercato/enterprise/modules/record_locks/lib/optimisticLockFloor'
 
 type CrudInjectionContext = {
   formId?: string
@@ -354,8 +354,10 @@ export function resolveRecordLockSaveErrorDecision(args: {
     // fallback merge dialog — otherwise both surfaces render at once (#3504) and the
     // dialog has no field diff and a no-op "Accept incoming" (#3505). The rich merge
     // dialog stays reserved for genuine `record_lock_conflict` payloads (handled
-    // above) whose conflict carries field changes + resolution options.
-    if (extractOptimisticLockConflict(error)) return { action: 'ignore' }
+    // above) whose conflict carries field changes + resolution options. Delegates to
+    // the shared `optimisticLockFloor` detector so this arbitration stays identical to
+    // the conflict bar's ownership decision (single source of truth).
+    if (isOptimisticLockFloorConflict(error)) return { action: 'ignore' }
     if (extractErrorStatus(error) === 409) return { action: 'fallback-dialog' }
     return { action: 'ignore' }
   }

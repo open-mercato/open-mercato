@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { render, fireEvent, waitFor, screen } from '@testing-library/react'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
-import type { PerspectivesIndexResponse } from '@open-mercato/shared/modules/perspectives/types'
+import type { PerspectivesIndexResponse, RolePerspectiveDto } from '@open-mercato/shared/modules/perspectives/types'
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
@@ -82,7 +82,20 @@ type SidebarProps = {
     settings?: unknown
   }) => void | Promise<void>
   onDeletePerspective: (perspectiveId: string) => void | Promise<void>
-  onClearRole: (roleId: string) => void | Promise<void>
+  onClearRole: (perspective: RolePerspectiveDto) => void | Promise<void>
+}
+
+const CLEAR_ROLE_PERSPECTIVE: RolePerspectiveDto = {
+  id: 'role-persp-1',
+  name: 'Role view',
+  tableId: 'test-table',
+  settings: {} as RolePerspectiveDto['settings'],
+  isDefault: false,
+  createdAt: 'now',
+  updatedAt: '2026-06-19T00:00:00.000Z',
+  roleId: 'role-1',
+  tenantId: null,
+  organizationId: null,
 }
 
 // Replace the heavy drawer UI with a stub exposing the three write handlers as
@@ -126,7 +139,7 @@ jest.mock('../PerspectiveSidebar', () => ({
         type="button"
         data-testid="clear-role"
         onClick={() => {
-          void props.onClearRole('role-1')
+          void props.onClearRole(CLEAR_ROLE_PERSPECTIVE)
         }}
       >
         clear

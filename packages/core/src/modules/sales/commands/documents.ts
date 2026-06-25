@@ -96,6 +96,8 @@ import {
   ensureTenantScope,
   extractUndoPayload,
   toNumericString,
+  reconcileLinePersistedTotals,
+  deriveLineNetFromGross,
   enforceSalesDocumentOptimisticLock,
   SALES_RESOURCE_KIND_ORDER,
   SALES_RESOURCE_KIND_QUOTE,
@@ -2937,7 +2939,7 @@ function convertLineCalculationToEntityInput(
   index: number,
 ) {
   const line = lineResult.line;
-  return {
+  return reconcileLinePersistedTotals({
     lineNumber: line.lineNumber ?? index + 1,
     kind: line.kind ?? "product",
     statusEntryId: sourceLine.statusEntryId ?? null,
@@ -2984,7 +2986,7 @@ function convertLineCalculationToEntityInput(
     customFieldSetId: sourceLine.customFieldSetId ?? null,
     organizationId: document.organizationId,
     tenantId: document.tenantId,
-  };
+  });
 }
 
 function convertAdjustmentResultToEntityInput(
@@ -3941,7 +3943,9 @@ async function restoreQuoteGraph(
       discountPercent: line.discountPercent,
       taxRate: line.taxRate,
       taxAmount: line.taxAmount,
-      totalNetAmount: line.totalNetAmount,
+      totalNetAmount: toNumericString(
+        deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
+      ),
       totalGrossAmount: line.totalGrossAmount,
       configuration: line.configuration ? cloneJson(line.configuration) : null,
       promotionCode: line.promotionCode ?? null,
@@ -4269,7 +4273,9 @@ async function restoreOrderGraph(
       discountPercent: line.discountPercent,
       taxRate: line.taxRate,
       taxAmount: line.taxAmount,
-      totalNetAmount: line.totalNetAmount,
+      totalNetAmount: toNumericString(
+        deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
+      ),
       totalGrossAmount: line.totalGrossAmount,
       configuration: line.configuration ? cloneJson(line.configuration) : null,
       promotionCode: line.promotionCode ?? null,
@@ -6191,7 +6197,9 @@ const convertQuoteToOrderCommand: CommandHandler<
           discountPercent: line.discountPercent,
           taxRate: line.taxRate,
           taxAmount: line.taxAmount,
-          totalNetAmount: line.totalNetAmount,
+          totalNetAmount: toNumericString(
+            deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
+          ),
           totalGrossAmount: line.totalGrossAmount,
           configuration: line.configuration
             ? cloneJson(line.configuration)
@@ -8445,7 +8453,9 @@ const createInvoiceCommand: CommandHandler<
                   discountPercent: toNumericString(line.discountPercent ?? 0),
                   taxRate: toNumericString(line.taxRate ?? 0),
                   taxAmount: toNumericString(line.taxAmount ?? 0),
-                  totalNetAmount: toNumericString(line.totalNetAmount ?? 0),
+                  totalNetAmount: toNumericString(
+                    deriveLineNetFromGross(line.totalNetAmount ?? 0, line.totalGrossAmount ?? 0, line.taxRate ?? 0),
+                  ),
                   totalGrossAmount: toNumericString(line.totalGrossAmount ?? 0),
                   metadata: line.metadata ?? null,
                 }),
@@ -8797,7 +8807,9 @@ const deleteInvoiceCommand: CommandHandler<
         discountPercent: line.discountPercent,
         taxRate: line.taxRate,
         taxAmount: line.taxAmount,
-        totalNetAmount: line.totalNetAmount,
+        totalNetAmount: toNumericString(
+          deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
+        ),
         totalGrossAmount: line.totalGrossAmount,
         metadata: line.metadata,
       }));
@@ -8939,7 +8951,9 @@ const createCreditMemoCommand: CommandHandler<
                   unitPriceGross: toNumericString(line.unitPriceGross ?? 0),
                   taxRate: toNumericString(line.taxRate ?? 0),
                   taxAmount: toNumericString(line.taxAmount ?? 0),
-                  totalNetAmount: toNumericString(line.totalNetAmount ?? 0),
+                  totalNetAmount: toNumericString(
+                    deriveLineNetFromGross(line.totalNetAmount ?? 0, line.totalGrossAmount ?? 0, line.taxRate ?? 0),
+                  ),
                   totalGrossAmount: toNumericString(line.totalGrossAmount ?? 0),
                   metadata: line.metadata ?? null,
                 }),
@@ -9281,7 +9295,9 @@ const deleteCreditMemoCommand: CommandHandler<
         unitPriceGross: line.unitPriceGross,
         taxRate: line.taxRate,
         taxAmount: line.taxAmount,
-        totalNetAmount: line.totalNetAmount,
+        totalNetAmount: toNumericString(
+          deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
+        ),
         totalGrossAmount: line.totalGrossAmount,
         metadata: line.metadata,
       }));

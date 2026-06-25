@@ -3,6 +3,8 @@
 import * as React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -350,27 +352,15 @@ export function TranslationManager({
   }
 
   const renderLocaleTabs = () => (
-    <div className="flex gap-1 border-b">
-      {locales.map((locale) => {
-        const isActive = activeLocale === locale
-        return (
-          <button
-            key={locale}
-            type="button"
-            data-state={isActive ? 'active' : 'inactive'}
-            data-locale={locale}
-            className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-              isActive
-                ? 'border-b-2 border-accent-indigo text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setActiveLocale(locale)}
-          >
+    <Tabs variant="underline" value={activeLocale} onValueChange={setActiveLocale}>
+      <TabsList>
+        {locales.map((locale) => (
+          <TabsTrigger key={locale} value={locale}>
             {locale.toUpperCase()}
-          </button>
-        )
-      })}
-    </div>
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
   )
 
   const renderFieldTable = () => {
@@ -660,14 +650,17 @@ export function LocaleManager() {
           >
             {locale.toUpperCase()}{getIso639Label(locale) ? ` — ${getIso639Label(locale)}` : ''}
             {locales.length > 1 && (
-              <button
-                type="button"
-                className="rounded-full p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+              <IconButton
+                variant="ghost"
+                size="xs"
+                fullRadius
+                aria-label={t('translations.locales.remove', 'Remove {{locale}}', { locale: getIso639Label(locale) ?? locale.toUpperCase() })}
+                title={t('translations.locales.remove', 'Remove {{locale}}', { locale: getIso639Label(locale) ?? locale.toUpperCase() })}
                 onClick={() => removeLocale(locale)}
                 disabled={mutation.isPending}
               >
                 <X className="h-3 w-3" />
-              </button>
+              </IconButton>
             )}
           </span>
         ))}

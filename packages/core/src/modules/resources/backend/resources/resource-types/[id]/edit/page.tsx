@@ -36,7 +36,7 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
       setIsNotFound(false)
       try {
         const payload = await readApiResultOrThrow<ResourceTypesResponse>(
-          `/api/resources/resource-types?ids=${encodeURIComponent(resourceTypeId)}&page=1&pageSize=1`,
+          `/api/resources/resource-types?ids=${encodeURIComponent(resourceTypeId)}&page=1&pageSize=1&withResourceCounts=true`,
           undefined,
           { errorMessage: t('resources.resourceTypes.errors.load', 'Failed to load resource types.') },
         )

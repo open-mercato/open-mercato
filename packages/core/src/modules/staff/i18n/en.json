@@ -977,6 +977,7 @@
   "staff.timesheets.my.errors.updateAssignment": "Failed to update projects.",
   "staff.timesheets.my.list.addDescription": "Add description",
   "staff.timesheets.my.list.noEntries": "No entries for this period.",
+  "staff.timesheets.my.list.saveError": "Failed to save description. Please try again.",
   "staff.timesheets.my.list.today": "Today",
   "staff.timesheets.my.list.yesterday": "Yesterday",
   "staff.timesheets.my.loading": "Loading timesheets...",

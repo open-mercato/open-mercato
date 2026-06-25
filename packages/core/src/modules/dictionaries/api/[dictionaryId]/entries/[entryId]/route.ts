@@ -178,6 +178,13 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     })
     const dictionary = await loadDictionary(context, dictionaryId)
     const entry = await loadEntry(context, dictionary, entryId)
+    await enforceCommandOptimisticLockWithGuards(context.container, {
+      resourceKind: 'dictionaries.entry',
+      resourceId: entry.id,
+      current: entry.updatedAt ?? null,
+      request: req,
+    })
+
     const guardUserId = resolveDictionaryActorId(context.auth)
     const guardResult = await validateCrudMutationGuard(context.container, {
       tenantId: context.tenantId,

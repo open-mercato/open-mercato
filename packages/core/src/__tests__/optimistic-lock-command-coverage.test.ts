@@ -51,6 +51,12 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'OSS-only — integration version admin endpoint (integrations.integration); OSS floor guards concurrent admin edits. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/planner/commands/availability-date-specific.ts':
     'OSS-only — date-specific availability rule edit; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/currencies/api/fetch-configs/route.ts':
+    'OSS-only — currency fetch-config admin settings added on develop; OSS floor guards concurrent admin edits. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/feature_toggles/commands/global.ts':
+    'OSS-only — global feature-toggle command (feature_toggles.global), instance-level admin config added on develop; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/planner/commands/availability-weekly.ts':
+    'OSS-only — weekly availability rule-set edit (sibling of the allowlisted availability-date-specific site) added on develop; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
 }
 
 // `enforceCommandOptimisticLock(` but NOT `enforceCommandOptimisticLockWithGuards(`.

@@ -19,7 +19,7 @@ The model:
 | `extended` | Non-fork PR with `extended-integration` label, or manual workflow input | Baseline plus tagged expensive suites: undo, broad CrudForm, optimistic-lock matrix, custom-field matrix, queue/realtime, long request suites | Only when requested or required by policy |
 | `full` | Push to `develop`/`main`, shared-path PRs, and every PR targeting `main` | All monorepo integration specs, sharded, with coverage | Yes for release PRs and protected branch pushes |
 | `standalone-sentinel` | Standalone-impact paths or `extended-integration` label on a non-fork PR | Minimal create-app installed-package smoke coverage | Required for standalone-impact PRs |
-| `standalone-full` | Develop snapshot/release pipeline, every release PR to `main`, and PRs explicitly labeled `publish-npm-snapshot` | Full standalone app integration against published/snapshot packages | Yes before release and opt-in npm snapshot previews |
+| `standalone-full` | Develop snapshot/release pipeline, every release PR to `main`, and PRs explicitly dispatched with `NPM Snapshot Preview` | Full standalone app integration against published/snapshot packages | Yes before release and opt-in npm snapshot previews |
 
 The critical safety rule: unknown paths, unknown metadata, fork restrictions, or manifest mismatches always fall back to current/full behavior. This spec extends the implemented CI performance work in [`.ai/specs/implemented/2026-04-10-ci-cd-performance.md`](implemented/2026-04-10-ci-cd-performance.md) and the label workflow in [`.ai/specs/implemented/2026-04-13-pr-label-workflow.md`](implemented/2026-04-13-pr-label-workflow.md).
 
@@ -156,7 +156,7 @@ Standalone coverage gets two lanes:
 | Lane | Trigger | Scope |
 |---|---|---|
 | `standalone-sentinel` | non-fork PR touching standalone-impact paths, or `extended-integration` label with standalone-impact paths | create-app scaffold/install/generate/initialize/login, one CRUD API, one backend UI load, queue helper path, enterprise-enabled module check |
-| `standalone-full` | develop snapshot pipeline, every release PR to `main`, and PRs explicitly labeled `publish-npm-snapshot` | current full standalone integration, ideally using published snapshot package versions |
+| `standalone-full` | develop snapshot pipeline, every release PR to `main`, and PRs explicitly dispatched with `NPM Snapshot Preview` | current full standalone integration, ideally using published snapshot package versions |
 
 Standalone-impact paths:
 
