@@ -29,7 +29,7 @@ export interface MobileVisualEditorProps {
   onAddNode: (nodeType: string) => void
   onSave: () => void
   onValidate: () => void
-  onTest: () => void
+  onStartInstance: () => void
   onLoadExample: () => void
   onClear: () => void
   metadata: WorkflowMetadataState
@@ -51,7 +51,7 @@ export function MobileVisualEditor({
   onAddNode,
   onSave,
   onValidate,
-  onTest,
+  onStartInstance,
   onLoadExample,
   onClear,
   metadata,
@@ -170,14 +170,16 @@ export function MobileVisualEditor({
             >
               {t('workflows.mobile.loadExample', 'Load Example')}
             </button>
-            <button
-              onClick={() => { onTest(); setShowMoreActions(false) }}
-              disabled={isSaving}
-              className="flex w-full items-center gap-3 rounded-lg border p-3 text-left text-sm hover:bg-muted active:bg-muted disabled:opacity-50"
-            >
-              <Play className="h-4 w-4" />
-              {t('workflows.mobile.runTest', 'Run Test')}
-            </button>
+            {definitionId && (
+              <button
+                onClick={() => { onStartInstance(); setShowMoreActions(false) }}
+                disabled={isSaving}
+                className="flex w-full items-center gap-3 rounded-lg border p-3 text-left text-sm hover:bg-muted active:bg-muted disabled:opacity-50"
+              >
+                <Play className="h-4 w-4" />
+                {t('workflows.actions.startInstance')}
+              </button>
+            )}
             <button
               onClick={() => { onClear(); setShowMoreActions(false) }}
               disabled={isSaving}

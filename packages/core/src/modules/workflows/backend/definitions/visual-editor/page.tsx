@@ -33,9 +33,13 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
+import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { CircleQuestionMark, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
@@ -112,6 +116,16 @@ export default function VisualEditorPage() {
   const [triggers, setTriggers] = useState<WorkflowDefinitionTrigger[]>([])
   const [source, setSource] = useState<'code' | 'code_override' | 'user' | null>(null)
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
+
+  // Start-instance dialog state (mirrors the non-visual edit page UX)
+  const [startOpen, setStartOpen] = useState(false)
+  const [startContext, setStartContext] = useState('{}')
+  const [starting, setStarting] = useState(false)
+
+  const mutationContextId = `workflows.definitions.visual-editor:${definitionId ?? 'unknown'}`
+  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: mutationContextId,
+  })
 
   const isCodeOnly = source === 'code'
   const isCodeOverride = source === 'code_override'
@@ -431,10 +445,18 @@ export default function VisualEditorPage() {
 
       flash(`Workflow ${isUpdate ? 'updated' : 'created'} successfully!`, 'success')
 
-      // Redirect to definition detail page after short delay
-      setTimeout(() => {
-        router.push(`/backend/definitions/${savedDefinition.id}`)
-      }, 1500)
+      // Stay on the visual editor after saving. On update, refresh the local
+      // optimistic-lock token so the next save keeps working. On create, switch
+      // the editor into edit mode by pointing the URL at the new id — the load
+      // effect then re-syncs from the persisted definition without leaving the
+      // canvas.
+      if (isUpdate) {
+        if (typeof savedDefinition?.updatedAt === 'string') {
+          setUpdatedAt(savedDefinition.updatedAt)
+        }
+      } else if (savedDefinition?.id) {
+        router.replace(`/backend/definitions/visual-editor?id=${encodeURIComponent(savedDefinition.id)}`)
+      }
 
     } catch (error) {
       console.error('Error saving workflow definition:', error)
@@ -498,19 +520,62 @@ export default function VisualEditorPage() {
     }
   }, [definitionId, workflowId, router, confirm, t])
 
-  // Test workflow
-  const handleTest = useCallback(() => {
-    // First validate
-    const errors = validateWorkflowGraph(nodes, edges)
-    const criticalErrors = errors.filter((e) => e.type === 'error')
-    if (criticalErrors.length > 0) {
-      flash(`Cannot test: ${criticalErrors.length} validation error(s) found. Please fix them first.`, 'error')
+  // Start a workflow instance with an initial JSON context, mirroring the
+  // non-visual edit page. Requires a persisted definition (the executor
+  // resolves the definition by workflowId + version).
+  const handleStartInstance = useCallback(async () => {
+    let initialContext: Record<string, unknown>
+    try {
+      const parsed = startContext.trim() ? JSON.parse(startContext) : {}
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        throw new Error('[internal] context must be a JSON object')
+      }
+      initialContext = parsed as Record<string, unknown>
+    } catch {
+      flash(t('workflows.startInstance.invalidJson'), 'error')
       return
     }
-
-    // TODO: Implement test logic (create instance, run first step)
-    flash('Test functionality will be implemented next', 'info')
-  }, [nodes, edges])
+    setStarting(true)
+    try {
+      const result = await runMutation({
+        operation: async () => {
+          const response = await apiFetch('/api/workflows/instances', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              workflowId,
+              version,
+              initialContext,
+            }),
+          })
+          if (!response.ok) {
+            const errorBody = await readJsonSafe<{ error?: string }>(response, null)
+            throw new Error(errorBody?.error || t('workflows.startInstance.failed'))
+          }
+          return readJsonSafe<{ data?: { instance?: { id?: string } } }>(response, null)
+        },
+        mutationPayload: { resourceId: definitionId, operation: 'start-instance' },
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'workflows.instance',
+          resourceId: definitionId,
+          operation: 'start-instance',
+          retryLastMutation,
+        },
+      })
+      flash(t('workflows.startInstance.started'), 'success')
+      setStartOpen(false)
+      const instanceId = result?.data?.instance?.id
+      if (instanceId) {
+        router.push(`/backend/instances/${instanceId}`)
+        router.refresh()
+      }
+    } catch (error) {
+      flash(error instanceof Error ? error.message : t('workflows.startInstance.failed'), 'error')
+    } finally {
+      setStarting(false)
+    }
+  }, [startContext, workflowId, version, definitionId, mutationContextId, retryLastMutation, router, t])
 
   // Load example workflow
   const handleLoadExample = useCallback(() => {
@@ -680,6 +745,38 @@ export default function VisualEditorPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={startOpen} onOpenChange={setStartOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('workflows.startInstance.title')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 px-1 py-2">
+            <p className="text-xs text-muted-foreground">{t('workflows.startInstance.description')}</p>
+            <label className="text-sm font-medium">{t('workflows.startInstance.contextLabel')}</label>
+            <Textarea
+              value={startContext}
+              onChange={(e) => setStartContext(e.target.value)}
+              rows={10}
+              spellCheck={false}
+              className="font-mono text-sm"
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                  e.preventDefault()
+                  void handleStartInstance()
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStartOpen(false)} disabled={starting}>
+              {t('workflows.startInstance.cancel')}
+            </Button>
+            <Button onClick={() => void handleStartInstance()} disabled={starting}>
+              {starting ? <Spinner className="h-4 w-4" /> : t('workflows.startInstance.start')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 
@@ -699,7 +796,7 @@ export default function VisualEditorPage() {
           onAddNode={handleAddNode}
           onSave={handleSave}
           onValidate={handleValidate}
-          onTest={handleTest}
+          onStartInstance={() => setStartOpen(true)}
           onLoadExample={handleLoadExample}
           onClear={handleClear}
           metadata={metadata}
@@ -772,16 +869,16 @@ export default function VisualEditorPage() {
                 <CircleQuestionMark className="mr-1.5 h-4 w-4" />
                 {t('workflows.visualEditor.validate')}
               </Button>
-              {!isCodeOnly && (
+              {definitionId && (
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleTest}
+                  onClick={() => setStartOpen(true)}
                   disabled={isSaving}
                   className="h-8 text-xs"
                 >
                   <Play className="mr-1.5 h-4 w-4" />
-                  {t('workflows.visualEditor.runTest')}
+                  {t('workflows.actions.startInstance')}
                 </Button>
               )}
               {isCodeOverride && (
