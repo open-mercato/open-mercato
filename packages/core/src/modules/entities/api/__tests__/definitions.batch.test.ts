@@ -109,3 +109,46 @@ describe('entities/definitions.batch POST (issue #1399)', () => {
     expect(mockEm.flush).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('entities/definitions.batch POST array bounds (issue #2924)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEm.find.mockResolvedValue([] as unknown[])
+  })
+
+  it('rejects an oversized definitions array with 400 before any ORM work', async () => {
+    const body = {
+      entityId: 'test:entity',
+      definitions: Array.from({ length: 1001 }, (_, idx) => ({ key: `field_${idx}`, kind: 'text' })),
+    }
+
+    const response = await POST(makeRequest(body))
+
+    expect(response.status).toBe(400)
+    expect(mockEm.begin).not.toHaveBeenCalled()
+    expect(mockEm.find).not.toHaveBeenCalled()
+    expect(mockEm.persist).not.toHaveBeenCalled()
+    expect(mockEm.flush).not.toHaveBeenCalled()
+  })
+
+  it('accepts a batch at the maximum size', async () => {
+    const body = {
+      entityId: 'test:entity',
+      definitions: Array.from({ length: 1000 }, (_, idx) => ({ key: `field_${idx}`, kind: 'text' })),
+    }
+
+    const response = await POST(makeRequest(body))
+
+    expect(response.status).toBe(200)
+    expect(mockEm.persist).toHaveBeenCalledTimes(1000)
+  })
+
+  it('still accepts an empty definitions array (fieldset-only save path)', async () => {
+    const body = { entityId: 'test:entity', definitions: [] }
+
+    const response = await POST(makeRequest(body))
+
+    expect(response.status).toBe(200)
+    expect(mockEm.persist).not.toHaveBeenCalled()
+  })
+})

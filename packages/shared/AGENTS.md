@@ -41,6 +41,7 @@ yarn workspace @open-mercato/shared build
 | `crud/` | When building CRUD routes | `@open-mercato/shared/lib/crud` |
 | `custom-fields/` | When handling custom field payloads | `@open-mercato/shared/lib/custom-fields` |
 | `data/` | When you need `DataEngine` or `QueryEngine` types | `@open-mercato/shared/lib/data/engine` |
+| `db/` | When resolving the ORM/connection-pool config (`resolvePoolConfig`, pool/timeout env knobs) | `@open-mercato/shared/lib/db/mikro` |
 | `di/` | When setting up dependency injection (Awilix) | `@open-mercato/shared/lib/di` |
 | `encryption/` | When querying encrypted entities (MUST use instead of raw `em.find`) | `@open-mercato/shared/lib/encryption/find` |
 | `i18n/` | When translating strings — `useT()` client-side, `resolveTranslations()` server-side | `@open-mercato/shared/lib/i18n/context` or `/server` |
@@ -65,6 +66,17 @@ When you need shared type definitions, import from these:
 | Module-level overrides (`ModuleOverrides`, dispatcher, per-domain compose helpers) | `@open-mercato/shared/modules/overrides` |
 
 ## Key Patterns
+
+### Database Connection Pool — MUST keep total demand under `max_connections`
+
+The MikroORM pool is configured from env via `resolvePoolConfig(process.env)` in
+`@open-mercato/shared/lib/db/mikro` (pure and unit-testable). Each process gets
+its own pool (`DB_POOL_MAX`, default 20). Because background worker jobs each run
+in their own request container (one pooled connection per in-flight job), the
+peak connection demand of all processes against one database is additive.
+
+- **Invariant:** `web_pool_max + worker_pool_max + scheduler/overhead ≤ Postgres max_connections` (with headroom). Violating it lets background work starve the request/onboarding path — see `packages/queue/AGENTS.md` → Connection Budget.
+- Tune per process with `DB_POOL_MAX` (and the opt-in `DB_STATEMENT_TIMEOUT_MS` / `DB_LOCK_TIMEOUT_MS`; `idle_in_transaction` defaults to a finite 120s). Bound the worker's job concurrency with `OM_WORKERS_DB_CONNECTION_BUDGET`.
 
 ### Encryption — MUST use instead of raw ORM queries
 
