@@ -25,6 +25,7 @@
 | 8 | `2026-06-19-agent-dispatch.md` | ⬜ Not started | No dispatch service, adapters, or A2A routing in `lib/`. |
 | 9 | `2026-06-19-agent-deployment-and-regression-gating.md` | ⬜ Not started | No shadow/canary/autonomy-ramp or eval-gated promotion. ("shadow" hits in code are incidental — seed copy + a sandbox comment.) Depends on #2 (now available). |
 | 10 | `2026-06-19-agent-decision-transparency-and-ai-act.md` | ⬜ Not started | No DSAR/erasure/explanation/contestability surfaces. Precursors only: `AgentCorrection` (audit trail) + anti-rubber-stamp KPI tiles on `backend/overview`. |
+| 11 | `2026-06-25-agent-process-subject-and-caseload-projection.md` | ⬜ Not started | No `agent_processes` projection entity, no `subject` reference on the `INVOKE_AGENT` boundary, no claim-anchored Processes list/detail backing. The cockpit's caseload (#3) keys off single proposals/runs, not a per-process indexed row. |
 
 ## Summary
 
