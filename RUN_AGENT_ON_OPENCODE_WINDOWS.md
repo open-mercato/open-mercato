@@ -63,7 +63,24 @@ OM_AI_PROVIDER=anthropic
 OM_AI_MODEL=anthropic/claude-haiku-4-5-20251001
 ANTHROPIC_API_KEY=sk-ant-...
 # MCP_SERVER_API_KEY is added in Step 6 (after you create the key)
+
+# REQUIRED — agent_orchestrator is an Enterprise module, OFF by default.
+# Both flags must be set (the second only takes effect when the first is on).
+OM_ENABLE_ENTERPRISE_MODULES=true
+OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true
 ```
+
+> **Why these two flags are mandatory.** `agent_orchestrator` lives in the enterprise
+> catalog (`@open-mercato/enterprise`) and is only loaded when **both** flags are true
+> (see `apps/mercato/src/modules.ts`). Turning them on also enables the bundled
+> **`agent_examples`** app module — the `deals_health_check_file` and
+> `support_resolution_advisor` agents this guide runs — plus `record_locks` and
+> `system_status_overlays`. Without the flags there is **no orchestrator module, no
+> Playground agents, and no orchestrator MCP tools**. The app, the `mercato` CLI
+> (`yarn generate` / `db:migrate` / `auth sync-role-acls`), and the MCP server all read
+> `apps/mercato/.env`, so setting them **here, before Step 4**, covers every process.
+> They are app-registry flags — they do **not** go in the repo-root `.env` (that file only
+> configures the OpenCode container).
 
 ---
 
@@ -76,8 +93,12 @@ yarn dev:greenfield
 Installs, builds, seeds, and starts the app on **http://localhost:3000**. **Copy the admin
 credentials printed in the terminal.** Leave this running.
 
-> The committed example agents already live in `docker/opencode/agents/` (the generator output
-> ships with the repo), so nothing to author for the first run.
+> With the two enterprise flags from Step 3 set, the bundled `agent_examples` module is enabled
+> and `yarn dev:greenfield` runs `yarn generate`, which emits the example agents into
+> `docker/opencode/agents/` (`deals_health_check_file`, `support_resolution_advisor`). If you set
+> the flags **after** a first boot, re-run `yarn generate` so the agent files appear. (`db:migrate`
+> and `auth sync-role-acls` likewise only see the orchestrator's tables/ACL grants with the flags
+> set — they're read from `apps/mercato/.env`.)
 
 ---
 
@@ -191,6 +212,7 @@ at load). See `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md`.
 
 | Variable | File | Purpose |
 |----------|------|---------|
+| `OM_ENABLE_ENTERPRISE_MODULES`, `OM_ENABLE_ENTERPRISE_MODULES_AGENTS` | `apps/mercato/.env` | **Required** — enable the enterprise `agent_orchestrator` module + bundled `agent_examples` (both must be `true`). Read by app, `mercato` CLI, and MCP server |
 | `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET` | `apps/mercato/.env` | App + MCP server core config |
 | `OM_AI_PROVIDER`, `OM_AI_MODEL` | repo-root `.env` (+ app `.env`) | OpenCode provider/model (match the agent's model family) |
 | `ANTHROPIC_API_KEY` | repo-root `.env` | LLM key passed to the OpenCode container |
@@ -206,7 +228,8 @@ at load). See `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md`.
 | Symptom | Fix |
 |---------|-----|
 | `curl.exe .../mcp` not `connected` | `MCP_SERVER_API_KEY` differs between the two `.env` files, or `yarn mcp:serve` isn't running on 3001 |
-| Playground shows no agents | Sign in as admin (`agent_orchestrator.agents.run` needed); agent files present under `docker/opencode/agents/` |
+| Playground shows no agents (or no Agents sidebar) | `OM_ENABLE_ENTERPRISE_MODULES=true` **and** `OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true` in `apps/mercato/.env`, then re-run `yarn generate` (+ restart). Also sign in as admin (`agent_orchestrator.agents.run` needed); confirm agent files under `docker/opencode/agents/` |
+| `agent_orchestrator` tables missing / ACL 403 on runs | Migrations and ACL sync only see the module with the flags set: re-run `yarn db:migrate` and `yarn mercato auth sync-role-acls` after enabling them in `apps/mercato/.env` |
 | Agent run times out | OpenCode can't reach the model — check `ANTHROPIC_API_KEY` + `OM_AI_PROVIDER=anthropic` in repo-root `.env`; `docker compose logs opencode` |
 | Run errors with auth | App can't reach OpenCode — confirm container is up (`docker compose ps`) and `OPENCODE_URL` is `http://localhost:4096` |
 | Edited an agent, no change | `yarn generate` then `docker compose up -d opencode` (no hot-reload) |
@@ -215,6 +238,7 @@ at load). See `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md`.
 Quick recap:
 ```powershell
 docker compose up -d postgres redis meilisearch
+#   apps\mercato\.env: OM_ENABLE_ENTERPRISE_MODULES=true + OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true (required)
 yarn dev:greenfield                         # app :3000 — note admin creds
 #   UI: Generate MCP Config → copy omk_ key → put in apps\mercato\.env AND repo-root .env
 yarn mcp:serve                              # MCP server :3001
