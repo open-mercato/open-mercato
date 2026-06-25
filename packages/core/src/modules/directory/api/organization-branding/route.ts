@@ -7,6 +7,11 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
@@ -24,6 +29,7 @@ const brandingResponseSchema = z.object({
   organizationName: z.string(),
   tenantId: z.string().uuid(),
   logoUrl: z.string().nullable(),
+  updatedAt: z.string().nullable(),
 })
 
 const brandingUpdateSchema = z.object({
@@ -105,12 +111,25 @@ async function resolveCurrentOrganization(req: Request) {
   return { auth, container, organization, organizationId, tenantId, translate }
 }
 
+function toIsoOrNull(value: Date | string | null | undefined): string | null {
+  if (value == null) return null
+  if (value instanceof Date) {
+    const ms = value.getTime()
+    return Number.isFinite(ms) ? new Date(ms).toISOString() : null
+  }
+  const trimmed = String(value).trim()
+  if (!trimmed) return null
+  const parsed = new Date(trimmed)
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null
+}
+
 function toResponsePayload(organization: Organization, tenantId: string) {
   return {
     organizationId: String(organization.id),
     organizationName: organization.name,
     tenantId,
     logoUrl: organization.logoUrl ?? null,
+    updatedAt: toIsoOrNull(organization.updatedAt),
   }
 }
 
@@ -169,6 +188,32 @@ export async function PUT(req: Request) {
   }
 
   try {
+    // Refuse a stale overwrite when two tabs edit the same organization branding.
+    // Strictly additive — a no-op when the client omits the expected-version header.
+    enforceCommandOptimisticLock({
+      resourceKind: 'directory.organization',
+      resourceId: resolved.organizationId,
+      current: resolved.organization.updatedAt ?? null,
+      request: req,
+    })
+
+    // Mutation-guard contract for custom write routes: validate before the write,
+    // then run the after-success hook once the command persists.
+    const guardResult = await validateCrudMutationGuard(resolved.container, {
+      tenantId: resolved.tenantId,
+      organizationId: resolved.organizationId,
+      userId: resolved.auth.sub,
+      resourceKind: 'directory.organization',
+      resourceId: resolved.organizationId,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: { logoUrl: parsed.data.logoUrl ?? null },
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
     const commandBus = resolved.container.resolve('commandBus') as CommandBus
     const ctx = buildCommandContext(
       resolved.container,
@@ -188,6 +233,21 @@ export async function PUT(req: Request) {
         ctx,
       },
     )
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(resolved.container, {
+        tenantId: resolved.tenantId,
+        organizationId: resolved.organizationId,
+        userId: resolved.auth.sub,
+        resourceKind: 'directory.organization',
+        resourceId: resolved.organizationId,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+
     await invalidateSidebarBrandingCache(resolved.container, resolved.organizationId, resolved.tenantId)
     return NextResponse.json(toResponsePayload(result, resolved.tenantId))
   } catch (err) {
@@ -231,6 +291,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Save failed', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 409, description: 'Organization branding changed since it was loaded', schema: errorSchema },
         { status: 422, description: 'Invalid logo URL', schema: errorSchema },
       ],
     },

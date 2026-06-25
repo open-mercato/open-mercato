@@ -11,6 +11,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { computeAvailableReturnQuantity } from '@open-mercato/core/modules/sales/lib/returnQuantity'
 import { handleSectionMutationError } from './optimisticLock'
@@ -136,7 +137,9 @@ export function ReturnDialog({ open, orderId, lines, documentUpdatedAt, onClose,
         onClose()
         return
       }
-      flash(t('sales.returns.errors.create', 'Failed to create return.'), 'error')
+      const normalized = normalizeCrudServerError(err)
+      const fallback = t('sales.returns.errors.create', 'Failed to create return.')
+      flash(normalized.message || fallback, 'error')
     } finally {
       setSaving(false)
     }

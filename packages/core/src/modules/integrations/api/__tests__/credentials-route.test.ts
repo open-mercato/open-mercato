@@ -63,7 +63,7 @@ describe('integrations credentials PUT route — URL validation', () => {
     ;(createRequestContainer as jest.Mock).mockResolvedValue({
       resolve: (key: string) => {
         if (key === 'integrationCredentialsService') {
-          return { getSchema: () => akeneoSchema, save: saveMock }
+          return { getSchema: () => akeneoSchema, save: saveMock, resolveUpdatedAt: jest.fn().mockResolvedValue(null) }
         }
         throw new Error(`unexpected resolve(${key})`)
       },

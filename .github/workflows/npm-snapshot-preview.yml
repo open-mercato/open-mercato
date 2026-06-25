@@ -1,0 +1,416 @@
+name: NPM Snapshot Preview
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to publish an npm snapshot preview for"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+# Serialize npm snapshot preview runs per PR. Cancelling mid-publish can leave
+# the registry with only part of the lockstep package set published.
+concurrency:
+  group: npm-snapshot-preview-${{ github.event.inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-pr:
+    name: Resolve PR
+    runs-on: ubuntu-latest
+    outputs:
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      head_repo: ${{ steps.pr.outputs.head_repo }}
+      same_repo: ${{ steps.pr.outputs.same_repo }}
+    steps:
+      - name: Resolve pull request
+        id: pr
+        uses: actions/github-script@v9
+        env:
+          PR_NUMBER: ${{ github.event.inputs.pr_number }}
+        with:
+          script: |
+            const prNumber = Number(process.env.PR_NUMBER);
+            if (!Number.isInteger(prNumber) || prNumber <= 0) {
+              core.setFailed('pr_number must be a positive integer');
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            const expectedRepo = `${context.repo.owner}/${context.repo.repo}`;
+            const sameRepo = pr.head.repo.full_name === expectedRepo;
+
+            core.setOutput('head_sha', pr.head.sha);
+            core.setOutput('head_repo', pr.head.repo.full_name);
+            core.setOutput('same_repo', String(sameRepo));
+
+            if (!sameRepo) {
+              core.setFailed('NPM snapshot previews are restricted to same-repository PR branches.');
+            }
+
+  snapshot:
+    name: Publish NPM Snapshot Preview
+    needs: resolve-pr
+    if: needs.resolve-pr.outputs.same_repo == 'true'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      id-token: write  # required for npm provenance attestation
+    outputs:
+      snapshot_version: ${{ steps.release.outputs.version }}
+      publish_tag: ${{ steps.channel.outputs.publish_tag }}
+      packages_json: ${{ steps.release.outputs.packages_json }}
+    runs-on: ubuntu-latest
+    env:
+      YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve-pr.outputs.head_sha }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Configure npm authentication
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
+          echo "access=public" >> .npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Determine snapshot channel
+        id: channel
+        run: |
+          CONFIG=$(node scripts/lib/snapshot-release.mjs config \
+            --event-name "pull_request" \
+            --ref-name "${{ github.ref_name }}")
+
+          echo "channel=$(echo "$CONFIG" | jq -r '.channel')" >> $GITHUB_OUTPUT
+          echo "publish_tag=$(echo "$CONFIG" | jq -r '.publishTag')" >> $GITHUB_OUTPUT
+          echo "moving_install_target=$(echo "$CONFIG" | jq -r '.movingInstallTarget')" >> $GITHUB_OUTPUT
+          echo "release_kind=$(echo "$CONFIG" | jq -r '.releaseKind')" >> $GITHUB_OUTPUT
+
+      - name: Release snapshot
+        id: release
+        run: |
+          ./scripts/release-snapshot.sh \
+            --channel "${{ steps.channel.outputs.channel }}" \
+            --tag "${{ steps.channel.outputs.publish_tag }}"
+
+          VERSION=$(jq -r '.version' packages/shared/package.json)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+          PACKAGES_JSON=$(find packages -name package.json -not -path "*/node_modules/*" -exec cat {} \; | \
+            jq -s --arg version "$VERSION" \
+              '[.[] | select(.private != true and .version == $version) | {name: .name, version: .version}]')
+
+          echo "packages_json<<EOF" >> $GITHUB_OUTPUT
+          echo "$PACKAGES_JSON" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          PACKAGE_COUNT=$(echo "$PACKAGES_JSON" | jq 'length')
+          echo "package_count=$PACKAGE_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Write workflow summary
+        if: steps.release.outputs.package_count != '0'
+        run: |
+          cat > /tmp/packages.json <<'EOF'
+          ${{ steps.release.outputs.packages_json }}
+          EOF
+
+          {
+            echo "## NPM Snapshot Preview"
+            echo ""
+            echo "- Release kind: \`${{ steps.channel.outputs.release_kind }}\`"
+            echo "- Dist-tag: \`${{ steps.channel.outputs.publish_tag }}\`"
+            echo "- Exact snapshot version: \`${{ steps.release.outputs.version }}\`"
+            echo ""
+            echo "| Package | Version |"
+            echo "|---------|---------|"
+            jq -r '.[] | "| `\(.name)` | `\(.version)` |"' /tmp/packages.json
+            echo ""
+            echo "### Exact Snapshot"
+            echo ""
+            echo '```bash'
+            echo "yarn add @open-mercato/core@${{ steps.release.outputs.version }}"
+            echo "npx create-mercato-app@${{ steps.release.outputs.version }} my-app"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on PR
+        if: steps.release.outputs.package_count != '0'
+        uses: actions/github-script@v9
+        env:
+          PR_NUMBER: ${{ github.event.inputs.pr_number }}
+        with:
+          script: |
+            const issueNumber = Number(process.env.PR_NUMBER);
+            const packages = ${{ steps.release.outputs.packages_json }};
+            const marker = '<!-- npm-snapshot-preview-comment -->';
+
+            let table = '| Package | Version |\n|---------|---------|';
+            for (const pkg of packages) {
+              table += `\n| \`${pkg.name}\` | \`${pkg.version}\` |`;
+            }
+
+            const createAppPkg = packages.find(p => p.name === 'create-mercato-app');
+            const createAppVersion = createAppPkg?.version || 'VERSION';
+
+            const body = `${marker}
+            ## NPM Snapshot Preview Published
+
+            The following packages have been published to npm under the \`${{ steps.channel.outputs.publish_tag }}\` dist-tag:
+
+            ${table}
+
+            ### Create a new app
+
+            \`\`\`bash
+            npx create-mercato-app@${createAppVersion} my-app
+            \`\`\`
+            `;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+            });
+
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: body
+              });
+            }
+
+  standalone-integration:
+    name: Standalone App Integration Tests
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-pr
+      - snapshot
+    if: needs.snapshot.outputs.snapshot_version != ''
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: mercato
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: mercato_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout monorepo
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve-pr.outputs.head_sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install monorepo dependencies
+        run: yarn install --immutable
+
+      - name: Build monorepo packages
+        run: |
+          yarn build:packages
+          yarn generate
+          yarn build:packages
+
+      - name: Wait for npm registry propagation
+        run: |
+          VERSION="${{ needs.snapshot.outputs.snapshot_version }}"
+          mapfile -t PACKAGES < <(jq -r '.[].name' <<'EOF'
+          ${{ needs.snapshot.outputs.packages_json }}
+          EOF
+          )
+
+          echo "Waiting for Open Mercato packages @ ${VERSION} on npm..."
+          for pkg in "${PACKAGES[@]}"; do
+            echo "Checking ${pkg}@${VERSION}..."
+            ok=false
+            for i in $(seq 1 30); do
+              if npm view "${pkg}@${VERSION}" version 2>/dev/null; then
+                echo "  ${pkg} available after attempt ${i}"
+                ok=true
+                break
+              fi
+              echo "  Attempt ${i}/30: waiting 10s..."
+              sleep 10
+            done
+            if [ "$ok" != "true" ]; then
+              echo "Package ${pkg}@${VERSION} not available after 5 minutes"
+              exit 1
+            fi
+          done
+
+      - name: Scaffold standalone app
+        run: npx "create-mercato-app@${{ needs.snapshot.outputs.snapshot_version }}" /tmp/standalone-app --skip-agentic-setup --registry https://registry.npmjs.org
+
+      - name: Configure standalone app environment
+        working-directory: /tmp/standalone-app
+        run: |
+          cp .env.example .env
+          cat >> .env << 'EOF'
+          DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test
+          APP_URL=http://localhost:3001
+          NEXT_PUBLIC_APP_URL=http://localhost:3001
+          AUTH_SECRET=ci-standalone-test-auth-secret
+          JWT_SECRET=ci-standalone-test-jwt-secret
+          OM_SECURITY_MFA_SETUP_SECRET=ci-standalone-test-mfa-setup-secret
+          TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key
+          NODE_ENV=test
+          OM_TEST_MODE=1
+          OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in
+          OM_INTEGRATION_TEST=true
+          OM_DISABLE_EMAIL_DELIVERY=1
+          OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1
+          ENABLE_CRUD_API_CACHE=true
+          MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret
+          MOCK_CARRIER_WEBHOOK_SECRET=open-mercato-mock-dev-carrier-webhook-secret
+          NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true
+          NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED=true
+          OM_ENABLE_ENTERPRISE_MODULES=true
+          OM_ENABLE_ENTERPRISE_MODULES_SSO=true
+          OM_ENABLE_ENTERPRISE_MODULES_SECURITY=true
+          AUTO_SPAWN_WORKERS=false
+          AUTO_SPAWN_SCHEDULER=false
+          CACHE_STRATEGY=memory
+          OM_OPTIMISTIC_LOCK=all
+          EOF
+
+      - name: Install standalone app dependencies
+        working-directory: /tmp/standalone-app
+        env:
+          YARN_ENABLE_HARDENED_MODE: '0'
+          YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
+        run: yarn install
+
+      - name: Install standalone enterprise package
+        working-directory: /tmp/standalone-app
+        env:
+          YARN_ENABLE_HARDENED_MODE: '0'
+          YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
+        run: yarn add "@open-mercato/enterprise@${{ needs.snapshot.outputs.snapshot_version }}"
+
+      - name: Generate standalone app modules
+        working-directory: /tmp/standalone-app
+        run: yarn generate
+
+      - name: Initialize standalone app database
+        working-directory: /tmp/standalone-app
+        run: yarn initialize
+
+      - name: Build standalone app
+        working-directory: /tmp/standalone-app
+        run: yarn build
+
+      - name: Start standalone app
+        working-directory: /tmp/standalone-app
+        env:
+          OM_SECURITY_MFA_SETUP_SECRET: ci-standalone-test-mfa-setup-secret
+          MOCK_CARRIER_WEBHOOK_SECRET: open-mercato-mock-dev-carrier-webhook-secret
+        run: |
+          PORT=3001 yarn start > /tmp/standalone-app.log 2>&1 &
+          echo "Waiting for standalone app to be ready..."
+          for i in $(seq 1 180); do
+            if curl -sf http://localhost:3001/login > /dev/null 2>&1; then
+              echo "App ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "App failed to start within 180s"
+          echo "=== last 200 lines of /tmp/standalone-app.log ==="
+          tail -n 200 /tmp/standalone-app.log || true
+          exit 1
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Run integration tests
+        env:
+          OM_TEST_APP_ROOT: /tmp/standalone-app
+          BASE_URL: http://localhost:3001
+          DATABASE_URL: postgres://mercato:secret@localhost:5432/mercato_test
+          APP_URL: http://localhost:3001
+          NEXT_PUBLIC_APP_URL: http://localhost:3001
+          AUTH_SECRET: ci-standalone-test-auth-secret
+          JWT_SECRET: ci-standalone-test-jwt-secret
+          TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ci-standalone-test-fallback-key
+          OM_SECURITY_MFA_SETUP_SECRET: ci-standalone-test-mfa-setup-secret
+          MOCK_GATEWAY_WEBHOOK_SECRET: open-mercato-mock-dev-webhook-secret
+          MOCK_CARRIER_WEBHOOK_SECRET: open-mercato-mock-dev-carrier-webhook-secret
+        run: yarn test:integration
+
+      - name: Print standalone app log on test failure
+        if: failure()
+        run: |
+          echo "=== /tmp/standalone-app.log (last 1000 lines) ==="
+          tail -n 1000 /tmp/standalone-app.log || echo "(no log file)"
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: standalone-integration-results
+          path: |
+            .ai/qa/test-results/html/
+            .ai/qa/test-results/artifacts/
+            .ai/qa/test-results/results.json
+          if-no-files-found: ignore
+
+      - name: Upload standalone app log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: standalone-app-log
+          path: /tmp/standalone-app.log
+          if-no-files-found: ignore
