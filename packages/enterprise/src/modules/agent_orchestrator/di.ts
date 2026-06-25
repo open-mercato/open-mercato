@@ -88,7 +88,7 @@ export function register(container: AppContainer) {
     // AgentPrincipal (credentialMode='authmd') + AgentDelegationGrant (issuer/
     // subject/audience populated), and mints a token via the SAME core the OAuth
     // /token server uses — an additional credential PATH, not a parallel token
-    // system. `discovery` is the secret-free /.well-known metadata. The bound
+    // system. `discovery` is the secret-free /well-known metadata. The bound
     // functions resolve `em` at call time.
     agentAuthMdService: asFunction(() => ({
       discovery: getAgentAuthDiscovery,

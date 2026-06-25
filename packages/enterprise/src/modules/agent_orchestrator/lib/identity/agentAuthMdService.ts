@@ -87,7 +87,7 @@ function loadTrustedIssuers(): Map<string, TrustedAgentIssuer> {
 }
 
 /**
- * The public discovery metadata advertised at `/.well-known`. Read-only and
+ * The public discovery metadata advertised at `/well-known`. Read-only and
  * secret-free: it advertises the token + agent-auth endpoints, the supported grant
  * types (client-credentials now + the ID-JAG / JWT-bearer flow), and the audience
  * an external assertion must target. No issuer keys / JWKS are exposed.
