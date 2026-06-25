@@ -52,4 +52,4 @@ None (`--skill-url` not used).
 
 ### Phase 1: Add the warning section
 
-- [ ] 1.1 Add "Enterprise Module Contributions" warning section to CONTRIBUTING.md
+- [x] 1.1 Add "Enterprise Module Contributions" warning section to CONTRIBUTING.md — 2c7aff04e
