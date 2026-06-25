@@ -7537,6 +7537,7 @@ __metadata:
     "@types/node": "npm:^26.0.0"
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
   peerDependencies:
     better-sqlite3: ">=9.0.0"
     ioredis: ^5.0.0
@@ -7562,10 +7563,11 @@ __metadata:
     esbuild: "npm:^0.28.1"
     glob: "npm:^13.0.6"
     jest: "npm:^30.4.2"
-    mailparser: "npm:^3.7.1"
+    mailparser: "npm:^3.9.11"
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
     "@open-mercato/shared": "workspace:*"
@@ -7589,13 +7591,14 @@ __metadata:
     "@types/react-dom": "npm:^19.2.3"
     esbuild: "npm:^0.28.1"
     glob: "npm:^13.0.6"
-    imapflow: "npm:^1.4.0"
+    imapflow: "npm:^1.4.2"
     jest: "npm:^30.4.2"
-    mailparser: "npm:^3.7.1"
+    mailparser: "npm:^3.9.11"
     nodemailer: "npm:^9.0.1"
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
     "@open-mercato/shared": "workspace:*"
@@ -7621,6 +7624,7 @@ __metadata:
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
     "@open-mercato/shared": "workspace:*"
@@ -7644,7 +7648,7 @@ __metadata:
     jest: "npm:^30.4.2"
     pg: "npm:8.22.0"
     semver: "npm:^7.8.5"
-    testcontainers: "npm:^12.0.2"
+    testcontainers: "npm:^12.0.3"
     ts-jest: "npm:^29.4.11"
     ts-morph: "npm:^28.0.0"
     tsx: "npm:^4.22.4"
@@ -7664,6 +7668,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
   peerDependencies:
     "@open-mercato/shared": "workspace:*"
   languageName: unknown
@@ -7711,6 +7716,7 @@ __metadata:
     svix: "npm:^1.96.0"
     ts-jest: "npm:^29.4.11"
     ts-pattern: "npm:^5.0.0"
+    typescript: "npm:^6.0.3"
     zod: "npm:^4.4.3"
   peerDependencies:
     "@open-mercato/ai-assistant": "workspace:*"
@@ -7742,6 +7748,7 @@ __metadata:
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
   peerDependencies:
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
@@ -7759,6 +7766,7 @@ __metadata:
     jest: "npm:^30.4.2"
     pg: "npm:8.22.0"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
   languageName: unknown
   linkType: soft
 
@@ -7782,6 +7790,7 @@ __metadata:
     react-dom: "npm:19.2.7"
     stripe: "npm:^22.2.2"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
     "@open-mercato/shared": "workspace:*"
@@ -7798,6 +7807,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
   peerDependencies:
     "@open-mercato/shared": "workspace:*"
   languageName: unknown
@@ -7812,6 +7822,7 @@ __metadata:
     "@types/node": "npm:^26.0.0"
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
   peerDependencies:
     bullmq: ^5.0.0
   peerDependenciesMeta:
@@ -7832,6 +7843,7 @@ __metadata:
     cron-parser: "npm:^5.6.0"
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
   peerDependencies:
     "@mikro-orm/core": ^7.0.14
     "@open-mercato/shared": "workspace:*"
@@ -7862,6 +7874,7 @@ __metadata:
     meilisearch: "npm:^0.58.0"
     pg: "npm:8.22.0"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
     zod: "npm:^4.4.3"
   peerDependencies:
     "@open-mercato/core": "workspace:*"
@@ -7887,6 +7900,7 @@ __metadata:
     reflect-metadata: "npm:^0.2.2"
     sanitize-html: "npm:^2.17.5"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
     undici: "npm:^8.4.1"
   languageName: unknown
   linkType: soft
@@ -7904,6 +7918,7 @@ __metadata:
     glob: "npm:^13.0.6"
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
   peerDependencies:
     "@mikro-orm/postgresql": ^6.6.10
     "@open-mercato/shared": "workspace:*"
@@ -7927,6 +7942,7 @@ __metadata:
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
     "@open-mercato/shared": "workspace:*"
@@ -7972,6 +7988,7 @@ __metadata:
     recharts: "npm:^3.8.1"
     remark-gfm: "npm:^4.0.1"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
   peerDependencies:
     "@open-mercato/shared": "workspace:*"
     react: ">=18.0.0"
@@ -7998,6 +8015,7 @@ __metadata:
     react-dom: "npm:19.2.7"
     svix: "npm:^1.96.0"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
     "@open-mercato/shared": "workspace:*"
@@ -13242,20 +13260,33 @@ __metadata:
   languageName: node
   linkType: hard
 
-"archiver@npm:^8.0.0":
-  version: 8.0.0
-  resolution: "archiver@npm:8.0.0"
+"archiver-utils@npm:^5.0.0, archiver-utils@npm:^5.0.2":
+  version: 5.0.2
+  resolution: "archiver-utils@npm:5.0.2"
   dependencies:
-    async: "npm:^3.2.4"
-    buffer-crc32: "npm:^1.0.0"
-    is-stream: "npm:^4.0.0"
+    glob: "npm:^10.0.0"
+    graceful-fs: "npm:^4.2.0"
+    is-stream: "npm:^2.0.1"
     lazystream: "npm:^1.0.0"
+    lodash: "npm:^4.17.15"
     normalize-path: "npm:^3.0.0"
     readable-stream: "npm:^4.0.0"
-    readdir-glob: "npm:^3.0.0"
+  checksum: 10/9dde4aa3f0cb1bdfe0b3d4c969f82e6cca9ae76338b7fee6f0071a14a2a38c0cdd1c41ecd3e362466585aa6cc5d07e9e435abea8c94fd9c7ace35f184abef9e4
+  languageName: node
+  linkType: hard
+
+"archiver@npm:^7.0.1":
+  version: 7.0.1
+  resolution: "archiver@npm:7.0.1"
+  dependencies:
+    archiver-utils: "npm:^5.0.2"
+    async: "npm:^3.2.4"
+    buffer-crc32: "npm:^1.0.0"
+    readable-stream: "npm:^4.0.0"
+    readdir-glob: "npm:^1.1.2"
     tar-stream: "npm:^3.0.0"
-    zip-stream: "npm:^7.0.2"
-  checksum: 10/d86b4de7c8cd49dc980194a9ce3b7bc09354082d080e063d289d5d588a8846c4ac970eff3fcc52abe458d8fea95391c737cdadb4d015abb4433598b1f84cd22f
+    zip-stream: "npm:^6.0.1"
+  checksum: 10/81c6102db99d7ffd5cb2aed02a678f551c6603991a059ca66ef59249942b835a651a3d3b5240af4f8bec4e61e13790357c9d1ad4a99982bd2cc4149575c31d67
   languageName: node
   linkType: hard
 
@@ -14839,16 +14870,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"compress-commons@npm:^7.0.0":
-  version: 7.0.1
-  resolution: "compress-commons@npm:7.0.1"
+"compress-commons@npm:^6.0.2":
+  version: 6.0.2
+  resolution: "compress-commons@npm:6.0.2"
   dependencies:
     crc-32: "npm:^1.2.0"
-    crc32-stream: "npm:^7.0.1"
-    is-stream: "npm:^4.0.0"
+    crc32-stream: "npm:^6.0.0"
+    is-stream: "npm:^2.0.1"
     normalize-path: "npm:^3.0.0"
     readable-stream: "npm:^4.0.0"
-  checksum: 10/512736ab74efbe08c8d0aaaa14ecede33d25c476204722ab0f9ab6f0989fe8cb1f81aca09356102a1c671ea122fc33f47cb6419ff7af598c3a730a218253a533
+  checksum: 10/78e3ba10aeef919a1c5bbac21e120f3e1558a31b2defebbfa1635274fc7f7e8a3a0ee748a06249589acd0b33a0d58144b8238ff77afc3220f8d403a96fcc13aa
   languageName: node
   linkType: hard
 
@@ -15132,13 +15163,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"crc32-stream@npm:^7.0.1":
-  version: 7.0.1
-  resolution: "crc32-stream@npm:7.0.1"
+"crc32-stream@npm:^6.0.0":
+  version: 6.0.0
+  resolution: "crc32-stream@npm:6.0.0"
   dependencies:
     crc-32: "npm:^1.2.0"
     readable-stream: "npm:^4.0.0"
-  checksum: 10/2866f36241996c8024ee86049ec2213e538e44fd0a54869fadb75b68fef53c65f2f5ccb0bbf82735aeaf919c5b246b3a0f0023c1f132295bd928bad241b08d70
+  checksum: 10/e6edc2f81bc387daef6d18b2ac18c2ffcb01b554d3b5c7d8d29b177505aafffba574658fdd23922767e8dab1183d1962026c98c17e17fb272794c33293ef607c
   languageName: node
   linkType: hard
 
@@ -18571,7 +18602,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"glob@npm:^10.5.0":
+"glob@npm:^10.0.0, glob@npm:^10.5.0":
   version: 10.5.0
   resolution: "glob@npm:10.5.0"
   dependencies:
@@ -19523,9 +19554,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"imapflow@npm:^1.4.0":
-  version: 1.4.0
-  resolution: "imapflow@npm:1.4.0"
+"imapflow@npm:^1.4.2":
+  version: 1.4.2
+  resolution: "imapflow@npm:1.4.2"
   dependencies:
     "@zone-eu/mailsplit": "npm:5.4.12"
     encoding-japanese: "npm:2.2.0"
@@ -19533,10 +19564,10 @@ __metadata:
     libbase64: "npm:1.3.0"
     libmime: "npm:5.3.8"
     libqp: "npm:2.1.1"
-    nodemailer: "npm:8.0.10"
+    nodemailer: "npm:9.0.1"
     pino: "npm:10.3.1"
     socks: "npm:2.8.9"
-  checksum: 10/35f7b1686fd4a1c9bf1d6bd0d878d3f5b8973b08cf09f212331d20c8ceaa3e5dc4c88977a56ef3f5c3ca1a87b9e6f5020442c0bd990a4dc056b4c1e65a8676d9
+  checksum: 10/1da4c0d000ff9230d66944ac757e645f7d263c939e4944a0b91ab1ea110dbdfd77f83e8d5bf17ac0766a1916205f8c52b03f89b09fba06367d951fd1a1d5aa31
   languageName: node
   linkType: hard
 
@@ -20180,17 +20211,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"is-stream@npm:^2.0.0":
+"is-stream@npm:^2.0.0, is-stream@npm:^2.0.1":
   version: 2.0.1
   resolution: "is-stream@npm:2.0.1"
   checksum: 10/b8e05ccdf96ac330ea83c12450304d4a591f9958c11fd17bed240af8d5ffe08aedafa4c0f4cfccd4d28dc9d4d129daca1023633d5c11601a6cbc77521f6fae66
-  languageName: node
-  linkType: hard
-
-"is-stream@npm:^4.0.0":
-  version: 4.0.1
-  resolution: "is-stream@npm:4.0.1"
-  checksum: 10/cbea3f1fc271b21ceb228819d0c12a0965a02b57f39423925f99530b4eb86935235f258f06310b67cd02b2d10b49e9a0998f5ececf110ab7d3760bae4055ad23
   languageName: node
   linkType: hard
 
@@ -21926,9 +21950,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"mailparser@npm:^3.7.1":
-  version: 3.9.9
-  resolution: "mailparser@npm:3.9.9"
+"mailparser@npm:^3.9.11":
+  version: 3.9.11
+  resolution: "mailparser@npm:3.9.11"
   dependencies:
     "@zone-eu/mailsplit": "npm:5.4.12"
     encoding-japanese: "npm:2.2.0"
@@ -21937,10 +21961,10 @@ __metadata:
     iconv-lite: "npm:0.7.2"
     libmime: "npm:5.3.8"
     linkify-it: "npm:5.0.1"
-    nodemailer: "npm:8.0.10"
+    nodemailer: "npm:9.0.1"
     punycode.js: "npm:2.3.1"
     tlds: "npm:1.261.0"
-  checksum: 10/e0cccacded20cc38d812f702d3c603f866a438b21fd90853e7456e2938389bdbcbd093152eb229616bc9f2631b6c8b6f657258a3c686b090c009a6287e2a6780
+  checksum: 10/b740f0ce62ada65c634ac5879bf9a71562b5656d4d805b0496b2e2f5aed3defa116f6adeba9120f76658da6288511c25e1e232a68e4e426c3ed8e9881e9c45bc
   languageName: node
   linkType: hard
 
@@ -24034,6 +24058,7 @@ __metadata:
     openapi-typescript: "npm:^7.13.0"
     pdfjs-dist: "npm:^6.0.227"
     pg: "npm:8.22.0"
+    pkg-pr-new: "npm:0.0.75"
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
     react-email: "npm:^6.6.3"
@@ -24774,6 +24799,15 @@ __metadata:
   dependencies:
     find-up: "npm:^6.3.0"
   checksum: 10/94298b20a446bfbbd66604474de8a0cdd3b8d251225170970f15d9646f633e056c80520dd5b4c1d1050c9fed8f6a9e5054b141c93806439452efe72e57562c03
+  languageName: node
+  linkType: hard
+
+"pkg-pr-new@npm:0.0.75":
+  version: 0.0.75
+  resolution: "pkg-pr-new@npm:0.0.75"
+  bin:
+    pkg-pr-new: bin/cli.js
+  checksum: 10/5160a67a955a50a5842cc43a5143e16f15e48bd5beaf6368ee4f3c532fd79e8ba703ffffd9479945b7ed52f65ce11990e2e24c96b6efd7dd30a326236721bd90
   languageName: node
   linkType: hard
 
@@ -26636,12 +26670,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"readdir-glob@npm:^3.0.0":
-  version: 3.0.0
-  resolution: "readdir-glob@npm:3.0.0"
+"readdir-glob@npm:^1.1.2":
+  version: 1.1.3
+  resolution: "readdir-glob@npm:1.1.3"
   dependencies:
-    minimatch: "npm:^10.2.2"
-  checksum: 10/438c23cc94d5ca0ca8266c7547f6aeb8cd556004994b8ac96e341c0b89162dceca8edd191b3259f204662c4d24ec37ad36a9228a993f1b0e19de0427550dc37e
+    minimatch: "npm:^5.1.0"
+  checksum: 10/ca3a20aa1e715d671302d4ec785a32bf08e59d6d0dd25d5fc03e9e5a39f8c612cdf809ab3e638a79973db7ad6868492edf38504701e313328e767693671447d6
   languageName: node
   linkType: hard
 
@@ -29071,13 +29105,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"testcontainers@npm:^12.0.2":
-  version: 12.0.2
-  resolution: "testcontainers@npm:12.0.2"
+"testcontainers@npm:^12.0.3":
+  version: 12.0.3
+  resolution: "testcontainers@npm:12.0.3"
   dependencies:
     "@balena/dockerignore": "npm:^1.0.2"
     "@types/dockerode": "npm:^4.0.1"
-    archiver: "npm:^8.0.0"
+    archiver: "npm:^7.0.1"
     async-lock: "npm:^1.4.1"
     byline: "npm:^5.0.0"
     debug: "npm:^4.4.3"
@@ -29090,7 +29124,7 @@ __metadata:
     tar-fs: "npm:^3.1.2"
     tmp: "npm:^0.2.7"
     undici: "npm:^8.3.0"
-  checksum: 10/970a3d4b21eafb5d6e5975bee680f4dca10495e0704229201d9eb1792a14899623a14a7aa270574c11fb59b2822ff00309e3015f4acf3d116dc5260db8aaa3a2
+  checksum: 10/dd1b5ae7e1d298c413a2f1c1b2e41bc2bc99e5cc495ca6508e3cb2b4b6755dc15c74f406a42be8ea9aac686fabad50df9c1cc99e1851a85314ad694af7ac93ef
   languageName: node
   linkType: hard
 
@@ -29781,7 +29815,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"undici@npm:7.28.0":
+"undici@npm:8.5.0":
+  version: 8.5.0
+  resolution: "undici@npm:8.5.0"
+  checksum: 10/e95913777afd47d76babfe62547bb4e9a94b93f44b50c84b4e0b6fa41c00364e31ff4f433a955b1592c3162f43e8757e2e0feae6eea195187730594523393568
+  languageName: node
+  linkType: hard
+
+"undici@npm:^7.12.0, undici@npm:^7.16.0":
   version: 7.28.0
   resolution: "undici@npm:7.28.0"
   checksum: 10/154423b280d623278a61decb437f8a7e581fb18b8c95556ef956b32a58cd668eadbb812d28e20678cb2dc545a566f35a3afc0962307ca801da30f4741117986d
@@ -31102,14 +31143,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"zip-stream@npm:^7.0.2":
-  version: 7.0.5
-  resolution: "zip-stream@npm:7.0.5"
+"zip-stream@npm:^6.0.1":
+  version: 6.0.1
+  resolution: "zip-stream@npm:6.0.1"
   dependencies:
-    compress-commons: "npm:^7.0.0"
-    normalize-path: "npm:^3.0.0"
+    archiver-utils: "npm:^5.0.0"
+    compress-commons: "npm:^6.0.2"
     readable-stream: "npm:^4.0.0"
-  checksum: 10/6c9d870fca394fb17e2f4197569757e940c2c03c01922abf496024f11e0b9c1c3dd08ce75dc33f56fd3a12c071e78a6128d4d674cde680d2daf55a1a01b018ac
+  checksum: 10/aa5abd6a89590eadeba040afbc375f53337f12637e5e98330012a12d9886cde7a3ccc28bd91aafab50576035bbb1de39a9a316eecf2411c8b9009c9f94f0db27
   languageName: node
   linkType: hard
 

@@ -7,6 +7,7 @@ import { registerOptimisticLockReaders } from '@open-mercato/shared/lib/crud/opt
 import { DefaultSalesCalculationService } from './services/salesCalculationService'
 import { DefaultTaxCalculationService } from './services/taxCalculationService'
 import { SalesDocumentNumberGenerator } from './services/salesDocumentNumberGenerator'
+import { DefaultSalesOrderService } from './services/salesOrderService'
 import {
   SalesOrder,
   SalesOrderLine,
@@ -82,6 +83,11 @@ export function register(container: AppContainer) {
       .proxy(),
     salesDocumentNumberGenerator: asFunction(({ em }: AppCradle) => {
       return new SalesDocumentNumberGenerator(em)
+    })
+      .singleton()
+      .proxy(),
+    salesOrderService: asFunction(({ em }: AppCradle) => {
+      return new DefaultSalesOrderService(em)
     })
       .singleton()
       .proxy(),
