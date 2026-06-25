@@ -12,6 +12,10 @@ const createAgentRunSchema = z.object({
   input: z.unknown(),
   /** Parent run id for a nested sub-agent run (Phase 4); null/absent for top-level runs. */
   parentRunId: z.string().uuid().nullable().optional(),
+  /** Declared agent runtime (`in-process` | `opencode`); stamped so the cockpit can show/filter runs by runtime. */
+  runtime: z.string().max(50).nullable().optional(),
+  /** Declared model id; null when the agent uses the tenant default. */
+  model: z.string().max(100).nullable().optional(),
 })
 export type CreateAgentRunInput = z.infer<typeof createAgentRunSchema>
 
@@ -20,6 +24,8 @@ const completeAgentRunSchema = z.object({
   status: z.enum(['ok', 'error']),
   output: z.unknown().optional(),
   resultKind: z.enum(['informative', 'actionable']).nullable().optional(),
+  /** External runtime correlation id (e.g. the OpenCode session id); only set when provided. */
+  externalRunId: z.string().max(255).nullable().optional(),
 })
 export type CompleteAgentRunInput = z.infer<typeof completeAgentRunSchema>
 
@@ -41,6 +47,8 @@ const createAgentRunCommand: CommandHandler<CreateAgentRunInput, { runId: string
       status: 'running' as AgentRunStatus,
       input: input.input,
       parentRunId: input.parentRunId ?? null,
+      runtime: input.runtime ?? null,
+      model: input.model ?? null,
     })
     em.persist(run)
     await em.flush()
@@ -66,6 +74,7 @@ const completeAgentRunCommand: CommandHandler<CompleteAgentRunInput, { runId: st
     run.status = input.status
     run.output = input.output ?? null
     run.resultKind = input.resultKind ?? null
+    if (input.externalRunId !== undefined) run.externalRunId = input.externalRunId
     run.updatedAt = new Date()
     await em.flush()
 

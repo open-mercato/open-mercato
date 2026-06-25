@@ -95,6 +95,8 @@ export class AgentRuntimeService {
       agentId,
       input,
       parentRunId: ctx.parentRunId ?? null,
+      runtime: entry.runtime,
+      model: entry.defaultModel ?? null,
     })
 
     // Load the caller's effective ACL so the agent's read-only tools (e.g.

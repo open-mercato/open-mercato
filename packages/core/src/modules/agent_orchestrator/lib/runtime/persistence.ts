@@ -74,6 +74,10 @@ export async function createRun(
     input: unknown
     /** Nested sub-agent run trace (Phase 4); omit/null for top-level runs. */
     parentRunId?: string | null
+    /** Declared runtime of the agent (`in-process` | `opencode`); stamped on the run for the cockpit. */
+    runtime?: string | null
+    /** Declared model id (e.g. `anthropic/claude-sonnet-4-5`); null when the agent uses the tenant default. */
+    model?: string | null
   },
 ): Promise<string> {
   const { result } = await commandBus.execute<typeof input, { runId: string }>(
@@ -86,13 +90,31 @@ export async function createRun(
 export async function completeRun(
   commandBus: CommandBus,
   commandCtx: CommandRuntimeContext,
-  input: { runId: string; output: AgentResult; resultKind: 'informative' | 'actionable' },
+  input: {
+    runId: string
+    output: AgentResult
+    resultKind: 'informative' | 'actionable'
+    /** External runtime correlation id (e.g. the OpenCode session id); null for in-process runs. */
+    externalRunId?: string | null
+  },
 ): Promise<void> {
   await commandBus.execute<
-    { runId: string; status: 'ok'; output: AgentResult; resultKind: 'informative' | 'actionable' },
+    {
+      runId: string
+      status: 'ok'
+      output: AgentResult
+      resultKind: 'informative' | 'actionable'
+      externalRunId?: string | null
+    },
     { runId: string }
   >('agent_orchestrator.runs.complete', {
-    input: { runId: input.runId, status: 'ok', output: input.output, resultKind: input.resultKind },
+    input: {
+      runId: input.runId,
+      status: 'ok',
+      output: input.output,
+      resultKind: input.resultKind,
+      externalRunId: input.externalRunId ?? null,
+    },
     ctx: commandCtx,
   })
 }

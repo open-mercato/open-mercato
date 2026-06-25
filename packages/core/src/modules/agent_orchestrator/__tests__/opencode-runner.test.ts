@@ -252,6 +252,32 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     expect(deleteSessionApiKeyMock).toHaveBeenCalledTimes(1)
   })
 
+  it('stamps runtime + model on runs.create and the OpenCode session id as externalRunId on runs.complete', async () => {
+    const entry = registerExampleFileAgent()
+    const { calls, commandBus, container } = makeHarness()
+    const sessionTokenRef = { value: '' }
+    const agentSentRef = { value: undefined as string | undefined }
+    const client = makeFakeClient({ outcome: validOutcome, sessionTokenRef, agentSentRef, container })
+
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: client,
+    })
+
+    await runner.run(entry, { dealId: 'deal-1' }, runCtx)
+
+    // runs.create carries the declared runtime + model so the cockpit can show
+    // and filter runs by runtime/model (the columns were previously always null).
+    const createCall = calls.find((c) => c.id === 'agent_orchestrator.runs.create')!
+    expect(createCall.input.runtime).toBe('opencode')
+    expect(createCall.input.model).toBe('claude-sonnet-4-6')
+
+    // runs.complete carries the OpenCode session id as the external correlation id.
+    const completeCall = calls.find((c) => c.id === 'agent_orchestrator.runs.complete')!
+    expect(completeCall.input.externalRunId).toBe('ses_fake_1')
+  })
+
   it('fails the run when the agent never submits an outcome (idle without outcome, after the corrective nudge)', async () => {
     const entry = registerExampleFileAgent()
     const { calls, commandBus, container } = makeHarness()
