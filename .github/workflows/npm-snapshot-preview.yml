@@ -4,8 +4,12 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 on:
-  pull_request:
-    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to publish an npm snapshot preview for"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -15,12 +19,52 @@ permissions:
 # Serialize npm snapshot preview runs per PR. Cancelling mid-publish can leave
 # the registry with only part of the lockstep package set published.
 concurrency:
-  group: npm-snapshot-preview-${{ github.event.pull_request.number }}
+  group: npm-snapshot-preview-${{ github.event.inputs.pr_number }}
   cancel-in-progress: false
 
 jobs:
+  resolve-pr:
+    name: Resolve PR
+    runs-on: ubuntu-latest
+    outputs:
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      head_repo: ${{ steps.pr.outputs.head_repo }}
+      same_repo: ${{ steps.pr.outputs.same_repo }}
+    steps:
+      - name: Resolve pull request
+        id: pr
+        uses: actions/github-script@v9
+        env:
+          PR_NUMBER: ${{ github.event.inputs.pr_number }}
+        with:
+          script: |
+            const prNumber = Number(process.env.PR_NUMBER);
+            if (!Number.isInteger(prNumber) || prNumber <= 0) {
+              core.setFailed('pr_number must be a positive integer');
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            const expectedRepo = `${context.repo.owner}/${context.repo.repo}`;
+            const sameRepo = pr.head.repo.full_name === expectedRepo;
+
+            core.setOutput('head_sha', pr.head.sha);
+            core.setOutput('head_repo', pr.head.repo.full_name);
+            core.setOutput('same_repo', String(sameRepo));
+
+            if (!sameRepo) {
+              core.setFailed('NPM snapshot previews are restricted to same-repository PR branches.');
+            }
+
   snapshot:
     name: Publish NPM Snapshot Preview
+    needs: resolve-pr
+    if: needs.resolve-pr.outputs.same_repo == 'true'
     permissions:
       contents: read
       issues: write
@@ -31,8 +75,6 @@ jobs:
       publish_tag: ${{ steps.channel.outputs.publish_tag }}
       packages_json: ${{ steps.release.outputs.packages_json }}
     runs-on: ubuntu-latest
-    # Requires npm credentials, so only trusted same-repository PR branches can run it.
-    if: github.event.label.name == 'publish-npm-snapshot' && github.event.pull_request.head.repo.full_name == github.repository
     env:
       YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -40,6 +82,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
+          ref: ${{ needs.resolve-pr.outputs.head_sha }}
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -64,7 +107,7 @@ jobs:
         id: channel
         run: |
           CONFIG=$(node scripts/lib/snapshot-release.mjs config \
-            --event-name "${{ github.event_name }}" \
+            --event-name "pull_request" \
             --ref-name "${{ github.ref_name }}")
 
           echo "channel=$(echo "$CONFIG" | jq -r '.channel')" >> $GITHUB_OUTPUT
@@ -122,8 +165,11 @@ jobs:
       - name: Comment on PR
         if: steps.release.outputs.package_count != '0'
         uses: actions/github-script@v9
+        env:
+          PR_NUMBER: ${{ github.event.inputs.pr_number }}
         with:
           script: |
+            const issueNumber = Number(process.env.PR_NUMBER);
             const packages = ${{ steps.release.outputs.packages_json }};
             const marker = '<!-- npm-snapshot-preview-comment -->';
 
@@ -152,7 +198,7 @@ jobs:
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: issueNumber,
             });
 
             const existing = comments.find(c => c.body.includes(marker));
@@ -168,7 +214,7 @@ jobs:
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.issue.number,
+                issue_number: issueNumber,
                 body: body
               });
             }
@@ -176,7 +222,9 @@ jobs:
   standalone-integration:
     name: Standalone App Integration Tests
     runs-on: ubuntu-latest
-    needs: snapshot
+    needs:
+      - resolve-pr
+      - snapshot
     if: needs.snapshot.outputs.snapshot_version != ''
     services:
       postgres:
@@ -196,6 +244,8 @@ jobs:
     steps:
       - name: Checkout monorepo
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve-pr.outputs.head_sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6

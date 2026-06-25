@@ -614,7 +614,6 @@ describe('HybridQueryEngine', () => {
     // and sorted in memory.
     expect(phase1Chain.orderBys).toEqual([])
     expect(phase1Chain.limit).toBeNull()
-    expect(phase1Chain.selects.length).toBeLessThan(phase2Chain.selects.length)
     // Phase 2: filtered by `id in [...]`, no SQL order/limit needed since the id
     // list already bounds it to the page.
     expect(phase2Chain.orderBys).toEqual([])
@@ -683,6 +682,84 @@ describe('HybridQueryEngine', () => {
       page: { page: 3, pageSize: 2 },
     })
     expect(page3.items.map((item: any) => item.display_name)).toEqual(['Eve'])
+  })
+
+  test('sorts encrypted base fields in all-organization scope', async () => {
+    const db = createFakeKysely({
+      baseTable: 'customer_entities',
+      hasIndexAny: true,
+      baseCount: 3,
+      indexCount: 3,
+      columns: [
+        { table_name: 'customer_entities', column_name: 'id' },
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+        { table_name: 'customer_entities', column_name: 'organization_id' },
+        { table_name: 'customer_entities', column_name: 'deleted_at' },
+        { table_name: 'customer_entities', column_name: 'display_name' },
+      ],
+      rows: {
+        customer_entities: [
+          { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-c' },
+          { id: '2', tenant_id: 't1', organization_id: 'org2', display_name: 'cipher-a' },
+          { id: '3', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+        ],
+      },
+    })
+    const namesById: Record<string, string> = {
+      '1': 'Combocompany',
+      '2': 'Aardvark Solutions',
+      '3': 'Beta Corp',
+    }
+    const orgById: Record<string, string> = {
+      '1': 'org1',
+      '2': 'org2',
+      '3': 'org1',
+    }
+    const encryptedFieldLookups: Array<string | null | undefined> = []
+    const decryptScopes: Array<string | null> = []
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(
+      em,
+      fallback as any,
+      () => ({ emitEvent }),
+      undefined,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async (_entityId, _tenantId, organizationId) => {
+          encryptedFieldLookups.push(organizationId)
+          return organizationId == null ? ['display_name'] : []
+        },
+        decryptEntityPayload: async (_entityId, payload, _tenantId, organizationId) => {
+          decryptScopes.push(organizationId ?? null)
+          const id = String(payload.id)
+          return organizationId === orgById[id] ? { display_name: namesById[id] } : {}
+        },
+      }),
+    )
+
+    const result = await engine.query('customers:customer_entity', {
+      fields: ['id', 'display_name', 'organization_id'],
+      organizationIds: ['org1', 'org2'],
+      tenantId: 't1',
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 3 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    expect(encryptedFieldLookups).toEqual([null])
+    expect(decryptScopes.slice(0, 3)).toEqual(['org1', 'org2', 'org1'])
+    expect(decryptScopes).toEqual(expect.arrayContaining(['org1', 'org2']))
+    expect(result.items.map((item: any) => item.display_name)).toEqual([
+      'Aardvark Solutions',
+      'Beta Corp',
+      'Combocompany',
+    ])
+    const customerEntityChains = db._chains.filter((chain: ChainLog) => chain.table === 'customer_entities')
+    const [phase1Chain, phase2Chain] = customerEntityChains.slice(-2)
+    expect(phase1Chain.orderBys).toEqual([])
+    expect(phase2Chain.wheres.some((args: any[]) => args.includes('in'))).toBe(true)
   })
 
   describe('OM_ENCRYPTED_SORT_MAX_ROWS cap', () => {

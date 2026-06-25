@@ -122,6 +122,19 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     threadMessage.senderUserId === scope.userId || visibleRecipientMessageIds.has(threadMessage.id)
   ))
 
+  const actorRecipientStatusByMessageId = new Map<string, string>()
+  for (const row of visibleRecipientRows) {
+    actorRecipientStatusByMessageId.set(row.messageId, row.status)
+  }
+  if (recipient) {
+    actorRecipientStatusByMessageId.set(params.id, autoMarkRead ? 'read' : recipient.status)
+  }
+  const actorRecipientStatuses = Array.from(actorRecipientStatusByMessageId.values())
+  const conversationArchived = actorRecipientStatuses.length > 0
+    && actorRecipientStatuses.every((status) => status === 'archived')
+  const conversationAllUnread = actorRecipientStatuses.length > 0
+    && actorRecipientStatuses.every((status) => status === 'unread')
+
   const threadSenderIds = actorVisibleThreadMessages
     .map((threadMessage) => threadMessage.senderUserId)
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -244,6 +257,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       }
     }),
     isRead: recipient ? (autoMarkRead || recipient.status !== 'unread') : true,
+    conversationArchived,
+    conversationAllUnread,
   })
 }
 
