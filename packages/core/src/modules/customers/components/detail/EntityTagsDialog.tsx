@@ -438,53 +438,49 @@ export function EntityTagsDialog({
   const loadData = React.useCallback(async () => {
     setLoading(true)
     try {
-      let kindSettings: KindSetting[] = []
       const scopedQuery = new URLSearchParams()
       if (entityOrganizationId) {
         scopedQuery.set('organizationId', entityOrganizationId)
       }
-      try {
-        const settingsCall = await apiCall<{ items?: KindSetting[] }>(
-          `/api/customers/dictionaries/kind-settings${scopedQuery.size ? `?${scopedQuery.toString()}` : ''}`,
-          { cache: 'no-store', headers: { 'x-om-unauthorized-redirect': '0' } },
-        )
-        if (settingsCall.ok && settingsCall.result?.items) {
-          kindSettings = settingsCall.result.items
+
+      const loadKindSettings = async (): Promise<KindSetting[]> => {
+        try {
+          const settingsCall = await apiCall<{ items?: KindSetting[] }>(
+            `/api/customers/dictionaries/kind-settings${scopedQuery.size ? `?${scopedQuery.toString()}` : ''}`,
+            { cache: 'no-store', headers: { 'x-om-unauthorized-redirect': '0' } },
+          )
+          if (settingsCall.ok && settingsCall.result?.items) {
+            return settingsCall.result.items
+          }
+        } catch {
+          // Default category order works without explicit settings rows.
         }
-      } catch {
-        // Default category order works without explicit settings rows.
+        return []
       }
 
-      const settingsMap = new Map(kindSettings.map((setting) => [setting.kind, setting]))
-
-      const selectedTagEntries = Array.isArray(entityData.tags)
-        ? entityData.tags.map((tag) => ({
-            id: tag.id,
-            value: tag.id,
-            label: tag.label,
-            color: tag.color ?? null,
-          }))
-        : []
-
-      let assignedLabelIds: string[] = []
-      let selectedLabelEntries: CategoryOption[] = []
-      try {
-        const labelsQuery = new URLSearchParams()
-        labelsQuery.set('entityId', entityId)
-        labelsQuery.set('pageSize', '1')
-        if (entityOrganizationId) {
-          labelsQuery.set('organizationId', entityOrganizationId)
-        }
-        const labelsCall = await apiCall<{
-          items?: LabelItem[]
-          assignedIds?: string[]
-        }>(`/api/customers/labels?${labelsQuery.toString()}`, {
-          cache: 'no-store',
-          headers: { 'x-om-unauthorized-redirect': '0' },
-        })
-        const labelsData = labelsCall.ok ? labelsCall.result : null
-        assignedLabelIds = labelsData?.assignedIds ?? []
-        if (assignedLabelIds.length > 0) {
+      const loadLabelData = async (): Promise<{
+        assignedLabelIds: string[]
+        selectedLabelEntries: CategoryOption[]
+      }> => {
+        try {
+          const labelsQuery = new URLSearchParams()
+          labelsQuery.set('entityId', entityId)
+          labelsQuery.set('pageSize', '1')
+          if (entityOrganizationId) {
+            labelsQuery.set('organizationId', entityOrganizationId)
+          }
+          const labelsCall = await apiCall<{
+            items?: LabelItem[]
+            assignedIds?: string[]
+          }>(`/api/customers/labels?${labelsQuery.toString()}`, {
+            cache: 'no-store',
+            headers: { 'x-om-unauthorized-redirect': '0' },
+          })
+          const labelsData = labelsCall.ok ? labelsCall.result : null
+          const assignedLabelIds = labelsData?.assignedIds ?? []
+          if (assignedLabelIds.length === 0) {
+            return { assignedLabelIds, selectedLabelEntries: [] }
+          }
           const detailQuery = new URLSearchParams({
             ids: assignedLabelIds.join(','),
             pageSize: String(Math.min(assignedLabelIds.length, 100)),
@@ -500,44 +496,36 @@ export function EntityTagsDialog({
             },
           )
           const selectedLabels = selectedLabelsCall.ok ? selectedLabelsCall.result?.items ?? [] : []
-          selectedLabelEntries = selectedLabels.map((label) => ({
+          const selectedLabelEntries = selectedLabels.map((label) => ({
             id: label.id,
             value: label.id,
             label: label.label,
             color: null,
           }))
+          return { assignedLabelIds, selectedLabelEntries }
+        } catch {
+          return { assignedLabelIds: [], selectedLabelEntries: [] }
         }
-      } catch {
-        assignedLabelIds = []
-        selectedLabelEntries = []
       }
 
+      const selectedTagEntries = Array.isArray(entityData.tags)
+        ? entityData.tags.map((tag) => ({
+            id: tag.id,
+            value: tag.id,
+            label: tag.label,
+            color: tag.color ?? null,
+          }))
+        : []
+
+      // The label chain is independent of kind settings and the dictionary
+      // fan-out, so kick it off immediately and let it resolve in parallel.
+      const labelDataPromise = loadLabelData()
+
+      const kindSettings = await loadKindSettings()
+      const settingsMap = new Map(kindSettings.map((setting) => [setting.kind, setting]))
       const categoryDefs = buildApplicableCategories(entityType, kindSettings)
-      const loadedCategories: CategorySection[] = []
 
-      for (const categoryDef of categoryDefs) {
-        if (categoryDef.source === 'tags') {
-          loadedCategories.push({
-            ...categoryDef,
-            label: t(categoryDef.labelKey, categoryDef.labelFallback),
-            description: t(categoryDef.descriptionKey, categoryDef.descriptionFallback),
-            entries: sortOptions(selectedTagEntries),
-            selectionMode: categoryDef.selectionMode ?? 'multi',
-          })
-          continue
-        }
-
-        if (categoryDef.source === 'labels') {
-          loadedCategories.push({
-            ...categoryDef,
-            label: t(categoryDef.labelKey, categoryDef.labelFallback),
-            description: t(categoryDef.descriptionKey, categoryDef.descriptionFallback),
-            entries: sortOptions(selectedLabelEntries),
-            selectionMode: categoryDef.selectionMode ?? 'multi',
-          })
-          continue
-        }
-
+      const loadDictionaryCategory = async (categoryDef: CategoryDef): Promise<CategorySection> => {
         try {
           const dictionaryUrl = new URL(`/api/customers/dictionaries/${categoryDef.routeKind}`, 'http://localhost')
           if (entityOrganizationId) {
@@ -568,7 +556,7 @@ export function EntityTagsDialog({
               color: null,
             })
           })
-          loadedCategories.push({
+          return {
             ...categoryDef,
             label: categoryDef.labelKey
               ? t(categoryDef.labelKey, categoryDef.labelFallback)
@@ -582,7 +570,7 @@ export function EntityTagsDialog({
               : categoryDef.descriptionFallback,
             entries: sortOptions(entries),
             selectionMode,
-          })
+          }
         } catch {
           const setting = categoryDef.settingKind
             ? settingsMap.get(categoryDef.settingKind)
@@ -594,7 +582,7 @@ export function EntityTagsDialog({
             label: value,
             color: null,
           }))
-          loadedCategories.push({
+          return {
             ...categoryDef,
             label: categoryDef.labelKey
               ? t(categoryDef.labelKey, categoryDef.labelFallback)
@@ -608,9 +596,39 @@ export function EntityTagsDialog({
               : categoryDef.descriptionFallback,
             entries: fallbackEntries,
             selectionMode,
-          })
+          }
         }
       }
+
+      // Independent dictionary requests fan out together instead of awaiting
+      // each one sequentially; Promise.all preserves categoryDefs order so the
+      // subsequent sort and selection initialization stay stable.
+      const loadedCategories = await Promise.all(
+        categoryDefs.map(async (categoryDef): Promise<CategorySection> => {
+          if (categoryDef.source === 'tags') {
+            return {
+              ...categoryDef,
+              label: t(categoryDef.labelKey, categoryDef.labelFallback),
+              description: t(categoryDef.descriptionKey, categoryDef.descriptionFallback),
+              entries: sortOptions(selectedTagEntries),
+              selectionMode: categoryDef.selectionMode ?? 'multi',
+            }
+          }
+          if (categoryDef.source === 'labels') {
+            const { selectedLabelEntries } = await labelDataPromise
+            return {
+              ...categoryDef,
+              label: t(categoryDef.labelKey, categoryDef.labelFallback),
+              description: t(categoryDef.descriptionKey, categoryDef.descriptionFallback),
+              entries: sortOptions(selectedLabelEntries),
+              selectionMode: categoryDef.selectionMode ?? 'multi',
+            }
+          }
+          return loadDictionaryCategory(categoryDef)
+        }),
+      )
+
+      const { assignedLabelIds, selectedLabelEntries } = await labelDataPromise
 
       loadedCategories.sort((left, right) => {
         const leftSortOrder =

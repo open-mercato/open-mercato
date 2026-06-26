@@ -39,7 +39,7 @@ import {
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceRecordGoneIsConflict, enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceRecordGoneIsConflict, enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { recomputeNextInteraction } from '../lib/interactionProjection'
@@ -644,7 +644,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       // when the client opted into optimistic locking, a stale edit fails with the
       // unified 409 instead of silently overwriting (#2055). Strictly additive —
       // no-op when no expected-version header is present.
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'customers.interaction',
         resourceId: interaction.id,
         current: interaction.updatedAt,
@@ -912,7 +912,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
 
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'customers.interaction',
         resourceId: interaction.id,
         current: interaction.updatedAt,
@@ -1052,7 +1052,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
 
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'customers.interaction',
         resourceId: interaction.id,
         current: interaction.updatedAt,
@@ -1190,7 +1190,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
         ensureTenantScope(ctx, interaction.tenantId)
         ensureOrganizationScope(ctx, interaction.organizationId)
 
-        enforceCommandOptimisticLock({
+        await enforceCommandOptimisticLockWithGuards(ctx.container, {
           resourceKind: 'customers.interaction',
           resourceId: interaction.id,
           current: interaction.updatedAt,

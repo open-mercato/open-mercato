@@ -14,6 +14,7 @@
   "shipping_carriers.create.error.create": "Error al crear el envio.",
   "shipping_carriers.create.error.fetchDropOffPoints": "Error al obtener los puntos de entrega.",
   "shipping_carriers.create.error.fetchRates": "Error al obtener las tarifas.",
+  "shipping_carriers.create.error.idempotencyConflict": "Este envío ya fue enviado. Actualiza la página antes de volver a intentarlo.",
   "shipping_carriers.create.error.invalidEmail": "Dirección de correo electrónico no válida.",
   "shipping_carriers.create.error.invalidPhone": "Número de teléfono no válido.",
   "shipping_carriers.create.error.loadProviders": "Error al cargar los transportistas.",
@@ -69,5 +70,15 @@
   "shipping_carriers.create.summary.to": "Hasta",
   "shipping_carriers.create.title": "Crear envio con transportista",
   "shipping_carriers.feature.manage": "Gestionar operaciones de transportistas",
-  "shipping_carriers.feature.view": "Ver envios de transportistas"
+  "shipping_carriers.feature.view": "Ver envios de transportistas",
+  "shipping_carriers.status.cancelled": "Cancelado",
+  "shipping_carriers.status.delivered": "Entregado",
+  "shipping_carriers.status.failed_delivery": "Entrega fallida",
+  "shipping_carriers.status.in_transit": "En transito",
+  "shipping_carriers.status.label_created": "Etiqueta creada",
+  "shipping_carriers.status.out_for_delivery": "En reparto",
+  "shipping_carriers.status.pending": "Pendiente",
+  "shipping_carriers.status.picked_up": "Recogido",
+  "shipping_carriers.status.returned": "Devuelto",
+  "shipping_carriers.status.unknown": "Desconocido"
 }

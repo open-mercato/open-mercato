@@ -9,7 +9,13 @@ import { tagAssignmentSchema, type TagAssignmentInput } from '../../../data/vali
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../../utils'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+
+const TAG_ASSIGNMENT_RESOURCE_KIND = 'customers.tagAssignment'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['customers.activities.manage'] },
@@ -37,15 +43,48 @@ async function buildContext(
 export async function POST(req: Request) {
   try {
     const { ctx, auth, translate } = await buildContext(req)
+    const tenantId = auth!.tenantId
+    const organizationId = ctx.selectedOrganizationId
+    if (!tenantId || !organizationId) {
+      return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })
+    }
     const body = await req.json().catch(() => ({}))
     const scoped = withScopedPayload(body, ctx, translate)
     const input = tagAssignmentSchema.parse(scoped)
+
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId,
+      organizationId,
+      userId: auth!.sub,
+      resourceKind: TAG_ASSIGNMENT_RESOURCE_KIND,
+      resourceId: input.entityId,
+      operation: 'custom',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
 
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<TagAssignmentInput, { assignmentId: string | null }>(
     'customers.tags.unassign',
     { input, ctx },
   )
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId,
+        organizationId,
+        userId: auth!.sub,
+        resourceKind: TAG_ASSIGNMENT_RESOURCE_KIND,
+        resourceId: input.entityId,
+        operation: 'custom',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
     const response = NextResponse.json({ id: result?.assignmentId ?? null })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(
