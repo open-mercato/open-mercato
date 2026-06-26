@@ -8,7 +8,7 @@
 - ✨ Public seam to resolve a CatalogProduct by SKU or externalId. (#3589) *(@adeptofvoltron)*
 - ✨ SalesOrderService.findByExternalReference(). (#3588) *(@adeptofvoltron)*
 - ✨ Add delete methods to ExternalIdMappingService. (#3587) *(@adeptofvoltron)*
-- ✨ Support dictionary custom field multiselect (carry-forward of #3423) (supersedes #3423). (#3548) *(@pmadajthey, via @pkarw)*
+- ✨ Support dictionary custom field multiselect (supersedes #3423). (#3548) *(@pmadajthey, via @pkarw)*
 - ✨ Add label-based package previews. (#3497) *(@patzick)*
 - ✨ Set safe QueryClient defaults. (#3471) *(@haxiorz)*
 - ✨ Add Discord two-way communication channel + AI bot spec. (#3387) *(@pkarw)*
@@ -39,7 +39,7 @@
 - 🐛 Actions dropdown clips long localized labels. (#3585) *(@adeptofvoltron)*
 - 📦 Dispatch package previews manually. (#3571) *(@patzick)*
 - 🐛 Defer OSS optimistic-lock 409 to conflict bar, not merge dialog. (#3569) *(@pkarw)*
-- 🐛 Route timesheet timer writes through guards (carry-forward of #3398) (supersedes #3398). (#3565) *(@haxiorz, via @pkarw)*
+- 🐛 Route timesheet timer writes through guards (supersedes #3398). (#3565) *(@haxiorz, via @pkarw)*
 - 🐛 Stabilize all splash variants. (#3564) *(@patzick)*
 - 🐛 Seal gross>0 ⇒ net>0 invariant at sales line persistence. (#3558) *(@adeptofvoltron)*
 - 🐛 Provision pgvector in ephemeral integration Postgres. (#3557) *(@pkarw)*
