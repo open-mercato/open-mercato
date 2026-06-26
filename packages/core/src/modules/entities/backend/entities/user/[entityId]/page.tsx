@@ -27,6 +27,7 @@ import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entiti
 import { TranslationManager } from '@open-mercato/core/modules/translations/components/TranslationManager'
 
 type Def = FieldDefinition
+export type EntitySource = 'code' | 'custom'
 type EntitiesListResponse = { items?: Array<Record<string, unknown>> }
 type FieldsetGroup = { code: string; title?: string; hint?: string }
 type FieldsetDefinition = { code: string; label: string; icon?: string; description?: string; groups?: FieldsetGroup[] }
@@ -43,7 +44,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const queryClient = useQueryClient()
   const entityId = useMemo(() => decodeURIComponent((params?.entityId as any) || ''), [params])
   const [label, setLabel] = useState('')
-  const [entitySource, setEntitySource] = useState<'code'|'custom'>('custom')
+  const [entitySource, setEntitySource] = useState<EntitySource>('custom')
   const [entityFormLoading, setEntityFormLoading] = useState(true)
   const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string; showInSidebar?: boolean; updatedAt?: string }>({})
   const [defs, setDefs] = useState<Def[]>([])
@@ -391,13 +392,15 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       showInSidebar: z.boolean().optional(),
     }) as z.ZodType<Record<string, unknown>>
 
+  const metadataFieldsReadOnly = entitySource === 'code'
   const fields: CrudField[] = [
-    { id: 'label', label: 'Label', type: 'text', required: true },
-    { id: 'description', label: 'Description', type: 'textarea' },
+    { id: 'label', label: 'Label', type: 'text', required: true, readOnly: metadataFieldsReadOnly },
+    { id: 'description', label: 'Description', type: 'textarea', readOnly: metadataFieldsReadOnly },
     {
       id: 'defaultEditor',
       label: 'Default Editor (multiline)',
       type: 'select',
+      readOnly: metadataFieldsReadOnly,
       options: [
         { value: '', label: 'Default (Markdown)' },
         { value: 'markdown', label: 'Markdown (UIW)' },
@@ -493,17 +496,12 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       }
       try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
     }
-    const defsPayload = {
+    const defsPayload = buildDefinitionsBatchPayload({
       entityId,
-      definitions: defs.filter((d) => !!d.key).map((d) => ({
-        key: d.key,
-        kind: d.kind,
-        configJson: d.configJson,
-        isActive: d.isActive !== false,
-      })),
+      defs,
       fieldsets: buildFieldsetPayload(),
       singleFieldsetPerRecord,
-    }
+    })
     const callDefs = await apiCall('/api/entities/definitions.batch', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -607,12 +605,31 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   )
 }
 
-export function shouldRegisterEntityMetadata(entitySource: 'code' | 'custom'): boolean {
+export function shouldRegisterEntityMetadata(entitySource: EntitySource): boolean {
   return entitySource === 'custom'
 }
 
+export function buildDefinitionsBatchPayload(options: {
+  entityId: string
+  defs: Array<Pick<Def, 'key' | 'kind' | 'configJson' | 'isActive'>>
+  fieldsets: FieldsetDefinition[]
+  singleFieldsetPerRecord: boolean
+}) {
+  return {
+    entityId: options.entityId,
+    definitions: options.defs.filter((d) => !!d.key).map((d) => ({
+      key: d.key,
+      kind: d.kind,
+      configJson: d.configJson,
+      isActive: d.isActive !== false,
+    })),
+    fieldsets: options.fieldsets,
+    singleFieldsetPerRecord: options.singleFieldsetPerRecord,
+  }
+}
+
 export function buildEntityMetadataPayload(
-  entitySource: 'code' | 'custom',
+  entitySource: EntitySource,
   vals: Record<string, unknown>,
 ): Record<string, unknown> | null {
   const partial = entitySource === 'custom'
