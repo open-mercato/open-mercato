@@ -160,6 +160,7 @@ export function TimeGrid({
   showWeekends,
   showConflicts,
   aiSummaries,
+  canManage = true,
   highlightItemId,
   onItemClick,
   onJoin,
@@ -351,6 +352,7 @@ export function TimeGrid({
                       open={selectedId === item.id}
                       joinUrl={resolveJoinUrl(item.location)}
                       aiSummaries={aiSummaries}
+                      canManage={canManage}
                       onOpenChange={(open) => setSelectedId(open ? item.id : null)}
                       onJoin={onJoin}
                       onEdit={onItemClick}
@@ -462,6 +464,7 @@ export function TimeGrid({
                       open={selectedId === block.item.id}
                       joinUrl={resolveJoinUrl(block.item.location)}
                       aiSummaries={aiSummaries}
+                      canManage={canManage}
                       onOpenChange={(open) => setSelectedId(open ? block.item.id : null)}
                       onJoin={onJoin}
                       onEdit={onItemClick}
