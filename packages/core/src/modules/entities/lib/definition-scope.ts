@@ -24,6 +24,18 @@ type DefinitionVisibilityOptions = {
   isActive?: boolean
 }
 
+type DefinitionScopeRecord = {
+  tenantId?: string | null
+  organizationId?: string | null
+  updatedAt?: Date | string | number | null
+  createdAt?: Date | string | number | null
+}
+
+type MutableDefinitionScopeRecord = DefinitionScopeRecord & {
+  isActive?: boolean
+  deletedAt?: Date | string | number | null
+}
+
 export function resolveDefinitionScopeFromOrganizationScope(
   auth: AuthScope,
   scope: OrganizationScopeLike,
@@ -89,7 +101,7 @@ export function createVisibleDefinitionWhere(
   }
 }
 
-function definitionTimestamp(def: any) {
+function definitionTimestamp(def: DefinitionScopeRecord) {
   const updatedAt = def?.updatedAt instanceof Date
     ? def.updatedAt.getTime()
     : (def?.updatedAt ? new Date(def.updatedAt).getTime() : 0)
@@ -99,12 +111,12 @@ function definitionTimestamp(def: any) {
     : (def?.createdAt ? new Date(def.createdAt).getTime() : 0)
 }
 
-function definitionScopeScore(def: any) {
+function definitionScopeScore(def: DefinitionScopeRecord) {
   return (def?.tenantId ? 2 : 0) + (def?.organizationId ? 1 : 0)
 }
 
-export function selectVisibleDefinitionWinner(definitions: any[]) {
-  let winner: any | null = null
+export function selectVisibleDefinitionWinner<T extends DefinitionScopeRecord>(definitions: T[]) {
+  let winner: T | null = null
   for (const definition of definitions) {
     if (!winner) {
       winner = definition
@@ -122,7 +134,7 @@ export function selectVisibleDefinitionWinner(definitions: any[]) {
   return winner
 }
 
-export function markDefinitionTombstoned(definition: any, now = new Date()) {
+export function markDefinitionTombstoned<T extends MutableDefinitionScopeRecord>(definition: T, now = new Date()) {
   definition.isActive = false
   definition.deletedAt = definition.deletedAt ?? now
   definition.updatedAt = now
