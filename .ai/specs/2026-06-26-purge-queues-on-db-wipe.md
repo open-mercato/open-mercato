@@ -5,7 +5,7 @@
 - **Date**: 2026-06-26
 - **Risk**: medium (touches every DB-wipe path and the queue layer across both drivers)
 - **Priority**: medium (developer-experience papercut: false "Runtime error detected" on a healthy app)
-- **Tracking issue**: _to be filled in after the issue is opened_
+- **Tracking issue**: [#3661](https://github.com/open-mercato/open-mercato/issues/3661)
 - **Affected packages**: `@open-mercato/queue`, `@open-mercato/cli`, root `scripts/`, `@open-mercato/create-app` template
 
 ## TLDR
