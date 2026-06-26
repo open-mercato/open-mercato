@@ -105,6 +105,12 @@ OM_SEED_KEY=<key> yarn mercato seeds decrypt --in ./seed.enc.json --out ./seed.j
 OM_SEED_KEY=<key> yarn mercato seeds load \
   --in ./seed.enc.json --tenant <tenantId> --org <organizationId>
 
+#   In single-tenant/single-organization local setups, --tenant/--org can be
+#   omitted. The loader auto-detects scope only when exactly one active tenant
+#   and exactly one active organization are available; otherwise it fails closed
+#   and asks for explicit flags.
+OM_SEED_KEY=<key> yarn mercato seeds load --in ./seed.enc.json
+
 #   Dry run (validates + reports counts, rolls back the transaction):
 OM_SEED_KEY=<key> yarn mercato seeds load --in ./seed.enc.json --tenant <t> --org <o> --dry-run
 

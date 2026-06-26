@@ -34,11 +34,17 @@ function resolveEntityClass(meta: EntityMetadata<any>): unknown {
 
 function buildEntityIdIndex(em: EntityManager): Map<string, EntityMetadata<any>> {
   const storage = em.getMetadata() as unknown as {
-    getAll?: () => Record<string, EntityMetadata<any>> | EntityMetadata<any>[]
+    getAll?: () =>
+      | Map<unknown, EntityMetadata<any>>
+      | Record<string, EntityMetadata<any>>
+      | EntityMetadata<any>[]
     metadata?: Record<string, EntityMetadata<any>>
   }
   const all = (typeof storage.getAll === 'function' ? storage.getAll() : storage.metadata) ?? {}
-  const list: EntityMetadata<any>[] = Array.isArray(all) ? all : Object.values(all)
+  // MikroORM v7's instance getAll() returns a Map; older shapes returned a plain
+  // object or array. Normalize all three to a flat list.
+  const list: EntityMetadata<any>[] =
+    all instanceof Map ? [...all.values()] : Array.isArray(all) ? all : Object.values(all)
   const index = new Map<string, EntityMetadata<any>>()
   for (const meta of list) {
     if (!meta || (meta as any).abstract) continue

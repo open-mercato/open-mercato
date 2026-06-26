@@ -14,6 +14,13 @@ import { loadSeedDocument } from '@open-mercato/shared/lib/seed/loader'
 import { seedDocumentSchema, type SeedDocument } from '@open-mercato/shared/lib/seed/types'
 import { createProgressBar, type ProgressBar } from '@open-mercato/shared/lib/cli/progress'
 
+type ScopeRow = { id: string; tenant_id?: string | null }
+
+type SeedLoadScopeInput = {
+  tenantId?: string
+  organizationId?: string
+}
+
 function parseArgs(rest: string[]): Record<string, string> {
   const args: Record<string, string> = {}
   for (let i = 0; i < rest.length; i += 1) {
@@ -30,6 +37,61 @@ function parseArgs(rest: string[]): Record<string, string> {
 
 function flag(value: string | undefined): boolean {
   return value === 'true' || value === ''
+}
+
+function printableScopeUsage(): string {
+  return 'Usage: mercato seeds load --in <file.enc.json> [--tenant <tenantId>] [--org <organizationId>] [--plain] [--dry-run] [--key <base64>]'
+}
+
+function requireSingleRow(rows: ScopeRow[], label: string, explicitFlag: string): ScopeRow {
+  if (rows.length === 1) return rows[0]
+  if (rows.length === 0) {
+    throw new Error(`Cannot auto-detect ${label}: no active ${label} exists. Pass ${explicitFlag}.`)
+  }
+  throw new Error(
+    `Cannot auto-detect ${label}: found multiple active ${label}s. Pass ${explicitFlag}.`,
+  )
+}
+
+export async function resolveSeedLoadScope(
+  em: EntityManager,
+  input: SeedLoadScopeInput,
+): Promise<{ tenantId: string; organizationId: string; inferred: boolean }> {
+  const tenantId = input.tenantId?.trim() || ''
+  const organizationId = input.organizationId?.trim() || ''
+  if (tenantId && organizationId) return { tenantId, organizationId, inferred: false }
+
+  const conn = em.getConnection()
+  if (organizationId && !tenantId) {
+    const orgRows = (await conn.execute(
+      'select id, tenant_id from organizations where id = ? and deleted_at is null and is_active = true limit 1',
+      [organizationId],
+    )) as ScopeRow[]
+    const org = requireSingleRow(orgRows, 'organization', '--tenant')
+    if (!org.tenant_id) {
+      throw new Error(`Cannot auto-detect tenant: organization ${organizationId} has no tenant_id.`)
+    }
+    return { tenantId: org.tenant_id, organizationId, inferred: true }
+  }
+
+  const resolvedTenantId = tenantId || requireSingleRow(
+    (await conn.execute(
+      'select id from tenants where deleted_at is null and is_active = true order by created_at asc, id asc limit 2',
+    )) as ScopeRow[],
+    'tenant',
+    '--tenant',
+  ).id
+
+  const resolvedOrganizationId = organizationId || requireSingleRow(
+    (await conn.execute(
+      'select id from organizations where tenant_id = ? and deleted_at is null and is_active = true order by created_at asc, id asc limit 2',
+      [resolvedTenantId],
+    )) as ScopeRow[],
+    'organization',
+    '--org',
+  ).id
+
+  return { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId, inferred: true }
 }
 
 async function readJsonFile(file: string): Promise<unknown> {
@@ -104,10 +166,8 @@ const load: ModuleCli = {
     const organizationId = String(args.org ?? args.orgId ?? args.organizationId ?? '')
     const plain = flag(args.plain)
     const dryRun = flag(args['dry-run']) || flag(args.dryRun)
-    if (!input || !tenantId || !organizationId) {
-      console.error(
-        'Usage: mercato seeds load --in <file.enc.json> --tenant <tenantId> --org <organizationId> [--plain] [--dry-run] [--key <base64>]',
-      )
+    if (!input) {
+      console.error(printableScopeUsage())
       process.exitCode = 1
       return
     }
@@ -123,11 +183,23 @@ const load: ModuleCli = {
 
     const { resolve } = await createRequestContainer()
     const em = resolve<EntityManager>('em')
+    let scope: { tenantId: string; organizationId: string; inferred: boolean }
+    try {
+      scope = await resolveSeedLoadScope(em, { tenantId, organizationId })
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err))
+      console.error(printableScopeUsage())
+      process.exitCode = 1
+      return
+    }
+    if (scope.inferred) {
+      console.log(`Auto-detected seed scope: tenant=${scope.tenantId}, org=${scope.organizationId}`)
+    }
     let bar: ProgressBar | null = null
     const result = await loadSeedDocument(
       em,
       document,
-      { tenantId, organizationId },
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
       {
         dryRun,
         onProgress: ({ index, total }) => {
