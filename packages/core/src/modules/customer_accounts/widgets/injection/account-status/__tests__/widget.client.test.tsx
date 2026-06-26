@@ -1,17 +1,21 @@
 /**
  * @jest-environment jsdom
+ *
+ * Regression coverage for customer account invites rendered inside host forms:
+ * the widget must avoid nested forms and route invitation writes through the
+ * shared guarded mutation lifecycle.
  */
 import * as React from 'react'
 import '@testing-library/jest-dom'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import AccountStatusWidget from '../widget.client'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
-const apiCallMock = jest.fn()
 const flashMock = jest.fn()
-
-jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
-  apiCall: (...args: unknown[]) => apiCallMock(...args),
-}))
+const mockInvalidateQueries = jest.fn()
+const mockRunMutation = jest.fn(
+  async ({ operation }: { operation: () => Promise<unknown> }) => operation(),
+)
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string) => fallback || _key,
@@ -21,47 +25,94 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: (...args: unknown[]) => flashMock(...args),
 }))
 
-import AccountStatusWidget from '../widget.client'
+jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
+  useGuardedMutation: jest.fn(() => ({ runMutation: mockRunMutation })),
+}))
 
-function renderWithQueryClient(ui: React.ReactElement) {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-    },
-  })
-  return render(
-    <QueryClientProvider client={queryClient}>
-      {ui}
-    </QueryClientProvider>,
-  )
-}
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  apiCall: jest.fn(),
+}))
 
-describe('customer account status widget', () => {
+jest.mock('@tanstack/react-query', () => ({
+  useQuery: () => ({ data: null, isLoading: false }),
+  useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+}))
+
+const mockApiCall = apiCall as jest.MockedFunction<typeof apiCall>
+
+describe('customer_accounts AccountStatusWidget invite form', () => {
   beforeEach(() => {
-    jest.clearAllMocks()
-    apiCallMock.mockImplementation((url: string, options?: RequestInit) => {
-      if (url.startsWith('/api/customer_accounts/admin/users?')) {
-        return Promise.resolve({ ok: true, result: { items: [] } })
-      }
-      if (url === '/api/customers/people/person-1') {
-        return Promise.resolve({
+    flashMock.mockClear()
+    mockInvalidateQueries.mockClear()
+    mockRunMutation.mockClear()
+    mockApiCall.mockReset()
+    mockApiCall.mockImplementation(async (url: string, options?: RequestInit) => {
+      if (typeof url === 'string' && url.includes('/api/customers/people/')) {
+        return {
           ok: true,
+          status: 200,
           result: {
-            person: { primaryEmail: 'buyer@example.test', displayName: 'Buyer Contact' },
-            profile: { firstName: 'Buyer', lastName: 'Contact' },
+            person: {
+              primaryEmail: 'buyer@example.test',
+              displayName: 'Buyer Contact',
+            },
+            profile: {
+              firstName: 'Buyer',
+              lastName: 'Contact',
+            },
           },
-        })
+        } as never
       }
-      if (url === '/api/customer_accounts/admin/roles?pageSize=100') {
-        return Promise.resolve({
+      if (typeof url === 'string' && url.includes('/api/customer_accounts/admin/roles')) {
+        return {
           ok: true,
-          result: { items: [{ id: '00000000-0000-4000-8000-000000000001', name: 'Viewer' }] },
-        })
+          status: 200,
+          result: { items: [{ id: 'role-1', name: 'Buyer' }] },
+        } as never
       }
-      if (url === '/api/customer_accounts/admin/users-invite' && options?.method === 'POST') {
-        return Promise.resolve({ ok: true, result: { ok: true } })
+      if (
+        typeof url === 'string'
+        && url.includes('/api/customer_accounts/admin/users-invite')
+        && options?.method === 'POST'
+      ) {
+        return { ok: true, status: 200, result: { ok: true } } as never
       }
-      return Promise.resolve({ ok: false, result: { error: 'unexpected call' } })
+      return { ok: false, status: 500, result: { error: 'unexpected call' } } as never
+    })
+  })
+
+  async function openInviteForm() {
+    render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+    fireEvent.click(await screen.findByRole('button', { name: /invite to portal/i }))
+    return screen.findByRole('button', { name: /send invitation/i })
+  }
+
+  it('routes the invitation POST through useGuardedMutation.runMutation', async () => {
+    const submitButton = await openInviteForm()
+
+    fireEvent.change(await screen.findByLabelText(/email/i), {
+      target: { value: 'buyer@example.com' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Buyer' }))
+    fireEvent.click(submitButton)
+
+    await waitFor(() => {
+      expect(mockRunMutation).toHaveBeenCalledTimes(1)
+    })
+
+    const runArgs = mockRunMutation.mock.calls[0][0] as {
+      context: { entityType: string }
+      mutationPayload: Record<string, unknown>
+    }
+    expect(runArgs.context.entityType).toBe('customer_accounts:user')
+    expect(runArgs.mutationPayload.customerEntityId).toBe('person-entity-1')
+
+    await waitFor(() => {
+      const inviteCall = mockApiCall.mock.calls.find(
+        ([url]) => typeof url === 'string' && url.includes('/api/customer_accounts/admin/users-invite'),
+      )
+      expect(inviteCall).toBeTruthy()
+      expect((inviteCall?.[1] as RequestInit | undefined)?.method).toBe('POST')
     })
   })
 
@@ -70,43 +121,36 @@ describe('customer account status widget', () => {
       event.preventDefault()
     })
 
-    const { container } = renderWithQueryClient(
+    const { container } = render(
       <form onSubmit={parentSubmit}>
-        <AccountStatusWidget context={{ recordId: 'person-1' }} />
+        <AccountStatusWidget context={{ recordId: 'person-entity-1' }} />
       </form>,
     )
 
-    await screen.findByRole('button', { name: 'Invite to Portal' })
+    await screen.findByRole('button', { name: /invite to portal/i })
     expect(container.querySelectorAll('form')).toHaveLength(1)
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Invite to Portal' }))
-    })
+    fireEvent.click(screen.getByRole('button', { name: /invite to portal/i }))
 
     await screen.findByDisplayValue('buyer@example.test')
-    await screen.findByRole('button', { name: 'Viewer' })
+    await screen.findByRole('button', { name: 'Buyer' })
     expect(container.querySelectorAll('form')).toHaveLength(1)
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Viewer' }))
-    })
+    fireEvent.click(screen.getByRole('button', { name: 'Buyer' }))
 
-    const sendButton = screen.getByRole('button', { name: 'Send Invitation' })
+    const sendButton = screen.getByRole('button', { name: /send invitation/i })
     expect(sendButton).not.toBeDisabled()
+    fireEvent.click(sendButton)
 
-    await act(async () => {
-      fireEvent.click(sendButton)
-    })
-
-    await waitFor(() => expect(apiCallMock).toHaveBeenCalledWith(
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledWith(
       '/api/customer_accounts/admin/users-invite',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
           email: 'buyer@example.test',
-          roleIds: ['00000000-0000-4000-8000-000000000001'],
+          roleIds: ['role-1'],
           displayName: 'Buyer Contact',
-          customerEntityId: 'person-1',
+          customerEntityId: 'person-entity-1',
         }),
       }),
     ))

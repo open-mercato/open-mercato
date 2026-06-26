@@ -69,6 +69,14 @@ export type DealFormProps = {
   showCancelAction?: boolean
   initialPipelineOptions?: PipelineOption[]
   initialPipelineStageOptions?: PipelineStageOption[]
+  /**
+   * Injection spot id for the form-scoped record_locks widget (e.g.
+   * `customers.deal`). Mirrors how people-v2/companies-v2 mount their save-time
+   * `crud-form:*` widget so a deal save conflict surfaces the merge dialog.
+   */
+  injectionSpotId?: string
+  /** Optimistic-lock version (`deal.updatedAt`) for the embedded CrudForm. */
+  optimisticLockUpdatedAt?: string | null
 }
 
 type EntityOption = {
@@ -732,6 +740,8 @@ export function DealForm({
   showCancelAction = true,
   initialPipelineOptions,
   initialPipelineStageOptions,
+  injectionSpotId,
+  optimisticLockUpdatedAt,
 }: DealFormProps) {
   const t = useT()
   const [pending, setPending] = React.useState(false)
@@ -1168,6 +1178,8 @@ export function DealForm({
       backHref={backHref}
       hideFooterActions={hideFooterActions}
       onDirtyChange={onDirtyChange}
+      injectionSpotId={injectionSpotId}
+      optimisticLockUpdatedAt={optimisticLockUpdatedAt}
       collapsibleGroups={collapsibleGroups}
       sortableGroups={sortableGroups}
       versionHistory={showVersionHistory && mode === 'edit' && initialValues?.id

@@ -51,7 +51,9 @@ export const setup: ModuleSetupConfig = {
     admin: ['sales.*', 'sales.documents.number.edit'],
     employee: [
       'sales.channels.view',
+      'sales.channels.manage',
       'sales.settings.view',
+      'sales.settings.manage',
       'sales.orders.view',
       'sales.orders.manage',
       'sales.orders.approve',

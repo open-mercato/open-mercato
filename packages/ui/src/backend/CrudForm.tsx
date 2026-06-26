@@ -73,6 +73,7 @@ import {
 } from 'lucide-react'
 import { loadGeneratedFieldRegistrations } from './fields/registry'
 import type { CustomFieldDefDto, CustomFieldDefinitionsPayload, CustomFieldsetDto } from './utils/customFieldDefs'
+import { isDefVisible } from './utils/customFieldDefs'
 import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } from './utils/customFieldForms'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
@@ -1553,7 +1554,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           fieldsetGroupMap.set(group.code, { code: group.code, title: group.title, hint: group.hint })
         })
       }
-      const sortedDefs = [...defList].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
+      const sortedDefs = [...defList]
+        .filter((definition) => isDefVisible(definition, 'form'))
+        .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
       const ensureBucket = (code: string | null, def: CustomFieldDefDto): CustomFieldGroupLayout => {
         const key = code ?? '__default__'
         let bucket = groupsMap.get(key)
@@ -2689,6 +2692,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     for (const injectedId of injectedFieldIdSet) {
       delete coreValues[injectedId]
     }
+    if (customEntity) {
+      const allowedKeys = new Set(cfDefinitions.map((definition) => definition.key).filter(Boolean))
+      for (const key of Object.keys(coreValues)) {
+        if (!allowedKeys.has(key)) delete coreValues[key]
+      }
+    }
 
     let parsedValues: TValues
     if (schema) {
@@ -2721,6 +2730,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           const projectedCoreValues = { ...(result.data as Record<string, unknown>) }
           for (const injectedId of injectedFieldIdSet) {
             delete projectedCoreValues[injectedId]
+          }
+          if (customEntity) {
+            const allowedKeys = new Set(cfDefinitions.map((definition) => definition.key).filter(Boolean))
+            for (const key of Object.keys(projectedCoreValues)) {
+              if (!allowedKeys.has(key)) delete projectedCoreValues[key]
+            }
           }
           coreSubmitValues = schema
             ? schema.parse(collapseDotPathFields(projectedCoreValues, dotPathBaseFieldIds))

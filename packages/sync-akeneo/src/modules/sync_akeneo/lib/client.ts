@@ -479,11 +479,11 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
         version: typeof result.pim_version === 'string' ? result.pim_version : null,
       }
     } catch {
-      const attrs = await readList<AkeneoAttribute>('/api/rest/v1/attributes', {
+      await readList<AkeneoAttribute>('/api/rest/v1/attributes', {
         limit: 1,
         pagination_type: 'page',
       })
-      return { version: attrs.items.length >= 0 ? null : null }
+      return { version: null }
     }
   }
 

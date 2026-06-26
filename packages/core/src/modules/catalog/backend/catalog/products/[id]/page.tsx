@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
 import { ErrorMessage, RecordNotFoundState } from "@open-mercato/ui/backend/detail";
 import {
@@ -41,6 +42,10 @@ import {
 } from "@open-mercato/ui/backend/utils/apiCall";
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { surfaceRecordConflict } from "@open-mercato/ui/backend/conflicts";
+import {
+  buildRecordInjectionContext,
+  useSetCurrentRecordInjectionContext,
+} from "@open-mercato/ui/backend/injection/recordContext";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { E } from "#generated/entities.ids.generated";
@@ -314,6 +319,7 @@ export default function EditCatalogProductPage({
 }) {
   const productId = params?.id ? String(params.id) : null;
   const t = useT();
+  const pathname = usePathname();
   const productSubpathPrefix = productId
     ? `/backend/catalog/products/${productId}/`
     : null;
@@ -459,45 +465,54 @@ export default function EditCatalogProductPage({
         setVariantMediaGroups([]);
         return;
       }
-      const CONCURRENCY = 5;
-      const groups: VariantMediaGroup[] = [];
-      for (let i = 0; i < mapped.length; i += CONCURRENCY) {
-        const batch = mapped.slice(i, i + CONCURRENCY);
-        const results = await Promise.all(
-          batch.map(async (variant) => {
-            try {
-              const res = await apiCall<AttachmentListResponse>(
-                `/api/attachments?entityId=${encodeURIComponent(E.catalog.catalog_product_variant)}&recordId=${encodeURIComponent(variant.id)}`,
-              );
-              if (!res.ok) return null;
-              const mediaItems: ProductMediaItem[] = (res.result?.items ?? []).map(
-                (item) => ({
-                  id: item.id,
-                  url: item.url,
-                  fileName: item.fileName,
-                  fileSize: item.fileSize,
-                  thumbnailUrl: item.thumbnailUrl ?? undefined,
-                }),
-              );
-              if (!mediaItems.length) return null;
-              return {
-                variantId: variant.id,
-                variantName: variant.name,
-                defaultMediaId: variant.defaultMediaId,
-                items: mediaItems,
-                editUrl: `/backend/catalog/products/${id}/variants/${variant.id}`,
-              } satisfies VariantMediaGroup;
-            } catch {
-              // Non-critical: variant media is optional; gallery degrades gracefully
-              return null;
+      // Load per-variant media in the background so the product form is not blocked
+      // by the batched attachment fetches; the readonly gallery fills in once ready.
+      void (async () => {
+        try {
+          const CONCURRENCY = 5;
+          const groups: VariantMediaGroup[] = [];
+          for (let i = 0; i < mapped.length; i += CONCURRENCY) {
+            const batch = mapped.slice(i, i + CONCURRENCY);
+            const results = await Promise.all(
+              batch.map(async (variant) => {
+                try {
+                  const res = await apiCall<AttachmentListResponse>(
+                    `/api/attachments?entityId=${encodeURIComponent(E.catalog.catalog_product_variant)}&recordId=${encodeURIComponent(variant.id)}`,
+                  );
+                  if (!res.ok) return null;
+                  const mediaItems: ProductMediaItem[] = (res.result?.items ?? []).map(
+                    (item) => ({
+                      id: item.id,
+                      url: item.url,
+                      fileName: item.fileName,
+                      fileSize: item.fileSize,
+                      thumbnailUrl: item.thumbnailUrl ?? undefined,
+                    }),
+                  );
+                  if (!mediaItems.length) return null;
+                  return {
+                    variantId: variant.id,
+                    variantName: variant.name,
+                    defaultMediaId: variant.defaultMediaId,
+                    items: mediaItems,
+                    editUrl: `/backend/catalog/products/${id}/variants/${variant.id}`,
+                  } satisfies VariantMediaGroup;
+                } catch {
+                  // Non-critical: variant media is optional; gallery degrades gracefully
+                  return null;
+                }
+              }),
+            );
+            for (const result of results) {
+              if (result) groups.push(result);
             }
-          }),
-        );
-        for (const result of results) {
-          if (result) groups.push(result);
+          }
+          setVariantMediaGroups(groups);
+        } catch (err) {
+          console.error("catalog.variants.media.fetch failed", err);
+          setVariantMediaGroups([]);
         }
-      }
-      setVariantMediaGroups(groups);
+      })();
     } catch (err) {
       console.error("catalog.variants.fetch failed", err);
       setVariants([]);
@@ -635,9 +650,18 @@ export default function EditCatalogProductPage({
             : typeof record.taxRateId === "string"
               ? record.taxRateId
               : null;
-        const optionSchemaTemplate = optionSchemaId
-          ? await fetchOptionSchemaTemplate(optionSchemaId)
-          : null;
+        const [optionSchemaTemplate, attachments, conversionsRes] =
+          await Promise.all([
+            optionSchemaId
+              ? fetchOptionSchemaTemplate(optionSchemaId)
+              : Promise.resolve(null),
+            fetchAttachments(productId!),
+            apiCall<{ items?: Array<Record<string, unknown>> }>(
+              `/api/catalog/product-unit-conversions?productId=${encodeURIComponent(productId!)}&page=1&pageSize=100`,
+              undefined,
+              { fallback: { items: [] } },
+            ),
+          ]);
         const normalizedSchema = normalizeOptionSchemaRecord(
           optionSchemaTemplate?.schema,
         );
@@ -647,14 +671,6 @@ export default function EditCatalogProductPage({
         if (!optionInputs.length) {
           optionInputs = readOptionSchema(metadata);
         }
-        const [attachments, conversionsRes] = await Promise.all([
-          fetchAttachments(productId!),
-          apiCall<{ items?: Array<Record<string, unknown>> }>(
-            `/api/catalog/product-unit-conversions?productId=${encodeURIComponent(productId!)}&page=1&pageSize=100`,
-            undefined,
-            { fallback: { items: [] } },
-          ),
-        ]);
         const conversionRows = conversionsRes.ok
           ? readProductConversionRows(conversionsRes.result?.items)
           : [];
@@ -824,6 +840,21 @@ export default function EditCatalogProductPage({
     hasScrolledToHash.current = true
     el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `catalog.product` + id
+  // explicitly (presence/acquire/heartbeat on load; cleared on unmount). The
+  // resourceKind mirrors the CrudForm `versionHistory` so the held lock matches
+  // the save-time conflict surface for the same product.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: "catalog.product",
+      resourceId: productId,
+      updatedAt: initialValues?.updatedAt ?? null,
+      data: initialValues as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  );
 
   const handleVariantDeleted = React.useCallback((variantId: string) => {
     setVariants((prev) => prev.filter((variant) => variant.id !== variantId));
