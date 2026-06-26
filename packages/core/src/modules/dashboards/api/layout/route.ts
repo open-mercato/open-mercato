@@ -9,6 +9,10 @@ import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/l
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   dashboardsTag,
@@ -18,6 +22,7 @@ import {
 } from '../openapi'
 
 const DEFAULT_SIZE = 'md'
+const RESOURCE_KIND = 'dashboards.layout'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['dashboards.view'] },
@@ -206,7 +211,8 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: 'Invalid layout payload', issues: parsed.error.issues }, { status: 400 })
   }
 
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
+  const { resolve } = container
   const em = (resolve('em') as any).fork({ clear: true, freshEventManager: true, useContext: true })
   const rbac = resolve('rbacService') as any
 
@@ -219,6 +225,21 @@ export async function PUT(req: Request) {
   const acl = await rbac.loadAcl(scope.userId, { tenantId: scope.tenantId, organizationId: scope.organizationId })
   if (!acl.isSuperAdmin && !hasFeature(acl.features, 'dashboards.configure')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: scope.tenantId ?? '',
+    organizationId: scope.organizationId,
+    userId: scope.userId,
+    resourceKind: RESOURCE_KIND,
+    resourceId: scope.userId,
+    operation: 'update',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: { items: parsed.data.items },
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
   }
 
   const widgets = await loadAllWidgets()
@@ -265,6 +286,20 @@ export async function PUT(req: Request) {
     layout.layoutJson = sanitized
   }
   await em.flush()
+
+  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: scope.tenantId ?? '',
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: RESOURCE_KIND,
+      resourceId: scope.userId,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata ?? null,
+    })
+  }
 
   return NextResponse.json({ ok: true })
 }

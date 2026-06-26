@@ -491,6 +491,31 @@ export class RecordLockService {
     return settings // NOSONAR — both paths return settings by design; the branch controls persistence
   }
 
+  /**
+   * Command-guard `resolveExpected` seam (Phase 0 / S1). Derives the expected
+   * version token the OSS command floor compares against the record's current
+   * server-side `updated_at`.
+   *
+   * The compare is server-authoritative: the command handler already loaded the
+   * record from the DB and passes its `updated_at` as `current`, so a stale
+   * write is detected from the version header alone — NEVER requiring a client
+   * record-lock token (H2). When record_locks is not enabled for the resource
+   * (settings off), this returns the header token unchanged so the floor still
+   * runs (pure floor behavior). The richer pessimistic/action-log conflict
+   * detection runs through `validateMutation` at the CRUD layer.
+   */
+  async resolveExpectedVersion(input: {
+    resourceKind: string
+    expectedFromHeader: string | null
+  }): Promise<string | null> {
+    // Enabled or not, the server-authoritative floor compares the header token
+    // against the DB `updated_at`, so resolution is unconditionally the header
+    // value. Gating (record_locks settings) only changes whether the richer
+    // CRUD-layer conflict enrichment runs in `validateMutation` — it never
+    // affects the version floor here.
+    return input.expectedFromHeader
+  }
+
   async acquire(input: RecordLockAcquireInput): Promise<RecordLockAcquireResult | RecordLockAcquireFailure> {
     this.scheduleCleanup(input.tenantId)
     const settings = await this.getSettings()

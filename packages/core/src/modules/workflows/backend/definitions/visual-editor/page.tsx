@@ -6,10 +6,10 @@ import { NodeEditDialog } from '../../../components/NodeEditDialog'
 import { EdgeEditDialog } from '../../../components/EdgeEditDialog'
 import { NodeEditDialogCrudForm } from '../../../components/NodeEditDialogCrudForm'
 import { EdgeEditDialogCrudForm } from '../../../components/EdgeEditDialogCrudForm'
-import { Node, Edge, addEdge, Connection, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange } from '@xyflow/react'
+import type { Node, Edge, Connection } from '@xyflow/react'
 import { useState, useCallback, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, appendWorkflowEdge, ValidationError } from '../../../lib/graph-utils'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
 import { workflowDefinitionDataSchema } from '../../../data/validators'
 import { Page } from '@open-mercato/ui/backend/Page'
@@ -35,6 +35,7 @@ import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { CircleQuestionMark, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
@@ -61,6 +62,7 @@ export default function VisualEditorPage() {
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const pathname = usePathname()
   const definitionId = searchParams.get('id')
   const isMobile = useIsMobile()
 
@@ -169,16 +171,18 @@ export default function VisualEditorPage() {
     loadDefinition()
   }, [definitionId])
 
-  // Handle node changes from ReactFlow
-  const handleNodesChange = useCallback((changes: NodeChange[]) => {
+  // Handle node changes from ReactFlow. The lazy graph applies React Flow's
+  // change reducers internally (#3169) and hands back the resolved nodes, so
+  // this page never imports the @xyflow/react runtime.
+  const handleNodesChange = useCallback((nextNodes: Node[]) => {
     if (isCodeOnly) return
-    setNodes((nds) => applyNodeChanges(changes, nds))
+    setNodes(nextNodes)
   }, [isCodeOnly])
 
-  // Handle edge changes from ReactFlow
-  const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
+  // Handle edge changes from ReactFlow (resolved edges from the lazy graph).
+  const handleEdgesChange = useCallback((nextEdges: Edge[]) => {
     if (isCodeOnly) return
-    setEdges((eds) => applyEdgeChanges(changes, eds))
+    setEdges(nextEdges)
   }, [isCodeOnly])
 
   // Handle adding new node from palette
@@ -285,7 +289,7 @@ export default function VisualEditorPage() {
       },
     }
 
-    setEdges((eds) => addEdge(newEdge, eds))
+    setEdges((eds) => appendWorkflowEdge(eds, newEdge))
   }, [])
 
   // Validate workflow
@@ -614,6 +618,22 @@ export default function VisualEditorPage() {
     setShowClearConfirm(false)
     flash('Canvas cleared', 'success')
   }, [])
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `workflows.definition` + id
+  // explicitly. This is the highest-value record_locks target (long-lived visual
+  // edits): presence holds the lock while the graph is open, and the raw `apiCall`
+  // save already routes its 409 through `surfaceRecordConflict`. Cleared on create
+  // (no `definitionId`) and on unmount. Mirrors the form edit page's resourceKind so
+  // a lock held in either editor surfaces in the other.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'workflows.definition',
+      resourceId: definitionId,
+      updatedAt,
+      path: pathname,
+    }),
+  )
 
   // Show loading spinner while loading definition
   if (isLoading) {
