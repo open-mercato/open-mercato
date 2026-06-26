@@ -87,6 +87,16 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-database-url.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'watch-scope.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'watch-scope.mjs'),
+    rel: 'scripts/watch-scope.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'watch-select.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'watch-select.mjs'),
+    rel: 'scripts/watch-select.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime.mjs'),
     rel: 'scripts/dev-runtime.mjs',

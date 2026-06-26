@@ -27,12 +27,13 @@
 import * as esbuild from 'esbuild'
 import { glob } from 'glob'
 import { existsSync, readFileSync, readdirSync, watch as fsWatch, writeFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createAtomicWritePlugin } from './lib/add-js-extension.mjs'
 import {
   AUTO_EXPAND_INTERVAL_MS,
   detectTouchedPackages,
+  discoverWatchTargets,
   resolveWatchScope,
   selectWatchedPackages,
 } from './watch-scope.mjs'
@@ -49,53 +50,9 @@ export function isWatchedSourceFile(filename) {
   return true
 }
 
-function safeReadPackageJson(packageDir) {
-  const pkgPath = join(packageDir, 'package.json')
-  if (!existsSync(pkgPath)) return null
-  try {
-    return JSON.parse(readFileSync(pkgPath, 'utf8'))
-  } catch {
-    return null
-  }
-}
-
-export function discoverWorkspacePackages(root) {
-  const roots = [
-    join(root, 'packages'),
-    join(root, 'external', 'official-modules', 'packages'),
-  ]
-  const discovered = []
-
-  for (const parent of roots) {
-    if (!existsSync(parent)) continue
-    let entries
-    try {
-      entries = readdirSync(parent, { withFileTypes: true })
-    } catch {
-      continue
-    }
-
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue
-      const packageDir = join(parent, entry.name)
-      const pkg = safeReadPackageJson(packageDir)
-      if (!pkg) continue
-      if (!pkg.scripts?.watch) continue
-      const srcDir = join(packageDir, 'src')
-      if (!existsSync(srcDir)) continue
-
-      discovered.push({
-        name: pkg.name ?? basename(packageDir),
-        packageDir,
-        srcDir,
-        shortLabel: basename(packageDir),
-      })
-    }
-  }
-
-  discovered.sort((a, b) => a.shortLabel.localeCompare(b.shortLabel))
-  return discovered
-}
+// Re-exported from `watch-scope.mjs` (the dependency-light shared discovery
+// source) so existing importers and tests keep the same entry point.
+export const discoverWorkspacePackages = discoverWatchTargets
 
 function createBuildOptions(packageDir, entryPoints) {
   return {
