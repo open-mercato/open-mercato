@@ -143,6 +143,7 @@ function makePackageState(pkg) {
     isRebuilding: false,
     rebuildQueued: false,
     watcher: null,
+    watchError: null,
   }
 }
 
@@ -173,7 +174,7 @@ async function rebuildPackage(state, { log, build = esbuild.build, generatedDirs
   } while (state.rebuildQueued)
 }
 
-function startPackageWatcher(state, { log, build, generatedDirs }) {
+function startPackageWatcher(state, { log, build, generatedDirs, watch = fsWatch }) {
   const onChange = (_eventType, filename) => {
     if (!isWatchedSourceFile(filename)) return
     if (state.rebuildTimeout) clearTimeout(state.rebuildTimeout)
@@ -184,9 +185,10 @@ function startPackageWatcher(state, { log, build, generatedDirs }) {
   }
 
   try {
-    state.watcher = fsWatch(state.srcDir, { recursive: true }, onChange)
+    state.watcher = watch(state.srcDir, { recursive: true }, onChange)
     return true
   } catch (error) {
+    state.watchError = error
     log(
       `[watch] ${state.shortLabel}: failed to start fs.watch: ${error?.message ?? error}`,
       'error',
@@ -211,10 +213,9 @@ export async function runConsolidatedWatch({
   log = defaultLog,
   signal,
   build,
-  env = process.env,
-  argv = process.argv.slice(2),
-  runGit,
+  watch,
 } = {}) {
+  const { env = process.env, argv = process.argv.slice(2), runGit } = arguments[0] ?? {}
   const allPackages = discoverWorkspacePackages(root)
   const generatedDirs = discoverAppGeneratedDirs(root)
   if (allPackages.length === 0) {
@@ -238,42 +239,26 @@ export async function runConsolidatedWatch({
   }
 
   const states = selected.map(makePackageState)
+  const watchedLabels = new Set(states.map((state) => state.shortLabel))
+  let expandTimer = null
   log(
     `[watch] consolidated watcher: tracking ${states.length} package${states.length === 1 ? '' : 's'} (${states
       .map((state) => state.shortLabel)
       .join(', ')})`,
   )
 
-  const watchedLabels = new Set()
+  let startedCount = 0
   for (const state of states) {
-    startPackageWatcher(state, { log, build, generatedDirs })
-    watchedLabels.add(state.shortLabel)
+    if (startPackageWatcher(state, { log, build, generatedDirs, watch })) {
+      startedCount += 1
+    }
   }
 
-  // `auto-optimized` keeps re-checking which packages changed and expands the
-  // watch set (it never removes a watcher once started).
-  let expandTimer = null
-  if (selection.autoExpand) {
-    const expandWatchers = () => {
-      let touched
-      try {
-        touched = detectTouchedPackages({ packages: allPackages, root, config: scopeConfig, runGit })
-      } catch {
-        return
-      }
-      for (const pkg of touched) {
-        if (watchedLabels.has(pkg.shortLabel)) continue
-        const state = makePackageState(pkg)
-        if (startPackageWatcher(state, { log, build, generatedDirs })) {
-          states.push(state)
-          watchedLabels.add(state.shortLabel)
-          log(`[watch] watch scope: expanded to newly-touched package ${state.shortLabel}`)
-          void rebuildPackage(state, { log, build, generatedDirs })
-        }
-      }
-    }
-    expandTimer = setInterval(expandWatchers, AUTO_EXPAND_INTERVAL_MS)
-    if (typeof expandTimer.unref === 'function') expandTimer.unref()
+  if (startedCount !== states.length) {
+    log(
+      `[watch] consolidated watcher: failed to start ${states.length - startedCount} of ${states.length} package watchers`,
+      'error',
+    )
   }
 
   const cleanup = () => {
@@ -293,6 +278,31 @@ export async function runConsolidatedWatch({
     }
   }
 
+  // `auto-optimized` keeps re-checking which packages changed and expands the
+  // watch set (it never removes a watcher once started).
+  if (selection.autoExpand) {
+    const expandWatchers = () => {
+      let touched
+      try {
+        touched = detectTouchedPackages({ packages: allPackages, root, config: scopeConfig, runGit })
+      } catch {
+        return
+      }
+      for (const pkg of touched) {
+        if (watchedLabels.has(pkg.shortLabel)) continue
+        const state = makePackageState(pkg)
+        if (startPackageWatcher(state, { log, build, generatedDirs, watch })) {
+          states.push(state)
+          watchedLabels.add(state.shortLabel)
+          log(`[watch] watch scope: expanded to newly-touched package ${state.shortLabel}`)
+          void rebuildPackage(state, { log, build, generatedDirs })
+        }
+      }
+    }
+    expandTimer = setInterval(expandWatchers, AUTO_EXPAND_INTERVAL_MS)
+    if (typeof expandTimer.unref === 'function') expandTimer.unref()
+  }
+
   if (signal) {
     if (signal.aborted) {
       cleanup()
@@ -308,7 +318,7 @@ export async function runConsolidatedWatch({
     process.on('SIGTERM', onSignal)
   }
 
-  return { packages: states, cleanup }
+  return { packages: states, cleanup, failed: startedCount !== states.length }
 }
 
 const invokedDirectly = (() => {
@@ -321,6 +331,16 @@ const invokedDirectly = (() => {
 })()
 
 if (invokedDirectly) {
-  await runConsolidatedWatch()
-  await new Promise(() => {})
+  const keepAlive = setInterval(() => {}, 60000)
+  runConsolidatedWatch().catch((error) => {
+    clearInterval(keepAlive)
+    console.error(`[watch] consolidated watcher failed: ${error?.message ?? error}`)
+    process.exit(1)
+  }).then((result) => {
+    if (result?.failed || result?.packages?.length === 0) {
+      clearInterval(keepAlive)
+      result.cleanup?.()
+      process.exit(1)
+    }
+  })
 }

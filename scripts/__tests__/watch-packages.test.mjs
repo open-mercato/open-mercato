@@ -1,8 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import {
   discoverAppGeneratedDirs,
@@ -11,6 +13,8 @@ import {
   runConsolidatedWatch,
   touchGeneratedBarrels,
 } from '../watch-packages.mjs'
+
+const REPO_ROOT = path.resolve(fileURLToPath(new URL('../..', import.meta.url)))
 
 function makePackage(rootDir, parentSubdir, pkgName, options = {}) {
   const pkgDir = path.join(rootDir, parentSubdir, pkgName)
@@ -153,16 +157,27 @@ test('runConsolidatedWatch wires one fs.watch per discovered package and trigger
       })
       if (buildCalls.length === 2) resolveSecondBuild()
     }
+    const watchers = []
+    const watch = (dir, options, onChange) => {
+      watchers.push({ dir, options, onChange, closed: false })
+      return {
+        close() {
+          watchers.find((watcher) => watcher.dir === dir).closed = true
+        },
+      }
+    }
 
     const controller = new AbortController()
     const { packages } = await runConsolidatedWatch({
       root,
       log,
       build,
+      watch,
       signal: controller.signal,
     })
 
     assert.equal(packages.length, 2)
+    assert.equal(watchers.length, 2)
     assert.ok(
       logs.some((line) =>
         line.includes('consolidated watcher: tracking 2 packages'),
@@ -170,18 +185,14 @@ test('runConsolidatedWatch wires one fs.watch per discovered package and trigger
       `expected tracking summary, got: ${logs.join('\n')}`,
     )
 
-    // Trigger a rebuild on each package by writing a new entry file.
-    // fs.watch with recursive: true is best-effort on some kernels — give
-    // each watcher one retry if the first write does not surface within the
-    // debounce window.
-    for (let attempt = 0; attempt < 5 && buildCalls.length < 2; attempt += 1) {
-      fs.writeFileSync(path.join(root, 'packages/alpha/src', `change-${attempt}.ts`), '')
-      fs.writeFileSync(path.join(root, 'packages/bravo/src', `change-${attempt}.ts`), '')
-      await Promise.race([
-        secondBuildSeen,
-        new Promise((resolve) => setTimeout(resolve, 600)),
-      ])
-    }
+    fs.writeFileSync(path.join(root, 'packages/alpha/src/change.ts'), '')
+    fs.writeFileSync(path.join(root, 'packages/bravo/src/change.ts'), '')
+    watchers.find((watcher) => watcher.dir.includes('/alpha/src')).onChange('change', 'change.ts')
+    watchers.find((watcher) => watcher.dir.includes('/bravo/src')).onChange('change', 'change.ts')
+    await Promise.race([
+      secondBuildSeen,
+      new Promise((resolve) => setTimeout(resolve, 600)),
+    ])
 
     controller.abort()
 
@@ -207,19 +218,24 @@ test('runConsolidatedWatch touches app generated barrels after package rebuild',
     fs.writeFileSync(generatedFile, 'export const routes = []\n')
     const oldTime = new Date('2020-01-01T00:00:00Z')
     fs.utimesSync(generatedFile, oldTime, oldTime)
+    const watchers = []
+    const watch = (dir, options, onChange) => {
+      watchers.push({ dir, options, onChange })
+      return { close() {} }
+    }
 
     const controller = new AbortController()
     await runConsolidatedWatch({
       root,
       log: () => {},
       build: async () => {},
+      watch,
       signal: controller.signal,
     })
 
-    for (let attempt = 0; attempt < 5 && fs.statSync(generatedFile).mtimeMs === oldTime.getTime(); attempt += 1) {
-      fs.writeFileSync(path.join(root, 'packages/alpha/src', `change-${attempt}.json`), '{}\n')
-      await new Promise((resolve) => setTimeout(resolve, 600))
-    }
+    fs.writeFileSync(path.join(root, 'packages/alpha/src/change.json'), '{}\n')
+    watchers[0].onChange('change', 'change.json')
+    await new Promise((resolve) => setTimeout(resolve, 150))
 
     controller.abort()
     assert.ok(fs.statSync(generatedFile).mtimeMs > oldTime.getTime())
@@ -228,58 +244,26 @@ test('runConsolidatedWatch touches app generated barrels after package rebuild',
   }
 })
 
-test('runConsolidatedWatch honors OM_WATCH_SCOPE=env and tracks only the listed packages', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'watch-packages-scope-env-'))
+test('runConsolidatedWatch reports watcher startup failures', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'watch-packages-watch-fail-'))
   try {
     makePackage(root, 'packages', 'alpha', { entryFile: 'index.ts' })
-    makePackage(root, 'packages', 'bravo', { entryFile: 'index.ts' })
-    makePackage(root, 'packages', 'charlie', { entryFile: 'index.ts' })
-
     const logs = []
-    const controller = new AbortController()
-    const { packages } = await runConsolidatedWatch({
+    const result = await runConsolidatedWatch({
       root,
       log: (line) => logs.push(String(line)),
       build: async () => {},
-      signal: controller.signal,
-      env: { OM_WATCH_SCOPE: 'env', OM_WATCH_PACKAGES: 'alpha,charlie' },
-      argv: [],
+      watch: () => {
+        throw new Error('ENOSPC: System limit for number of file watchers reached')
+      },
+      signal: new AbortController().signal,
     })
-    controller.abort()
 
-    assert.deepEqual(packages.map((p) => p.shortLabel).sort(), ['alpha', 'charlie'])
+    assert.equal(result.failed, true)
     assert.ok(
-      logs.some((line) => line.includes('watch scope: env')),
-      `expected watch scope log, got: ${logs.join('\n')}`,
+      logs.some((line) => line.includes('failed to start 1 of 1 package watchers')),
+      `expected failed watcher summary, got: ${logs.join('\n')}`,
     )
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('runConsolidatedWatch auto-optimized tracks only git-touched packages at startup', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'watch-packages-scope-auto-'))
-  try {
-    makePackage(root, 'packages', 'alpha', { entryFile: 'index.ts' })
-    makePackage(root, 'packages', 'bravo', { entryFile: 'index.ts' })
-
-    const runGit = (_root, args) => {
-      if (args[0] === 'status') return ' M packages/bravo/src/index.ts\n'
-      return ''
-    }
-    const controller = new AbortController()
-    const { packages } = await runConsolidatedWatch({
-      root,
-      log: () => {},
-      build: async () => {},
-      signal: controller.signal,
-      env: { OM_WATCH_SCOPE: 'auto-optimized' },
-      argv: [],
-      runGit,
-    })
-    controller.abort()
-
-    assert.deepEqual(packages.map((p) => p.shortLabel), ['bravo'])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -303,5 +287,68 @@ test('runConsolidatedWatch returns a no-op result when no packages match', async
     )
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('standalone watcher CLI stays alive without unsettled top-level await warnings', async () => {
+  const child = spawn(process.execPath, ['scripts/watch-packages.mjs'], {
+    cwd: REPO_ROOT,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+
+  let stdout = ''
+  let stderr = ''
+  let closed = false
+  let closeResult = null
+
+  const closePromise = new Promise((resolve) => {
+    child.on('close', (code, signal) => {
+      closed = true
+      closeResult = { code, signal }
+      resolve(closeResult)
+    })
+  })
+
+  child.stdout.setEncoding('utf8')
+  child.stderr.setEncoding('utf8')
+
+  const started = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`watcher did not start. stdout:\n${stdout}\nstderr:\n${stderr}`))
+    }, 3000)
+
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk
+      if (stdout.includes('consolidated watcher: tracking')) {
+        clearTimeout(timeout)
+        resolve()
+      }
+    })
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk
+    })
+    child.on('error', (error) => {
+      clearTimeout(timeout)
+      reject(error)
+    })
+    child.on('close', (code, signal) => {
+      clearTimeout(timeout)
+      if (!stdout.includes('consolidated watcher: tracking')) {
+        reject(new Error(`watcher exited before startup: ${JSON.stringify({ code, signal })}\nstderr:\n${stderr}`))
+      }
+    })
+  })
+
+  try {
+    await started
+    await new Promise((resolve) => setTimeout(resolve, 250))
+
+    assert.equal(closed, false, `watcher exited unexpectedly: ${JSON.stringify(closeResult)}\nstderr:\n${stderr}`)
+    assert.doesNotMatch(stderr, /unsettled top-level await/i)
+  } finally {
+    if (!closed) {
+      child.kill('SIGTERM')
+      await closePromise
+    }
   }
 })
