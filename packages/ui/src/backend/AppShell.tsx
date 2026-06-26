@@ -29,12 +29,17 @@ import { dismissRecordConflict } from './conflicts/store'
 import { ProgressTopBar } from './progress/ProgressTopBar'
 import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
+import { OrganizationScopeBoundary } from './OrganizationScopeBoundary'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 import { readVersionedPreference, writeVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
 import { cloneSidebarGroups } from './sidebar/customization-helpers'
 import type { SectionNavGroup } from './section-page/types'
 import { InjectionSpot } from './injection/InjectionSpot'
+import {
+  BackendRecordInjectionContextProvider,
+  type RecordInjectionContext,
+} from './injection/recordContext'
 import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/injection'
 import { LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID } from './injection/mutationEvents'
 import { mergeMenuItems } from './injection/mergeMenuItems'
@@ -591,6 +596,21 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     }),
     [pathname, searchParams],
   )
+
+  // AppShell-owned transport for the current detail record (Phase 0 / S2).
+  // Detail pages publish here; the merged context feeds the global
+  // `backend:record:current` mount so the record_locks widget can resolve the
+  // resource without a hardcoded path allowlist. Stale context (published for a
+  // different path) is ignored so it never leaks across route transitions.
+  const [currentRecordInjectionContext, setCurrentRecordInjectionContext] =
+    React.useState<RecordInjectionContext | null>(null)
+
+  const recordInjectionContext = React.useMemo(() => {
+    if (!currentRecordInjectionContext) return injectionContext
+    const publishedPath = currentRecordInjectionContext.path
+    if (publishedPath && pathname && publishedPath !== pathname) return injectionContext
+    return { ...injectionContext, ...currentRecordInjectionContext }
+  }, [injectionContext, currentRecordInjectionContext, pathname])
 
   const isOnSettingsPath = React.useMemo(() => {
     if (!pathname) return false
@@ -1393,13 +1413,17 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           {canManageUpgradeActions ? <UpgradeActionBanner /> : null}
           <LastOperationBanner />
           <RecordConflictBanner />
-          <InjectionSpot spotId={BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID} context={injectionContext} />
+          <InjectionSpot spotId={BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID} context={recordInjectionContext} />
           <InjectionSpot
             spotId={LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID}
             context={injectionContext}
           />
           <div id="om-top-banners" className="mb-3 space-y-2" />
-          {children}
+          <OrganizationScopeBoundary active={isOnSettingsPath}>
+            <BackendRecordInjectionContextProvider setCurrentRecordInjectionContext={setCurrentRecordInjectionContext}>
+              {children}
+            </BackendRecordInjectionContextProvider>
+          </OrganizationScopeBoundary>
           <InjectionSpot spotId={BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID} context={injectionContext} />
         </main>
         <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3 flex flex-wrap items-center justify-end gap-4">

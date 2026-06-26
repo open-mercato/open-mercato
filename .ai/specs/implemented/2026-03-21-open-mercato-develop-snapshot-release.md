@@ -6,7 +6,7 @@
 **Author:** Open Mercato Team
 **Related:** [2026-03-20-official-modules-platform-sync-playbook.md](./2026-03-20-official-modules-platform-sync-playbook.md), `.github/workflows/snapshot.yml`, `.github/workflows/release.yml`, `scripts/release-snapshot.sh`, `scripts/publish-packages.sh`
 
-> 2026-06-22 update: PR package previews are now specified separately in [../2026-06-22-label-based-package-previews.md](../2026-06-22-label-based-package-previews.md). This develop snapshot contract remains responsible for trusted pushes to `develop`; PR npm canary snapshots moved behind the `publish-npm-snapshot` label.
+> 2026-06-24 update: PR package previews are now specified separately in [../2026-06-22-label-based-package-previews.md](../2026-06-22-label-based-package-previews.md). This develop snapshot contract remains responsible for trusted pushes to `develop`; PR npm canary snapshots moved behind explicit manual `NPM Snapshot Preview` dispatches.
 
 ## TLDR
 

@@ -1493,6 +1493,7 @@
   "sales.returns.qty.increase": "Increase quantity",
   "sales.returns.quantity": "Quantity",
   "sales.returns.quantityExceeded": "Cannot return more than the remaining quantity.",
+  "sales.returns.quantityExceedsShipped": "Cannot return more than the shipped quantity. Ship the items before recording a return.",
   "sales.returns.reason": "Reason",
   "sales.returns.reason.placeholder": "Optional",
   "sales.returns.returnNumber": "Return",

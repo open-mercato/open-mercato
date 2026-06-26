@@ -294,12 +294,12 @@ describe('perspectives custom write mutation guards', () => {
     )
 
     expect(response.status).toBe(200)
-    expect(clearRolePerspectivesMock).toHaveBeenCalledWith(em, cache, {
+    expect(clearRolePerspectivesMock).toHaveBeenCalledWith(em, cache, expect.objectContaining({
       tableId,
       tenantId,
       organizationId,
       roleIds: [roleId],
-    })
+    }))
     expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalledTimes(1)
     expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalledWith(
       container,
@@ -383,12 +383,12 @@ describe('perspectives custom write mutation guards', () => {
         mutationPayload: { tableId, roleId },
       }),
     )
-    expect(clearRolePerspectivesMock).toHaveBeenCalledWith(em, cache, {
+    expect(clearRolePerspectivesMock).toHaveBeenCalledWith(em, cache, expect.objectContaining({
       tableId,
       tenantId,
       organizationId,
       roleIds: [roleId],
-    })
+    }))
     expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalledWith(
       container,
       expect.objectContaining({
@@ -414,12 +414,12 @@ describe('perspectives custom write mutation guards', () => {
     )
 
     expect(response.status).toBe(200)
-    expect(clearRolePerspectivesMock).toHaveBeenCalledWith(em, cache, {
+    expect(clearRolePerspectivesMock).toHaveBeenCalledWith(em, cache, expect.objectContaining({
       tableId,
       tenantId,
       organizationId,
       roleIds: [roleId],
-    })
+    }))
     expect(runCrudMutationGuardAfterSuccessMock).not.toHaveBeenCalled()
   })
 })

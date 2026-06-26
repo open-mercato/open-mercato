@@ -1493,6 +1493,7 @@
   "sales.returns.qty.increase": "Aumentar cantidad",
   "sales.returns.quantity": "Cantidad",
   "sales.returns.quantityExceeded": "No se puede devolver más que la cantidad restante.",
+  "sales.returns.quantityExceedsShipped": "No se puede devolver más que la cantidad enviada. Envíe los artículos antes de registrar una devolución.",
   "sales.returns.reason": "Motivo",
   "sales.returns.reason.placeholder": "Opcional",
   "sales.returns.returnNumber": "Devolución",

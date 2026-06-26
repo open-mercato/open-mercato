@@ -73,7 +73,7 @@ export function MessageHeader(props: MessageHeaderProps) {
       })
     }
 
-    if (!props.detail.isDraft) {
+    if (!props.detail.isDraft && props.detail.canArchive) {
       items.push({
         id: 'toggle-archive',
         label: props.isArchived

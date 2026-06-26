@@ -44,17 +44,31 @@ Strategies automatically become unavailable if their backend is not configured (
 
 ## Configure Global Search (Cmd+K)
 
+Search settings (Cmd+K strategies, embedding provider/model, auto-index flag) are
+**tenant-scoped**: each tenant reads/writes its own row and never overwrites another
+tenant's settings. A tenant with no saved row inherits the instance default (legacy
+global row) and finally the env-derived default; GET responses carry a `source` of
+`tenant | instance | env`. Scope is always derived from the authenticated context,
+never from the request body. The vector index itself (shared pgvector table) stays
+instance-level; per-tenant scoping covers settings selection, not the stored vectors.
+
 Set global search dialog strategies per-tenant via **Settings > Search** or the API:
 
 ```typescript
 // Get current config
 GET /api/search/settings/global-search
-// Response: { "enabledStrategies": ["fulltext", "vector", "tokens"] }
+// Response: { "enabledStrategies": ["fulltext", "vector", "tokens"], "source": "tenant" }
 
-// Update config
+// Update config (writes only this tenant's row)
 POST /api/search/settings/global-search
 // Body: { "enabledStrategies": ["fulltext", "tokens"] }
 ```
+
+Provider availability is verified by an active, cached, fail-closed probe
+(`embeddingProviderProbe`): Ollama is checked via `GET {OLLAMA_BASE_URL}/api/tags`
+(no longer assumed reachable), key-based providers via env-key presence. The
+embeddings GET returns per-provider `available`/`reason`; the embeddings POST
+rejects selecting an unreachable provider with `409 { error, reason }`.
 
 ## Create a Search Configuration
 

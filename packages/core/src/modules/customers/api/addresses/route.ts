@@ -68,6 +68,7 @@ const crud = makeCrudRoute({
       'is_primary',
       'organization_id',
       'tenant_id',
+      'updated_at',
     ],
     sortFieldMap: {
       createdAt: 'created_at',
@@ -142,6 +143,7 @@ const addressListItemSchema = z.object({
   is_primary: z.boolean().nullable().optional(),
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
 })
 
 const addressCreateResponseSchema = z.object({

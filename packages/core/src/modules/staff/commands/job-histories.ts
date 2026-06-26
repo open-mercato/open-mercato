@@ -21,7 +21,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
-  enforceCommandOptimisticLock,
+  enforceCommandOptimisticLockWithGuards,
   enforceRecordGoneIsConflict,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -218,7 +218,7 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
     }
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: JOB_HISTORY_LOCK_RESOURCE_KIND,
       resourceId: record.id,
       current: record.updatedAt ?? null,
@@ -366,7 +366,7 @@ const deleteJobHistoryCommand: CommandHandler<{ id?: string; updatedAt?: string;
       }
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: JOB_HISTORY_LOCK_RESOURCE_KIND,
         resourceId: record.id,
         current: record.updatedAt ?? null,

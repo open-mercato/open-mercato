@@ -1,11 +1,13 @@
 ---
 name: om-auto-review-pr
-description: Review or re-review a GitHub PR by number in an isolated worktree. Runs the `om-code-review` skill, submits approve/request-changes, manages labels. Optional autofix iterates conflict resolution/fixes/tests/typecheck/re-review until merge-ready. Usage - /auto-review-pr <PR-number>
+description: Review or re-review a GitHub PR by number in an isolated worktree. Runs the `om-code-review` analysis, prefers GitHub PR checks and falls back to local validation only when check data is unavailable, submits approve/request-changes, and manages labels. Optional autofix iterates conflict resolution/fixes/CI-or-local analysis/re-review until merge-ready. Usage - /auto-review-pr <PR-number>
 ---
 
 # Auto Review PR
 
-Review a GitHub pull request by number without touching the current worktree. Always fetch the exact PR from GitHub, review it in an isolated worktree, submit the verdict, and if the PR still has blockers offer an explicit autofix flow that keeps resolving conflicts, fixing code, testing, typechecking, and re-reviewing until the PR is actually ready or a non-actionable blocker remains.
+Review a GitHub pull request by number without touching the current worktree. Always fetch the exact PR from GitHub, review it in an isolated worktree, submit the verdict, and if the PR still has blockers offer an explicit autofix flow that keeps resolving conflicts, fixing code, reading GitHub PR checks when available, and re-reviewing until the PR is actually ready or a non-actionable blocker remains.
+
+This variant is optimized to save local resources: first use GitHub PR checks and check logs because CI already runs the validation commands. Run local validation only when GitHub check data is unavailable or unusable for the current PR head, and keep that fallback scoped to the smallest relevant checks.
 
 ## Arguments
 
@@ -122,8 +124,10 @@ If the branch protection API returns 404, treat all reported PR checks as requir
 Fetch the actual PR check results:
 
 ```bash
-gh pr checks {prNumber} --json name,state,link
+gh pr checks {prNumber} --json name,state,link,bucket,description,workflow,completedAt
 ```
+
+Normalize state values case-insensitively because `gh` and API surfaces may report different spellings.
 
 Treat these states as failing:
 
@@ -131,6 +135,7 @@ Treat these states as failing:
 - `ERROR`
 - `CANCELLED`
 - `TIMED_OUT`
+- `FAIL`
 
 Ignore these as non-failing:
 
@@ -138,8 +143,20 @@ Ignore these as non-failing:
 - `SUCCESS`
 - `SKIPPED`
 - `NEUTRAL`
+- `PASS`
+- `SKIP`
 
-If any required check is failing, do not continue with checkout or review execution. Submit a changes-requested review listing only the failing required checks, apply `changes-requested`, remove `merge-queue`, and stop.
+If any required check is failing, first read the failing check summary/logs from GitHub. If the check result and logs are available, do not continue with checkout or review execution; submit a changes-requested review listing only the failing required checks and relevant log summary, apply `changes-requested`, remove `merge-queue`, and stop. If the failing check exists but the GitHub details/logs are unavailable, create the isolated worktree and run the smallest matching local fallback command needed to diagnose that failure, then submit the changes-requested review.
+
+If required checks are pending, do not run local substitutes. Continue the code review and include the pending GitHub checks in the review report. A clean code review may approve while CI is pending; GitHub branch protection and the merge queue remain responsible for blocking merge until required checks pass.
+
+Local fallback is allowed only when check data is unavailable, for example:
+
+- `gh pr checks` fails due permissions, API errors, missing Actions/checks access, or the PR head SHA has no reported checks
+- branch protection required-check discovery is unavailable and the PR reports no checks
+- a failing check exists but GitHub details/logs cannot be opened, making the failure impossible to diagnose from GitHub data
+
+When fallback is needed, create the isolated worktree first and run the smallest local validation set that corresponds to the missing GitHub signal.
 
 ### 4. Create an isolated worktree for the PR
 
@@ -184,10 +201,10 @@ Rules:
 
 - If you are already in a linked worktree, reuse it instead of creating a nested worktree.
 - The repository’s main worktree must remain untouched.
-- Review, testing, and any optional follow-up fixes must happen inside the isolated worktree.
+- Review, fallback validation, and any optional follow-up fixes must happen inside the isolated worktree.
 - Always clean up the temporary worktree at the end, even on failure, but only if you created it in this run.
 
-Before running any Yarn-based validation in the new worktree, restore the package-manager install state:
+Do not run `yarn install` by default. If local fallback validation is required because GitHub check data is unavailable, restore the package-manager install state first:
 
 ```bash
 yarn install --mode=skip-build
@@ -283,7 +300,7 @@ Record findings from the patterns below. These are mandatory findings, not optio
 | Hand-written migration SQL file without snapshot update or scope rationale | Medium: prefer generated migrations; manual SQL must be scoped and update `.snapshot-open-mercato.json` |
 | Entity schema changed but no migration file or no-op rationale in the diff | Medium: create a scoped migration and update the snapshot |
 | Missing explicit tenant scoping in sub-entity queries | Medium: defense in depth |
-| New or modified i18n locale JSON keys not in alphabetical order | Medium: CI i18n-check-sync requires sorted keys — run `yarn i18n:check-sync --fix` or sort manually |
+| New or modified i18n locale JSON keys not in alphabetical order | Medium: CI i18n-check-sync requires sorted keys — sort manually, or run `yarn i18n:check-sync --fix` only when GitHub check data is unavailable |
 
 #### Low auto-detections
 
@@ -293,21 +310,32 @@ Record findings from the patterns below. These are mandatory findings, not optio
 | Inline comment on self-explanatory code | Low: remove comment |
 | Added docstring or comment on unchanged function | Low: do not annotate unchanged code |
 
-### 6. Run the full code-review skill inside the worktree
+### 6. Run the code-review analysis inside the worktree
 
 Execute `.ai/skills/om-code-review/SKILL.md` in the isolated worktree.
 
-Mandatory scope and gates:
+Mandatory scope and gates for this GitHub-checks-first variant:
 
 - Scope changed files with `gh pr diff {prNumber} --name-only`
 - Gather context from all matching `AGENTS.md` files, related specs, and `.ai/lessons.md`
-- Run the full CI/CD verification gate
-- Run `yarn template:sync`
+- Read the current GitHub PR checks with `gh pr checks {prNumber} --json name,state,link,bucket,description,workflow,completedAt`
+- For failing GitHub checks, inspect check logs from GitHub rather than reproducing locally, for example with `gh run view <run-id> --log-failed` when the link points to a workflow run
+- Run local test, typecheck, lint, build, template-sync, Playwright, package-install, or migration commands only as a fallback when GitHub check data is unavailable or unusable for the current PR head
 - Check `BACKWARD_COMPATIBILITY.md`
 - Apply the full review checklist
 - Verify test coverage and cross-module impact
 
-Merge findings from step 5 into the final review report. Do not duplicate the same issue twice.
+Fallback local validation mirrors the normal `om-code-review` gate but should stay as narrow as the missing CI signal allows:
+
+- Run `yarn template:sync` when template sync status is unavailable from GitHub checks.
+- Run relevant unit tests for every changed package or module when test status is unavailable.
+- Run relevant typecheck commands for every changed package or module when typecheck status is unavailable.
+- If the review findings touched shared contracts or multiple packages, expand local validation to the affected workspace scope.
+- Run broader `yarn lint`, `yarn test`, `yarn typecheck`, or `yarn build:*` only when GitHub provides no usable check data for those gates.
+
+Merge findings from step 5 and the validation source into the final review report. Do not duplicate the same issue twice.
+
+When the upstream `om-code-review` skill asks for local validation, first replace that action with GitHub check inspection. If GitHub check data is unavailable, run the corresponding local command inside the isolated worktree. Keep the same analysis depth: read code, specs, tests, contracts, and relevant docs.
 
 ### 7. Classify the result
 
@@ -470,7 +498,7 @@ Only stop and ask the user in these critical situations:
 - Changes that would break backward compatibility in ways not covered by the deprecation protocol
 - Scope expansion that would fundamentally change what the PR does
 
-For everything else — missing tests, code style issues, i18n problems, type errors, lint failures, missing metadata exports, security hardening — fix them autonomously.
+For everything else — missing tests, code style issues, i18n problems, type errors, lint failures, missing metadata exports, security hardening — fix them autonomously. When the signal comes from CI, use the GitHub check summary and failed logs to identify the fix; run local checks only when GitHub check data or logs are unavailable.
 
 ### 10. Autofix and fix-forward loop
 
@@ -482,11 +510,12 @@ Do not stop after the first patch. Treat autofix as an iterative loop:
 1. Convert the current review findings into a concrete fix list.
 2. If the PR is currently conflicted, resolve conflicts against the latest base branch first.
 3. Implement the next batch of fixable findings.
-4. Run validation for the updated code:
-   - Run relevant unit tests for every changed package or module.
-   - Run relevant typecheck commands for every changed package or module.
-   - If i18n locale files were added or modified, verify keys are alphabetically sorted (CI runs `yarn i18n:check-sync` which enforces this).
-   - If the review findings touched shared contracts or multiple packages, expand validation to the affected workspace scope.
+4. Validate the updated code through GitHub PR checks first, then local fallback if needed:
+   - If the fix has not been pushed yet, validate statically by reading the changed files and relevant tests, then push the follow-up branch when the re-review is otherwise approvable.
+   - After GitHub starts checks for the new head SHA, read `gh pr checks {prNumber}` or the replacement PR's checks and inspect failed logs from GitHub.
+   - If GitHub check data is unavailable for the new head SHA, restore install state and run the smallest relevant local validation set: affected unit tests, affected typecheck, i18n sync, template sync, lint, or build as appropriate.
+   - If i18n locale files were added or modified and GitHub check data is unavailable, run `yarn i18n:check-sync --fix` or sort keys manually.
+   - If the review findings touched shared contracts or multiple packages and GitHub check data is unavailable, expand local validation to the affected workspace scope.
 5. Re-run the code review on the updated diff in the same worktree.
 6. If new or remaining actionable findings exist, repeat from step 1.
 7. Stop only when:
@@ -504,7 +533,7 @@ Conflict-resolution rules for autofix mode:
 - Resolve conflicts only inside the isolated worktree or carry-forward branch.
 - Never attempt conflict resolution in the user's active worktree.
 - Always fetch the latest `{baseRefName}` before resolving conflicts.
-- After conflicts are resolved, rerun the relevant unit tests, typecheck, and code review before deciding the branch is ready.
+- After conflicts are resolved, re-run source review and inspect the GitHub PR checks for the updated head before deciding the branch is ready. If check data is unavailable, run the corresponding local fallback checks.
 - If conflict resolution introduces additional findings, continue the autofix loop instead of stopping.
 
 For autofix mode, the goal is not "submit one fix commit". The goal is "finish the PR". Keep iterating until the code review is clean and validation passes, unless a real blocker stops progress.
@@ -518,7 +547,7 @@ Rules:
 - Never force-push unless the user explicitly asked for it.
 - Prefer a normal follow-up commit.
 - Use conventional-commit-style messages scoped to the affected area: `fix(<area>): <summary>`, `feat(<area>): <summary>`, `refactor(<area>): <summary>`, etc.
-- Before pushing, ensure the latest autofix cycle included unit tests, typecheck, and a fresh code review on the final diff.
+- Before pushing, ensure the latest autofix cycle included a fresh code review on the final diff. Prefer GitHub checks after the push; run local unit tests or typecheck only when GitHub check data is unavailable.
 
 #### 10b. Fork PRs
 
@@ -537,10 +566,11 @@ Instead:
 
 Validation requirements for autofix mode:
 
-- On every cycle, run unit tests for changed packages or modules.
-- On every cycle, run typecheck for changed packages or modules.
-- Before the final push, run at least one last unit-test pass and one last typecheck pass against the final branch state.
-- If the original review required broader workspace validation, rerun the broader validation before opening or updating the replacement PR.
+- On every cycle, inspect the current GitHub PR checks for failures and pending required checks.
+- On every cycle, inspect failed GitHub check logs when failures exist.
+- If GitHub check data is unavailable, run the corresponding local fallback checks inside the isolated worktree.
+- Before the final verdict, ensure the current PR head has no failing required GitHub checks, or that the local fallback checks passed when GitHub check data was unavailable. Pending checks are allowed to remain pending, but must be reported explicitly.
+- If the original review required broader workspace validation, require the corresponding GitHub checks to pass/remain pending, or run broader local fallback validation if GitHub check data is unavailable, before opening or updating the replacement PR.
 
 Replacement PR requirements:
 
@@ -594,6 +624,8 @@ Rules:
 - Remove the `in-progress` label
 - Post a completion comment with the verdict (`APPROVED` or `CHANGES REQUESTED`) and a short summary
 - If autofix mode ran, mention how many fix iterations completed
+- If GitHub checks are still pending, mention the pending check names and state that local fallback was not used because GitHub check data is available
+- If local fallback validation ran, mention which commands ran and why GitHub check data was unavailable
 
 ### 12. Report back
 
@@ -622,13 +654,15 @@ If a critical blocker remains that requires human judgment, the summary must des
 - Always use an isolated worktree for checkout, review, validation, and optional fixes
 - Reuse the current linked worktree when already inside one; do not create nested worktrees
 - The repository’s main worktree must remain unchanged
-- Always restore Yarn install state inside the isolated worktree before running build, test, or typecheck commands
+- Prefer GitHub PR checks and GitHub check logs as the validation source
+- Run local validation commands only when GitHub check data is unavailable or unusable for the current PR head; before doing so, run `yarn install --mode=skip-build` or plain `yarn install` if needed
 - On the first review pass, conflicts are an early-stop review outcome
 - In autofix mode, conflicts must be resolved as part of the second run instead of being left as a permanent blocker
 - In autofix mode, always rerun code review after each fix batch instead of assuming the previous findings list is complete
-- In autofix mode, always run unit tests and typecheck for the changed scope on every iteration and again on the final branch state
+- In autofix mode, always inspect GitHub PR checks and failed GitHub check logs on every iteration and again on the final branch state; use local fallback checks only when those are unavailable
 - In autofix mode, continue iterating until the PR is ready or a real blocker is reported explicitly
-- Must run the full CI/CD verification gate from the `om-code-review` skill
+- Must attempt GitHub PR check inspection before any local CI/CD verification gate from the `om-code-review` skill
+- Must run the corresponding local validation gate when GitHub PR check data is unavailable
 - Must use the `om-code-review` skill severity model
 - Must run the diff-level automated checks in step 5
 - The review body must contain the full structured report
