@@ -25,11 +25,25 @@ type SearchSingletonCache = {
 }
 
 function getSearchGlobals(): SearchSingletonCache {
+  // L1: these globals are NOT cleared on HMR — module re-evaluation hits the
+  // cache-hit fast-path so no new connections are opened. Restart the dev server
+  // (or set SEARCH_DISABLE_SINGLETON_CACHE=1) when a clean slate is needed.
   return globalThis as unknown as SearchSingletonCache
 }
 
 function isSingletonCacheEnabled(): boolean {
   return process.env.SEARCH_DISABLE_SINGLETON_CACHE !== '1'
+}
+
+function buildQueueOptions(): {
+  queueStrategy: 'local' | 'async'
+  queueConnection: { connection: { url: string } } | undefined
+} {
+  const queueStrategy = (process.env.QUEUE_STRATEGY || 'local') as 'local' | 'async'
+  const queueConnection = queueStrategy === 'async'
+    ? { connection: { url: getRedisUrlOrThrow('QUEUE') } }
+    : undefined
+  return { queueStrategy, queueConnection }
 }
 
 function getOrCreateSingletons(): {
@@ -70,10 +84,7 @@ function getOrCreateSingletons(): {
     createQdrantDriver(),
   ]
 
-  const queueStrategy = (process.env.QUEUE_STRATEGY || 'local') as 'local' | 'async'
-  const queueConnection = queueStrategy === 'async'
-    ? { connection: { url: getRedisUrlOrThrow('QUEUE') } }
-    : undefined
+  const { queueStrategy, queueConnection } = buildQueueOptions()
 
   const vectorIndexQueue: Queue<VectorIndexJobPayload> = createVectorIndexingQueue(
     queueStrategy,
@@ -92,6 +103,8 @@ function getOrCreateSingletons(): {
 
   if (!g[SHUTDOWN_KEY]) {
     const shutdown = () => {
+      // L2: chromadb/qdrant drivers use stateless HTTP clients — no persistent
+      // connection to close. Only the pg.Pool and BullMQ queues need teardown.
       g[PG_POOL_KEY]?.end().catch(() => {})
       g[VECTOR_INDEX_QUEUE_KEY]?.close().catch(() => {})
       g[FULLTEXT_INDEX_QUEUE_KEY]?.close().catch(() => {})
@@ -122,10 +135,7 @@ function getOrCreateSingletons(): {
  */
 export function register(container: AppContainer) {
   if (!isSingletonCacheEnabled()) {
-    const queueStrategy = (process.env.QUEUE_STRATEGY || 'local') as 'local' | 'async'
-    const queueConnection = queueStrategy === 'async'
-      ? { connection: { url: getRedisUrlOrThrow('QUEUE') } }
-      : undefined
+    const { queueStrategy, queueConnection } = buildQueueOptions()
 
     container.register({
       vectorEmbeddingService: asValue(new EmbeddingService()),
