@@ -24,6 +24,11 @@ implementation contract) for the full design.
 - Author file agents under `packages/<pkg>/src/modules/<module>/agents/<agent_id>/` (or an
   app module). Required: `AGENT.md` + `OUTCOME.md`. Optional: `skills/<sid>/SKILL.md`
   (+ `TEMPLATE.md`, `examples/*.md`, `scripts/*.ts`), `sub-agents/<subid>/`, `tools/*.ts`.
+- To scaffold a file agent end-to-end (purpose → `AGENT.md`/`OUTCOME.md` + optional
+  skills/sub-agents/tools → `yarn generate` → manifest verify), use the
+  **`om-create-opencode-agent`** skill. Its source lives in this module
+  (`.ai/skills/om-create-opencode-agent/SKILL.md`) and is surfaced at the repo-root
+  `.ai/skills/` via a symlink (so it is bundled with the enterprise module, not OSS-root).
 - Keep the OUTCOME schema in the supported JSON-Schema subset (compiled to Zod by
   `lib/sdk/outcomeSchema.ts`). Unsupported keywords (`oneOf`/`anyOf`/`$ref`/`format`/…)
   fail generation loudly.
