@@ -22,6 +22,9 @@ import {
 } from '../data/entities'
 import { parseDuration } from './duration'
 import { logWorkflowEvent } from './event-logger'
+import { findWorkflowDefinition } from './find-definition'
+import { validateAgainstPorts } from './port-contract'
+import type { WorkflowIoContract } from '../data/validators'
 
 // ============================================================================
 // Types and Interfaces
@@ -693,12 +696,43 @@ async function handleSubWorkflowStep(
   }
 
   // Map input data from parent context to child context
-  const childContext = mapInputData(instance.context, inputMapping || {})
+  let childContext = mapInputData(instance.context, inputMapping || {})
 
   // Import workflow executor functions
   const { startWorkflow, executeWorkflow } = await import('./workflow-executor')
 
   try {
+    // Resolve the child definition to read its declared port contract (if any).
+    // Validation is opt-in by contract presence: only children that declare
+    // `definition.io` ports are checked, so legacy untyped sub-workflows behave
+    // exactly as before.
+    const childDefinition = await findWorkflowDefinition(em, {
+      workflowId: subWorkflowId,
+      version,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+    const ioContract = (childDefinition?.definition as { io?: WorkflowIoContract } | undefined)?.io
+
+    // Validate/coerce mapped inputs against the child's declared input ports.
+    if (ioContract?.inputs?.length) {
+      const { coerced, errors } = validateAgainstPorts(childContext, ioContract.inputs)
+      if (errors.length > 0) {
+        const message = `Sub-workflow input validation failed: ${errors.map((e) => e.message).join('; ')}`
+        await logStepEvent(em, {
+          workflowInstanceId: instance.id,
+          stepInstanceId: stepInstance.id,
+          eventType: 'SUB_WORKFLOW_FAILED',
+          eventData: { subWorkflowId, reason: 'INPUT_VALIDATION', error: message },
+          userId: context.userId,
+          tenantId: instance.tenantId,
+          organizationId: instance.organizationId,
+        })
+        return { status: 'FAILED', error: message }
+      }
+      childContext = coerced
+    }
+
     // Start child workflow with parent metadata
     const childInstance = await startWorkflow(em, {
       workflowId: subWorkflowId,
@@ -742,7 +776,26 @@ async function handleSubWorkflowStep(
     // Handle child workflow result
     if (result.status === 'COMPLETED') {
       // Map output data from child context to parent context
-      const outputData = mapOutputData(result.context, outputMapping || {})
+      let outputData = mapOutputData(result.context, outputMapping || {})
+
+      // Validate/coerce mapped outputs against the child's declared output ports.
+      if (ioContract?.outputs?.length) {
+        const { coerced, errors } = validateAgainstPorts(outputData, ioContract.outputs)
+        if (errors.length > 0) {
+          const message = `Sub-workflow output validation failed: ${errors.map((e) => e.message).join('; ')}`
+          await logStepEvent(em, {
+            workflowInstanceId: instance.id,
+            stepInstanceId: stepInstance.id,
+            eventType: 'SUB_WORKFLOW_FAILED',
+            eventData: { childInstanceId: childInstance.id, reason: 'OUTPUT_VALIDATION', error: message },
+            userId: context.userId,
+            tenantId: instance.tenantId,
+            organizationId: instance.organizationId,
+          })
+          return { status: 'FAILED', error: message }
+        }
+        outputData = coerced
+      }
 
       await logStepEvent(em, {
         workflowInstanceId: instance.id,

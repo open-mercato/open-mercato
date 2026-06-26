@@ -184,6 +184,34 @@ export const subWorkflowConfigSchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
 })
 
+// Sub-workflow IO contract ("ports"). Business-user-facing typed declaration of
+// the inputs a workflow accepts and the outputs it returns. The five port types
+// are the simple labels surfaced in the Schema Builder; mapped values are
+// coerced and validated against them at the SUB_WORKFLOW boundary by
+// lib/port-contract.ts. Declared on the child definition (definition.io).
+export const portFieldTypeSchema = z.enum(['text', 'number', 'boolean', 'select', 'date'])
+
+export const portFieldSchema = z.object({
+  name: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[a-zA-Z][a-zA-Z0-9_]*$/, 'Port name must start with a letter and contain only letters, numbers, and underscores'),
+  type: portFieldTypeSchema,
+  label: z.string().min(1).max(255),
+  required: z.boolean().optional().default(false),
+  options: z.array(z.string()).optional(),
+})
+
+export const workflowIoContractSchema = z.object({
+  inputs: z.array(portFieldSchema).optional(),
+  outputs: z.array(portFieldSchema).optional(),
+})
+
+export type PortFieldType = z.infer<typeof portFieldTypeSchema>
+export type PortField = z.infer<typeof portFieldSchema>
+export type WorkflowIoContract = z.infer<typeof workflowIoContractSchema>
+
 // CALL_API activity configuration
 export const callApiConfigSchema = z.object({
   endpoint: z.string().min(1, 'API endpoint is required'),
@@ -623,6 +651,7 @@ export const workflowDefinitionDataSchema = z.object({
   steps: z.array(workflowStepSchema).min(2, 'Workflow must have at least START and END steps'),
   transitions: z.array(workflowTransitionSchema).min(1, 'Workflow must have at least one transition'),
   triggers: z.array(workflowDefinitionTriggerSchema).optional(), // Event triggers for automatic workflow start
+  io: workflowIoContractSchema.optional(), // Sub-workflow input/output port contract
   queries: z.array(z.any()).optional(), // For Phase 7
   signals: z.array(z.any()).optional(), // For Phase 9
   timers: z.array(z.any()).optional(), // For Phase 9
