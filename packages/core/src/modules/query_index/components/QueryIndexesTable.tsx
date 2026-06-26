@@ -11,6 +11,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 
 const MUTATION_CONTEXT_ID = 'query_index.status.list:actions'
 
@@ -127,7 +128,7 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
         if (!record.vectorEnabled) return <span>—</span>
         const ok = record.vectorCount != null && record.baseCount != null && record.vectorCount === record.baseCount
         const display = formatCount(record.vectorCount)
-        const className = ok ? 'text-green-600' : 'text-orange-600'
+        const className = ok ? 'text-status-success-text' : 'text-status-warning-text'
         return <span className={className}>{display}</span>
       },
       meta: { priority: 2 },
@@ -141,7 +142,7 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
         if (!record.fulltextEnabled) return <span>—</span>
         const ok = record.fulltextCount != null && record.baseCount != null && record.fulltextCount === record.baseCount
         const display = formatCount(record.fulltextCount)
-        const className = ok ? 'text-green-600' : 'text-orange-600'
+        const className = ok ? 'text-status-success-text' : 'text-status-warning-text'
         return <span className={className}>{display}</span>
       },
       meta: { priority: 2 },
@@ -159,17 +160,14 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
         const label = jobProgress
           ? t('query_index.table.status.withProgress', { status: statusText, progress: jobProgress })
           : statusText
-        const className = job
-          ? job.status === 'stalled'
-            ? 'text-red-600'
-            : job.status === 'reindexing' || job.status === 'purging'
-              ? 'text-orange-600'
-              : ok
-                ? 'text-green-600'
-                : 'text-muted-foreground'
-          : ok
-            ? 'text-green-600'
-            : 'text-muted-foreground'
+        let variant: StatusBadgeVariant = 'neutral'
+        if (job) {
+          if (job.status === 'stalled') variant = 'error'
+          else if (job.status === 'reindexing' || job.status === 'purging') variant = 'warning'
+          else variant = ok ? 'success' : 'neutral'
+        } else {
+          variant = ok ? 'success' : 'neutral'
+        }
 
         const lines: string[] = []
 
@@ -203,8 +201,12 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
         }
 
         return (
-          <div className="space-y-1">
-            <span className={className}>{label}</span>
+          <div className="space-y-1.5">
+            <div>
+              <StatusBadge variant={variant} dot>
+                {label}
+              </StatusBadge>
+            </div>
             {lines.length > 0 && (
               <div className="text-xs text-muted-foreground">
                 {lines.map((line, idx) => (
