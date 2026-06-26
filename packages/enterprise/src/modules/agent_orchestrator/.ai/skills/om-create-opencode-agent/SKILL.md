@@ -42,7 +42,9 @@ confidence always routes to a human (fail-closed).
    compiled tools via plain Node ESM and one failed app-module import drops **all** tools
    (the orchestrator's own `submit_outcome` included), so no file agent can run. If the agent
    needs app-local logic, use a **local sandboxed tool** (`tools/*.ts` with `run(args)`, run via
-   `run_skill_script`) instead.
+   `run_skill_script`) instead. A **local** tool is NOT listed in `AGENT.md` `tools:` — it
+   auto-registers under the synthetic `__agent_tools__` skill; listing it there makes the load
+   gate reject it as an unknown tool. Only `@ref` package tools belong in `tools:`.
 3. **Sandbox.** Local `tools/*.ts` and `skills/**/scripts/*.ts` run in `isolated-vm`:
    **no `fs`, no net, no `require`, no `process`**, 30s / 32MB cap. They are pure functions of
    `args`. They cannot reach the web, the disk, or Google Drive — do not pretend they can.
@@ -80,11 +82,13 @@ Then pick:
   use a local sandboxed tool.
 - **Agent id** (dotted, e.g. `deals.health_check_file`) and **folder name** (snake/underscore,
   e.g. `deals_health_check`).
-- **Provider/model** (e.g. `anthropic` / `claude-sonnet-4-5`) and `maxSteps`.
+- **Provider/model** (e.g. `anthropic` / `claude-sonnet-4-5` — use the model id your OpenCode
+  container is configured for) and `maxSteps`.
 
 ## Step 2 — Scaffold `agents/<folder>/AGENT.md`
 
-Frontmatter (only `id` + body are required; the rest are optional):
+Frontmatter (`id`, `label`, `description` are ALL required — `parseAgentMarkdown` returns
+`null` and `yarn generate` silently omits the agent if any is missing; the rest are optional):
 
 ```markdown
 ---
@@ -102,6 +106,11 @@ and that it must express confidence 0–1 with an honest rationale. Tell it to c
 relevant read tool when given only an id instead of inline data, and that it can NEVER
 modify anything — the only way to change state is the proposal it returns.>
 ```
+
+> Write ONLY the agent's own instructions in the body. The generator auto-appends the
+> `## Outcome contract` (from `OUTCOME.md`), a `## Sub-agents` fan-out section (when `subAgents`
+> is set), and the terminal `submit_outcome` instruction — do NOT hand-write those, and never
+> restate the outcome shape in the body (the rendered `## Outcome contract` is the source of truth).
 
 ## Step 3 — Scaffold `agents/<folder>/OUTCOME.md`
 
@@ -142,16 +151,34 @@ kind: actionable
 `outcome` argument of submit_outcome — an object, not a string.">
 ```
 
+**No `maxItems` / `maxLength` in the subset.** You can set a minimum (`minItems`, `minLength`)
+but cannot cap a length — so "**exactly one** action" is enforced in the guidance prose, not the
+schema. Say it explicitly.
+
+**One of N action types.** The subset has no `oneOf` / `anyOf`, so you cannot switch the
+`payload` shape on `type`. Model it as `type: { "type": "string", "enum": [...] }` plus a single
+`payload` object whose action-specific fields are all OPTIONAL, then pin which `payload` field
+each `type` uses in the prose. (A single fixed action keeps `type: { "const": "<action_type>" }`.)
+
 For an **informative** agent use `kind: informative` and let the schema describe `data` (no
 `actions`/`confidence` envelope).
 
 ## Step 4 — Optional skills / sub-agents / tools
 
-- **Skill:** `skills/<id>/SKILL.md` (reuse the SKILL.md frontmatter; `id` optional → dir name).
-  Optional `TEMPLATE.md`, `examples/*.md`, `scripts/*.ts` (sandboxed `run(args)`).
+- **Skill:** `skills/<id>/SKILL.md`. The frontmatter `id` falls back to the dir name, but the
+  value in the agent's `skills: [<id>]` MUST equal the resolved skill id — so if you give the
+  skill a custom `id`, set it explicitly in the SKILL.md frontmatter, otherwise it silently
+  detaches (load-time warn + skip). Optional `TEMPLATE.md`, `examples/*.md`, `scripts/*.ts`
+  (sandboxed `run(args)`).
 - **Sub-agent:** `sub-agents/<id>/AGENT.md` + `OUTCOME.md` — informative only, no `subAgents`.
-- **Tool:** `tools/<name>.ts` = either `// @ref <package defineAiTool id>` (read-only,
-  ACL-gated) OR a sandboxed local tool exporting `run(args)`.
+- **Tool:** `tools/<name>.ts` = either `// @ref <package defineAiTool id>` (read-only, ACL-gated,
+  listed in `AGENT.md` `tools:`) OR a sandboxed local tool exporting `run(args)` (a pure function
+  of `args`; do NOT list it in `tools:` — see Hard gate 2). The agent invokes a local tool by
+  calling the `run_skill_script` MCP tool (OpenCode id
+  `open-mercato_agent_orchestrator_run_skill_script`) with
+  `{ skillId: "__agent_tools__", scriptName: "<file basename, no .ts>", args: { … } }`.
+- **Sample input (optional):** `agents/<folder>/SAMPLE.json` — pure JSON of one run input; powers
+  the Playground "Insert sample" button.
 
 Keep `tsconfig.json` `exclude` covering `agents/**/scripts/**` + `agents/**/tools/**` so `tsc`
 does not type-check loose sandbox sources (see `apps/mercato/tsconfig.json`).
