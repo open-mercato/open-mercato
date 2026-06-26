@@ -228,6 +228,63 @@ test('runConsolidatedWatch touches app generated barrels after package rebuild',
   }
 })
 
+test('runConsolidatedWatch honors OM_WATCH_SCOPE=env and tracks only the listed packages', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'watch-packages-scope-env-'))
+  try {
+    makePackage(root, 'packages', 'alpha', { entryFile: 'index.ts' })
+    makePackage(root, 'packages', 'bravo', { entryFile: 'index.ts' })
+    makePackage(root, 'packages', 'charlie', { entryFile: 'index.ts' })
+
+    const logs = []
+    const controller = new AbortController()
+    const { packages } = await runConsolidatedWatch({
+      root,
+      log: (line) => logs.push(String(line)),
+      build: async () => {},
+      signal: controller.signal,
+      env: { OM_WATCH_SCOPE: 'env', OM_WATCH_PACKAGES: 'alpha,charlie' },
+      argv: [],
+    })
+    controller.abort()
+
+    assert.deepEqual(packages.map((p) => p.shortLabel).sort(), ['alpha', 'charlie'])
+    assert.ok(
+      logs.some((line) => line.includes('watch scope: env')),
+      `expected watch scope log, got: ${logs.join('\n')}`,
+    )
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('runConsolidatedWatch auto-optimized tracks only git-touched packages at startup', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'watch-packages-scope-auto-'))
+  try {
+    makePackage(root, 'packages', 'alpha', { entryFile: 'index.ts' })
+    makePackage(root, 'packages', 'bravo', { entryFile: 'index.ts' })
+
+    const runGit = (_root, args) => {
+      if (args[0] === 'status') return ' M packages/bravo/src/index.ts\n'
+      return ''
+    }
+    const controller = new AbortController()
+    const { packages } = await runConsolidatedWatch({
+      root,
+      log: () => {},
+      build: async () => {},
+      signal: controller.signal,
+      env: { OM_WATCH_SCOPE: 'auto-optimized' },
+      argv: [],
+      runGit,
+    })
+    controller.abort()
+
+    assert.deepEqual(packages.map((p) => p.shortLabel), ['bravo'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('runConsolidatedWatch returns a no-op result when no packages match', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'watch-packages-empty-'))
   try {

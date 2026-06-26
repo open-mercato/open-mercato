@@ -30,6 +30,12 @@ import { existsSync, readFileSync, readdirSync, watch as fsWatch, writeFileSync 
 import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createAtomicWritePlugin } from './lib/add-js-extension.mjs'
+import {
+  AUTO_EXPAND_INTERVAL_MS,
+  detectTouchedPackages,
+  resolveWatchScope,
+  selectWatchedPackages,
+} from './watch-scope.mjs'
 
 const REBUILD_DEBOUNCE_MS = 100
 const TOUCHABLE_GENERATED_PATTERN = /\.generated(?:\.[a-z0-9]+)?(?:\.ts|\.checksum)$/i
@@ -222,11 +228,13 @@ function startPackageWatcher(state, { log, build, generatedDirs }) {
 
   try {
     state.watcher = fsWatch(state.srcDir, { recursive: true }, onChange)
+    return true
   } catch (error) {
     log(
       `[watch] ${state.shortLabel}: failed to start fs.watch: ${error?.message ?? error}`,
       'error',
     )
+    return false
   }
 }
 
@@ -246,10 +254,13 @@ export async function runConsolidatedWatch({
   log = defaultLog,
   signal,
   build,
+  env = process.env,
+  argv = process.argv.slice(2),
+  runGit,
 } = {}) {
-  const packages = discoverWorkspacePackages(root)
+  const allPackages = discoverWorkspacePackages(root)
   const generatedDirs = discoverAppGeneratedDirs(root)
-  if (packages.length === 0) {
+  if (allPackages.length === 0) {
     log(
       '[watch] no workspace packages with a `watch` script and `src/` directory were found',
       'error',
@@ -257,19 +268,63 @@ export async function runConsolidatedWatch({
     return { packages: [] }
   }
 
-  const states = packages.map(makePackageState)
+  const scopeConfig = resolveWatchScope({ env, argv })
+  const selection = selectWatchedPackages({ packages: allPackages, config: scopeConfig, root, runGit })
+  const selected = selection.selected.length ? selection.selected : allPackages
+
+  if (selection.mode !== 'all') {
+    log(`[watch] watch scope: ${selection.mode} — ${selection.reason}`)
+    const excluded = allPackages.length - selected.length
+    if (excluded > 0) {
+      log(`[watch] watch scope: ${excluded} of ${allPackages.length} package(s) are not watched (set OM_WATCH_SCOPE=all to watch everything)`)
+    }
+  }
+
+  const states = selected.map(makePackageState)
   log(
     `[watch] consolidated watcher: tracking ${states.length} package${states.length === 1 ? '' : 's'} (${states
       .map((state) => state.shortLabel)
       .join(', ')})`,
   )
 
+  const watchedLabels = new Set()
   for (const state of states) {
     startPackageWatcher(state, { log, build, generatedDirs })
+    watchedLabels.add(state.shortLabel)
+  }
+
+  // `auto-optimized` keeps re-checking which packages changed and expands the
+  // watch set (it never removes a watcher once started).
+  let expandTimer = null
+  if (selection.autoExpand) {
+    const expandWatchers = () => {
+      let touched
+      try {
+        touched = detectTouchedPackages({ packages: allPackages, root, config: scopeConfig, runGit })
+      } catch {
+        return
+      }
+      for (const pkg of touched) {
+        if (watchedLabels.has(pkg.shortLabel)) continue
+        const state = makePackageState(pkg)
+        if (startPackageWatcher(state, { log, build, generatedDirs })) {
+          states.push(state)
+          watchedLabels.add(state.shortLabel)
+          log(`[watch] watch scope: expanded to newly-touched package ${state.shortLabel}`)
+          void rebuildPackage(state, { log, build, generatedDirs })
+        }
+      }
+    }
+    expandTimer = setInterval(expandWatchers, AUTO_EXPAND_INTERVAL_MS)
+    if (typeof expandTimer.unref === 'function') expandTimer.unref()
   }
 
   const cleanup = () => {
     log('\n[watch] consolidated watcher: stopping...')
+    if (expandTimer) {
+      clearInterval(expandTimer)
+      expandTimer = null
+    }
     for (const state of states) {
       if (state.rebuildTimeout) {
         clearTimeout(state.rebuildTimeout)
