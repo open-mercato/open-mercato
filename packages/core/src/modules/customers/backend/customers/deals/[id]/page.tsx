@@ -4,11 +4,12 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Building2, UserSearch, Users } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, NotesSection, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { CollapsibleZoneLayout } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -52,6 +53,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const pathname = usePathname()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
 
@@ -79,6 +81,20 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     fallbackId: id,
     data,
   })
+
+  // Publish page-load record context with explicit `updatedAt`/`data` to the
+  // AppShell-owned `backend:record:current` mount. The deal path is already in the
+  // widget's allowlist (presence works) but supplied no version/record payload —
+  // this gives the merge dialog its action-log base and field-diff source.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'customers.deal',
+      resourceId: data?.deal.id ?? null,
+      updatedAt: data?.deal.updatedAt ?? null,
+      data: data as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
 
   const notesAdapter = React.useMemo(
     () => createCustomerNotesAdapter(detailTranslator, { runMutation: runMutationWithContext }),
@@ -171,6 +187,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     data,
     setData,
     runMutationWithContext,
+    onRefresh: () => { void loadData() },
   })
 
   const { isStageSaving, handleStageChange } = useDealPipeline({
@@ -195,6 +212,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     handleLostConfirm,
   } = useDealClosure({
     currentDealId,
+    dealUpdatedAt: data?.deal.updatedAt ?? null,
     runMutationWithContext,
     confirmDiscardIfDirty,
     onClosed: loadData,
@@ -365,6 +383,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         showAssociationsGroup={false}
         showVersionHistory={false}
         showCancelAction={false}
+        injectionSpotId="crud-form:customers.deal"
+        optimisticLockUpdatedAt={data.deal.updatedAt}
         onDirtyChange={setIsDirty}
         initialPipelineOptions={formPipelineOptions}
         initialPipelineStageOptions={data.pipelineStages}

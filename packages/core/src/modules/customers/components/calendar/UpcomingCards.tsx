@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { differenceInCalendarDays } from 'date-fns/differenceInCalendarDays'
-import { format } from 'date-fns/format'
 import { AlertTriangle, ChevronDown, Clock } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -13,12 +12,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@open-mercato/ui/primitives/popover'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDateLabel, formatTimeRangeLabel } from '../../lib/calendar/format'
 import type { CalendarItem, UpcomingCard, UpcomingCardsProps } from './types'
 
-function formatTimeRange(item: CalendarItem, allDayLabel: string): string {
+function formatTimeRange(locale: string, item: CalendarItem, allDayLabel: string): string {
   if (item.allDay) return allDayLabel
-  return `${format(item.start, 'h:mm a')} – ${format(item.end, 'h:mm a')}`
+  return formatTimeRangeLabel(locale, item.start, item.end)
 }
 
 function canJoin(item: CalendarItem): boolean {
@@ -37,6 +37,7 @@ function UpcomingCardStatus({
   onSeeConflict: UpcomingCardsProps['onSeeConflict']
 }) {
   const t = useT()
+  const locale = useLocale()
   const { item, kind, conflictCount } = card
 
   if (kind === 'today') {
@@ -91,7 +92,7 @@ function UpcomingCardStatus({
           {t('customers.calendar.cards.cancelled', 'Cancelled')}
         </span>
         <span className="shrink-0 text-xs text-muted-foreground">
-          {format(item.start, 'MMM dd, yyyy')}
+          {formatDateLabel(locale, item.start)}
         </span>
       </div>
     )
@@ -107,7 +108,7 @@ function UpcomingCardStatus({
           : t('customers.calendar.cards.daysLater', '{days} days later', { days: daysLater })}
       </span>
       <span className="shrink-0 text-xs text-muted-foreground">
-        {format(item.start, 'MMM dd, yyyy')}
+        {formatDateLabel(locale, item.start)}
       </span>
     </div>
   )
@@ -123,6 +124,7 @@ function UpcomingCardItem({
   onCancel,
 }: { card: UpcomingCard } & CardCallbacks) {
   const t = useT()
+  const locale = useLocale()
   const { item } = card
 
   return (
@@ -131,7 +133,7 @@ function UpcomingCardItem({
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <p className="truncate text-sm font-medium text-foreground">{item.title}</p>
           <p className="truncate text-xs text-muted-foreground">
-            {formatTimeRange(item, t('customers.calendar.cards.allDay', 'All day'))}
+            {formatTimeRange(locale, item, t('customers.calendar.cards.allDay', 'All day'))}
           </p>
         </div>
         <Popover>

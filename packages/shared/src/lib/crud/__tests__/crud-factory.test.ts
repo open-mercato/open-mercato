@@ -335,6 +335,32 @@ describe('CRUD Factory', () => {
     })
   })
 
+  it('GET resolves a function-form list.fields projection per request (#2233)', async () => {
+    const fieldsResolver = jest.fn((query: any) =>
+      query?.id ? ['id', 'title', 'is_done', 'snapshot'] : ['id', 'title'],
+    )
+    const projectionRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      list: {
+        schema: querySchema.extend({ id: z.string().optional() }),
+        entityId: 'example.todo',
+        fields: fieldsResolver,
+        buildFilters: () => ({} as any),
+      },
+    })
+
+    await projectionRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    const gridArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(gridArgs?.fields).toEqual(['id', 'title'])
+
+    await projectionRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc&id=abc'))
+    const detailArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(detailArgs?.fields).toEqual(['id', 'title', 'is_done', 'snapshot'])
+    expect(fieldsResolver).toHaveBeenCalled()
+  })
+
   it('GET normalizes custom field sort selectors for the query engine path', async () => {
     await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=cf_priority&sortDir=desc'))
 

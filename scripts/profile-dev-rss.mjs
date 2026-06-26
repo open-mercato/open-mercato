@@ -14,137 +14,43 @@
 //
 // Platform: linux + darwin only (ps -A -o pid=,ppid=,rss=,command=). win32 exits 2.
 
-import { spawn, execFile } from 'node:child_process'
-import { promisify } from 'node:util'
+import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-
-const execFileAsync = promisify(execFile)
+import {
+  DEFAULT_MEMORY_TRACE_OUT_DIR,
+  DEFAULT_PROFILE_INTERVAL_MS,
+  TOP_PROCESS_LIMIT,
+  inferDevMemoryMarkerFromLine,
+  kbToMb,
+  parsePsOutput,
+  sampleProcessTreeMemory,
+  summarizeMemorySamples,
+  walkTree,
+} from './dev-memory-sampler.mjs'
 
 const DEFAULT_DURATION_MS = 90_000
-const DEFAULT_INTERVAL_MS = 2_000
-const DEFAULT_OUT_DIR = path.join('.mercato', 'dev-rss')
-const TOP_PROCESS_LIMIT = 20
+const DEFAULT_INTERVAL_MS = DEFAULT_PROFILE_INTERVAL_MS
+const DEFAULT_OUT_DIR = DEFAULT_MEMORY_TRACE_OUT_DIR
 
-export function parsePsOutput(stdout) {
-  // Note: processes whose argv contains an embedded newline (rare; can occur
-  // under sandboxes or pathological argv[0]) split into a partial row that
-  // fails the leading-pid regex and is skipped. Acceptable for a dev-time
-  // profiler; do not "fix" by stitching rows back together — that would mask
-  // real malformed input.
-  const processes = []
-  const lines = stdout.split('\n')
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (trimmed.length === 0) continue
-    const match = trimmed.match(/^(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/)
-    if (!match) continue
-    const pid = Number(match[1])
-    const ppid = Number(match[2])
-    const rssKb = Number(match[3])
-    const command = match[4].trim()
-    if (!Number.isFinite(pid) || !Number.isFinite(ppid) || !Number.isFinite(rssKb)) continue
-    processes.push({ pid, ppid, rssKb, command })
-  }
-  return processes
-}
+export { kbToMb, parsePsOutput, walkTree }
+export const summarize = summarizeMemorySamples
 
-export function walkTree(processes, rootPid) {
-  const byPpid = new Map()
-  for (const proc of processes) {
-    const list = byPpid.get(proc.ppid) ?? []
-    list.push(proc)
-    byPpid.set(proc.ppid, list)
-  }
-  const root = processes.find((p) => p.pid === rootPid)
-  if (!root) return []
-  const result = [root]
-  const queue = [root.pid]
-  const seen = new Set([root.pid])
-  while (queue.length > 0) {
-    const next = queue.shift()
-    const children = byPpid.get(next) ?? []
-    for (const child of children) {
-      if (seen.has(child.pid)) continue
-      seen.add(child.pid)
-      result.push(child)
-      queue.push(child.pid)
-    }
-  }
-  return result
-}
-
-export function summarize(samples) {
-  if (samples.length === 0) {
-    return { peakTotalMb: 0, meanTotalMb: 0, peakTopProcesses: [] }
-  }
-  let peakTotalMb = 0
-  let peakSample = samples[0]
-  let totalSum = 0
-  for (const sample of samples) {
-    if (sample.totalRssMb > peakTotalMb) {
-      peakTotalMb = sample.totalRssMb
-      peakSample = sample
-    }
-    totalSum += sample.totalRssMb
-  }
-  const meanTotalMb = totalSum / samples.length
-  const peakTopProcesses = peakSample.processes
-    .slice()
-    .sort((a, b) => b.rssMb - a.rssMb)
-    .slice(0, TOP_PROCESS_LIMIT)
-  return {
-    peakTotalMb: Math.round(peakTotalMb * 100) / 100,
-    meanTotalMb: Math.round(meanTotalMb * 100) / 100,
-    peakTopProcesses,
-    sampleCount: samples.length,
-  }
-}
-
-function kbToMb(kb) {
-  return Math.round((kb / 1024) * 100) / 100
-}
-
-async function runPsSnapshot() {
-  const { stdout } = await execFileAsync('ps', ['-A', '-o', 'pid=,ppid=,rss=,command='], {
-    maxBuffer: 16 * 1024 * 1024,
-  })
-  return parsePsOutput(stdout)
-}
-
-async function sampleOnce(rootPid) {
-  const processes = await runPsSnapshot()
-  const tree = walkTree(processes, rootPid)
-  const treeMb = tree.map((p) => ({
-    pid: p.pid,
-    ppid: p.ppid,
-    rssMb: kbToMb(p.rssKb),
-    command: p.command.length > 240 ? p.command.slice(0, 240) + '…' : p.command,
-  }))
-  const totalRssMb = Math.round(treeMb.reduce((acc, p) => acc + p.rssMb, 0) * 100) / 100
-  return {
-    timestamp: new Date().toISOString(),
-    totalRssMb,
-    processCount: treeMb.length,
-    processes: treeMb,
-  }
-}
-
-export async function profile({ rootPid, durationMs, intervalMs, label, outDir, log }) {
+export async function profile({ rootPid, durationMs, intervalMs, label, outDir, log, markers = [] }) {
   const startedAt = new Date().toISOString()
   const samples = []
   const deadline = Date.now() + durationMs
   log?.(`[profile] tracking pid=${rootPid} for ${durationMs}ms every ${intervalMs}ms → ${label}`)
   while (Date.now() < deadline) {
     try {
-      const sample = await sampleOnce(rootPid)
-      if (sample.processCount === 0) {
+      const sample = await sampleProcessTreeMemory(rootPid)
+      if (!sample || sample.processCount === 0) {
         log?.(`[profile] root pid ${rootPid} no longer exists; stopping early at sample #${samples.length}`)
         break
       }
       samples.push(sample)
-      log?.(`[profile] sample #${samples.length} total=${sample.totalRssMb}MB procs=${sample.processCount}`)
+      log?.(`[profile] sample #${samples.length} total=${sample.totalRssMb}MB class=${sample.dominantProcessClass ?? '?'} procs=${sample.processCount}`)
     } catch (err) {
       log?.(`[profile] sample failed: ${err?.message ?? err}`)
     }
@@ -161,7 +67,8 @@ export async function profile({ rootPid, durationMs, intervalMs, label, outDir, 
     startedAt,
     finishedAt,
     samples,
-    summary: summarize(samples),
+    markers,
+    summary: summarizeMemorySamples(samples, markers),
   }
   fs.mkdirSync(outDir, { recursive: true })
   const outPath = path.join(outDir, `${label}.json`)
@@ -188,15 +95,19 @@ export function renderReportTable(reports) {
     return a.label.localeCompare(b.label)
   })
   const lines = []
-  lines.push('| Label | Peak total RSS (MB) | Mean total RSS (MB) | Samples | Duration | Top process |')
-  lines.push('|-------|---------------------|---------------------|---------|----------|-------------|')
+  lines.push('| Label | Peak total RSS (MB) | Mean total RSS (MB) | Peak class | Cgroup peak (MB) | Samples | Duration | Top process | Peak marker |')
+  lines.push('|-------|---------------------|---------------------|------------|------------------|---------|----------|-------------|-------------|')
   for (const r of sorted) {
     const topProc = r.summary?.peakTopProcesses?.[0]
     const topDesc = topProc
-      ? `${topProc.rssMb}MB ${truncate(topProc.command, 60)}`
+      ? `${topProc.rssMb}MB ${topProc.processClass ? `[${topProc.processClass}] ` : ''}${truncate(topProc.command, 60)}`
       : '_(none)_'
+    const peakMarker = r.summary?.peakNearestMarkers?.before
+      ? `${r.summary.peakNearestMarkers.before.type}: ${truncate(r.summary.peakNearestMarkers.before.label, 36)}`
+      : '_(none)_'
+    const cgroupPeak = r.summary?.peakCgroup?.peakMb ?? r.summary?.peakCgroup?.currentMb ?? ''
     lines.push(
-      `| \`${r.label}\` | ${r.summary?.peakTotalMb ?? '?'} | ${r.summary?.meanTotalMb ?? '?'} | ${r.summary?.sampleCount ?? '?'} | ${formatMs(r.durationMs)} | ${topDesc} |`,
+      `| \`${r.label}\` | ${r.summary?.peakTotalMb ?? '?'} | ${r.summary?.meanTotalMb ?? '?'} | ${r.summary?.peakDominantProcessClass ?? '?'} | ${cgroupPeak} | ${r.summary?.sampleCount ?? '?'} | ${formatMs(r.durationMs)} | ${topDesc} | ${peakMarker} |`,
     )
   }
   if (sorted.length >= 2) {
@@ -211,6 +122,23 @@ export function renderReportTable(reports) {
     }
   }
   return lines.join('\n')
+}
+
+function attachMarkerTee(stream, targetStream, markers) {
+  if (!stream) return
+  let buffer = ''
+  stream.setEncoding?.('utf8')
+  stream.on('data', (chunk) => {
+    const text = typeof chunk === 'string' ? chunk : chunk.toString()
+    targetStream.write(text)
+    buffer += text
+    const lines = buffer.split(/\r?\n/)
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      const marker = inferDevMemoryMarkerFromLine(line)
+      if (marker) markers.push(marker)
+    }
+  })
 }
 
 function truncate(str, max) {
@@ -320,12 +248,13 @@ Options:
 }
 
 async function spawnDevAndProfile(args, log) {
+  const markers = []
   // detached:true puts the child in its own process group so the SIGINT below
   // reaches every grandchild (turbo, per-package watchers, mercato server, etc.)
   // via the negative-pid signalling trick. Without it, only the immediate yarn
   // child receives the signal and the watcher tree can survive past harness exit.
   const child = spawn('yarn', ['dev'], {
-    stdio: ['ignore', 'inherit', 'inherit'],
+    stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
     env: { ...process.env, OM_DEV_SUPPRESS_SPLASH: process.env.OM_DEV_SUPPRESS_SPLASH ?? '1' },
   })
@@ -333,6 +262,8 @@ async function spawnDevAndProfile(args, log) {
     throw new Error('failed to spawn `yarn dev`')
   }
   const childPid = child.pid
+  attachMarkerTee(child.stdout, process.stdout, markers)
+  attachMarkerTee(child.stderr, process.stderr, markers)
   log(`[profile] spawned \`yarn dev\` as pid=${childPid}; warming up 5s before sampling…`)
   await new Promise((resolve) => setTimeout(resolve, 5_000))
   const signalGroup = (signal) => {
@@ -354,6 +285,7 @@ async function spawnDevAndProfile(args, log) {
       label: args.label,
       outDir: args.outDir,
       log,
+      markers,
     })
     return result
   } finally {

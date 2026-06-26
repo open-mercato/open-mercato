@@ -1,10 +1,15 @@
 import * as React from 'react'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { DealStatsPayload, GuardedMutationRunner } from './types'
 
 type UseDealClosureOptions = {
   currentDealId: string | null
+  dealUpdatedAt: string | null
   runMutationWithContext: GuardedMutationRunner
   confirmDiscardIfDirty: () => Promise<boolean>
   onClosed: () => Promise<void>
@@ -26,10 +31,12 @@ type UseDealClosureResult = {
 
 export function useDealClosure({
   currentDealId,
+  dealUpdatedAt,
   runMutationWithContext,
   confirmDiscardIfDirty,
   onClosed,
 }: UseDealClosureOptions): UseDealClosureResult {
+  const t = useT()
   const [lostDialogOpen, setLostDialogOpen] = React.useState(false)
   const [wonPopupOpen, setWonPopupOpen] = React.useState(false)
   const [lostPopupOpen, setLostPopupOpen] = React.useState(false)
@@ -51,45 +58,65 @@ export function useDealClosure({
   const handleWon = React.useCallback(async () => {
     if (!currentDealId) return
     if (!(await confirmDiscardIfDirty())) return
-    await runMutationWithContext(
-      () => updateCrud('customers/deals', { id: currentDealId, closureOutcome: 'won', status: 'win' }),
-      { id: currentDealId, closureOutcome: 'won', status: 'win', operation: 'closeWon' },
-    )
+    try {
+      await runMutationWithContext(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(dealUpdatedAt),
+          () => updateCrud('customers/deals', { id: currentDealId, closureOutcome: 'won', status: 'win' }),
+        ),
+        { id: currentDealId, closureOutcome: 'won', status: 'win', operation: 'closeWon' },
+      )
+    } catch (err) {
+      if (!surfaceRecordConflict(err, t, { onRefresh: () => { void onClosed() } })) {
+        flash(t('customers.deals.detail.closeWonError', 'Failed to mark deal as won.'), 'error')
+      }
+      return
+    }
     const stats = await fetchDealStats()
     setWonStats(stats)
     setWonPopupOpen(true)
     await onClosed()
-  }, [confirmDiscardIfDirty, currentDealId, fetchDealStats, onClosed, runMutationWithContext])
+  }, [confirmDiscardIfDirty, currentDealId, dealUpdatedAt, fetchDealStats, onClosed, runMutationWithContext, t])
 
   const handleLostConfirm = React.useCallback(
     async (input: { lossReasonId: string; lossNotes?: string }) => {
       if (!currentDealId) return
       if (!(await confirmDiscardIfDirty())) return
-      await runMutationWithContext(
-        () =>
-          updateCrud('customers/deals', {
+      try {
+        await runMutationWithContext(
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(dealUpdatedAt),
+            () =>
+              updateCrud('customers/deals', {
+                id: currentDealId,
+                closureOutcome: 'lost',
+                status: 'loose',
+                lossReasonId: input.lossReasonId,
+                lossNotes: input.lossNotes ?? null,
+              }),
+          ),
+          {
             id: currentDealId,
             closureOutcome: 'lost',
             status: 'loose',
             lossReasonId: input.lossReasonId,
             lossNotes: input.lossNotes ?? null,
-          }),
-        {
-          id: currentDealId,
-          closureOutcome: 'lost',
-          status: 'loose',
-          lossReasonId: input.lossReasonId,
-          lossNotes: input.lossNotes ?? null,
-          operation: 'closeLost',
-        },
-      )
+            operation: 'closeLost',
+          },
+        )
+      } catch (err) {
+        if (!surfaceRecordConflict(err, t, { onRefresh: () => { void onClosed() } })) {
+          flash(t('customers.deals.detail.closeLostError', 'Failed to mark deal as lost.'), 'error')
+        }
+        return
+      }
       setLostDialogOpen(false)
       const stats = await fetchDealStats()
       setLostStats(stats)
       setLostPopupOpen(true)
       await onClosed()
     },
-    [confirmDiscardIfDirty, currentDealId, fetchDealStats, onClosed, runMutationWithContext],
+    [confirmDiscardIfDirty, currentDealId, dealUpdatedAt, fetchDealStats, onClosed, runMutationWithContext, t],
   )
 
   const openLostDialog = React.useCallback(() => setLostDialogOpen(true), [])

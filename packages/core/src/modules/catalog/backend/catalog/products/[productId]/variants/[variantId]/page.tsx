@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -10,6 +10,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -100,6 +101,7 @@ function resolveVariantPriceLabel(prices: Record<string, VariantPriceDraft> | un
 export default function EditVariantPage({ params }: { params?: { productId?: string; variantId?: string } }) {
   const router = useRouter()
   const t = useT()
+  const pathname = usePathname()
   const productId = params?.productId ? String(params.productId) : null
   const variantId = params?.variantId ? String(params.variantId) : null
   const isCreateSentinel = variantId === 'create'
@@ -235,8 +237,15 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               : currentProductId
         if (resolvedProductId) setCurrentProductId(resolvedProductId)
         const metadata = typeof record.metadata === 'object' && record.metadata ? { ...(record.metadata as Record<string, unknown>) } : {}
-        const attachments = await fetchVariantAttachments(variantId!)
-        const priceDrafts = await loadVariantPrices(variantId!, priceKinds)
+        const [attachments, priceDrafts, productRes] = await Promise.all([
+          fetchVariantAttachments(variantId!),
+          loadVariantPrices(variantId!, priceKinds),
+          resolvedProductId
+            ? apiCall<ProductResponse>(
+                `/api/catalog/products?id=${encodeURIComponent(resolvedProductId)}&page=1&pageSize=1`,
+              )
+            : Promise.resolve(null),
+        ])
         const priceIdMap: Record<string, string> = {}
         const priceVersionMap: Record<string, string | null> = {}
         Object.entries(priceDrafts).forEach(([kindId, draft]) => {
@@ -250,10 +259,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
         const customDefaults = extractCustomFieldEntries(record)
         let loadedOptionDefinitions: OptionDefinition[] = []
         if (resolvedProductId) {
-          const productRes = await apiCall<ProductResponse>(
-            `/api/catalog/products?id=${encodeURIComponent(resolvedProductId)}&page=1&pageSize=1`,
-          )
-          if (productRes.ok) {
+          if (productRes?.ok) {
             const product = Array.isArray(productRes.result?.items) ? productRes.result?.items?.[0] : undefined
             if (product) {
               setProductTitle(typeof product.title === 'string' ? product.title : '')
@@ -311,12 +317,9 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             : typeof (record as any).taxRateId === 'string'
               ? (record as any).taxRateId
               : null
-        if (variantTaxRateId) {
-          const selectedVariantTaxRate = await fetchTaxRateById(variantTaxRateId).catch(() => null)
-          if (selectedVariantTaxRate && !cancelled) {
-            setTaxRates((current) => mergeTaxRateSummaries(current, selectedVariantTaxRate))
-          }
-        }
+        // The variant's own tax rate is hydrated into the select options by the
+        // dedicated tax-rate effect (it watches initialValues.taxRateId), so it no
+        // longer needs a serial fetch inside the primary loader.
         if (!cancelled) {
           const optionValues =
             typeof record.option_values === 'object' && record.option_values
@@ -393,7 +396,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     }
     load()
     return () => { cancelled = true }
-  }, [variantId, t, currentProductId, fetchTaxRateById, priceKinds])
+  }, [variantId, t, currentProductId, priceKinds])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     const list: CrudFormGroup[] = [
@@ -474,6 +477,19 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
 
     return list
   }, [optionDefinitions, priceKinds, t, taxRates])
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `catalog.variant` + id
+  // explicitly. Skipped on the create-delegation path (no record to lock).
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'catalog.variant',
+      resourceId: isCreateSentinel ? null : variantId,
+      updatedAt: initialValues?.updatedAt ?? null,
+      data: initialValues as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
 
   if (isCreateSentinel) {
     if (!productId) {

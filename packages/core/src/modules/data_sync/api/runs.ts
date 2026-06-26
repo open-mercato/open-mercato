@@ -25,6 +25,7 @@ export async function GET(req: Request) {
     entityType: url.searchParams.get('entityType') ?? undefined,
     direction: url.searchParams.get('direction') ?? undefined,
     status: url.searchParams.get('status') ?? undefined,
+    search: url.searchParams.get('search') ?? undefined,
     page: url.searchParams.get('page') ?? undefined,
     pageSize: url.searchParams.get('pageSize') ?? undefined,
   })
