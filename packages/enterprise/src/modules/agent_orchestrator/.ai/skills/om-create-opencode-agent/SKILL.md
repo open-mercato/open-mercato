@@ -71,7 +71,8 @@ confidence always routes to a human (fail-closed).
 Pin three things (one agent = one job):
 1. **Decision** it proposes (e.g. "next pipeline stage for a deal").
 2. **Inputs/data** it needs and **how it gets them** — inline in the run input, a read-only
-   `@ref` package tool, or a local sandboxed tool.
+   `@ref` package tool, or a local sandboxed tool. There is no run-input schema file: the input
+   is free-form JSON, so name the fields you expect in the AGENT.md body (and ship a `SAMPLE.json`).
 3. **Outcome shape** — `informative` (just reports `data`) or `actionable` (proposes `actions` +
    `confidence` + `rationale`).
 
@@ -160,23 +161,29 @@ schema. Say it explicitly.
 `payload` object whose action-specific fields are all OPTIONAL, then pin which `payload` field
 each `type` uses in the prose. (A single fixed action keeps `type: { "const": "<action_type>" }`.)
 
-For an **informative** agent use `kind: informative` and let the schema describe `data` (no
-`actions`/`confidence` envelope).
+For an **informative** agent use `kind: informative` and let the schema BE the data object
+itself at the top level — do NOT wrap it in a `data` key (the runtime wraps it as
+`{ kind, data }` for you); there is no `actions`/`confidence` envelope.
 
 ## Step 4 — Optional skills / sub-agents / tools
 
 - **Skill:** `skills/<id>/SKILL.md`. The frontmatter `id` falls back to the dir name, but the
   value in the agent's `skills: [<id>]` MUST equal the resolved skill id — so if you give the
   skill a custom `id`, set it explicitly in the SKILL.md frontmatter, otherwise it silently
-  detaches (load-time warn + skip). Optional `TEMPLATE.md`, `examples/*.md`, `scripts/*.ts`
+  detaches (load-time warn + skip). SKILL.md frontmatter carries `id`/`label`/`description`
+  (+ optional `tools: []`). Optional `TEMPLATE.md`, `examples/*.md`, `scripts/*.ts`
   (sandboxed `run(args)`).
 - **Sub-agent:** `sub-agents/<id>/AGENT.md` + `OUTCOME.md` — informative only, no `subAgents`.
+  Same required AGENT.md frontmatter (`id`/`label`/`description`) as a primary; the parent's
+  `subAgents: [<id>]` must equal the sub-agent's frontmatter `id`.
 - **Tool:** `tools/<name>.ts` = either `// @ref <package defineAiTool id>` (read-only, ACL-gated,
   listed in `AGENT.md` `tools:`) OR a sandboxed local tool exporting `run(args)` (a pure function
   of `args`; do NOT list it in `tools:` — see Hard gate 2). The agent invokes a local tool by
   calling the `run_skill_script` MCP tool (OpenCode id
   `open-mercato_agent_orchestrator_run_skill_script`) with
-  `{ skillId: "__agent_tools__", scriptName: "<file basename, no .ts>", args: { … } }`.
+  `{ skillId: "__agent_tools__", scriptName: "<file basename, no .ts>", args: { … } }`. The local
+  tool is a top-level `function run(args)` (export optional) that RETURNS a plain
+  JSON-serializable object — synchronous, pure, no side effects.
 - **Sample input (optional):** `agents/<folder>/SAMPLE.json` — pure JSON of one run input; powers
   the Playground "Insert sample" button.
 
