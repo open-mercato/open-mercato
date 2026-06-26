@@ -24,13 +24,14 @@ Validates recipient inbox behavior when opening an unread message and toggling i
 |------|--------|-----------------|
 | 1 | Open `/backend/messages` with `Inbox` selected | Unread message appears in list |
 | 2 | Open the unread message from the table | Message detail page loads |
-| 3 | Verify actions section header controls | `Mark unread` button is visible for currently read detail |
-| 4 | Click `Mark unread` | Button changes to `Mark read` and state updates without full page reload |
-| 5 | Click `Back to messages`, filter by `Status = Unread` | Same message appears in filtered results |
+| 3 | Verify actions section header controls | `Mark unread` action is visible for currently read detail |
+| 4 | Click `Mark unread` | App returns to the inbox list automatically (Gmail-style) so auto-mark-read cannot re-mark the message |
+| 5 | Filter the inbox by `Status = Unread` | The same message appears in filtered results and is still unread |
 
 ## Expected Results
 - Opening detail changes recipient state to read
-- Manual toggle to unread works from detail page
+- Marking unread from the detail page redirects back to the inbox (#3576)
+- The message stays unread after returning to the inbox — the page-level auto-mark-read does not silently undo the action
 - List filters reflect updated message state
 
 ## Edge Cases / Error Scenarios

@@ -18,7 +18,8 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -236,9 +237,15 @@ export function PriceKindSettings() {
       await loadItems()
     } catch (err) {
       console.error('catalog.price-kinds.save failed', err)
-      const message = extractOptimisticLockConflict(err)
-        ? t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.')
-        : err instanceof Error ? err.message : t('catalog.priceKinds.errors.save', 'Failed to save price kind.')
+      // Route a concurrent-edit 409 through the single conflict surface (unified
+      // conflict bar, or the enterprise merge dialog when its handler is mounted)
+      // and close the editor so that surface owns the resolution. Other errors
+      // stay inline in the dialog so the user can correct and resubmit.
+      if (surfaceRecordConflict(err, t, { onRefresh: () => { void loadItems() } })) {
+        closeDialog()
+        return
+      }
+      const message = err instanceof Error ? err.message : t('catalog.priceKinds.errors.save', 'Failed to save price kind.')
       setError(message)
     } finally {
       setSubmitting(false)
@@ -270,9 +277,10 @@ export function PriceKindSettings() {
         await loadItems()
       } catch (err) {
         console.error('catalog.price-kinds.delete failed', err)
-        const message = extractOptimisticLockConflict(err)
-          ? t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.')
-          : err instanceof Error ? err.message : t('catalog.priceKinds.errors.delete', 'Failed to delete price kind.')
+        // Route a concurrent-edit 409 through the single conflict surface; fall
+        // back to a flash for any other delete failure.
+        if (surfaceRecordConflict(err, t, { onRefresh: () => { void loadItems() } })) return
+        const message = err instanceof Error ? err.message : t('catalog.priceKinds.errors.delete', 'Failed to delete price kind.')
         flash(message, 'error')
       }
     },

@@ -30,7 +30,7 @@ test.describe('TC-TRANS-004: Locale Management Page', () => {
       await page.getByText(/JA — Japanese/i).click()
       await page.getByRole('button', { name: 'Add' }).click()
 
-      await expect(page.locator('span').filter({ hasText: /^JA/ })).toBeVisible()
+      await expect(page.locator('span.rounded-full').filter({ hasText: /^JA/ })).toBeVisible()
 
       const updatedLocales = await getLocales(request, token)
       expect(updatedLocales).toContain('ja')
@@ -50,7 +50,7 @@ test.describe('TC-TRANS-004: Locale Management Page', () => {
       await page.goto('/backend/config/translations')
       await expect(page.getByRole('heading', { name: 'Supported locales' })).toBeVisible()
 
-      const jaBadge = page.locator('span').filter({ hasText: /^JA/ })
+      const jaBadge = page.locator('span.rounded-full').filter({ hasText: /^JA/ })
       await expect(jaBadge).toBeVisible()
       const removeButton = jaBadge.getByRole('button')
       await removeButton.click()

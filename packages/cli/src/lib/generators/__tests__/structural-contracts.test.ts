@@ -1091,6 +1091,10 @@ describe('injection-widgets.generated.ts', () => {
     expect(content).toContain('moduleId: "orders"')
     expect(content).toContain('key: "orders:sidebar:widget"')
   })
+
+  it('emits the injection table widgetId as an optional lookup hint', () => {
+    expect(content).toContain('widgetId: "orders.sidebar"')
+  })
 })
 
 describe('injection-tables.generated.ts', () => {

@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -19,6 +20,7 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
   const resourceTypeId = params?.id ?? ''
   const t = useT()
   const router = useRouter()
+  const pathname = usePathname()
   const [initialValues, setInitialValues] = React.useState<ResourceTypeFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -34,7 +36,7 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
       setIsNotFound(false)
       try {
         const payload = await readApiResultOrThrow<ResourceTypesResponse>(
-          `/api/resources/resource-types?ids=${encodeURIComponent(resourceTypeId)}&page=1&pageSize=1`,
+          `/api/resources/resource-types?ids=${encodeURIComponent(resourceTypeId)}&page=1&pageSize=1&withResourceCounts=true`,
           undefined,
           { errorMessage: t('resources.resourceTypes.errors.load', 'Failed to load resource types.') },
         )
@@ -107,6 +109,20 @@ export default function ResourcesResourceTypeEditPage({ params }: { params?: { i
     flash(t('resources.resourceTypes.messages.deleted', 'Resource type deleted.'), 'success')
     router.push('/backend/resources/resource-types')
   }, [resourceCount, resourceTypeId, router, t])
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `resources.resourceType` + id
+  // explicitly. The resourceKind mirrors the ResourceTypeCrudForm `versionHistory` so the
+  // held lock matches the save-time conflict surface for the same resource type.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'resources.resourceType',
+      resourceId: resourceTypeId || null,
+      updatedAt: initialValues?.updatedAt ?? null,
+      data: initialValues as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
 
   if (isNotFound) {
     return (

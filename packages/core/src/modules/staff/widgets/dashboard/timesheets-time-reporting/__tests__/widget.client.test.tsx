@@ -1,31 +1,60 @@
 /**
  * @jest-environment jsdom
  *
- * Regression test for issue #3306 — the time-reporting dashboard widget must not
- * load its initial timer state through a serial request waterfall. There are two
- * independent dependency chains: assignments → project details, and self profile →
- * active entries. The heads of both chains must start together, and their dependents
- * must also start together, instead of waiting on each other round-trip by round-trip.
+ * Regression tests for the time-reporting dashboard widget.
+ *
+ * - Issue #3306 — the widget must not load its initial timer state through a serial
+ *   request waterfall. There are two independent dependency chains: assignments →
+ *   project details, and self profile → active entries. The heads of both chains must
+ *   start together, and their dependents must also start together, instead of waiting
+ *   on each other round-trip by round-trip.
+ * - Issue #3507 — a rejected start surfaces the localized server message in an
+ *   announced alert (role="alert") instead of the generic English fallback.
  */
 import * as React from 'react'
-import { render, screen, act, waitFor } from '@testing-library/react'
+import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { DEFAULT_SETTINGS, type TimeReportingSettings } from '../config'
 
+const PROJECT_ID = '11111111-1111-1111-1111-111111111111'
+const MEMBER_ID = '22222222-2222-2222-2222-222222222222'
+const SERVER_MESSAGE = 'Inny licznik czasu jest już uruchomiony.'
+
 const mockReadApiResult = jest.fn()
 const mockApiCall = jest.fn()
+const mockStartTimerEntry = jest.fn()
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (...args: unknown[]) => mockReadApiResult(...args),
   apiCall: (...args: unknown[]) => mockApiCall(...args),
 }))
 
+jest.mock('../../../../lib/timesheets-ui/startTimer', () => ({
+  startTimerEntry: (...args: unknown[]) => mockStartTimerEntry(...args),
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
+  // Stable translate reference: the widget's loadState effect depends on `t`,
+  // so a fresh function per render would re-trigger the load and keep the
+  // widget in its loading state forever (the real useT is memoized).
   const translate = (_key: string, fallback?: string) => fallback ?? _key
   return { useT: () => translate }
 })
 
 import TimeReportingWidget from '../widget.client'
+
+function renderWidget(overrides: Partial<DashboardWidgetComponentProps<TimeReportingSettings>> = {}): void {
+  const props: DashboardWidgetComponentProps<TimeReportingSettings> = {
+    mode: 'view',
+    layout: { id: 'layout-1', widgetId: 'staff.timesheets.time_reporting', order: 0 },
+    settings: DEFAULT_SETTINGS,
+    context: { userId: 'user-1' },
+    onSettingsChange: jest.fn(),
+    refreshToken: 0,
+    ...overrides,
+  }
+  render(<TimeReportingWidget {...props} />)
+}
 
 type LoadStage = 'assignments' | 'self' | 'projects' | 'entries'
 
@@ -39,33 +68,21 @@ function classifyUrl(url: string): LoadStage {
 
 type Deferred = { resolve: (value: unknown) => void }
 
-let deferred: Partial<Record<LoadStage, Deferred>>
-let callCounts: Record<LoadStage, number>
-
-function callCount(stage: LoadStage): number {
-  return callCounts[stage]
-}
-
-async function resolveStage(stage: LoadStage, value: unknown): Promise<void> {
-  await act(async () => {
-    deferred[stage]?.resolve(value)
-    await Promise.resolve()
-  })
-}
-
-function renderWidget(): void {
-  const props: DashboardWidgetComponentProps<TimeReportingSettings> = {
-    mode: 'view',
-    layout: { id: 'layout-1', widgetId: 'staff.timesheets.time_reporting', order: 0 },
-    settings: DEFAULT_SETTINGS,
-    context: { userId: 'user-1' },
-    onSettingsChange: jest.fn(),
-    refreshToken: 0,
-  }
-  render(<TimeReportingWidget {...props} />)
-}
-
 describe('staff TimeReportingWidget — issue #3306 parallel load', () => {
+  let deferred: Partial<Record<LoadStage, Deferred>>
+  let callCounts: Record<LoadStage, number>
+
+  function callCount(stage: LoadStage): number {
+    return callCounts[stage]
+  }
+
+  async function resolveStage(stage: LoadStage, value: unknown): Promise<void> {
+    await act(async () => {
+      deferred[stage]?.resolve(value)
+      await Promise.resolve()
+    })
+  }
+
   beforeEach(() => {
     deferred = {}
     callCounts = { assignments: 0, self: 0, projects: 0, entries: 0 }
@@ -158,5 +175,53 @@ describe('staff TimeReportingWidget — issue #3306 parallel load', () => {
     await waitFor(() => {
       expect(screen.getByText('No projects assigned.')).toBeTruthy()
     })
+  })
+})
+
+describe('staff TimeReportingWidget — issue #3507 start error surfacing', () => {
+  beforeEach(() => {
+    mockStartTimerEntry.mockReset()
+    mockApiCall.mockReset()
+    mockApiCall.mockResolvedValue({ ok: true, status: 200, result: {} })
+    mockReadApiResult.mockReset()
+    mockReadApiResult.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/staff/timesheets/my-projects')) {
+        return { items: [{ time_project_id: PROJECT_ID }] }
+      }
+      if (url.includes('/api/staff/timesheets/time-projects')) {
+        return { items: [{ id: PROJECT_ID, name: 'Acme', code: null }] }
+      }
+      if (url.includes('/api/staff/team-members/self')) {
+        return { member: { id: MEMBER_ID } }
+      }
+      if (url.includes('/api/staff/timesheets/time-entries')) {
+        return { items: [] }
+      }
+      return { items: [] }
+    })
+  })
+
+  it('surfaces the localized server message in an announced alert when start is rejected', async () => {
+    // The atomic start-timer route rejects a second concurrent start with a
+    // localized 409 message (carried on the thrown error's `status` + message).
+    mockStartTimerEntry.mockRejectedValue(Object.assign(new Error(SERVER_MESSAGE), { status: 409 }))
+
+    renderWidget({ settings: { lastProjectId: null } })
+
+    // Wait for the start form to hydrate, then pick the assigned project.
+    const projectSelect = (await screen.findByLabelText('Project')) as HTMLSelectElement
+    fireEvent.change(projectSelect, { target: { value: PROJECT_ID } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start Timer' }))
+
+    // BUG-002: the error is rendered in a live region (role="alert").
+    // BUG-001: the live region shows the server's localized reason, not the
+    // generic English fallback.
+    await waitFor(() => {
+      const alert = screen.getByRole('alert')
+      expect(alert.textContent).toBe(SERVER_MESSAGE)
+    })
+    expect(screen.queryByText('Failed to start timer')).toBeNull()
   })
 })
