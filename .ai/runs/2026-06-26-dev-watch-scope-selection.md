@@ -39,8 +39,8 @@ Mode selection precedence: CLI flag (`--watch=<mode>` / `--watch-<mode>` shortha
 
 ### Phase 1: Core watch-scope module
 
-- [ ] 1.1 Add `scripts/watch-scope.mjs` (pure scope resolution, git detection, popular ranking, persisted selection helpers)
-- [ ] 1.2 Add `scripts/__tests__/watch-scope.test.mjs` unit tests
+- [x] 1.1 Add `scripts/watch-scope.mjs` (pure scope resolution, git detection, popular ranking, persisted selection helpers) — f27a2fe9b
+- [x] 1.2 Add `scripts/__tests__/watch-scope.test.mjs` unit tests — f27a2fe9b
 
 ### Phase 2: Wire scope into the consolidated watcher
 
