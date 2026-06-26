@@ -10,6 +10,7 @@ const installCustomEntitiesFromModulesMock = jest.fn(async () => ({
 
 const loadEntityFieldsetConfigsMock = jest.fn(async () => new Map())
 const mockRbac = { userHasAllFeatures: jest.fn() }
+const mockResolveOrganizationScopeForRequest = jest.fn(async () => ({ tenantId: 'tenant-1', selectedId: 'org-1' }))
 
 const mockEm = {
   find: jest.fn(),
@@ -40,7 +41,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScopeForRequest: async () => ({ tenantId: 'tenant-1', selectedId: 'org-1' }),
+  resolveOrganizationScopeForRequest: (...args: unknown[]) => mockResolveOrganizationScopeForRequest(...args),
 }))
 
 jest.mock('../../lib/fieldsets', () => ({
@@ -66,6 +67,7 @@ describe('entities/definitions API', () => {
     mockEm.find.mockResolvedValue([])
     mockEm.findOne.mockResolvedValue(null)
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({ tenantId: 'tenant-1', selectedId: 'org-1' })
   })
 
   it('synchronizes module-backed definitions for requested entities when the caller can manage definitions', async () => {
@@ -221,6 +223,48 @@ describe('entities/definitions API', () => {
       expect.objectContaining({
         key: 'estimated_seats',
         label: 'Estimated seats',
+      }),
+    ])
+  })
+
+  it('keeps public definition reads in the auth tenant when selected scope points at another tenant', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({ tenantId: 'tenant-2', selectedId: 'org-2' })
+    mockEm.find
+      .mockResolvedValueOnce([
+        {
+          key: 'implementation_complexity',
+          kind: 'text',
+          entityId: 'customers:customer_person',
+          tenantId: 'tenant-1',
+          organizationId: null,
+          updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+          configJson: { label: 'Implementation complexity' },
+        },
+      ])
+      .mockResolvedValueOnce([])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=customers:customer_person'),
+    )
+
+    expect(response.status).toBe(200)
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith('user-1', ['entities.definitions.manage'], {
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(mockEm.find.mock.calls[0][1].$and[0].$or).toEqual([
+      { tenantId: 'tenant-1' },
+      { tenantId: null },
+    ])
+    expect(mockEm.find.mock.calls[0][1].$and[1].$or).toEqual([
+      { organizationId: 'org-1' },
+      { organizationId: null },
+    ])
+    const body = await response.json()
+    expect(body.items).toEqual([
+      expect.objectContaining({
+        key: 'implementation_complexity',
+        label: 'Implementation complexity',
       }),
     ])
   })

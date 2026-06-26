@@ -29,6 +29,7 @@ import {
   createScopedDefinitionTombstone,
   createVisibleDefinitionWhere,
   markDefinitionTombstoned,
+  resolveDefinitionScopeFromOrganizationScope,
   resolveDefinitionMutationScope,
   selectVisibleDefinitionWinner,
 } from '../lib/definition-scope'
@@ -228,11 +229,12 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const tenantId = scope.tenantId ?? auth.tenantId ?? null
+  const definitionScope = resolveDefinitionScopeFromOrganizationScope(auth, scope)
+  const tenantId = definitionScope.tenantId
   if (!tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const organizationId = scope.selectedId ?? auth.orgId ?? null
+  const organizationId = definitionScope.organizationId
   const { resolve } = container
   const em = resolve('em') as any
   let cache: CacheStrategy | undefined

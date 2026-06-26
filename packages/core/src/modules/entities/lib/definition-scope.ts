@@ -12,11 +12,32 @@ export type DefinitionMutationScope = {
   organizationId: string | null
 }
 
+type OrganizationScopeLike = {
+  tenantId?: string | null
+  selectedId?: string | null
+}
+
 type DefinitionKeySelector = string | { $in: string[] }
 
 type DefinitionVisibilityOptions = {
   deletedAt?: null | { $ne: null }
   isActive?: boolean
+}
+
+export function resolveDefinitionScopeFromOrganizationScope(
+  auth: AuthScope,
+  scope: OrganizationScopeLike,
+): DefinitionMutationScope {
+  const authTenantId = auth.tenantId ?? null
+  const scopeTenantId = scope.tenantId ?? null
+  const tenantMismatch = Boolean(authTenantId && scopeTenantId && authTenantId !== scopeTenantId)
+
+  return {
+    tenantId: tenantMismatch ? authTenantId : (scopeTenantId ?? authTenantId),
+    organizationId: tenantMismatch
+      ? (auth.orgId ?? null)
+      : (scope.selectedId ?? auth.orgId ?? null),
+  }
 }
 
 export async function resolveDefinitionMutationScope({
@@ -29,10 +50,7 @@ export async function resolveDefinitionMutationScope({
   request: Request
 }): Promise<DefinitionMutationScope> {
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request } as any)
-  return {
-    tenantId: scope.tenantId ?? auth.tenantId ?? null,
-    organizationId: scope.selectedId ?? auth.orgId ?? null,
-  }
+  return resolveDefinitionScopeFromOrganizationScope(auth, scope)
 }
 
 export function createExactDefinitionWhere(
