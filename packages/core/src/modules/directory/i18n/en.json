@@ -7,6 +7,8 @@
   "directory.audit.tenants.update": "Update tenant",
   "directory.branding.actions.reset": "Use default logo",
   "directory.branding.actions.save": "Save branding",
+  "directory.branding.aspectRatio.description": "When disabled, the sidebar crops the logo into the standard icon shape.",
+  "directory.branding.aspectRatio.label": "Keep the aspect ratio",
   "directory.branding.currentScope": "Current organization",
   "directory.branding.description": "Set the logo used in the backend sidebar for the currently selected organization.",
   "directory.branding.errors.blocked": "Branding save was blocked.",

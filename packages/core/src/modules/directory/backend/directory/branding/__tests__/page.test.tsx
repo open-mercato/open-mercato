@@ -61,6 +61,7 @@ const brandingPayload = {
   organizationName: 'Acme',
   tenantId: '11111111-1111-4111-8111-111111111111',
   logoUrl: '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.png?width=320',
+  logoPreserveAspectRatio: false,
 }
 
 beforeEach(() => {
@@ -88,6 +89,7 @@ describe('OrganizationBrandingPage', () => {
     expect(await screen.findByText('Organization branding')).toBeInTheDocument()
     expect(screen.getByText('Acme')).toBeInTheDocument()
     expect(screen.getByLabelText('Logo URL')).toHaveValue(brandingPayload.logoUrl)
+    expect(screen.getByRole('switch', { name: 'Keep the aspect ratio' })).toHaveAttribute('aria-checked', 'false')
   })
 
   it('saves a pasted logo URL and refreshes the sidebar chrome', async () => {
@@ -102,13 +104,39 @@ describe('OrganizationBrandingPage', () => {
         '/api/directory/organization-branding',
         expect.objectContaining({
           method: 'PUT',
-          body: JSON.stringify({ logoUrl: 'https://example.com/logo.svg' }),
+          body: JSON.stringify({
+            logoUrl: 'https://example.com/logo.svg',
+            logoPreserveAspectRatio: false,
+          }),
         }),
         expect.anything(),
       )
     })
     expect(dispatchEventSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'om:refresh-sidebar' }))
     expect(flashMock).toHaveBeenCalledWith('Organization branding updated', 'success')
+  })
+
+  it('saves the aspect-ratio preference when enabled', async () => {
+    renderWithProviders(<OrganizationBrandingPage />)
+
+    const input = await screen.findByLabelText('Logo URL')
+    fireEvent.change(input, { target: { value: 'https://example.com/logo.svg' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'Keep the aspect ratio' }))
+    fireEvent.click(screen.getByRole('button', { name: /Save branding/ }))
+
+    await waitFor(() => {
+      expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+        '/api/directory/organization-branding',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({
+            logoUrl: 'https://example.com/logo.svg',
+            logoPreserveAspectRatio: true,
+          }),
+        }),
+        expect.anything(),
+      )
+    })
   })
 
   it('resets to the default logo', async () => {
@@ -122,7 +150,10 @@ describe('OrganizationBrandingPage', () => {
         '/api/directory/organization-branding',
         expect.objectContaining({
           method: 'PUT',
-          body: JSON.stringify({ logoUrl: null }),
+          body: JSON.stringify({
+            logoUrl: null,
+            logoPreserveAspectRatio: false,
+          }),
         }),
         expect.anything(),
       )
@@ -171,6 +202,7 @@ describe('OrganizationBrandingPage', () => {
         method: 'PUT',
         body: JSON.stringify({
           logoUrl: fileUrl,
+          logoPreserveAspectRatio: false,
         }),
       }),
       expect.anything(),

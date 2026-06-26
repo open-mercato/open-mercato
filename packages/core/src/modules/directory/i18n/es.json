@@ -7,6 +7,8 @@
   "directory.audit.tenants.update": "Actualizar inquilino",
   "directory.branding.actions.reset": "Usar logo predeterminado",
   "directory.branding.actions.save": "Guardar marca",
+  "directory.branding.aspectRatio.description": "Cuando está desactivado, la barra lateral recorta el logo con la forma de icono estándar.",
+  "directory.branding.aspectRatio.label": "Mantener la relación de aspecto",
   "directory.branding.currentScope": "Organización actual",
   "directory.branding.description": "Define el logo usado en la barra lateral del backend para la organización seleccionada.",
   "directory.branding.errors.blocked": "Se bloqueó el guardado de la marca.",

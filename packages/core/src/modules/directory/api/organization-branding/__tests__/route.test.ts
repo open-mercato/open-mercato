@@ -63,6 +63,7 @@ function makeOrganization(overrides: Record<string, unknown> = {}) {
     id: organizationId,
     name: 'Acme',
     logoUrl: '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.png?width=320&height=320',
+    logoPreserveAspectRatio: false,
     ...overrides,
   }
 }
@@ -90,6 +91,7 @@ describe('/api/directory/organization-branding', () => {
       organizationName: 'Acme',
       tenantId,
       logoUrl: '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.png?width=320&height=320',
+      logoPreserveAspectRatio: false,
     })
     expect(findOneWithDecryptionMock).toHaveBeenCalledWith(
       expect.anything(),
@@ -144,6 +146,44 @@ describe('/api/directory/organization-branding', () => {
       organizationName: 'Acme',
       tenantId,
       logoUrl: 'https://example.com/logo.svg',
+      logoPreserveAspectRatio: false,
+    })
+  })
+
+  it('updates the aspect-ratio preference through the organization command', async () => {
+    commandBusExecute.mockResolvedValue({
+      result: makeOrganization({
+        logoUrl: 'https://example.com/logo.svg',
+        logoPreserveAspectRatio: true,
+      }),
+    })
+
+    const response = await PUT(new Request('http://localhost/api/directory/organization-branding', {
+      method: 'PUT',
+      body: JSON.stringify({
+        logoUrl: 'https://example.com/logo.svg',
+        logoPreserveAspectRatio: true,
+      }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(commandBusExecute).toHaveBeenCalledWith(
+      'directory.organizations.update',
+      expect.objectContaining({
+        input: {
+          id: organizationId,
+          tenantId,
+          logoUrl: 'https://example.com/logo.svg',
+          logoPreserveAspectRatio: true,
+        },
+      }),
+    )
+    await expect(response.json()).resolves.toEqual({
+      organizationId,
+      organizationName: 'Acme',
+      tenantId,
+      logoUrl: 'https://example.com/logo.svg',
+      logoPreserveAspectRatio: true,
     })
   })
 
@@ -172,6 +212,7 @@ describe('/api/directory/organization-branding', () => {
       organizationName: 'Acme',
       tenantId,
       logoUrl,
+      logoPreserveAspectRatio: false,
     })
   })
 
@@ -199,6 +240,7 @@ describe('/api/directory/organization-branding', () => {
       organizationName: 'Acme',
       tenantId,
       logoUrl: null,
+      logoPreserveAspectRatio: false,
     })
   })
 

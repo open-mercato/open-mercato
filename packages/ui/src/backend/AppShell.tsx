@@ -62,6 +62,7 @@ import {
 export type ShellLogo = {
   src: string
   alt?: string
+  preserveAspectRatio?: boolean
 }
 
 export type AppShellProps = {
@@ -171,14 +172,15 @@ function ShellBrandLogo({
   const src = logo?.src ?? '/open-mercato.svg'
   const alt = logo?.alt ?? brandName
   const isCustomLogo = Boolean(logo?.src)
-  if (!isCustomLogo) {
+  const preserveAspectRatio = Boolean(logo?.preserveAspectRatio)
+  if (!isCustomLogo || !preserveAspectRatio) {
     return (
       <Image
         src={src}
         alt={alt}
         width={mobile ? 28 : 40}
         height={mobile ? 28 : 40}
-        className={`${mobile ? 'rounded' : 'rounded-full'} shrink-0`}
+        className={`${mobile ? 'rounded' : 'rounded-full'} shrink-0 object-cover`}
         unoptimized={unoptimized ? true : undefined}
       />
     )

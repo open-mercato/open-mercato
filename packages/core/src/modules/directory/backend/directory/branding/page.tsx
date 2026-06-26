@@ -10,6 +10,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type BrandingPayload = {
@@ -17,6 +18,7 @@ type BrandingPayload = {
   organizationName: string
   tenantId: string
   logoUrl: string | null
+  logoPreserveAspectRatio: boolean
 }
 
 type UploadPayload = {
@@ -35,6 +37,7 @@ export default function OrganizationBrandingPage() {
   const t = useT()
   const queryClient = useQueryClient()
   const [logoUrl, setLogoUrl] = React.useState('')
+  const [logoPreserveAspectRatio, setLogoPreserveAspectRatio] = React.useState(false)
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null)
   const [filePreviewUrl, setFilePreviewUrl] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
@@ -55,8 +58,9 @@ export default function OrganizationBrandingPage() {
 
   React.useEffect(() => {
     setLogoUrl(data?.logoUrl ?? '')
+    setLogoPreserveAspectRatio(data?.logoPreserveAspectRatio ?? false)
     setSelectedFile(null)
-  }, [data?.logoUrl])
+  }, [data?.logoPreserveAspectRatio, data?.logoUrl])
 
   React.useEffect(() => {
     if (!selectedFile || typeof URL === 'undefined') {
@@ -89,9 +93,13 @@ export default function OrganizationBrandingPage() {
     return upload?.item.url ?? upload?.item.thumbnailUrl ?? null
   }, [selectedFile, t])
 
-  const saveBranding = React.useCallback(async (nextLogoUrl?: string, options?: { skipUpload?: boolean }) => {
+  const saveBranding = React.useCallback(async (
+    nextLogoUrl?: string,
+    options?: { skipUpload?: boolean; logoPreserveAspectRatio?: boolean },
+  ) => {
     if (!data) return
     const shouldUpload = Boolean(selectedFile && !options?.skipUpload)
+    const resolvedLogoPreserveAspectRatio = options?.logoPreserveAspectRatio ?? logoPreserveAspectRatio
     setSaving(true)
     try {
       await runMutation({
@@ -104,7 +112,10 @@ export default function OrganizationBrandingPage() {
             {
               method: 'PUT',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ logoUrl: resolvedLogoUrl || null }),
+              body: JSON.stringify({
+                logoUrl: resolvedLogoUrl || null,
+                logoPreserveAspectRatio: resolvedLogoPreserveAspectRatio,
+              }),
             },
             { errorMessage: t('directory.branding.errors.save', 'Failed to update organization branding') },
           )
@@ -118,6 +129,7 @@ export default function OrganizationBrandingPage() {
         mutationPayload: {
           organizationId: data.organizationId,
           logoUrl: (nextLogoUrl ?? logoUrl.trim()) || null,
+          logoPreserveAspectRatio: resolvedLogoPreserveAspectRatio,
           hasUpload: shouldUpload,
         },
       })
@@ -133,7 +145,7 @@ export default function OrganizationBrandingPage() {
     } finally {
       setSaving(false)
     }
-  }, [data, logoUrl, queryClient, runMutation, selectedFile, t, uploadLogo])
+  }, [data, logoPreserveAspectRatio, logoUrl, queryClient, runMutation, selectedFile, t, uploadLogo])
 
   const handleSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -171,7 +183,7 @@ export default function OrganizationBrandingPage() {
                   <img
                     src={currentPreviewUrl}
                     alt={t('directory.branding.previewAlt', '{{name}} logo preview', { name: data.organizationName })}
-                    className="h-full w-full object-contain"
+                    className={`h-full w-full ${logoPreserveAspectRatio ? 'object-contain' : 'rounded-full object-cover'}`}
                   />
                 ) : (
                   <ImagePlus className="size-10 text-muted-foreground" aria-hidden />
@@ -219,6 +231,18 @@ export default function OrganizationBrandingPage() {
                 </p>
               </div>
 
+              <SwitchField
+                id="organization-logo-preserve-aspect-ratio"
+                label={t('directory.branding.aspectRatio.label', 'Keep the aspect ratio')}
+                description={t(
+                  'directory.branding.aspectRatio.description',
+                  'When disabled, the sidebar crops the logo into the standard icon shape.',
+                )}
+                checked={logoPreserveAspectRatio}
+                disabled={saving}
+                onCheckedChange={setLogoPreserveAspectRatio}
+              />
+
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="submit" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 size-4 animate-spin" aria-hidden /> : <Save className="mr-2 size-4" aria-hidden />}
@@ -232,7 +256,8 @@ export default function OrganizationBrandingPage() {
                     setSelectedFile(null)
                     if (fileInputRef.current) fileInputRef.current.value = ''
                     setLogoUrl('')
-                    void saveBranding('', { skipUpload: true })
+                    setLogoPreserveAspectRatio(false)
+                    void saveBranding('', { skipUpload: true, logoPreserveAspectRatio: false })
                   }}
                 >
                   <RotateCcw className="mr-2 size-4" aria-hidden />

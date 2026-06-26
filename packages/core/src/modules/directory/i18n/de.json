@@ -7,6 +7,8 @@
   "directory.audit.tenants.update": "Mandanten aktualisieren",
   "directory.branding.actions.reset": "Standardlogo verwenden",
   "directory.branding.actions.save": "Branding speichern",
+  "directory.branding.aspectRatio.description": "Wenn deaktiviert, schneidet die Seitenleiste das Logo auf die Standard-Iconform zu.",
+  "directory.branding.aspectRatio.label": "Seitenverhältnis beibehalten",
   "directory.branding.currentScope": "Aktuelle Organisation",
   "directory.branding.description": "Legen Sie das Logo fest, das in der Backend-Seitenleiste für die aktuell ausgewählte Organisation verwendet wird.",
   "directory.branding.errors.blocked": "Das Speichern des Brandings wurde blockiert.",
