@@ -571,9 +571,79 @@ export async function executeWorkflow(
     }
   }
 
-  return typeof transactionalEm.transactional === 'function'
-    ? transactionalEm.transactional((trx) => runExecution(trx))
-    : runExecution(em)
+  if (typeof transactionalEm.transactional !== 'function') {
+    return runExecution(em)
+  }
+
+  try {
+    return await transactionalEm.transactional((trx) => runExecution(trx))
+  } catch (error) {
+    // The throw has rolled back the execution transaction, discarding the
+    // in-transaction FAILED write (and every step/bookkeeping advance) — which
+    // would otherwise leave the instance silently stuck at RUNNING/start (#3632).
+    // The in-transaction FAILED write is also futile when the underlying error
+    // aborted the Postgres transaction (e.g. an effector issuing bad SQL): every
+    // subsequent write on that connection fails. Now that the transaction — and
+    // its PESSIMISTIC_WRITE lock on the instance row — has been released, durably
+    // persist FAILED on an independent fork so the failure is visible and
+    // retryable. Restores the #2593 "persist FAILED" guarantee even when the
+    // whole transaction is discarded. Best-effort: never masks the original error.
+    await persistFailedStatusAfterRollback(em, instanceId, error)
+    throw error
+  }
+}
+
+/**
+ * Durably mark a workflow instance FAILED after its execution transaction has
+ * rolled back. MUST run on a fresh fork (a clean connection): the rolled-back
+ * transaction may be aborted/poisoned, and its PESSIMISTIC_WRITE lock on the
+ * instance row is released only once the transactional callback unwinds, so an
+ * in-transaction write here would be discarded or deadlock. Only transitions a
+ * still-`RUNNING` instance (leaves CANCELLED/COMPLETED/PAUSED untouched).
+ */
+async function persistFailedStatusAfterRollback(
+  em: EntityManager,
+  instanceId: string,
+  error: unknown,
+): Promise<void> {
+  const errorMessage = error instanceof Error ? error.message : String(error)
+  const errorDetails = error instanceof WorkflowExecutionError ? error.details : undefined
+  const markFailed = async (trx: EntityManager): Promise<void> => {
+    const instance = await trx.findOne(
+      WorkflowInstance,
+      { id: instanceId },
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+    )
+    if (!instance || instance.status !== 'RUNNING') return
+    instance.status = 'FAILED'
+    instance.errorMessage = errorMessage
+    instance.errorDetails = errorDetails
+    instance.updatedAt = new Date()
+    await trx.flush()
+    await logWorkflowEvent(trx, {
+      workflowInstanceId: instanceId,
+      eventType: 'WORKFLOW_FAILED',
+      eventData: { error: errorMessage },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+  }
+  try {
+    if (typeof (em as { fork?: unknown }).fork !== 'function') return
+    const fork = em.fork() as EntityManager & {
+      transactional?: <TResult>(callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
+    }
+    if (typeof fork.transactional === 'function') {
+      await fork.transactional((trx) => markFailed(trx))
+    } else {
+      await markFailed(fork)
+    }
+  } catch (persistError) {
+    console.error(
+      `[WORKFLOW] Failed to durably persist FAILED status for instance ${instanceId} after rollback:`,
+      persistError,
+    )
+  }
 }
 
 /**
