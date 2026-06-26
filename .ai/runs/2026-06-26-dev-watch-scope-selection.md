@@ -44,20 +44,20 @@ Mode selection precedence: CLI flag (`--watch=<mode>` / `--watch-<mode>` shortha
 
 ### Phase 2: Wire scope into the consolidated watcher
 
-- [ ] 2.1 Filter watched packages by resolved scope in `runConsolidatedWatch`; add auto-optimized 2-minute expansion loop
-- [ ] 2.2 Extend `scripts/__tests__/watch-packages.test.mjs` for scope filtering + auto-expansion
+- [x] 2.1 Filter watched packages by resolved scope in `runConsolidatedWatch`; add auto-optimized 2-minute expansion loop — 7f9815bad
+- [x] 2.2 Extend `scripts/__tests__/watch-packages.test.mjs` for scope filtering + auto-expansion — 7f9815bad
 
 ### Phase 3: dev.mjs flag plumbing + interactive selector
 
-- [ ] 3.1 Parse `--watch=<mode>` flags in `scripts/dev.mjs` and inject scope env into the spawned watcher
-- [ ] 3.2 Add `scripts/watch-select.mjs` interactive picker + `dev:watch-select` script
-- [ ] 3.3 Unit-test the selector's pure input-parsing helper
+- [x] 3.1 Parse `--watch=<mode>` flags in `scripts/dev.mjs` and inject scope env into the spawned watcher — c38d3eb6c
+- [x] 3.2 Add `scripts/watch-select.mjs` interactive picker + `dev:watch-select` script — c38d3eb6c
+- [x] 3.3 Unit-test the selector's pure input-parsing helper — c38d3eb6c
 
 ### Phase 4: Standalone template sync
 
-- [ ] 4.1 Mirror `dev.mjs`, `watch-scope.mjs`, `watch-select.mjs` into the template via `scripts/template-sync.ts`; add template `dev:watch-select` script
+- [x] 4.1 Mirror `dev.mjs`, `watch-scope.mjs`, `watch-select.mjs` into the template via `scripts/template-sync.ts`; add template `dev:watch-select` script — 6e1c5085d
 
 ### Phase 5: Docs + upgrade notes
 
-- [ ] 5.1 Document the modes in `apps/docs/docs/appendix/troubleshooting.mdx` (dev watcher section)
-- [ ] 5.2 Add an UPGRADE_NOTES.md entry under the current unreleased window
+- [x] 5.1 Document the modes in `apps/docs/docs/appendix/troubleshooting.mdx` (dev watcher section) — 88d79c49e
+- [x] 5.2 Add an UPGRADE_NOTES.md entry under the current unreleased window — 88d79c49e
