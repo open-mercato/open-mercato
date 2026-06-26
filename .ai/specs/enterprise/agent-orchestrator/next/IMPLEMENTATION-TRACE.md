@@ -26,13 +26,15 @@
 | 9 | `2026-06-19-agent-deployment-and-regression-gating.md` | ⬜ Not started | No shadow/canary/autonomy-ramp or eval-gated promotion. ("shadow" hits in code are incidental — seed copy + a sandbox comment.) Depends on #2 (now available). |
 | 10 | `2026-06-19-agent-decision-transparency-and-ai-act.md` | ⬜ Not started | No DSAR/erasure/explanation/contestability surfaces. Precursors only: `AgentCorrection` (audit trail) + anti-rubber-stamp KPI tiles on `backend/overview`. |
 | 11 | `2026-06-25-agent-process-subject-and-caseload-projection.md` | ⬜ Not started | No `agent_processes` projection entity, no `subject` reference on the `INVOKE_AGENT` boundary, no claim-anchored Processes list/detail backing. The cockpit's caseload (#3) keys off single proposals/runs, not a per-process indexed row. |
+| 12 | `2026-06-26-agent-attachments-and-artifacts.md` | ⬜ Not started | No `AgentRunArtifact` entity; no `lib/runtime/{agentWorkspaceManager,artifactCollector,attachmentStager}.ts`; OpenCode frontmatter still hard-denies `write/edit/bash` (`defineFileAgent.ts:257-261`) and inputs are text-only (`openCodeAgentRunner.ts:229-232`). Reuses Wave 0 **F1** (S3 artifact offload) + **F5** (`encryption.ts`). Distinct from #6's context-fact ingest: this is the OpenCode **sandbox file plane** (raw file staging + artifact authoring), not read-only context assembly. |
 
 ## Summary
 
 - **Shipped (PR #3532):** the **trace · eval · correction loop** (specs 1 + 2) plus the **operator/engineer cockpit
   surfaces** (spec 3, as standalone pages). This is the bulk of `next/`'s observability layer.
 - **Not started:** guardrails (5), context/knowledge plane (6), identity (7), dispatch (8), deployment gating (9),
-  AI-Act compliance (10), and the PR-4b infra backlog (4 / F1–F10).
+  AI-Act compliance (10), process-subject projection (11), the agent file plane (12), and the PR-4b infra
+  backlog (4 / F1–F10).
 
 ## Deferred follow-ups on the shipped work (from spec 4, F1–F10)
 
@@ -217,3 +219,13 @@ Thread these into the waves above rather than as a standalone wave:
   (PII reads), then the **guardrails overlay (#5)** which unblocks F10 and the disposition-card guard panel.
 - Recent same-branch hardening (not a spec): `proposal.created`/`proposal.disposed` now `clientBroadcast` →
   live caseload/overview refresh; trace detail now renders tool request/response, tool/run errors, and eval evidence.
+- **Spec 12 (agent file plane) sequencing:** an independent overlay that builds directly on the shipped OpenCode
+  runtime; it is **not** gated behind the dependency waves. Its only hard prerequisites are Wave 0 **F5**
+  (`encryption.ts`, for the `caption` column + encrypted artifact bytes) and **F1** (the `storage-s3` artifact
+  store it reuses for output bytes). It is **complementary to, not a substitute for, Wave 2 (Context, gap-06/10):**
+  Context assembles attachments into read-only `AgentContextBundle` *facts*; spec 12 stages the *raw file* into a
+  tool-enabled OpenCode sandbox and captures agent-authored *artifacts* back out. Pull it forward whenever a
+  file-shaped OpenCode agent (document processing, report/quote generation) is the next workload. **Phase 0 is
+  resolved** (`…-phase0-findings.md`): OpenCode permission config is static and can't scope per-run, so cross-run
+  isolation is by exclusive single-run container lease + subdir wipe over a shared-volume workspace (path-glob
+  confines writes from OpenCode internals); per-run ephemeral containers are the Phase-4 escalation.
