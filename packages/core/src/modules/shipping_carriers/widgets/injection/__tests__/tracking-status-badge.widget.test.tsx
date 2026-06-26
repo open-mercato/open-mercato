@@ -10,8 +10,14 @@ describe('tracking status badge widget', () => {
     expect(isValidElement(rendered)).toBe(true)
     expect(rendered).toMatchObject({
       props: {
-        children: 'in transit',
+        status: 'in_transit',
       },
     })
+  })
+
+  it('renders nothing for empty or non-string values', () => {
+    const cell = widget.columns[0]?.cell
+    expect(cell?.({ getValue: () => '' })).toBeNull()
+    expect(cell?.({ getValue: () => null })).toBeNull()
   })
 })
