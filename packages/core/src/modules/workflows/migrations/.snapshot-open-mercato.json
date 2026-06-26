@@ -985,9 +985,21 @@
           "unique": false
         },
         {
-          "keyName": "workflow_definitions_workflow_id_tenant_id_unique",
+          "keyName": "workflow_definitions_definition_gin_idx",
+          "columnNames": [
+            "definition"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "type": "gin"
+        },
+        {
+          "keyName": "workflow_definitions_workflow_id_version_tenant_id_unique",
           "columnNames": [
             "workflow_id",
+            "version",
             "tenant_id"
           ],
           "composite": true,

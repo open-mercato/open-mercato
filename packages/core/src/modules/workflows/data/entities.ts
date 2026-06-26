@@ -151,11 +151,14 @@ export interface WorkflowInstanceMetadata {
  * to create workflow instances.
  */
 @Entity({ tableName: 'workflow_definitions' })
-@Unique({ properties: ['workflowId', 'tenantId'] })
+// Versions of the same workflow coexist as separate rows; uniqueness is per
+// (workflowId, version, tenantId) so draft/published versions can live together.
+@Unique({ properties: ['workflowId', 'version', 'tenantId'] })
 @Index({ name: 'workflow_definitions_enabled_idx', properties: ['enabled'] })
 @Index({ name: 'workflow_definitions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'workflow_definitions_workflow_id_idx', properties: ['workflowId'] })
 @Index({ name: 'workflow_definitions_kind_idx', properties: ['kind'] })
+@Index({ name: 'workflow_definitions_definition_gin_idx', properties: ['definition'], type: 'gin' })
 export class WorkflowDefinition {
   [OptionalProps]?: 'enabled' | 'version' | 'kind' | 'lifecycle' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'codeWorkflowId'
 

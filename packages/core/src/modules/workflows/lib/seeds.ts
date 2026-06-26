@@ -75,11 +75,13 @@ async function seedWorkflowDefinition(
   const seed = readExampleJson<WorkflowSeedDefinition>(fileName)
   const workflowId = requireString(seed.workflowId, 'workflowId')
 
+  // Version-aware: pin to the latest version so re-seeding never updates an
+  // older coexisting version row (workflowId is no longer unique per tenant).
   const existing = await em.findOne(WorkflowDefinition, {
     workflowId,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
-  })
+  }, { orderBy: { version: 'DESC' } })
 
   if (existing) {
     // Check if the definition needs to be updated by comparing steps and transitions

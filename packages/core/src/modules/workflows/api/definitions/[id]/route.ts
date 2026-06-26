@@ -193,11 +193,12 @@ export async function PUT(
         )
       }
 
-      // Check if an override already exists (including soft-deleted, due to unique constraint on workflowId+tenantId)
+      // Check if an override already exists. Pin to the latest version so the
+      // override update targets a deterministic row now that versions coexist.
       const existingOverride = await em.findOne(WorkflowDefinition, {
         workflowId: codeDef.workflowId,
         tenantId,
-      })
+      }, { orderBy: { version: 'DESC' } })
 
       let savedOverride: WorkflowDefinition
       if (existingOverride) {

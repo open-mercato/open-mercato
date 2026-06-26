@@ -45,6 +45,12 @@ export const features = [
     dependsOn: ['workflows.definitions.view'],
   },
   {
+    id: 'workflows.definitions.publish',
+    title: 'Publish workflow definition versions',
+    module: moduleId,
+    dependsOn: ['workflows.definitions.edit'],
+  },
+  {
     id: 'workflows.instances.view',
     title: 'View workflow instances',
     module: moduleId,
