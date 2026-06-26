@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -248,9 +249,7 @@ export function CachePanel() {
             {t('configs.cache.description', 'Inspect cached responses and clear segments when necessary.')}
           </p>
         </header>
-        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {state.error}
-        </div>
+        <ErrorMessage label={state.error} />
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" type="button" onClick={handleRefresh}>
             {t('configs.cache.retry', 'Retry')}

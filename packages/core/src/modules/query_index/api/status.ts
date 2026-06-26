@@ -4,7 +4,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
-import { readCoverageSnapshot, refreshCoverageSnapshot } from '../lib/coverage'
+import { readCoverageSnapshots, refreshCoverageSnapshot } from '../lib/coverage'
+import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import type { FullTextSearchStrategy } from '@open-mercato/search/strategies'
 import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -146,6 +147,7 @@ export async function GET(req: Request) {
 
   const HEARTBEAT_STALE_MS = 60_000
   const COVERAGE_STALE_MS = 60_000
+  const COVERAGE_REFRESH_CONCURRENCY = 8
 
   async function fetchJobSummary(entityType: string, tenantIdParam: string | null, organizationIdParam: string | null) {
     try {
@@ -288,39 +290,30 @@ export async function GET(req: Request) {
     return Number.isFinite(parsed) ? parsed : null
   }
 
-  const coverageSnapshots: Array<Awaited<ReturnType<typeof readCoverageSnapshot>>> = []
+  const coverageScope = {
+    tenantId: tenantId ?? null,
+    organizationId,
+    withDeleted: false,
+  } as const
   const entitiesNeedingRefresh = new Set<string>()
-  for (const entityId of entityIds) {
-    const scope = {
-      entityType: entityId,
-      tenantId: tenantId ?? null,
-      organizationId,
-      withDeleted: false,
-    } as const
-    const ensureSnapshot = async () => {
-      let snapshot = await readCoverageSnapshot(db, scope)
-      const refreshedAt = snapshot?.refreshed_at instanceof Date
-        ? snapshot.refreshed_at
-        : snapshot?.refreshed_at
-          ? new Date(snapshot.refreshed_at)
-          : null
-      const stale = !snapshot || !refreshedAt || (Date.now() - refreshedAt.getTime() > COVERAGE_STALE_MS)
-      if (forceRefresh || stale) {
-        await refreshCoverageSnapshot(em, scope).catch(() => undefined)
-        snapshot = await readCoverageSnapshot(db, scope)
-      }
-      const finalRefreshed = snapshot?.refreshed_at instanceof Date
-        ? snapshot.refreshed_at
-        : snapshot?.refreshed_at
-          ? new Date(snapshot.refreshed_at)
-          : null
-      if (!snapshot || !finalRefreshed || (Date.now() - finalRefreshed.getTime() > COVERAGE_STALE_MS)) {
-        entitiesNeedingRefresh.add(entityId)
-      }
-      return snapshot
-    }
-    coverageSnapshots.push(await ensureSnapshot())
+
+  // Read every entity's coverage snapshot in a single batched query. This endpoint is
+  // polled by the status table every few seconds, so the poll path must stay read-cheap:
+  // stale snapshots are refreshed asynchronously via the query_index.coverage.refresh
+  // event emitted below, never inline per entity.
+  const snapshotByEntity = await readCoverageSnapshots(db, { entityTypes: entityIds, ...coverageScope })
+
+  // An explicit refresh action (?refresh) is allowed to block: recompute every entity's
+  // coverage with bounded concurrency, then re-read the freshly written snapshots.
+  if (forceRefresh && entityIds.length > 0) {
+    await mapWithConcurrency(entityIds, COVERAGE_REFRESH_CONCURRENCY, (entityId) =>
+      refreshCoverageSnapshot(em, { entityType: entityId, ...coverageScope }).catch(() => undefined),
+    )
+    const refreshed = await readCoverageSnapshots(db, { entityTypes: entityIds, ...coverageScope })
+    for (const [entityId, snapshot] of refreshed) snapshotByEntity.set(entityId, snapshot)
   }
+
+  const coverageSnapshots = entityIds.map((entityId) => snapshotByEntity.get(entityId) ?? null)
 
   const jobs = await Promise.all(entityIds.map((eid) => fetchJobSummary(eid, tenantId, organizationId)))
 
@@ -467,6 +460,9 @@ export async function GET(req: Request) {
 
   const response = NextResponse.json({ items, errors, logs })
   const partial = items.find((item) => {
+    // Coverage not computed yet (no snapshot) — pending an async refresh, not a partial
+    // index. Do not raise the partial-index warning while counts are still unknown.
+    if (item.baseCount == null && item.indexCount == null) return false
     if (item.baseCount == null || item.indexCount == null) return true
     return item.baseCount !== item.indexCount
   })

@@ -530,6 +530,7 @@
   "notices.cookies.dismiss": "Dismiss",
   "notices.demo.and": "and",
   "notices.demo.description": "This instance is provided for demo purposes only. Data may be reset at any time and is not retained for any guaranteed period.",
+  "notices.demo.dismiss": "Dismiss demo notice",
   "notices.demo.installLink": "Install Open Mercato locally",
   "notices.demo.reviewLinks": "Review our",
   "notices.demo.superadminQuestion": "Need persistent superadmin access?",

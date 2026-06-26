@@ -18,6 +18,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { DictionaryEntriesEditor } from './DictionaryEntriesEditor'
@@ -71,6 +72,15 @@ export function DictionariesManager() {
   const [submitting, setSubmitting] = React.useState(false)
   const [deleting, setDeleting] = React.useState<string | null>(null)
   const selectionFromQueryApplied = React.useRef(false)
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId?: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: 'dictionaries:dictionary',
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
   const inheritedManageMessage = t('dictionaries.config.error.inheritedManage', 'Inherited dictionaries must be managed at the parent organization.')
   const requestedDictionaryId = searchParams?.get('dictionaryId') ?? null
   const requestedDictionaryKey = searchParams?.get('key')?.trim().toLowerCase() ?? null
@@ -121,16 +131,19 @@ export function DictionariesManager() {
         : []
       const filtered = list.filter((dictionary: DictionarySummary) => dictionary.managerVisibility !== 'hidden')
       setItems(filtered)
-      if (!filtered.find((dict: DictionarySummary) => dict.id === selectedId)) {
-        setSelectedId(filtered.length ? filtered[0].id : null)
-      }
+      setSelectedId((current) => {
+        if (current && filtered.some((dict: DictionarySummary) => dict.id === current)) {
+          return current
+        }
+        return filtered.length ? filtered[0].id : null
+      })
     } catch (err) {
       console.error('Failed to load dictionaries', err)
       flash(t('dictionaries.config.error.load', 'Failed to load dictionaries.'), 'error')
     } finally {
       setLoading(false)
     }
-  }, [selectedId, t])
+  }, [t])
 
   React.useEffect(() => {
     loadDictionaries().catch(() => {})
@@ -226,31 +239,56 @@ export function DictionariesManager() {
         entrySortMode: form.entrySortMode,
       }
       if (dialog.mode === 'create') {
-        const call = await apiCall<Record<string, unknown>>('/api/dictionaries', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        if (!call.ok) {
-          throw new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to create dictionary')
-        }
-        flash(t('dictionaries.config.success.create', 'Dictionary created.'), 'success')
-      } else if (dialog.dictionary) {
-        const call = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(dialog.dictionary.updatedAt),
-          () =>
-            apiCall<Record<string, unknown>>(`/api/dictionaries/${dialog.dictionary!.id}`, {
-              method: 'PATCH',
+        await runMutation({
+          operation: async () => {
+            const call = await apiCall<Record<string, unknown>>('/api/dictionaries', {
+              method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify(payload),
-            }),
-        )
-        if (!call.ok) {
-          throw Object.assign(
-            new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to update dictionary'),
-            { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
-          )
-        }
+            })
+            if (!call.ok) {
+              throw new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to create dictionary')
+            }
+            return call
+          },
+          context: {
+            formId: 'dictionaries:dictionary',
+            resourceKind: 'dictionaries.dictionary',
+            retryLastMutation,
+          },
+          mutationPayload: payload,
+        })
+        flash(t('dictionaries.config.success.create', 'Dictionary created.'), 'success')
+      } else if (dialog.dictionary) {
+        const dictionaryId = dialog.dictionary.id
+        const expectedUpdatedAt = dialog.dictionary.updatedAt
+        await runMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(expectedUpdatedAt),
+              async () => {
+                const call = await apiCall<Record<string, unknown>>(`/api/dictionaries/${dictionaryId}`, {
+                  method: 'PATCH',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify(payload),
+                })
+                if (!call.ok) {
+                  throw Object.assign(
+                    new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to update dictionary'),
+                    { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
+                  )
+                }
+                return call
+              },
+            ),
+          context: {
+            formId: 'dictionaries:dictionary',
+            resourceKind: 'dictionaries.dictionary',
+            resourceId: dictionaryId,
+            retryLastMutation,
+          },
+          mutationPayload: payload,
+        })
         flash(t('dictionaries.config.success.update', 'Dictionary updated.'), 'success')
       }
       closeDialog()
@@ -265,7 +303,7 @@ export function DictionariesManager() {
     } finally {
       setSubmitting(false)
     }
-  }, [closeDialog, dialog, form.description, form.entrySortMode, form.key, form.name, inheritedManageMessage, loadDictionaries, t])
+  }, [closeDialog, dialog, form.description, form.entrySortMode, form.key, form.name, inheritedManageMessage, loadDictionaries, runMutation, retryLastMutation, t])
 
   const handleDelete = React.useCallback(
     async (dictionary: DictionarySummary) => {
@@ -288,16 +326,29 @@ export function DictionariesManager() {
       if (!confirmed) return
       setDeleting(dictionary.id)
       try {
-        const call = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(dictionary.updatedAt),
-          () => apiCall<Record<string, unknown>>(`/api/dictionaries/${dictionary.id}`, { method: 'DELETE' }),
-        )
-        if (!call.ok) {
-          throw Object.assign(
-            new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to delete dictionary'),
-            { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
-          )
-        }
+        await runMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(dictionary.updatedAt),
+              async () => {
+                const call = await apiCall<Record<string, unknown>>(`/api/dictionaries/${dictionary.id}`, { method: 'DELETE' })
+                if (!call.ok) {
+                  throw Object.assign(
+                    new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to delete dictionary'),
+                    { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
+                  )
+                }
+                return call
+              },
+            ),
+          context: {
+            formId: 'dictionaries:dictionary',
+            resourceKind: 'dictionaries.dictionary',
+            resourceId: dictionary.id,
+            retryLastMutation,
+          },
+          mutationPayload: { id: dictionary.id },
+        })
         flash(t('dictionaries.config.success.delete', 'Dictionary deleted.'), 'success')
         await loadDictionaries()
       } catch (err) {
@@ -310,7 +361,7 @@ export function DictionariesManager() {
         setDeleting(null)
       }
     },
-    [confirm, inheritedManageMessage, loadDictionaries, t],
+    [confirm, inheritedManageMessage, loadDictionaries, runMutation, retryLastMutation, t],
   )
 
   const selectedDictionary = items.find((item) => item.id === selectedId) ?? null

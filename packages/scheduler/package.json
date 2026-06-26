@@ -61,7 +61,7 @@
   "dependencies": {
     "@open-mercato/events": "workspace:*",
     "@open-mercato/queue": "workspace:*",
-    "cron-parser": "^5.5.0"
+    "cron-parser": "^5.6.0"
   },
   "peerDependencies": {
     "@mikro-orm/core": "^7.0.14",
@@ -81,9 +81,10 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/node": "^25.9.3",
+    "@types/node": "^26.0.0",
     "jest": "^30.4.2",
-    "ts-jest": "^29.4.11"
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
   },
   "publishConfig": {
     "access": "public"
