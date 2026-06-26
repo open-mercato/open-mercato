@@ -109,6 +109,7 @@
   "messages.email.sentAt": "Wysłano",
   "messages.email.viewCta": "Zobacz wiadomość",
   "messages.errors.actionFailed": "Nie udało się wykonać akcji.",
+  "messages.errors.archiveSenderMessageUnsupported": "Nie możesz archiwizować wysłanych przez siebie wiadomości.",
   "messages.errors.conversationActionFailed": "Nie udało się zaktualizować konwersacji.",
   "messages.errors.deleteFailed": "Nie udało się usunąć wiadomości.",
   "messages.errors.forwardPreviewFailed": "Nie udało się załadować podglądu przekazywanej wiadomości.",

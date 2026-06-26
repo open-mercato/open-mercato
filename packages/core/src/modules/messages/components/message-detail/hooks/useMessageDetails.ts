@@ -51,7 +51,7 @@ export function useMessageDetails(id: string) {
     [id, queryClient],
   )
 
-  const isArchived = (queryState.detail?.recipients ?? []).some((item) => item.status === 'archived')
+  const isArchived = queryState.detail?.isArchived ?? false
 
   const actionState = useMessageDetailsActions({
     id,

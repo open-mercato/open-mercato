@@ -179,6 +179,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     type: message.type,
     isDraft: message.isDraft,
     canEditDraft: message.isDraft && message.senderUserId === scope.userId,
+    canArchive: Boolean(recipient),
+    isArchived: recipient?.status === 'archived',
     visibility: message.visibility,
     sourceEntityType: message.sourceEntityType,
     sourceEntityId: message.sourceEntityId,

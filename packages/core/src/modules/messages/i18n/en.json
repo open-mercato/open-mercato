@@ -109,6 +109,7 @@
   "messages.email.sentAt": "Sent",
   "messages.email.viewCta": "View message",
   "messages.errors.actionFailed": "Failed to execute action.",
+  "messages.errors.archiveSenderMessageUnsupported": "You cannot archive messages you sent.",
   "messages.errors.conversationActionFailed": "Failed to update conversation.",
   "messages.errors.deleteFailed": "Failed to delete message.",
   "messages.errors.forwardPreviewFailed": "Failed to load forward preview.",

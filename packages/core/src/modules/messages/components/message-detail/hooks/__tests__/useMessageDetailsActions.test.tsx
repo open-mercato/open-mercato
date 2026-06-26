@@ -195,4 +195,25 @@ describe('useMessageDetailsActions guarded writes (#3258)', () => {
     expect(onDeleted).not.toHaveBeenCalled()
     expect(mockFlash).toHaveBeenCalledWith(expect.any(String), 'error')
   })
+
+  it('maps sender archive failures to a domain-specific flash message', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: false,
+      status: 403,
+      result: {
+        code: 'messages_sender_archive_unsupported',
+        error: 'Access denied',
+      },
+      response: {} as Response,
+      cacheStatus: null,
+    })
+
+    const { result } = setup()
+
+    await act(async () => {
+      await result.current.toggleArchive()
+    })
+
+    expect(mockFlash).toHaveBeenCalledWith('You cannot archive messages you sent.', 'error')
+  })
 })

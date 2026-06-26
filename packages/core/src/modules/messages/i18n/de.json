@@ -109,6 +109,7 @@
   "messages.email.sentAt": "Gesendet",
   "messages.email.viewCta": "Nachricht anzeigen",
   "messages.errors.actionFailed": "Aktion konnte nicht ausgeführt werden.",
+  "messages.errors.archiveSenderMessageUnsupported": "Du kannst von dir gesendete Nachrichten nicht archivieren.",
   "messages.errors.conversationActionFailed": "Konversation konnte nicht aktualisiert werden.",
   "messages.errors.deleteFailed": "Nachricht konnte nicht gelöscht werden.",
   "messages.errors.forwardPreviewFailed": "Weiterleitungs-Vorschau konnte nicht geladen werden.",
