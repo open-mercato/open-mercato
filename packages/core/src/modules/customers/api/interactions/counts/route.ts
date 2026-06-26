@@ -14,7 +14,7 @@ import { TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus
 const querySchema = z.object({
   entityId: z.string().uuid(),
   // `open` counts every non-terminal status (planned/in_progress/waiting + any custom status);
-  // `planned` is kept as a BC alias for the original exact-match behavior.
+  // `planned` is kept as the BC alias for callers that used it to mean "open".
   status: z.enum(['done', 'planned', 'open']).optional(),
 })
 
@@ -87,7 +87,7 @@ export async function GET(req: Request) {
       baseQuery = baseQuery.where('organization_id', 'in', organizationIds)
     }
 
-    if (query.status === 'open') {
+    if (query.status === 'open' || query.status === 'planned') {
       baseQuery = baseQuery.where('status', 'not in', [...TERMINAL_INTERACTION_STATUS_LIST])
     } else if (query.status) {
       baseQuery = baseQuery.where('status', '=', query.status)

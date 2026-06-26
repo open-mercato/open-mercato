@@ -10,7 +10,8 @@ import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/h
  *     and an arbitrary custom status (lenient `z.string().max(50)` validator).
  *   - POST /api/customers/interactions/complete -> `done`; /cancel -> `canceled`.
  *   - GET /api/customers/interactions/counts `open` bucket includes a non-terminal
- *     `in_progress` row; the `done` bucket excludes it.
+ *     `in_progress` row; `planned` is the BC alias for that open bucket; the
+ *     `done` bucket excludes it.
  */
 async function createInteraction(
   request: APIRequestContext,
@@ -141,6 +142,19 @@ test.describe('TC-CRM-085: Interaction status lifecycle', () => {
       expect(openRes.ok(), `counts?status=open returned ${openRes.status()}`).toBeTruthy()
       const openBody = (await openRes.json().catch(() => null)) as { result?: { task?: number } } | null
       expect(openBody?.result?.task ?? 0, 'open bucket MUST include the in_progress task').toBeGreaterThanOrEqual(1)
+
+      const plannedAliasRes = await apiRequest(
+        request,
+        'GET',
+        `/api/customers/interactions/counts?entityId=${companyId}&status=planned`,
+        { token },
+      )
+      expect(plannedAliasRes.ok(), `counts?status=planned returned ${plannedAliasRes.status()}`).toBeTruthy()
+      const plannedAliasBody = (await plannedAliasRes.json().catch(() => null)) as { result?: { task?: number } } | null
+      expect(
+        plannedAliasBody?.result?.task ?? 0,
+        'planned alias MUST include the in_progress task as part of the open bucket',
+      ).toBeGreaterThanOrEqual(1)
 
       const doneRes = await apiRequest(
         request,
