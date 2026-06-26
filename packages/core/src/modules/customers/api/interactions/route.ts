@@ -301,6 +301,7 @@ const INTERACTION_LIST_COLUMNS = [
   'priority',
   'author_user_id',
   'owner_user_id',
+  'external_message_id',
   'appearance_icon',
   'appearance_color',
   'source',

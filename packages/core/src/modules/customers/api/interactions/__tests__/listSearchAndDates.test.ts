@@ -102,6 +102,14 @@ describe('interactions list — search escaping and date validation (#2734)', ()
     expect(compiled!.parameters).not.toContain('%50%_off%')
   })
 
+  test('list projection includes external_message_id for email interaction links', async () => {
+    const res = await GET(new Request('https://example.test/api/customers/interactions?interactionType=email'))
+    expect(res.status).toBe(200)
+    const compiled = rowsQuery()
+    expect(compiled).toBeDefined()
+    expect(compiled!.sql).toContain('"external_message_id"')
+  })
+
   test('valid from/to filters bind Date parameters on the occurred/scheduled/created range', async () => {
     const res = await GET(
       new Request(
