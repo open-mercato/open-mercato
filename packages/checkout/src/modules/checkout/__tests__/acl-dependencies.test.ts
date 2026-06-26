@@ -60,18 +60,18 @@ describe('checkout ACL dependency declarations', () => {
     expect(viewPii?.dependsOn).toContain('customers.people.view')
   })
 
-  test('employee default role can operate checkout without PII access', () => {
+  test('employee default role gets read-only checkout access without PII', () => {
     const employeeFeatures = (setup.defaultRoleFeatures?.employee ?? []) as string[]
 
-    expect(employeeFeatures).toEqual(
-      expect.arrayContaining([
-        'checkout.view',
-        'checkout.create',
-        'checkout.edit',
-        'checkout.delete',
-        'checkout.export',
-      ]),
-    )
-    expect(employeeFeatures).not.toContain('checkout.viewPii')
+    expect(employeeFeatures).toEqual(expect.arrayContaining(['checkout.view']))
+    for (const restricted of [
+      'checkout.create',
+      'checkout.edit',
+      'checkout.delete',
+      'checkout.export',
+      'checkout.viewPii',
+    ]) {
+      expect(employeeFeatures).not.toContain(restricted)
+    }
   })
 })
