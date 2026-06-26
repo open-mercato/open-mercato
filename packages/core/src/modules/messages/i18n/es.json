@@ -111,6 +111,7 @@
   "messages.email.sentAt": "Enviado",
   "messages.email.viewCta": "Ver mensaje",
   "messages.errors.actionFailed": "No se pudo ejecutar la acción.",
+  "messages.errors.archiveSenderMessageUnsupported": "No puedes archivar mensajes que enviaste.",
   "messages.errors.conversationActionFailed": "No se pudo actualizar la conversación.",
   "messages.errors.deleteFailed": "No se pudo eliminar el mensaje.",
   "messages.errors.forwardPreviewFailed": "No se pudo cargar la vista previa de reenvío.",

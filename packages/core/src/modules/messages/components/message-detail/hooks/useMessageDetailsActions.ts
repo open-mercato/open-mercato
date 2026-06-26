@@ -48,6 +48,19 @@ type UseMessageDetailsActionsInput = {
   suppressAutoMarkRead: () => void
 }
 
+function toStateChangeErrorMessage(payload: unknown, t: TranslateFn): string | null {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const code = (payload as Record<string, unknown>).code
+    if (code === 'messages_sender_archive_unsupported') {
+      return t(
+        'messages.errors.archiveSenderMessageUnsupported',
+        'You cannot archive messages you sent.',
+      )
+    }
+  }
+  return toErrorMessage(payload)
+}
+
 export function useMessageDetailsActions({
   id,
   t,
@@ -85,7 +98,7 @@ export function useMessageDetailsActions({
           const call = await apiCall<{ ok?: boolean }>(url, { method })
           if (!call.ok) {
             throw new Error(
-              toErrorMessage(call.result)
+              toStateChangeErrorMessage(call.result, t)
               ?? t('messages.errors.stateChangeFailed', 'Failed to update message state.'),
             )
           }
