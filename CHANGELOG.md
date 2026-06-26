@@ -82,6 +82,7 @@ On the product surface, the CRM **deals list is redesigned** (with a follow-up m
 - 🐛 Workflows: remove the duplicate info icon in Alert callouts (#2759). (#2763) *(@adeptofvoltron)*
 
 ## 🛠️ Improvements
+- 🛠️ AI assistant: support OpenRouter runtime configuration in Docker/OpenCode.
 - 🛠️ Directory: per-request memoize org-scope resolution and wire `org-scope:user` invalidation (#2259). (#2880) *(@pkarw)*
 - 🛠️ Query: drop the redundant `count(distinct)` on non-joined list COUNTs (#2227). (#2894) *(@pkarw)*
 - 🛠️ Shared: batch encrypted custom-field decryption with `Promise.all` (#2229). (#2896) *(@pkarw)*

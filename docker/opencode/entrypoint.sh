@@ -8,6 +8,9 @@
 #   2. OPENCODE_PROVIDER / OPENCODE_MODEL — legacy aliases, kept as a
 #      backward-compatibility fallback.
 #   3. Built-in defaults: openai + openai/gpt-5-mini.
+#
+# OpenCode reads provider credentials from the matching provider environment
+# variables, for example OPENAI_API_KEY, ANTHROPIC_API_KEY, or OPENROUTER_API_KEY.
 
 CONFIG_DIR="/home/opencode/.config/opencode"
 CONFIG_FILE="${CONFIG_DIR}/opencode.jsonc"
@@ -31,11 +34,25 @@ if [ -z "$MODEL" ]; then
     google)
       MODEL="google/gemini-3-flash"
       ;;
+    openrouter)
+      MODEL="meta-llama/llama-3.3-70b-instruct"
+      ;;
     *)
       MODEL="openai/gpt-5-mini"
       ;;
   esac
 fi
+
+MODEL_ID="$MODEL"
+CONFIG_MODEL="$MODEL"
+case "$MODEL" in
+  "$PROVIDER"/*)
+    MODEL_ID="${MODEL#"$PROVIDER"/}"
+    ;;
+  *)
+    CONFIG_MODEL="$PROVIDER/$MODEL"
+    ;;
+esac
 
 # Build provider configuration
 case "$PROVIDER" in
@@ -47,6 +64,9 @@ case "$PROVIDER" in
     ;;
   google)
     PROVIDER_CONFIG='"google": {}'
+    ;;
+  openrouter)
+    PROVIDER_CONFIG="\"openrouter\": { \"models\": { \"$MODEL_ID\": {} } }"
     ;;
   *)
     echo "Warning: Unknown provider '$PROVIDER', defaulting to anthropic"
@@ -67,7 +87,7 @@ cat > "$CONFIG_FILE" << EOF
   "provider": {
     $PROVIDER_CONFIG
   },
-  "model": "$MODEL",
+  "model": "$CONFIG_MODEL",
   "instructions": ["AGENTS.md"],
   "tools": {
     "write": false,
@@ -101,7 +121,7 @@ EOF
 
 echo "[OpenCode] Configuration generated:"
 echo "  Provider: $PROVIDER"
-echo "  Model: $MODEL"
+echo "  Model: $CONFIG_MODEL"
 echo "  MCP URL: $MCP_URL"
 cat "$CONFIG_FILE"
 
