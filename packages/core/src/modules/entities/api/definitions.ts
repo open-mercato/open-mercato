@@ -20,6 +20,10 @@ import { installCustomEntitiesFromModules } from '../lib/install-from-ce'
 import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
 import { CURRENCY_OPTIONS_URL } from '@open-mercato/shared/modules/entities/kinds'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  beginEntitiesMutationGuard,
+  FIELD_DEFINITION_RESOURCE_KIND,
+} from './definitions.mutation-guard'
 
 /**
  * Validate defaultValue against the field kind. Returns an error message string
@@ -473,6 +477,18 @@ export async function POST(req: Request) {
 
   const where: any = { entityId: input.entityId, key: input.key, organizationId: auth.orgId ?? null, tenantId: auth.tenantId ?? null }
   let def = await em.findOne(CustomFieldDef, where)
+
+  const guard = await beginEntitiesMutationGuard({
+    container,
+    auth,
+    req,
+    resourceKind: FIELD_DEFINITION_RESOURCE_KIND,
+    resourceId: def ? def.id : `${input.entityId}:${input.key}`,
+    operation: def ? 'update' : 'create',
+    mutationPayload: input as unknown as Record<string, unknown>,
+  })
+  if (guard.blockedResponse) return guard.blockedResponse
+
   if (!def) def = em.create(CustomFieldDef, { ...where, createdAt: new Date() })
   def.kind = input.kind
   const inCfg = (input as any).configJson ?? {}
@@ -508,6 +524,7 @@ export async function POST(req: Request) {
   def.updatedAt = new Date()
   em.persist(def)
   await em.flush()
+  await guard.runAfterSuccess()
   await invalidateDefinitionsCache(cache, {
     tenantId: auth.tenantId ?? null,
     organizationId: auth.orgId ?? null,
@@ -535,11 +552,24 @@ export async function DELETE(req: Request) {
   const where: any = { entityId, key, organizationId: auth.orgId ?? null, tenantId: auth.tenantId ?? null }
   const def = await em.findOne(CustomFieldDef, where)
   if (!def) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const guard = await beginEntitiesMutationGuard({
+    container,
+    auth,
+    req,
+    resourceKind: FIELD_DEFINITION_RESOURCE_KIND,
+    resourceId: def.id,
+    operation: 'delete',
+    mutationPayload: { entityId, key },
+  })
+  if (guard.blockedResponse) return guard.blockedResponse
+
   def.isActive = false
   def.updatedAt = new Date()
   def.deletedAt = def.deletedAt ?? new Date()
   em.persist(def)
   await em.flush()
+  await guard.runAfterSuccess()
   await invalidateDefinitionsCache(cache, {
     tenantId: auth.tenantId ?? null,
     organizationId: auth.orgId ?? null,

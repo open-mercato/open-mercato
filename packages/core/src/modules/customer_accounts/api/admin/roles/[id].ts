@@ -7,7 +7,7 @@ import { RbacService } from '@open-mercato/core/modules/auth/services/rbacServic
 import { CustomerRole, CustomerRoleAcl, CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { updateRoleSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 export const metadata = {}
@@ -107,7 +107,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   // Optimistic lock: refuse a stale overwrite so two admins editing the same role
   // in parallel cannot silently clobber each other (#2055). Strictly additive.
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'customer_accounts.role',
       resourceId: role.id,
       current: role.updatedAt ?? null,
@@ -169,7 +169,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 
   // Optimistic lock: refuse a stale delete. Strictly additive.
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'customer_accounts.role',
       resourceId: role.id,
       current: role.updatedAt ?? null,

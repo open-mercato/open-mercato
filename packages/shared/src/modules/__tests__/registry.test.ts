@@ -251,6 +251,26 @@ describe('CLI Modules Registry', () => {
     it('returns undefined when static segments do not match even case-insensitively', () => {
       expect(matchRoutePattern('/login', '/sign-in')).toBeUndefined()
     })
+
+    it('captures all trailing segments after a static prefix for catch-all (issue #3622)', () => {
+      expect(matchRoutePattern('/files/[...path]', '/files/a/b/c')).toEqual({ path: ['a', 'b', 'c'] })
+    })
+
+    it('captures a single trailing segment for catch-all (issue #3622)', () => {
+      expect(matchRoutePattern('/files/[...path]', '/files/a')).toEqual({ path: ['a'] })
+    })
+
+    it('returns undefined when a catch-all has no segment to consume (issue #3622)', () => {
+      expect(matchRoutePattern('/files/[...path]', '/files')).toBeUndefined()
+    })
+
+    it('captures trailing segments for optional catch-all (issue #3622)', () => {
+      expect(matchRoutePattern('/docs/[[...slug]]', '/docs/a/b')).toEqual({ slug: ['a', 'b'] })
+    })
+
+    it('returns an empty array for optional catch-all with no trailing segments (issue #3622)', () => {
+      expect(matchRoutePattern('/docs/[[...slug]]', '/docs')).toEqual({ slug: [] })
+    })
   })
 
   describe('findBackendMatch', () => {

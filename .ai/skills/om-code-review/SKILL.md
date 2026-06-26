@@ -23,9 +23,37 @@ Review code changes against Open Mercato's architecture rules, security requirem
 
 **NEVER claim code is "ready to ship", "ready to merge", or "CI will pass" without running these checks first and confirming they all pass.** This gate mirrors exactly what `.github/workflows/ci.yml` runs on every PR to `develop`/`main`. If any step fails, it MUST be fixed before the review can pass.
 
+### Step 0 — Decide where to run the gate (execute ONCE before any gate command)
+
+Determine the execution environment up front. This eliminates wasted round-trips from running `yarn …` locally when the stack is in Docker.
+
+1. **Honor explicit override first**: if `DOCKER_COMPOSE_FILE` is set in the environment, use Docker mode with that file — skip probing.
+2. **Auto-discover local overrides**: glob the repo root for `docker-compose.*dev*.local.yml` files (sorted). These are gitignored personal stacks and take priority over the standard files.
+3. **Fall back to standard files** in order: `docker-compose.fullapp.dev.yml`, then `docker-compose.fullapp.yml`.
+4. **Probe each candidate**: run `docker compose -f <file> ps --status running -q app`.
+   - Exit 0 + non-empty output → **Docker mode** — cache this file, stop probing.
+   - Non-zero exit with stderr → parse/config error; log the warning and skip to next candidate (never silently fall through to the production profile).
+   - Exit 0 + empty output → container not running; try next.
+5. **No candidate found** → **local mode** (`yarn …` on host).
+6. Record the chosen runner in review output: `Runner: docker (docker-compose.fullapp.dev.local.yml)` or `Runner: local`.
+
+**Command mapping in Docker mode** — replace each `yarn X` gate command with its Docker equivalent:
+
+| Gate command | Docker equivalent |
+|---|---|
+| `yarn build:packages` | `node scripts/docker-exec.mjs build:packages` |
+| `yarn generate` | `node scripts/docker-exec.mjs generate` |
+| `yarn i18n:check-sync` | `node scripts/docker-exec.mjs i18n:check-sync` |
+| `yarn i18n:check-usage` | `node scripts/docker-exec.mjs i18n:check-usage` |
+| `yarn typecheck` | `node scripts/docker-exec.mjs typecheck` |
+| `yarn test` | `node scripts/docker-exec.mjs test` |
+| `yarn build:app` | `node scripts/docker-exec.mjs build:app` |
+
+> **Reuse**: the same Step 0 logic applies in `check-and-commit`, `auto-create-pr`, `implement-spec`, and `smart-test` — run it once at the start of each gate sequence in those skills too.
+
 ### Gate Steps (run in order)
 
-Run these commands and verify each one exits successfully (exit code 0):
+Run these commands (using the runner decided in Step 0) and verify each exits successfully (exit code 0):
 
 | # | Command | What it checks | If it fails |
 |---|---------|----------------|-------------|
@@ -70,6 +98,8 @@ Use this structure for every review:
 {1-3 sentences: what the change does, overall assessment}
 
 ## CI/CD Verification
+
+Runner: {docker (docker-compose.fullapp.dev.local.yml) | local}
 
 | Gate | Status | Notes |
 |------|--------|-------|
@@ -276,7 +306,7 @@ When reviewing, pay special attention to:
 9a. **ACL shape validation**: Verify `acl.ts` exports feature objects (with `id`, `title`, `module`) rather than raw string IDs; flag wrong shape as **High** because permission UI and role assignment can break.
 10. **UI changes**: Verify `CrudForm`/`DataTable` usage, `flash()` for feedback, keyboard shortcuts, loading/error states.
 11. **Behavior changes**: Verify unit and/or integration tests cover new behavior, regressions, and edge cases.
-12. **Mutation guard coverage**: For backend pages with manual save/delete logic (non-`CrudForm`), verify `useGuardedMutation` is wired for all writes and context includes `retryLastMutation`; for custom write API routes, verify `validateCrudMutationGuard` + `runCrudMutationGuardAfterSuccess` are both wired.
+12. **Mutation guard coverage**: For backend pages with manual save/delete logic (non-`CrudForm`), verify `useGuardedMutation` is wired for all writes and context includes `retryLastMutation`; for custom write API routes, verify the mutation guard registry path is wired (`create`/`update`/`delete` operation chosen correctly, `runMutationGuards(...)` called with `{ userFeatures }` before the write, `modifiedPayload` applied when present, and returned `afterSuccessCallbacks` run after success with callback failures caught/logged).
 13. **Spec filename hygiene**: If specs were added or renamed, verify new files use `{YYYY-MM-DD}-{slug}.md`, legacy numbered files are not copied forward into new work, and no two files would resolve to the same normalized date+slug target.
 14. **Template sync prompt**: If `yarn template:sync` finds drift in `src/app` or `src/modules` (especially layout/routes), ask the user whether to sync; when approved, run `yarn template:sync:fix` and include those updates.
 

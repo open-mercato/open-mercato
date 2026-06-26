@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
-import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
+import { resolveDictionariesRouteContext, resolveDictionaryActorId } from '@open-mercato/core/modules/dictionaries/api/context'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   resolveDictionaryEntrySortMode,
@@ -111,12 +115,28 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     const payload = updateSchema.parse(await req.json().catch(() => ({})))
     const dictionary = await loadDictionary(context, dictionaryId)
 
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(context.container, {
       resourceKind: 'dictionaries.dictionary',
       resourceId: dictionary.id,
       current: dictionary.updatedAt ?? null,
       request: req,
     })
+
+    const guardUserId = resolveDictionaryActorId(context.auth)
+    const guardResult = await validateCrudMutationGuard(context.container, {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userId: guardUserId,
+      resourceKind: 'dictionaries.dictionary',
+      resourceId: dictionary.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: payload,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
 
     if (isProtectedCurrencyDictionary(dictionary)) {
       if (payload.key && payload.key.trim().toLowerCase() !== dictionary.key) {
@@ -172,6 +192,20 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     dictionary.updatedAt = new Date()
     await context.em.flush()
 
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(context.container, {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        userId: guardUserId,
+        resourceKind: 'dictionaries.dictionary',
+        resourceId: dictionary.id,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+
     return NextResponse.json({
       id: dictionary.id,
       key: dictionary.key,
@@ -202,6 +236,29 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
     const dictionary = await loadDictionary(context, dictionaryId)
 
+    await enforceCommandOptimisticLockWithGuards(context.container, {
+      resourceKind: 'dictionaries.dictionary',
+      resourceId: dictionary.id,
+      current: dictionary.updatedAt ?? null,
+      request: req,
+    })
+
+    const guardUserId = resolveDictionaryActorId(context.auth)
+    const guardResult = await validateCrudMutationGuard(context.container, {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userId: guardUserId,
+      resourceKind: 'dictionaries.dictionary',
+      resourceId: dictionary.id,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: null,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
     if (isProtectedCurrencyDictionary(dictionary)) {
       throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.currency_protected', 'The currency dictionary cannot be modified or deleted.') })
     }
@@ -209,6 +266,20 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     dictionary.isActive = false
     dictionary.deletedAt = dictionary.deletedAt ?? new Date()
     await context.em.flush()
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(context.container, {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        userId: guardUserId,
+        resourceKind: 'dictionaries.dictionary',
+        resourceId: dictionary.id,
+        operation: 'delete',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
 
     return NextResponse.json({ ok: true })
   } catch (err) {

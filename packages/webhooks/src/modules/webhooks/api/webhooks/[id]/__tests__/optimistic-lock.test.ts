@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const WEBHOOK_ID = '123e4567-e89b-12d3-a456-426614174070'
 const CURRENT_VERSION = '2026-06-01T10:00:00.000Z'
@@ -27,6 +28,22 @@ const mockEm = {
 
 const mockEmitWebhooksEvent = jest.fn(async () => undefined)
 
+// Optional enterprise command-guard service the async seam resolves from the
+// request container. `null` = OSS-only build (container.resolve throws); a value
+// = registered enterprise guard whose enforce() runs after the OSS floor passes.
+let commandGuardService: { enforce: (input: unknown) => Promise<void> } | null = null
+
+const mockContainer = {
+  resolve: (token: string) => {
+    if (token === 'commandOptimisticLockGuardService') {
+      if (!commandGuardService) throw new Error('not registered')
+      return commandGuardService
+    }
+    if (token === 'em') return mockEm
+    return null
+  },
+}
+
 jest.mock('../../../../events', () => ({
   emitWebhooksEvent: (...args: unknown[]) => mockEmitWebhooksEvent(...args),
 }))
@@ -37,7 +54,7 @@ jest.mock('../../../helpers', () => ({
       ...init,
       headers: { 'content-type': 'application/json' },
     }),
-  resolveWebhookRequestScope: jest.fn(async () => ({ em: mockEm, tenantId: 'tenant-1', organizationId: 'org-1' })),
+  resolveWebhookRequestScope: jest.fn(async () => ({ container: mockContainer, em: mockEm, tenantId: 'tenant-1', organizationId: 'org-1' })),
   findScopedWebhook: jest.fn(async () => (webhookRecord.deletedAt ? null : webhookRecord)),
   serializeWebhookDetail: (item: { id: string; updatedAt: Date }) => ({
     id: item.id,
@@ -67,6 +84,7 @@ describe('webhook endpoint PUT/DELETE optimistic locking', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     webhookRecord.deletedAt = null
+    commandGuardService = null
     delete process.env.OM_OPTIMISTIC_LOCK
   })
 
@@ -97,5 +115,32 @@ describe('webhook endpoint PUT/DELETE optimistic locking', () => {
     const body = await res.json()
     expect(body.code).toBe('optimistic_lock_conflict')
     expect(mockEm.flush).not.toHaveBeenCalled()
+  })
+
+  // Phase 6b part B: the route awaits the async DI-aware seam
+  // `enforceCommandOptimisticLockWithGuards(scope.container, ...)`.
+  it('OM_OPTIMISTIC_LOCK=off disables the guard — a stale PUT is not blocked', async () => {
+    process.env.OM_OPTIMISTIC_LOCK = 'off'
+    const res = await PUT(request('PUT', STALE_VERSION, { name: 'X' }), context)
+    expect(res.status).toBe(200)
+    expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  it('awaits the enterprise guard after the OSS floor passes; its 409 blocks the PUT before flush', async () => {
+    commandGuardService = {
+      enforce: jest.fn(async () => { throw new CrudHttpError(409, { code: 'record_lock_conflict' }) }),
+    }
+    const res = await PUT(request('PUT', CURRENT_VERSION, { name: 'X' }), context)
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.code).toBe('record_lock_conflict')
+    expect(mockEm.flush).not.toHaveBeenCalled()
+  })
+
+  it('degrades to OSS-only when the enterprise guard throws a non-conflict error (PUT still succeeds)', async () => {
+    commandGuardService = { enforce: jest.fn(async () => { throw new Error('guard exploded') }) }
+    const res = await PUT(request('PUT', CURRENT_VERSION, { name: 'X' }), context)
+    expect(res.status).toBe(200)
+    expect(mockEm.flush).toHaveBeenCalled()
   })
 })

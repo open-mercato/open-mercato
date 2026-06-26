@@ -17,11 +17,10 @@ import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFix
  *
  * Verifies the sales feature gates are enforced:
  *  - unauthenticated requests are rejected (401);
- *  - the seeded employee role lacks `sales.settings.manage`, so tax-rate access is 403;
+ *  - a role with `sales.settings.view` but not `sales.settings.manage` gets 403 on tax-rate access;
  *  - a role granted only `sales.orders.view` can list orders but cannot create them
  *    (`sales.orders.manage` is required for writes) — the view/manage split.
- * The employee subject is deterministic (seeded ACL); the view-only subject is built via
- * API fixtures and cleaned up in `finally`.
+ * Limited subjects are built via API fixtures and cleaned up in `finally`.
  */
 
 type JsonRecord = Record<string, unknown>
@@ -49,19 +48,45 @@ test.describe('TC-SALES-037 sales RBAC / feature gating', () => {
     expect(badToken.status(), 'malformed token should be 401').toBe(401)
   })
 
-  test('employee without sales.settings.manage cannot read or write tax rates', async ({ request }) => {
-    const token = await getAuthToken(request, 'employee')
+  test('settings-view-only role without sales.settings.manage cannot read or write tax rates', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const scope = getTokenScope(adminToken)
+    const stamp = Date.now()
+    const email = `qa-sales-settings-viewer-${stamp}@acme.com`
+    const password = `QaSettings1!${stamp}`
+    let roleId: string | null = null
+    let userId: string | null = null
 
-    const list = await apiRequest(request, 'GET', '/api/sales/tax-rates', { token })
-    expect(list.status(), 'employee GET /api/sales/tax-rates should be 403').toBe(403)
-    expect(requiredFeatures(await readJson(list)), '403 should cite the gating feature').toContain('sales.settings.manage')
+    try {
+      roleId = await createRoleFixture(request, adminToken, {
+        name: `QA Sales Settings Viewer ${stamp}`,
+        tenantId: scope.tenantId ?? undefined,
+      })
+      await setRoleAclFeatures(request, adminToken, { roleId, features: ['sales.settings.view'] })
+      userId = await createUserFixture(request, adminToken, {
+        email,
+        password,
+        organizationId: scope.organizationId!,
+        roles: [roleId],
+        name: `QA Sales Settings Viewer ${stamp}`,
+      })
 
-    const create = await apiRequest(request, 'POST', '/api/sales/tax-rates', {
-      token,
-      data: { name: 'QA blocked', code: `qa-blocked-${Date.now()}`, rate: 5 },
-    })
-    expect(create.status(), 'employee POST /api/sales/tax-rates should be 403').toBe(403)
-    expect(requiredFeatures(await readJson(create)), '403 should cite the gating feature').toContain('sales.settings.manage')
+      const token = await getAuthToken(request, email, password)
+
+      const list = await apiRequest(request, 'GET', '/api/sales/tax-rates', { token })
+      expect(list.status(), 'settings-view-only GET /api/sales/tax-rates should be 403').toBe(403)
+      expect(requiredFeatures(await readJson(list)), '403 should cite the gating feature').toContain('sales.settings.manage')
+
+      const create = await apiRequest(request, 'POST', '/api/sales/tax-rates', {
+        token,
+        data: { name: 'QA blocked', code: `qa-blocked-${Date.now()}`, rate: 5 },
+      })
+      expect(create.status(), 'settings-view-only POST /api/sales/tax-rates should be 403').toBe(403)
+      expect(requiredFeatures(await readJson(create)), '403 should cite the gating feature').toContain('sales.settings.manage')
+    } finally {
+      if (adminToken && userId) await deleteUserIfExists(request, adminToken, userId)
+      if (adminToken && roleId) await deleteRoleIfExists(request, adminToken, roleId)
+    }
   })
 
   test('a view-only role can list orders but cannot create them', async ({ request }) => {
