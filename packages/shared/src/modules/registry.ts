@@ -313,12 +313,10 @@ export function matchRoutePattern(pattern: string, pathname: string): RouteMatch
       const key = mCatchAll[1]
       if (i >= uSegs.length) return undefined
       params[key] = uSegs.slice(i)
-      i = uSegs.length
-      return i === uSegs.length ? params : undefined
+      return params
     } else if (mOptCatch) {
       const key = mOptCatch[1]
       params[key] = i < uSegs.length ? uSegs.slice(i) : []
-      i = uSegs.length
       return params
     } else if (mDyn) {
       if (i >= uSegs.length) return undefined
