@@ -609,6 +609,8 @@
   "workflows.ports.confirmRemove": "Czy na pewno chcesz usunąć ten port?",
   "workflows.ports.description": "Zdefiniuj jakie dane ten podprzepływ przyjmuje i zwraca.",
   "workflows.ports.editSchema": "Edytuj schemat",
+  "workflows.ports.openInside": "Otwórz środek",
+  "workflows.ports.openInsideNotFound": "Nie znaleziono powiązanego podprzepływu.",
   "workflows.ports.emptyInputs": "Nie zdefiniowano pól wejściowych.",
   "workflows.ports.emptyOutputs": "Nie zdefiniowano pól wyjściowych.",
   "workflows.ports.inputs": "Pola wejściowe (IN)",

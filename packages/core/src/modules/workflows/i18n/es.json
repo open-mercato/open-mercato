@@ -609,6 +609,8 @@
   "workflows.ports.confirmRemove": "¿Seguro que quieres eliminar este puerto?",
   "workflows.ports.description": "Define los datos que este subflujo acepta y devuelve.",
   "workflows.ports.editSchema": "Editar esquema",
+  "workflows.ports.openInside": "Abrir dentro",
+  "workflows.ports.openInsideNotFound": "No se pudo encontrar el subflujo referenciado.",
   "workflows.ports.emptyInputs": "No hay puertos de entrada definidos.",
   "workflows.ports.emptyOutputs": "No hay puertos de salida definidos.",
   "workflows.ports.inputs": "Campos de entrada (IN)",

@@ -609,6 +609,8 @@
   "workflows.ports.confirmRemove": "Möchten Sie diesen Port wirklich entfernen?",
   "workflows.ports.description": "Legen Sie fest, welche Daten dieser Sub-Workflow annimmt und zurückgibt.",
   "workflows.ports.editSchema": "Schema bearbeiten",
+  "workflows.ports.openInside": "Innenansicht öffnen",
+  "workflows.ports.openInsideNotFound": "Der referenzierte Sub-Workflow wurde nicht gefunden.",
   "workflows.ports.emptyInputs": "Keine Eingangsports definiert.",
   "workflows.ports.emptyOutputs": "Keine Ausgangsports definiert.",
   "workflows.ports.inputs": "Eingabefelder (IN)",

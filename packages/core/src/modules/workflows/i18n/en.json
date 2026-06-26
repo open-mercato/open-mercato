@@ -609,6 +609,8 @@
   "workflows.ports.confirmRemove": "Are you sure you want to remove this port?",
   "workflows.ports.description": "Define the data this sub-workflow accepts and returns.",
   "workflows.ports.editSchema": "Edit schema",
+  "workflows.ports.openInside": "Open inside",
+  "workflows.ports.openInsideNotFound": "Could not find the referenced sub-workflow.",
   "workflows.ports.emptyInputs": "No input ports defined.",
   "workflows.ports.emptyOutputs": "No output ports defined.",
   "workflows.ports.inputs": "Input fields (IN)",
