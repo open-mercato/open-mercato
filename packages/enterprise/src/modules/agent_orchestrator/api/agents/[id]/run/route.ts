@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { agentRunRequestSchema, baseAgentResultSchema } from '../../../../data/validators'
@@ -24,7 +25,7 @@ type RouteContext = { params: Promise<{ id: string }> }
 export async function POST(req: Request, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (!auth.tenantId || !auth.orgId || !auth.sub) {
+  if (!auth.tenantId || !auth.sub) {
     return NextResponse.json({ error: 'Tenant context required' }, { status: 400 })
   }
 
@@ -40,9 +41,27 @@ export async function POST(req: Request, ctx: RouteContext) {
 
   const container = await createRequestContainer()
 
+  // Attribute the run to the concretely selected organization, resolved through
+  // the canonical scope resolver (the same one the caseload reads with). Raw
+  // `auth.orgId` is not trustworthy here: under the "All organizations" scope it
+  // is either null (superadmin) or a stale account/home org, which would stamp an
+  // AgentRun/AgentProposal under an org the caseload never queries — silently
+  // orphaning the proposal from human disposition (#3629). Fail closed instead.
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const organizationId = scope?.selectedId ?? null
+  if (!organizationId) {
+    return NextResponse.json(
+      {
+        error:
+          'Select a single organization before running an agent. Agent runs must be attributed to one organization so the resulting proposal is reviewable in the caseload.',
+      },
+      { status: 400 },
+    )
+  }
+
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    organizationId,
     userId: auth.sub,
     resourceKind: 'agent_orchestrator.agent_run',
     resourceId: id,
@@ -56,7 +75,7 @@ export async function POST(req: Request, ctx: RouteContext) {
 
   const runCtx: AgentRunCtx = {
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    organizationId,
     userId: auth.sub,
   }
 
@@ -77,7 +96,7 @@ export async function POST(req: Request, ctx: RouteContext) {
   if (guardResult?.shouldRunAfterSuccess) {
     await runCrudMutationGuardAfterSuccess(container, {
       tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      organizationId,
       userId: auth.sub,
       resourceKind: 'agent_orchestrator.agent_run',
       resourceId: id,
@@ -108,7 +127,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Typed AgentResult', schema: baseAgentResultSchema },
       ],
       errors: [
-        { status: 400, description: 'Tenant context missing', schema: errorSchema },
+        { status: 400, description: 'Tenant context missing, or no single organization is selected (run under "All organizations" is rejected)', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Missing agent_orchestrator.agents.run', schema: errorSchema },
         { status: 404, description: 'Unknown agent id', schema: errorSchema },
