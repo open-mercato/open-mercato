@@ -11,7 +11,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
-import { workflowDefinitionDataSchema } from '../../../data/validators'
+import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
 import { Page } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -61,6 +61,39 @@ import * as React from 'react'
  * - Flash Messages: Top-right positioned validation messages
  * - Edit Dialogs: Modal dialogs for editing steps and transitions
  */
+/**
+ * Resolve the declared IO port contracts of every sub-workflow referenced by a
+ * definition, keyed by `subWorkflowId`, so SUB_WORKFLOW nodes can render the
+ * child's IN/OUT ports. Fail-open: any lookup error leaves that child without a
+ * contract and its node simply renders without ports.
+ */
+async function loadSubWorkflowContracts(
+  definition: { steps?: Array<{ stepType?: string; config?: { subWorkflowId?: string } }> } | null | undefined,
+): Promise<Map<string, WorkflowIoContract>> {
+  const contracts = new Map<string, WorkflowIoContract>()
+  const subWorkflowIds = Array.from(
+    new Set(
+      (definition?.steps || [])
+        .filter((step) => step?.stepType === 'SUB_WORKFLOW' && step?.config?.subWorkflowId)
+        .map((step) => step.config!.subWorkflowId as string),
+    ),
+  )
+  await Promise.all(
+    subWorkflowIds.map(async (workflowId) => {
+      try {
+        const res = await apiCall<{ data?: Array<{ definition?: { io?: WorkflowIoContract } }> }>(
+          `/api/workflows/definitions?workflowId=${encodeURIComponent(workflowId)}&limit=1`,
+        )
+        const io = res.ok ? res.result?.data?.[0]?.definition?.io : undefined
+        if (io) contracts.set(workflowId, io)
+      } catch {
+        // fail-open
+      }
+    }),
+  )
+  return contracts
+}
+
 export default function VisualEditorPage() {
   const t = useT()
   const router = useRouter()
@@ -159,8 +192,12 @@ export default function VisualEditorPage() {
         setEffectiveFrom(definition.effectiveFrom || '')
         setEffectiveTo(definition.effectiveTo || '')
 
+        // Resolve referenced sub-workflow port contracts so SUB_WORKFLOW nodes
+        // render IN/OUT ports without opening the child (fail-open).
+        const childContracts = await loadSubWorkflowContracts(definition.definition)
+
         // Convert definition to graph
-        const graph = definitionToGraph(definition.definition)
+        const graph = definitionToGraph(definition.definition, { childContracts })
         setNodes(graph.nodes)
         setEdges(graph.edges)
 
