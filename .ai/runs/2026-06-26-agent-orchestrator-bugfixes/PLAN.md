@@ -92,7 +92,8 @@
 
 ## Progress
 
-- [x] PR-A (#3629) — org-scope fix + fail-closed + test (branch `fix/3629-agent-run-org-scope`; `run/route.ts` now resolves `resolveOrganizationScopeForRequest` and fails closed when no single org is selected; regression test `agent-run-org-scope.test.ts`, 3 cases; enterprise typecheck + 244 unit tests green)
-- [x] PR-A — audit `invokeAgentForWorkflow.ts` org derivation — **safe, no change**: it takes `organizationId` from the workflow instance ctx (a persisted concrete org), not from live request header scope
-- [ ] PR-B (#3632) — executor transaction/rollback fix + durable FAILED + message + template + tests
+- [ ] PR-A (#3629) — org-scope fix + fail-closed + test
+- [ ] PR-A — audit `invokeAgentForWorkflow.ts` org derivation
+- [x] PR-B (#3632) — executor transaction/rollback fix + durable FAILED + honest message + tests (branch `fix/3632-workflow-executor-rollback`). `workflow-executor.ts`: on a thrown/rolled-back execution transaction, durably persist FAILED on a **fresh fork** (the in-txn write is discarded by the rollback and futile on a poisoned Postgres txn; the row's PESSIMISTIC_WRITE lock releases only after unwind, so a same-txn write would deadlock). `instances/route.ts`: corrected the misleading "started in background" message + traceable async-error log. Tests: 2 new executor cases (durable FAILED on fork; non-RUNNING left untouched) + updated route message assertion; core typecheck + 547 workflows tests green.
+  - **Correction:** the planned "template fix" (`{{deal.id}}` → `{{context.deal.id}}`) was investigated and **reverted** — it is a **no-op**: `interpolateVariables` falls back to resolving non-`context.`-prefixed paths against the context root (`activity-executor.ts:1319-1323`), so `{{deal.id}}` already resolves to `context.deal.id`. The template was NOT the trigger. The real trigger of the specific hang is still unconfirmed (needs a live repro); this PR's value is making ANY such failure **visible as FAILED** (with the error message) instead of silently stuck at RUNNING/start — which is exactly what's needed to diagnose the remaining trigger.
 - [ ] PR-C (#3628) — OpenCode trace capture + ingest + tests (confirm in-process parity decision)

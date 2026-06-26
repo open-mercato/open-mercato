@@ -745,6 +745,76 @@ describe('Workflow Executor (Unit Tests)', () => {
       )
     })
 
+    test('persists FAILED on a fresh fork when the execution transaction throws and rolls back (issue #3632)', async () => {
+      // An error that escapes the inner transition try (here: findValidTransitions
+      // throwing) reaches the outer catch, which re-throws → the whole transaction
+      // rolls back, discarding the in-transaction FAILED write. The executor must
+      // still durably mark the instance FAILED on an independent fork so it does
+      // not silently stay RUNNING/start.
+      const instance = buildRunningInstance()
+      mockFindOneByIds(instance, mockDefinition)
+
+      const forkInstance = buildRunningInstance()
+      const forkCreate = jest.fn((_entity: unknown, data: unknown) => data)
+      const forkEm = {
+        findOne: jest.fn(async () => forkInstance),
+        create: forkCreate,
+        persist: jest.fn(),
+        flush: jest.fn(),
+        transactional: jest.fn(async (callback: (trx: EntityManager) => Promise<unknown>) => callback(forkEm as unknown as EntityManager)),
+      }
+      ;(mockEm as any).fork = jest.fn(() => forkEm)
+
+      const transitionHandler = jest.requireMock('../transition-handler') as {
+        findValidTransitions: jest.Mock
+        executeTransition: jest.Mock
+      }
+      transitionHandler.findValidTransitions.mockRejectedValue(new Error('connection reset mid-step'))
+
+      await expect(
+        workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
+      ).rejects.toThrow('connection reset mid-step')
+
+      expect((mockEm as any).fork).toHaveBeenCalled()
+      expect(forkInstance.status).toBe('FAILED')
+      expect(forkInstance.errorMessage).toBe('connection reset mid-step')
+      expect(forkCreate).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ eventType: 'WORKFLOW_FAILED' })
+      )
+    })
+
+    test('leaves a non-RUNNING instance untouched on the fork when the transaction throws', async () => {
+      const instance = buildRunningInstance()
+      mockFindOneByIds(instance, mockDefinition)
+
+      // The fork sees an instance that already left RUNNING (e.g. cancelled
+      // concurrently) — it must not be clobbered to FAILED.
+      const forkInstance = { ...buildRunningInstance(), status: 'CANCELLED' } as WorkflowInstance
+      const forkCreate = jest.fn((_entity: unknown, data: unknown) => data)
+      const forkEm = {
+        findOne: jest.fn(async () => forkInstance),
+        create: forkCreate,
+        persist: jest.fn(),
+        flush: jest.fn(),
+        transactional: jest.fn(async (callback: (trx: EntityManager) => Promise<unknown>) => callback(forkEm as unknown as EntityManager)),
+      }
+      ;(mockEm as any).fork = jest.fn(() => forkEm)
+
+      const transitionHandler = jest.requireMock('../transition-handler') as {
+        findValidTransitions: jest.Mock
+        executeTransition: jest.Mock
+      }
+      transitionHandler.findValidTransitions.mockRejectedValue(new Error('boom'))
+
+      await expect(
+        workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
+      ).rejects.toThrow('boom')
+
+      expect(forkInstance.status).toBe('CANCELLED')
+      expect(forkCreate).not.toHaveBeenCalled()
+    })
+
     test('should trigger compensation when transition fails on a definition with compensatable activities', async () => {
       const compensationHandler = jest.requireMock('../compensation-handler') as {
         compensateWorkflow: jest.Mock
