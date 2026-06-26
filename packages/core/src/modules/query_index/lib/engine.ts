@@ -1,8 +1,9 @@
-import type { QueryEngine, QueryOptions, QueryResult, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning, QueryExtensionsConfig, Sort } from '@open-mercato/shared/lib/query/types'
+import type { QueryEngine, QueryOptions, QueryResult, QueryResultMeta, EncryptedSortRowCapWarning, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning, QueryExtensionsConfig, Sort } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine, resolveEntityTableName, resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
 import { type Kysely, sql, type RawBuilder } from 'kysely'
 import type { EventBus } from '@open-mercato/events'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
@@ -21,7 +22,10 @@ import {
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
-import { resolveEncryptedSortFields, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
+import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
+import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
+
+const DECRYPT_CONCURRENCY = 8
 
 function buildFilterableCustomFieldJoins(
   sources: QueryCustomFieldSource[] | undefined,
@@ -795,9 +799,10 @@ export class HybridQueryEngine implements QueryEngine {
       }
       const selectFields = Array.from(selectFieldSet)
 
-      const applySelection = (q: AnyBuilder): AnyBuilder => {
+      const applySelection = (q: AnyBuilder, fieldsOverride?: string[]): AnyBuilder => {
         let next = q
-        for (const field of selectFields) {
+        const fields = fieldsOverride ?? selectFields
+        for (const field of fields) {
           const fieldName = String(field)
           if (fieldName.startsWith('cf:')) {
             const alias = this.sanitize(fieldName)
@@ -888,71 +893,135 @@ export class HybridQueryEngine implements QueryEngine {
         total = this.parseCount(countRow)
       }
 
-      const dataRoot = db.selectFrom(`${baseTable} as b` as any)
-      let dataBuilder = await applyQueryShape(dataRoot)
-      dataBuilder = applySelection(dataBuilder)
-      dataBuilder = applySort(dataBuilder)
-      if (!requiresPlaintextSort) {
-        dataBuilder = dataBuilder.limit(pageSize).offset((page - 1) * pageSize)
-      }
-
-      if (debugEnabled && sqlDebugEnabled) {
-        const compiled = dataBuilder.compile()
-        this.debug('query:sql:data', { entity, sql: compiled.sql, bindings: compiled.parameters, page, pageSize })
-      }
-      const itemsRaw = await this.captureSqlTiming(
-        'query:sql:data', entity,
-        () => dataBuilder.execute(),
-        { page, pageSize }, profiler,
-      )
-      if (debugEnabled) this.debug('query:complete', { entity, total, items: Array.isArray(itemsRaw) ? itemsRaw.length : 0 })
-
-      let items = itemsRaw as any[]
       const dekKeyCache = new Map<string | null, string | null>()
-      if (encSvc?.decryptEntityPayload) {
-        const decrypt = encSvc.decryptEntityPayload.bind(encSvc) as (
-          entityId: EntityId, payload: Record<string, unknown>, tenantId: string | null, organizationId: string | null,
-        ) => Promise<Record<string, unknown>>
-        items = await Promise.all(
-          items.map(async (item) => {
-            try {
-              const decrypted = await decrypt(
-                entity, item,
-                item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,
-                item?.organization_id ?? item?.organizationId ?? fallbackOrgId ?? null,
-              )
-              return { ...item, ...decrypted }
-            } catch (err) {
-              console.error('Error decrypting entity payload', err)
-              return item
-            }
-          })
-        )
+
+      const decryptRow = async (item: Record<string, unknown>): Promise<Record<string, unknown>> => {
+        let next = item
+        if (encSvc?.decryptEntityPayload) {
+          const decrypt = encSvc.decryptEntityPayload.bind(encSvc) as (
+            entityId: EntityId, payload: Record<string, unknown>, tenantId: string | null, organizationId: string | null,
+          ) => Promise<Record<string, unknown>>
+          try {
+            const decrypted = await decrypt(
+              entity, next,
+              (next?.tenant_id ?? next?.tenantId ?? opts.tenantId ?? null) as string | null,
+              (next?.organization_id ?? next?.organizationId ?? fallbackOrgId ?? null) as string | null,
+            )
+            next = { ...next, ...decrypted }
+          } catch (err) {
+            console.error('Error decrypting entity payload', err)
+          }
+        }
+        if (encSvc) {
+          try {
+            next = await decryptIndexDocCustomFields(
+              next,
+              {
+                tenantId: (next?.tenant_id ?? next?.tenantId ?? opts.tenantId ?? null) as string | null,
+                organizationId: (next?.organization_id ?? next?.organizationId ?? null) as string | null,
+              },
+              encSvc as any, dekKeyCache,
+            )
+          } catch { /* keep next as-is */ }
+        }
+        return next
       }
-      if (encSvc) {
-        items = await Promise.all(
-          items.map(async (item) => {
-            try {
-              return await decryptIndexDocCustomFields(
-                item,
-                {
-                  tenantId: item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,
-                  organizationId: item?.organization_id ?? item?.organizationId ?? null,
-                },
-                encSvc as any, dekKeyCache,
-              )
-            } catch { return item }
-          }),
-        )
-      }
+
+      let items: Record<string, unknown>[]
+      let encryptedSortRowCapWarning: EncryptedSortRowCapWarning | undefined
+
       if (requiresPlaintextSort) {
-        items = sortRowsInMemory(items as Record<string, unknown>[], resolvedSorts)
+        // Phase 1: slim id+sort-columns candidate scan, bounded-concurrency decrypt,
+        // in-memory sort over the full candidate set, then slice to the page's ids.
+        const cap = resolveEncryptedSortMaxRows()
+        const phase1Root = db.selectFrom(`${baseTable} as b` as any)
+        let phase1 = await applyQueryShape(phase1Root)
+        const scopeFieldNames = [
+          hasTenantColumn ? 'tenant_id' : null,
+          hasOrganizationColumn ? 'organization_id' : null,
+        ].filter((field): field is string => field !== null)
+        const sortFieldNames = Array.from(new Set(['id', ...scopeFieldNames, ...resolvedSorts.map((s) => String(s.field))]))
+        phase1 = applySelection(phase1, sortFieldNames)
+        if (cap !== null) {
+          phase1 = phase1.limit(cap).orderBy(qualify('id'), 'asc' as any)
+        }
+        if (debugEnabled && sqlDebugEnabled) {
+          const compiled = phase1.compile()
+          this.debug('query:sql:data:phase1', { entity, sql: compiled.sql, bindings: compiled.parameters })
+        }
+        const candidateRows = await this.captureSqlTiming(
+          'query:sql:data:phase1', entity,
+          () => phase1.execute(),
+          { phase: 1 }, profiler,
+        ) as Record<string, unknown>[]
+        const decryptedCandidates = await mapWithConcurrency(candidateRows, DECRYPT_CONCURRENCY, decryptRow)
+        const orderedCandidates = sortRowsInMemory(decryptedCandidates, resolvedSorts)
+        const pageIds = orderedCandidates
           .slice((page - 1) * pageSize, page * pageSize)
+          .map((row) => row.id)
+
+        if (cap !== null && total > cap) {
+          encryptedSortRowCapWarning = {
+            entity,
+            sortFields: resolvedSorts.map((s) => String(s.field)),
+            maxRows: cap,
+            totalMatched: total,
+          }
+        }
+
+        // Phase 2: fetch + decrypt full rows for just the page's ids, then reassemble
+        // in phase-1's order (SQL `WHERE id IN (...)` order is unspecified — never
+        // trust it for ordering).
+        if (pageIds.length === 0) {
+          items = []
+        } else {
+          const phase2Root = db.selectFrom(`${baseTable} as b` as any)
+          let phase2 = await applyQueryShape(phase2Root)
+          phase2 = applySelection(phase2)
+          phase2 = phase2.where(qualify('id'), 'in', pageIds)
+          if (debugEnabled && sqlDebugEnabled) {
+            const compiled = phase2.compile()
+            this.debug('query:sql:data:phase2', { entity, sql: compiled.sql, bindings: compiled.parameters })
+          }
+          const pageRowsRaw = await this.captureSqlTiming(
+            'query:sql:data:phase2', entity,
+            () => phase2.execute(),
+            { phase: 2 }, profiler,
+          ) as Record<string, unknown>[]
+          const decryptedPageRows = await mapWithConcurrency(pageRowsRaw, DECRYPT_CONCURRENCY, decryptRow)
+          const byId = new Map(decryptedPageRows.map((row) => [String(row.id), row]))
+          items = pageIds
+            .map((id) => byId.get(String(id)))
+            .filter((row): row is Record<string, unknown> => row != null)
+        }
+      } else {
+        const dataRoot = db.selectFrom(`${baseTable} as b` as any)
+        let dataBuilder = await applyQueryShape(dataRoot)
+        dataBuilder = applySelection(dataBuilder)
+        dataBuilder = applySort(dataBuilder)
+        dataBuilder = dataBuilder.limit(pageSize).offset((page - 1) * pageSize)
+
+        if (debugEnabled && sqlDebugEnabled) {
+          const compiled = dataBuilder.compile()
+          this.debug('query:sql:data', { entity, sql: compiled.sql, bindings: compiled.parameters, page, pageSize })
+        }
+        const itemsRaw = await this.captureSqlTiming(
+          'query:sql:data', entity,
+          () => dataBuilder.execute(),
+          { page, pageSize }, profiler,
+        ) as Record<string, unknown>[]
+        items = await mapWithConcurrency(itemsRaw, DECRYPT_CONCURRENCY, decryptRow)
       }
+      if (debugEnabled) this.debug('query:complete', { entity, total, items: items.length })
 
       const typedItems = items as unknown as T[]
       let result: QueryResult<T> = { items: typedItems, page, pageSize, total }
-      if (partialIndexWarning) result.meta = { partialIndexWarning }
+      if (partialIndexWarning || encryptedSortRowCapWarning) {
+        const meta: QueryResultMeta = {}
+        if (partialIndexWarning) meta.partialIndexWarning = partialIndexWarning
+        if (encryptedSortRowCapWarning) meta.encryptedSortRowCapWarning = encryptedSortRowCapWarning
+        result.meta = meta
+      }
 
       result = await applyAfterExtensions(result)
       finishProfile({
@@ -996,32 +1065,44 @@ export class HybridQueryEngine implements QueryEngine {
     if (cached !== undefined) return cached
     let result = false
     try {
-      const db = this.getDb() as any
-      const row = await db
-        .selectFrom('custom_entities')
-        .select('id')
-        .where('entity_id', '=', entity)
-        .where('is_active', '=', true)
-        .executeTakeFirst()
-      if (row) {
-        result = true
-      } else if (resolveRegisteredEntityTableName(this.em, entity) !== null) {
-        // An id backed by a registered ORM table is never doc-storage-backed by
-        // inference: stray `custom_entities_storage` rows for such an id (e.g. written
-        // through the generic entities data engine) must not hijack every list/detail
-        // read for the whole entity type away from its base table (#2939). Surfaces
-        // that intentionally read doc records for a dual-declared id pass
-        // `forceCustomEntityStorage` in QueryOptions instead.
+      if (isOrmBackedSystemEntityId(this.em, entity)) {
+        // An id backed by a registered ORM table is never doc-storage-backed. Classify it
+        // as its base table BEFORE probing `custom_entities`, so neither a stray
+        // `custom_entities_storage` row nor an active `custom_entities` row (e.g. a
+        // presentation-metadata overlay for a system entity) can hijack every list/detail
+        // read for the whole entity type away from its base table (#2939). This mirrors the
+        // ORM-backed-first ordering already used by the records API (`classifyRecordsEntity`)
+        // and the doc-storage write guard (`assertCustomEntityStorageEntityId`); without it
+        // the read classifier alone trusted an active registration row over ORM-table
+        // resolution. Surfaces that intentionally read doc records for a dual-declared id
+        // pass `forceCustomEntityStorage` in QueryOptions instead.
         result = false
       } else {
-        // Read/write symmetry. Records written through the entities data engine
-        // (`de.createCustomEntityRecord`) always land in `custom_entities_storage`,
-        // even for module-declared custom entities whose id is also a frozen system
-        // id — those are NEVER registered in `custom_entities` (install treats a
-        // system id as non-registrable). Without this fallback the query routes to
-        // the empty ORM/index path and those records are write-only (created with
-        // 200 but unreadable on the edit form).
-        result = await this.hasCustomEntityStorageRows(entity)
+        const db = this.getDb() as any
+        const row = await db
+          .selectFrom('custom_entities')
+          .select('id')
+          .where('entity_id', '=', entity)
+          .where('is_active', '=', true)
+          .executeTakeFirst()
+        if (row) {
+          result = true
+        } else if (resolveRegisteredEntityTableName(this.em, entity) !== null) {
+          // A non-registry id whose entity segment collides with an ORM class name (e.g.
+          // `user:todo` vs the example module's `Todo`) resolves to a table but is NOT an
+          // ORM-backed system entity, so it is not short-circuited above. Stray
+          // `custom_entities_storage` rows for such an id must not hijack reads either.
+          result = false
+        } else {
+          // Read/write symmetry. Records written through the entities data engine
+          // (`de.createCustomEntityRecord`) always land in `custom_entities_storage`,
+          // even for module-declared custom entities whose id is also a frozen system
+          // id — those are NEVER registered in `custom_entities` (install treats a
+          // system id as non-registrable). Without this fallback the query routes to
+          // the empty ORM/index path and those records are write-only (created with
+          // 200 but unreadable on the edit form).
+          result = await this.hasCustomEntityStorageRows(entity)
+        }
       }
     } catch {
       result = false

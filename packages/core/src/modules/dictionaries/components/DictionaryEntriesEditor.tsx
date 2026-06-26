@@ -17,6 +17,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -75,6 +76,19 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
   const [errors, setErrors] = React.useState<{ value?: string; label?: string }>({})
   const [translateEntry, setTranslateEntry] = React.useState<Entry | null>(null)
   const appearance = useAppearanceState(formState.icon, formState.color)
+  const mutationContextId = React.useMemo(
+    () => `dictionaries:dictionary_entry:${dictionaryId}`,
+    [dictionaryId],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId?: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   const resetForm = React.useCallback(() => {
     setFormState({ value: '', label: '', color: null, icon: null })
@@ -140,39 +154,64 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         icon: appearance.icon,
       }
       if (formState.id) {
-        const call = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(formState.updatedAt),
-          () =>
-            apiCall<Record<string, unknown>>(
-              `/api/dictionaries/${dictionaryId}/entries/${formState.id}`,
+        const entryId = formState.id
+        const expectedUpdatedAt = formState.updatedAt
+        await runMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(expectedUpdatedAt),
+              async () => {
+                const call = await apiCall<Record<string, unknown>>(
+                  `/api/dictionaries/${dictionaryId}/entries/${entryId}`,
+                  {
+                    method: 'PATCH',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(payload),
+                  },
+                )
+                if (!call.ok) {
+                  throw Object.assign(
+                    new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to save dictionary entry'),
+                    { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
+                  )
+                }
+                return call
+              },
+            ),
+          context: {
+            formId: mutationContextId,
+            resourceKind: 'dictionaries.dictionary_entry',
+            resourceId: entryId,
+            retryLastMutation,
+          },
+          mutationPayload: payload,
+        })
+        flash(t('dictionaries.config.entries.success.update', 'Dictionary entry updated.'), 'success')
+      } else {
+        await runMutation({
+          operation: async () => {
+            const call = await apiCall<Record<string, unknown>>(
+              `/api/dictionaries/${dictionaryId}/entries`,
               {
-                method: 'PATCH',
+                method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify(payload),
               },
-            ),
-        )
-        if (!call.ok) {
-          throw Object.assign(
-            new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to save dictionary entry'),
-            { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
-          )
-        }
-        flash(t('dictionaries.config.entries.success.update', 'Dictionary entry updated.'), 'success')
-      } else {
-        const call = await apiCall<Record<string, unknown>>(
-          `/api/dictionaries/${dictionaryId}/entries`,
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
+            )
+            if (!call.ok) {
+              throw new Error(
+                typeof call.result?.error === 'string' ? call.result.error : 'Failed to create dictionary entry',
+              )
+            }
+            return call
           },
-        )
-        if (!call.ok) {
-          throw new Error(
-            typeof call.result?.error === 'string' ? call.result.error : 'Failed to create dictionary entry',
-          )
-        }
+          context: {
+            formId: mutationContextId,
+            resourceKind: 'dictionaries.dictionary_entry',
+            retryLastMutation,
+          },
+          mutationPayload: payload,
+        })
         flash(t('dictionaries.config.entries.success.create', 'Dictionary entry created.'), 'success')
       }
       await invalidateDictionaryEntries(queryClient, dictionaryId)
@@ -190,7 +229,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
     } finally {
       setIsSaving(false)
     }
-  }, [appearance, dictionaryId, formState.id, formState.label, formState.updatedAt, formState.value, queryClient, readOnly, readOnlyMessage, t])
+  }, [appearance, dictionaryId, formState.id, formState.label, formState.updatedAt, formState.value, mutationContextId, queryClient, readOnly, readOnlyMessage, runMutation, retryLastMutation, t])
 
   const handleDelete = React.useCallback(
     async (entry: Entry) => {
@@ -206,29 +245,49 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
       if (!confirmDelete) return
       setIsDeleting(true)
       try {
-        const call = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(entry.updatedAt),
-          () =>
-            apiCall<Record<string, unknown>>(
-              `/api/dictionaries/${dictionaryId}/entries/${entry.id}`,
-              { method: 'DELETE' },
+        await runMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(entry.updatedAt),
+              async () => {
+                const call = await apiCall<Record<string, unknown>>(
+                  `/api/dictionaries/${dictionaryId}/entries/${entry.id}`,
+                  { method: 'DELETE' },
+                )
+                if (!call.ok) {
+                  throw Object.assign(
+                    new Error(
+                      typeof call.result?.error === 'string' ? call.result.error : 'Failed to delete dictionary entry',
+                    ),
+                    { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
+                  )
+                }
+                return call
+              },
             ),
-        )
-        if (!call.ok) {
-          throw new Error(
-            typeof call.result?.error === 'string' ? call.result.error : 'Failed to delete dictionary entry',
-          )
-        }
+          context: {
+            formId: mutationContextId,
+            resourceKind: 'dictionaries.dictionary_entry',
+            resourceId: entry.id,
+            retryLastMutation,
+          },
+          mutationPayload: { id: entry.id },
+        })
         await invalidateDictionaryEntries(queryClient, dictionaryId)
         flash(t('dictionaries.config.entries.success.delete', 'Dictionary entry deleted.'), 'success')
       } catch (err) {
+        // Route a concurrent-edit 409 through the single conflict surface (matching
+        // the entry save path); fall back to a flash for any other delete failure.
+        if (surfaceRecordConflict(err, t)) {
+          return
+        }
         console.error('Failed to delete dictionary entry', err)
         flash(t('dictionaries.config.entries.error.delete', 'Failed to delete dictionary entry.'), 'error')
       } finally {
         setIsDeleting(false)
       }
     },
-    [confirm, dictionaryId, queryClient, readOnly, readOnlyMessage, t],
+    [confirm, dictionaryId, mutationContextId, queryClient, readOnly, readOnlyMessage, runMutation, retryLastMutation, t],
   )
 
   const tableContent = React.useMemo(() => {

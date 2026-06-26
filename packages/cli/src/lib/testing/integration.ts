@@ -157,6 +157,31 @@ const EPHEMERAL_ENV_LOCK_POLL_MS = 500
 const DEFAULT_BUILD_CACHE_TTL_SECONDS = 600
 const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
 const BUILD_CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
+const EPHEMERAL_POSTGRES_IMAGE_ENV_VAR = 'OM_INTEGRATION_POSTGRES_IMAGE'
+// Dev/prod and the dev container run pgvector-enabled Postgres (see docker-compose*.yml,
+// docker/postgres-init.sh, .devcontainer/docker-compose.yml). The ephemeral integration DB
+// MUST match so that `CREATE EXTENSION vector` (packages/search/src/vector/drivers/pgvector)
+// and any vector-search code path succeed. A plain `postgres:*` image lacks the extension
+// files. Stay on pg16 to avoid behavioral drift in the existing suite; only add pgvector.
+const DEFAULT_EPHEMERAL_POSTGRES_IMAGE = 'pgvector/pgvector:pg16'
+// Eagerly create the extensions the platform relies on so they are guaranteed present in the
+// fresh database, not merely available in the image. The ephemeral superuser can run these.
+// Mirrors docker/postgres-init.sh (default DB + template1 so any future DB inherits them).
+const EPHEMERAL_POSTGRES_INIT_SQL = `CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+\\connect template1
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+`
+
+export function resolveEphemeralPostgresImage(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env[EPHEMERAL_POSTGRES_IMAGE_ENV_VAR]?.trim()
+  return override && override.length > 0 ? override : DEFAULT_EPHEMERAL_POSTGRES_IMAGE
+}
+
+export function ephemeralPostgresInitSql(): string {
+  return EPHEMERAL_POSTGRES_INIT_SQL
+}
 const PLAYWRIGHT_ENV_UNAVAILABLE_PATTERNS: RegExp[] = [
   /net::ERR_CONNECTION_REFUSED/i,
   /Failed to connect to .* (localhost|127\.0\.0\.1)/i,
@@ -2955,12 +2980,21 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     const databasePassword = 'secret'
 
     const { GenericContainer } = await import('testcontainers')
-    const databaseContainer = await new GenericContainer('postgres:16')
+    const databaseContainer = await new GenericContainer(resolveEphemeralPostgresImage())
       .withEnvironment({
         POSTGRES_DB: databaseName,
         POSTGRES_USER: databaseUser,
         POSTGRES_PASSWORD: databasePassword,
       })
+      // Guarantee the pgvector (and pgcrypto) extensions exist in the fresh database before the
+      // app boots, so vector-search code paths and `CREATE EXTENSION vector` succeed. The
+      // Postgres entrypoint runs *.sql files under /docker-entrypoint-initdb.d/ on first init.
+      .withCopyContentToContainer([
+        {
+          content: ephemeralPostgresInitSql(),
+          target: '/docker-entrypoint-initdb.d/00-open-mercato-extensions.sql',
+        },
+      ])
       .withExposedPorts(5432)
       .start()
 

@@ -1464,6 +1464,50 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 
 ## Changelog
 
+### 2026-06-24 - MCP dev server loads ai-tools for @app local modules (#3524)
+
+**What changed** (`lib/generated-registry-loader.ts`):
+- `rewriteGeneratedAliasImports` now also rewrites the `../../src/...` relative imports the generator emits for `@app` local modules (e.g. `from "../../src/modules/<id>/ai-tools"`), resolving them against the generated file's directory (`<appRoot>/.mercato/generated`) to absolute `file://` URLs with the same `.ts`-suffix probe used for `@/` aliases. Previously only `@/` aliases were rewritten, so the `../../src/...` specifier passed through `esbuild.transform` (transpile-only) into the compiled `.mjs` and Node ESM threw `ERR_MODULE_NOT_FOUND` resolving the extensionless `.ts`-only target. Package-backed modules (`@open-mercato/*`) were never affected — their bare specifiers resolve through `node_modules` to compiled `.js`.
+
+**Files**: `lib/generated-registry-loader.ts`. Regression test: `lib/__tests__/generated-registry-loader.test.ts` (3 cases covering static import, dynamic `import()`, and `.ts`-suffix resolution for the `../../src/...` shape).
+
+**Backward compatibility**: Strictly additive — the `rewriteGeneratedAliasImports(source, appRoot)` signature is unchanged, and `@/` aliases, bare package imports, and sibling `./` imports keep their prior behavior. Only previously-broken `../../src/...` specifiers change (from unresolved to resolved).
+
+### 2026-06-11 - Rate-limit AI chat dispatch routes (#2975)
+
+**What changed**:
+- Both AI chat dispatch handlers — `POST /api/ai_assistant/ai/chat` (`api/ai/chat/route.ts`) and the legacy `POST /api/chat` (`api/chat/route.ts`) — now consult a per-user/per-tenant rate limit before running the LLM agent loop, per-turn DB reads/writes, and (legacy) the ephemeral `api_keys` insert.
+- Added `lib/rate-limit.ts` exporting `checkAiChatRateLimit({ req, container, userId, tenantId })`. It resolves the already-registered `rateLimiterService` from the request DI container (NOT a static `@open-mercato/core` import — core is not a dependency of this package), builds an additive `RATE_LIMIT_AI_CHAT_*` bucket via `readEndpointRateLimitConfig`, keys on `userId:tenantId`, and returns a typed 429 on breach.
+- **Fail-open**, mirroring auth's `checkAuthRateLimit`: when the limiter service is unavailable (unregistered, null, throws) the request proceeds unthrottled. No response shape, DI key, route, or event-id change.
+
+**New environment variables** (all optional, additive):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `RATE_LIMIT_AI_CHAT_POINTS` | `30` | Max chat turns per window per user/tenant. |
+| `RATE_LIMIT_AI_CHAT_DURATION` | `60` | Window length (seconds). |
+| `RATE_LIMIT_AI_CHAT_BLOCK_DURATION` | unset | Optional block window (seconds) after breach. |
+| `OM_TEST_AI_CHAT_RATE_LIMIT_MODE` | unset | Set to `opt-in` (with `OM_TEST_MODE=1`) so the bucket is only exercised when a request sends `x-om-test-rate-limit: on`, mirroring auth's test opt-in. |
+
+The global `RATE_LIMIT_ENABLED` kill switch (auto-off under `OM_INTEGRATION_TEST`) still disables the bucket wholesale.
+
+**Files**:
+- Added `lib/rate-limit.ts` + `lib/__tests__/rate-limit.test.ts`.
+- `api/ai/chat/route.ts`, `api/chat/route.ts` — call the gate near the top of the POST handler (legacy route reuses the request container resolved for the answerQuestion ownership re-check).
+
+### 2026-06-11 - Harden latent MCP server-config module (#2672)
+
+**What changed** (`lib/mcp-server-config.ts`, currently dead code — no callers):
+- Added `validateMcpServerUrl()` (exported): restricts external MCP server URLs to `http:`/`https:` (blocks `file:`/`gopher:`/`data:` local-file disclosure) and rejects literal loopback, link-local (`169.254.0.0/16`, `fe80::/10`), and RFC1918 private hosts plus `localhost`/`0.0.0.0`/IPv4-mapped IPv6 — reducing SSRF exposure if a management route is ever wired up. `validateMcpServerConfig` now uses it for HTTP configs.
+- `saveMcpServerConfig` / `updateMcpServerConfig` now call `validateMcpServerConfig` and throw on invalid input, so persistence is **fail-closed**.
+- `generateId()` now uses `randomUUID()` (CSPRNG) instead of `Date.now()` + `Math.random()`.
+
+Note: the guard is intentionally NOT added to `mcp-client.ts` `connectHttp`, which legitimately connects to the app's own loopback MCP server (`localhost:3001`). DNS-rebinding (resolution-time checks) is out of scope for this dead-code hardening.
+
+**Files**: `lib/mcp-server-config.ts`. Regression test: `lib/__tests__/mcp-server-config-hardening.test.ts`.
+
+**Backward compatibility**: `validateMcpServerUrl` is additive. The module has no callers, so the tightened HTTP validation + fail-closed persistence change no live behavior.
+
 ### 2026-06-11 - MCP stdio server fails closed without auth (#2673)
 
 **What changed**:

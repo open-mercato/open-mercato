@@ -31,7 +31,7 @@ Evaluate these gates:
 - `mergeStateStatus` must not be `DIRTY` or `BLOCKED`
 - the PR must not carry `changes-requested`, `qa-failed`, `blocked`, or `do-not-merge`
 - the PR must not carry `in-progress`
-- if `needs-qa` is present, the PR must already carry `qa-approved` (manual QA signed off) — otherwise the `merge-gate` check blocks the merge. `needs-qa` PRs legitimately sit in `merge-queue` before QA, so the pipeline label alone is not proof of QA; the `qa` pipeline label means QA is still in progress and is itself a blocker.
+- if `needs-qa` is present, the PR must already carry `qa-approved` (manual QA signed off) — otherwise the QA-approval gate blocks the merge. `needs-qa` PRs legitimately sit in `merge-queue` before QA, so the pipeline label alone is not proof of QA; the `qa` pipeline label means QA is still in progress and is itself a blocker.
 
 Treat `PENDING` CI as a blocker, but classify it as "almost ready" rather than "blocked" when it is the only missing gate.
 

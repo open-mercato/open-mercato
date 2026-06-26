@@ -13,6 +13,11 @@ import { loadSalesSettings } from '../../../commands/settings'
 import { SalesDocumentNumberGenerator } from '../../../services/salesDocumentNumberGenerator'
 import { DOCUMENT_NUMBER_TOKENS, DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT } from '../../../lib/documentNumberTokens'
 import { withScopedPayload } from '../../utils'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['sales.settings.manage'] },
@@ -94,9 +99,24 @@ export async function GET(req: Request) {
 export async function PUT(req: Request) {
   try {
     const { ctx, translate, generator, organizationId, tenantId } = await resolveSettingsContext(req)
-    const payload = await req.json().catch(() => ({}))
+    const payload = await readJsonSafe(req, {})
     const scoped = withScopedPayload(payload, ctx, translate)
     const input = salesSettingsUpsertSchema.parse(scoped)
+
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId,
+      organizationId,
+      userId: ctx.auth!.sub,
+      resourceKind: 'sales.settings',
+      resourceId: organizationId,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const { result } = await commandBus.execute<
@@ -109,6 +129,20 @@ export async function PUT(req: Request) {
         nextQuoteNumber: number
       }
     >('sales.settings.save', { input, ctx })
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId,
+        organizationId,
+        userId: ctx.auth!.sub,
+        resourceKind: 'sales.settings',
+        resourceId: organizationId,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
 
     const sequences = await generator.peekSequences({ organizationId, tenantId })
 

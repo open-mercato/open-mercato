@@ -414,102 +414,106 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     userFeatures: undefined,
   })
 
-  const profile = company.companyProfile
-    ? await findOneWithDecryption(
-        em,
-        CustomerCompanyProfile,
-        {
-          id: company.companyProfile.id,
-          tenantId: company.tenantId,
-          organizationId: company.organizationId,
-        },
-        {},
-        companyScope,
-      )
-    : await findOneWithDecryption(
-        em,
-        CustomerCompanyProfile,
-        {
-          entity: company,
-          tenantId: company.tenantId,
-          organizationId: company.organizationId,
-        },
-        {},
-        companyScope,
-      )
-
-  const addresses = includeAddresses
-    ? await findWithDecryption(
-        em,
-        CustomerAddress,
-        {
-          entity: company.id,
-          tenantId: company.tenantId,
-          organizationId: company.organizationId,
-        },
-        { orderBy: { isPrimary: 'desc', createdAt: 'desc' } },
-        companyScope,
-      )
-    : []
-  const tagAssignments = await findWithDecryption(
-    em,
-    CustomerTagAssignment,
-    {
-      entity: company.id,
-      tenantId: company.tenantId,
-      organizationId: company.organizationId,
-    },
-    { populate: ['tag'] },
-    companyScope,
-  )
-  const labelAssignments = await findWithDecryption(
-    em,
-    CustomerLabelAssignment,
-    {
-      entity: company.id,
-      tenantId: company.tenantId,
-      organizationId: company.organizationId,
-    },
-    { populate: ['label'] },
-    companyScope,
-  )
-
-  const comments = includeComments
-    ? await findWithDecryption(
-        em,
-        CustomerComment,
-        {
-          entity: company.id,
-          tenantId: company.tenantId,
-          organizationId: company.organizationId,
-        },
-        { orderBy: { createdAt: 'desc' }, limit: 50 },
-        companyScope,
-      )
-    : []
   const shouldLoadCanonicalInteractions = includeInteractions || includeActivities || includeTodos
-  const canonicalInteractionRows = shouldLoadCanonicalInteractions
-    ? await findWithDecryption(
-        em,
-        CustomerInteraction,
-        interactionFlags.unified
-          ? {
-              entity: company.id,
-              tenantId: company.tenantId,
-              organizationId: company.organizationId,
-              deletedAt: null,
-              ...emailVisibilityFilter,
-            }
-          : {
-              entity: company.id,
-              tenantId: company.tenantId,
-              organizationId: company.organizationId,
-              ...emailVisibilityFilter,
-            },
-        { orderBy: { scheduledAt: 'asc', createdAt: 'desc' }, limit: 100 },
-        companyScope,
-      )
-    : []
+
+  // These reads only depend on the resolved company + scope + email visibility
+  // filter, so dispatch them together to avoid a server-side request waterfall
+  // before the detail surface can render (issue #3203).
+  const [profile, addresses, tagAssignments, labelAssignments, comments, canonicalInteractionRows] = await Promise.all([
+    company.companyProfile
+      ? findOneWithDecryption(
+          em,
+          CustomerCompanyProfile,
+          {
+            id: company.companyProfile.id,
+            tenantId: company.tenantId,
+            organizationId: company.organizationId,
+          },
+          {},
+          companyScope,
+        )
+      : findOneWithDecryption(
+          em,
+          CustomerCompanyProfile,
+          {
+            entity: company,
+            tenantId: company.tenantId,
+            organizationId: company.organizationId,
+          },
+          {},
+          companyScope,
+        ),
+    includeAddresses
+      ? findWithDecryption(
+          em,
+          CustomerAddress,
+          {
+            entity: company.id,
+            tenantId: company.tenantId,
+            organizationId: company.organizationId,
+          },
+          { orderBy: { isPrimary: 'desc', createdAt: 'desc' } },
+          companyScope,
+        )
+      : Promise.resolve<CustomerAddress[]>([]),
+    findWithDecryption(
+      em,
+      CustomerTagAssignment,
+      {
+        entity: company.id,
+        tenantId: company.tenantId,
+        organizationId: company.organizationId,
+      },
+      { populate: ['tag'] },
+      companyScope,
+    ),
+    findWithDecryption(
+      em,
+      CustomerLabelAssignment,
+      {
+        entity: company.id,
+        tenantId: company.tenantId,
+        organizationId: company.organizationId,
+      },
+      { populate: ['label'] },
+      companyScope,
+    ),
+    includeComments
+      ? findWithDecryption(
+          em,
+          CustomerComment,
+          {
+            entity: company.id,
+            tenantId: company.tenantId,
+            organizationId: company.organizationId,
+          },
+          { orderBy: { createdAt: 'desc' }, limit: 50 },
+          companyScope,
+        )
+      : Promise.resolve<CustomerComment[]>([]),
+    shouldLoadCanonicalInteractions
+      ? findWithDecryption(
+          em,
+          CustomerInteraction,
+          interactionFlags.unified
+            ? {
+                entity: company.id,
+                tenantId: company.tenantId,
+                organizationId: company.organizationId,
+                deletedAt: null,
+                ...emailVisibilityFilter,
+              }
+            : {
+                entity: company.id,
+                tenantId: company.tenantId,
+                organizationId: company.organizationId,
+                ...emailVisibilityFilter,
+              },
+          { orderBy: { scheduledAt: 'asc', createdAt: 'desc' }, limit: 100 },
+          companyScope,
+        )
+      : Promise.resolve<CustomerInteraction[]>([]),
+  ])
   const canonicalActiveInteractions = canonicalInteractionRows.filter((interaction) => !interaction.deletedAt)
   const canonicalInteractions = shouldLoadCanonicalInteractions
     ? await hydrateCanonicalInteractions({
@@ -775,32 +779,35 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     relatedPeople = Array.from(relatedPeopleById.values())
   }
 
-  const entityCustomFieldValues = await loadCustomFieldValues({
-    em,
-    entityId: E.customers.customer_entity,
-    recordIds: [company.id],
-    tenantIdByRecord: { [company.id]: company.tenantId ?? null },
-    organizationIdByRecord: { [company.id]: company.organizationId ?? null },
-    tenantFallbacks: [
-      company.tenantId ?? auth.tenantId ?? null,
-    ].filter((v): v is string => !!v),
-  })
-  let profileCustomFieldValues: Record<string, Record<string, unknown>> = {}
+  // Entity custom fields, profile custom fields, and the routing lookup do not
+  // depend on each other (profileId is already resolved above), so load them in
+  // parallel instead of three sequential awaits (issue #3203).
   const profileId = profile?.id ?? null
-  if (profileId) {
-    profileCustomFieldValues = await loadCustomFieldValues({
+  const [entityCustomFieldValues, profileCustomFieldValues, routing] = await Promise.all([
+    loadCustomFieldValues({
       em,
-      entityId: E.customers.customer_company_profile,
-      recordIds: [profileId],
-      tenantIdByRecord: { [profileId]: profile?.tenantId ?? null },
-      organizationIdByRecord: { [profileId]: profile?.organizationId ?? null },
+      entityId: E.customers.customer_entity,
+      recordIds: [company.id],
+      tenantIdByRecord: { [company.id]: company.tenantId ?? null },
+      organizationIdByRecord: { [company.id]: company.organizationId ?? null },
       tenantFallbacks: [
-        profile?.tenantId ?? company.tenantId ?? auth.tenantId ?? null,
+        company.tenantId ?? auth.tenantId ?? null,
       ].filter((v): v is string => !!v),
-    })
-  }
-
-  const routing = await resolveCompanyCustomFieldRouting(em, company.tenantId ?? null, company.organizationId ?? null)
+    }),
+    profileId
+      ? loadCustomFieldValues({
+          em,
+          entityId: E.customers.customer_company_profile,
+          recordIds: [profileId],
+          tenantIdByRecord: { [profileId]: profile?.tenantId ?? null },
+          organizationIdByRecord: { [profileId]: profile?.organizationId ?? null },
+          tenantFallbacks: [
+            profile?.tenantId ?? company.tenantId ?? auth.tenantId ?? null,
+          ].filter((v): v is string => !!v),
+        })
+      : Promise.resolve<Record<string, Record<string, unknown>>>({}),
+    resolveCompanyCustomFieldRouting(em, company.tenantId ?? null, company.organizationId ?? null),
+  ])
   const customFields = normalizeCustomerDetailCustomFields(
     mergeCompanyCustomFieldValues(
       routing,
@@ -809,85 +816,103 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     ),
   )
 
-  const activityCount = await em.count(CustomerInteraction, {
-    entity: company.id,
-    organizationId: company.organizationId,
-    tenantId: company.tenantId,
-    deletedAt: null,
-    interactionType: { $ne: 'task' },
-    ...emailVisibilityFilter,
-  })
-  const interactionCount = await em.count(CustomerInteraction, {
-    entity: company.id,
-    organizationId: company.organizationId,
-    tenantId: company.tenantId,
-    deletedAt: null,
-    ...emailVisibilityFilter,
-  })
-  const todoCount = interactionFlags.unified
-    ? await em.count(CustomerInteraction, {
-        entity: company.id,
-        organizationId: company.organizationId,
-        tenantId: company.tenantId,
-        deletedAt: null,
-        interactionType: 'task',
-      })
-    : await em.count(CustomerTodoLink, {
-        entity: company.id,
-        organizationId: company.organizationId,
-        tenantId: company.tenantId,
-      })
-  const commentsCount = includeComments
-    ? comments.length
-    : await em.count(CustomerComment, {
-        entity: company.id,
-        organizationId: company.organizationId,
-        tenantId: company.tenantId,
-      })
-  const addressesCount = includeAddresses
-    ? addresses.length
-    : await em.count(CustomerAddress, {
-        entity: company.id,
-        organizationId: company.organizationId,
-        tenantId: company.tenantId,
-      })
-  const peopleCount = includePeople
-    ? relatedPeople.length
-    : filterActivePersonCompanyLinks(
-        await findWithDecryption(
+  // The count queries, related-people fallback, and KPI interaction fallback are
+  // all independent of each other; dispatch them together rather than awaiting
+  // each inline so the response counts/KPIs are assembled in one parallel round
+  // instead of a waterfall (issue #3203).
+  const peopleCountQuery = includePeople
+    ? Promise.resolve(relatedPeople.length)
+    : (async () => {
+        const peopleLinkWhere = await withActiveCustomerPersonCompanyLinkFilter(
           em,
-          CustomerPersonCompanyLink,
-          await withActiveCustomerPersonCompanyLinkFilter(
+          {
+            company: company.id,
+            organizationId: company.organizationId,
+            tenantId: company.tenantId,
+          },
+          'customers.companies.GET',
+        )
+        return filterActivePersonCompanyLinks(
+          await findWithDecryption(
             em,
-            {
-              company: company.id,
-              organizationId: company.organizationId,
-              tenantId: company.tenantId,
-            },
-            'customers.companies.GET',
+            CustomerPersonCompanyLink,
+            peopleLinkWhere,
+            {},
+            { tenantId: company.tenantId, organizationId: company.organizationId },
           ),
-          {},
-          { tenantId: company.tenantId, organizationId: company.organizationId },
-        ),
-      ).length
-  const kpiInteractionRows = canonicalActiveInteractions.length
-    ? canonicalActiveInteractions
-    : await findWithDecryption(
-        em,
-        CustomerInteraction,
-        {
+        ).length
+      })()
+  const [
+    activityCount,
+    interactionCount,
+    todoCount,
+    commentsCount,
+    addressesCount,
+    peopleCount,
+    kpiInteractionRows,
+  ] = await Promise.all([
+    em.count(CustomerInteraction, {
+      entity: company.id,
+      organizationId: company.organizationId,
+      tenantId: company.tenantId,
+      deletedAt: null,
+      interactionType: { $ne: 'task' },
+      ...emailVisibilityFilter,
+    }),
+    em.count(CustomerInteraction, {
+      entity: company.id,
+      organizationId: company.organizationId,
+      tenantId: company.tenantId,
+      deletedAt: null,
+      ...emailVisibilityFilter,
+    }),
+    interactionFlags.unified
+      ? em.count(CustomerInteraction, {
           entity: company.id,
           organizationId: company.organizationId,
           tenantId: company.tenantId,
           deletedAt: null,
-          ...emailVisibilityFilter,
-        },
-        {
-          fields: ['id', 'occurredAt', 'scheduledAt', 'createdAt'],
-          orderBy: { createdAt: 'DESC' },
-        },
-        { tenantId: company.tenantId, organizationId: company.organizationId },
-      )
+          interactionType: 'task',
+        })
+      : em.count(CustomerTodoLink, {
+          entity: company.id,
+          organizationId: company.organizationId,
+          tenantId: company.tenantId,
+        }),
+    includeComments
+      ? Promise.resolve(comments.length)
+      : em.count(CustomerComment, {
+          entity: company.id,
+          organizationId: company.organizationId,
+          tenantId: company.tenantId,
+        }),
+    includeAddresses
+      ? Promise.resolve(addresses.length)
+      : em.count(CustomerAddress, {
+          entity: company.id,
+          organizationId: company.organizationId,
+          tenantId: company.tenantId,
+        }),
+    peopleCountQuery,
+    canonicalActiveInteractions.length
+      ? Promise.resolve(canonicalActiveInteractions)
+      : findWithDecryption(
+          em,
+          CustomerInteraction,
+          {
+            entity: company.id,
+            organizationId: company.organizationId,
+            tenantId: company.tenantId,
+            deletedAt: null,
+            ...emailVisibilityFilter,
+          },
+          {
+            fields: ['id', 'occurredAt', 'scheduledAt', 'createdAt'],
+            orderBy: { createdAt: 'DESC' },
+          },
+          { tenantId: company.tenantId, organizationId: company.organizationId },
+        ),
+  ])
   const activityTrend = computeActivityTrend(
     kpiInteractionRows
       .map((interaction) => interaction.occurredAt ?? interaction.scheduledAt ?? interaction.createdAt)

@@ -104,11 +104,25 @@ function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'om-code-review', 'references', 'review-checklist.md'),
   )
   copyFile(srcDir, 'ai/skills/om-integration-builder/SKILL.md', join(targetDir, '.ai', 'skills', 'om-integration-builder', 'SKILL.md'))
+  if (existsSync(join(srcDir, 'ai', 'skills', 'om-integration-builder', 'STANDALONE.md'))) {
+    copyFile(
+      srcDir,
+      'ai/skills/om-integration-builder/STANDALONE.md',
+      join(targetDir, '.ai', 'skills', 'om-integration-builder', 'STANDALONE.md'),
+    )
+  }
   copyFile(
     srcDir,
     'ai/skills/om-integration-builder/references/adapter-contracts.md',
     join(targetDir, '.ai', 'skills', 'om-integration-builder', 'references', 'adapter-contracts.md'),
   )
+  if (existsSync(join(srcDir, 'ai', 'skills', 'om-integration-builder', 'STANDALONE.md'))) {
+    copyFile(
+      srcDir,
+      'ai/skills/om-integration-builder/STANDALONE.md',
+      join(targetDir, '.ai', 'skills', 'om-integration-builder', 'STANDALONE.md'),
+    )
+  }
 
   copyFile(
     srcDir,

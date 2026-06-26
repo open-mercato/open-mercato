@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from 'react'
-import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { AddressesSection as SharedAddressesSection } from '@open-mercato/ui/backend/detail'
 import type { AddressDataAdapter, AddressTypesAdapter, AddressFormatStrategy, SectionAction } from '@open-mercato/ui/backend/detail'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -99,6 +101,12 @@ export function AddressesSection({
                 : typeof record.isPrimary === 'boolean'
                   ? record.isPrimary
                   : false,
+            updatedAt:
+              typeof record.updated_at === 'string'
+                ? record.updated_at
+                : typeof record.updatedAt === 'string'
+                  ? record.updatedAt
+                  : null,
           }
         })
         .filter((value): value is NonNullable<typeof value> => value !== null)
@@ -107,7 +115,7 @@ export function AddressesSection({
       const response = await apiCallOrThrow<Record<string, unknown>>(
         '/api/customers/addresses',
         {
-          // optimistic-lock-exempt: address link add/remove sub-resource
+          // optimistic-lock-exempt: address create-only (no prior version to compare)
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
@@ -120,33 +128,47 @@ export function AddressesSection({
       )
       return response.result ?? {}
     },
-    update: async ({ id, payload }) => {
-      await apiCallOrThrow(
-        '/api/customers/addresses',
-        {
-          // optimistic-lock-exempt: address link add/remove sub-resource
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            id,
-            ...payload,
-            country: payload.country ? payload.country.toUpperCase() : undefined,
-          }),
-        },
-        { errorMessage: t('customers.people.detail.addresses.error') },
-      )
+    update: async ({ id, payload, updatedAt }) => {
+      try {
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt ?? null),
+          () => apiCallOrThrow(
+            '/api/customers/addresses',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                id,
+                ...payload,
+                country: payload.country ? payload.country.toUpperCase() : undefined,
+              }),
+            },
+            { errorMessage: t('customers.people.detail.addresses.error') },
+          ),
+        )
+      } catch (err) {
+        surfaceRecordConflict(err, t)
+        throw err
+      }
     },
-    delete: async ({ id }) => {
-      await apiCallOrThrow(
-        '/api/customers/addresses',
-        {
-          // optimistic-lock-exempt: address link add/remove sub-resource
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id }),
-        },
-        { errorMessage: t('customers.people.detail.addresses.error') },
-      )
+    delete: async ({ id, updatedAt }) => {
+      try {
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt ?? null),
+          () => apiCallOrThrow(
+            '/api/customers/addresses',
+            {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id }),
+            },
+            { errorMessage: t('customers.people.detail.addresses.error') },
+          ),
+        )
+      } catch (err) {
+        surfaceRecordConflict(err, t)
+        throw err
+      }
     },
   }), [t])
 
