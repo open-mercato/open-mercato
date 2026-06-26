@@ -3,9 +3,12 @@
 import * as React from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
+import { useQuery } from '@tanstack/react-query'
 import { ExternalLink, Languages } from 'lucide-react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Drawer,
@@ -21,20 +24,34 @@ import { extractRecordId } from '../../../lib/extract-record-id'
 type WidgetContext = { entityId?: string; recordId?: string }
 type WidgetData = Record<string, unknown> & { id?: string | number }
 
+type FeatureCheckResponse = {
+  ok: boolean
+  granted: string[]
+  userId: string
+}
+
+const TRANSLATION_ACCESS_FEATURES = ['translations.view']
+
+// Probe access through the shared apiCall/React Query path so multiple injected
+// widget instances dedupe a single request via the query key. feature-check
+// always answers 200 with the granted feature list, so a user without
+// translations.view is hidden gracefully — no login redirect, no forbidden flash.
 function useTranslationAccess(): boolean {
-  const [hasAccess, setHasAccess] = React.useState(false)
-  React.useEffect(() => {
-    let mounted = true
-    // Use the original fetch to bypass the global apiFetch wrapper
-    // that redirects to login on 403. This lets us gracefully hide the widget
-    // when the user lacks translations.view instead of crashing the page.
-    const nativeFetch = ((window as any).__omOriginalFetch as typeof fetch) || fetch
-    nativeFetch('/api/translations/locales', { credentials: 'include' })
-      .then((res) => { if (mounted) setHasAccess(res.ok) })
-      .catch(() => { if (mounted) setHasAccess(false) })
-    return () => { mounted = false }
-  }, [])
-  return hasAccess
+  const { data } = useQuery<boolean>({
+    queryKey: ['translations', 'widget-access', ...TRANSLATION_ACCESS_FEATURES],
+    queryFn: async () => {
+      const res = await apiCall<FeatureCheckResponse>('/api/auth/feature-check', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ features: TRANSLATION_ACCESS_FEATURES }),
+      })
+      if (!res.ok) return false
+      return hasAllFeatures(TRANSLATION_ACCESS_FEATURES, res.result?.granted ?? [])
+    },
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+  return data === true
 }
 
 export default function TranslationWidget({ context, data }: InjectionWidgetComponentProps<WidgetContext, WidgetData>) {

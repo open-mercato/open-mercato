@@ -74,6 +74,12 @@ const ADAPTER_HEADERS = {
 // canonical bridge) read path. Keeps memory bounded on tenants with large
 // activity history; deep-pagination beyond this window is not supported here —
 // use /api/customers/interactions instead.
+//
+// Audited for the #3386 rollout (P2): this merged path sorts only on
+// non-encrypted system timestamps (createdAt/occurredAt, see
+// resolveActivitySortValue), so the #3278 two-phase *encrypted*-sort migration
+// is intentionally not applied here. Merge-order correctness across the page
+// boundary is covered by __tests__/merged-pagination.test.ts.
 const MERGED_ACTIVITY_FETCH_CAP = 2000
 
 type ActivityItem = {

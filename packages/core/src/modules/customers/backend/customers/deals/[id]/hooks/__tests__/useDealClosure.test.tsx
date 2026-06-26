@@ -9,6 +9,12 @@ jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
+  withScopedApiRequestHeaders: async (_headers: HeadersInit, operation: () => Promise<unknown>) =>
+    operation(),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useT: () => (_key: string, fallback: string) => fallback || _key,
 }))
 
 import { act, renderHook } from '@testing-library/react'
@@ -25,6 +31,7 @@ describe('useDealClosure', () => {
     const { result } = renderHook(() =>
       useDealClosure({
         currentDealId: 'deal-1',
+        dealUpdatedAt: '2026-06-16T10:00:00.000Z',
         runMutationWithContext,
         confirmDiscardIfDirty: async () => true,
         onClosed: async () => {},
@@ -55,6 +62,7 @@ describe('useDealClosure', () => {
     const { result } = renderHook(() =>
       useDealClosure({
         currentDealId: 'deal-1',
+        dealUpdatedAt: '2026-06-16T10:00:00.000Z',
         runMutationWithContext,
         confirmDiscardIfDirty: async () => true,
         onClosed: async () => {},

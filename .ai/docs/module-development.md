@@ -50,6 +50,7 @@
 - Events: use `createModuleEvents()` with `as const` for typed emit
 - Translations: when adding entities with user-facing text fields (title, name, description, label), create `translations.ts` at module root declaring translatable fields. Run `yarn generate` after adding.
 - Widget injection: declare in `widgets/injection/`, map via `injection-table.ts`
+- Optional peer modules: resolve a non-required dependency inside `try/catch` (a per-module local `tryResolve` helper wrapping `container.resolve()`) and degrade when absent — never a hard `requires` on a module that should be optional. (Cross-module ORM relations and side-effect imports are already banned — see root `AGENTS.md` § Architecture.) Detail: `packages/core/AGENTS.md` → Cross-Module Coupling
 - API interception: declare interceptors in `api/interceptors.ts`; keep hooks fail-closed and scoped by route + method
 - Interceptors that narrow CRUD list results SHOULD prefer rewriting `query.ids` (comma-separated UUID list) instead of post-filtering response arrays
 - Component replacement: use handle-based IDs (`page:*`, `data-table:*`, `crud-form:*`, `section:*`) for deterministic overrides

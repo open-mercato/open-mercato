@@ -9,7 +9,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { handleSectionMutationError, rowOptimisticVersion } from './optimisticLock'
+import { handleSectionMutationError } from './optimisticLock'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -58,6 +58,7 @@ type PaymentDialogProps = {
   orderId: string
   organizationId: string | null
   tenantId: string | null
+  documentUpdatedAt?: string | null
   onOpenChange: (open: boolean) => void
   onSaved?: (totals?: PaymentTotals | null) => void | Promise<void>
 }
@@ -79,6 +80,7 @@ export function PaymentDialog({
   orderId,
   organizationId,
   tenantId,
+  documentUpdatedAt,
   onOpenChange,
   onSaved,
 }: PaymentDialogProps) {
@@ -539,7 +541,9 @@ export function PaymentDialog({
       const action = payment?.id ? updateCrud : createCrud
       try {
         const result = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(payment?.id ? rowOptimisticVersion(payment) : undefined),
+          // The server guards the PARENT order's aggregate version (Gap A) for
+          // both create and update, so send the order's `updated_at`.
+          buildOptimisticLockHeader(documentUpdatedAt ?? undefined),
           () =>
             action(
               'sales/payments',
@@ -569,7 +573,7 @@ export function PaymentDialog({
         throw err
       }
     },
-    [currencyCode, mode, onOpenChange, onSaved, orderId, organizationId, payment?.id, payment?.updatedAt, t, tenantId]
+    [currencyCode, documentUpdatedAt, mode, onOpenChange, onSaved, orderId, organizationId, payment?.id, t, tenantId]
   )
 
   const handleSubmitForm = React.useCallback(

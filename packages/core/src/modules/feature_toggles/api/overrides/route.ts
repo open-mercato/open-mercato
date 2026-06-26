@@ -5,7 +5,11 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { getOverrides } from '../../lib/queries'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { FeatureToggleOverride } from '../../data/entities'
 import { buildContext } from '../../lib/utils'
@@ -75,7 +79,7 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 400 })
     }
 
-    const { scope } = await resolveFeatureCheckContext({
+    const { scope, organizationId } = await resolveFeatureCheckContext({
       container: ctx.container,
       auth: ctx.auth,
       request: req
@@ -96,12 +100,37 @@ export async function PUT(req: Request) {
       toggle: { id: parsed.data.toggleId },
     })
     if (existingOverride) {
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'feature_toggles.feature_toggle_override',
         resourceId: existingOverride.id,
         current: existingOverride.updatedAt ?? null,
         request: req,
       })
+    }
+
+    // Run the CRUD mutation guard lifecycle so this custom write route honors
+    // module-level guard injections (and after-success hooks) like every other
+    // mutating endpoint. The override either updates an existing row or creates a
+    // new one, so the resource id falls back to the toggle id when no row exists.
+    const guardUserId = ctx.auth?.userId ?? ctx.auth?.sub ?? null
+    if (!guardUserId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const guardResourceKind = 'feature_toggles.feature_toggle_override'
+    const guardResourceId = existingOverride?.id ?? parsed.data.toggleId
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId: scope.tenantId,
+      organizationId: organizationId ?? null,
+      userId: guardUserId,
+      resourceKind: guardResourceKind,
+      resourceId: guardResourceId,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: parsed.data,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
@@ -114,6 +143,20 @@ export async function PUT(req: Request) {
       },
       ctx,
     })
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId: scope.tenantId,
+        organizationId: organizationId ?? null,
+        userId: guardUserId,
+        resourceKind: guardResourceKind,
+        resourceId: result?.overrideToggleId ?? guardResourceId,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
 
     const response = NextResponse.json({
       ok: true,
