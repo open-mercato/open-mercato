@@ -128,6 +128,8 @@ Existing columns unchanged. **New/changed:**
 - `kind`: enum `workflow | component` — **new column**, default `workflow`. Components: no triggers, not standalone-startable, shown in the component library.
 - `lifecycle`: enum `draft | published | archived` — **new column**, default `published` (existing rows backfilled to `published`).
 - **Unique constraint change**: `(workflowId, tenantId)` → `(workflowId, version, tenantId)`. *(Contract surface — see Migration & BC.)*
+- **Enum column defaults MUST be plain values** (`'workflow'`, `'published'`) at the MikroORM level — never pre-quoted SQL fragments (`"'workflow'"`), which break `yarn initialize`.
+- **Code-based (in-memory) definitions** (merged into the list by `backend/definitions/page.tsx`) are treated as `kind=workflow`, `lifecycle=published`, and are neither versioned nor publishable.
 - `definition.io` (inside existing jsonb `definition`, additive, optional):
 
 ```ts
@@ -209,7 +211,11 @@ This is the spec's Ask-First contract-surface change (`BACKWARD_COMPATIBILITY.md
 3. Replace unique index `(workflowId, tenantId)` with `(workflowId, version, tenantId)`. Existing rows have distinct `workflowId` so this never conflicts on backfill.
 4. Optional GIN index on `definition` to keep the caller `@>` scan fast.
 
-**Resolution change (`find-definition.ts`):** "latest enabled, version DESC" → "latest **published**, version DESC, enabled". Because all existing rows backfill to `published`, **observed behaviour is identical** for current data; the change only matters once drafts exist. Keep `version`-pinned lookups byte-for-byte unchanged.
+**Resolution change (`find-definition.ts`):** the unpinned filter becomes `enabled = true AND lifecycle = 'published'`, ordered `version DESC`. Because the backfill maps every existing row to `published` (or `archived` when `enabled=false`), **observed behaviour is identical** for current data; the change only matters once drafts exist. Keep `version`-pinned lookups byte-for-byte unchanged. A **resolution-parity integration test** MUST assert identical resolution pre/post on representative current data.
+
+**Pre-migration prerequisite (G1, blocking Phase 5):** before relaxing the unique constraint, audit and make version-aware every `findOne(WorkflowDefinition, { workflowId, tenantId })` site (definition create/update upsert, `setup.ts` seeding, customize/reset, `find-definition.ts`). Relaxing uniqueness removes the single-row guarantee these sites rely on; an un-audited upsert could update the wrong version row.
+
+**Release notes:** the uniqueness relaxation is a contract-surface change — add a `RELEASE_NOTES.md` entry per the deprecation protocol.
 
 **Backward compatibility guarantees:**
 - `definition.io` is optional ⇒ existing definitions have **no contract** ⇒ **no runtime validation** ⇒ identical execution (additive).
@@ -282,6 +288,19 @@ This is the spec's Ask-First contract-surface change (`BACKWARD_COMPATIBILITY.md
 ### Testing Strategy
 - **Unit:** port validation/coercion; resolution (latest published, pinned); caller-diff; component constraints.
 - **Integration (per spec rule, self-contained fixtures via API):** create child component with `definition.io` → call from parent → assert typed mapping validated and output merged; publish v2 with a removed port → assert pinned caller on v1 unaffected and breaking-change preview reports the v2-bound caller; component rejected on standalone start.
+
+### Integration Test Coverage (per affected API + key UI path)
+| Path | Type | Scenario |
+|------|------|----------|
+| `GET /api/workflows/definitions?kind=component&lifecycle=published` (P2) | API | Library filter returns only components; response includes `kind`/`lifecycle`. |
+| `POST /api/workflows/instances` (P2) | API | Standalone start of a `kind=component` definition is rejected; a normal workflow still starts. |
+| SUB_WORKFLOW boundary (P1) | API | Child with `definition.io` → mapped inputs coerced/validated; bad value → step FAILED + compensation; child without `io` → unchanged freeform passthrough. |
+| `POST /api/workflows/definitions/{id}/publish` (P5) | API | Draft → new published version; emits `workflows.definition.published`; requires `acknowledgeBreakingChanges` when callers affected. |
+| `GET /api/workflows/definitions/{id}/callers` (P5) | API | Returns affected callers with `brokenMappings` after a port removal. |
+| Resolution parity (P5) | API | Unpinned trigger/sub-workflow resolves identically pre/post migration on backfilled data. |
+| Schema Builder save (P1) | UI | Add/remove IN/OUT port with a 5-type select + `required` → persists to `definition.io`. |
+| Port rendering + "Otwórz środek" (P3/P4) | UI | `SubWorkflowNode` shows IN/OUT ports; drill-down opens the pinned child version. |
+| Drag-and-drop mapping (P6) | UI | Dragging a variable to a child IN port writes the same `inputMapping` as the form (round-trip parity). |
 
 ## Risks & Impact Review
 
@@ -365,3 +384,4 @@ This is the spec's Ask-First contract-surface change (`BACKWARD_COMPATIBILITY.md
 ## Changelog
 ### 2026-06-26
 - Initial specification. Open Questions Q1–Q5 resolved (Q1 all-definitions versioning; Q2 explicit publish; Q4 keep-any-callable; Q5 runtime validation; Q3 latest-published adopted). Defaults N1/N2 adopted pending review confirmation.
+- Pre-implementation audit applied (`.ai/specs/analysis/ANALYSIS-2026-06-26-subworkflow-explicit-ports-schema-builder.md`): added Integration Test Coverage matrix (G2), code-based-definition rule (G4), explicit resolution-parity filter + parity test, G1 upsert-audit prerequisite, plain enum-default rule, and RELEASE_NOTES requirement (G5).
