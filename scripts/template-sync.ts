@@ -176,7 +176,7 @@ function collectSourceFiles(): string[] {
   const rootFiles = SYNC_ROOT_FILES
     .map((rel) => path.join(APP_SRC_ROOT, rel))
     .filter((abs) => fs.existsSync(abs))
-  return [...folderFiles, ...rootFiles].sort()
+  return [...folderFiles, ...rootFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 function collectTemplateFiles(): string[] {
@@ -191,7 +191,7 @@ function collectTemplateFiles(): string[] {
   const rootFiles = SYNC_ROOT_FILES
     .map((rel) => path.join(TEMPLATE_SRC_ROOT, rel))
     .filter((abs) => fs.existsSync(abs))
-  return [...folderFiles, ...rootFiles].sort()
+  return [...folderFiles, ...rootFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 function getExpectedTemplateContent(rel: string, source: Buffer): Buffer {

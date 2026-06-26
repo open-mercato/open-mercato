@@ -554,7 +554,7 @@ function normalizeDirtySnapshotValue(value: unknown): unknown {
 
   const normalized: Record<string, unknown> = {}
   const record = value as Record<string, unknown>
-  for (const key of Object.keys(record).sort()) {
+  for (const key of Object.keys(record).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
     const nextValue = normalizeDirtySnapshotValue(record[key])
     if (nextValue !== undefined) normalized[key] = nextValue
   }
