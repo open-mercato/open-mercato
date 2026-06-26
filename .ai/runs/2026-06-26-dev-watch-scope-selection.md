@@ -61,3 +61,7 @@ Mode selection precedence: CLI flag (`--watch=<mode>` / `--watch-<mode>` shortha
 
 - [x] 5.1 Document the modes in `apps/docs/docs/appendix/troubleshooting.mdx` (dev watcher section) — 88d79c49e
 - [x] 5.2 Add an UPGRADE_NOTES.md entry under the current unreleased window — 88d79c49e
+
+## Changelog
+
+- All phases complete — PR #3648 (feat/dev-watch-scope-selection → develop). Full gate green (build:packages → generate → build:packages → build:app, typecheck, i18n, test:scripts 294). One pre-existing environmental cli flake (`integration.test.ts:486`) that passes in isolation and is unrelated to this change.
