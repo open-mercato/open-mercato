@@ -14,7 +14,7 @@ export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
     superadmin: ['checkout.*'],
     admin: ['checkout.view', 'checkout.create', 'checkout.edit', 'checkout.delete', 'checkout.viewPii', 'checkout.export'],
-    employee: ['checkout.view', 'checkout.create', 'checkout.edit', 'checkout.delete', 'checkout.export'],
+    employee: ['checkout.view'],
   },
 
   async seedExamples(ctx) {
