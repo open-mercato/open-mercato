@@ -21,6 +21,7 @@ import {
 } from '@xyflow/react'
 import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, ParallelForkNode, ParallelJoinNode, InvokeAgentNode} from './nodes'
 import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
+import { WorkflowDataMappingEdge } from './WorkflowDataMappingEdge'
 import { STATUS_COLORS } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
@@ -143,12 +144,22 @@ export default function WorkflowGraphImpl({
   const edgeTypes = useMemo(
     () => ({
       workflowTransition: WorkflowTransitionEdge,
+      workflowDataMapping: WorkflowDataMappingEdge,
     }),
     []
   )
 
   return (
-    <div className={`workflow-graph-container ${className}`} style={{ height }}>
+    <div
+      className={`workflow-graph-container ${className}`}
+      style={{
+        height,
+        // Edge colour tokens mapped to DS palette roles: control transitions vs
+        // drag-authored data-mapping edges (consumed by WorkflowDataMappingEdge).
+        ['--edge-control' as string]: 'var(--primary)',
+        ['--edge-data' as string]: 'var(--muted-foreground)',
+      } as React.CSSProperties}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}

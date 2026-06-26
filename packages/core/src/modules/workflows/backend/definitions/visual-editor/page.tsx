@@ -11,6 +11,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
+import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
 import { Page } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -320,8 +321,24 @@ export default function VisualEditorPage() {
     })
   }, [confirm, nodes, t])
 
-  // Handle new connections
+  // Handle new connections. A drop onto a sub-workflow IN port authors a field
+  // mapping (written to the target step's config.inputMapping + a distinct data
+  // edge); a plain handle-to-handle connection stays a control-flow transition.
   const handleConnect = useCallback((connection: Connection) => {
+    const classification = classifyConnection(connection)
+
+    if (classification.kind === 'data-ignored') {
+      return
+    }
+
+    if (classification.kind === 'data-mapping') {
+      const { targetNodeId, childPortKey, parentPath } = classification
+      setNodes((nds) => applyInputMappingToNodes(nds, targetNodeId, childPortKey, parentPath))
+      const dataEdge = buildDataMappingEdge(connection, childPortKey)
+      setEdges((eds) => addEdge(dataEdge, eds.filter((e) => e.id !== dataEdge.id)))
+      return
+    }
+
     const newEdge: Edge = {
       id: generateTransitionId(connection.source!, connection.target!),
       source: connection.source!,

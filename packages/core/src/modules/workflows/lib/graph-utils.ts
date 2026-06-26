@@ -1,6 +1,7 @@
 import { Node, Edge } from '@xyflow/react'
 import type { WorkflowDefinition } from '../data/entities'
 import type { WorkflowIoContract } from '../data/validators'
+import { isDataMappingEdge } from './data-edge-mapping'
 
 /**
  * Graph Utilities for Visual Workflow Editor
@@ -125,8 +126,10 @@ export function graphToDefinition(
     return step
   })
 
-  // Extract transitions from edges
-  const transitions = edges.map((edge) => {
+  // Extract transitions from edges. Drag-authored data-mapping edges are NOT
+  // transitions — their binding lives in the target step's config.inputMapping —
+  // so they are excluded here.
+  const transitions = edges.filter((edge) => !isDataMappingEdge(edge)).map((edge) => {
     const edgeData = edge.data as any
     const transition: any = {
       transitionId: edge.id,
