@@ -4,7 +4,7 @@ import { OpenCodeAgentRunner, type OpenCodeRunnerClient } from '../lib/runtime/o
 // no waiter is registered. A busy→idle transition arriving in that window must be
 // LATCHED so the next nextIdle() resolves immediately, rather than dropped (which
 // would hang the runner until the wall-clock deadline). White-box test of the
-// private subscribeIdle: we drive the SSE callback directly.
+// private subscribeSession: we drive the SSE callback directly.
 type SseEvent = { type: string; properties: Record<string, unknown> }
 type EventHandler = (event: SseEvent) => void
 type IdleSignal = { nextIdle: () => Promise<void>; unsubscribe: () => void }
@@ -25,8 +25,8 @@ function makeIdleSignal(): { idle: IdleSignal; emit: EventHandler } {
     openCodeClient: client,
   })
   const idle = (
-    runner as unknown as { subscribeIdle: (id: string) => IdleSignal }
-  ).subscribeIdle('s1')
+    runner as unknown as { subscribeSession: (id: string, toolCallSink: unknown[]) => IdleSignal }
+  ).subscribeSession('s1', [])
   return { idle, emit: (event) => captured(event) }
 }
 
@@ -41,7 +41,7 @@ function settlesWithin(p: Promise<void>, ms: number): Promise<boolean> {
   ])
 }
 
-describe('OpenCodeAgentRunner.subscribeIdle — lost-wakeup latch (H2)', () => {
+describe('OpenCodeAgentRunner.subscribeSession — lost-wakeup latch (H2)', () => {
   it('resolves the next waiter immediately when a busy→idle arrived with no waiter registered', async () => {
     const { idle, emit } = makeIdleSignal()
     // No waiter registered yet — emit busy then idle (the lost-wakeup window).
