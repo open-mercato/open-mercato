@@ -34,7 +34,7 @@ import {
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
-import { parseWatchScopeArgs } from './watch-scope.mjs'
+import { parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
@@ -1543,14 +1543,14 @@ function buildWatchScopeEnv() {
   return env
 }
 
-function resolveActiveWatchScope() {
-  return watchScopeArgs.mode || String(process.env.OM_WATCH_SCOPE ?? '').trim().toLowerCase() || 'all'
+function resolveActiveWatchScope(watchScopeEnv = buildWatchScopeEnv()) {
+  return resolveWatchScope({ env: { ...process.env, ...watchScopeEnv }, argv: [] }).mode
 }
 
 function startPackageWatch() {
   const watchScript = resolveWatchPackagesScript()
   const watchScopeEnv = buildWatchScopeEnv()
-  const activeScope = resolveActiveWatchScope()
+  const activeScope = resolveActiveWatchScope(watchScopeEnv)
 
   if (classic) {
     const child = spawnCommand(yarnCommand, [watchScript], {

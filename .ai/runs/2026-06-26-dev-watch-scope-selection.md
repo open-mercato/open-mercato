@@ -2,7 +2,7 @@
 
 ## Goal
 
-Let developers choose **which workspace packages/modules the dev-mode consolidated watcher tracks**, via four selectable scope modes, controllable through an env variable, `yarn dev` / `yarn dev:greenfield` CLI flags, and an interactive picker — for both the monorepo and standalone (create-app template) runtimes.
+Let developers choose **which workspace packages/modules the monorepo dev-mode consolidated watcher tracks**, via four selectable scope modes, controllable through an env variable, `yarn dev` / `yarn dev:greenfield` CLI flags, and an interactive picker.
 
 ## Background
 
@@ -23,7 +23,7 @@ Mode selection precedence: CLI flag (`--watch=<mode>` / `--watch-<mode>` shortha
 
 ## Non-goals
 
-- No change to Turbopack/Next.js app watching (the standalone app body is still fully watched by the framework — scope governs the **workspace-package** watcher only).
+- No change to Turbopack/Next.js app watching. App source is still fully watched by the framework — scope governs the monorepo **workspace-package** watcher only.
 - No change to the legacy Turbo per-package watcher path (`OM_WATCH_PACKAGES_MODE=legacy`); scope only applies to the consolidated watcher.
 - No new production dependencies.
 
@@ -53,9 +53,9 @@ Mode selection precedence: CLI flag (`--watch=<mode>` / `--watch-<mode>` shortha
 - [x] 3.2 Add `scripts/watch-select.mjs` interactive picker + `dev:watch-select` script — c38d3eb6c
 - [x] 3.3 Unit-test the selector's pure input-parsing helper — c38d3eb6c
 
-### Phase 4: Standalone template sync
+### Phase 4: Template sync
 
-- [x] 4.1 Mirror `dev.mjs`, `watch-scope.mjs`, `watch-select.mjs` into the template via `scripts/template-sync.ts`; add template `dev:watch-select` script — 6e1c5085d
+- [x] 4.1 Mirror `dev.mjs` and its required `watch-scope.mjs` helper into the template via `scripts/template-sync.ts` — 6e1c5085d
 
 ### Phase 5: Docs + upgrade notes
 

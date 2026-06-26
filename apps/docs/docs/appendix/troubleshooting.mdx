@@ -76,7 +76,7 @@ OM_WATCH_PACKAGES_MODE=legacy OM_PACKAGE_WATCH_MODE=persistent yarn dev
 
 ### Choosing which packages the watcher tracks (watch scope)
 
-By default `yarn dev` watches **every** workspace package (`packages/*` plus any activated `external/official-modules/packages/*`). On large checkouts you rarely edit more than a handful of packages in one session, so the watcher can be narrowed to a subset. The watch unit is the workspace package (its short label — `core`, `ui`, `shared`, `ai-assistant`, …); the app itself is still watched in full by Next.js/Turbopack regardless of the scope.
+In the monorepo, `yarn dev` watches **every** workspace package (`packages/*` plus any activated `external/official-modules/packages/*`). On large checkouts you rarely edit more than a handful of packages in one session, so the watcher can be narrowed to a subset. The watch unit is the workspace package (its short label — `core`, `ui`, `shared`, `ai-assistant`, …); the app itself is still watched in full by Next.js/Turbopack regardless of the scope.
 
 Pick a mode with the `OM_WATCH_SCOPE` env var or the `--watch=<mode>` flag on `yarn dev` / `yarn dev:greenfield` (the CLI flag wins over the env var):
 
@@ -117,6 +117,8 @@ Tuning knobs for `auto-optimized`:
 - `OM_WATCH_BASE_REF=origin/main` — override the base ref the branch diff is computed against (defaults to the first of `origin/develop`, `develop`, `origin/main`, `main` that exists).
 
 If a non-`all` scope ever leaves out a package you are actively editing, either switch back with `OM_WATCH_SCOPE=all` / `--watch=all`, add it to `OM_WATCH_PACKAGES`, or just wait — `auto-optimized` will pick it up at the next 2-minute sweep once it has a git change.
+
+Standalone create-app projects do not have a local workspace-package tree in normal use, so this scope selector is not part of their default dev workflow. Next.js/Turbopack still watches standalone app source files directly.
 
 ## PostgreSQL auth errors on local setup
 

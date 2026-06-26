@@ -12,7 +12,6 @@
     "dev": "node ./scripts/dev.mjs",
     "dev:classic": "node ./scripts/dev.mjs --classic",
     "dev:verbose": "node ./scripts/dev.mjs --verbose",
-    "dev:watch-select": "node ./scripts/watch-select.mjs",
     "dev:reset": "node ./scripts/dev-reset.mjs",
     "build": "yarn generate && cross-env NODE_OPTIONS=--max-old-space-size=8192 next build",
     "start": "mercato server start",
