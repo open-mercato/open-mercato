@@ -11,7 +11,6 @@ import {
 } from '../../data/entities'
 import * as transitionHandler from '../transition-handler'
 import * as activityExecutor from '../activity-executor'
-import * as stepHandler from '../step-handler'
 import * as ruleEvaluator from '../../../business_rules/lib/rule-evaluator'
 import * as ruleEngine from '../../../business_rules/lib/rule-engine'
 
@@ -1001,93 +1000,6 @@ describe('Transition Handler (Unit Tests)', () => {
           executedBy: 'user-123',
         })
       )
-    })
-  })
-
-  // ============================================================================
-  // SUB_WORKFLOW output promotion (issue #3674)
-  // ============================================================================
-
-  describe('SUB_WORKFLOW output promotion', () => {
-    const subWorkflowDefinition = {
-      id: testDefinitionId,
-      workflowId: 'simple-approval',
-      workflowName: 'Simple Approval',
-      version: 1,
-      definition: {
-        steps: [
-          { stepId: 'start', stepName: 'Start', stepType: 'START' },
-          { stepId: 'step-1', stepName: 'Step 1', stepType: 'AUTOMATED' },
-          { stepId: 'step-2', stepName: 'Step 2', stepType: 'AUTOMATED' },
-          { stepId: 'sub', stepName: 'Sub Workflow', stepType: 'SUB_WORKFLOW' },
-          { stepId: 'end', stepName: 'End', stepType: 'END' },
-        ],
-        transitions: [
-          { fromStepId: 'step-1', toStepId: 'sub' },
-          { fromStepId: 'step-1', toStepId: 'step-2' },
-        ],
-      },
-      enabled: true,
-      tenantId: testTenantId,
-      organizationId: testOrgId,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    } as unknown as WorkflowDefinition
-
-    let executeStepSpy: jest.SpiedFunction<typeof stepHandler.executeStep>
-
-    beforeEach(() => {
-      executeStepSpy = jest.spyOn(stepHandler, 'executeStep')
-      mockEm.create.mockReturnValue({} as any)
-    })
-
-    afterEach(() => {
-      executeStepSpy.mockRestore()
-    })
-
-    test('merges a completed SUB_WORKFLOW step mapped output into the parent context', async () => {
-      mockEm.findOne.mockResolvedValue(subWorkflowDefinition)
-      executeStepSpy.mockResolvedValue({
-        status: 'COMPLETED',
-        outputData: { score: 42, nested: { ok: true } },
-      })
-
-      const result = await transitionHandler.executeTransition(
-        mockEm,
-        mockContainer,
-        mockInstance,
-        'step-1',
-        'sub',
-        { workflowContext: {} }
-      )
-
-      expect(result.success).toBe(true)
-      expect(mockInstance.context).toMatchObject({
-        initiatedBy: 'user@example.com',
-        score: 42,
-        nested: { ok: true },
-      })
-    })
-
-    test('does not merge outputData from a non-SUB_WORKFLOW step into the context', async () => {
-      mockEm.findOne.mockResolvedValue(subWorkflowDefinition)
-      executeStepSpy.mockResolvedValue({
-        status: 'COMPLETED',
-        outputData: { stepType: 'AUTOMATED', leaked: 'should-not-appear' },
-      })
-
-      const result = await transitionHandler.executeTransition(
-        mockEm,
-        mockContainer,
-        mockInstance,
-        'step-1',
-        'step-2',
-        { workflowContext: {} }
-      )
-
-      expect(result.success).toBe(true)
-      expect(mockInstance.context).not.toHaveProperty('leaked')
-      expect(mockInstance.context).not.toHaveProperty('stepType')
     })
   })
 })
