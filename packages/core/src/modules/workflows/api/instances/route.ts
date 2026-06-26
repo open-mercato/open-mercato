@@ -213,8 +213,11 @@ export async function POST(request: NextRequest) {
       organizationId,
     })
 
-    // Execute workflow in background (non-blocking for demo visibility)
-    // This allows the frontend to see step-by-step progress via polling
+    // Advance the workflow asynchronously after responding (non-blocking, so the
+    // frontend can poll step-by-step progress). This is a fire-and-forget task in
+    // this process — NOT a durable queue job — so it does not survive a process
+    // restart; the executor durably marks the instance FAILED on error, and the
+    // async-activity worker / retry endpoint resume any instance left mid-flight.
     setImmediate(async () => {
       try {
         // Create new container and EM for background execution
@@ -233,7 +236,7 @@ export async function POST(request: NextRequest) {
           execution: {
             status: instance.status,
             currentStep: instance.currentStepId,
-            message: 'Workflow execution started in background',
+            message: 'Workflow execution started',
           },
         },
         message: 'Workflow started successfully',
