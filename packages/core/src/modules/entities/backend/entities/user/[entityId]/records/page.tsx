@@ -97,7 +97,16 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     keyExtras: [scopeVersion],
   })
 
-  // Fetch records whenever paging/sorting/filters change (do NOT refetch on cfDefs/search changes)
+  // Fields searched server-side: every visible column plus the base `id`.
+  const searchableFields = React.useMemo(() => {
+    const fields = (columns || [])
+      .map((col) => (col as any).accessorKey)
+      .filter((key): key is string => typeof key === 'string' && key.length > 0)
+    return Array.from(new Set(['id', ...fields]))
+  }, [columns])
+
+  // Fetch records whenever paging/sorting/filters/search change. Search is applied
+  // server-side (before pagination) so totals and exports stay consistent (#3229).
   React.useEffect(() => {
     let cancelled = false
     const run = async () => {
@@ -107,6 +116,11 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
         params.set('entityId', entityId)
         params.set('page', String(page))
         params.set('pageSize', String(pageSize))
+        const trimmedSearch = search.trim()
+        if (trimmedSearch) {
+          params.set('search', trimmedSearch)
+          if (searchableFields.length) params.set('searchFields', searchableFields.join(','))
+        }
         const s = sorting?.[0]
         if (s?.id) {
           params.set('sortField', String(s.id))
@@ -154,7 +168,7 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     }
     if (entityId) run()
     return () => { cancelled = true }
-  }, [entityId, page, pageSize, sorting, filterValues, scopeVersion])
+  }, [entityId, page, pageSize, sorting, filterValues, scopeVersion, search, searchableFields])
 
   // Build columns from custom field definitions only (no data round-trip)
   React.useEffect(() => {
@@ -175,15 +189,9 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     setColumns(cols)
   }, [cfDefs])
 
-  // Client-side quick search filtering without triggering server refetch
-  const data = React.useMemo(() => {
-    if (!search.trim()) return rawData
-    const q = search.trim().toLowerCase()
-    return (rawData || []).filter((row: any) => {
-      const values = Object.values(row || {})
-      return values.some((v) => normalizeCell(v).toLowerCase().includes(q))
-    })
-  }, [rawData, search])
+  // Search is server-side (see fetch effect); render the fetched page as-is so
+  // pagination totals and exports stay consistent with the active search (#3229).
+  const data = rawData
 
   const viewExportColumns = React.useMemo(() => {
     return (columns || [])
@@ -213,8 +221,13 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
       qp.set('sortField', String(sort.id))
       qp.set('sortDir', sort.desc ? 'desc' : 'asc')
     }
+    const trimmedSearch = search.trim()
+    if (trimmedSearch) {
+      qp.set('search', trimmedSearch)
+      if (searchableFields.length) qp.set('searchFields', searchableFields.join(','))
+    }
     return `/api/entities/records?${qp.toString()}`
-  }, [entityId, sorting])
+  }, [entityId, sorting, search, searchableFields])
 
   const exportConfig = React.useMemo(() => {
     const safeEntityId = entityId.replace(/[^a-z0-9_-]/gi, '_') || 'records'

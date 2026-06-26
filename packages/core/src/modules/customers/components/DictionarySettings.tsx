@@ -14,7 +14,10 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import type { CustomerDictionaryKind } from '../lib/dictionaries'
+import {
+  getCustomerDictionarySettingsSectionId,
+  type CustomerDictionaryKind,
+} from '../lib/dictionaries'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import {
   DictionaryForm,
@@ -45,6 +48,19 @@ const DEFAULT_FORM_VALUES: DictionaryFormValues = {
   label: '',
   color: null,
   icon: null,
+}
+
+const DICTIONARY_HASH_SCROLL_RETRY_DELAYS_MS = [100, 350, 1000] as const
+
+function getCurrentDictionaryHashTarget(): HTMLElement | null {
+  if (typeof window === 'undefined') return null
+  const hash = window.location.hash
+  if (!hash.startsWith('#customer-dictionary-')) return null
+  try {
+    return document.getElementById(decodeURIComponent(hash.slice(1)))
+  } catch {
+    return document.getElementById(hash.slice(1))
+  }
 }
 
 export default function DictionarySettings() {
@@ -97,6 +113,45 @@ export default function DictionarySettings() {
       description: t('customers.config.dictionaries.sections.addressTypes.description', 'Define the available address types.'),
     },
   ], [t])
+
+  React.useEffect(() => {
+    const timeoutIds: number[] = []
+    let frameId: number | null = null
+
+    const clearScheduledScrolls = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+        frameId = null
+      }
+      while (timeoutIds.length > 0) {
+        const timeoutId = timeoutIds.pop()
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId)
+      }
+    }
+
+    const scrollToHashTarget = () => {
+      getCurrentDictionaryHashTarget()?.scrollIntoView({ block: 'start' })
+    }
+
+    const scheduleHashScroll = () => {
+      clearScheduledScrolls()
+      if (!window.location.hash.startsWith('#customer-dictionary-')) return
+      scrollToHashTarget()
+      if (typeof window.requestAnimationFrame === 'function') {
+        frameId = window.requestAnimationFrame(scrollToHashTarget)
+      }
+      DICTIONARY_HASH_SCROLL_RETRY_DELAYS_MS.forEach((delay) => {
+        timeoutIds.push(window.setTimeout(scrollToHashTarget, delay))
+      })
+    }
+
+    scheduleHashScroll()
+    window.addEventListener('hashchange', scheduleHashScroll)
+    return () => {
+      window.removeEventListener('hashchange', scheduleHashScroll)
+      clearScheduledScrolls()
+    }
+  }, [])
 
   return (
     <div className="space-y-8">
@@ -393,7 +448,10 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
   }), [dialog, t])
 
   return (
-    <section className="rounded border bg-card text-card-foreground shadow-sm">
+    <section
+      id={getCustomerDictionarySettingsSectionId(kind)}
+      className="scroll-mt-24 rounded border bg-card text-card-foreground shadow-sm"
+    >
       <div className="border-b px-6 py-4 space-y-1">
         <h2 className="text-lg font-medium">{title}</h2>
         <p className="text-sm text-muted-foreground">{description}</p>

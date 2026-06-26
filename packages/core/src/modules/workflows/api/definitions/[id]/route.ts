@@ -24,7 +24,7 @@ import { getCodeWorkflow } from '../../../lib/code-registry'
 import { createGenericOptimisticLockReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 registerOptimisticLockReaderIfAbsent({
@@ -201,7 +201,7 @@ export async function PUT(
       let savedOverride: WorkflowDefinition
       if (existingOverride) {
         try {
-          enforceCommandOptimisticLock({
+          await enforceCommandOptimisticLockWithGuards(container, {
             resourceKind: 'workflows.definition',
             resourceId: existingOverride.id,
             current: existingOverride.updatedAt ?? null,
@@ -308,7 +308,7 @@ export async function PUT(
     }
 
     try {
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(container, {
         resourceKind: 'workflows.definition',
         resourceId: definition.id,
         current: definition.updatedAt ?? null,

@@ -6,9 +6,8 @@ import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { refreshSessionRequestSchema } from '@open-mercato/core/modules/auth/data/validators'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
-import { buildRequestOriginUrl } from '@open-mercato/core/modules/auth/lib/requestRedirect'
+import { buildSafeRedirectResponse, resolveTrustedRedirectBase } from '@open-mercato/core/modules/auth/lib/requestRedirect'
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
-import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { z } from 'zod'
@@ -46,12 +45,12 @@ function clearStaffAuthCookies(response: NextResponse) {
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
-  const baseUrl = getAppBaseUrl(req)
+  const baseUrl = resolveTrustedRedirectBase(req) ?? url.origin
   const redirectTo = sanitizeRedirectPath(url.searchParams.get('redirect'), baseUrl, '/')
   const token = parseCookie(req, 'session_token')
   if (!token) {
     return clearStaffAuthCookies(
-      NextResponse.redirect(buildRequestOriginUrl(req, '/login?redirect=' + encodeURIComponent(redirectTo)))
+      buildSafeRedirectResponse(req, '/login?redirect=' + encodeURIComponent(redirectTo))
     )
   }
   const c = await createRequestContainer()
@@ -59,12 +58,12 @@ export async function GET(req: Request) {
   const ctx = await auth.refreshFromSessionToken(token)
   if (!ctx) {
     return clearStaffAuthCookies(
-      NextResponse.redirect(buildRequestOriginUrl(req, '/login?redirect=' + encodeURIComponent(redirectTo)))
+      buildSafeRedirectResponse(req, '/login?redirect=' + encodeURIComponent(redirectTo))
     )
   }
   const { user, roles, session } = ctx
   const jwt = signJwt({ sub: String(user.id), sid: session ? String(session.id) : undefined, tenantId: String(user.tenantId), orgId: String(user.organizationId), email: user.email, roles })
-  const res = NextResponse.redirect(buildRequestOriginUrl(req, redirectTo))
+  const res = buildSafeRedirectResponse(req, redirectTo)
   res.cookies.set('auth_token', jwt, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
   return res
 }

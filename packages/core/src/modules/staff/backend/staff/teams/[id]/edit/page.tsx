@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
@@ -16,6 +16,7 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TeamForm, type TeamFormValues, buildTeamPayload } from '@open-mercato/core/modules/staff/components/TeamForm'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -60,6 +61,7 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
   const teamId = params?.id
   const t = useT()
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
   const [initialValues, setInitialValues] = React.useState<TeamFormValues | null>(null)
@@ -314,6 +316,20 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
     })
     router.push('/backend/staff/teams')
   }, [teamId, router, t])
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `staff.team` + id explicitly.
+  // The resourceKind mirrors the TeamForm `versionHistory` so the held lock matches
+  // the save-time conflict surface for the same team.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'staff.team',
+      resourceId: teamId || null,
+      updatedAt: initialValues?.updatedAt ?? null,
+      data: initialValues as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
 
   if (isNotFound) {
     return (

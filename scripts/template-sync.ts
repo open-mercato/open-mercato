@@ -52,6 +52,16 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-cache-purge.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-inotify-limits.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-inotify-limits.mjs'),
+    rel: 'scripts/dev-inotify-limits.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'fix-wsl-inotify.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'fix-wsl-inotify.mjs'),
+    rel: 'scripts/fix-wsl-inotify.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash-state.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-state.mjs'),
     rel: 'scripts/dev-splash-state.mjs',
