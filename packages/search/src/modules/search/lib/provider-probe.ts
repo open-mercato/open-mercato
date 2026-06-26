@@ -45,7 +45,7 @@ const resolveCache = (container: AppContainer): CacheStrategy | null => {
   }
 }
 
-const ollamaBaseUrl = () => process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434'
+const ollamaBaseUrl = () => process.env.OLLAMA_BASE_URL?.trim() || 'http://localhost:11434'
 
 const keyPresence = (providerId: EmbeddingProviderId): ProviderAvailability => {
   const info = EMBEDDING_PROVIDERS[providerId]
