@@ -8,18 +8,6 @@ This directory contains Docker configuration for running **local development ser
 >
 > See the [Docker Deployment guide](https://docs.openmercato.com/installation/setup#docker-deployment-full-stack) for full-stack instructions.
 
-### Full app with a prebuilt image
-
-`docker-compose.fullapp.yml` can also run an image that was built elsewhere, such as in CI:
-
-```bash
-APP_IMAGE=ghcr.io/acme/open-mercato:sha-123456 \
-  docker compose -f docker-compose.fullapp.yml up -d --no-build app
-```
-
-When `APP_IMAGE` is not set, Compose keeps using the default local image tag:
-`open-mercato/app:${DEPLOY_ENV:-local}`.
-
 This `docker-compose.yml` is ideal when you want to run the database and Redis in containers but develop the application locally with `yarn dev`.
 
 ### Full app in dev mode (with watch)
