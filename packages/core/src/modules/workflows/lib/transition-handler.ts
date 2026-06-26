@@ -569,25 +569,6 @@ export async function executeTransitionForToken(
       branch
     )
 
-    // Promote a SUB_WORKFLOW step's mapped output into the running context so
-    // subsequent steps (or sibling sub-workflows) can read it. Unlike activity
-    // outputs — already merged above via applyTokenContextWrites — a sub-workflow
-    // returns its outputMapping result through StepExecutionResult.outputData and
-    // would otherwise be dropped on the floor. Other step types return diagnostic
-    // outputData (stepType/timestamp/finalContext) that must NOT leak into the
-    // context, so gate strictly on the SUB_WORKFLOW step type.
-    if (
-      stepExecutionResult.status === 'COMPLETED' &&
-      stepExecutionResult.outputData &&
-      typeof stepExecutionResult.outputData === 'object'
-    ) {
-      const completedStepType = await getStepType(em, instance, toStepId)
-      if (completedStepType === 'SUB_WORKFLOW') {
-        mergeTokenContext(token, stepExecutionResult.outputData as Record<string, any>)
-        touchToken(token, new Date())
-      }
-    }
-
     // Flush to database after step execution completes to make state visible to UI
     await em.flush()
 
@@ -1000,24 +981,6 @@ async function evaluatePostConditions(
 // ============================================================================
 // Helper Functions
 // ============================================================================
-
-/**
- * Resolve a step's declared type from the workflow definition.
- *
- * Used to decide whether a completed step's outputData should be promoted into
- * the running context — only SUB_WORKFLOW steps return mapped output meant for
- * downstream steps. The definition is already in the identity map from earlier
- * evaluation, so this findOne is a cheap lookup rather than a fresh DB round-trip.
- */
-async function getStepType(
-  em: EntityManager,
-  instance: WorkflowInstance,
-  stepId: string
-): Promise<string | undefined> {
-  const definition = await em.findOne(WorkflowDefinition, { id: instance.definitionId })
-  const stepDef = definition?.definition.steps.find((step: any) => step.stepId === stepId)
-  return stepDef?.stepType
-}
 
 /**
  * Log transition-related event to event sourcing table

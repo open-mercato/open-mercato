@@ -27,11 +27,7 @@ interface MappingArrayEditorProps extends CrudCustomFieldRenderProps {
  * MappingArrayEditor - Custom field component for managing SubWorkflow input/output mappings
  *
  * Provides an interface to add, edit, and remove key-value pair mappings.
- * Each value is a plain dot-path into the source context (e.g. `order.id` or
- * `items.0.sku`), NOT a {{ }} template — the SUB_WORKFLOW mapping resolver walks
- * the path directly and ignores template expressions. For an inputMapping the
- * key is the child context key and the value is the parent path; for an
- * outputMapping the key is the parent context key and the value is the child path.
+ * Values support template expressions like {{context.foo}} for dynamic data binding.
  *
  * Used by NodeEditDialog (SubWorkflow type only)
  */
