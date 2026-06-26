@@ -32,6 +32,7 @@ import {
   type RecordLockUiView,
 } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
 import { isUuid, resolveConflictId, runAcceptIncoming } from './conflictResolution'
+import { classifyUnmatchedSaveError } from '@open-mercato/enterprise/modules/record_locks/lib/optimisticLockFloor'
 
 type CrudInjectionContext = {
   formId?: string
@@ -1043,7 +1044,10 @@ export default function RecordLockingWidget({
           })
           return
         }
-        if (extractErrorStatus(detail.error) === 409) {
+        // Single-surface arbitration (issue #3504 / S3): an OSS optimistic-lock-floor
+        // 409 is already owned by the shared conflict bar, so defer to it instead of
+        // opening a second, degraded merge dialog. Other 409s keep the fallback dialog.
+        if (classifyUnmatchedSaveError(detail.error, extractErrorStatus(detail.error)) === 'fallback-merge-dialog') {
           applyConflictPayload(buildFallbackConflict(currentState))
         }
         return

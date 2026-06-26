@@ -14,6 +14,7 @@
   "shipping_carriers.create.error.create": "Error al crear el envio.",
   "shipping_carriers.create.error.fetchDropOffPoints": "Error al obtener los puntos de entrega.",
   "shipping_carriers.create.error.fetchRates": "Error al obtener las tarifas.",
+  "shipping_carriers.create.error.idempotencyConflict": "Este envío ya fue enviado. Actualiza la página antes de volver a intentarlo.",
   "shipping_carriers.create.error.invalidEmail": "Dirección de correo electrónico no válida.",
   "shipping_carriers.create.error.invalidPhone": "Número de teléfono no válido.",
   "shipping_carriers.create.error.loadProviders": "Error al cargar los transportistas.",

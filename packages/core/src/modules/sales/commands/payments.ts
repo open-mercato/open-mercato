@@ -253,12 +253,7 @@ async function recomputeOrderPaymentTotals(
   const scope = { organizationId: order.organizationId, tenantId: order.tenantId }
 
   if (options?.lock) {
-    // Raw findOne is intentional: this acquires a row lock only — no encrypted
-    // SalesOrder field is read, so decryption (findOneWithDecryption) is unnecessary.
-    // Scope filter is defence-in-depth (#2111): the caller is expected to pass a
-    // correctly scoped order, but filtering here ensures we never lock a foreign
-    // tenant's row even if a caller messed up.
-    await em.findOne(SalesOrder, { id: orderId, ...scope }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+    await findOneWithDecryption(em, SalesOrder, { id: orderId, ...scope }, { lockMode: LockMode.PESSIMISTIC_WRITE }, scope)
   }
 
   const allocations = await findWithDecryption(
@@ -666,11 +661,9 @@ const createPaymentCommand: CommandHandler<
       if (recomputed && (!totals || orderId === after.orderId)) {
         totals = recomputed
       }
-      // Raw findOne is intentional: the order is fetched only to read its id/scope
-      // for cache invalidation — no encrypted field is read, so decryption is unnecessary.
       // Scope filter (#2111): never cache-invalidate a foreign tenant's order even
       // if a snapshot's orderId was somehow tampered with.
-      const target = await em.findOne(SalesOrder, { id: orderId, organizationId: after.organizationId, tenantId: after.tenantId })
+      const target = await findOneWithDecryption(em, SalesOrder, { id: orderId, organizationId: after.organizationId, tenantId: after.tenantId }, {}, { tenantId: after.tenantId, organizationId: after.organizationId })
       if (target) {
         ensureSameScope(target, after.organizationId, after.tenantId)
         await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)
@@ -939,10 +932,12 @@ const updatePaymentCommand: CommandHandler<
       totals = await em.transactional(async (tx) => {
         // Scope filter (#2111): never lock or recompute totals on a foreign
         // tenant's order, even if payment.order somehow points there.
-        const lockedOrder = await tx.findOne(
+        const lockedOrder = await findOneWithDecryption(
+          tx,
           SalesOrder,
           { id: nextOrderId, organizationId: payment.organizationId, tenantId: payment.tenantId },
           { lockMode: LockMode.PESSIMISTIC_WRITE },
+          { tenantId: payment.tenantId, organizationId: payment.organizationId },
         )
         if (!lockedOrder) return undefined
         ensureSameScope(lockedOrder, payment.organizationId, payment.tenantId)
@@ -951,10 +946,8 @@ const updatePaymentCommand: CommandHandler<
         return result
       })
       if (totals) {
-        // Raw findOne is intentional: the order is fetched only to read its id/scope
-        // for cache invalidation — no encrypted field is read, so decryption is unnecessary.
         // Scope filter (#2111): same rationale as the lock above.
-        const nextOrder = await em.findOne(SalesOrder, { id: nextOrderId, organizationId: payment.organizationId, tenantId: payment.tenantId })
+        const nextOrder = await findOneWithDecryption(em, SalesOrder, { id: nextOrderId, organizationId: payment.organizationId, tenantId: payment.tenantId }, {}, { tenantId: payment.tenantId, organizationId: payment.organizationId })
         if (nextOrder) {
           ensureSameScope(nextOrder, payment.organizationId, payment.tenantId)
           await invalidateOrderCache(ctx.container, nextOrder, ctx.auth?.tenantId ?? null)
@@ -966,10 +959,12 @@ const updatePaymentCommand: CommandHandler<
         // Scope filter (#2111): previousOrder was already loaded via the
         // payment's scope, so its tenant/org match the payment's. Filter
         // the lock query the same way as defence-in-depth.
-        const lockedOrder = await tx.findOne(
+        const lockedOrder = await findOneWithDecryption(
+          tx,
           SalesOrder,
           { id: previousOrder.id, organizationId: payment.organizationId, tenantId: payment.tenantId },
           { lockMode: LockMode.PESSIMISTIC_WRITE },
+          { tenantId: payment.tenantId, organizationId: payment.organizationId },
         )
         if (!lockedOrder) return
         ensureSameScope(lockedOrder, payment.organizationId, payment.tenantId)
@@ -1098,10 +1093,12 @@ const deletePaymentCommand: CommandHandler<
       const recomputed = await em.transactional(async (tx) => {
         // Scope filter (#2111): never lock or recompute totals on a foreign
         // tenant's order, even if a payment allocation somehow points there.
-        const lockedOrder = await tx.findOne(
+        const lockedOrder = await findOneWithDecryption(
+          tx,
           SalesOrder,
           { id: orderId, organizationId: payment.organizationId, tenantId: payment.tenantId },
           { lockMode: LockMode.PESSIMISTIC_WRITE },
+          { tenantId: payment.tenantId, organizationId: payment.organizationId },
         )
         if (!lockedOrder) return undefined
         ensureSameScope(lockedOrder, payment.organizationId, payment.tenantId)
@@ -1112,10 +1109,8 @@ const deletePaymentCommand: CommandHandler<
       if (recomputed && (!totals || (primaryOrderId && orderId === primaryOrderId))) {
         totals = recomputed
       }
-      // Raw findOne is intentional: the order is fetched only to read its id/scope
-      // for cache invalidation — no encrypted field is read, so decryption is unnecessary.
       // Scope filter (#2111): same rationale as the lock above.
-      const target = await em.findOne(SalesOrder, { id: orderId, organizationId: payment.organizationId, tenantId: payment.tenantId })
+      const target = await findOneWithDecryption(em, SalesOrder, { id: orderId, organizationId: payment.organizationId, tenantId: payment.tenantId }, {}, { tenantId: payment.tenantId, organizationId: payment.organizationId })
       if (target) {
         ensureSameScope(target, payment.organizationId, payment.tenantId)
         await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)

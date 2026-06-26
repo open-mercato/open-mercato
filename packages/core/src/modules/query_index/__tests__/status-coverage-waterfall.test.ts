@@ -1,0 +1,170 @@
+const mockGetAuthFromRequest = jest.fn()
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
+  getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
+}))
+
+const mockCreateRequestContainer = jest.fn()
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: (...args: unknown[]) => mockCreateRequestContainer(...args),
+}))
+
+const mockGetEntityIds = jest.fn()
+jest.mock('@open-mercato/shared/lib/encryption/entityIds', () => ({
+  getEntityIds: (...args: unknown[]) => mockGetEntityIds(...args),
+}))
+
+const mockFlattenSystemEntityIds = jest.fn()
+jest.mock('@open-mercato/shared/lib/entities/system-entities', () => ({
+  flattenSystemEntityIds: (...args: unknown[]) => mockFlattenSystemEntityIds(...args),
+}))
+
+const mockResolveOrganizationScopeForRequest = jest.fn()
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: (...args: unknown[]) => mockResolveOrganizationScopeForRequest(...args),
+}))
+
+const mockReadCoverageSnapshot = jest.fn()
+const mockReadCoverageSnapshots = jest.fn()
+const mockRefreshCoverageSnapshot = jest.fn()
+jest.mock('../lib/coverage', () => ({
+  readCoverageSnapshot: (...args: unknown[]) => mockReadCoverageSnapshot(...args),
+  readCoverageSnapshots: (...args: unknown[]) => mockReadCoverageSnapshots(...args),
+  refreshCoverageSnapshot: (...args: unknown[]) => mockRefreshCoverageSnapshot(...args),
+}))
+
+import { GET } from '../api/status'
+
+const ENTITY_A = 'catalog:catalog_product'
+const ENTITY_B = 'customers:person'
+
+function staleSnapshot() {
+  const refreshedAt = new Date(Date.now() - 5 * 60_000)
+  return {
+    base_count: 5,
+    indexed_count: 5,
+    vector_indexed_count: 0,
+    refreshed_at: refreshedAt,
+    baseCount: 5,
+    indexedCount: 5,
+    vectorIndexedCount: 0,
+  }
+}
+
+function makeFakeDb(tableRows: Record<string, unknown[]>) {
+  const build = (table: string) => {
+    const rows = tableRows[String(table)] ?? []
+    const chain: Record<string, unknown> = {}
+    const passthrough = () => chain
+    for (const method of ['select', 'selectAll', 'distinct', 'where', 'orderBy', 'limit']) {
+      chain[method] = passthrough
+    }
+    chain.execute = async () => rows
+    chain.executeTakeFirst = async () => rows[0]
+    return chain
+  }
+  return { selectFrom: (table: string) => build(table) }
+}
+
+function makeRequest(query = '') {
+  return new Request(`http://localhost/api/query_index/status${query}`)
+}
+
+describe('query_index status route — coverage waterfall (#3285)', () => {
+  const emitEvent = jest.fn(async () => undefined)
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGetAuthFromRequest.mockResolvedValue({ tenantId: 'tenant-1', orgId: 'org-1', sub: 'user-1' })
+    mockGetEntityIds.mockReturnValue({ catalog: { product: ENTITY_A }, customers: { person: ENTITY_B } })
+    mockFlattenSystemEntityIds.mockReturnValue([ENTITY_A, ENTITY_B])
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: 'org-1',
+      filterIds: ['org-1'],
+      allowedIds: ['org-1'],
+      tenantId: 'tenant-1',
+    })
+    mockReadCoverageSnapshot.mockResolvedValue(staleSnapshot())
+    mockReadCoverageSnapshots.mockImplementation(async (_db: unknown, batch: { entityTypes: string[] }) => {
+      const map = new Map<string, unknown>()
+      for (const entityType of batch.entityTypes) map.set(entityType, staleSnapshot())
+      return map
+    })
+    mockRefreshCoverageSnapshot.mockResolvedValue(undefined)
+
+    const db = makeFakeDb({
+      custom_field_defs: [{ entity_id: ENTITY_A }, { entity_id: ENTITY_B }],
+      entity_index_jobs: [],
+      indexer_error_logs: [],
+      indexer_status_logs: [],
+    })
+    const em = { getKysely: () => db }
+    mockCreateRequestContainer.mockResolvedValue({
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'eventBus') return { emitEvent }
+        if (name === 'searchModuleConfigs') return []
+        if (name === 'searchStrategies') return []
+        throw new Error(`Unexpected token: ${name}`)
+      },
+    })
+  })
+
+  it('stays read-cheap on a normal poll: no inline coverage refresh', async () => {
+    const res = await GET(makeRequest())
+    expect(res.status).toBe(200)
+    expect(mockRefreshCoverageSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('reads every entity snapshot via a single batched query', async () => {
+    const res = await GET(makeRequest())
+    expect(res.status).toBe(200)
+    expect(mockReadCoverageSnapshots).toHaveBeenCalledTimes(1)
+    expect(mockReadCoverageSnapshots).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ entityTypes: expect.arrayContaining([ENTITY_A, ENTITY_B]) }),
+    )
+    // The per-entity serial read must not be used by the polling path.
+    expect(mockReadCoverageSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('queues stale entities for the async coverage.refresh event path', async () => {
+    const res = await GET(makeRequest())
+    expect(res.status).toBe(200)
+    const refreshEvents = emitEvent.mock.calls.filter(([eventId]) => eventId === 'query_index.coverage.refresh')
+    const refreshedEntities = refreshEvents.map(([, payload]) => (payload as { entityType: string }).entityType)
+    expect(refreshedEntities).toEqual(expect.arrayContaining([ENTITY_A, ENTITY_B]))
+    expect(mockRefreshCoverageSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('still blocks on a refresh when an explicit ?refresh action is requested', async () => {
+    const res = await GET(makeRequest('?refresh=1'))
+    expect(res.status).toBe(200)
+    expect(mockRefreshCoverageSnapshot).toHaveBeenCalledTimes(2)
+    const refreshedScopes = mockRefreshCoverageSnapshot.mock.calls.map(([, scope]) => (scope as { entityType: string }).entityType)
+    expect(refreshedScopes).toEqual(expect.arrayContaining([ENTITY_A, ENTITY_B]))
+  })
+
+  it('does not raise a partial-index warning when coverage is not yet computed', async () => {
+    mockReadCoverageSnapshots.mockResolvedValue(new Map())
+    const res = await GET(makeRequest())
+    expect(res.status).toBe(200)
+    expect(res.headers.get('x-om-partial-index')).toBeNull()
+  })
+
+  it('still raises a partial-index warning when base and index counts diverge', async () => {
+    mockReadCoverageSnapshots.mockImplementation(async (_db: unknown, batch: { entityTypes: string[] }) => {
+      const map = new Map<string, unknown>()
+      for (const entityType of batch.entityTypes) {
+        map.set(entityType, { ...staleSnapshot(), base_count: 10, indexed_count: 3, baseCount: 10, indexedCount: 3 })
+      }
+      return map
+    })
+    const res = await GET(makeRequest())
+    expect(res.status).toBe(200)
+    const header = res.headers.get('x-om-partial-index')
+    expect(header).toBeTruthy()
+    const parsed = JSON.parse(header as string)
+    expect(parsed.type).toBe('partial_index')
+    expect([ENTITY_A, ENTITY_B]).toContain(parsed.entity)
+  })
+})

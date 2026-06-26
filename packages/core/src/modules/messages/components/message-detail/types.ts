@@ -99,6 +99,8 @@ export type MessageDetail = {
     objects?: MessageDetailObject[]
   }>
   isRead: boolean
+  conversationArchived?: boolean
+  conversationAllUnread?: boolean
 }
 
 export type ActionResult = {

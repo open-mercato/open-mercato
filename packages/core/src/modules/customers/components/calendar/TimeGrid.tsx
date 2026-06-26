@@ -172,6 +172,7 @@ export function TimeGrid({
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const nowMs = Date.now()
   const today = startOfDay(new Date())
+  const todayMs = today.getTime()
   const anchorMs = anchor.getTime()
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [drag, setDrag] = React.useState<DragState | null>(null)
@@ -179,8 +180,8 @@ export function TimeGrid({
   const dayStarts = React.useMemo(() => {
     const rangeStart = getVisibleRange(days === 7 ? 'week' : 'day', new Date(anchorMs), 0).from
     const all = Array.from({ length: days }, (_, index) => addDays(rangeStart, index))
-    return days === 7 ? applyWeekendVisibility(all, showWeekends) : all
-  }, [days, anchorMs, showWeekends])
+    return days === 7 ? applyWeekendVisibility(all, showWeekends, new Date(todayMs)) : all
+  }, [days, anchorMs, showWeekends, todayMs])
 
   const dayColumns = React.useMemo(
     () => dayStarts.map((dayStart) => buildDayColumn(dayStart, items)),
