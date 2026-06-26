@@ -181,6 +181,50 @@ describe('entities/definitions API', () => {
     expect(body.items).toEqual([])
   })
 
+  it('does not hide inherited definitions with another organization tombstone', async () => {
+    mockEm.find
+      .mockResolvedValueOnce([
+        {
+          key: 'estimated_seats',
+          kind: 'integer',
+          entityId: 'customers:customer_person',
+          tenantId: 'tenant-1',
+          organizationId: null,
+          updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+          configJson: { label: 'Estimated seats' },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          key: 'estimated_seats',
+          kind: 'integer',
+          entityId: 'customers:customer_person',
+          tenantId: 'tenant-1',
+          organizationId: 'org-2',
+          deletedAt: new Date('2026-06-26T00:00:00.000Z'),
+          updatedAt: new Date('2026-06-26T00:00:00.000Z'),
+          configJson: { label: 'Estimated seats' },
+        },
+      ])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=customers:customer_person'),
+    )
+
+    expect(response.status).toBe(200)
+    expect(mockEm.find.mock.calls[1][1].$and[1].$or).toEqual([
+      { organizationId: 'org-1' },
+      { organizationId: null },
+    ])
+    const body = await response.json()
+    expect(body.items).toEqual([
+      expect.objectContaining({
+        key: 'estimated_seats',
+        label: 'Estimated seats',
+      }),
+    ])
+  })
+
   it('does not synchronize module-backed definitions for callers without manage permission', async () => {
     mockRbac.userHasAllFeatures.mockResolvedValue(false)
 

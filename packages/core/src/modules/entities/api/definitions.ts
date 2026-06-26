@@ -196,6 +196,19 @@ function normalizeFieldGroup(raw: unknown): { code: string; title?: string; hint
   return group
 }
 
+function definitionMatchesReadScope(
+  definition: { tenantId?: string | null; organizationId?: string | null },
+  scope: { tenantId: string | null; organizationId: string | null },
+) {
+  const definitionTenantId = definition.tenantId ?? null
+  const definitionOrganizationId = definition.organizationId ?? null
+  const tenantMatches = definitionTenantId === null || definitionTenantId === scope.tenantId
+  const organizationMatches =
+    definitionOrganizationId === null ||
+    (scope.organizationId !== null && definitionOrganizationId === scope.organizationId)
+  return tenantMatches && organizationMatches
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const requestedEntityIds = parseEntityIds(url)
@@ -281,22 +294,29 @@ export async function GET(req: Request) {
     mode: 'public',
   })
 
-  // Tenant-only scoping: allow global (null) or exact tenant match; do not scope by organization here
+  const tenantCandidates = [{ tenantId }, { tenantId: null as string | null }]
+  const organizationCandidates = [{ organizationId: null as string | null }]
+  if (organizationId) organizationCandidates.unshift({ organizationId })
+  const readScope = { tenantId, organizationId }
+
   const whereActive = {
     entityId: { $in: entityIds as any },
     deletedAt: null,
     $and: [
-      { $or: [ { tenantId: tenantId ?? undefined as any }, { tenantId: null } ] },
+      { $or: tenantCandidates },
+      { $or: organizationCandidates },
     ],
   } as any
-  const defs = await em.find(CustomFieldDef, whereActive as any)
-  const tombstones = await em.find(CustomFieldDef, {
+  const defs = (await em.find(CustomFieldDef, whereActive as any))
+    .filter((definition: any) => definitionMatchesReadScope(definition, readScope))
+  const tombstones = (await em.find(CustomFieldDef, {
     entityId: { $in: entityIds as any },
     deletedAt: { $ne: null } as any,
     $and: [
-      { $or: [ { tenantId: tenantId ?? undefined as any }, { tenantId: null } ] },
+      { $or: tenantCandidates },
+      { $or: organizationCandidates },
     ],
-  } as any)
+  } as any)).filter((definition: any) => definitionMatchesReadScope(definition, readScope))
 
   const tombstonedByEntity = new Map<string, Set<string>>()
   for (const entry of tombstones as any[]) {
