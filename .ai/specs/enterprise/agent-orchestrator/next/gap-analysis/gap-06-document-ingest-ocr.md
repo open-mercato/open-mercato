@@ -3,7 +3,7 @@
 # Document Ingest / OCR / Extraction — Design Analysis
 
 > **Gap:** GAP-06 · **Priority:** P1 · **Status:** Recommended (provider choice INCONCLUSIVE — see §5)
-> **Related:** [`2026-06-19-agent-context-knowledge-plane.md`](../2026-06-19-agent-context-knowledge-plane.md) (CONTEXT spec — owns ingest, Phase 3), [`2026-06-19-agent-runtime-guardrails.md`](../2026-06-19-agent-runtime-guardrails.md) (GUARD — untrusted-doc handling), `attachments` module (`packages/core/src/modules/attachments`), DRAFT [`2026-04-27-ai-agent-attachment-processing-and-context.md`](../../2026-04-27-ai-agent-attachment-processing-and-context.md)
+> **Related:** [`2026-06-19-agent-context-knowledge-plane.md`](../2026-06-19-agent-context-knowledge-plane.md) (CONTEXT spec — owns ingest, Phase 3), [`2026-06-19-agent-runtime-guardrails.md`](../2026-06-19-agent-runtime-guardrails.md) (GUARD — untrusted-doc handling), [`2026-06-26-agent-attachments-and-artifacts.md`](../2026-06-26-agent-attachments-and-artifacts.md) (FILE PLANE — **distinct concern:** stages the *raw* attachment into a tool-enabled OpenCode sandbox + captures agent-authored artifacts, vs this gap's extraction-to-typed-facts-with-provenance pipeline; both reuse `attachments` + `OcrService` + `storage-s3`), `attachments` module (`packages/core/src/modules/attachments`), DRAFT [`2026-04-27-ai-agent-attachment-processing-and-context.md`](../../2026-04-27-ai-agent-attachment-processing-and-context.md)
 > **Owner-area:** `agent_orchestrator` core module, `context` subdomain (`lib/context/`). Conventions in [`2026-06-19-agent-orchestrator-conventions.md`](../2026-06-19-agent-orchestrator-conventions.md) are normative.
 
 ## 1. Gap statement
