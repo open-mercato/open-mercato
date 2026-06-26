@@ -241,19 +241,30 @@ SUB_WORKFLOW steps call another workflow as a child process. This enables workfl
   "stepName": "Validate Customer",
   "stepType": "SUB_WORKFLOW",
   "config": {
-    "workflowId": "customer-validation-v1",
+    "subWorkflowId": "customer-validation-v1",
     "inputMapping": {
-      "customerId": "{{context.customerId}}",
-      "orderAmount": "{{context.totalAmount}}"
+      "customerId": "customerId",
+      "orderAmount": "totalAmount"
     },
-    "timeout": "1 hour"
+    "outputMapping": {
+      "validationStatus": "result.status"
+    }
   }
 }
 ```
 
+**Mapping syntax (important):**
+
+`inputMapping` and `outputMapping` values are **plain dot-paths** into the source context — **not** `{{ }}` template expressions. The `{{context.*}}` form only applies to activity config (e.g. `SEND_EMAIL`, `CALL_API`); the sub-workflow mapping resolver walks the dot-path directly, so any value written as `{{ ... }}` never resolves and is silently dropped.
+
+- **`inputMapping`** maps parent → child: `{ "<childContextKey>": "<parentContextPath>" }`. In the example above, the child receives `customerId` (read from the parent's `customerId`) and `orderAmount` (read from the parent's `totalAmount`).
+- **`outputMapping`** maps child → parent: `{ "<parentContextKey>": "<childContextPath>" }`. After the child completes, the mapped keys are **merged back into the parent context**, so later steps (or sibling sub-workflows) can read them. In the example, the parent gains `validationStatus` (read from the child's `result.status`).
+
+When no mapping is provided, the entire source context is passed through unchanged.
+
 **Output Handling:**
 
-When the child workflow completes, its final context is merged into the parent workflow's context under a namespaced key.
+When the child workflow completes, its `outputMapping` values are merged into the parent workflow's context for subsequent steps to consume.
 
 **Use Cases:**
 - Reusable validation processes

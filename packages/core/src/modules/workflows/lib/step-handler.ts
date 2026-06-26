@@ -1075,10 +1075,27 @@ function setNestedValue(obj: any, path: string, value: any): void {
 }
 
 /**
+ * Warn (dev-time) when a SUB_WORKFLOW mapping value is written as a `{{ }}`
+ * template. Mapping values are plain dot-paths into the source context — the
+ * `{{ }}` form only works for activity config interpolation — so such entries
+ * never resolve and are silently dropped. Surfacing a warning makes legacy
+ * misconfigurations debuggable instead of invisible.
+ */
+function warnOnTemplateMapping(sourcePath: string, direction: 'input' | 'output'): void {
+  if (/\{\{.*\}\}/.test(sourcePath)) {
+    console.warn(
+      `[workflows] SUB_WORKFLOW ${direction} mapping value "${sourcePath}" looks like a {{ }} template, ` +
+        'but mapping values are plain dot-paths into the source context (e.g. "order.id"). ' +
+        'This entry will not resolve and is being ignored.'
+    )
+  }
+}
+
+/**
  * Map data from source context using mapping configuration
  *
  * @param sourceContext - Source data object
- * @param mapping - Mapping configuration (targetKey -> sourcePath)
+ * @param mapping - Mapping configuration (targetKey -> sourcePath, plain dot-path)
  * @returns Mapped data object
  */
 function mapInputData(
@@ -1088,6 +1105,7 @@ function mapInputData(
   const result: Record<string, any> = {}
 
   for (const [targetKey, sourcePath] of Object.entries(mapping)) {
+    warnOnTemplateMapping(sourcePath, 'input')
     const value = getNestedValue(sourceContext, sourcePath)
     if (value !== undefined) {
       setNestedValue(result, targetKey, value)
@@ -1102,7 +1120,7 @@ function mapInputData(
  * Map output data from child context back to parent
  *
  * @param childContext - Child workflow context
- * @param mapping - Mapping configuration (targetKey -> sourcePath)
+ * @param mapping - Mapping configuration (targetKey -> sourcePath, plain dot-path)
  * @returns Mapped output data
  */
 function mapOutputData(
@@ -1112,6 +1130,7 @@ function mapOutputData(
   const result: Record<string, any> = {}
 
   for (const [targetKey, sourcePath] of Object.entries(mapping)) {
+    warnOnTemplateMapping(sourcePath, 'output')
     const value = getNestedValue(childContext, sourcePath)
     if (value !== undefined) {
       setNestedValue(result, targetKey, value)
