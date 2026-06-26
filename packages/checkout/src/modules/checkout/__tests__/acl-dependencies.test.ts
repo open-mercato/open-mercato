@@ -6,6 +6,7 @@ import {
   type FeatureDescriptor,
 } from '@open-mercato/shared/security/aclDependencies'
 import { features as checkoutFeatures } from '../acl'
+import { setup } from '../setup'
 import { features as salesFeatures } from '@open-mercato/core/modules/sales/acl'
 import { features as customersFeatures } from '@open-mercato/core/modules/customers/acl'
 
@@ -57,5 +58,20 @@ describe('checkout ACL dependency declarations', () => {
       (feature) => feature.id === 'checkout.viewPii',
     )
     expect(viewPii?.dependsOn).toContain('customers.people.view')
+  })
+
+  test('employee default role can operate checkout without PII access', () => {
+    const employeeFeatures = (setup.defaultRoleFeatures?.employee ?? []) as string[]
+
+    expect(employeeFeatures).toEqual(
+      expect.arrayContaining([
+        'checkout.view',
+        'checkout.create',
+        'checkout.edit',
+        'checkout.delete',
+        'checkout.export',
+      ]),
+    )
+    expect(employeeFeatures).not.toContain('checkout.viewPii')
   })
 })

@@ -23,6 +23,7 @@
     "dev:greenfield:verbose": "node ./scripts/dev.mjs --greenfield --verbose",
     "dev:app": "node ./scripts/dev.mjs --app-only",
     "dev:app:verbose": "yarn workspace @open-mercato/app dev:verbose",
+    "dev:fix-wsl-watchers": "node ./scripts/fix-wsl-inotify.mjs",
     "dev:profile": "node ./scripts/profile-dev-rss.mjs --spawn-dev",
     "dev:profile:report": "node ./scripts/profile-dev-rss.mjs --report",
     "watch:packages": "node ./scripts/watch-packages.mjs",
