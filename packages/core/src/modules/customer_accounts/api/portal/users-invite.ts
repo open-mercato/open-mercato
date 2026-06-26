@@ -86,7 +86,7 @@ export async function POST(req: Request) {
 
   const customerInvitationService = container.resolve('customerInvitationService') as CustomerInvitationService
 
-  const { invitation, rawToken } = await customerInvitationService.createInvitation(
+  const { invitation, rawToken, reused } = await customerInvitationService.createInvitation(
     parsed.data.email,
     { tenantId: auth.tenantId, organizationId: auth.orgId },
     {
@@ -97,15 +97,6 @@ export async function POST(req: Request) {
     },
   )
 
-  void emitCustomerAccountsEvent('customer_accounts.user.invited', {
-    invitationId: invitation.id,
-    email: invitation.email,
-    customerEntityId: invitation.customerEntityId || null,
-    invitedByType: 'portal',
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
-  }).catch(() => undefined)
-
   try {
     await sendCustomerInvitationEmail({
       container,
@@ -115,8 +106,29 @@ export async function POST(req: Request) {
     })
   } catch (error) {
     console.error('[customer_accounts.portal.users-invite] invitation email failed', error)
+    // Roll back a freshly-created invite so a 502 leaves no orphaned, un-emailed
+    // invitation. A reused (already-pending) invite is left intact — removing it
+    // would drop a prior legitimate invitation.
+    if (!reused) {
+      try {
+        await customerInvitationService.removeInvitation(invitation)
+      } catch (rollbackError) {
+        console.error('[customer_accounts.portal.users-invite] invitation rollback failed', rollbackError)
+      }
+    }
     return NextResponse.json({ ok: false, error: 'Invitation email could not be sent' }, { status: 502 })
   }
+
+  // Emit only after the email is sent, so a subscriber observing "invited" can
+  // assume the recipient was actually notified (no event fires on the 502 path).
+  void emitCustomerAccountsEvent('customer_accounts.user.invited', {
+    invitationId: invitation.id,
+    email: invitation.email,
+    customerEntityId: invitation.customerEntityId || null,
+    invitedByType: 'portal',
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+  }).catch(() => undefined)
 
   return NextResponse.json({
     ok: true,

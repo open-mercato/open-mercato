@@ -2,6 +2,7 @@
 
 const mockCheckAuthRateLimit = jest.fn()
 const mockCreateInvitation = jest.fn()
+const mockRemoveInvitation = jest.fn()
 const mockGetCustomerAuthFromRequest = jest.fn()
 const mockRequireCustomerFeature = jest.fn()
 const mockFindWithDecryption = jest.fn()
@@ -16,7 +17,7 @@ const roleId = '11111111-1111-4111-8111-111111111111'
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'customerRbacService') return {}
-    if (token === 'customerInvitationService') return { createInvitation: mockCreateInvitation }
+    if (token === 'customerInvitationService') return { createInvitation: mockCreateInvitation, removeInvitation: mockRemoveInvitation }
     if (token === 'em') return {}
     return null
   }),
@@ -82,7 +83,9 @@ describe('portal customer account user invite route', () => {
         expiresAt: new Date('2026-06-18T12:00:00.000Z').toISOString(),
       },
       rawToken: 'raw-invite-token',
+      reused: false,
     })
+    mockRemoveInvitation.mockResolvedValue(undefined)
     mockSendCustomerInvitationEmail.mockResolvedValue(undefined)
   })
 
@@ -130,7 +133,7 @@ describe('portal customer account user invite route', () => {
     expect(mockSendCustomerInvitationEmail).not.toHaveBeenCalled()
   })
 
-  it('returns 502 when the invitation email cannot be sent', async () => {
+  it('returns 502 and rolls back the freshly-created invitation when the email cannot be sent', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     mockSendCustomerInvitationEmail.mockRejectedValueOnce(new Error('smtp unavailable'))
     const { POST } = await import('../users-invite')
@@ -140,6 +143,30 @@ describe('portal customer account user invite route', () => {
 
     expect(response.status).toBe(502)
     expect(json).toEqual({ ok: false, error: 'Invitation email could not be sent' })
+    expect(mockRemoveInvitation).toHaveBeenCalledWith(
+      expect.objectContaining({ id: '66666666-6666-4666-8666-666666666666' }),
+    )
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('does NOT roll back a reused (already-pending) invitation when the email cannot be sent', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    mockCreateInvitation.mockResolvedValueOnce({
+      invitation: {
+        id: '66666666-6666-4666-8666-666666666666',
+        email: 'buyer@example.com',
+        expiresAt: new Date('2026-06-18T12:00:00.000Z').toISOString(),
+      },
+      rawToken: 'raw-invite-token',
+      reused: true,
+    })
+    mockSendCustomerInvitationEmail.mockRejectedValueOnce(new Error('smtp unavailable'))
+    const { POST } = await import('../users-invite')
+
+    const response = await POST(makeInviteRequest())
+
+    expect(response.status).toBe(502)
+    expect(mockRemoveInvitation).not.toHaveBeenCalled()
     consoleErrorSpy.mockRestore()
   })
 })

@@ -8,6 +8,7 @@ const inviteCompoundConfig: RateLimitConfig = { points: 5, duration: 60, blockDu
 
 const mockCheckAuthRateLimit = jest.fn()
 const mockCreateInvitation = jest.fn()
+const mockRemoveInvitation = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockGetCustomerAuthFromRequest = jest.fn()
@@ -24,7 +25,7 @@ const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures }
     if (token === 'customerRbacService') return {}
-    if (token === 'customerInvitationService') return { createInvitation: mockCreateInvitation }
+    if (token === 'customerInvitationService') return { createInvitation: mockCreateInvitation, removeInvitation: mockRemoveInvitation }
     if (token === 'em') return { find: jest.fn() }
     return null
   }),
@@ -103,7 +104,9 @@ describe('customer invitation endpoints — invitation-created event', () => {
         expiresAt: new Date().toISOString(),
       },
       rawToken: 'raw-secret-token',
+      reused: false,
     })
+    mockRemoveInvitation.mockResolvedValue(undefined)
     mockEmit.mockResolvedValue(undefined)
     mockSendCustomerInvitationEmail.mockResolvedValue(undefined)
     mockFindWithDecryption.mockResolvedValue([{ id: roleId, name: 'Buyer', customerAssignable: true }])
@@ -146,6 +149,34 @@ describe('customer invitation endpoints — invitation-created event', () => {
       tenantId,
       organizationId,
     })
+  })
+
+  it('admin route does NOT emit when the invitation email fails (502 path)', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    mockSendCustomerInvitationEmail.mockRejectedValueOnce(new Error('smtp unavailable'))
+    const { POST } = await import('../admin/users-invite')
+    const res = await POST(
+      makeInviteRequest('/api/customer_accounts/admin/users-invite', { email: 'buyer@example.com', roleIds: [roleId] }),
+    )
+
+    expect(res.status).toBe(502)
+    expect(invitedEvents()).toHaveLength(0)
+    expect(mockRemoveInvitation).toHaveBeenCalledTimes(1)
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('portal route does NOT emit when the invitation email fails (502 path)', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    mockSendCustomerInvitationEmail.mockRejectedValueOnce(new Error('smtp unavailable'))
+    const { POST } = await import('../portal/users-invite')
+    const res = await POST(
+      makeInviteRequest('/api/customer_accounts/portal/users-invite', { email: 'buyer@example.com', roleIds: [roleId] }),
+    )
+
+    expect(res.status).toBe(502)
+    expect(invitedEvents()).toHaveLength(0)
+    expect(mockRemoveInvitation).toHaveBeenCalledTimes(1)
+    consoleErrorSpy.mockRestore()
   })
 
   it('admin route does NOT emit when unauthenticated', async () => {
