@@ -16,6 +16,7 @@ import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/direc
 import { WorkflowDefinition } from '../../data/entities'
 import {
   createWorkflowDefinitionInputSchema,
+  createWorkflowDefinitionInputCheckedSchema,
   type CreateWorkflowDefinitionApiInput,
 } from '../../data/validators'
 import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from './serialize'
@@ -27,7 +28,10 @@ export const metadata = {
   requireFeatures: ['workflows.definitions.view'],
 }
 
+// Post-versioning the unique constraint is (workflow_id, version, tenant_id);
+// the legacy name is still matched so the check survives a partially-migrated DB.
 const WORKFLOW_ID_TENANT_UNIQUE_CONSTRAINT = 'workflow_definitions_workflow_id_tenant_id_unique'
+const WORKFLOW_ID_VERSION_TENANT_UNIQUE_CONSTRAINT = 'workflow_definitions_workflow_id_version_tenant_id_unique'
 
 function isWorkflowIdUniqueConstraintError(error: unknown): boolean {
   if (!error || typeof error !== 'object') {
@@ -40,15 +44,15 @@ function isWorkflowIdUniqueConstraintError(error: unknown): boolean {
   const message = typeof value.message === 'string' ? value.message : ''
   const detail = typeof value.detail === 'string' ? value.detail : ''
 
-  if (constraint === WORKFLOW_ID_TENANT_UNIQUE_CONSTRAINT) {
+  if (constraint === WORKFLOW_ID_TENANT_UNIQUE_CONSTRAINT || constraint === WORKFLOW_ID_VERSION_TENANT_UNIQUE_CONSTRAINT) {
     return true
   }
 
-  if (code === '23505' && detail.includes('(workflow_id, tenant_id)')) {
+  if (code === '23505' && (detail.includes('(workflow_id, tenant_id)') || detail.includes('(workflow_id, version, tenant_id)'))) {
     return true
   }
 
-  return message.includes(WORKFLOW_ID_TENANT_UNIQUE_CONSTRAINT)
+  return message.includes(WORKFLOW_ID_TENANT_UNIQUE_CONSTRAINT) || message.includes(WORKFLOW_ID_VERSION_TENANT_UNIQUE_CONSTRAINT)
 }
 
 /**
@@ -74,6 +78,10 @@ export async function GET(request: NextRequest) {
     const enabled = searchParams.get('enabled')
     const workflowId = searchParams.get('workflowId')
     const search = searchParams.get('search')
+    const kind = searchParams.get('kind')
+    const lifecycle = searchParams.get('lifecycle')
+    const versionParam = searchParams.get('version')
+    const version = versionParam !== null && /^\d+$/.test(versionParam) ? parseInt(versionParam, 10) : null
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
 
@@ -90,6 +98,18 @@ export async function GET(request: NextRequest) {
 
     if (workflowId) {
       where.workflowId = workflowId
+    }
+
+    if (kind) {
+      where.kind = kind
+    }
+
+    if (lifecycle) {
+      where.lifecycle = lifecycle
+    }
+
+    if (version !== null) {
+      where.version = version
     }
 
     if (search) {
@@ -119,6 +139,10 @@ export async function GET(request: NextRequest) {
     const codeOnly = getAllCodeWorkflows()
       .filter((cw) => !shadowed.has(cw.workflowId))
       .filter((cw) => {
+        // Code-based definitions are always kind=workflow / lifecycle=published.
+        if (kind && kind !== 'workflow') return false
+        if (lifecycle && lifecycle !== 'published') return false
+        if (version !== null && cw.version !== version) return false
         if (searchLower) {
           const matches =
             cw.workflowId.toLowerCase().includes(searchLower) ||
@@ -210,7 +234,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
 
     // Validate input
-    const validation = createWorkflowDefinitionInputSchema.safeParse(body)
+    const validation = createWorkflowDefinitionInputCheckedSchema.safeParse(body)
     if (!validation.success) {
       return NextResponse.json(
         {
@@ -223,11 +247,14 @@ export async function POST(request: NextRequest) {
 
     const input: CreateWorkflowDefinitionApiInput = validation.data
 
-    // workflow_id is unique per tenant; check upfront to return 409 instead of DB error.
+    // Create always mints version 1. A workflowId that already exists (any
+    // version) is a conflict — new versions are produced via the publish flow,
+    // not by re-creating. orderBy keeps the existence check deterministic now
+    // that multiple versions can coexist.
     const existing = await em.findOne(WorkflowDefinition, {
       workflowId: input.workflowId,
       tenantId,
-    })
+    }, { orderBy: { version: 'DESC' } })
 
     if (existing) {
       return NextResponse.json(

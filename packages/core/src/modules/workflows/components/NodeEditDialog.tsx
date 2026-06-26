@@ -2,6 +2,7 @@
 
 import {Node} from '@xyflow/react'
 import {useEffect, useState} from 'react'
+import {useRouter} from 'next/navigation'
 import {Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle} from '@open-mercato/ui/primitives/dialog'
 import {Button} from '@open-mercato/ui/primitives/button'
 import {Input} from '@open-mercato/ui/primitives/input'
@@ -23,6 +24,8 @@ import {useT} from '@open-mercato/shared/lib/i18n/context'
 import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
 import {apiCall} from '@open-mercato/ui/backend/utils/apiCall'
+import {flash} from '@open-mercato/ui/backend/FlashMessages'
+import {buildVisualEditorHref, extractFirstDefinitionId} from '../lib/visual-editor-navigation'
 import {isFutureIsoDateString, isValidDurationString} from '../data/validators'
 import type {InvokeAgentConfig} from '../data/validators'
 
@@ -73,6 +76,7 @@ interface FormField {
 
 export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: NodeEditDialogProps) {
   const t = useT()
+  const router = useRouter()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [stepName, setStepName] = useState('')
   const [description, setDescription] = useState('')
@@ -95,6 +99,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
   // Sub-workflow configuration fields (Phase 8)
   const [subWorkflowId, setSubWorkflowId] = useState('')
   const [subWorkflowVersion, setSubWorkflowVersion] = useState('')
+  const [isOpeningInside, setIsOpeningInside] = useState(false)
   const [inputMappings, setInputMappings] = useState<Array<{ key: string; value: string }>>([])
   const [outputMappings, setOutputMappings] = useState<Array<{ key: string; value: string }>>([])
   const [showWorkflowSelector, setShowWorkflowSelector] = useState(false)
@@ -414,6 +419,32 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     setSubWorkflowId(workflowId)
     setSubWorkflowVersion(workflow.version.toString())
     setShowWorkflowSelector(false)
+  }
+
+  // "Otwórz środek" — drill into the referenced sub-workflow's internals.
+  // Resolves the child definition's row id from its workflowId (+ pinned
+  // version) and navigates to the child's visual editor. Fail-open with a flash
+  // when the child can't be resolved.
+  const handleOpenInside = async () => {
+    if (!subWorkflowId) return
+    setIsOpeningInside(true)
+    try {
+      const versionNum = parseInt(subWorkflowVersion, 10)
+      const versionQuery = !isNaN(versionNum) ? `&version=${versionNum}` : ''
+      const res = await apiCall<{ data?: Array<{ id?: string }> }>(
+        `/api/workflows/definitions?workflowId=${encodeURIComponent(subWorkflowId)}&limit=1${versionQuery}`,
+      )
+      const childId = res.ok ? extractFirstDefinitionId(res.result) : null
+      if (!childId) {
+        flash(t('workflows.ports.openInsideNotFound'), 'error')
+        return
+      }
+      router.push(buildVisualEditorHref(childId))
+    } catch {
+      flash(t('workflows.ports.openInsideNotFound'), 'error')
+    } finally {
+      setIsOpeningInside(false)
+    }
   }
 
   const handleSave = () => {
@@ -1355,6 +1386,14 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         onClick={() => setShowWorkflowSelector(true)}
                       >
                         {t('workflows.form.browse')}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleOpenInside}
+                        disabled={!subWorkflowId || isOpeningInside}
+                      >
+                        {t('workflows.ports.openInside')}
                       </Button>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
