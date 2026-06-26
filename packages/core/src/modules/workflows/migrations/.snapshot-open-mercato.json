@@ -829,6 +829,28 @@
           "default": "true",
           "mappedType": "boolean"
         },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(20)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'workflow'",
+          "length": 20,
+          "mappedType": "string"
+        },
+        "lifecycle": {
+          "name": "lifecycle",
+          "type": "varchar(20)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'published'",
+          "length": 20,
+          "mappedType": "string"
+        },
         "effective_from": {
           "name": "effective_from",
           "type": "timestamptz",
@@ -946,6 +968,16 @@
           "keyName": "workflow_definitions_enabled_idx",
           "columnNames": [
             "enabled"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "workflow_definitions_kind_idx",
+          "columnNames": [
+            "kind"
           ],
           "composite": false,
           "constraint": false,

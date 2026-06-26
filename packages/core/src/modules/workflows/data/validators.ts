@@ -683,6 +683,29 @@ const dateOrNull = z.preprocess((value) => {
 // WorkflowDefinition Schemas
 // ============================================================================
 
+// Definition classification + lifecycle
+export const workflowKindSchema = z.enum(['workflow', 'component'])
+export const workflowLifecycleSchema = z.enum(['draft', 'published', 'archived'])
+
+export type WorkflowKind = z.infer<typeof workflowKindSchema>
+export type WorkflowLifecycle = z.infer<typeof workflowLifecycleSchema>
+
+// A reusable component is invoked only as a SUB_WORKFLOW and never auto-starts,
+// so it MUST NOT declare event triggers.
+const componentHasNoTriggers = (
+  data: { kind?: string | null; definition?: { triggers?: unknown[] } | null },
+  ctx: z.RefinementCtx,
+) => {
+  const triggers = data.definition && (data.definition as { triggers?: unknown[] }).triggers
+  if (data.kind === 'component' && Array.isArray(triggers) && triggers.length > 0) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['definition', 'triggers'],
+      message: 'A component workflow cannot declare event triggers',
+    })
+  }
+}
+
 // Full schema for database entities (includes tenant fields)
 export const createWorkflowDefinitionSchema = z.object({
   workflowId: z.string().min(1).max(100).regex(/^[a-z0-9._-]+$/, 'Workflow ID must contain only lowercase letters, numbers, dots, hyphens, and underscores'),
@@ -692,6 +715,8 @@ export const createWorkflowDefinitionSchema = z.object({
   definition: workflowDefinitionDataSchema,
   metadata: workflowMetadataSchema.optional().nullable(),
   enabled: z.boolean().default(true),
+  kind: workflowKindSchema.default('workflow'),
+  lifecycle: workflowLifecycleSchema.default('published'),
   effectiveFrom: dateOrNull.optional(),
   effectiveTo: dateOrNull.optional(),
   tenantId: uuid,
@@ -710,9 +735,16 @@ export const createWorkflowDefinitionInputSchema = z.object({
   definition: workflowDefinitionDataSchema,
   metadata: workflowMetadataSchema.optional().nullable(),
   enabled: z.boolean().default(true).optional(),
+  kind: workflowKindSchema.optional(),
+  lifecycle: workflowLifecycleSchema.optional(),
 })
 
 export type CreateWorkflowDefinitionApiInput = z.infer<typeof createWorkflowDefinitionInputSchema>
+
+// Validation variant that also enforces the component-has-no-triggers rule.
+// Kept separate so the base object stays `.pick()`/`.extend()`-able for OpenAPI.
+export const createWorkflowDefinitionInputCheckedSchema =
+  createWorkflowDefinitionInputSchema.superRefine(componentHasNoTriggers)
 
 export const updateWorkflowDefinitionSchema = createWorkflowDefinitionSchema.partial().extend({
   id: uuid,
@@ -733,11 +765,17 @@ export const updateWorkflowDefinitionInputSchema = z.object({
   definition: workflowDefinitionDataSchema.optional(),
   metadata: workflowMetadataSchema.optional().nullable(),
   enabled: z.boolean().optional(),
+  kind: workflowKindSchema.optional(),
+  lifecycle: workflowLifecycleSchema.optional(),
   effectiveFrom: dateOrNull.optional(),
   effectiveTo: dateOrNull.optional(),
 }).strict()
 
 export type UpdateWorkflowDefinitionApiInput = z.infer<typeof updateWorkflowDefinitionInputSchema>
+
+// Validation variant that also enforces the component-has-no-triggers rule.
+export const updateWorkflowDefinitionInputCheckedSchema =
+  updateWorkflowDefinitionInputSchema.superRefine(componentHasNoTriggers)
 
 export const workflowDefinitionFilterSchema = z.object({
   workflowId: z.string().optional(),

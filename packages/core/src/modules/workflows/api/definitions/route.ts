@@ -16,6 +16,7 @@ import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/direc
 import { WorkflowDefinition } from '../../data/entities'
 import {
   createWorkflowDefinitionInputSchema,
+  createWorkflowDefinitionInputCheckedSchema,
   type CreateWorkflowDefinitionApiInput,
 } from '../../data/validators'
 import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from './serialize'
@@ -74,6 +75,8 @@ export async function GET(request: NextRequest) {
     const enabled = searchParams.get('enabled')
     const workflowId = searchParams.get('workflowId')
     const search = searchParams.get('search')
+    const kind = searchParams.get('kind')
+    const lifecycle = searchParams.get('lifecycle')
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
 
@@ -90,6 +93,14 @@ export async function GET(request: NextRequest) {
 
     if (workflowId) {
       where.workflowId = workflowId
+    }
+
+    if (kind) {
+      where.kind = kind
+    }
+
+    if (lifecycle) {
+      where.lifecycle = lifecycle
     }
 
     if (search) {
@@ -119,6 +130,9 @@ export async function GET(request: NextRequest) {
     const codeOnly = getAllCodeWorkflows()
       .filter((cw) => !shadowed.has(cw.workflowId))
       .filter((cw) => {
+        // Code-based definitions are always kind=workflow / lifecycle=published.
+        if (kind && kind !== 'workflow') return false
+        if (lifecycle && lifecycle !== 'published') return false
         if (searchLower) {
           const matches =
             cw.workflowId.toLowerCase().includes(searchLower) ||
@@ -210,7 +224,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
 
     // Validate input
-    const validation = createWorkflowDefinitionInputSchema.safeParse(body)
+    const validation = createWorkflowDefinitionInputCheckedSchema.safeParse(body)
     if (!validation.success) {
       return NextResponse.json(
         {
