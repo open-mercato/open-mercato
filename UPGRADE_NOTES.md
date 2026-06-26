@@ -63,6 +63,25 @@ Follow the **versioning threshold** documented in [`packages/shared/AGENTS.md`](
 
 This is a refactor with no API, event-ID, DI, or DB-schema contract change. Related: #3457 (this change), and the sibling persisted-storage audit tracked in #3174 / #3393.
 
+### Selectable dev-mode watch scope (opt-in, default unchanged)
+
+`yarn dev` can now watch a **subset** of workspace packages instead of always watching every one. The default remains `all` (watch everything), so **no action is required** — existing `yarn dev` / `yarn dev:greenfield` runs behave exactly as before.
+
+To opt in, pick a scope with the new `OM_WATCH_SCOPE` env var or the `--watch=<mode>` flag (CLI flag wins over the env var). It works in both the monorepo and standalone (create-app) runtimes:
+
+- `all` (default) — watch every package.
+- `auto-optimized` — watch only packages your git working tree / current-branch diff touched, re-checking every 2 minutes and expanding to newly-touched packages.
+- `popular` — watch only the most frequently changed packages from recent `git log` history (`OM_WATCH_POPULAR_LIMIT`, default 6; falls back to `core`, `ui`, `shared`).
+- `env` — watch exactly the packages in `OM_WATCH_PACKAGES`, or the selection saved by the interactive picker (`yarn dev:watch-select`, persisted to the gitignored `.mercato/watch-packages.local.json`).
+
+```bash
+yarn dev --watch=auto-optimized
+OM_WATCH_SCOPE=env OM_WATCH_PACKAGES=core,ui yarn dev
+yarn dev:greenfield --watch=popular
+```
+
+Additional knobs: `OM_WATCH_GIT_STATUS`, `OM_WATCH_GIT_BRANCH`, `OM_WATCH_BASE_REF`, `OM_WATCH_POPULAR_LIMIT`. This is purely a local dev-DX feature: no API, event-ID, DI, ACL, or DB-schema contract changed, and the app source is still fully watched by Next.js/Turbopack regardless of scope. See [the troubleshooting guide](apps/docs/docs/appendix/troubleshooting.mdx) for the full reference.
+
 ---
 
 ## 0.6.3 → 0.6.4 (2026-06-08)

@@ -74,6 +74,50 @@ To restore the previous faster-but-heavier incremental watcher for a session, co
 OM_WATCH_PACKAGES_MODE=legacy OM_PACKAGE_WATCH_MODE=persistent yarn dev
 ```
 
+### Choosing which packages the watcher tracks (watch scope)
+
+By default `yarn dev` watches **every** workspace package (`packages/*` plus any activated `external/official-modules/packages/*`). On large checkouts you rarely edit more than a handful of packages in one session, so the watcher can be narrowed to a subset. The watch unit is the workspace package (its short label — `core`, `ui`, `shared`, `ai-assistant`, …); the app itself is still watched in full by Next.js/Turbopack regardless of the scope.
+
+Pick a mode with the `OM_WATCH_SCOPE` env var or the `--watch=<mode>` flag on `yarn dev` / `yarn dev:greenfield` (the CLI flag wins over the env var):
+
+| Mode | What it watches |
+|------|-----------------|
+| `all` (default) | Every discovered package. Unchanged behavior. |
+| `auto-optimized` | Only packages **touched recently** — your git working-tree changes plus the current branch's diff against its base ref. The watcher re-checks every 2 minutes and **expands** to newly-touched packages (it never drops a watcher mid-session). |
+| `popular` | Only the **most frequently changed** packages, ranked from recent `git log` history (capped by `OM_WATCH_POPULAR_LIMIT`, default 6). Falls back to `core`, `ui`, `shared` when no history is available. |
+| `env` | Exactly the packages you list in `OM_WATCH_PACKAGES`, or the selection saved by the interactive picker. |
+
+```bash
+# Equivalent ways to select a mode
+yarn dev --watch=auto-optimized
+OM_WATCH_SCOPE=auto-optimized yarn dev
+
+# Watch only what you name (env scope)
+OM_WATCH_SCOPE=env OM_WATCH_PACKAGES=core,ui yarn dev
+yarn dev --watch=env --watch-packages=core,ui
+
+# Most-popular packages, capped at 4
+yarn dev --watch=popular --watch-popular-limit=4
+
+# Greenfield boot, auto-optimized scope
+yarn dev:greenfield --watch=auto-optimized
+```
+
+Prefer to pick interactively? Run the picker, then start dev in `env` scope:
+
+```bash
+yarn dev:watch-select   # choose packages by number/name; saved to .mercato/watch-packages.local.json
+yarn dev --watch=env
+```
+
+Tuning knobs for `auto-optimized`:
+
+- `OM_WATCH_GIT_STATUS=off` — ignore uncommitted working-tree changes (use only the branch diff).
+- `OM_WATCH_GIT_BRANCH=off` — ignore the branch diff (use only the working tree).
+- `OM_WATCH_BASE_REF=origin/main` — override the base ref the branch diff is computed against (defaults to the first of `origin/develop`, `develop`, `origin/main`, `main` that exists).
+
+If a non-`all` scope ever leaves out a package you are actively editing, either switch back with `OM_WATCH_SCOPE=all` / `--watch=all`, add it to `OM_WATCH_PACKAGES`, or just wait — `auto-optimized` will pick it up at the next 2-minute sweep once it has a git change.
+
 ## PostgreSQL auth errors on local setup
 
 If local commands such as `yarn generate`, `yarn db:generate`, or app startup fail with errors like:
