@@ -1,5 +1,7 @@
 import type { Node, Edge } from '@xyflow/react'
 import type { WorkflowDefinition } from '../data/entities'
+import type { WorkflowIoContract } from '../data/validators'
+import { isDataMappingEdge } from './data-edge-mapping'
 
 /**
  * Graph Utilities for Visual Workflow Editor
@@ -14,6 +16,12 @@ export interface GraphToDefinitionOptions {
 export interface DefinitionToGraphOptions {
   autoLayout?: boolean
   layoutSpacing?: { vertical: number; horizontal: number }
+  /**
+   * Declared IO port contracts of referenced sub-workflows, keyed by
+   * `subWorkflowId`. When provided, a SUB_WORKFLOW node renders the child's
+   * IN/OUT ports. Absent → the node renders without ports (backward compatible).
+   */
+  childContracts?: Map<string, WorkflowIoContract>
 }
 
 /**
@@ -118,8 +126,10 @@ export function graphToDefinition(
     return step
   })
 
-  // Extract transitions from edges
-  const transitions = edges.map((edge) => {
+  // Extract transitions from edges. Drag-authored data-mapping edges are NOT
+  // transitions — their binding lives in the target step's config.inputMapping —
+  // so they are excluded here.
+  const transitions = edges.filter((edge) => !isDataMappingEdge(edge)).map((edge) => {
     const edgeData = edge.data as any
     const transition: any = {
       transitionId: edge.id,
@@ -217,7 +227,7 @@ export function definitionToGraph(
   definition: WorkflowDefinition['definition'],
   options: DefinitionToGraphOptions = {}
 ): { nodes: Node[]; edges: Edge[] } {
-  const { autoLayout = true, layoutSpacing = { vertical: 200, horizontal: 300 } } = options
+  const { autoLayout = true, layoutSpacing = { vertical: 200, horizontal: 300 }, childContracts } = options
 
   // Build step map for quick lookup
   const stepMap = new Map(definition.steps.map(step => [step.stepId, step]))
@@ -303,6 +313,15 @@ export function definitionToGraph(
     // Add wait for signal data
     if (step.stepType === 'WAIT_FOR_SIGNAL' && (step as any).signalConfig) {
       nodeData.signalConfig = (step as any).signalConfig
+    }
+
+    // Add sub-workflow port contract so the node renders the child's IN/OUT
+    // ports without opening it. Resolved from the supplied childContracts map.
+    if (step.stepType === 'SUB_WORKFLOW') {
+      const subWorkflowId = (step as any).config?.subWorkflowId
+      const contract = subWorkflowId ? childContracts?.get(subWorkflowId) : undefined
+      if (contract?.inputs?.length) nodeData.inputs = contract.inputs
+      if (contract?.outputs?.length) nodeData.outputs = contract.outputs
     }
 
     // Add step activities data (for AUTOMATED steps)
@@ -485,6 +504,7 @@ function mapNodeTypeToStepType(nodeType: string): string {
     end: 'END',
     userTask: 'USER_TASK',
     automated: 'AUTOMATED',
+    subWorkflow: 'SUB_WORKFLOW',
     decision: 'DECISION',
     waitForSignal: 'WAIT_FOR_SIGNAL',
     waitForTimer: 'WAIT_FOR_TIMER',
@@ -503,6 +523,7 @@ function mapStepTypeToNodeType(stepType: string): string {
     END: 'end',
     USER_TASK: 'userTask',
     AUTOMATED: 'automated',
+    SUB_WORKFLOW: 'subWorkflow',
     DECISION: 'decision',
     WAIT_FOR_SIGNAL: 'waitForSignal',
     WAIT_FOR_TIMER: 'waitForTimer',

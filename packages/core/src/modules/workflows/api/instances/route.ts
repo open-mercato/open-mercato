@@ -25,6 +25,8 @@ import {
 } from '../openapi'
 import * as workflowExecutor from '../../lib/workflow-executor'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { findWorkflowDefinition } from '../../lib/find-definition'
+import { isComponentKind } from '../../lib/component-guard'
 
 const logger = createLogger('workflows')
 
@@ -195,6 +197,22 @@ export async function POST(request: NextRequest) {
     }
 
     const input: StartWorkflowApiInput = validation.data
+
+    // Reject standalone start of a reusable component. Components have no
+    // trigger and may only be invoked as a SUB_WORKFLOW; this guard lives on
+    // the manual-start path only, so sub-workflow invocation is unaffected.
+    const startDefinition = await findWorkflowDefinition(em, {
+      workflowId: input.workflowId,
+      version: input.version,
+      tenantId,
+      organizationId,
+    })
+    if (startDefinition && isComponentKind(startDefinition.kind)) {
+      return NextResponse.json(
+        { error: 'This workflow is a reusable component and cannot be started standalone; invoke it from a SUB_WORKFLOW step.' },
+        { status: 400 }
+      )
+    }
 
     // User-started instances must always record the authenticated caller.
     const metadata = {
