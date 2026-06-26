@@ -615,7 +615,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         throw new CrudHttpError(404, { error: translate('sales.returns.orderMissing', 'Order not found.') })
       }
       ensureSameScope(order, input.organizationId, input.tenantId)
-      enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
+      await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
 
       const orderLines = await findWithDecryption(
         tx,
@@ -890,7 +890,7 @@ const updateReturnCommand: CommandHandler<ReturnUpdateInput, { returnId: string 
       }
       // Lock on the return's own version — editing header fields (reason / notes /
       // returnedAt) only touches the return, not the order totals.
-      enforceSalesDocumentOptimisticLock(ctx, entity, SALES_RESOURCE_KIND_RETURN)
+      await enforceSalesDocumentOptimisticLock(ctx, entity, SALES_RESOURCE_KIND_RETURN)
 
       if (input.reason !== undefined) entity.reason = input.reason.length ? input.reason : null
       if (input.notes !== undefined) entity.notes = input.notes.length ? input.notes : null
@@ -1020,7 +1020,7 @@ const deleteReturnCommand: CommandHandler<ReturnDeleteInput, { returnId: string 
     }
     ensureSameScope(header, input.organizationId, input.tenantId)
     // Lock on the return's own version, captured before any mutation.
-    enforceSalesDocumentOptimisticLock(ctx, header, SALES_RESOURCE_KIND_RETURN)
+    await enforceSalesDocumentOptimisticLock(ctx, header, SALES_RESOURCE_KIND_RETURN)
 
     await reverseReturnEffects(em, salesCalculationService, snapshot)
 

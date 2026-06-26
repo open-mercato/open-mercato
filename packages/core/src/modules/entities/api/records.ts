@@ -11,7 +11,7 @@ import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared
 import { setRecordCustomFields } from '../lib/helpers'
 import { CustomFieldValue } from '../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getModules } from '@open-mercato/shared/lib/i18n/server'
 import { assertEntityAclForRequest } from '../lib/entityAcl'
@@ -460,7 +460,8 @@ export async function PUT(req: Request) {
   const { entityId, recordId, values } = parsed.data
 
   try {
-    const { resolve } = await createRequestContainer()
+    const container = await createRequestContainer()
+    const { resolve } = container
     const de = resolve('dataEngine') as any
     const em = resolve('em') as any
     const rbac = resolve('rbacService') as RbacService
@@ -510,7 +511,7 @@ export async function PUT(req: Request) {
         entityId: rid,
         organizationId: targetOrgId,
       })
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(container, {
         resourceKind: CUSTOM_ENTITY_RECORD_RESOURCE_KIND,
         resourceId: rid,
         current: currentUpdatedAt,
@@ -558,7 +559,8 @@ export async function DELETE(req: Request) {
   const { entityId, recordId } = parsed.data
 
   try {
-    const { resolve } = await createRequestContainer()
+    const container = await createRequestContainer()
+    const { resolve } = container
     const de = resolve('dataEngine') as any
     const em = resolve('em') as any
     const rbac = resolve('rbacService') as RbacService
@@ -576,7 +578,7 @@ export async function DELETE(req: Request) {
         entityId: recordId,
         organizationId: targetOrgId,
       })
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(container, {
         resourceKind: CUSTOM_ENTITY_RECORD_RESOURCE_KIND,
         resourceId: recordId,
         current: currentUpdatedAt,

@@ -3,7 +3,7 @@
 "use client"
 
 import * as React from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import {
   CustomDataSection,
@@ -68,6 +68,7 @@ import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/customers/lib/dicti
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@open-mercato/core/modules/customers/lib/markdownPreference'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 
 function formatMessageAmount(amount: number | null | undefined, currency: string | null | undefined): string | null {
   if (typeof amount !== 'number' || !Number.isFinite(amount)) return null
@@ -1892,6 +1893,7 @@ export default function SalesDocumentDetailPage({
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const pathname = usePathname()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [loading, setLoading] = React.useState(true)
   const [isNotFound, setIsNotFound] = React.useState(false)
@@ -1971,6 +1973,18 @@ export default function SalesDocumentDetailPage({
       })
     },
     [detailInjectionContext, runMutation],
+  )
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so record_locks gets presence + the action-log base (updatedAt/data) for
+  // this order/quote. Sub-resource sections inherit this context — no second mount.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: `sales.${kind}`,
+      resourceId: record?.id ?? null,
+      updatedAt: record?.updatedAt ?? null,
+      data: record as Record<string, unknown> | null,
+      path: pathname,
+    }),
   )
   const clearCustomerError = React.useCallback(() => setCustomerError(null), [])
   const { data: currencyDictionary } = useCurrencyDictionary()
@@ -4244,6 +4258,7 @@ export default function SalesDocumentDetailPage({
             currencyCode={record.currencyCode ?? null}
             organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
             tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
+            documentUpdatedAt={record.updatedAt ?? null}
             shippingAddressSnapshot={shippingSnapshot ?? null}
             onActionChange={handleSectionActionChange}
             onAddComment={appendShipmentComment}
@@ -4300,6 +4315,7 @@ export default function SalesDocumentDetailPage({
           currencyCode={record.currencyCode ?? null}
           organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
+          documentUpdatedAt={record.updatedAt ?? null}
           onActionChange={handleSectionActionChange}
           onPaymentsChange={(payments) => setHasPayments(payments.length > 0)}
           onTotalsChange={() => {

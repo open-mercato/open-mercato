@@ -23,6 +23,7 @@ import {
   stripAnsi,
 } from './dev-splash-helpers.mjs'
 import { purgeAppBuildCaches } from './dev-cache-purge.mjs'
+import { ensureDevInotifyLimits } from './dev-inotify-limits.mjs'
 import { killProcessTree } from './dev-shutdown-utils.mjs'
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
@@ -347,6 +348,32 @@ function printDevLogLocation() {
   if (process.env.OM_DEV_LOG_ANNOUNCED === '1') return
   console.log(`📝 Verbose logs ${formatDevLogAnnouncement(getDevLogSession())}`)
   process.env.OM_DEV_LOG_ANNOUNCED = '1'
+}
+
+function ensureDevFileWatchLimits() {
+  const result = ensureDevInotifyLimits()
+  if (result.fixed) {
+    console.log('🔧 Raised Linux inotify file-watch limits for Turbopack')
+    return true
+  }
+  if (result.ok) {
+    return true
+  }
+
+  updateSplashState({
+    phase: 'File-watch limits too low',
+    detail: 'Raise Linux inotify limits before starting Turbopack',
+    failed: true,
+    failureLines: result.message.split('\n').filter(Boolean).slice(0, 10),
+    failureCommand: 'yarn dev:fix-wsl-watchers',
+    ready: false,
+    readyUrl: null,
+    loginUrl: null,
+    activity: 'File-watch limit preflight failed',
+  })
+  console.error(result.message)
+  shutdown(1)
+  return false
 }
 
 function spawnCommand(command, commandArgs, options = {}) {
@@ -1823,6 +1850,7 @@ async function runClassicStandaloneDev() {
 async function main() {
   printDevLogLocation()
   await startSplashServer()
+  if (!ensureDevFileWatchLimits()) return
 
   if (!isMonorepo) {
     if (setupMode) {
