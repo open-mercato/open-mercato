@@ -394,7 +394,7 @@ const addOrganization: ModuleCli = {
     // Create tenant implicitly for simplicity
     const tenant = em.create(Tenant, { name: `${name} Tenant` })
     await em.persist(tenant).flush()
-    const org = em.create(Organization, { name, tenant })
+    const org = em.create(Organization, { name, tenant, logoPreserveAspectRatio: false })
     await em.persist(org).flush()
     await rebuildHierarchyForTenant(em, String(tenant.id))
     console.log('Organization created with id', org.id, 'in tenant', tenant.id)
