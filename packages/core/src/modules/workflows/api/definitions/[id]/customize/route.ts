@@ -71,10 +71,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
+    // Pin to the latest version so the override targets a deterministic row.
     const existingOverride = await em.findOne(WorkflowDefinition, {
       workflowId: codeDef.workflowId,
       tenantId,
-    })
+    }, { orderBy: { version: 'DESC' } })
 
     let saved: WorkflowDefinition
     if (existingOverride) {

@@ -177,6 +177,28 @@ describe('findWorkflowDefinition()', () => {
     )
   })
 
+  test('unpinned resolution filters by lifecycle published (latest published)', async () => {
+    mockEm.findOne.mockResolvedValue(null)
+
+    await findWorkflowDefinition(mockEm as any, baseOptions)
+
+    expect(mockEm.findOne).toHaveBeenCalledWith(
+      WorkflowDefinition,
+      expect.objectContaining({ enabled: true, lifecycle: 'published' }),
+      expect.objectContaining({ orderBy: { version: 'DESC' } }),
+    )
+  })
+
+  test('version-pinned lookup does not filter by lifecycle (any version resolvable)', async () => {
+    mockEm.findOne.mockResolvedValue(null)
+
+    await findWorkflowDefinition(mockEm as any, { ...baseOptions, version: 2 })
+
+    const where = mockEm.findOne.mock.calls[0][1] as Record<string, unknown>
+    expect(where).not.toHaveProperty('lifecycle')
+    expect(where).toMatchObject({ version: 2 })
+  })
+
   test('queries DB with exact version when version is specified', async () => {
     mockEm.findOne.mockResolvedValue(null)
 
