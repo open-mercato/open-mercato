@@ -324,7 +324,7 @@ describe('Workflow Instances API', () => {
       expect(data.data.execution).toEqual({
         status: mockInstance.status,
         currentStep: mockInstance.currentStepId,
-        message: 'Workflow execution started in background',
+        message: 'Workflow execution started',
       })
       expect(data.message).toBe('Workflow started successfully')
       expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
