@@ -221,7 +221,7 @@ export async function loadShipmentSnapshot(em: EntityManager, id: string): Promi
 }
 
 export async function restoreShipmentSnapshot(em: EntityManager, snapshot: ShipmentSnapshot): Promise<void> {
-  const order = await em.findOne(SalesOrder, { id: snapshot.orderId })
+  const order = await findOneWithDecryption(em, SalesOrder, { id: snapshot.orderId }, {}, { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId })
   if (!order) return
   const existing = await em.findOne(SalesShipment, { id: snapshot.id })
   const entity =
@@ -332,8 +332,12 @@ async function recomputeFulfilledQuantities(em: EntityManager, order: SalesOrder
   })
 }
 
-async function loadOrder(em: EntityManager, id: string): Promise<SalesOrder> {
-  const order = await em.findOne(SalesOrder, { id, deletedAt: null })
+async function loadOrder(
+  em: EntityManager,
+  id: string,
+  scope?: { tenantId: string; organizationId: string }
+): Promise<SalesOrder> {
+  const order = await findOneWithDecryption(em, SalesOrder, { id, deletedAt: null }, {}, scope)
   if (!order) throw new CrudHttpError(404, { error: 'sales.shipments.not_found' })
   return order
 }
@@ -438,7 +442,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
     const shipment = await em.transactional(async (tx) => {
-      const order = await loadOrder(tx, input.orderId)
+      const order = await loadOrder(tx, input.orderId, { tenantId: input.tenantId, organizationId: input.organizationId })
       ensureSameScope(order, input.organizationId, input.tenantId)
       // Guard the parent order's aggregate version (Gap B): a shipment mutation
       // recalculates the order's fulfilled quantities, so a stale parent must 409
@@ -607,7 +611,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await em.transactional(async (tx) => {
       await restoreShipmentSnapshot(tx, after)
-      const order = await tx.findOne(SalesOrder, { id: after.orderId })
+      const order = await findOneWithDecryption(tx, SalesOrder, { id: after.orderId }, {}, { tenantId: after.tenantId, organizationId: after.organizationId })
       await tx.flush()
       if (order) {
         await recomputeFulfilledQuantities(tx, order)
@@ -882,7 +886,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await em.transactional(async (tx) => {
       await restoreShipmentSnapshot(tx, before)
-      const order = await tx.findOne(SalesOrder, { id: before.orderId })
+      const order = await findOneWithDecryption(tx, SalesOrder, { id: before.orderId }, {}, { tenantId: before.tenantId, organizationId: before.organizationId })
       await tx.flush()
       if (order) {
         await recomputeFulfilledQuantities(tx, order)
@@ -1035,7 +1039,7 @@ const deleteShipmentCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await em.transactional(async (tx) => {
       await restoreShipmentSnapshot(tx, snapshot)
-      const order = await tx.findOne(SalesOrder, { id: snapshot.orderId })
+      const order = await findOneWithDecryption(tx, SalesOrder, { id: snapshot.orderId }, {}, { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId })
       await tx.flush()
       if (order) {
         await recomputeFulfilledQuantities(tx, order)

@@ -312,6 +312,7 @@
   "customers.calendar.peek.attendee": "1 attendee",
   "customers.calendar.peek.attendees": "{count} attendees",
   "customers.calendar.peek.edit": "Edit",
+  "customers.calendar.peek.editForbidden": "You don't have permission to edit events",
   "customers.calendar.peek.join": "Join",
   "customers.calendar.platform.meet": "Meet",
   "customers.calendar.platform.slack": "Slack",
