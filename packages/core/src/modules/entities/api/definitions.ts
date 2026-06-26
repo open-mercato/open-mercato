@@ -24,6 +24,14 @@ import {
   beginEntitiesMutationGuard,
   FIELD_DEFINITION_RESOURCE_KIND,
 } from './definitions.mutation-guard'
+import {
+  createExactDefinitionWhere,
+  createScopedDefinitionTombstone,
+  createVisibleDefinitionWhere,
+  markDefinitionTombstoned,
+  resolveDefinitionMutationScope,
+  selectVisibleDefinitionWinner,
+} from '../lib/definition-scope'
 
 /**
  * Validate defaultValue against the field kind. Returns an error message string
@@ -468,6 +476,7 @@ export async function POST(req: Request) {
   }
 
   const container = await createRequestContainer()
+  const scope = await resolveDefinitionMutationScope({ auth, container, request: req })
   const { resolve } = container
   const em = resolve('em') as any
   let cache: CacheStrategy | undefined
@@ -475,7 +484,7 @@ export async function POST(req: Request) {
     cache = resolve('cache') as CacheStrategy
   } catch {}
 
-  const where: any = { entityId: input.entityId, key: input.key, organizationId: auth.orgId ?? null, tenantId: auth.tenantId ?? null }
+  const where: any = createExactDefinitionWhere(input.entityId, input.key, scope)
   let def = await em.findOne(CustomFieldDef, where)
 
   const guard = await beginEntitiesMutationGuard({
@@ -512,7 +521,7 @@ export async function POST(req: Request) {
   if (cfg.defaultValue !== undefined && cfg.defaultValue !== null) {
     const validationError = await validateDefaultValueByKind(
       cfg.defaultValue, input.kind, cfg, em,
-      { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
     )
     if (validationError) {
       return NextResponse.json({ error: validationError }, { status: 400 })
@@ -521,13 +530,14 @@ export async function POST(req: Request) {
   }
   def.configJson = cfg
   def.isActive = input.isActive ?? true
+  def.deletedAt = def.isActive === false ? (def.deletedAt ?? new Date()) : null
   def.updatedAt = new Date()
   em.persist(def)
   await em.flush()
   await guard.runAfterSuccess()
   await invalidateDefinitionsCache(cache, {
-    tenantId: auth.tenantId ?? null,
-    organizationId: auth.orgId ?? null,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
     entityIds: [input.entityId],
   })
   // Changing field definitions may impact forms but not sidebar items; no nav cache touch
@@ -543,36 +553,48 @@ export async function DELETE(req: Request) {
   if (!entityId || !key) return NextResponse.json({ error: 'entityId and key are required' }, { status: 400 })
 
   const container = await createRequestContainer()
+  const scope = await resolveDefinitionMutationScope({ auth, container, request: req })
   const { resolve } = container
   const em = resolve('em') as any
   let cache: CacheStrategy | undefined
   try {
     cache = resolve('cache') as CacheStrategy
   } catch {}
-  const where: any = { entityId, key, organizationId: auth.orgId ?? null, tenantId: auth.tenantId ?? null }
-  const def = await em.findOne(CustomFieldDef, where)
-  if (!def) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  const where: any = createExactDefinitionWhere(entityId, key, scope)
+  let def = await em.findOne(CustomFieldDef, where)
+  let inherited: any | null = null
+  if (!def) {
+    inherited = selectVisibleDefinitionWinner(await em.find(CustomFieldDef, createVisibleDefinitionWhere(
+      entityId,
+      key,
+      scope,
+      { deletedAt: null, isActive: true },
+    )))
+    if (!inherited) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
 
   const guard = await beginEntitiesMutationGuard({
     container,
     auth,
     req,
     resourceKind: FIELD_DEFINITION_RESOURCE_KIND,
-    resourceId: def.id,
+    resourceId: def?.id ?? inherited?.id ?? `${entityId}:${key}`,
     operation: 'delete',
     mutationPayload: { entityId, key },
   })
   if (guard.blockedResponse) return guard.blockedResponse
 
-  def.isActive = false
-  def.updatedAt = new Date()
-  def.deletedAt = def.deletedAt ?? new Date()
+  if (!def) {
+    def = createScopedDefinitionTombstone(em, inherited, scope)
+  } else {
+    markDefinitionTombstoned(def)
+  }
   em.persist(def)
   await em.flush()
   await guard.runAfterSuccess()
   await invalidateDefinitionsCache(cache, {
-    tenantId: auth.tenantId ?? null,
-    organizationId: auth.orgId ?? null,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
     entityIds: [entityId],
   })
   // Changing field definitions may impact forms but not sidebar items; no nav cache touch

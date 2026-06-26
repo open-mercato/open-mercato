@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { GET, POST } from '../definitions'
+import { DELETE, GET, POST } from '../definitions'
 
 const installCustomEntitiesFromModulesMock = jest.fn(async () => ({
   processed: 1,
@@ -144,6 +144,41 @@ describe('entities/definitions API', () => {
     expect(status?.defaultValue).toBe('customer')
     expect(isVip?.defaultValue).toBe(true)
     expect(notes?.defaultValue).toBeUndefined()
+  })
+
+  it('hides inherited definitions that have a scoped tombstone', async () => {
+    mockEm.find
+      .mockResolvedValueOnce([
+        {
+          key: 'estimated_seats',
+          kind: 'integer',
+          entityId: 'customers:customer_person',
+          tenantId: 'tenant-1',
+          organizationId: null,
+          updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+          configJson: { label: 'Estimated seats' },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          key: 'estimated_seats',
+          kind: 'integer',
+          entityId: 'customers:customer_person',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          deletedAt: new Date('2026-06-26T00:00:00.000Z'),
+          updatedAt: new Date('2026-06-26T00:00:00.000Z'),
+          configJson: { label: 'Estimated seats' },
+        },
+      ])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=customers:customer_person'),
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.items).toEqual([])
   })
 
   it('does not synchronize module-backed definitions for callers without manage permission', async () => {
@@ -304,5 +339,74 @@ describe('entities/definitions POST — defaultValue validation', () => {
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.ok).toBe(true)
+  })
+})
+
+describe('entities/definitions DELETE', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockEm.find.mockResolvedValue([])
+    mockEm.findOne.mockResolvedValue(null)
+  })
+
+  const makeDeleteRequest = (body: Record<string, unknown>) =>
+    new Request('http://x/api/entities/definitions', {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+  it('creates a scoped tombstone when deleting an inherited definition', async () => {
+    const inherited = {
+      entityId: 'customers:customer_deal',
+      key: 'estimated_seats',
+      kind: 'integer',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      configJson: { label: 'Estimated seats/licenses' },
+    }
+    mockEm.findOne.mockResolvedValueOnce(null)
+    mockEm.find.mockResolvedValueOnce([inherited])
+
+    const response = await DELETE(makeDeleteRequest({
+      entityId: 'customers:customer_deal',
+      key: 'estimated_seats',
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mockEm.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        entityId: 'customers:customer_deal',
+        key: 'estimated_seats',
+        kind: 'integer',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        isActive: false,
+        deletedAt: expect.any(Date),
+      }),
+    )
+    expect(mockEm.persist).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'estimated_seats',
+      isActive: false,
+      deletedAt: expect.any(Date),
+    }))
+    expect(mockEm.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('still returns 404 when neither scoped nor inherited definition exists', async () => {
+    mockEm.findOne.mockResolvedValueOnce(null)
+    mockEm.find.mockResolvedValueOnce([])
+
+    const response = await DELETE(makeDeleteRequest({
+      entityId: 'customers:customer_deal',
+      key: 'missing_key',
+    }))
+
+    expect(response.status).toBe(404)
+    expect(mockEm.create).not.toHaveBeenCalled()
+    expect(mockEm.persist).not.toHaveBeenCalled()
   })
 })
