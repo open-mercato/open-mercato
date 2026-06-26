@@ -20,6 +20,23 @@ import {
   shapeResult,
 } from './persistence'
 import type { AgentRunSessionStore } from './agentRunSessionStore'
+import { ingestTrace } from '../trace/traceIngestionService'
+import type { TraceSpanIngest } from '../../data/validators'
+
+/**
+ * One MCP tool invocation observed on the OpenCode SSE stream during a run.
+ * Correlated by the part id so a `tool_result` part can be matched back to its
+ * originating `tool_use`.
+ */
+type CapturedToolCall = {
+  id: string
+  toolName: string
+  args?: unknown
+  result?: unknown
+  status: 'ok' | 'error'
+  startedAt: string
+  endedAt?: string
+}
 
 /**
  * Minimal surface the runner needs from the OpenCode client. Declared locally so
@@ -160,6 +177,12 @@ export class OpenCodeAgentRunner {
       organizationId: ctx.organizationId,
     })
 
+    // Tool/skill calls observed on the SSE stream during this run. Collected here
+    // so the OpenCode path records spans/tool-calls (#3628) — without this the
+    // trace tables stay empty for OpenCode runs since the runner only captured
+    // the final outcome.
+    const capturedToolCalls: CapturedToolCall[] = []
+
     try {
       const message = this.buildMessage(sessionToken, input)
 
@@ -169,6 +192,7 @@ export class OpenCodeAgentRunner {
         openCodeAgentName,
         sessionToken,
         store,
+        toolCallSink: capturedToolCalls,
       })
 
       if (capturedOutcome === NO_OUTCOME) {
@@ -209,6 +233,14 @@ export class OpenCodeAgentRunner {
         })
       }
 
+      await this.ingestSessionTrace({
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        agentId,
+        externalRunId: session.id,
+        toolCalls: capturedToolCalls,
+      })
+
       return result
     } finally {
       // Remove the shared correlation row, then best-effort revoke the per-run
@@ -223,6 +255,51 @@ export class OpenCodeAgentRunner {
       } catch (err) {
         console.warn(`[internal] failed to revoke OpenCode run session token for "${agentId}":`, err)
       }
+    }
+  }
+
+  /**
+   * Persist the tool/skill calls observed during the run as trace spans + tool
+   * calls, correlating on `(runtime='opencode', externalRunId=session.id)` so the
+   * upsert lands on the run row this runner already created (it appends spans
+   * without clobbering the run's status/output). Best-effort: a trace-ingest
+   * failure must never fail an otherwise-successful run, and a run with no
+   * observed tool calls writes nothing.
+   */
+  private async ingestSessionTrace(args: {
+    tenantId: string
+    organizationId: string
+    agentId: string
+    externalRunId: string
+    toolCalls: CapturedToolCall[]
+  }): Promise<void> {
+    if (args.toolCalls.length === 0) return
+    try {
+      const em = this.container.resolve<EntityManager>('em').fork()
+      const spans: TraceSpanIngest[] = args.toolCalls.map((toolCall, index) => ({
+        externalSpanId: `${toolCall.id}-${index}`,
+        sequence: index,
+        name: toolCall.toolName,
+        kind: 'tool',
+        startedAt: toolCall.startedAt,
+        endedAt: toolCall.endedAt ?? null,
+        status: toolCall.status,
+        toolCalls: [
+          {
+            toolName: toolCall.toolName,
+            requestSummary: toolCall.args,
+            responseSummary: toolCall.result,
+            status: toolCall.status,
+          },
+        ],
+      }))
+      await ingestTrace(
+        em,
+        { tenantId: args.tenantId, organizationId: args.organizationId },
+        { runtime: 'opencode', externalRunId: args.externalRunId, agentId: args.agentId, spans },
+      )
+    } catch (err) {
+      console.warn(`[internal] failed to ingest OpenCode trace for "${args.agentId}":`, err)
     }
   }
 
@@ -248,8 +325,9 @@ export class OpenCodeAgentRunner {
     openCodeAgentName: string
     sessionToken: string
     store: AgentRunSessionStore
+    toolCallSink: CapturedToolCall[]
   }): Promise<unknown | typeof NO_OUTCOME> {
-    const idleSignal = this.subscribeIdle(args.sessionId)
+    const idleSignal = this.subscribeSession(args.sessionId, args.toolCallSink)
     const deadline = createDeadline(resolveRunTimeoutMs())
     // The send is synchronous server-side (holds until the loop finishes), so use
     // the long run deadline as its timeout — aborting at the 30s chat default
@@ -321,7 +399,7 @@ export class OpenCodeAgentRunner {
    * arrives in that window is LATCHED instead of dropped, so the next `nextIdle()`
    * resolves immediately rather than blocking on a transition that already passed.
    */
-  private subscribeIdle(sessionId: string): {
+  private subscribeSession(sessionId: string, toolCallSink: CapturedToolCall[]): {
     nextIdle: () => Promise<void>
     unsubscribe: () => void
   } {
@@ -347,6 +425,13 @@ export class OpenCodeAgentRunner {
           (properties.sessionID as string | undefined) ||
           (properties.session as { id?: string } | undefined)?.id
         if (eventSessionId && eventSessionId !== sessionId) return
+        // Capture MCP tool/skill calls for the trace (#3628). The same SSE stream
+        // that signals idle also carries the tool_use/tool_result parts; the chat
+        // path parses them identically (opencode-handlers `message.part.updated`).
+        if (type === 'message.part.updated') {
+          captureToolPart(toolCallSink, properties.part)
+          return
+        }
         if (type !== 'session.status') return
         const status = properties.status as { type?: string } | undefined
         if (status?.type === 'busy') {
@@ -403,6 +488,36 @@ export class OpenCodeAgentRunner {
 }
 
 const NO_OUTCOME = Symbol('no-outcome')
+
+/**
+ * Extract a tool invocation from an OpenCode `message.part.updated` part and fold
+ * it into the run's tool-call sink. Mirrors the chat path's parser
+ * (`opencode-handlers.ts`): a `tool_use` part opens the call, a later
+ * `tool_result` part (matched by `tool_use_id`) closes it with the result.
+ */
+function captureToolPart(sink: CapturedToolCall[], rawPart: unknown): void {
+  const part = rawPart as
+    | { type?: string; name?: string; input?: unknown; tool_use_id?: string; content?: unknown; id?: string }
+    | undefined
+  if (!part || typeof part.type !== 'string') return
+  if (part.type === 'tool_use') {
+    if (!part.name) return
+    sink.push({
+      id: part.id ?? `tool-${sink.length}`,
+      toolName: part.name,
+      args: part.input,
+      status: 'ok',
+      startedAt: new Date().toISOString(),
+    })
+  } else if (part.type === 'tool_result') {
+    const id = part.tool_use_id ?? part.id
+    const existing = id ? sink.find((call) => call.id === id) : undefined
+    if (existing) {
+      existing.result = part.content
+      existing.endedAt = new Date().toISOString()
+    }
+  }
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
