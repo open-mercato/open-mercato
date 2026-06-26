@@ -1331,6 +1331,7 @@
   "sales.returns.qty.increase": "Menge erhöhen",
   "sales.returns.quantity": "Menge",
   "sales.returns.quantityExceeded": "Es kann nicht mehr als die verbleibende Menge zurückgegeben werden.",
+  "sales.returns.quantityExceedsShipped": "Es kann nicht mehr als die versandte Menge zurückgegeben werden. Versenden Sie die Artikel, bevor Sie eine Rücksendung erfassen.",
   "sales.returns.reason": "Grund",
   "sales.returns.reason.placeholder": "Optional",
   "sales.returns.returnNumber": "Rückgabe",

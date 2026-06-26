@@ -180,6 +180,7 @@ function makePackageState(pkg) {
     isRebuilding: false,
     rebuildQueued: false,
     watcher: null,
+    watchError: null,
   }
 }
 
@@ -210,7 +211,7 @@ async function rebuildPackage(state, { log, build = esbuild.build, generatedDirs
   } while (state.rebuildQueued)
 }
 
-function startPackageWatcher(state, { log, build, generatedDirs }) {
+function startPackageWatcher(state, { log, build, generatedDirs, watch = fsWatch }) {
   const onChange = (_eventType, filename) => {
     if (!isWatchedSourceFile(filename)) return
     if (state.rebuildTimeout) clearTimeout(state.rebuildTimeout)
@@ -221,12 +222,15 @@ function startPackageWatcher(state, { log, build, generatedDirs }) {
   }
 
   try {
-    state.watcher = fsWatch(state.srcDir, { recursive: true }, onChange)
+    state.watcher = watch(state.srcDir, { recursive: true }, onChange)
+    return true
   } catch (error) {
+    state.watchError = error
     log(
       `[watch] ${state.shortLabel}: failed to start fs.watch: ${error?.message ?? error}`,
       'error',
     )
+    return false
   }
 }
 
@@ -246,6 +250,7 @@ export async function runConsolidatedWatch({
   log = defaultLog,
   signal,
   build,
+  watch,
 } = {}) {
   const packages = discoverWorkspacePackages(root)
   const generatedDirs = discoverAppGeneratedDirs(root)
@@ -264,8 +269,18 @@ export async function runConsolidatedWatch({
       .join(', ')})`,
   )
 
+  let startedCount = 0
   for (const state of states) {
-    startPackageWatcher(state, { log, build, generatedDirs })
+    if (startPackageWatcher(state, { log, build, generatedDirs, watch })) {
+      startedCount += 1
+    }
+  }
+
+  if (startedCount !== states.length) {
+    log(
+      `[watch] consolidated watcher: failed to start ${states.length - startedCount} of ${states.length} package watchers`,
+      'error',
+    )
   }
 
   const cleanup = () => {
@@ -296,7 +311,7 @@ export async function runConsolidatedWatch({
     process.on('SIGTERM', onSignal)
   }
 
-  return { packages: states, cleanup }
+  return { packages: states, cleanup, failed: startedCount !== states.length }
 }
 
 const invokedDirectly = (() => {
@@ -309,6 +324,16 @@ const invokedDirectly = (() => {
 })()
 
 if (invokedDirectly) {
-  await runConsolidatedWatch()
-  await new Promise(() => {})
+  const keepAlive = setInterval(() => {}, 60000)
+  runConsolidatedWatch().catch((error) => {
+    clearInterval(keepAlive)
+    console.error(`[watch] consolidated watcher failed: ${error?.message ?? error}`)
+    process.exit(1)
+  }).then((result) => {
+    if (result?.failed || result?.packages?.length === 0) {
+      clearInterval(keepAlive)
+      result.cleanup?.()
+      process.exit(1)
+    }
+  })
 }

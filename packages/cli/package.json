@@ -65,7 +65,7 @@
     "cross-spawn": "^7.0.6",
     "pg": "8.22.0",
     "semver": "^7.8.5",
-    "testcontainers": "^12.0.2",
+    "testcontainers": "^12.0.3",
     "ts-morph": "^28.0.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"

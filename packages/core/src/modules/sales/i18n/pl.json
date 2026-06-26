@@ -1331,6 +1331,7 @@
   "sales.returns.qty.increase": "Zwiększ ilość",
   "sales.returns.quantity": "Ilość",
   "sales.returns.quantityExceeded": "Nie można zwrócić więcej niż pozostała ilość.",
+  "sales.returns.quantityExceedsShipped": "Nie można zwrócić więcej niż wysłana ilość. Wyślij artykuły, zanim zarejestrujesz zwrot.",
   "sales.returns.reason": "Powód",
   "sales.returns.reason.placeholder": "Opcjonalny",
   "sales.returns.returnNumber": "Zwrot",

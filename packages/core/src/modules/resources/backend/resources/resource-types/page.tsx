@@ -208,6 +208,7 @@ export default function ResourcesResourceTypesPage() {
       const params = new URLSearchParams({
         page: String(page),
         pageSize: String(PAGE_SIZE),
+        withResourceCounts: 'true',
       })
       const sort = sorting[0]
       if (sort?.id) {

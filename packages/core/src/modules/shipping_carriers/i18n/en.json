@@ -14,6 +14,7 @@
   "shipping_carriers.create.error.create": "Failed to create shipment.",
   "shipping_carriers.create.error.fetchDropOffPoints": "Failed to fetch drop-off points.",
   "shipping_carriers.create.error.fetchRates": "Failed to fetch shipping rates.",
+  "shipping_carriers.create.error.idempotencyConflict": "This shipment was already submitted. Refresh the page before retrying.",
   "shipping_carriers.create.error.invalidEmail": "Invalid email address.",
   "shipping_carriers.create.error.invalidPhone": "Invalid phone number.",
   "shipping_carriers.create.error.loadProviders": "Failed to load shipping providers.",
@@ -69,5 +70,15 @@
   "shipping_carriers.create.summary.to": "To",
   "shipping_carriers.create.title": "Create carrier shipment",
   "shipping_carriers.feature.manage": "Manage shipping carrier operations",
-  "shipping_carriers.feature.view": "View shipping carrier shipments"
+  "shipping_carriers.feature.view": "View shipping carrier shipments",
+  "shipping_carriers.status.cancelled": "Cancelled",
+  "shipping_carriers.status.delivered": "Delivered",
+  "shipping_carriers.status.failed_delivery": "Delivery failed",
+  "shipping_carriers.status.in_transit": "In transit",
+  "shipping_carriers.status.label_created": "Label created",
+  "shipping_carriers.status.out_for_delivery": "Out for delivery",
+  "shipping_carriers.status.pending": "Pending",
+  "shipping_carriers.status.picked_up": "Picked up",
+  "shipping_carriers.status.returned": "Returned",
+  "shipping_carriers.status.unknown": "Unknown"
 }

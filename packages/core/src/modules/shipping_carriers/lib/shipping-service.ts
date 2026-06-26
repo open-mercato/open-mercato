@@ -1,11 +1,26 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
-import { CarrierShipment } from '../data/entities'
+import { CarrierShipment, type CarrierShipmentIdempotencyKey } from '../data/entities'
 import { emitShippingEvent } from '../events'
 import { getShippingAdapter } from './adapter-registry'
 import type { UnifiedShipmentStatus } from './adapter'
-import { isValidShippingTransition, ShipmentCancelNotAllowedError } from './status-sync'
+import {
+  claimShipmentIdempotency,
+  computeShipmentRequestHash,
+  findShipmentIdempotencyClaim,
+  isShipmentIdempotencyConflictError,
+  releaseShipmentIdempotency,
+  resolveShipmentIdempotency,
+  ShipmentIdempotencyConflictError,
+} from './shipment-idempotency'
+import {
+  getTerminalShippingEvent,
+  isValidShippingTransition,
+  ShipmentCancelNotAllowedError,
+  syncShipmentStatus,
+  TERMINAL_SHIPPING_STATUSES,
+} from './status-sync'
 
 export function createShippingCarrierService(deps: {
   em: EntityManager
@@ -84,52 +99,87 @@ export function createShippingCarrierService(deps: {
       receiverEmail?: string
       targetPoint?: string
       c2cSendingMethod?: string
+      idempotencyKey?: string
       organizationId: string
       tenantId: string
     }) {
-      const { adapter, credentials } = await resolveAdapter(input.providerKey, {
-        organizationId: input.organizationId,
-        tenantId: input.tenantId,
-      })
-      const mergedCredentials = {
-        ...credentials,
-        ...(input.senderPhone !== undefined ? { senderPhone: input.senderPhone } : {}),
-        ...(input.senderEmail !== undefined ? { senderEmail: input.senderEmail } : {}),
-        ...(input.receiverPhone !== undefined ? { receiverPhone: input.receiverPhone } : {}),
-        ...(input.receiverEmail !== undefined ? { receiverEmail: input.receiverEmail } : {}),
-        ...(input.targetPoint !== undefined ? { targetPoint: input.targetPoint } : {}),
-        ...(input.c2cSendingMethod !== undefined ? { c2cSendingMethod: input.c2cSendingMethod } : {}),
+      const scope = { organizationId: input.organizationId, tenantId: input.tenantId }
+      let claim: CarrierShipmentIdempotencyKey | null = null
+      if (input.idempotencyKey) {
+        const { idempotencyKey: _idempotencyKey, ...fingerprint } = input
+        const requestHash = computeShipmentRequestHash(fingerprint)
+        const existing = await findShipmentIdempotencyClaim(em, input.idempotencyKey, input.providerKey, scope)
+        if (existing) {
+          if (existing.requestHash !== requestHash) {
+            throw new ShipmentIdempotencyConflictError(input.idempotencyKey)
+          }
+          if (existing.shipmentId) {
+            return findShipmentOrThrow(existing.shipmentId, scope)
+          }
+          // Claim exists but the original request has not resolved yet (concurrent in-flight).
+          throw new ShipmentIdempotencyConflictError(input.idempotencyKey)
+        }
+        claim = await claimShipmentIdempotency(em, input.idempotencyKey, input.providerKey, requestHash, scope)
+        if (!claim) {
+          // Lost the claim race with a concurrent request creating the same shipment.
+          throw new ShipmentIdempotencyConflictError(input.idempotencyKey)
+        }
       }
-      const created = await adapter.createShipment({
-        orderId: input.orderId,
-        origin: input.origin,
-        destination: input.destination,
-        packages: input.packages,
-        serviceCode: input.serviceCode,
-        credentials: mergedCredentials,
-        labelFormat: input.labelFormat,
-      })
-      const shipment = em.create(CarrierShipment, {
-        orderId: input.orderId,
-        providerKey: input.providerKey,
-        carrierShipmentId: created.shipmentId,
-        trackingNumber: created.trackingNumber,
-        unifiedStatus: 'label_created',
-        labelUrl: created.labelUrl ?? null,
-        labelData: created.labelData ?? null,
-        organizationId: input.organizationId,
-        tenantId: input.tenantId,
-      })
-      await em.persist(shipment).flush()
-      await emitShippingEvent('shipping_carriers.shipment.created', {
-        shipmentId: shipment.id,
-        orderId: input.orderId,
-        providerKey: input.providerKey,
-        trackingNumber: created.trackingNumber,
-        organizationId: input.organizationId,
-        tenantId: input.tenantId,
-      })
-      return shipment
+      let carrierShipmentCreated = false
+      try {
+        const { adapter, credentials } = await resolveAdapter(input.providerKey, scope)
+        const mergedCredentials = {
+          ...credentials,
+          ...(input.senderPhone !== undefined ? { senderPhone: input.senderPhone } : {}),
+          ...(input.senderEmail !== undefined ? { senderEmail: input.senderEmail } : {}),
+          ...(input.receiverPhone !== undefined ? { receiverPhone: input.receiverPhone } : {}),
+          ...(input.receiverEmail !== undefined ? { receiverEmail: input.receiverEmail } : {}),
+          ...(input.targetPoint !== undefined ? { targetPoint: input.targetPoint } : {}),
+          ...(input.c2cSendingMethod !== undefined ? { c2cSendingMethod: input.c2cSendingMethod } : {}),
+        }
+        const created = await adapter.createShipment({
+          orderId: input.orderId,
+          origin: input.origin,
+          destination: input.destination,
+          packages: input.packages,
+          serviceCode: input.serviceCode,
+          credentials: mergedCredentials,
+          labelFormat: input.labelFormat,
+        })
+        carrierShipmentCreated = true
+        const shipment = em.create(CarrierShipment, {
+          orderId: input.orderId,
+          providerKey: input.providerKey,
+          carrierShipmentId: created.shipmentId,
+          trackingNumber: created.trackingNumber,
+          unifiedStatus: 'label_created',
+          labelUrl: created.labelUrl ?? null,
+          labelData: created.labelData ?? null,
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+        })
+        await em.persist(shipment).flush()
+        if (claim) {
+          await resolveShipmentIdempotency(em, claim, shipment.id)
+        }
+        await emitShippingEvent('shipping_carriers.shipment.created', {
+          shipmentId: shipment.id,
+          orderId: input.orderId,
+          providerKey: input.providerKey,
+          trackingNumber: created.trackingNumber,
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+        })
+        return shipment
+      } catch (error: unknown) {
+        // Release the claim only when the carrier was NOT successfully called, so a retry can
+        // proceed. If the carrier already created the shipment, keep the claim so a retry does
+        // not produce a duplicate upstream shipment.
+        if (claim && !carrierShipmentCreated && input.idempotencyKey && !isShipmentIdempotencyConflictError(error)) {
+          await releaseShipmentIdempotency(em, input.idempotencyKey, input.providerKey, scope).catch(() => {})
+        }
+        throw error
+      }
     },
 
     async getTracking(input: {
@@ -160,16 +210,46 @@ export function createShippingCarrierService(deps: {
           },
         )
         : null
-      const tracking = await adapter.getTracking({
+      return adapter.getTracking({
         shipmentId: shipment?.carrierShipmentId ?? input.shipmentId,
         trackingNumber: input.trackingNumber ?? shipment?.trackingNumber,
         credentials,
       })
-      if (shipment) {
-        shipment.unifiedStatus = tracking.status
-        shipment.trackingEvents = tracking.events
-        shipment.lastPolledAt = new Date()
-        await em.flush()
+    },
+
+    async refreshTracking(input: {
+      providerKey: string
+      shipmentId: string
+      organizationId: string
+      tenantId: string
+    }) {
+      const scope = { organizationId: input.organizationId, tenantId: input.tenantId }
+      const shipment = await findShipmentOrThrow(input.shipmentId, scope)
+      const { adapter, credentials } = await resolveAdapter(input.providerKey, scope)
+      const tracking = await adapter.getTracking({
+        shipmentId: shipment.carrierShipmentId,
+        trackingNumber: shipment.trackingNumber,
+        credentials,
+      })
+      const previousStatus = shipment.unifiedStatus
+      shipment.trackingEvents = tracking.events
+      shipment.lastPolledAt = new Date()
+      const transitionApplied = syncShipmentStatus(shipment, tracking.status)
+      await em.flush()
+      if (transitionApplied) {
+        const eventPayload = {
+          shipmentId: shipment.id,
+          providerKey: input.providerKey,
+          previousStatus,
+          newStatus: tracking.status,
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+        }
+        await emitShippingEvent('shipping_carriers.shipment.status_changed', eventPayload)
+        if (TERMINAL_SHIPPING_STATUSES.has(tracking.status)) {
+          const terminalEvent = getTerminalShippingEvent(tracking.status)
+          if (terminalEvent) await emitShippingEvent(terminalEvent, eventPayload)
+        }
       }
       return tracking
     },

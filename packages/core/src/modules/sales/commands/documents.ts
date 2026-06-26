@@ -96,6 +96,8 @@ import {
   ensureTenantScope,
   extractUndoPayload,
   toNumericString,
+  reconcileLinePersistedTotals,
+  deriveLineNetFromGross,
   enforceSalesDocumentOptimisticLock,
   SALES_RESOURCE_KIND_ORDER,
   SALES_RESOURCE_KIND_QUOTE,
@@ -1061,12 +1063,18 @@ async function applyDocumentUpdate({
     if (input.channelId === null) {
       entity.channelId = null;
     } else {
-      const channel = await em.findOne(SalesChannel, {
-        id: input.channelId,
-        organizationId,
-        tenantId,
-        deletedAt: null,
-      });
+      const channel = await findOneWithDecryption(
+        em,
+        SalesChannel,
+        {
+          id: input.channelId,
+          organizationId,
+          tenantId,
+          deletedAt: null,
+        },
+        {},
+        { tenantId, organizationId },
+      );
       if (!channel) {
         throw new CrudHttpError(400, {
           error: translate(
@@ -2950,7 +2958,7 @@ function convertLineCalculationToEntityInput(
   index: number,
 ) {
   const line = lineResult.line;
-  return {
+  return reconcileLinePersistedTotals({
     lineNumber: line.lineNumber ?? index + 1,
     kind: line.kind ?? "product",
     statusEntryId: sourceLine.statusEntryId ?? null,
@@ -2998,7 +3006,7 @@ function convertLineCalculationToEntityInput(
     customFieldSetId: sourceLine.customFieldSetId ?? null,
     organizationId: document.organizationId,
     tenantId: document.tenantId,
-  };
+  });
 }
 
 function convertAdjustmentResultToEntityInput(
@@ -3805,7 +3813,16 @@ async function restoreQuoteGraph(
   em: EntityManager,
   snapshot: QuoteGraphSnapshot,
 ): Promise<SalesQuote> {
-  let quote = await em.findOne(SalesQuote, { id: snapshot.quote.id });
+  let quote = await findOneWithDecryption(
+    em,
+    SalesQuote,
+    { id: snapshot.quote.id },
+    {},
+    {
+      tenantId: snapshot.quote.tenantId,
+      organizationId: snapshot.quote.organizationId,
+    },
+  );
   if (!quote) {
     quote = em.create(SalesQuote, {
       id: snapshot.quote.id,
@@ -3956,7 +3973,9 @@ async function restoreQuoteGraph(
       discountPercent: line.discountPercent,
       taxRate: line.taxRate,
       taxAmount: line.taxAmount,
-      totalNetAmount: line.totalNetAmount,
+      totalNetAmount: toNumericString(
+        deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
+      ),
       totalGrossAmount: line.totalGrossAmount,
       configuration: line.configuration ? cloneJson(line.configuration) : null,
       promotionCode: line.promotionCode ?? null,
@@ -4096,7 +4115,16 @@ async function restoreOrderGraph(
   em: EntityManager,
   snapshot: OrderGraphSnapshot,
 ): Promise<SalesOrder> {
-  let order = await em.findOne(SalesOrder, { id: snapshot.order.id });
+  let order = await findOneWithDecryption(
+    em,
+    SalesOrder,
+    { id: snapshot.order.id },
+    {},
+    {
+      tenantId: snapshot.order.tenantId,
+      organizationId: snapshot.order.organizationId,
+    },
+  );
   if (!order) {
     order = em.create(SalesOrder, {
       id: snapshot.order.id,
@@ -4285,7 +4313,9 @@ async function restoreOrderGraph(
       discountPercent: line.discountPercent,
       taxRate: line.taxRate,
       taxAmount: line.taxAmount,
-      totalNetAmount: line.totalNetAmount,
+      totalNetAmount: toNumericString(
+        deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
+      ),
       totalGrossAmount: line.totalGrossAmount,
       configuration: line.configuration ? cloneJson(line.configuration) : null,
       promotionCode: line.promotionCode ?? null,
@@ -4793,7 +4823,16 @@ const createQuoteCommand: CommandHandler<
     const after = payload?.after;
     if (!after) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, { id: after.quote.id });
+    const quote = await findOneWithDecryption(
+      em,
+      SalesQuote,
+      { id: after.quote.id },
+      {},
+      {
+        tenantId: after.quote.tenantId,
+        organizationId: after.quote.organizationId,
+      },
+    );
     if (!quote) return;
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
@@ -4824,7 +4863,7 @@ const deleteQuoteCommand: CommandHandler<
   async execute(input, ctx) {
     const id = requireId(input, "Quote id is required");
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, { id });
+    const quote = await findOneWithDecryption(em, SalesQuote, { id });
     if (!quote)
       throw new CrudHttpError(404, { error: "Sales quote not found" });
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
@@ -4951,14 +4990,14 @@ const updateQuoteCommand: CommandHandler<
   async execute(rawInput, ctx) {
     const parsed = documentUpdateSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.id,
       deletedAt: null,
     });
     if (!quote)
       throw new CrudHttpError(404, { error: "Sales quote not found" });
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
+    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
     if (shouldInvalidateSentToken) {
       quote.acceptanceToken = null;
@@ -5183,13 +5222,14 @@ const updateOrderCommand: CommandHandler<
   async execute(rawInput, ctx) {
     const parsed = documentUpdateSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, {
+    const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.id,
       deletedAt: null,
     });
     if (!order)
       throw new CrudHttpError(404, { error: "Sales order not found" });
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
+    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
     const previousStatus = normalizeStatusValue(order.status);
     let statusChangeNote: SalesNote | null = null;
     const shouldRecalculateTotals =
@@ -5789,7 +5829,16 @@ const createOrderCommand: CommandHandler<
     const after = payload?.after;
     if (!after) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, { id: after.order.id });
+    const order = await findOneWithDecryption(
+      em,
+      SalesOrder,
+      { id: after.order.id },
+      {},
+      {
+        tenantId: after.order.tenantId,
+        organizationId: after.order.organizationId,
+      },
+    );
     if (!order) return;
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await em.nativeDelete(SalesOrderAdjustment, { order: order.id });
@@ -5820,7 +5869,7 @@ const deleteOrderCommand: CommandHandler<
   async execute(input, ctx) {
     const id = requireId(input, "Order id is required");
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, { id });
+    const order = await findOneWithDecryption(em, SalesOrder, { id });
     if (!order)
       throw new CrudHttpError(404, { error: "Sales order not found" });
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
@@ -6023,7 +6072,7 @@ const convertQuoteToOrderCommand: CommandHandler<
           ),
         });
       ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-      enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
+      await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
       const snapshot = await loadQuoteSnapshot(em, payload.quoteId);
       if (!snapshot)
         throw new CrudHttpError(404, {
@@ -6207,7 +6256,9 @@ const convertQuoteToOrderCommand: CommandHandler<
           discountPercent: line.discountPercent,
           taxRate: line.taxRate,
           taxAmount: line.taxAmount,
-          totalNetAmount: line.totalNetAmount,
+          totalNetAmount: toNumericString(
+            deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
+          ),
           totalGrossAmount: line.totalGrossAmount,
           configuration: line.configuration
             ? cloneJson(line.configuration)
@@ -6255,14 +6306,32 @@ const convertQuoteToOrderCommand: CommandHandler<
       });
 
       const [addresses, notes, tags] = await Promise.all([
-        em.find(SalesDocumentAddress, {
-          documentId: snapshot.quote.id,
-          documentKind: "quote",
-        }),
-        em.find(SalesNote, {
-          contextType: "quote",
-          contextId: snapshot.quote.id,
-        }),
+        findWithDecryption(
+          em,
+          SalesDocumentAddress,
+          {
+            documentId: snapshot.quote.id,
+            documentKind: "quote",
+          },
+          {},
+          {
+            tenantId: snapshot.quote.tenantId,
+            organizationId: snapshot.quote.organizationId,
+          },
+        ),
+        findWithDecryption(
+          em,
+          SalesNote,
+          {
+            contextType: "quote",
+            contextId: snapshot.quote.id,
+          },
+          {},
+          {
+            tenantId: snapshot.quote.tenantId,
+            organizationId: snapshot.quote.organizationId,
+          },
+        ),
         em.find(SalesDocumentTagAssignment, {
           documentId: snapshot.quote.id,
           documentKind: "quote",
@@ -6487,14 +6556,14 @@ const orderLineUpsertCommand: CommandHandler<
     const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
     const parsed = orderLineUpsertSchema.parse(rawBody);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, {
+    const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.orderId,
       deletedAt: null,
     });
     if (!order)
       throw new CrudHttpError(404, { error: "Sales order not found" });
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
 
     const [existingLines, adjustments] = await Promise.all([
       em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
@@ -6817,7 +6886,7 @@ const orderLineDeleteCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, {
+    const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.orderId,
       deletedAt: null,
     });
@@ -6829,7 +6898,7 @@ const orderLineDeleteCommand: CommandHandler<
         ),
       });
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
     const shipmentCount = await em.count(SalesShipmentItem, {
       orderLine: parsed.id,
       shipment: { deletedAt: null },
@@ -6993,14 +7062,14 @@ const quoteLineUpsertCommand: CommandHandler<
     const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
     const parsed = quoteLineUpsertSchema.parse(rawBody);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.quoteId,
       deletedAt: null,
     });
     if (!quote)
       throw new CrudHttpError(404, { error: "Sales quote not found" });
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
+    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const [existingLines, adjustments] = await Promise.all([
       em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: "asc" } }),
       em.find(
@@ -7319,14 +7388,14 @@ const quoteLineDeleteCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.quoteId,
       deletedAt: null,
     });
     if (!quote)
       throw new CrudHttpError(404, { error: "Sales quote not found" });
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
+    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const existingLines = await em.find(
       SalesQuoteLine,
       { quote },
@@ -7473,14 +7542,14 @@ const orderAdjustmentUpsertCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, {
+    const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.orderId,
       deletedAt: null,
     });
     if (!order)
       throw new CrudHttpError(404, { error: "Sales order not found" });
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
     if (parsed.scope === "line") {
       throw new CrudHttpError(400, {
         error: "Line-scoped adjustments are not supported yet.",
@@ -7767,14 +7836,14 @@ const orderAdjustmentDeleteCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, {
+    const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.orderId,
       deletedAt: null,
     });
     if (!order)
       throw new CrudHttpError(404, { error: "Sales order not found" });
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
 
     const [existingLines, adjustments] = await Promise.all([
       em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
@@ -7932,14 +8001,14 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.quoteId,
       deletedAt: null,
     });
     if (!quote)
       throw new CrudHttpError(404, { error: "Sales quote not found" });
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
+    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     if (parsed.scope === "line") {
       throw new CrudHttpError(400, {
         error: "Line-scoped adjustments are not supported yet.",
@@ -8224,14 +8293,14 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.quoteId,
       deletedAt: null,
     });
     if (!quote)
       throw new CrudHttpError(404, { error: "Sales quote not found" });
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
+    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
 
     const [existingLines, adjustments] = await Promise.all([
       em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: "asc" } }),
@@ -8416,12 +8485,21 @@ const createInvoiceCommand: CommandHandler<
 
     // Validate orderId belongs to same org/tenant
     if (parsed.orderId) {
-      const orderExists = await em.findOne(SalesOrder, {
-        id: parsed.orderId,
-        organizationId: parsed.organizationId,
-        tenantId: parsed.tenantId,
-        deletedAt: null,
-      });
+      const orderExists = await findOneWithDecryption(
+        em,
+        SalesOrder,
+        {
+          id: parsed.orderId,
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          deletedAt: null,
+        },
+        {},
+        {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+        },
+      );
       if (!orderExists) {
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }
@@ -8490,7 +8568,9 @@ const createInvoiceCommand: CommandHandler<
                   discountPercent: toNumericString(line.discountPercent ?? 0),
                   taxRate: toNumericString(line.taxRate ?? 0),
                   taxAmount: toNumericString(line.taxAmount ?? 0),
-                  totalNetAmount: toNumericString(line.totalNetAmount ?? 0),
+                  totalNetAmount: toNumericString(
+                    deriveLineNetFromGross(line.totalNetAmount ?? 0, line.totalGrossAmount ?? 0, line.taxRate ?? 0),
+                  ),
                   totalGrossAmount: toNumericString(line.totalGrossAmount ?? 0),
                   metadata: line.metadata ?? null,
                 }),
@@ -8843,7 +8923,9 @@ const deleteInvoiceCommand: CommandHandler<
         discountPercent: line.discountPercent,
         taxRate: line.taxRate,
         taxAmount: line.taxAmount,
-        totalNetAmount: line.totalNetAmount,
+        totalNetAmount: toNumericString(
+          deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
+        ),
         totalGrossAmount: line.totalGrossAmount,
         metadata: line.metadata,
       }));
@@ -8904,12 +8986,21 @@ const createCreditMemoCommand: CommandHandler<
 
     // Validate orderId belongs to same org/tenant
     if (parsed.orderId) {
-      const orderExists = await em.findOne(SalesOrder, {
-        id: parsed.orderId,
-        organizationId: parsed.organizationId,
-        tenantId: parsed.tenantId,
-        deletedAt: null,
-      });
+      const orderExists = await findOneWithDecryption(
+        em,
+        SalesOrder,
+        {
+          id: parsed.orderId,
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          deletedAt: null,
+        },
+        {},
+        {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+        },
+      );
       if (!orderExists) {
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }
@@ -8987,7 +9078,9 @@ const createCreditMemoCommand: CommandHandler<
                   unitPriceGross: toNumericString(line.unitPriceGross ?? 0),
                   taxRate: toNumericString(line.taxRate ?? 0),
                   taxAmount: toNumericString(line.taxAmount ?? 0),
-                  totalNetAmount: toNumericString(line.totalNetAmount ?? 0),
+                  totalNetAmount: toNumericString(
+                    deriveLineNetFromGross(line.totalNetAmount ?? 0, line.totalGrossAmount ?? 0, line.taxRate ?? 0),
+                  ),
                   totalGrossAmount: toNumericString(line.totalGrossAmount ?? 0),
                   metadata: line.metadata ?? null,
                 }),
@@ -9331,7 +9424,9 @@ const deleteCreditMemoCommand: CommandHandler<
         unitPriceGross: line.unitPriceGross,
         taxRate: line.taxRate,
         taxAmount: line.taxAmount,
-        totalNetAmount: line.totalNetAmount,
+        totalNetAmount: toNumericString(
+          deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
+        ),
         totalGrossAmount: line.totalGrossAmount,
         metadata: line.metadata,
       }));

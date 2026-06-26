@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { EditorDateLabel } from '../../../lib/calendar/editorPayload'
+import { multiDayEventSpan } from '../../../lib/calendar/labels'
 import { AllDayToggle, DateControl, LABEL_CLASS, TimeControl } from './inputs'
 
 const DATE_LABEL_TEXT: Record<EditorDateLabel, { key: string; fallback: string }> = {
@@ -76,6 +77,7 @@ export function ScheduleSection({
 }) {
   const t = useT()
   const showTime = !(hasAllDay && allDay)
+  const multiDaySpan = hasEnd && !endsError ? multiDayEventSpan(date, endDate) : 0
   return (
     <div className="flex w-full flex-col gap-2.5">
       {hasAllDay ? (
@@ -105,6 +107,11 @@ export function ScheduleSection({
         />
       ) : null}
       {endsError ? <p className="text-xs text-status-error-text">{endsError}</p> : null}
+      {multiDaySpan > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {t('customers.calendar.editor.multiDayHint', 'Multi-day event · {count} days', { count: multiDaySpan })}
+        </p>
+      ) : null}
     </div>
   )
 }
