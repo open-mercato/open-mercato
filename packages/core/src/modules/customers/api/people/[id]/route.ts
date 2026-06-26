@@ -507,6 +507,13 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     const personScope = { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null }
     const shouldLoadCanonicalInteractions = includeInteractions || includeActivities || includeTodos
 
+    // Audited for #3386 rollout (P3): every findWithDecryption call in this
+    // block and in the activities/todoLinks fetches below sorts only on
+    // non-encrypted system columns (isPrimary, createdAt, occurredAt,
+    // scheduledAt). Each fetch is bounded by entity scope (one person) plus
+    // an explicit limit, so neither the paginated-list hazard (#3278) nor the
+    // two-phase encrypted-sort migration apply here.
+    //
     // These reads only depend on the resolved person + scope + email visibility
     // filter, so dispatch them together to avoid a server-side request waterfall
     // before the detail surface can render (issue #3203).
