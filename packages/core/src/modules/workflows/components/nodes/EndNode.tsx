@@ -18,7 +18,7 @@ export interface EndNodeData {
  * EndNode - End point of a workflow
  * Uses WorkflowNodeCard for consistent styling
  */
-export function EndNode({ data, isConnectable, selected }: NodeProps) {
+export function EndNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as EndNodeData
 
   // Map old status values to new WorkflowStatus types
@@ -49,6 +49,8 @@ export function EndNode({ data, isConnectable, selected }: NodeProps) {
         status={workflowStatus}
         nodeType="end"
         selected={selected}
+        nodeId={id}
+        editable={isConnectable}
       />
     </div>
   )

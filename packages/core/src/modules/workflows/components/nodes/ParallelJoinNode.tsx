@@ -33,7 +33,7 @@ function mapStatus(status?: string): WorkflowStatus {
  * ParallelJoinNode - synchronizes concurrent branches (wait-all).
  * One target handle (in) collecting all branches; one source handle (out).
  */
-export function ParallelJoinNode({ data, isConnectable, selected }: NodeProps) {
+export function ParallelJoinNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as ParallelJoinNodeData
 
   return (
@@ -52,6 +52,8 @@ export function ParallelJoinNode({ data, isConnectable, selected }: NodeProps) {
         status={mapStatus(nodeData.status)}
         nodeType="parallelJoin"
         selected={selected}
+        nodeId={id}
+        editable={isConnectable}
       />
 
       <Handle

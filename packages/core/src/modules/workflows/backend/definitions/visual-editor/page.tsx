@@ -11,6 +11,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { graphToDefinition, definitionToGraph, applyAutoLayout, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
+import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard'
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
 import { Page } from '@open-mercato/ui/backend/Page'
@@ -423,6 +424,19 @@ export default function VisualEditorPage() {
       notifyDeleted: () => flash('Step deleted successfully', 'success'),
     })
   }, [confirm, nodes, t])
+
+  // Inline node delete: a node's trash button dispatches WORKFLOW_NODE_DELETE_EVENT
+  // (decoupled from the node component); route it through the same confirm +
+  // edge-cleanup flow as the edit dialog's delete. No-op in read-only mode.
+  useEffect(() => {
+    if (isCodeOnly) return
+    const onNodeDelete = (event: Event) => {
+      const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId
+      if (typeof nodeId === 'string') void handleDeleteNode(nodeId)
+    }
+    window.addEventListener(WORKFLOW_NODE_DELETE_EVENT, onNodeDelete)
+    return () => window.removeEventListener(WORKFLOW_NODE_DELETE_EVENT, onNodeDelete)
+  }, [isCodeOnly, handleDeleteNode])
 
   // Handle new connections. A drop onto a sub-workflow IN port authors a field
   // mapping (written to the target step's config.inputMapping + a distinct data

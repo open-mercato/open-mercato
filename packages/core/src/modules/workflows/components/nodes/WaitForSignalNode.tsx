@@ -20,7 +20,7 @@ export interface WaitForSignalNodeData {
  * WaitForSignalNodeData - Waiting for external signal step in a workflow
  * Uses WorkflowNodeCard for consistent styling
  */
-export function WaitForSignalNode({ data, isConnectable, selected }: NodeProps) {
+export function WaitForSignalNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as WaitForSignalNodeData
 
   // Map old status values to new WorkflowStatus types
@@ -54,6 +54,8 @@ export function WaitForSignalNode({ data, isConnectable, selected }: NodeProps) 
         status={workflowStatus}
         nodeType="waitForSignal"
         selected={selected}
+        nodeId={id}
+        editable={isConnectable}
       />
 
       {/* Source Handle */}

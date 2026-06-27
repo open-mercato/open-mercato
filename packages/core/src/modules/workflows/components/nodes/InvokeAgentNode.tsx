@@ -26,7 +26,7 @@ export interface InvokeAgentNodeData {
  * AUTOMATED step carrying a single INVOKE_AGENT activity (see NodeEditDialog +
  * graph-utils); `agentId` here is for display only.
  */
-export function InvokeAgentNode({ data, isConnectable, selected }: NodeProps) {
+export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps) {
   const t = useT()
   const nodeData = data as unknown as InvokeAgentNodeData
 
@@ -90,6 +90,8 @@ export function InvokeAgentNode({ data, isConnectable, selected }: NodeProps) {
           status={workflowStatus}
           nodeType="invokeAgent"
           selected={selected}
+          nodeId={id}
+          editable={isConnectable}
         />
         {chip && (
           <span

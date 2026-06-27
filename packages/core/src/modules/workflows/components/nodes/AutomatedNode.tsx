@@ -35,7 +35,7 @@ export interface AutomatedNodeData {
  * AutomatedNode - Automated/system task step in a workflow
  * Uses WorkflowNodeCard for consistent styling
  */
-export function AutomatedNode({ data, isConnectable, selected }: NodeProps) {
+export function AutomatedNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as AutomatedNodeData
 
   // Map old status values to new WorkflowStatus types
@@ -66,6 +66,8 @@ export function AutomatedNode({ data, isConnectable, selected }: NodeProps) {
         status={workflowStatus}
         nodeType="automated"
         selected={selected}
+        nodeId={id}
+        editable={isConnectable}
       />
 
       {/* Source Handle */}

@@ -21,7 +21,7 @@ export interface UserTaskNodeData {
  * UserTaskNode - User task step in a workflow
  * Uses WorkflowNodeCard for consistent styling
  */
-export function UserTaskNode({ data, isConnectable, selected }: NodeProps) {
+export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as UserTaskNodeData
 
   // Map old status values to new WorkflowStatus types
@@ -52,6 +52,8 @@ export function UserTaskNode({ data, isConnectable, selected }: NodeProps) {
         status={workflowStatus}
         nodeType="userTask"
         selected={selected}
+        nodeId={id}
+        editable={isConnectable}
       />
 
       {/* Source Handle */}

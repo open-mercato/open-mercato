@@ -17,6 +17,7 @@ import { isDataMappingEdge } from './data-edge-mapping'
  * React/`lucide-react` import chain (it runs in node + jest contexts).
  */
 const NODE_WIDTH = 180
+const NODE_MAX_WIDTH = 280
 const NODE_HEIGHT = 84
 
 export interface GraphToDefinitionOptions {
@@ -440,6 +441,23 @@ function estimateEdgeLabelSize(label: unknown): { width: number; height: number 
   return { width, height: 28 }
 }
 
+/**
+ * Approximate a node card's rendered footprint from its title. Cards size to
+ * their content between `NODE_WIDTH` and `NODE_MAX_WIDTH` (see WorkflowNodeCard),
+ * wrapping the title to a second line when it would overflow — so a long title
+ * makes the card both wider (up to the cap) and taller. Kept in sync with the
+ * card's bounds so dagre reserves roughly the real space.
+ */
+function estimateNodeSize(label: unknown): { width: number; height: number } {
+  const text = typeof label === 'string' ? label.trim() : ''
+  // text-sm title (~7px/char) + status icon + type row + padding (~64px).
+  const rawWidth = Math.round(text.length * 7) + 64
+  const width = Math.min(Math.max(NODE_WIDTH, rawWidth), NODE_MAX_WIDTH)
+  // Overflowing the cap means the title wraps to a second line → taller card.
+  const height = rawWidth > NODE_MAX_WIDTH ? NODE_HEIGHT + 20 : NODE_HEIGHT
+  return { width, height }
+}
+
 function layoutWithDagre(
   steps: any[],
   transitions: any[],
@@ -449,16 +467,17 @@ function layoutWithDagre(
 
   if (steps.length === 0) return positions
 
-  const width = options.nodeWidth ?? NODE_WIDTH
-  const height = options.nodeHeight ?? NODE_HEIGHT
   const rankdir = options.direction ?? 'LR'
 
   const graph = new dagre.graphlib.Graph()
   graph.setDefaultEdgeLabel(() => ({}))
   graph.setGraph({ rankdir, nodesep: 70, ranksep: 90 })
 
+  // Nodes size to their label (cards are no longer a fixed 180px wide), so the
+  // layout must reserve each node's real footprint or wide cards overlap their
+  // neighbours after auto-arrange.
   for (const step of steps) {
-    graph.setNode(step.stepId, { width, height })
+    graph.setNode(step.stepId, estimateNodeSize(step.stepName ?? step.label))
   }
 
   for (const transition of transitions) {
@@ -483,9 +502,10 @@ function layoutWithDagre(
     const node = graph.node(step.stepId)
     if (!node || typeof node.x !== 'number' || typeof node.y !== 'number') continue
     // dagre returns the node center; React Flow positions use the top-left corner.
+    // Offset by this node's own footprint (set above), not a shared constant.
     positions.set(step.stepId, {
-      x: node.x - width / 2,
-      y: node.y - height / 2,
+      x: node.x - node.width / 2,
+      y: node.y - node.height / 2,
     })
   }
 
@@ -503,7 +523,7 @@ function layoutWithDagre(
  * excluded from the rank graph since they are not control-flow transitions.
  */
 export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
-  const steps = nodes.map((node) => ({ stepId: node.id }))
+  const steps = nodes.map((node) => ({ stepId: node.id, stepName: (node.data as any)?.label }))
   const transitions = edges
     .filter((edge) => !isDataMappingEdge(edge))
     .map((edge) => ({

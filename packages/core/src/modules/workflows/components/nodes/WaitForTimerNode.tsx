@@ -22,7 +22,7 @@ export interface WaitForTimerNodeData {
  * WaitForTimerNode - Pauses workflow for a duration or until a specific datetime
  * Uses WorkflowNodeCard for consistent styling
  */
-export function WaitForTimerNode({ data, isConnectable, selected }: NodeProps) {
+export function WaitForTimerNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as WaitForTimerNodeData
 
   const mapStatus = (status?: string): WorkflowStatus => {
@@ -56,6 +56,8 @@ export function WaitForTimerNode({ data, isConnectable, selected }: NodeProps) {
         status={workflowStatus}
         nodeType="waitForTimer"
         selected={selected}
+        nodeId={id}
+        editable={isConnectable}
       />
 
       <Handle

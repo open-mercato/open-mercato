@@ -34,7 +34,7 @@ export interface SubWorkflowNodeData {
  * ids are unchanged, so existing transitions and mappings keep connecting.
  * Falls back to the plain card when no contract is present.
  */
-export function SubWorkflowNode({ data, isConnectable, selected }: NodeProps) {
+export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps) {
   const t = useT()
   const nodeData = data as unknown as SubWorkflowNodeData
   const inputs = Array.isArray(nodeData.inputs) ? nodeData.inputs : []
@@ -74,6 +74,8 @@ export function SubWorkflowNode({ data, isConnectable, selected }: NodeProps) {
         status={workflowStatus}
         nodeType="subWorkflow"
         selected={selected}
+        nodeId={id}
+        editable={isConnectable}
       />
 
       {(inputs.length > 0 || outputs.length > 0) && (
