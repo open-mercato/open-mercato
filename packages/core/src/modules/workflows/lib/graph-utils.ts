@@ -426,6 +426,20 @@ export function definitionToGraph(
  * Only control-flow transitions are passed here — drag-authored data mappings
  * are not transitions (they live in the target step's `config.inputMapping`).
  */
+/**
+ * Approximate the rendered footprint of a transition-label pill so the dagre
+ * layout can reserve space for it between ranks. Mirrors WorkflowTransitionLabel
+ * (text-xs ~6.5px/char + `px-2` padding + border); the width is capped so very
+ * long transition names don't blow the whole graph apart. Returns null for
+ * empty labels (edge takes zero label space, the prior behavior).
+ */
+function estimateEdgeLabelSize(label: unknown): { width: number; height: number } | null {
+  const text = typeof label === 'string' ? label.trim() : ''
+  if (!text) return null
+  const width = Math.min(Math.round(text.length * 6.5) + 24, 220)
+  return { width, height: 28 }
+}
+
 function layoutWithDagre(
   steps: any[],
   transitions: any[],
@@ -441,7 +455,7 @@ function layoutWithDagre(
 
   const graph = new dagre.graphlib.Graph()
   graph.setDefaultEdgeLabel(() => ({}))
-  graph.setGraph({ rankdir, nodesep: 40, ranksep: 90 })
+  graph.setGraph({ rankdir, nodesep: 70, ranksep: 90 })
 
   for (const step of steps) {
     graph.setNode(step.stepId, { width, height })
@@ -449,7 +463,17 @@ function layoutWithDagre(
 
   for (const transition of transitions) {
     if (graph.hasNode(transition.fromStepId) && graph.hasNode(transition.toStepId)) {
-      graph.setEdge(transition.fromStepId, transition.toStepId)
+      // Reserve room for the transition-label pill between ranks. Without this
+      // dagre packs ranks against `ranksep` only and the label overlaps the
+      // downstream node (the label is rendered at the edge midpoint by
+      // WorkflowTransitionEdge). A labelled edge becomes a dummy label node of
+      // these dimensions, so the rank gap grows to fit the text.
+      const labelSize = estimateEdgeLabelSize(transition.label ?? transition.transitionName)
+      graph.setEdge(
+        transition.fromStepId,
+        transition.toStepId,
+        labelSize ? { width: labelSize.width, height: labelSize.height, labelpos: 'c' } : {},
+      )
     }
   }
 
@@ -482,7 +506,12 @@ export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
   const steps = nodes.map((node) => ({ stepId: node.id }))
   const transitions = edges
     .filter((edge) => !isDataMappingEdge(edge))
-    .map((edge) => ({ fromStepId: edge.source, toStepId: edge.target }))
+    .map((edge) => ({
+      fromStepId: edge.source,
+      toStepId: edge.target,
+      // Carry the label so the layout reserves room for the transition pill.
+      label: (edge.data as any)?.label ?? (edge.data as any)?.transitionName,
+    }))
 
   const positions = layoutWithDagre(steps, transitions, {
     direction: 'LR',

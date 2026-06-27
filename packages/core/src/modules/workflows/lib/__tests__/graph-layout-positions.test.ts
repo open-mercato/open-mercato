@@ -104,4 +104,34 @@ describe('applyAutoLayout', () => {
     expect((taskNode.data as any).label).toBe('Task')
     expect((taskNode.data as any).badge).toBe('Automated')
   })
+
+  test('reserves horizontal room for transition labels so they do not overlap the next node', () => {
+    const nodes: Node[] = [
+      { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: { label: 'Start' } },
+      { id: 'task', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'Task' } },
+    ]
+    const unlabeled: Edge[] = [
+      { id: 'start-task', source: 'start', target: 'task', type: 'workflowTransition', data: {} },
+    ]
+    const labeled: Edge[] = [
+      {
+        id: 'start-task',
+        source: 'start',
+        target: 'task',
+        type: 'workflowTransition',
+        data: { label: 'Skip Effector On Reject' },
+      },
+    ]
+
+    const gapFor = (edges: Edge[]) => {
+      const out = applyAutoLayout(nodes, edges)
+      const a = out.find((node) => node.id === 'start')!.position.x
+      const b = out.find((node) => node.id === 'task')!.position.x
+      return b - a
+    }
+
+    // A labelled edge must push the downstream node further right than a bare
+    // edge, leaving room for the label pill rendered at the edge midpoint.
+    expect(gapFor(labeled)).toBeGreaterThan(gapFor(unlabeled))
+  })
 })

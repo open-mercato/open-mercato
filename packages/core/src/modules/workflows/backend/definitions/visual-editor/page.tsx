@@ -1017,8 +1017,27 @@ export default function VisualEditorPage() {
     )
   }
 
+  // Break the editor out of `main`'s centered `max-w-screen-2xl` so the canvas
+  // uses the full content column on wide screens (the side gutters the author
+  // saw). Width = the content column (viewport minus the sidebar offset exposed
+  // by AppShell); the negative margins cancel `main`'s auto-centering
+  // (`max(0, (col-1536)/2)`) and its `lg:p-6` padding (24px). Desktop-only — the
+  // compact (<1280px) layout keeps the normal centered container.
+  const fullBleedSideMargin =
+    'calc(-1 * (max(0px, (100vw - var(--app-content-offset, 0px) - 1536px) / 2) + 24px))'
+  const fullBleedStyle: React.CSSProperties = !isCompactViewport
+    ? {
+        width: 'calc(100vw - var(--app-content-offset, 0px))',
+        marginLeft: fullBleedSideMargin,
+        marginRight: fullBleedSideMargin,
+      }
+    : {}
+
   return (
-    <Page className="space-y-0 overflow-x-hidden">
+    <Page
+      className="flex min-h-[calc(100svh-7rem)] flex-col space-y-0 overflow-x-hidden"
+      style={fullBleedStyle}
+    >
       {/* Page Header */}
       <div className={`shrink-0 border-b border-border bg-background ${focusMode ? 'px-3 py-1.5 md:px-4' : 'px-3 py-2 md:px-6 md:py-3'}`}>
         <FormHeader
@@ -1182,7 +1201,7 @@ export default function VisualEditorPage() {
       {showMetadata && !focusMode && (
         <div className={isCompactViewport
           ? 'shrink-0 border-b border-border bg-background px-3 py-2 max-h-[60svh] overflow-y-auto overscroll-contain md:px-6 md:py-3'
-          : 'shrink-0 border-b border-border bg-background px-3 py-2 md:px-6 md:py-3'
+          : 'shrink-0 border-b border-border bg-background px-3 py-2 max-h-[45svh] overflow-y-auto overscroll-contain md:px-6 md:py-3'
         }>
           <fieldset disabled={isCodeOnly} className="rounded-lg border bg-card p-3 disabled:opacity-70 md:p-4">
             <h2 className="mb-3 text-xs font-semibold uppercase text-muted-foreground">{t('workflows.visualEditor.workflowMetadata')}</h2>
@@ -1381,7 +1400,7 @@ export default function VisualEditorPage() {
           )}
         </div>
       ) : (
-        <div className="flex min-h-[72svh] min-w-0 flex-1 border-t border-border">
+        <div className="flex min-h-0 min-w-0 flex-1 border-t border-border pl-3 md:pl-6">
           {/* Left Sidebar - Step Palette rail (hidden in read-only mode) */}
           {!isCodeOnly && (
           <div className={`${paletteCollapsed ? 'w-14' : 'w-48'} shrink-0 overflow-y-auto border-r border-border bg-background p-2`}>
@@ -1469,23 +1488,10 @@ export default function VisualEditorPage() {
           </div>
           )}
 
-          {/* Main Canvas */}
+          {/* Main Canvas — the header already carries the Focus toggle, so no
+              separate in-canvas Exit-focus button (avoids two identical controls). */}
           <div className="min-w-0 flex-1 p-6">
-            <div className="relative h-[72svh] min-h-[640px]">
-              {focusMode && (
-                <div className="absolute right-3 top-3 z-10">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setFocusMode(false)}
-                    className="h-8 px-2 text-xs shadow-sm"
-                    aria-label={t('workflows.visualEditor.exitFocusMode')}
-                  >
-                    <Minimize2 className="mr-1.5 h-4 w-4" />
-                    {t('workflows.visualEditor.exitFocusMode')}
-                  </Button>
-                </div>
-              )}
+            <div className="relative h-full min-h-[480px]">
               <div className="h-full rounded-lg border bg-card">
                 <WorkflowGraph
                   initialNodes={nodes}

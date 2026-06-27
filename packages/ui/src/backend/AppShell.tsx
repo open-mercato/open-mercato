@@ -1249,7 +1249,16 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     <SidebarCollapseContext.Provider value={sidebarCollapseValue}>
     <div
       className={`relative min-h-svh lg:grid transition-[grid-template-columns] duration-200 ease-out ${gridColsClass}`}
-      style={{ '--topbar-height': '61px' } as React.CSSProperties}
+      style={{
+        '--topbar-height': '61px',
+        // Left offset of the content column (sidebar, plus the section sidebar on
+        // settings/profile routes). Exposed so full-bleed pages — e.g. the
+        // workflow visual editor — can size themselves to the content column with
+        // `calc(100vw - var(--app-content-offset))` instead of being capped by
+        // `main`'s centered max-width. Only meaningful at `lg` and up, where the
+        // grid (and the sidebar) is active.
+        '--app-content-offset': isSectionView ? `calc(${asideWidth} + 240px)` : asideWidth,
+      } as React.CSSProperties}
     >
       {/* Desktop sidebar collapse/expand toggle — sits on the divider line between
           sidebar and content, like Notion/Vercel. Hidden on mobile (hamburger in
