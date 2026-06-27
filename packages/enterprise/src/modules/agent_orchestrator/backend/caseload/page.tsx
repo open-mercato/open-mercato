@@ -809,8 +809,8 @@ function ExceptionsInbox({
   const selected = rows.find((row) => row.id === selectedId) ?? null
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(480px,560px)_1fr]">
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
+    <div className="grid gap-4 xl:grid-cols-[minmax(480px,560px)_1fr]">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
         {toolbar}
         <StatusTabs segment={segment} counts={counts} total={total} onSegmentChange={onSegmentChange} className="px-4" />
         {rows.length === 0 ? (
@@ -856,7 +856,7 @@ function ExceptionsInbox({
         )}
       </div>
 
-      <div className="rounded-xl border border-border bg-card">
+      <div className="min-w-0 rounded-xl border border-border bg-card">
         {selected ? (
           <DecisionPane row={selected} busy={busy} onApprove={onApprove} onReject={onReject} onOpenDetail={onOpenDetail} />
         ) : (
@@ -897,7 +897,7 @@ function DecisionPane({
     <div className="flex h-full flex-col">
       <div className="border-b border-border p-5">
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate font-mono text-xs text-muted-foreground">{row.claim}</span>
+          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{row.claim}</span>
           <div className="flex shrink-0 items-center gap-2">
             <WaitingLabel value={row.waitingLabel} className="text-xs text-muted-foreground" />
             <StatusBadge variant={STATUS_VARIANT[row.status]} dot>
@@ -912,7 +912,7 @@ function DecisionPane({
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {(['policyholder', 'policy', 'coverage', 'estimate'] as const).map((key) => (
             <div key={key}>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t(`agent_orchestrator.caseload.inbox.ctx.${key}`)}</p>
+              <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">{t(`agent_orchestrator.caseload.inbox.ctx.${key}`)}</p>
               <div className="mt-1">{needsBackend}</div>
             </div>
           ))}

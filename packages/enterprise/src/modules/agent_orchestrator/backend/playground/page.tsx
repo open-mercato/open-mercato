@@ -208,7 +208,7 @@ export default function AgentPlaygroundPage() {
               }}
             />
             <a
-              href="/backend/agent_orchestrator/caseload"
+              href="/backend/caseload"
               className="inline-block text-sm font-medium text-brand-violet hover:underline"
             >
               {t('agent_orchestrator.playground.result.openCaseload')}
