@@ -6,7 +6,7 @@
  */
 
 import { JobHandler } from '@open-mercato/queue'
-import { WorkflowActivityJob } from './activity-queue-types'
+import { WorkflowActivityJob, WorkflowActivityJobInvokeAgent } from './activity-queue-types'
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
@@ -54,6 +54,13 @@ export function createActivityWorkerHandler(
         logger.error('Failed to fire timer for instance', { instanceId: payload.workflowInstanceId, err: error })
         throw error
       }
+      return
+    }
+
+    // Invoke-agent jobs run an INVOKE_AGENT step's agent OUTSIDE the workflow
+    // transaction, then resume the parked step (see handleInvokeAgentJob).
+    if (payload.kind === 'invoke_agent') {
+      await handleInvokeAgentJob(em, container, payload)
       return
     }
 
@@ -182,6 +189,143 @@ export function createActivityWorkerHandler(
       // Re-throw to let BullMQ handle retry
       throw error
     }
+  }
+}
+
+/**
+ * Minimal surface of the optional agent_orchestrator bridge consumed here.
+ * Resolved by DI key so @open-mercato/core does not import the enterprise module.
+ */
+type AgentWorkflowBridgeLike = {
+  invokeAgentForWorkflow: (args: {
+    agentId: string
+    input: unknown
+    onResult: { autoApproveThreshold: number } | { alwaysAsk: true }
+    ctx: {
+      tenantId: string
+      organizationId: string
+      userId?: string
+      processId: string
+      stepId: string
+    }
+  }) => Promise<
+    | { kind: 'informative'; data: unknown }
+    | { kind: 'auto_approved'; proposalId: string; payload: unknown }
+    | { kind: 'user_task'; proposalId: string }
+  >
+}
+
+/**
+ * Run an INVOKE_AGENT step's agent OUTSIDE the workflow transaction, then resume
+ * the parked step.
+ *
+ * The step parked on `agent_orchestrator.proposal.ready` (committing the workflow
+ * transaction) before this job runs, so the agent — and all of its own
+ * bookkeeping writes — execute on this worker's independent connection. That is
+ * what stops a failing or cross-process (OpenCode) agent run from aborting the
+ * workflow transaction, and lets the separate mcp:serve-http process see the
+ * committed per-run session rows it needs to authenticate submit_outcome.
+ *
+ * Idempotency: the agent must run exactly once and only after the step parks.
+ * The guard below enforces both (skip when the step already advanced; retry when
+ * not yet PAUSED). Once the agent has run, a resume failure is logged rather than
+ * rethrown so the job is NOT retried — re-running an auto_approved agent would
+ * re-execute its effector.
+ */
+export async function handleInvokeAgentJob(
+  em: EntityManager,
+  container: AwilixContainer,
+  payload: WorkflowActivityJobInvokeAgent
+): Promise<void> {
+  const instance = await em.findOne(WorkflowInstance, {
+    id: payload.workflowInstanceId,
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+  })
+  if (!instance) {
+    // The parking transaction may not be visible yet — retry.
+    throw new Error(
+      `Workflow instance ${payload.workflowInstanceId} not found for invoke_agent job`
+    )
+  }
+
+  if (instance.currentStepId !== payload.stepId) {
+    console.log(
+      `[ActivityWorker] invoke_agent job skipped — instance ${payload.workflowInstanceId} current step is ${instance.currentStepId}, not ${payload.stepId} (already resolved)`
+    )
+    return
+  }
+  if (instance.status !== 'PAUSED') {
+    // Parking transaction has not committed yet; retry before running the agent.
+    throw new Error(
+      `invoke_agent: instance ${payload.workflowInstanceId} not parked yet (status=${instance.status}); retrying`
+    )
+  }
+
+  let bridge: AgentWorkflowBridgeLike
+  try {
+    bridge = container.resolve<AgentWorkflowBridgeLike>('agentWorkflowBridge')
+  } catch {
+    throw new Error('[internal] agent_orchestrator not installed (agentWorkflowBridge unavailable)')
+  }
+
+  const outcome = await bridge.invokeAgentForWorkflow({
+    agentId: payload.agentId,
+    input: payload.input,
+    onResult: payload.onResult,
+    ctx: {
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+      userId: payload.userId,
+      processId: instance.id,
+      stepId: payload.stepId,
+    },
+  })
+
+  // user_task: leave the step parked — agent_orchestrator's human dispose path
+  // fires the same proposal-ready signal to resume it (unchanged behavior).
+  if (outcome.kind === 'user_task') {
+    console.log(
+      `[ActivityWorker] invoke_agent ${payload.agentId} routed to human (proposal ${outcome.proposalId}); leaving instance ${payload.workflowInstanceId} parked`
+    )
+    return
+  }
+
+  // informative / auto_approved: resume the parked step by firing the signal. The
+  // payload is merged into workflow context (top-level), mirroring the prior
+  // inline-resolution behavior so the outgoing transition can branch.
+  const signalPayload =
+    outcome.kind === 'auto_approved'
+      ? {
+          disposition: 'auto_approved',
+          agentId: payload.agentId,
+          agentProposalId: outcome.proposalId,
+          proposalPayload: outcome.payload,
+        }
+      : {
+          disposition: 'informative',
+          agentId: payload.agentId,
+          [`${payload.stepId}_agent`]: outcome.data,
+        }
+
+  try {
+    const { sendSignal } = await import('./signal-handler')
+    await sendSignal(em, container, {
+      instanceId: payload.workflowInstanceId,
+      signalName: payload.signalName,
+      payload: signalPayload,
+      userId: payload.userId,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+    })
+  } catch (resumeError: any) {
+    // The agent already ran (and, for auto_approved, its effector already
+    // executed). Re-running on retry would double-execute, so do NOT rethrow:
+    // log and leave the instance parked (resumable via a manual signal).
+    console.error(
+      `[ActivityWorker] invoke_agent ${payload.agentId} ran but resume failed for instance ${payload.workflowInstanceId}; left parked:`,
+      resumeError?.message
+    )
   }
 }
 

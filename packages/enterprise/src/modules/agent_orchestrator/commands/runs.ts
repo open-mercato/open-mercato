@@ -23,6 +23,10 @@ const createAgentRunSchema = z.object({
   externalRunId: z.string().min(1).nullable().optional(),
   /** Declared model id; stamped so the cockpit can show/filter runs by model. Null when the agent uses the tenant default. */
   model: z.string().min(1).max(100).nullable().optional(),
+  /** Workflow process instance id this run belongs to (INVOKE_AGENT step); links the run to the process in traces. */
+  processId: z.string().uuid().nullable().optional(),
+  /** Workflow step id this run belongs to. */
+  stepId: z.string().min(1).nullable().optional(),
 })
 export type CreateAgentRunInput = z.infer<typeof createAgentRunSchema>
 
@@ -55,6 +59,8 @@ const createAgentRunCommand: CommandHandler<CreateAgentRunInput, { runId: string
       runtime: input.runtime ?? null,
       externalRunId: input.externalRunId ?? null,
       model: input.model ?? null,
+      processId: input.processId ?? null,
+      stepId: input.stepId ?? null,
     })
     em.persist(run)
     await em.flush()
