@@ -201,6 +201,8 @@
   "agent_orchestrator.evalAssertions.flash.deleted": "Regel gelöscht.",
   "agent_orchestrator.evalAssertions.flash.error": "Vorgang fehlgeschlagen.",
   "agent_orchestrator.evalAssertions.flash.saved": "Regel gespeichert.",
+  "agent_orchestrator.evalAssertions.flash.toggleError": "Assertion konnte nicht aktualisiert werden",
+  "agent_orchestrator.evalAssertions.form.allAgents": "Alle Agenten",
   "agent_orchestrator.evalAssertions.form.appliesTo": "Gilt für (Agent-ID oder *)",
   "agent_orchestrator.evalAssertions.form.createTitle": "Neue Bewertungsregel",
   "agent_orchestrator.evalAssertions.form.description": "Beschreibung",

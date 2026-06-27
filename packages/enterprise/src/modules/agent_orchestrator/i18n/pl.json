@@ -201,6 +201,8 @@
   "agent_orchestrator.evalAssertions.flash.deleted": "Reguła usunięta.",
   "agent_orchestrator.evalAssertions.flash.error": "Operacja nie powiodła się.",
   "agent_orchestrator.evalAssertions.flash.saved": "Reguła zapisana.",
+  "agent_orchestrator.evalAssertions.flash.toggleError": "Nie udało się zmienić asercji",
+  "agent_orchestrator.evalAssertions.form.allAgents": "Wszyscy agenci",
   "agent_orchestrator.evalAssertions.form.appliesTo": "Dotyczy (id agenta lub *)",
   "agent_orchestrator.evalAssertions.form.createTitle": "Nowa reguła oceny",
   "agent_orchestrator.evalAssertions.form.description": "Opis",

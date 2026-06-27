@@ -201,6 +201,8 @@
   "agent_orchestrator.evalAssertions.flash.deleted": "Assertion deleted.",
   "agent_orchestrator.evalAssertions.flash.error": "Operation failed.",
   "agent_orchestrator.evalAssertions.flash.saved": "Assertion saved.",
+  "agent_orchestrator.evalAssertions.flash.toggleError": "Could not update the assertion",
+  "agent_orchestrator.evalAssertions.form.allAgents": "All agents",
   "agent_orchestrator.evalAssertions.form.appliesTo": "Applies to (agent id or *)",
   "agent_orchestrator.evalAssertions.form.createTitle": "New evaluation assertion",
   "agent_orchestrator.evalAssertions.form.description": "Description",
