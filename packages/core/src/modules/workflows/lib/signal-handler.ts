@@ -9,6 +9,7 @@ import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgr
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { WorkflowInstance, WorkflowBranchInstance, WorkflowDefinition, StepInstance } from '../data/entities'
+import { INVOKE_AGENT_SIGNAL_NAME } from './activity-executor'
 import type * as eventLoggerModule from './event-logger'
 import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
@@ -200,9 +201,21 @@ export async function sendSignal(
   // routed its proposal to a human) — can be resumed by a matching signal. The
   // resume path below (merge payload → exit step → run auto transitions) is
   // step-type-agnostic, so widening this guard is additive and safe.
+  //
+  // INVOKE_AGENT steps run their agent asynchronously (off the workflow
+  // transaction) and park on `agent_orchestrator.proposal.ready`; recognize them
+  // even when the definition omits an explicit `signalConfig.signalName` (e.g.
+  // seeded blueprints not re-saved through the visual editor) so the activity
+  // worker can resume them after the agent completes.
+  const isInvokeAgentStep =
+    !!currentStep &&
+    Array.isArray(currentStep.activities) &&
+    currentStep.activities.some((a: any) => a?.activityType === 'INVOKE_AGENT')
   const stepCanReceiveSignal =
     !!currentStep &&
-    (currentStep.stepType === 'WAIT_FOR_SIGNAL' || !!currentStep.signalConfig?.signalName)
+    (currentStep.stepType === 'WAIT_FOR_SIGNAL' ||
+      !!currentStep.signalConfig?.signalName ||
+      isInvokeAgentStep)
   if (!stepCanReceiveSignal) {
     throw new SignalError(
       'Workflow is not waiting for signal',
@@ -212,7 +225,9 @@ export async function sendSignal(
   }
 
   // Check signal name matches
-  const expectedSignalName = currentStep.signalConfig?.signalName || currentStep.stepId
+  const expectedSignalName =
+    currentStep.signalConfig?.signalName ||
+    (isInvokeAgentStep ? INVOKE_AGENT_SIGNAL_NAME : currentStep.stepId)
   if (expectedSignalName !== signalName) {
     throw new SignalError(
       'Signal name mismatch',
