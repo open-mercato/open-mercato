@@ -227,6 +227,7 @@
     }
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@mikro-orm/core": "^7.1.4",
     "@mikro-orm/decorators": "^7.1.4",
     "@mikro-orm/postgresql": "^7.1.4",

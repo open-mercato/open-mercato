@@ -27,9 +27,12 @@ export interface SubWorkflowNodeData {
  *
  * Renders the referenced child's declared IN/OUT ports (when supplied via node
  * data) so a business user can see and target each field without opening the
- * child. Per-port data handles use stable ids `in:<name>` / `out:<name>`; the
- * top/bottom control-flow handles are unchanged, so existing transitions keep
- * connecting. Falls back to the plain card when no contract is present.
+ * child. Per-port data handles use stable ids `in:<name>` / `out:<name>`. Under
+ * the horizontal (left→right) flow, control-flow handles take Left (target) /
+ * Right (source); the data ports relocate to the Top (in) / Bottom (out) edges
+ * — fanned out horizontally — so the two handle classes never collide. Handle
+ * ids are unchanged, so existing transitions and mappings keep connecting.
+ * Falls back to the plain card when no contract is present.
  */
 export function SubWorkflowNode({ data, isConnectable, selected }: NodeProps) {
   const t = useT()
@@ -56,10 +59,10 @@ export function SubWorkflowNode({ data, isConnectable, selected }: NodeProps) {
 
   return (
     <div className="sub-workflow-node" title={nodeData.tooltip}>
-      {/* Control-flow target handle (unchanged) */}
+      {/* Control-flow target handle (left edge under horizontal flow) */}
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         id="target"
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"
@@ -80,13 +83,14 @@ export function SubWorkflowNode({ data, isConnectable, selected }: NodeProps) {
               <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
                 {t('workflows.ports.inputs')}
               </div>
-              {inputs.map((port) => (
+              {inputs.map((port, index) => (
                 <div key={port.name} className="relative flex items-center justify-between gap-3 py-0.5">
                   <Handle
                     type="target"
-                    position={Position.Left}
+                    position={Position.Top}
                     id={`in:${port.name}`}
                     isConnectable={isConnectable}
+                    style={{ left: `${((index + 1) / (inputs.length + 1)) * 100}%` }}
                     className="!w-2.5 !h-2.5 !bg-primary !border !border-background"
                   />
                   <span className="truncate text-foreground">{port.label || port.name}</span>
@@ -100,15 +104,16 @@ export function SubWorkflowNode({ data, isConnectable, selected }: NodeProps) {
               <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
                 {t('workflows.ports.outputs')}
               </div>
-              {outputs.map((port) => (
+              {outputs.map((port, index) => (
                 <div key={port.name} className="relative flex items-center justify-between gap-3 py-0.5">
                   <span className="truncate text-foreground">{port.label || port.name}</span>
                   <span className="shrink-0 text-muted-foreground">{t(`workflows.ports.types.${port.type}`)}</span>
                   <Handle
                     type="source"
-                    position={Position.Right}
+                    position={Position.Bottom}
                     id={`out:${port.name}`}
                     isConnectable={isConnectable}
+                    style={{ left: `${((index + 1) / (outputs.length + 1)) * 100}%` }}
                     className="!w-2.5 !h-2.5 !bg-muted-foreground !border !border-background"
                   />
                 </div>
@@ -118,10 +123,10 @@ export function SubWorkflowNode({ data, isConnectable, selected }: NodeProps) {
         </div>
       )}
 
-      {/* Control-flow source handle (unchanged) */}
+      {/* Control-flow source handle (right edge under horizontal flow) */}
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         id="source"
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"

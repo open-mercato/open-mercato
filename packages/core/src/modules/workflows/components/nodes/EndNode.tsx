@@ -37,7 +37,7 @@ export function EndNode({ data, isConnectable, selected }: NodeProps) {
       {/* Target Handle */}
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         id="target"
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"

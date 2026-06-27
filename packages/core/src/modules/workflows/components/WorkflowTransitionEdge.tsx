@@ -1,4 +1,4 @@
-import { BaseEdge, EdgeProps, EdgeLabelRenderer, getStraightPath } from '@xyflow/react'
+import { BaseEdge, EdgeProps, EdgeLabelRenderer, getSmoothStepPath } from '@xyflow/react'
 import { WorkflowTransitionLabel } from './WorkflowTransitionLabel'
 import { EDGE_COLORS, EdgeState } from '../lib/status-colors'
 
@@ -17,11 +17,13 @@ export function WorkflowTransitionEdge({
   const label = (data?.label as string) || ''
   const colors = EDGE_COLORS[state]
 
-  const [edgePath, labelX, labelY] = getStraightPath({
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
+    sourcePosition,
     targetX,
     targetY,
+    targetPosition,
   })
 
   return (

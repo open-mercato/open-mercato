@@ -44,7 +44,7 @@ export function WaitForTimerNode({ data, isConnectable, selected }: NodeProps) {
     <div className="wait-for-timer-node" title={nodeData.tooltip}>
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         id="target"
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"
@@ -60,7 +60,7 @@ export function WaitForTimerNode({ data, isConnectable, selected }: NodeProps) {
 
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         id="source"
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"

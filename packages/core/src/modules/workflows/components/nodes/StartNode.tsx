@@ -44,7 +44,7 @@ export function StartNode({ data, isConnectable, selected }: NodeProps) {
       {/* Source Handle */}
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         id="source"
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"

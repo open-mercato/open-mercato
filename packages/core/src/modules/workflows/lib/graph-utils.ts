@@ -1,4 +1,5 @@
 import { Node, Edge } from '@xyflow/react'
+import dagre from '@dagrejs/dagre'
 import type { WorkflowDefinition } from '../data/entities'
 import type { WorkflowIoContract } from '../data/validators'
 import { isDataMappingEdge } from './data-edge-mapping'
@@ -8,6 +9,15 @@ import { isDataMappingEdge } from './data-edge-mapping'
  *
  * Converts between ReactFlow graph representation and workflow definition JSON
  */
+
+/**
+ * Node footprint used by the dagre layout engine. `NODE_WIDTH` must match the
+ * `NODE_WIDTH` exported from `../components/WorkflowNodeCard`; it is mirrored as
+ * a local constant here so this pure data-transform module stays free of the
+ * React/`lucide-react` import chain (it runs in node + jest contexts).
+ */
+const NODE_WIDTH = 180
+const NODE_HEIGHT = 84
 
 export interface GraphToDefinitionOptions {
   includePositions?: boolean
@@ -22,6 +32,13 @@ export interface DefinitionToGraphOptions {
    * IN/OUT ports. Absent → the node renders without ports (backward compatible).
    */
   childContracts?: Map<string, WorkflowIoContract>
+}
+
+export interface LayoutWithDagreOptions {
+  /** Flow direction. Default `'LR'` (left→right). */
+  direction?: 'LR' | 'TB'
+  nodeWidth?: number
+  nodeHeight?: number
 }
 
 /**
@@ -232,9 +249,13 @@ export function definitionToGraph(
   // Build step map for quick lookup
   const stepMap = new Map(definition.steps.map(step => [step.stepId, step]))
 
-  // Calculate smart layout positions if autoLayout is enabled
+  // Calculate layered (left→right) layout positions if autoLayout is enabled
   const positions = autoLayout
-    ? calculateSmartLayout(definition.steps, definition.transitions, layoutSpacing)
+    ? layoutWithDagre(definition.steps, definition.transitions, {
+        direction: 'LR',
+        nodeWidth: NODE_WIDTH,
+        nodeHeight: NODE_HEIGHT,
+      })
     : null
 
   // Convert steps to nodes
@@ -384,107 +405,53 @@ export function definitionToGraph(
 }
 
 /**
- * Calculate smart layout positions for workflow nodes
- * Uses a layered/hierarchical layout algorithm that:
- * 1. Assigns levels (ranks) to nodes based on graph topology
- * 2. Spreads sibling nodes horizontally at the same level
- * 3. Centers merge points below their incoming nodes
+ * Compute overlap-free, node-size-aware layout positions using `@dagrejs/dagre`.
+ *
+ * Builds a layered graph (default `rankdir: 'LR'` → left→right flow), runs dagre
+ * to rank nodes and minimize edge crossings, then converts dagre's center-origin
+ * coordinates to React Flow's top-left origin. Returns a `Map` of `stepId` →
+ * top-left `{ x, y }`, the same shape the previous custom layout produced.
+ *
+ * Only control-flow transitions are passed here — drag-authored data mappings
+ * are not transitions (they live in the target step's `config.inputMapping`).
  */
-function calculateSmartLayout(
+function layoutWithDagre(
   steps: any[],
   transitions: any[],
-  spacing: { vertical: number; horizontal: number }
+  options: LayoutWithDagreOptions = {}
 ): Map<string, { x: number; y: number }> {
   const positions = new Map<string, { x: number; y: number }>()
 
   if (steps.length === 0) return positions
 
-  // Build adjacency lists
-  const outgoing = new Map<string, string[]>() // node -> children
-  const incoming = new Map<string, string[]>() // node -> parents
+  const width = options.nodeWidth ?? NODE_WIDTH
+  const height = options.nodeHeight ?? NODE_HEIGHT
+  const rankdir = options.direction ?? 'LR'
+
+  const graph = new dagre.graphlib.Graph()
+  graph.setDefaultEdgeLabel(() => ({}))
+  graph.setGraph({ rankdir, nodesep: 40, ranksep: 90 })
 
   for (const step of steps) {
-    outgoing.set(step.stepId, [])
-    incoming.set(step.stepId, [])
+    graph.setNode(step.stepId, { width, height })
   }
 
-  for (const t of transitions) {
-    const children = outgoing.get(t.fromStepId) || []
-    children.push(t.toStepId)
-    outgoing.set(t.fromStepId, children)
-
-    const parents = incoming.get(t.toStepId) || []
-    parents.push(t.fromStepId)
-    incoming.set(t.toStepId, parents)
-  }
-
-  // Find start node(s) - nodes with no incoming edges
-  const startNodes = steps.filter(s => (incoming.get(s.stepId) || []).length === 0)
-  if (startNodes.length === 0) {
-    // Fallback: use first step as start
-    startNodes.push(steps[0])
-  }
-
-  // Assign levels using BFS (longest path from start)
-  const levels = new Map<string, number>()
-  const queue: Array<{ id: string; level: number }> = []
-
-  for (const start of startNodes) {
-    queue.push({ id: start.stepId, level: 0 })
-  }
-
-  while (queue.length > 0) {
-    const { id, level } = queue.shift()!
-    const currentLevel = levels.get(id)
-
-    // Take the maximum level (longest path)
-    if (currentLevel === undefined || level > currentLevel) {
-      levels.set(id, level)
-    }
-
-    const children = outgoing.get(id) || []
-    for (const child of children) {
-      queue.push({ id: child, level: level + 1 })
+  for (const transition of transitions) {
+    if (graph.hasNode(transition.fromStepId) && graph.hasNode(transition.toStepId)) {
+      graph.setEdge(transition.fromStepId, transition.toStepId)
     }
   }
 
-  // Group nodes by level
-  const nodesByLevel = new Map<number, string[]>()
-  for (const [nodeId, level] of levels) {
-    const nodesAtLevel = nodesByLevel.get(level) || []
-    nodesAtLevel.push(nodeId)
-    nodesByLevel.set(level, nodesAtLevel)
-  }
+  dagre.layout(graph)
 
-  // Calculate positions
-  const centerX = 400 // Center line for the graph
-  const startY = 50
-
-  for (const [level, nodeIds] of nodesByLevel) {
-    const count = nodeIds.length
-    const y = startY + level * spacing.vertical
-
-    if (count === 1) {
-      // Single node at this level - center it
-      positions.set(nodeIds[0], { x: centerX, y })
-    } else {
-      // Multiple nodes at this level - spread them horizontally
-      const totalWidth = (count - 1) * spacing.horizontal
-      const startX = centerX - totalWidth / 2
-
-      // Sort nodes by their parent's position for consistent ordering
-      nodeIds.sort((a, b) => {
-        const parentsA = incoming.get(a) || []
-        const parentsB = incoming.get(b) || []
-        const parentPosA = parentsA.length > 0 ? (positions.get(parentsA[0])?.x || 0) : 0
-        const parentPosB = parentsB.length > 0 ? (positions.get(parentsB[0])?.x || 0) : 0
-        return parentPosA - parentPosB
-      })
-
-      nodeIds.forEach((nodeId, idx) => {
-        positions.set(nodeId, { x: startX + idx * spacing.horizontal, y })
-      })
-    }
+  for (const step of steps) {
+    const node = graph.node(step.stepId)
+    if (!node || typeof node.x !== 'number' || typeof node.y !== 'number') continue
+    // dagre returns the node center; React Flow positions use the top-left corner.
+    positions.set(step.stepId, {
+      x: node.x - width / 2,
+      y: node.y - height / 2,
+    })
   }
 
   return positions
