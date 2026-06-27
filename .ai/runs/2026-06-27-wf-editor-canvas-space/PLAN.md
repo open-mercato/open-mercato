@@ -17,7 +17,7 @@ Execution model: one subagent per phase, run **sequentially** (shared files: `gr
 | 1 | Compact, lighter nodes (`NODE_WIDTH=180`, DS tokens) | ✅ done | `8ea0da5f0` |
 | 2 | Palette shrink + collapse rail | ✅ done | (this commit) |
 | 3 | Horizontal (L→R) layout + dagre + orthogonal edges | ✅ done | (this commit) |
-| 4 | Focus mode orchestrator (+ `useSidebarCollapse`) | ⬜ pending | — |
+| 4 | Focus mode orchestrator (+ `useSidebarCollapse`) | ✅ done | (this commit) |
 | 5 | Persist positions + Tidy + autosave-on-drag | ⬜ pending | — |
 
 Status legend: ⬜ pending · 🟡 in progress · ✅ done · ⚠️ done with caveats
@@ -59,4 +59,5 @@ Status legend: ⬜ pending · 🟡 in progress · ✅ done · ⚠️ done with c
 - 2026-06-27 — Tracker created; spec finalized with phases 1–5. Beginning Phase 1.
 - 2026-06-27 — Phase 1 ✅ `8ea0da5f0`. Node card 280→180px, lighter (rounded-lg/border/p-2.5), `NODE_WIDTH` exported, handle/start/end colors → DS tokens. Core build PASS. Note: blue/amber/purple/cyan decorative node-type accents left as-is (no semantic DS token; spec permits).
 - 2026-06-27 — Phase 2 ✅ `15c9103d6`. Palette: 8 buttons → one `.map()` over `PALETTE_NODE_TYPES`; rail `w-48` expanded / `w-14` icon-only collapsed via `usePersistedBooleanFlag('om:wf-editor-palette')`; "How to use" → disclosure; +`collapsePalette`/`expandPalette` i18n in en/es/de/pl. Net −47 lines. Build + typecheck PASS.
-- 2026-06-27 — Phase 3 ✅. Added `@dagrejs/dagre@^3` (ships own types). `calculateSmartLayout` → `layoutWithDagre` (`rankdir:'LR'`, center→top-left). All node control handles Top/Bottom → Left/Right (ids unchanged); SubWorkflow data ports → Top/Bottom; `WorkflowTransitionEdge` → `getSmoothStepPath` orthogonal. Build + typecheck PASS; 35 suites / 585 workflows tests PASS incl. sub-workflow-ports. Local NODE_WIDTH mirror in graph-utils (keeps data module React-free). Fork/Join have single handles today (repositioned, not fanned). Starting Phase 4.
+- 2026-06-27 — Phase 3 ✅ `9088bf2a8`. Added `@dagrejs/dagre@^3`. `calculateSmartLayout` → `layoutWithDagre` (`rankdir:'LR'`). Node handles → Left/Right (ids unchanged); SubWorkflow data ports → Top/Bottom; transition edges → orthogonal. Build + typecheck PASS; 585 workflows tests PASS.
+- 2026-06-27 — Phase 4 ✅. `AppShell`: additive `useSidebarCollapse()` (import `@open-mercato/ui/backend/AppShell`) via separate `externalCollapseRequest` state (no-op default outside provider; settings/profile collapse untouched — 66+/1−, the 1 deletion just composes `effectiveCollapsed`). Editor `focusMode` (`usePersistedBooleanFlag('om:wf-editor-focus')`) collapses sidebar+palette+metadata, slim header, floating Exit pill, `F`/`Esc` (guarded), restores prior state on exit/unmount. +`enterFocusMode`/`exitFocusMode` i18n ×4. ui+core build/typecheck PASS. Starting Phase 5.

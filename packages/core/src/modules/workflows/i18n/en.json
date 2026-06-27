@@ -1235,6 +1235,8 @@
   "workflows.visualEditor.clickToAdd": "Click a step type to add it to the canvas",
   "workflows.visualEditor.clickToAddFromPalette": "Click a step type from the palette to add it to the canvas",
   "workflows.visualEditor.collapsePalette": "Collapse palette",
+  "workflows.visualEditor.enterFocusMode": "Focus",
+  "workflows.visualEditor.exitFocusMode": "Exit focus",
   "workflows.visualEditor.expandPalette": "Expand palette",
   "workflows.visualEditor.hideMetadata": "Hide Metadata",
   "workflows.visualEditor.hint.addSteps": "Click step types to add them",

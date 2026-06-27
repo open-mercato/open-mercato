@@ -41,9 +41,10 @@ import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { CircleQuestionMark, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
+import { CircleQuestionMark, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersistedBooleanFlag'
+import { useSidebarCollapse } from '@open-mercato/ui/backend/AppShell'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
 import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggersEditor'
 import { MobileVisualEditor } from '../../../components/mobile/MobileVisualEditor'
@@ -116,8 +117,43 @@ export default function VisualEditorPage() {
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
   const [showMetadata, setShowMetadata] = useState(true)
   const [isCompactViewport, setIsCompactViewport] = useState(false)
-  const { value: paletteCollapsed, toggle: togglePaletteCollapsed } = usePersistedBooleanFlag('om:wf-editor-palette', false)
+  const { value: paletteCollapsed, toggle: togglePaletteCollapsed, setValue: setPaletteCollapsed } = usePersistedBooleanFlag('om:wf-editor-palette', false)
   const [showPaletteHowTo, setShowPaletteHowTo] = useState(false)
+  const { value: focusMode, setValue: setFocusMode, toggle: toggleFocus } = usePersistedBooleanFlag('om:wf-editor-focus', false)
+  const { requestCollapse, releaseRequest } = useSidebarCollapse()
+  // Remember the palette/metadata state from before Focus mode took over so we
+  // can restore exactly what the author had when they exit.
+  const priorPaletteCollapsedRef = React.useRef<boolean | null>(null)
+  const priorShowMetadataRef = React.useRef<boolean | null>(null)
+
+  // Focus mode orchestrator: collapse the app sidebar + palette and hide the
+  // metadata form when entering; restore the author's prior palette/metadata
+  // state when leaving. Runs on mount too, so a persisted `focusMode === true`
+  // applies the collapses immediately.
+  useEffect(() => {
+    if (focusMode) {
+      if (priorPaletteCollapsedRef.current === null) priorPaletteCollapsedRef.current = paletteCollapsed
+      if (priorShowMetadataRef.current === null) priorShowMetadataRef.current = showMetadata
+      requestCollapse(true)
+      setPaletteCollapsed(true)
+      setShowMetadata(false)
+    } else {
+      releaseRequest()
+      if (priorPaletteCollapsedRef.current !== null) {
+        setPaletteCollapsed(priorPaletteCollapsedRef.current)
+        priorPaletteCollapsedRef.current = null
+      }
+      if (priorShowMetadataRef.current !== null) {
+        setShowMetadata(priorShowMetadataRef.current)
+        priorShowMetadataRef.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusMode])
+
+  // Always release the app-sidebar request when the editor unmounts so the
+  // user's prior sidebar state is restored when they navigate away.
+  useEffect(() => () => releaseRequest(), [releaseRequest])
 
   // Auto-collapse metadata on compact viewports after hydration
   useEffect(() => {
@@ -159,6 +195,35 @@ export default function VisualEditorPage() {
   const [startOpen, setStartOpen] = useState(false)
   const [startContext, setStartContext] = useState('{}')
   const [starting, setStarting] = useState(false)
+
+  // Keyboard shortcuts: `F` toggles Focus mode, `Esc` exits it. Suppressed while
+  // the user is typing in a field or a dialog is open, so it never hijacks form
+  // input or the dialog's own Escape-to-close.
+  useEffect(() => {
+    if (isMobile) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      const active = document.activeElement as HTMLElement | null
+      const tag = (active?.tagName || '').toLowerCase()
+      const isEditing = tag === 'input' || tag === 'textarea' || tag === 'select' || !!active?.isContentEditable
+      if (isEditing) return
+      const isDialogOpen = showNodeDialog || showEdgeDialog || showClearConfirm || startOpen
+      if (event.key === 'Escape') {
+        if (focusMode && !isDialogOpen) {
+          event.preventDefault()
+          setFocusMode(false)
+        }
+        return
+      }
+      if (event.key === 'f' || event.key === 'F') {
+        if (isDialogOpen) return
+        event.preventDefault()
+        toggleFocus()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isMobile, focusMode, showNodeDialog, showEdgeDialog, showClearConfirm, startOpen, toggleFocus, setFocusMode])
 
   const mutationContextId = `workflows.definitions.visual-editor:${definitionId ?? 'unknown'}`
   const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
@@ -851,18 +916,33 @@ export default function VisualEditorPage() {
   return (
     <Page className="space-y-0 overflow-x-hidden">
       {/* Page Header */}
-      <div className="shrink-0 border-b border-border bg-background px-3 py-2 md:px-6 md:py-3">
+      <div className={`shrink-0 border-b border-border bg-background ${focusMode ? 'px-3 py-1.5 md:px-4' : 'px-3 py-2 md:px-6 md:py-3'}`}>
         <FormHeader
           mode="detail"
           backHref="/backend/definitions"
           backLabel={t('workflows.definitions.backToList', 'Back to definitions')}
           title={definitionId ? (workflowName || t('workflows.definitions.singular')) : t('workflows.backend.definitions.visual_editor.title')}
-          subtitle={definitionId
-            ? t('workflows.definitions.detail.summary', 'Editing workflow definition')
-            : t('workflows.definitions.create.summary', 'Create and edit workflow definitions visually with a drag-and-drop interface')
+          subtitle={focusMode
+            ? undefined
+            : definitionId
+              ? t('workflows.definitions.detail.summary', 'Editing workflow definition')
+              : t('workflows.definitions.create.summary', 'Create and edit workflow definitions visually with a drag-and-drop interface')
           }
           actionsContent={
             <div className="flex flex-wrap items-center justify-end gap-1 md:gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={toggleFocus}
+                disabled={isSaving}
+                className="h-8 px-2 text-xs"
+                aria-label={focusMode ? t('workflows.visualEditor.exitFocusMode') : t('workflows.visualEditor.enterFocusMode')}
+              >
+                {focusMode ? <Minimize2 className="mr-1.5 h-4 w-4" /> : <Maximize2 className="mr-1.5 h-4 w-4" />}
+                {focusMode ? t('workflows.visualEditor.exitFocusMode') : t('workflows.visualEditor.enterFocusMode')}
+              </Button>
+              {!focusMode && (
+              <>
               <Button
                 variant="outline"
                 size="sm"
@@ -932,6 +1012,8 @@ export default function VisualEditorPage() {
                   {t('workflows.actions.resetToCode')}
                 </Button>
               )}
+              </>
+              )}
               {isCodeOnly ? (
                 <Button
                   size="sm"
@@ -975,7 +1057,7 @@ export default function VisualEditorPage() {
       )}
 
       {/* Workflow Metadata Form */}
-      {showMetadata && (
+      {showMetadata && !focusMode && (
         <div className={isCompactViewport
           ? 'shrink-0 border-b border-border bg-background px-3 py-2 max-h-[60svh] overflow-y-auto overscroll-contain md:px-6 md:py-3'
           : 'shrink-0 border-b border-border bg-background px-3 py-2 md:px-6 md:py-3'
@@ -1268,6 +1350,20 @@ export default function VisualEditorPage() {
           {/* Main Canvas */}
           <div className="min-w-0 flex-1 p-6">
             <div className="relative h-[72svh] min-h-[640px]">
+              {focusMode && (
+                <div className="absolute right-3 top-3 z-10">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFocusMode(false)}
+                    className="h-8 px-2 text-xs shadow-sm"
+                    aria-label={t('workflows.visualEditor.exitFocusMode')}
+                  >
+                    <Minimize2 className="mr-1.5 h-4 w-4" />
+                    {t('workflows.visualEditor.exitFocusMode')}
+                  </Button>
+                </div>
+              )}
               <div className="h-full rounded-lg border bg-card">
                 <WorkflowGraph
                   initialNodes={nodes}
