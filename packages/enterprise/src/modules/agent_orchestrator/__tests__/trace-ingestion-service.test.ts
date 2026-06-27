@@ -92,6 +92,17 @@ describe('ingestTrace', () => {
     expect(storeFor(AgentToolCall)).toHaveLength(1)
   })
 
+  it('defaults a created run input to {} when the payload omits it (agent_runs.input is NOT NULL)', async () => {
+    const { em, storeFor } = createFakeEm()
+    const payload = basePayload()
+    expect('input' in payload).toBe(false)
+    await ingestTrace(em, SCOPE, payload)
+
+    const run = storeFor(AgentRun)[0]
+    expect(run.input).not.toBeNull()
+    expect(run.input).toEqual({})
+  })
+
   it('is idempotent on (runtime, externalRunId): re-ingest appends nothing new', async () => {
     const { em, storeFor } = createFakeEm()
     await ingestTrace(em, SCOPE, basePayload())
