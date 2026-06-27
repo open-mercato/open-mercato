@@ -469,7 +469,12 @@ export class OpenCodeAgentRunner {
     userId: string,
     tenantId: string,
   ): Promise<string[]> {
-    if (!tenantId) return []
+    // Guard BOTH ids: an empty `userId` is not just "no roles" — querying
+    // UserRole with `user: ""` throws `invalid input syntax for type uuid` and
+    // poisons the surrounding workflow transaction (every later statement then
+    // fails with 25P02). Callers must pass a real principal; bail out cleanly
+    // otherwise.
+    if (!tenantId || !userId) return []
     try {
       const links = await findWithDecryption(
         em,
