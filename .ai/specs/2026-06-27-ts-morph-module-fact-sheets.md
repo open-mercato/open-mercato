@@ -44,7 +44,7 @@ Standalone apps scaffolded by `create-mercato-app` ship AI-coding guides under `
 | D1 | Replace vs augment the per-module guides | **Replace** the 9 per-module prose guides with generated facts; keep one hand-written conceptual guide. |
 | D2 | Where the extractor runs | **Build-time, in the monorepo**, as part of `create-app/build.mjs` (core module `.ts` sources are present there; standalone installs are compiled). |
 | D3 | Output format | **Markdown fact-sheet + JSON sidecar** (`module-facts.json`) for programmatic use (skills, BC tests). |
-| D4 | Monorepo emission (resolves former OQ2) | The extractor lives in `packages/cli` and **also runs in the monorepo `yarn generate`**, committing `apps/mercato/.mercato/generated/module-facts.json`-style output for first-party consumers (`om-onboarding`, the BC guard). Same generator, two invocation sites — does not contradict D2. |
+| D4 | Monorepo emission (resolves former OQ2) | The extractor lives in `packages/cli` and **also runs in the monorepo `yarn generate`**, committing a **versioned** `apps/mercato/src/module-facts.generated.json` for first-party consumers (`om-onboarding`, the BC guard). It MUST NOT be written under `apps/mercato/.mercato/generated/` — that directory is git-ignored and wiped by `yarn clean-generated`, so a committed artifact cannot live there (see [Generated Files: versioned vs ephemeral](.ai/docs/module-development.md#generated-files-versioned-vs-ephemeral)). Same generator, two invocation sites (create-app `dist/` bundle + monorepo versioned file) — does not contradict D2. |
 | D5 | Module scope of the first cut (resolves H1) | Generate fact-sheets for the **9 user-facing modules** that have guides today. The module list is an **explicit, configurable allowlist** in the extractor, not "every folder under `src/modules/`". Extending to the other 29 modules is a follow-up. |
 
 ## 4. Architecture — two layers
@@ -62,13 +62,13 @@ One compact file per **allowlisted** module (D5), containing **only facts extrac
 
 | Section | Authoritative source | Why an agent needs it |
 |---|---|---|
-| **Entities & IDs** — entity ID (`customers.person`) → class, table, user-editable (`updated_at` present), custom-fields enabled | the generated `E` registry (`entities.ids.generated.ts`, via the `entity-ids` generator) cross-referenced with `data/entities.ts` (`@Entity` table/`updated_at`) and `ce.ts` (custom fields). **Entity IDs are NOT raw class names** — the class↔table↔ID mapping is owned by `E`. | reference entities by ID, tenant scoping, optimistic-lock awareness |
+| **Entities & IDs** — entity ID (`customers:customer_person_profile`) → class, table, user-editable (`updated_at` present), custom-fields enabled | a **3-way join**: the generated `E` registry (`entities.ids.generated.ts`, via the `entity-ids` generator) owns **ID ↔ class** in colon form (`E.customers.customer_person_profile === "customers:customer_person_profile"`); `data/entities.ts` `@Entity` decorators own **class ↔ table** + `updated_at` presence (these are NOT in `E`); `ce.ts` owns the custom-fields flag. **Entity IDs are NOT raw class names, and NOT the dotted friendly aliases** (e.g. `customers.person`) some enrichers use — the canonical interop ID is the `E` colon token. | reference entities by ID, tenant scoping, optimistic-lock awareness |
 | **Events** — `id`, `label`, `category`, `entity` | `events.ts` (`createModuleEvents`) | subscribe / workflow triggers |
 | **ACL features** | `acl.ts` (`features`) | `requireFeatures` gating |
-| **API routes** — path, methods, per-method auth (`requireAuth` / `requireFeatures`) | the generated route/registry manifest (see §5 caveat), falling back to AST `metadata` literals for custom routes | call the API, know its authz |
+| **API routes** — path, methods, per-method auth (`requireAuth` / `requireFeatures`) | the generated **module registry** `apis[].metadata` literal (`modules.runtime.generated.ts` / `modules.app.generated.ts`, emitted by `buildApiMetadataLiteral()`), which carries per-method `requireAuth`/`requireFeatures`/`requireRoles` — NOT the lightweight `api-routes.generated.ts` manifest, which only has `{ path, methods }` (see §5 caveat) | call the API, know its authz |
 | **DI service tokens** — token name → registration kind, **services only** | `di.ts` — emit only function/class service registrations; **exclude entity-value registrations** (`asValue` on entity classes like `CustomerEntity`) which are not interop tokens | `container.resolve(token)` |
 | **Searchable entities** | `search.ts` (`searchConfig.entities` keys) | know what is indexed |
-| **Host extension points** — the module's stable `entityId` / `tableId` tokens | `backend/**` `DataTable`/`CrudForm` usages + `data/entities.ts` | derive injection spot IDs by convention: `data-table:<tableId>:{columns,row-actions,bulk-actions,filters}`, `crud-form:<entityId>:fields`. (We extract the **tokens**, not a spot list — spot suffixes are framework conventions documented in Layer 1.) |
+| **Host extension points** — the module's stable `entityId` / `tableId` tokens | `backend/**` `DataTable` `tableId`/`extensionTableId` literals + the registered crud-form injection entity-type (the `E` id) | derive injection spot IDs by convention: `data-table:<tableId>:{columns,row-actions,bulk-actions,filters}`, `crud-form:<entityId>:fields`. (We extract the **tokens**, not a spot list — spot suffixes are framework conventions documented in Layer 1.) **Extraction caveat:** the `CrudForm` `entityId` *prop* on record/detail pages is a runtime record id (e.g. `personId`), NOT a stable type token — target `DataTable` table-id literals (e.g. `customers.people.list`) and the `E` entity id, not arbitrary `entityId=` occurrences. |
 | **Notification IDs / CLI commands** | `notifications.ts`, `cli.ts` | notification + command surface |
 
 **Explicitly NOT extracted:** function bodies, business logic, validator internals, prose. They are not needed to consume a module, they bloat context, and they would re-introduce drift.
@@ -76,46 +76,51 @@ One compact file per **allowlisted** module (D5), containing **only facts extrac
 ## 5. Extraction implementation
 
 - **Reuse existing infra.** `ts-morph` is already a `packages/cli` dependency, and the generators (`entity-ids.ts`, `extensions/events.ts`, `module-di.ts`, …) already parse exactly these declarations via AST using the helpers in `packages/cli/src/lib/generators/ast`. The extractor (`packages/cli/src/lib/generators/module-facts.ts`) reuses the same parser — no new dependency, one consistent AST reader. Living in `packages/cli` is what makes the dual invocation in D4 possible.
-- **Entity-ID source.** The authoritative `entityId → class/table` mapping is the generated `E` registry, not raw `@Entity` decorators (e.g. `CustomerEntity`/`customer_entities` is the base entity, distinct from the `customers.person` ID). The extractor reuses the `entity-ids` generator's output rather than re-deriving IDs from class names.
+- **Entity-ID source.** The authoritative `entityId → class` mapping is the generated `E` registry (colon form, e.g. `E.customers.customer_person_profile === "customers:customer_person_profile"`), not raw `@Entity` decorators. The **table name and `updated_at` presence are NOT in `E`** — they come from the `@Entity` decorator + property AST in `data/entities.ts`, so the extractor joins `E` (ID↔class) with that AST (class↔table/`updated_at`). Note `CustomerEntity`/`customer_entities` is the base entity (`customers:customer_entity`), distinct from `customers:customer_person_profile`; and `customers.person` (dotted) is a friendly enricher alias, not an `E` ID. The extractor reuses the `entity-ids` generator's output rather than re-deriving IDs from class names.
 - **DI extraction semantics.** `di.ts` registers both **services** (`asFunction`/`asClass`) and **entity values** (`asValue` on entity classes — confirmed in `customers/di.ts`: `CustomerEntity`, `CustomerAddress`, `CustomerInteraction`). Only service registrations are interop tokens; entity-value registrations MUST be filtered out.
-- **CRUD route auth caveat.** For `makeCrudRoute` routes the `metadata` is computed by the factory at runtime (in customers it is `export const metadata = routeMetadata`). Re-deriving auth purely from AST is brittle. Resolution: read API-route auth from the **generated route/registry manifest** produced by `yarn generate`, and only fall back to AST `metadata` literals for custom routes. (This is why the build step must run `generate` first.)
-- **Invocation.** `build.mjs` calls the extractor over the D5 allowlist, emitting `dist/agentic/guides/modules/<module>.md` and `dist/agentic/guides/module-facts.json`; `shared.ts` copies them into the app's `.ai/guides/`. The monorepo `yarn generate` (D4) runs the same generator, writing the committed JSON for first-party consumers.
+- **CRUD route auth caveat.** For `makeCrudRoute` routes the `metadata` is computed by the factory at runtime (in customers it is `export const metadata = routeMetadata`). Re-deriving auth purely from AST is brittle. Resolution: read API-route auth from the **generated module registry** (`apps/mercato/.mercato/generated/modules.runtime.generated.ts`, or the eager `modules.app.generated.ts`), whose `apis[].metadata` literal — emitted by `buildApiMetadataLiteral()` in the module-registry generator — carries per-method `requireAuth`/`requireFeatures`/`requireRoles` after the factory has run (verified shape: `/customers/people` → `{"GET":{"requireAuth":true,"requireFeatures":["customers.people.view"]},"POST":{…"customers.people.manage"]},…}`). The lightweight `api-routes.generated.ts` manifest only carries `{ moduleId, kind, path, methods, load }` and **must not** be used for auth. (This is why the build step must run `generate` first.)
+- **Invocation.** `build.mjs` calls the extractor over the D5 allowlist, emitting `dist/agentic/guides/modules/<module>.md` and `dist/agentic/guides/module-facts.json`; `shared.ts` copies them into the app's `.ai/guides/`. The monorepo `yarn generate` (D4) runs the same generator, writing the **versioned** `apps/mercato/src/module-facts.generated.json` for first-party consumers (never under `.mercato/generated/`).
 
 ## 6. Output shape
 
 ### Markdown (`.ai/guides/modules/customers.md`) — verified real data
 ```markdown
 # customers — module facts (generated, do not edit)
+<!-- generated from @open-mercato/core <version> — R1 staleness stamp -->
 
 ## Entities
-| Entity ID         | Class                 | Table           | Editable | CustomFields |
-|-------------------|-----------------------|-----------------|----------|--------------|
-| customers.person  | CustomerPersonProfile | customer_people | yes      | yes          |
-| customers.deal    | CustomerDeal          | customer_deals  | yes      | yes          |
+| Entity ID                          | Class                  | Table              | Editable | CustomFields |
+|------------------------------------|------------------------|--------------------|----------|--------------|
+| customers:customer_person_profile  | CustomerPersonProfile  | customer_people    | yes      | yes          |
+| customers:customer_company_profile | CustomerCompanyProfile | customer_companies | yes      | yes          |
+| customers:customer_deal            | CustomerDeal           | customer_deals     | yes      | yes          |
 
-## Events  (21)
+## Events  (49)
 | ID                       | Category  | Entity |
 |--------------------------|-----------|--------|
 | customers.person.created | crud      | person |
 | customers.deal.won       | lifecycle | deal   |
 
-## ACL features  (18)
-customers.people.view · customers.people.manage · customers.deals.view ·
-customers.deals.manage · customers.settings.manage · …
+## ACL features  (21)
+customers.people.view · customers.people.manage · customers.companies.view ·
+customers.companies.manage · customers.deals.view · customers.deals.manage ·
+customers.settings.manage · customers.pipelines.view · customers.interactions.manage · …
 
 ## API routes
-| Path                  | Methods             | Auth (features)    |
-|-----------------------|---------------------|--------------------|
-| /api/customers/people | GET POST PUT DELETE | customers.people.* |
+| Path                  | Methods             | Auth (per-method requireFeatures)                              |
+|-----------------------|---------------------|----------------------------------------------------------------|
+| /api/customers/people | GET POST PUT DELETE | GET → customers.people.view · POST/PUT/DELETE → customers.people.manage |
 ```
+> Note the **two ID conventions**: entity IDs are **colon** (`customers:customer_person_profile`), event IDs are **dotted** (`customers.person.created`, per the `module.entity.action` rule). The extractor preserves each surface's native format rather than normalising them.
 
 ### JSON sidecar (`module-facts.json`) — programmatic source of truth
-> Schema is illustrative; `diTokens` shows the real `customers/di.ts` content (entity-value registrations, which the extractor filters down to services — here none qualify, so `diTokens` is empty for customers).
+> This JSON is the **authoritative data contract** (§9 Data Models), populated from verified `customers` source. `diTokens` is empty because `customers/di.ts` registers only `asValue` entity classes (`CustomerEntity`, `CustomerAddress`, `CustomerInteraction`) and zero `asFunction`/`asClass` services — the service-only filter removes them all. `cli` is empty because `customers/cli.ts` ships seed/example data only and registers no commands.
 ```json
 {
   "customers": {
+    "coreVersion": "<@open-mercato/core version>",
     "entities": [
-      { "id": "customers.person", "class": "CustomerPersonProfile",
+      { "id": "customers:customer_person_profile", "class": "CustomerPersonProfile",
         "table": "customer_people", "editable": true, "customFields": true }
     ],
     "events": [
@@ -124,12 +129,17 @@ customers.deals.manage · customers.settings.manage · …
     "aclFeatures": ["customers.people.view", "customers.people.manage"],
     "apiRoutes": [
       { "path": "/api/customers/people", "methods": ["GET","POST","PUT","DELETE"],
-        "auth": { "GET": ["customers.people.view"] } }
+        "auth": {
+          "GET":  { "requireAuth": true, "requireFeatures": ["customers.people.view"] },
+          "POST": { "requireAuth": true, "requireFeatures": ["customers.people.manage"] }
+        } }
     ],
     "diTokens": [],
-    "searchEntities": ["customers.person", "customers.company"],
-    "hostTokens": { "entityIds": ["customers.person"], "tableIds": ["customers.people.list"] },
-    "notifications": [],
+    "searchEntities": ["customers:customer_person_profile", "customers:customer_company_profile",
+                       "customers:customer_comment", "customers:customer_deal",
+                       "customers:customer_activity", "customers:customer_todo_link"],
+    "hostTokens": { "entityIds": ["customers:customer_entity"], "tableIds": ["customers.people.list"] },
+    "notifications": ["customers.deal.won", "customers.deal.lost"],
     "cli": []
   }
 }
@@ -139,7 +149,7 @@ customers.deals.manage · customers.settings.manage · …
 
 - `build.mjs`: add the extraction step alongside (then replacing) the `standalone-guide.md` discovery loop.
 - `shared.ts`: copy `modules/*.md` + `module-facts.json` into the app's `.ai/guides/` (Markdown under `.ai/guides/modules/`, the single combined JSON at `.ai/guides/module-facts.json`).
-- `yarn generate` (monorepo, D4): emit the committed `module-facts.json` for first-party consumers.
+- `yarn generate` (monorepo, D4): emit the **versioned** `apps/mercato/src/module-facts.generated.json` for first-party consumers (not the git-ignored `.mercato/generated/`).
 - `AGENTS.md.template`: Task→Context map points at `.ai/guides/module-system.md` and `.ai/guides/modules/<module>.md`.
 - **Generated-file contract (BC):** the template currently references the **9** `.ai/guides/core.<module>.md` paths. Per `BACKWARD_COMPATIBILITY.md` (generated file contracts), emit those legacy names as thin redirect stubs (`→ see modules/<module>.md`) for ≥1 minor version before removal, and note the deprecation in `RELEASE_NOTES.md`.
 - Delete the **9** per-module `agentic/standalone-guide.md` files only after the generated equivalents land and the redirect stubs are in place. The **7** package-level guides are untouched.
@@ -156,23 +166,36 @@ customers.deals.manage · customers.settings.manage · …
 | ID | Risk / failure scenario | Severity | Affected area | Mitigation | Residual |
 |----|--------------------------|----------|---------------|------------|----------|
 | R1 | **Version skew.** Facts are baked into create-app at publish time; a user who later upgrades `@open-mercato/core` gets fact-sheets describing the older version. | Medium | scaffolded standalone apps | Stamp each generated file with the `@open-mercato/core` version it was generated from; document the staleness bound. Follow-up: run the same `packages/cli` generator at the app's `yarn generate` over installed modules to regenerate against the actual version (the generator's `packages/cli` home makes this a drop-in). | Until the generate-time path ships, baked facts can lag the installed version by whatever the user upgraded across. Bounded and visible via the version stamp. |
-| R2 | **Manifest dependency.** API-route auth extraction needs `yarn generate` to have run first; a stale/missing manifest yields wrong or empty auth. | Low | API routes section | Run `generate` before extraction in `build.mjs`; fail loudly if the manifest is absent rather than emitting silent gaps. | Auth column may be incomplete for custom (non-CRUD) routes that lack literal `metadata`. |
+| R2 | **Registry dependency.** API-route auth extraction needs `yarn generate` to have run first; auth comes from `modules.runtime.generated.ts` `apis[].metadata` (NOT the `api-routes.generated.ts` manifest, which lacks auth). A stale/missing registry yields wrong or empty auth. | Low | API routes section | Run `generate` before extraction in `build.mjs`; assert the registry and its `apis[].metadata` are present and fail loudly rather than emitting silent gaps. | Auth column may be incomplete for custom (non-CRUD) routes that lack literal `metadata`. |
 | R3 | **Over-extraction noise** (e.g. entity-value DI registrations, all 38 modules). | Low | fact-sheet quality | D5 allowlist + DI service-only filter + explicit "NOT extracted" boundary. | Allowlist must be maintained when a 10th module becomes user-facing. |
 | R4 | **AST shape changes** in a module break the parser (e.g. a module declares events without `as const`). | Low | extractor robustness | Reuse the hardened generators' parsing; treat unparseable sections as empty + emit a build warning, never crash the create-app build. | A malformed source silently yields an empty section (with warning). |
 
 **Data Models:** the JSON sidecar schema in §6 is the data contract. **API Contracts:** N/A — no runtime HTTP surface is added or changed.
 
-## 10. Open questions
+## 10. Integration & Test Coverage
+
+This is a generator: "integration coverage" means unit/snapshot tests in `packages/cli` plus a build-time guard. No HTTP routes or UI flows are added. Tests live in `packages/cli/src/lib/generators/__tests__/` and run under `yarn test`.
+
+| # | Test | Type | Asserts |
+|---|------|------|---------|
+| T1 | `module-facts.customers.fixture.test.ts` | snapshot | Extracting `customers` yields the **real** facts: entity IDs in colon form (`customers:customer_person_profile`), 21 ACL features, 49 events (each carrying `category`/`entity`), 6 colon-form search entities, 2 notifications (`customers.deal.won`/`customers.deal.lost`), empty `diTokens` (service-only filter), empty `cli`. Locks the §6 contract against silent drift. |
+| T2 | `module-facts.auth-source.test.ts` | unit | Per-method auth for `/api/customers/people` is read from module-registry `apis[].metadata` (GET → `customers.people.view`; POST/PUT/DELETE → `customers.people.manage`), and reading `api-routes.generated.ts` alone yields **no** auth — a regression guard for the corrected source (R2). |
+| T3 | `module-facts.bc-guard.test.ts` | guard | Every entity ID / event ID / ACL feature / search entity emitted in `module-facts.generated.json` still resolves against the live `E` registry, `events.ts`, `acl.ts`, and `search.ts`. Fails CI when a fact-sheet references a surface that no longer exists. **This is the "BC guard" named in D4.** Also runs in `yarn generate` as a non-fatal warning so monorepo drift surfaces early. |
+| T4 | `module-facts.malformed.test.ts` | unit | A module whose `events.ts` lacks `as const` (or any unparseable section) yields an **empty** section + a build warning, never a thrown error (covers R4). |
+| T5 | `build.mjs` wiring | smoke | After the `create-app` build, `dist/agentic/guides/modules/customers.md` + `dist/agentic/guides/module-facts.json` exist, and the 9 legacy `core.<module>.md` redirect stubs are present (covers the §7 BC bridge). |
+
+## 11. Open questions
 
 _None blocking._ Former OQ2 (monorepo emission) is resolved as **D4**. Former OQ1 (non-module packages) is recorded under Deferred.
 
-## 11. Deferred / Future
+## 12. Deferred / Future
 
 - **Generated surface for non-module packages** (`ui`, `shared`, …): a lighter fact-sheet (public import paths + exported symbol names only) could replace parts of the 7 hand-written package guides later. Out of scope until the core-module model is proven.
 - **Generate-time regeneration in standalone apps** (R1 fix): promote the extractor into the app's `yarn generate` so facts track the installed package version, not the scaffold-time version.
 - **Extending D5 to the remaining 29 core modules** once the 9 user-facing ones are validated.
 
-## 12. Changelog
+## 13. Changelog
 
 - **2026-06-27** — Initial draft (design only). Decisions D1–D3 locked from user input.
 - **2026-06-27** — Architectural review applied: corrected guide counts (9 module-level / 7 package-level, not "14"); fixed fabricated `customersService` DI token (real `di.ts` registers entity values only) and added a service-only DI filter; corrected the entity-ID source to the generated `E` registry; added Decision D4 (monorepo emission, resolving OQ2) and D5 (9-module allowlist, resolving H1); softened the "impossible to drift" goal and added the version-skew risk R1; added TLDR, Risks & Impact Review, Data Models/API-Contracts notes, and this changelog; clarified that "widget spots" extraction is really host `entityId`/`tableId` tokens.
+- **2026-06-27** — Pre-implementation analysis applied (`.ai/specs/analysis/ANALYSIS-2026-06-27-ts-morph-module-fact-sheets.md`): **(1)** corrected the API-route auth source — auth is read from the module registry `apis[].metadata` (`modules.runtime.generated.ts`, via `buildApiMetadataLiteral()`), NOT the `api-routes.generated.ts` manifest, which carries no auth (D4, §4, §5, R2); **(2)** fixed every entity/search ID to the canonical `E` colon form (`customers:customer_person_profile`, not `customers.person`) and documented the dotted-enricher-alias distinction and the entity/event format split; **(3)** resolved the committed-output contradiction — versioned `apps/mercato/src/module-facts.generated.json`, never the git-ignored `.mercato/generated/` (D4, §5, §7); **(4)** replaced fabricated example counts with verified real data (ACL 18→21, events 21→49, search 2→6, notifications empty→2; `diTokens`/`cli` confirmed empty); **(5)** added §10 Integration & Test Coverage incl. the BC guard, and pinned the §6 JSON as the authoritative data contract; added the R1 version stamp to the example output.
