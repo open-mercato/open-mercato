@@ -1234,6 +1234,8 @@
   "workflows.visualEditor.clearTitle": "Wyczyścić wszystko?",
   "workflows.visualEditor.clickToAdd": "Kliknij typ kroku, aby dodać go do obszaru roboczego",
   "workflows.visualEditor.clickToAddFromPalette": "Kliknij typ kroku z palety, aby dodać go do obszaru roboczego",
+  "workflows.visualEditor.collapsePalette": "Zwiń paletę",
+  "workflows.visualEditor.expandPalette": "Rozwiń paletę",
   "workflows.visualEditor.hideMetadata": "Ukryj metadane",
   "workflows.visualEditor.hint.addSteps": "Kliknij typy kroków, aby je dodać",
   "workflows.visualEditor.hint.connectSteps": "Łącz kroki, przeciągając z uchwytów",

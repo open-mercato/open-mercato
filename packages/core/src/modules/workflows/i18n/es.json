@@ -1234,6 +1234,8 @@
   "workflows.visualEditor.clearTitle": "¿Borrar todo?",
   "workflows.visualEditor.clickToAdd": "Haz clic en un tipo de paso para añadirlo al lienzo",
   "workflows.visualEditor.clickToAddFromPalette": "Haz clic en un tipo de paso de la paleta para añadirlo al lienzo",
+  "workflows.visualEditor.collapsePalette": "Contraer paleta",
+  "workflows.visualEditor.expandPalette": "Expandir paleta",
   "workflows.visualEditor.hideMetadata": "Ocultar metadatos",
   "workflows.visualEditor.hint.addSteps": "Haz clic en los tipos de pasos para agregarlos",
   "workflows.visualEditor.hint.connectSteps": "Conecta pasos arrastrando desde los conectores",

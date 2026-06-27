@@ -41,7 +41,9 @@ import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { CircleQuestionMark, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
+import { CircleQuestionMark, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersistedBooleanFlag'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
 import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggersEditor'
 import { MobileVisualEditor } from '../../../components/mobile/MobileVisualEditor'
@@ -95,6 +97,8 @@ async function loadSubWorkflowContracts(
   return contracts
 }
 
+const PALETTE_NODE_TYPES = ['start', 'userTask', 'automated', 'invokeAgent', 'waitForSignal', 'waitForTimer', 'subWorkflow', 'end'] as const
+
 export default function VisualEditorPage() {
   const t = useT()
   const router = useRouter()
@@ -112,6 +116,8 @@ export default function VisualEditorPage() {
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
   const [showMetadata, setShowMetadata] = useState(true)
   const [isCompactViewport, setIsCompactViewport] = useState(false)
+  const { value: paletteCollapsed, toggle: togglePaletteCollapsed } = usePersistedBooleanFlag('om:wf-editor-palette', false)
+  const [showPaletteHowTo, setShowPaletteHowTo] = useState(false)
 
   // Auto-collapse metadata on compact viewports after hydration
   useEffect(() => {
@@ -1172,151 +1178,90 @@ export default function VisualEditorPage() {
         </div>
       ) : (
         <div className="flex min-h-[72svh] min-w-0 flex-1 border-t border-border">
-          {/* Left Sidebar - Step Palette (hidden in read-only mode) */}
+          {/* Left Sidebar - Step Palette rail (hidden in read-only mode) */}
           {!isCodeOnly && (
-          <div className="w-[24rem] shrink-0 overflow-y-auto border-r border-border bg-background p-6">
-            <div className="rounded-lg border bg-card p-4">
-              <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">{t('workflows.visualEditor.stepPalette')}</h2>
-              <p className="mb-4 text-xs text-muted-foreground">
-                {t('workflows.visualEditor.clickToAdd')}
-              </p>
-
-              <div className="space-y-3">
-                {/* START Step */}
-                <button
-                  onClick={() => handleAddNode('start')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.start} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.start
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.start.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.start.description}</div>
-                </button>
-
-                {/* USER_TASK Step */}
-                <button
-                  onClick={() => handleAddNode('userTask')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.userTask} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.userTask
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.userTask.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.userTask.description}</div>
-                </button>
-
-                {/* AUTOMATED Step */}
-                <button
-                  onClick={() => handleAddNode('automated')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.automated} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.automated
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.automated.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.automated.description}</div>
-                </button>
-
-                {/* INVOKE_AGENT Step */}
-                <button
-                  onClick={() => handleAddNode('invokeAgent')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.invokeAgent} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.invokeAgent
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.invokeAgent.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.invokeAgent.description}</div>
-                </button>
-
-                {/* WAIT_FOR_SIGNAL Step */}
-                <button
-                  onClick={() => handleAddNode('waitForSignal')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.waitForSignal} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.waitForSignal
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.waitForSignal.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.waitForSignal.description}</div>
-                </button>
-
-                {/* WAIT_FOR_TIMER Step */}
-                <button
-                  onClick={() => handleAddNode('waitForTimer')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.waitForTimer} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.waitForTimer
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.waitForTimer.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.waitForTimer.description}</div>
-                </button>
-
-                {/* SUB_WORKFLOW Step */}
-                <button
-                  onClick={() => handleAddNode('subWorkflow')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.subWorkflow} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.subWorkflow
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.subWorkflow.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.subWorkflow.description}</div>
-                </button>
-
-                {/* END Step */}
-                <button
-                  onClick={() => handleAddNode('end')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.end} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.end
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.end.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.end.description}</div>
-                </button>
-              </div>
-
-              {/* Instructions */}
-              <Alert variant="info" className="mt-6">
-                <AlertTitle className="text-xs">{t('workflows.visualEditor.howToUse', 'How to use:')}</AlertTitle>
-                <div className="mt-2">
-                  <ul className="list-inside list-disc space-y-1 text-xs">
-                    <li>{t('workflows.visualEditor.hint.addSteps', 'Click step types to add them')}</li>
-                    <li>{t('workflows.visualEditor.hint.dragSteps', 'Drag steps to position them')}</li>
-                    <li>{t('workflows.visualEditor.hint.connectSteps', 'Connect steps by dragging from handles')}</li>
-                    <li>{t('workflows.visualEditor.hint.editSteps', 'Click steps and transitions to edit them')}</li>
-                    <li>{t('workflows.visualEditor.hint.validate', 'Validate before saving')}</li>
-                  </ul>
-                </div>
-              </Alert>
+          <div className={`${paletteCollapsed ? 'w-14' : 'w-48'} shrink-0 overflow-y-auto border-r border-border bg-background p-2`}>
+            <div className={`mb-2 flex items-center ${paletteCollapsed ? 'justify-center' : 'justify-between'}`}>
+              {!paletteCollapsed && (
+                <h2 className="px-1 text-xs font-semibold uppercase text-muted-foreground">{t('workflows.visualEditor.stepPalette')}</h2>
+              )}
+              <IconButton
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={togglePaletteCollapsed}
+                title={paletteCollapsed ? t('workflows.visualEditor.expandPalette') : t('workflows.visualEditor.collapsePalette')}
+                aria-label={paletteCollapsed ? t('workflows.visualEditor.expandPalette') : t('workflows.visualEditor.collapsePalette')}
+              >
+                {paletteCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+              </IconButton>
             </div>
+
+            {!paletteCollapsed && (
+              <p className="mb-2 px-1 text-xs text-muted-foreground">{t('workflows.visualEditor.clickToAdd')}</p>
+            )}
+
+            <div className={`flex flex-col gap-1 ${paletteCollapsed ? 'items-center' : ''}`}>
+              {PALETTE_NODE_TYPES.map((nodeType) => {
+                const Icon = NODE_TYPE_ICONS[nodeType]
+                const label = NODE_TYPE_LABELS[nodeType]
+                const tooltip = `${label.title} — ${label.description}`
+                if (paletteCollapsed) {
+                  return (
+                    <button
+                      key={nodeType}
+                      type="button"
+                      onClick={() => handleAddNode(nodeType)}
+                      title={tooltip}
+                      aria-label={tooltip}
+                      className="flex h-9 w-9 items-center justify-center rounded-md border hover:bg-muted"
+                    >
+                      <Icon className={`h-4 w-4 ${NODE_TYPE_COLORS[nodeType]}`} />
+                    </button>
+                  )
+                }
+                return (
+                  <button
+                    key={nodeType}
+                    type="button"
+                    onClick={() => handleAddNode(nodeType)}
+                    title={label.description}
+                    className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs hover:bg-muted"
+                  >
+                    <Icon className={`h-4 w-4 shrink-0 ${NODE_TYPE_COLORS[nodeType]}`} />
+                    <span className="truncate font-medium text-foreground">{label.title}</span>
+                  </button>
+                )
+              })}
+            </div>
+
+            {!paletteCollapsed && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowPaletteHowTo((prev) => !prev)}
+                  aria-expanded={showPaletteHowTo}
+                  className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <CircleQuestionMark className="h-3.5 w-3.5" />
+                  <span>{t('workflows.visualEditor.howToUse', 'How to use:')}</span>
+                </button>
+                {showPaletteHowTo && (
+                  <Alert variant="info" className="mt-2">
+                    <AlertTitle className="text-xs">{t('workflows.visualEditor.howToUse', 'How to use:')}</AlertTitle>
+                    <div className="mt-2">
+                      <ul className="list-inside list-disc space-y-1 text-xs">
+                        <li>{t('workflows.visualEditor.hint.addSteps', 'Click step types to add them')}</li>
+                        <li>{t('workflows.visualEditor.hint.dragSteps', 'Drag steps to position them')}</li>
+                        <li>{t('workflows.visualEditor.hint.connectSteps', 'Connect steps by dragging from handles')}</li>
+                        <li>{t('workflows.visualEditor.hint.editSteps', 'Click steps and transitions to edit them')}</li>
+                        <li>{t('workflows.visualEditor.hint.validate', 'Validate before saving')}</li>
+                      </ul>
+                    </div>
+                  </Alert>
+                )}
+              </div>
+            )}
           </div>
           )}
 

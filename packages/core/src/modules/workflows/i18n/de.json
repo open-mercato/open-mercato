@@ -1234,6 +1234,8 @@
   "workflows.visualEditor.clearTitle": "Alles löschen?",
   "workflows.visualEditor.clickToAdd": "Klicke auf einen Schritttyp, um ihn zur Arbeitsfläche hinzuzufügen",
   "workflows.visualEditor.clickToAddFromPalette": "Klicke auf einen Schritttyp aus der Palette, um ihn zur Arbeitsfläche hinzuzufügen",
+  "workflows.visualEditor.collapsePalette": "Palette einklappen",
+  "workflows.visualEditor.expandPalette": "Palette ausklappen",
   "workflows.visualEditor.hideMetadata": "Metadaten ausblenden",
   "workflows.visualEditor.hint.addSteps": "Klicke auf Schritttypen, um sie hinzuzufügen",
   "workflows.visualEditor.hint.connectSteps": "Verbinde Schritte durch Ziehen von den Griffen",

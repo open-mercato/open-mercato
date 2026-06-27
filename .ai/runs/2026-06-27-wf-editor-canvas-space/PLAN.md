@@ -15,7 +15,7 @@ Execution model: one subagent per phase, run **sequentially** (shared files: `gr
 | Phase | Title | Status | Commit |
 |-------|-------|--------|--------|
 | 1 | Compact, lighter nodes (`NODE_WIDTH=180`, DS tokens) | ✅ done | `8ea0da5f0` |
-| 2 | Palette shrink + collapse rail | ⬜ pending | — |
+| 2 | Palette shrink + collapse rail | ✅ done | (this commit) |
 | 3 | Horizontal (L→R) layout + dagre + orthogonal edges | ⬜ pending | — |
 | 4 | Focus mode orchestrator (+ `useSidebarCollapse`) | ⬜ pending | — |
 | 5 | Persist positions + Tidy + autosave-on-drag | ⬜ pending | — |
@@ -57,4 +57,5 @@ Status legend: ⬜ pending · 🟡 in progress · ✅ done · ⚠️ done with c
 
 ## Log
 - 2026-06-27 — Tracker created; spec finalized with phases 1–5. Beginning Phase 1.
-- 2026-06-27 — Phase 1 ✅ `8ea0da5f0`. Node card 280→180px, lighter (rounded-lg/border/p-2.5), `NODE_WIDTH` exported, handle/start/end colors → DS tokens. Core build PASS. Note: blue/amber/purple/cyan decorative node-type accents left as-is (no semantic DS token; spec permits). Starting Phase 2.
+- 2026-06-27 — Phase 1 ✅ `8ea0da5f0`. Node card 280→180px, lighter (rounded-lg/border/p-2.5), `NODE_WIDTH` exported, handle/start/end colors → DS tokens. Core build PASS. Note: blue/amber/purple/cyan decorative node-type accents left as-is (no semantic DS token; spec permits).
+- 2026-06-27 — Phase 2 ✅. Palette: 8 buttons → one `.map()` over `PALETTE_NODE_TYPES`; rail `w-48` expanded / `w-14` icon-only collapsed via `usePersistedBooleanFlag('om:wf-editor-palette')`; "How to use" → disclosure; +`collapsePalette`/`expandPalette` i18n in en/es/de/pl. Net −47 lines. Build + typecheck PASS; no new hardcoded strings. Starting Phase 3.
