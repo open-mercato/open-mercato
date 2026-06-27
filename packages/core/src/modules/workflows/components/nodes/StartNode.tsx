@@ -17,7 +17,7 @@ export interface StartNodeData {
  * StartNode - Starting point of a workflow
  * Uses WorkflowNodeCard for consistent styling
  */
-export function StartNode({ data, isConnectable, selected }: NodeProps) {
+export function StartNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as StartNodeData
 
   // Map old status values to new WorkflowStatus types
@@ -39,15 +39,17 @@ export function StartNode({ data, isConnectable, selected }: NodeProps) {
         status={workflowStatus}
         nodeType="start"
         selected={selected}
+        nodeId={id}
+        editable={isConnectable}
       />
 
       {/* Source Handle */}
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         id="source"
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-[#0080FE] !border-2 !border-white"
+        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
       />
     </div>
   )

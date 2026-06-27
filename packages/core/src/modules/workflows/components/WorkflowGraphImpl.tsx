@@ -22,6 +22,7 @@ import {
   EdgeChange,
   ConnectionMode,
   MarkerType,
+  type ReactFlowInstance,
 } from '@xyflow/react'
 import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, ParallelForkNode, ParallelJoinNode, InvokeAgentNode} from './nodes'
 import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
@@ -73,6 +74,36 @@ export default function WorkflowGraphImpl({
   const isDark = resolvedTheme === 'dark'
   const backgroundDotColor = isDark ? '#374151' : '#e5e7eb'
   const [isCompactViewport, setIsCompactViewport] = useState(false)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null)
+
+  // Let a small graph zoom in to actually use the canvas, but never magnify so
+  // far that a tall workflow overflows. A wide graph stays width-limited.
+  const fitViewOptions = useMemo(
+    () => ({ padding: 0.1, maxZoom: isCompactViewport ? 0.9 : 1.5 }),
+    [isCompactViewport]
+  )
+
+  // Re-fit whenever the canvas itself resizes (e.g. the author hides the
+  // metadata panel or toggles Focus mode, which grows the canvas). ReactFlow's
+  // declarative `fitView` only fits on first render, so without this the graph
+  // stays small in the newly enlarged canvas — the "wasted space" symptom.
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    let frame: number | null = null
+    const observer = new ResizeObserver(() => {
+      if (frame) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        reactFlowInstanceRef.current?.fitView(fitViewOptions)
+      })
+    })
+    observer.observe(el)
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [fitViewOptions])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -165,6 +196,7 @@ export default function WorkflowGraphImpl({
 
   return (
     <div
+      ref={containerRef}
       className={`workflow-graph-container ${className}`}
       style={{
         height,
@@ -184,12 +216,10 @@ export default function WorkflowGraphImpl({
         onConnect={editable ? onConnect : undefined}
         onNodeClick={onNodeClickProp}
         onEdgeClick={onEdgeClickProp}
+        onInit={(instance) => { reactFlowInstanceRef.current = instance }}
         connectionMode={ConnectionMode.Loose}
         fitView
-        fitViewOptions={{
-          padding: 0.2,
-          maxZoom: isCompactViewport ? 0.9 : 1,
-        }}
+        fitViewOptions={fitViewOptions}
         minZoom={0.1}
         maxZoom={2}
         defaultEdgeOptions={{

@@ -16,8 +16,11 @@ export const NODE_TYPE_ICONS: Record<NodeType, LucideIcon> = {
 }
 
 export const NODE_TYPE_COLORS: Record<NodeType, string> = {
-  start: 'text-emerald-500',
-  end: 'text-red-500',
+  start: 'text-status-success-icon',
+  end: 'text-status-error-icon',
+  // Decorative node-type accents (not status semantics): no 1:1 semantic DS
+  // token exists for these hues, so they are intentionally left as accent
+  // shades to avoid mislabeling them with status meaning.
   userTask: 'text-blue-500',
   automated: 'text-amber-500',
   subWorkflow: 'text-purple-500',
