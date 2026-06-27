@@ -77,7 +77,10 @@ export async function ingestTrace(
       runtime: payload.runtime,
       externalRunId: payload.externalRunId,
       status: (payload.status ?? 'running') as AgentRunStatus,
-      input: payload.input ?? null,
+      // `agent_runs.input` is NOT NULL (the MVP runtime always supplies it). A
+      // trace ingested from an external runtime may omit it, so fall back to an
+      // empty object rather than inserting null and tripping a not-null violation.
+      input: payload.input ?? {},
     })
     em.persist(run)
   }
