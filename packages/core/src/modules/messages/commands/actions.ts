@@ -9,6 +9,7 @@ import { emitMessagesEvent } from '../events'
 import { MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND } from '../lib/constants'
 import {
   findResolvedMessageActionById,
+  isMessageSafeCommandId,
   isTerminalMessageAction,
   resolveActionCommandInput,
   resolveActionHref,
@@ -241,6 +242,13 @@ const executeActionCommand: CommandHandler<
 
     if (!action) {
       throw new Error('Action not found')
+    }
+
+    // Confused-deputy guard: a composer-controlled action must not dispatch an
+    // arbitrary registered command with the recipient's auth. Only command ids
+    // declared by code-side message types / object types are dispatchable.
+    if (action.commandId && !isMessageSafeCommandId(action.commandId)) {
+      throw new Error('Action command is not allowed')
     }
 
     if (message.actionTaken) {

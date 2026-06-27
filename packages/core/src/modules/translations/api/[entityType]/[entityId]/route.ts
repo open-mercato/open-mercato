@@ -10,7 +10,43 @@ import {
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+
+const TRANSLATION_RESOURCE_KIND = 'translations.translation'
+
+/**
+ * Load the existing translation row's primary key + `updated_at` (the row's own
+ * version), scoped to tenant/org. Returns `null` when no row exists yet.
+ *
+ * Optimistic locking enforces against the TRANSLATION ROW'S OWN version, not the
+ * host entity's: the host's EAV `entityType` (`module:entity`) cannot be cleanly
+ * mapped to a registered optimistic-lock reader key (those are derived from the
+ * host module's ORM entity name / events config, e.g. `CatalogProduct` →
+ * `catalog.product`, which does not equal `canonicalizeResourceTag('catalog:catalog_product')`),
+ * so there is no reliable server-side path to resolve the host's current version
+ * for an arbitrary `entityType`. Guarding the translation row's own `updated_at`
+ * closes the no-lock hole with real server-side enforcement and no cross-module
+ * coupling (mirrors the hand-written `auth.role_acl` route).
+ */
+async function loadTranslationRowVersion(
+  db: any,
+  entityType: string,
+  entityId: string,
+  tenantId: string,
+  organizationId: string | null,
+): Promise<{ id: string; updatedAt: Date | string | null } | null> {
+  const row = await db
+    .selectFrom('entity_translations')
+    .select(['id', 'updated_at'])
+    .where('entity_type', '=', entityType)
+    .where('entity_id', '=', entityId)
+    .where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
+    .where(sql<boolean>`organization_id is not distinct from ${organizationId}`)
+    .executeTakeFirst() as { id: string; updated_at: Date | string | null } | undefined
+  if (!row) return null
+  return { id: row.id, updatedAt: row.updated_at ?? null }
+}
 
 const paramsSchema = z.object({
   entityType: entityTypeParamSchema,
@@ -98,6 +134,26 @@ export async function PUT(req: Request, ctx: { params?: { entityType?: string; e
     })
     if (guardResult && !guardResult.ok) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
+    // Optimistic lock: refuse a stale standalone PUT so a translation save that
+    // started from an out-of-date view cannot silently clobber a concurrent edit.
+    // Strictly additive — no expected-version header → no-op. Skipped when no row
+    // exists yet (first save has no prior version to conflict with).
+    const existingVersion = await loadTranslationRowVersion(
+      context.db as any,
+      entityType,
+      entityId,
+      context.tenantId,
+      context.organizationId,
+    )
+    if (existingVersion) {
+      await enforceCommandOptimisticLockWithGuards(context.container, {
+        resourceKind: TRANSLATION_RESOURCE_KIND,
+        resourceId: existingVersion.id,
+        current: existingVersion.updatedAt,
+        request: req,
+      })
     }
 
     const commandBus = context.container.resolve('commandBus') as CommandBus
@@ -198,6 +254,24 @@ export async function DELETE(req: Request, ctx: { params?: { entityType?: string
     })
     if (guardResult && !guardResult.ok) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
+    // Optimistic lock: refuse a stale standalone DELETE (same hole as PUT).
+    // Additive — no header → no-op; skipped when no row exists.
+    const existingVersion = await loadTranslationRowVersion(
+      context.db as any,
+      entityType,
+      entityId,
+      context.tenantId,
+      context.organizationId,
+    )
+    if (existingVersion) {
+      await enforceCommandOptimisticLockWithGuards(context.container, {
+        resourceKind: TRANSLATION_RESOURCE_KIND,
+        resourceId: existingVersion.id,
+        current: existingVersion.updatedAt,
+        request: req,
+      })
     }
 
     const commandBus = context.container.resolve('commandBus') as CommandBus

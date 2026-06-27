@@ -50,6 +50,8 @@ export type MessageDetail = {
   type: string
   isDraft: boolean
   canEditDraft: boolean
+  canArchive: boolean
+  isArchived: boolean
   visibility?: 'public' | 'internal' | null
   sourceEntityType?: string | null
   sourceEntityId?: string | null

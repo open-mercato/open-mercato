@@ -268,4 +268,102 @@ describe('EntityTagsDialog', () => {
 
     expect(screen.getByText('Champion')).toBeInTheDocument()
   })
+
+  it('fans out independent dictionary requests in parallel instead of waterfalling', async () => {
+    const requestedDictionaries = new Set<string>()
+    let releaseDictionaries: () => void = () => {}
+    const dictionaryGate = new Promise<void>((resolve) => {
+      releaseDictionaries = resolve
+    })
+
+    apiCallMock.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customers/dictionaries/kind-settings')) {
+        return Promise.resolve({ ok: true, result: { items: [] } })
+      }
+      if (url.startsWith('/api/customers/labels?')) {
+        return Promise.resolve({ ok: true, result: { items: [], assignedIds: [], totalPages: 1 } })
+      }
+      if (url.startsWith('/api/customers/dictionaries/')) {
+        requestedDictionaries.add(new URL(url, 'http://localhost').pathname)
+        return dictionaryGate.then(() => ({ ok: true, result: { items: [] } }))
+      }
+      return Promise.resolve({ ok: true, result: { items: [] } })
+    })
+
+    await act(async () => {
+      renderWithProviders(
+        <EntityTagsDialog
+          open
+          onClose={jest.fn()}
+          entityId="person-1"
+          entityType="person"
+          entityOrganizationId="org-1"
+          entityData={{}}
+        />,
+      )
+    })
+
+    // The previous sequential loop awaited each dictionary in turn, so while the
+    // gate is held only the first request would have been issued. The parallel
+    // fan-out issues every person dictionary category before any resolves.
+    await waitFor(() => {
+      expect(requestedDictionaries).toEqual(
+        new Set([
+          '/api/customers/dictionaries/statuses',
+          '/api/customers/dictionaries/lifecycle-stages',
+          '/api/customers/dictionaries/sources',
+          '/api/customers/dictionaries/temperature',
+          '/api/customers/dictionaries/renewal-quarters',
+          '/api/customers/dictionaries/job-titles',
+        ]),
+      )
+    })
+
+    await act(async () => {
+      releaseDictionaries()
+    })
+  })
+
+  it('keeps unrelated categories working and falls back when one dictionary request fails', async () => {
+    apiCallMock.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customers/dictionaries/kind-settings')) {
+        return Promise.resolve({ ok: true, result: { items: [] } })
+      }
+      if (url.startsWith('/api/customers/labels?')) {
+        return Promise.resolve({ ok: true, result: { items: [], assignedIds: [], totalPages: 1 } })
+      }
+      if (url.startsWith('/api/customers/dictionaries/sources')) {
+        return Promise.reject(new Error('network down'))
+      }
+      if (url.startsWith('/api/customers/dictionaries/statuses')) {
+        return Promise.resolve({
+          ok: true,
+          result: { items: [{ id: 'status-1', value: 'active', label: 'Active', color: null }] },
+        })
+      }
+      return Promise.resolve({ ok: true, result: { items: [] } })
+    })
+
+    await act(async () => {
+      renderWithProviders(
+        <EntityTagsDialog
+          open
+          onClose={jest.fn()}
+          entityId="person-1"
+          entityType="person"
+          entityOrganizationId="org-1"
+          entityData={{ source: 'outbound_campaign', status: 'active' }}
+        />,
+      )
+    })
+
+    // The failed Source dictionary still produces a fallback entry for the
+    // record's current value, scoped to that category only.
+    fireEvent.click(screen.getByRole('button', { name: /^Source\b/ }))
+    expect(screen.getByText('outbound_campaign')).toBeInTheDocument()
+
+    // Unrelated categories resolved by their own requests are unaffected.
+    fireEvent.click(screen.getByRole('button', { name: /^Status\b/ }))
+    expect(screen.getByText('Active')).toBeInTheDocument()
+  })
 })

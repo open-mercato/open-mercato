@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { User, Hash, Users, Building2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
@@ -24,6 +24,7 @@ import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, 
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
@@ -57,6 +58,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const pathname = usePathname()
   const { organizationId } = useOrganizationScopeDetail()
   const isMobile = useIsMobile()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -217,6 +219,20 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       })
     },
     [injectionContext, runMutation],
+  )
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `customers.person` + id
+  // explicitly (the hardcoded path allowlist misses the `people-v2` route).
+  // Presence/acquire/heartbeat run on load; the hook clears on unmount/record switch.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'customers.person',
+      resourceId: currentPersonId,
+      updatedAt: data?.person?.updatedAt ?? data?.person?.updated_at ?? null,
+      data: data as Record<string, unknown> | null,
+      path: pathname,
+    }),
   )
 
   const handleAddActivity = React.useCallback((kind: ActivityKind) => {
@@ -518,7 +534,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 <CrudForm<PersonEditFormValues>
                   embedded
                   trackDirtyWhenEmbedded
-                  injectionSpotId="customers.person"
+                  injectionSpotId="crud-form:customers.person"
                   entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
                   schema={formSchema}
                   fields={fields}

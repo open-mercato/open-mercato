@@ -105,6 +105,9 @@ export async function POST(
       if (error.message === 'Action not found') {
         return Response.json({ error: 'Action not found' }, { status: 404 })
       }
+      if (error.message === 'Action command is not allowed') {
+        return Response.json({ error: 'Action command is not allowed' }, { status: 403 })
+      }
       if (error.message === 'Action already taken') {
         const actionTaken = (error as Error & { actionTaken?: string }).actionTaken ?? null
         return Response.json({ error: 'Action already taken', actionTaken }, { status: 409 })

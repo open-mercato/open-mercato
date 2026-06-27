@@ -499,6 +499,7 @@ export function CalendarScreen() {
         showWeekends={preferences.showWeekends}
         showConflicts={preferences.conflictWarnings}
         aiSummaries={preferences.aiSummaries}
+        canManage={canManage}
         highlightItemId={highlightItemId}
         onItemClick={openEditEditor}
         onJoin={handleJoin}

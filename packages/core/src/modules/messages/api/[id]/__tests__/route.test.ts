@@ -194,6 +194,8 @@ describe('messages /api/messages/[id] GET', () => {
       deletedAt: null,
     }))
     expect(payload).toEqual(expect.objectContaining({
+      canArchive: true,
+      isArchived: false,
       subject: encryptedAnchorMessage.subject,
       body: encryptedAnchorMessage.body,
     }))
@@ -208,6 +210,92 @@ describe('messages /api/messages/[id] GET', () => {
       undefined,
       { tenantId, organizationId },
     )
+  })
+
+  it('marks sender-only details as not archivable by the current actor', async () => {
+    const actorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const messageId = '22222222-2222-4222-8222-222222222222'
+
+    const message = {
+      id: messageId,
+      threadId: messageId,
+      senderUserId: actorUserId,
+      organizationId,
+      tenantId,
+      deletedAt: null,
+      isDraft: false,
+      type: 'system',
+      visibility: 'internal',
+      sourceEntityType: null,
+      sourceEntityId: null,
+      externalEmail: null,
+      externalName: null,
+      parentMessageId: null,
+      subject: 'Sender-only subject',
+      body: 'Sender-only body',
+      bodyFormat: 'markdown',
+      priority: 'normal',
+      sentAt: new Date('2026-02-24T10:00:00.000Z'),
+      actionData: null,
+      actionTaken: null,
+      actionTakenAt: null,
+      actionTakenByUserId: null,
+    }
+
+    const em = {
+      findOne: jest.fn(async () => null),
+      find: jest.fn(async (entity: unknown) => {
+        if (entity === MessageObject) return []
+        if (entity === MessageRecipient) return []
+        return []
+      }),
+    }
+
+    findWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown) => {
+      if (entity === Message) return [message]
+      if (entity === User) {
+        return [{ id: actorUserId, name: 'Actor User', email: 'actor@example.com' }]
+      }
+      return []
+    })
+
+    findOneWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown) => {
+      if (entity === Message) return message
+      if (entity === User) {
+        return { id: actorUserId, name: 'Actor User', email: 'actor@example.com' }
+      }
+      return null
+    })
+
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            return null
+          },
+        },
+      },
+      scope: {
+        tenantId,
+        organizationId,
+        userId: actorUserId,
+      },
+    })
+
+    const response = await GET(
+      new Request(`http://localhost/api/messages/${messageId}?skipMarkRead=1`),
+      { params: { id: messageId } },
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual(expect.objectContaining({
+      canArchive: false,
+      isArchived: false,
+      senderUserId: actorUserId,
+    }))
   })
 
   async function getDetailWithRecipientStatus(status: 'archived' | 'unread' | 'read') {
