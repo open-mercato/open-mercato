@@ -678,11 +678,15 @@ describe('Sub-Workflow Execution (Phase 8)', () => {
       startWorkflowSpy.mockRestore()
     })
 
-    test('should fail when child workflow ends in unexpected state', async () => {
+    test('should PARK the parent (suspendable) when child ends in a non-terminal state (Fix #2)', async () => {
       const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
       const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
 
       startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      // Now that a child correctly parks at its first async/agent step,
+      // executeWorkflow returns a non-terminal status. The parent must park on
+      // SUB_WORKFLOW_SIGNAL_NAME and be resumed by the child's terminal job,
+      // NOT fail immediately.
       executeWorkflowSpy.mockResolvedValue({
         status: 'PAUSED',
         currentStep: 'user-task',
@@ -693,18 +697,21 @@ describe('Sub-Workflow Execution (Phase 8)', () => {
 
       mockEm.findOne.mockResolvedValue(parentDefinition as WorkflowDefinition)
 
+      const instance = { ...parentInstance } as WorkflowInstance
       const result = await stepHandler.executeStep(
         mockEm,
-        parentInstance as WorkflowInstance,
+        instance,
         'invoke-child',
         {
-          workflowContext: parentInstance.context!,
+          workflowContext: instance.context!,
         },
         mockContainer
       )
 
-      expect(result.status).toBe('FAILED')
-      expect(result.error).toContain('Sub-workflow ended in unexpected state: PAUSED')
+      expect(result.status).toBe('WAITING')
+      expect(result.waitReason).toBe('SIGNAL')
+      expect((result.outputData as any).childInstanceId).toBe(childInstanceId)
+      expect(instance.status).toBe('PAUSED')
 
       startWorkflowSpy.mockRestore()
       executeWorkflowSpy.mockRestore()

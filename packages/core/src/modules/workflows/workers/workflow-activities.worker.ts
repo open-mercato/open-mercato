@@ -22,7 +22,7 @@ import {
   executeCallWebhook,
   executeFunction,
 } from '../lib/activity-executor'
-import { handleInvokeAgentJob } from '../lib/activity-worker-handler'
+import { handleInvokeAgentJob, resumeParentAfterSubWorkflow } from '../lib/activity-worker-handler'
 
 // Worker metadata for auto-discovery.
 // NOTE: `queue` MUST be a string literal (or locally-declared const) so the
@@ -92,6 +92,14 @@ export default async function handle(
   // failing/cross-process agent run from aborting the workflow transaction.
   if (payload.kind === 'invoke_agent') {
     await handleInvokeAgentJob(em, container, payload)
+    return
+  }
+
+  // Resume-parent jobs (kind: 'resume_subworkflow_parent') resume a parent
+  // instance parked on a SUB_WORKFLOW step after its child terminated. The
+  // resume runs on this worker's own connection, after the child txn committed.
+  if (payload.kind === 'resume_subworkflow_parent') {
+    await resumeParentAfterSubWorkflow(em, container, payload)
     return
   }
 
