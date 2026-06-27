@@ -1,4 +1,4 @@
-import { BaseEdge, EdgeProps, getBezierPath } from '@xyflow/react'
+import { BaseEdge, EdgeProps, Position, getBezierPath } from '@xyflow/react'
 
 /**
  * WorkflowDataMappingEdge — a drag-authored SUB_WORKFLOW field mapping.
@@ -8,6 +8,11 @@ import { BaseEdge, EdgeProps, getBezierPath } from '@xyflow/react'
  * binding reads differently from a control edge at a glance. Carries no
  * transition semantics — the binding itself lives in the target step's
  * `config.inputMapping`.
+ *
+ * Under the horizontal flow, sub-workflow data ports live on the node's
+ * Bottom (out) / Top (in) edges. React Flow supplies the connected handles'
+ * positions via props; we fall back to those edges so the bezier still meets the
+ * relocated ports if a position is ever missing.
  */
 export function WorkflowDataMappingEdge({
   id,
@@ -23,8 +28,8 @@ export function WorkflowDataMappingEdge({
     sourceY,
     targetX,
     targetY,
-    sourcePosition,
-    targetPosition,
+    sourcePosition: sourcePosition ?? Position.Bottom,
+    targetPosition: targetPosition ?? Position.Top,
   })
 
   return (
