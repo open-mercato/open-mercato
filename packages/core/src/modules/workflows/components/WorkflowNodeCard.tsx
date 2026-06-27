@@ -2,6 +2,8 @@ import { Check, Play, Pause, Circle } from 'lucide-react'
 import { STATUS_COLORS, WorkflowStatus } from '../lib/status-colors'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NodeType } from '../lib/node-type-icons'
 
+export const NODE_WIDTH = 180
+
 interface WorkflowNodeCardProps {
   title: string
   description?: string
@@ -34,31 +36,31 @@ export function WorkflowNodeCard({
   return (
     <div
       className={`
-        w-[280px] rounded-xl border-2
+        w-[180px] rounded-lg border
         ${isEditMode ? 'bg-card border-border' : `${colors.bg} ${colors.border}`}
         transition-all duration-200 relative
         ${
           selected
-            ? 'shadow-[0_0_0_3px_rgba(0,128,254,0.15)] border-[#0080FE]'
+            ? 'ring-2 ring-primary border-primary'
             : 'shadow-sm hover:shadow-md'
         }
       `}
     >
       {/* Subtle node type indicator in upper right */}
       <div className="absolute top-2 right-2">
-        <NodeTypeIcon className={`w-3.5 h-3.5 ${nodeTypeIconColor}`} />
+        <NodeTypeIcon className={`w-3 h-3 ${nodeTypeIconColor}`} />
       </div>
 
-      <div className="p-4 flex items-start gap-3">
+      <div className="p-2.5 flex items-start gap-2">
         <div className={`flex-shrink-0 mt-0.5 ${colors.icon}`}>
-          <StatusIcon className="w-5 h-5" />
+          <StatusIcon className="w-4 h-4" />
         </div>
         <div className="flex-1 min-w-0 pr-4">
-          <h3 className={`font-semibold text-base ${colors.text} truncate`}>
+          <h3 className={`font-semibold text-sm ${colors.text} truncate`}>
             {title}
           </h3>
           {description && (
-            <p className="mt-1 text-sm text-muted-foreground line-clamp-2">
+            <p className="mt-1 text-xs text-muted-foreground line-clamp-1">
               {description}
             </p>
           )}
