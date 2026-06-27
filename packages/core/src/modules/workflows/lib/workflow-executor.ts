@@ -21,6 +21,10 @@ import {
 import { compensateWorkflow } from './compensation-handler'
 import { findWorkflowDefinition } from './find-definition'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type {
+  WorkflowActivityJob,
+  WorkflowActivityJobResumeSubWorkflowParent,
+} from './activity-queue-types'
 
 const logger = createLogger('workflows')
 
@@ -342,6 +346,22 @@ export async function executeWorkflow(
           }
         }
 
+        // Defense in depth: a prior step parked the instance (e.g. an
+        // INVOKE_AGENT AUTOMATED step set PAUSED, or a transition set
+        // WAITING_FOR_ACTIVITIES). Every resume path (sendSignal,
+        // resumeWorkflowAfterActivities) flips status back to RUNNING before
+        // re-entering, so a PAUSED/WAITING_FOR_ACTIVITIES status here means an
+        // external completion is still pending — stop advancing.
+        if (currentInstance.status === 'PAUSED' || currentInstance.status === 'WAITING_FOR_ACTIVITIES') {
+          return {
+            status: 'RUNNING',
+            currentStep: currentInstance.currentStepId,
+            context: currentInstance.context,
+            events,
+            executionTime: Date.now() - startTime,
+          }
+        }
+
         const currentStep = definition.definition.steps.find(
           (s: any) => s.stepId === currentInstance.currentStepId
         )
@@ -495,6 +515,21 @@ export async function executeWorkflow(
 
             return {
               status: 'WAITING_FOR_ACTIVITIES',
+              currentStep: currentInstance.currentStepId,
+              context: currentInstance.context,
+              events,
+              executionTime: Date.now() - startTime,
+            }
+          }
+
+          // The transition succeeded but the destination step parked the
+          // instance (e.g. an INVOKE_AGENT AUTOMATED step enqueued an async
+          // agent job and set PAUSED). The token cursor has already advanced to
+          // that parked step, so currentInstance.currentStepId is the parked
+          // step. Stop advancing until an external signal resumes it.
+          if (transitionResult.paused) {
+            return {
+              status: 'RUNNING',
               currentStep: currentInstance.currentStepId,
               context: currentInstance.context,
               events,
@@ -765,6 +800,59 @@ export async function completeWorkflow(
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
   })
+
+  // If this instance is a child of a parked SUB_WORKFLOW step, enqueue a job to
+  // resume the parent on the worker's own connection (never inline inside the
+  // child's transaction — lock-ordering hazard). The worker guard skips the job
+  // when the parent never parked (fully-synchronous fast path).
+  if (status === 'COMPLETED' || status === 'FAILED') {
+    await enqueueSubWorkflowParentResume(instance, status)
+  }
+}
+
+/**
+ * Enqueue a `resume_subworkflow_parent` job when a terminating instance carries a
+ * parent linkage. Best-effort: a queue hiccup must not undo the just-persisted
+ * terminal status, so failures are logged rather than thrown. The small delay
+ * lets the parent's PAUSED flush become visible before the worker runs.
+ */
+async function enqueueSubWorkflowParentResume(
+  instance: WorkflowInstance,
+  childStatus: 'COMPLETED' | 'FAILED'
+): Promise<void> {
+  const labels = instance.metadata?.labels
+  const parentInstanceId = labels?.parentInstanceId
+  const parentStepId = labels?.parentStepId
+  const parentStepInstanceId = labels?.parentStepInstanceId
+  if (!parentInstanceId || !parentStepId || !parentStepInstanceId) return
+
+  try {
+    const { createModuleQueue } = await import('@open-mercato/queue')
+    const { WORKFLOW_ACTIVITIES_QUEUE_NAME } = await import('./activity-queue-types')
+    const { INVOKE_AGENT_ENQUEUE_DELAY_MS } = await import('./activity-executor')
+
+    const queue = createModuleQueue<WorkflowActivityJob>(WORKFLOW_ACTIVITIES_QUEUE_NAME, {
+      concurrency: parseInt(process.env.WORKFLOW_WORKER_CONCURRENCY || '5'),
+    })
+
+    const job: WorkflowActivityJobResumeSubWorkflowParent = {
+      kind: 'resume_subworkflow_parent',
+      workflowInstanceId: parentInstanceId,
+      parentInstanceId,
+      parentStepId,
+      parentStepInstanceId,
+      childInstanceId: instance.id,
+      childStatus,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    }
+    await queue.enqueue(job, { delayMs: INVOKE_AGENT_ENQUEUE_DELAY_MS })
+  } catch (error) {
+    console.error(
+      `[WORKFLOW] Failed to enqueue parent-resume job for child ${instance.id} → parent ${parentInstanceId}:`,
+      error instanceof Error ? error.message : error
+    )
+  }
 }
 
 /**
