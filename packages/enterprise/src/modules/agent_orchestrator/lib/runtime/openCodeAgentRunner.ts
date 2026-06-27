@@ -8,6 +8,7 @@ import {
 } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { normalizeOpenCodeToolPart } from '@open-mercato/shared/lib/ai/opencode-tool-parts'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
 import { type AgentResult } from '../../data/validators'
 import {
@@ -423,9 +424,16 @@ export class OpenCodeAgentRunner {
     const unsubscribe = this.client.subscribeToEvents(
       (event) => {
         const { type, properties } = event
+        // Match the chat path's session-id derivation: on `message.part.updated`
+        // OpenCode carries the session id on `properties.part.sessionID`, not at
+        // the top level, so a narrower lookup would mis-scope multi-session
+        // streams.
         const eventSessionId =
           (properties.sessionID as string | undefined) ||
-          (properties.session as { id?: string } | undefined)?.id
+          (properties.info as { sessionID?: string } | undefined)?.sessionID ||
+          (properties.part as { sessionID?: string } | undefined)?.sessionID ||
+          (properties.session as { id?: string } | undefined)?.id ||
+          (properties.status as { sessionID?: string } | undefined)?.sessionID
         if (eventSessionId && eventSessionId !== sessionId) return
         // Capture MCP tool/skill calls for the trace (#3628). The same SSE stream
         // that signals idle also carries the tool_use/tool_result parts; the chat
@@ -498,31 +506,47 @@ const NO_OUTCOME = Symbol('no-outcome')
 
 /**
  * Extract a tool invocation from an OpenCode `message.part.updated` part and fold
- * it into the run's tool-call sink. Mirrors the chat path's parser
- * (`opencode-handlers.ts`): a `tool_use` part opens the call, a later
- * `tool_result` part (matched by `tool_use_id`) closes it with the result.
+ * it into the run's tool-call sink. Delegates schema detection to the shared
+ * `normalizeOpenCodeToolPart` helper (`@open-mercato/shared/lib/ai`): OpenCode
+ * re-emits the same part on each state transition, so the call is opened on the
+ * first `progress` update (keyed by `callId`) and closed on the terminal
+ * `finish`. The legacy `tool_use` / `tool_result` shape is handled by the same
+ * helper for older OpenCode builds.
  */
 function captureToolPart(sink: CapturedToolCall[], rawPart: unknown): void {
-  const part = rawPart as
-    | { type?: string; name?: string; input?: unknown; tool_use_id?: string; content?: unknown; id?: string }
-    | undefined
-  if (!part || typeof part.type !== 'string') return
-  if (part.type === 'tool_use') {
-    if (!part.name) return
-    sink.push({
-      id: part.id ?? `tool-${sink.length}`,
-      toolName: part.name,
-      args: part.input,
-      status: 'ok',
-      startedAt: new Date().toISOString(),
-    })
-  } else if (part.type === 'tool_result') {
-    const id = part.tool_use_id ?? part.id
-    const existing = id ? sink.find((call) => call.id === id) : undefined
+  const update = normalizeOpenCodeToolPart(rawPart)
+  if (!update) return
+  const existing = sink.find((call) => call.id === update.callId)
+  if (update.phase === 'progress') {
     if (existing) {
-      existing.result = part.content
-      existing.endedAt = new Date().toISOString()
+      if (update.input !== undefined) existing.args = update.input
+    } else {
+      sink.push({
+        id: update.callId,
+        toolName: update.toolName,
+        args: update.input,
+        status: 'ok',
+        startedAt: new Date().toISOString(),
+      })
     }
+    return
+  }
+  if (existing) {
+    if (existing.args === undefined && update.input !== undefined) existing.args = update.input
+    existing.result = update.output
+    existing.status = update.status
+    existing.endedAt = new Date().toISOString()
+  } else {
+    const now = new Date().toISOString()
+    sink.push({
+      id: update.callId,
+      toolName: update.toolName ?? update.callId,
+      args: update.input,
+      result: update.output,
+      status: update.status,
+      startedAt: now,
+      endedAt: now,
+    })
   }
 }
 

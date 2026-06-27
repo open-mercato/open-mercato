@@ -1,8 +1,10 @@
 /**
  * #3628 — OpenCode-runtime runs must record the MCP tool calls they make as
- * trace spans/tool-calls. The runner captures `tool_use`/`tool_result` parts off
- * the SSE stream and, on a successful run, ingests them via `ingestTrace`
- * (correlated on runtime+externalRunId so they land on the run it created).
+ * trace spans/tool-calls. The runner captures tool parts off the SSE stream —
+ * OpenCode's native `type: 'tool'` state machine (`state.status` running →
+ * completed/error) as well as the legacy `tool_use` / `tool_result` shape — and,
+ * on a successful run, ingests them via `ingestTrace` (correlated on
+ * runtime+externalRunId so they land on the run it created).
  */
 const createSessionApiKeyMock = jest.fn()
 const deleteSessionApiKeyMock = jest.fn()
@@ -122,10 +124,12 @@ const validOutcome = {
 }
 
 /**
- * Fake client that emits the tool_use/tool_result SSE parts SYNCHRONOUSLY at the
- * top of sendMessage (before its first await), so they are captured before the
- * runner reads the outcome — mirroring how OpenCode streams tool parts mid-run
- * ahead of submit_outcome + idle.
+ * Fake client that emits OpenCode's native `type: 'tool'` SSE parts SYNCHRONOUSLY
+ * at the top of sendMessage (before its first await), so they are captured before
+ * the runner reads the outcome — mirroring how OpenCode streams tool parts mid-run
+ * ahead of submit_outcome + idle. The same part id is re-emitted as the tool's
+ * `state.status` advances (running → completed), exactly as the real server does;
+ * the session id rides on `part.sessionID`, not at the top level.
  */
 function makeFakeClient(opts: { container: { resolve: (name: string) => unknown } }): OpenCodeRunnerClient {
   let emit: ((event: { type: string; properties: Record<string, unknown> }) => void) | null = null
@@ -139,18 +143,19 @@ function makeFakeClient(opts: { container: { resolve: (name: string) => unknown 
       const tokenMatch = /Session Authorization: (sess_[a-z0-9_]+)/i.exec(message)
       if (tokenMatch) sessionTokenRef.value = tokenMatch[1]
       // Synchronous tool-part emission (before the first await) so the runner
-      // captures them prior to reading the outcome.
+      // captures them prior to reading the outcome. Native OpenCode shape: the
+      // call opens at `state.status: running` and closes at `completed`.
       emit?.({
         type: 'message.part.updated',
-        properties: { sessionID: sessionId, part: { type: 'tool_use', id: 'tc-1', name: 'load_skill', input: { skillId: 'resolution_playbook' } } },
+        properties: { part: { type: 'tool', id: 'prt-1', sessionID: sessionId, callID: 'tc-1', tool: 'load_skill', state: { status: 'running', input: { skillId: 'resolution_playbook' } } } },
       })
       emit?.({
         type: 'message.part.updated',
-        properties: { sessionID: sessionId, part: { type: 'tool_result', tool_use_id: 'tc-1', content: { ok: true } } },
+        properties: { part: { type: 'tool', id: 'prt-1', sessionID: sessionId, callID: 'tc-1', tool: 'load_skill', state: { status: 'completed', input: { skillId: 'resolution_playbook' }, output: { ok: true } } } },
       })
       emit?.({
         type: 'message.part.updated',
-        properties: { sessionID: sessionId, part: { type: 'tool_use', id: 'tc-2', name: 'run_skill_script', input: { scriptName: 'lookup_ticket_history' } } },
+        properties: { part: { type: 'tool', id: 'prt-2', sessionID: sessionId, callID: 'tc-2', tool: 'run_skill_script', state: { status: 'running', input: { scriptName: 'lookup_ticket_history' } } } },
       })
       await submitOutcomeTool.handler!(
         { outcome: validOutcome },
@@ -203,7 +208,61 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
 
     const toolNames = payload.spans.flatMap((s) => (s.toolCalls ?? []).map((c) => c.toolName))
     expect(toolNames).toEqual(['load_skill', 'run_skill_script'])
-    // tool_result for tc-1 was folded back onto its tool_use span.
+    // The `completed` state for tc-1 folded its output back onto the same span.
+    const loadSkillSpan = payload.spans.find((s) => s.name === 'load_skill')
+    expect(loadSkillSpan?.toolCalls?.[0]?.responseSummary).toEqual({ ok: true })
+  })
+
+  it('still captures the legacy tool_use/tool_result shape from older OpenCode builds', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness()
+    let emit: ((event: { type: string; properties: Record<string, unknown> }) => void) | null = null
+    const sessionId = 'ses_trace_legacy'
+    const client: OpenCodeRunnerClient = {
+      async createSession() {
+        return { id: sessionId }
+      },
+      async sendMessage(_s, message) {
+        const tokenMatch = /Session Authorization: (sess_[a-z0-9_]+)/i.exec(message)
+        emit?.({
+          type: 'message.part.updated',
+          properties: { sessionID: sessionId, part: { type: 'tool_use', id: 'tc-1', name: 'load_skill', input: { skillId: 'resolution_playbook' } } },
+        })
+        emit?.({
+          type: 'message.part.updated',
+          properties: { sessionID: sessionId, part: { type: 'tool_result', tool_use_id: 'tc-1', content: { ok: true } } },
+        })
+        await submitOutcomeTool.handler!(
+          { outcome: validOutcome },
+          { sessionId: tokenMatch?.[1] ?? '', container } as unknown as Parameters<NonNullable<typeof submitOutcomeTool.handler>>[1],
+        )
+        setTimeout(() => {
+          emit?.({ type: 'session.status', properties: { sessionID: sessionId, status: { type: 'busy' } } })
+          emit?.({ type: 'session.status', properties: { sessionID: sessionId, status: { type: 'idle' } } })
+        }, 0)
+        return {}
+      },
+      subscribeToEvents(onEvent) {
+        emit = onEvent
+        return () => {
+          emit = null
+        }
+      },
+    }
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: client,
+    })
+
+    await runner.run(entry, { subject: 'legacy parts' }, runCtx)
+
+    expect(ingestTraceMock).toHaveBeenCalledTimes(1)
+    const [, , payload] = ingestTraceMock.mock.calls[0] as [
+      unknown,
+      unknown,
+      { spans: Array<{ name: string; toolCalls?: Array<{ toolName: string; responseSummary?: unknown }> }> },
+    ]
     const loadSkillSpan = payload.spans.find((s) => s.name === 'load_skill')
     expect(loadSkillSpan?.toolCalls?.[0]?.responseSummary).toEqual({ ok: true })
   })
