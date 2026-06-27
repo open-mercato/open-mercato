@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Download, Filter, Bot, ShieldCheck, Pencil, Wallet } from 'lucide-react'
+import { Download, Filter, Bot, ShieldCheck, Pencil, Wallet, Zap, Info, Cpu, SquareCode, Globe, Eye, Lock } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -146,7 +146,6 @@ export default function AgentsRegistryPage() {
             <Avatar label={agent.label || agent.id} size="sm" />
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-foreground">{agent.label || agent.id}</div>
-              <div className="truncate font-mono text-xs text-muted-foreground">{agent.id}</div>
             </div>
           </div>
         )
@@ -156,14 +155,14 @@ export default function AgentsRegistryPage() {
       accessorKey: 'resultKind',
       header: t('agent_orchestrator.agents.list.col.type', 'Type'),
       cell: ({ row }) => (
-        <Chip>{t(`agent_orchestrator.agents.list.resultKind.${row.original.resultKind}`)}</Chip>
+        <Chip icon={TYPE_ICON[row.original.resultKind]}>{t(`agent_orchestrator.agents.list.resultKind.${row.original.resultKind}`)}</Chip>
       ),
     },
     {
       accessorKey: 'runtime',
       header: t('agent_orchestrator.agents.list.col.runtime', 'Runtime'),
       cell: ({ row }) => (
-        <Chip>
+        <Chip icon={RUNTIME_ICON[row.original.runtime]}>
           {t(`agent_orchestrator.agents.list.runtime.${row.original.runtime}`, RUNTIME_LABEL[row.original.runtime])}
         </Chip>
       ),
@@ -173,7 +172,7 @@ export default function AgentsRegistryPage() {
       header: t('agent_orchestrator.agents.list.col.autonomy', 'Autonomy'),
       cell: ({ row }) => {
         const autonomy = row.original.autonomy
-        return <Chip>{t(`agent_orchestrator.agents.list.autonomy.${autonomy}`, titleCase(autonomy))}</Chip>
+        return <Chip icon={AUTONOMY_ICON[autonomy]}>{t(`agent_orchestrator.agents.list.autonomy.${autonomy}`, titleCase(autonomy))}</Chip>
       },
     },
     {
@@ -335,9 +334,14 @@ function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
-function Chip({ children }: { children: React.ReactNode }) {
+const TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = { actionable: Zap, informative: Info }
+const RUNTIME_ICON: Record<string, React.ComponentType<{ className?: string }>> = { 'in-process': Cpu, opencode: SquareCode, external: Globe }
+const AUTONOMY_ICON: Record<string, React.ComponentType<{ className?: string }>> = { auto: Bot, review: Eye, gated: Lock }
+
+function Chip({ icon: Icon, children }: { icon?: React.ComponentType<{ className?: string }>; children: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center rounded-md border border-border bg-background px-2 py-0.5 text-xs font-medium text-foreground">
+    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-xs font-medium text-foreground">
+      {Icon ? <Icon className="size-3.5 shrink-0 text-muted-foreground" /> : null}
       {children}
     </span>
   )

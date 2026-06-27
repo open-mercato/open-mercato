@@ -117,7 +117,14 @@ function asString(value: unknown): string | null {
 }
 
 function asNumber(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  // Postgres bigint columns (e.g. cost_minor) serialize to JSON as strings —
+  // coerce finite numeric strings so those fields are not silently dropped.
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
 }
 
 export function mapProposal(item: Record<string, unknown>): ProposalView | null {

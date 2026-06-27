@@ -3,14 +3,15 @@
 import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { z } from 'zod'
-import { Plus } from 'lucide-react'
+import { Plus, Binary, Sparkles, OctagonX, TriangleAlert } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudField, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Switch } from '@open-mercato/ui/primitives/switch'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -48,7 +49,15 @@ type FormValues = {
   updatedAt?: string | null
 }
 
-const severityVariant: StatusMap<'gate' | 'warn'> = { gate: 'error', warn: 'warning' }
+const severityVariant: StatusMap<'gate' | 'warn'> = { gate: 'error', warn: 'neutral' }
+const TYPE_ICON: Record<'deterministic' | 'llm_judge', React.ComponentType<{ className?: string }>> = {
+  deterministic: Binary,
+  llm_judge: Sparkles,
+}
+const SEVERITY_ICON: Record<'gate' | 'warn', React.ComponentType<{ className?: string }>> = {
+  gate: OctagonX,
+  warn: TriangleAlert,
+}
 
 function readString(record: Record<string, unknown>, ...keys: string[]): string {
   for (const key of keys) {
@@ -88,9 +97,10 @@ export default function EvalAssertionsPage() {
   const [error, setError] = React.useState<string | null>(null)
   const [editing, setEditing] = React.useState<AssertionRow | null>(null)
   const [mode, setMode] = React.useState<'list' | 'create' | 'edit'>('list')
+  const [agents, setAgents] = React.useState<CrudFieldOption[]>([])
 
-  const load = React.useCallback(async () => {
-    setIsLoading(true)
+  const load = React.useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setIsLoading(true)
     setError(null)
     const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
       '/api/agent_orchestrator/eval-assertions?pageSize=100',
@@ -99,17 +109,42 @@ export default function EvalAssertionsPage() {
     )
     if (!call.ok) {
       setError(t('agent_orchestrator.evalAssertions.list.error'))
-      setIsLoading(false)
+      if (!opts?.silent) setIsLoading(false)
       return
     }
     const items = Array.isArray(call.result?.items) ? call.result.items : []
     setRows(items.map(mapRow).filter((row): row is AssertionRow => !!row))
-    setIsLoading(false)
+    if (!opts?.silent) setIsLoading(false)
   }, [t])
 
   React.useEffect(() => {
     void load()
   }, [load])
+
+  const toggleEnabled = React.useCallback(async (row: AssertionRow, next: boolean) => {
+    setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, enabled: next } : item)))
+    try {
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(row.updatedAt),
+        () => updateCrud('agent_orchestrator/eval-assertions', {
+          id: row.id,
+          key: row.key,
+          title: row.title,
+          description: row.description ?? undefined,
+          appliesTo: row.appliesTo,
+          type: row.type,
+          severity: row.severity,
+          enabled: next,
+          config: row.type === 'llm_judge' && row.rubric ? { rubric: row.rubric } : undefined,
+        }),
+      )
+      await load({ silent: true })
+    } catch (err) {
+      setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, enabled: row.enabled } : item)))
+      if (surfaceRecordConflict(err, t)) return
+      flash(t('agent_orchestrator.evalAssertions.flash.toggleError', 'Could not update the assertion'), 'error')
+    }
+  }, [load, t])
 
   const formSchema = React.useMemo(
     () =>
@@ -126,12 +161,39 @@ export default function EvalAssertionsPage() {
     [],
   )
 
+  React.useEffect(() => {
+    let cancelled = false
+    void apiCall<{ items?: Array<Record<string, unknown>> }>(
+      '/api/agent_orchestrator/agents',
+      undefined,
+      { fallback: { items: [] } },
+    ).then((call) => {
+      if (cancelled || !call.ok) return
+      const items = Array.isArray(call.result?.items) ? call.result.items : []
+      setAgents(
+        items
+          .map((item) => {
+            const id = typeof item.id === 'string' ? item.id : typeof item.agent_id === 'string' ? item.agent_id : ''
+            const label = typeof item.label === 'string' && item.label ? item.label : id
+            return { value: id, label }
+          })
+          .filter((option) => option.value !== ''),
+      )
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  const appliesToOptions = React.useMemo<CrudFieldOption[]>(
+    () => [{ value: '*', label: t('agent_orchestrator.evalAssertions.form.allAgents', 'All agents') }, ...agents],
+    [agents, t],
+  )
+
   const fields = React.useMemo<CrudField[]>(
     () => [
-      { id: 'key', label: t('agent_orchestrator.evalAssertions.form.key'), type: 'text', required: true },
       { id: 'title', label: t('agent_orchestrator.evalAssertions.form.title'), type: 'text', required: true },
+      { id: 'key', label: t('agent_orchestrator.evalAssertions.form.key'), type: 'text', required: true },
       { id: 'description', label: t('agent_orchestrator.evalAssertions.form.description'), type: 'textarea' },
-      { id: 'appliesTo', label: t('agent_orchestrator.evalAssertions.form.appliesTo'), type: 'text', required: true },
+      { id: 'appliesTo', label: t('agent_orchestrator.evalAssertions.form.appliesTo'), type: 'combobox', options: appliesToOptions, seedOptions: appliesToOptions, allowCustomValues: true, required: true },
       {
         id: 'type',
         label: t('agent_orchestrator.evalAssertions.form.type'),
@@ -149,16 +211,18 @@ export default function EvalAssertionsPage() {
           { value: 'gate', label: t('agent_orchestrator.evalAssertions.severity.gate') },
           { value: 'warn', label: t('agent_orchestrator.evalAssertions.severity.warn') },
         ],
+        visibleWhen: { field: 'type', equals: 'deterministic' },
       },
       {
         id: 'rubric',
         label: t('agent_orchestrator.evalAssertions.form.rubric'),
         type: 'textarea',
         description: t('agent_orchestrator.evalAssertions.form.rubricHint'),
+        visibleWhen: { field: 'type', equals: 'llm_judge' },
       },
       { id: 'enabled', label: t('agent_orchestrator.evalAssertions.form.enabled'), type: 'checkbox' },
     ],
-    [t],
+    [t, appliesToOptions],
   )
 
   const columns = React.useMemo<ColumnDef<AssertionRow>[]>(
@@ -181,30 +245,45 @@ export default function EvalAssertionsPage() {
       {
         accessorKey: 'type',
         header: t('agent_orchestrator.evalAssertions.list.col.type'),
-        cell: ({ row }) => t(`agent_orchestrator.evalAssertions.type.${row.original.type}`),
+        cell: ({ row }) => {
+          const Icon = TYPE_ICON[row.original.type]
+          return (
+            <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-xs font-medium text-foreground">
+              <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+              {t(`agent_orchestrator.evalAssertions.type.${row.original.type}`)}
+            </span>
+          )
+        },
       },
       {
         accessorKey: 'severity',
         header: t('agent_orchestrator.evalAssertions.list.col.severity'),
-        cell: ({ row }) => (
-          <StatusBadge variant={severityVariant[row.original.severity]} dot>
-            {t(`agent_orchestrator.evalAssertions.severity.${row.original.severity}`)}
-          </StatusBadge>
-        ),
+        cell: ({ row }) => {
+          const Icon = SEVERITY_ICON[row.original.severity]
+          return (
+            <StatusBadge variant={severityVariant[row.original.severity]} className="gap-1.5">
+              <Icon className="size-3.5 shrink-0" />
+              {t(`agent_orchestrator.evalAssertions.severity.${row.original.severity}`)}
+            </StatusBadge>
+          )
+        },
       },
       {
         accessorKey: 'enabled',
         header: t('agent_orchestrator.evalAssertions.list.col.enabled'),
+        enableSorting: false,
         cell: ({ row }) => (
-          <StatusBadge variant={row.original.enabled ? 'success' : 'neutral'} dot>
-            {row.original.enabled
-              ? t('agent_orchestrator.evalAssertions.enabled.on')
-              : t('agent_orchestrator.evalAssertions.enabled.off')}
-          </StatusBadge>
+          <div className="flex items-center" onClick={(event) => event.stopPropagation()}>
+            <Switch
+              checked={row.original.enabled}
+              onCheckedChange={(next) => { void toggleEnabled(row.original, next) }}
+              aria-label={t('agent_orchestrator.evalAssertions.list.col.enabled')}
+            />
+          </div>
         ),
       },
     ],
-    [t],
+    [t, toggleEnabled],
   )
 
   function buildBody(values: FormValues) {
@@ -244,6 +323,7 @@ export default function EvalAssertionsPage() {
     return (
       <Page>
         <PageBody>
+          <div className="max-w-2xl">
           <CrudForm<FormValues>
             title={
               isEdit
@@ -282,6 +362,7 @@ export default function EvalAssertionsPage() {
               await load()
             }}
           />
+          </div>
         </PageBody>
       </Page>
     )
