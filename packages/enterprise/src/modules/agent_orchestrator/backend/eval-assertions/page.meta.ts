@@ -3,8 +3,9 @@ import React from 'react'
 const evalIcon = React.createElement(
   'svg',
   { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 },
-  React.createElement('path', { d: 'M9 11l3 3L22 4' }),
-  React.createElement('path', { d: 'M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' }),
+  React.createElement('rect', { width: 8, height: 4, x: 8, y: 2, rx: 1 }),
+  React.createElement('path', { d: 'M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2' }),
+  React.createElement('path', { d: 'm9 14 2 2 4-4' }),
 )
 
 export const metadata = {

@@ -318,13 +318,13 @@ export default function AgentFleetOverviewPage() {
                 {trust.length === 0 ? (
                   <p className="px-2 py-6 text-center text-sm text-muted-foreground">{t('agent_orchestrator.overview.trust.empty', 'No agents yet')}</p>
                 ) : (
-                  <table className="w-full text-sm">
+                  <table className="w-full table-fixed text-sm">
                     <thead>
                       <tr className="border-b border-border text-left text-xs text-muted-foreground">
                         <th className="px-2 py-2 font-medium">{t('agent_orchestrator.overview.trust.col.agent', 'Agent')}</th>
-                        <th className="px-2 py-2 text-right font-medium">{t('agent_orchestrator.overview.trust.col.runs', 'Runs')}</th>
-                        <th className="px-2 py-2 font-medium">{t('agent_orchestrator.overview.trust.col.override', 'Override')}</th>
-                        <th className="px-2 py-2 font-medium">{t('agent_orchestrator.overview.trust.col.status', 'Status')}</th>
+                        <th className="w-16 px-2 py-2 text-right font-medium">{t('agent_orchestrator.overview.trust.col.runs', 'Runs')}</th>
+                        <th className="w-28 px-2 py-2 font-medium">{t('agent_orchestrator.overview.trust.col.override', 'Override')}</th>
+                        <th className="w-20 px-2 py-2 font-medium">{t('agent_orchestrator.overview.trust.col.status', 'Status')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -436,7 +436,7 @@ function OldestChip({ children }: { children: React.ReactNode }) {
 
 function Panel({ title, viewAll, onViewAll, children, className }: { title: string; viewAll: string; onViewAll: () => void; children: React.ReactNode; className?: string }) {
   return (
-    <div className={`rounded-xl border border-border bg-card${className ? ` ${className}` : ''}`}>
+    <div className={`overflow-hidden rounded-xl border border-border bg-card${className ? ` ${className}` : ''}`}>
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
         <div className="text-sm font-semibold text-foreground">{title}</div>
         <button type="button" onClick={onViewAll} className="inline-flex items-center gap-1 text-xs font-medium text-brand-violet transition-opacity hover:opacity-80">
