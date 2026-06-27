@@ -5,6 +5,8 @@
  * Jobs are discriminated by the optional `kind` field:
  *   - `'activity'` (default, back-compat): background execution of a workflow activity
  *   - `'timer'`: delayed fire-timer job for a WAIT_FOR_TIMER step
+ *   - `'invoke_agent'`: run an INVOKE_AGENT step's agent OUTSIDE the workflow
+ *     transaction, then resume the parked step via the proposal-ready signal
  */
 
 export interface WorkflowActivityJobBase {
@@ -45,6 +47,23 @@ export interface WorkflowActivityJobTimer extends WorkflowActivityJobBase {
   fireAt: string // ISO 8601 timestamp for when the timer should fire
 }
 
-export type WorkflowActivityJob = WorkflowActivityJobActivity | WorkflowActivityJobTimer
+export interface WorkflowActivityJobInvokeAgent extends WorkflowActivityJobBase {
+  kind: 'invoke_agent'
+  stepInstanceId: string
+  // The step (node) id the agent runs for; used to confirm the instance is still
+  // parked on this step before running the agent (race + idempotency guard).
+  stepId: string
+  // Signal the parked step listens on; the worker fires it to resume after the
+  // agent run (agent_orchestrator.proposal.ready).
+  signalName: string
+  agentId: string
+  input: Record<string, any>
+  onResult: { autoApproveThreshold: number } | { alwaysAsk: true }
+}
+
+export type WorkflowActivityJob =
+  | WorkflowActivityJobActivity
+  | WorkflowActivityJobTimer
+  | WorkflowActivityJobInvokeAgent
 
 export const WORKFLOW_ACTIVITIES_QUEUE_NAME = 'workflow-activities'

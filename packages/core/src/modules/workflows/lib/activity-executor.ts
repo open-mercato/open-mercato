@@ -23,7 +23,7 @@ import {
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { callWebhookConfigSchema, invokeAgentConfigSchema } from '../data/validators'
-import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
+import { WorkflowActivityJob, WorkflowActivityJobInvokeAgent, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
 import { parseDuration } from './duration'
 
@@ -110,6 +110,14 @@ export type ActivityType =
  * name to resume the parked step.
  */
 export const INVOKE_AGENT_SIGNAL_NAME = 'agent_orchestrator.proposal.ready'
+
+/**
+ * Small enqueue delay for the INVOKE_AGENT job so the workflow transaction that
+ * parked the step commits before the worker picks the job up. The worker also
+ * guards against the race (it requires the instance to be PAUSED at the step
+ * before running the agent), so this only trims needless retries.
+ */
+export const INVOKE_AGENT_ENQUEUE_DELAY_MS = 1000
 
 /**
  * Marker carried on an activity result's output when the step must park and wait
@@ -971,6 +979,8 @@ export async function executeInvokeAgent(
   }
   const { agentId, input, onResult } = parsed.data
 
+  // Fail fast when the optional agent_orchestrator peer is absent — the worker
+  // would otherwise enqueue a job that can never run.
   const bridge = tryResolveAgentWorkflowBridge(container)
   if (!bridge) {
     throw new Error('[internal] agent_orchestrator not installed')
@@ -980,29 +990,75 @@ export async function executeInvokeAgent(
     context.stepContext?.stepId ||
     context.workflowInstance.currentStepId
 
-  const outcome = await bridge.invokeAgentForWorkflow({
-    agentId,
-    input,
-    onResult,
-    ctx: {
-      tenantId: context.workflowInstance.tenantId,
-      organizationId: context.workflowInstance.organizationId,
-      userId: context.userId,
-      processId: context.workflowInstance.id,
-      stepId,
-    },
-  })
+  // Parallel-branch agent steps keep the legacy inline path. The async fix below
+  // parks and resumes at the INSTANCE level, and sendSignal's FORKED branch
+  // resume only matches WAIT_FOR_SIGNAL steps — so an instance-level resume would
+  // not reach a parked branch. The claims blueprints (and the common case) run
+  // agents sequentially at the instance level; only rarely-used parallel branches
+  // hit this fallback, where behavior is unchanged from before.
+  if (context.branchInstanceId) {
+    const outcome = await bridge.invokeAgentForWorkflow({
+      agentId,
+      input,
+      onResult,
+      ctx: {
+        tenantId: context.workflowInstance.tenantId,
+        organizationId: context.workflowInstance.organizationId,
+        userId: context.userId,
+        processId: context.workflowInstance.id,
+        stepId,
+      },
+    })
+    if (outcome.kind === 'informative') {
+      return { kind: 'informative', agentId, data: outcome.data }
+    }
+    if (outcome.kind === 'auto_approved') {
+      return { kind: 'auto_approved', agentId, proposalId: outcome.proposalId, proposalPayload: outcome.payload }
+    }
+    return {
+      kind: 'user_task',
+      agentId,
+      proposalId: outcome.proposalId,
+      __park: { signalName: INVOKE_AGENT_SIGNAL_NAME },
+    }
+  }
 
-  if (outcome.kind === 'informative') {
-    return { kind: 'informative', agentId, data: outcome.data }
+  if (!context.stepInstanceId) {
+    throw new Error('[internal] INVOKE_AGENT requires a step instance to park on')
   }
-  if (outcome.kind === 'auto_approved') {
-    return { kind: 'auto_approved', agentId, proposalId: outcome.proposalId, proposalPayload: outcome.payload }
-  }
-  return {
-    kind: 'user_task',
+
+  // Run the agent OUTSIDE the workflow transaction. Previously the agent ran
+  // inline here, on the workflow's transactional EM: a failing statement aborted
+  // the whole workflow transaction ("current transaction is aborted, …") and,
+  // for cross-process OpenCode agents, the per-run api_key / session rows were
+  // written into the still-open transaction so the separate mcp:serve-http
+  // process could not see them to authenticate submit_outcome. Instead we enqueue
+  // a dedicated job and PARK the step on the proposal-ready signal: the
+  // workflow-activities worker runs the agent on its own connection (committed,
+  // cross-process visible) and resumes the parked step via sendSignal. user_task
+  // outcomes stay parked until agent_orchestrator's human dispose fires the same
+  // signal — identical to the prior park behavior.
+  const queue = getActivityQueue()
+  const job: WorkflowActivityJobInvokeAgent = {
+    kind: 'invoke_agent',
+    workflowInstanceId: context.workflowInstance.id,
+    branchInstanceId: context.branchInstanceId ?? undefined,
+    stepInstanceId: context.stepInstanceId,
+    stepId,
+    signalName: INVOKE_AGENT_SIGNAL_NAME,
     agentId,
-    proposalId: outcome.proposalId,
+    input: (input ?? {}) as Record<string, any>,
+    onResult,
+    tenantId: context.workflowInstance.tenantId,
+    organizationId: context.workflowInstance.organizationId,
+    userId: context.userId,
+  }
+  const jobId = await queue.enqueue(job, { delayMs: INVOKE_AGENT_ENQUEUE_DELAY_MS })
+
+  return {
+    kind: 'pending_agent',
+    agentId,
+    jobId,
     __park: { signalName: INVOKE_AGENT_SIGNAL_NAME },
   }
 }

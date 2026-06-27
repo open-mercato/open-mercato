@@ -115,6 +115,9 @@ export async function createRun(
     externalRunId?: string | null
     /** Declared model id (e.g. `anthropic/claude-sonnet-4-5`); null when the agent uses the tenant default. */
     model?: string | null
+    /** Workflow process instance + step this run belongs to (INVOKE_AGENT); links the run to the process in traces. */
+    processId?: string | null
+    stepId?: string | null
   },
 ): Promise<string> {
   // Audited-command scope (Phase 3, layer B-b): the agent's own AgentRun write
