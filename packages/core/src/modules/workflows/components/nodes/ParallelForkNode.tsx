@@ -33,14 +33,14 @@ function mapStatus(status?: string): WorkflowStatus {
  * ParallelForkNode - splits the workflow into concurrent branches.
  * One target handle (in); one source handle (out) that fans out to each branch.
  */
-export function ParallelForkNode({ data, isConnectable, selected }: NodeProps) {
+export function ParallelForkNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as ParallelForkNodeData
 
   return (
     <div className="parallel-fork-node" title={nodeData.tooltip}>
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         id="target"
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"
@@ -52,11 +52,13 @@ export function ParallelForkNode({ data, isConnectable, selected }: NodeProps) {
         status={mapStatus(nodeData.status)}
         nodeType="parallelFork"
         selected={selected}
+        nodeId={id}
+        editable={isConnectable}
       />
 
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         id="source"
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"

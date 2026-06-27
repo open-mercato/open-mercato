@@ -1,4 +1,5 @@
 import { Node, Edge } from '@xyflow/react'
+import dagre from '@dagrejs/dagre'
 import type { WorkflowDefinition } from '../data/entities'
 import type { WorkflowIoContract } from '../data/validators'
 import { isDataMappingEdge } from './data-edge-mapping'
@@ -8,6 +9,16 @@ import { isDataMappingEdge } from './data-edge-mapping'
  *
  * Converts between ReactFlow graph representation and workflow definition JSON
  */
+
+/**
+ * Node footprint used by the dagre layout engine. `NODE_WIDTH` must match the
+ * `NODE_WIDTH` exported from `../components/WorkflowNodeCard`; it is mirrored as
+ * a local constant here so this pure data-transform module stays free of the
+ * React/`lucide-react` import chain (it runs in node + jest contexts).
+ */
+const NODE_WIDTH = 180
+const NODE_MAX_WIDTH = 280
+const NODE_HEIGHT = 84
 
 export interface GraphToDefinitionOptions {
   includePositions?: boolean
@@ -22,6 +33,13 @@ export interface DefinitionToGraphOptions {
    * IN/OUT ports. Absent → the node renders without ports (backward compatible).
    */
   childContracts?: Map<string, WorkflowIoContract>
+}
+
+export interface LayoutWithDagreOptions {
+  /** Flow direction. Default `'LR'` (left→right). */
+  direction?: 'LR' | 'TB'
+  nodeWidth?: number
+  nodeHeight?: number
 }
 
 /**
@@ -232,20 +250,35 @@ export function definitionToGraph(
   // Build step map for quick lookup
   const stepMap = new Map(definition.steps.map(step => [step.stepId, step]))
 
-  // Calculate smart layout positions if autoLayout is enabled
-  const positions = autoLayout
-    ? calculateSmartLayout(definition.steps, definition.transitions, layoutSpacing)
+  // Collect author-arranged positions persisted in the definition. A stored
+  // position always wins over an auto-computed one, so a saved graph re-opens
+  // exactly as the author left it.
+  const storedPositions = new Map<string, { x: number; y: number }>()
+  for (const step of definition.steps) {
+    const stored = (step as any)._editorPosition
+    if (stored && typeof stored.x === 'number' && typeof stored.y === 'number') {
+      storedPositions.set(step.stepId, { x: stored.x, y: stored.y })
+    }
+  }
+
+  // Auto-arrange only the steps that lack a stored position (e.g. freshly added
+  // nodes, or legacy/code graphs with no stored coordinates at all). When the
+  // caller explicitly disables autoLayout, skip dagre entirely.
+  const needsDagre = autoLayout && definition.steps.some((step) => !storedPositions.has(step.stepId))
+  const dagrePositions = needsDagre
+    ? layoutWithDagre(definition.steps, definition.transitions, {
+        direction: 'LR',
+        nodeWidth: NODE_WIDTH,
+        nodeHeight: NODE_HEIGHT,
+      })
     : null
 
   // Convert steps to nodes
   const nodes: Node[] = definition.steps.map((step, index) => {
-    // Determine position
-    let position = positions?.get(step.stepId) || { x: 250, y: 50 + index * layoutSpacing.vertical }
-
-    // Use stored position if available and not auto-layouting
-    if (!autoLayout && (step as any)._editorPosition) {
-      position = (step as any)._editorPosition
-    }
+    // Determine position: stored (author-arranged) → dagre (auto) → fallback.
+    const position = storedPositions.get(step.stepId)
+      || dagrePositions?.get(step.stepId)
+      || { x: 250, y: 50 + index * layoutSpacing.vertical }
 
     // Map step type to node type. An AUTOMATED step whose activities contain a
     // single INVOKE_AGENT marker is the compiled form of an invoke-agent node —
@@ -384,110 +417,132 @@ export function definitionToGraph(
 }
 
 /**
- * Calculate smart layout positions for workflow nodes
- * Uses a layered/hierarchical layout algorithm that:
- * 1. Assigns levels (ranks) to nodes based on graph topology
- * 2. Spreads sibling nodes horizontally at the same level
- * 3. Centers merge points below their incoming nodes
+ * Compute overlap-free, node-size-aware layout positions using `@dagrejs/dagre`.
+ *
+ * Builds a layered graph (default `rankdir: 'LR'` → left→right flow), runs dagre
+ * to rank nodes and minimize edge crossings, then converts dagre's center-origin
+ * coordinates to React Flow's top-left origin. Returns a `Map` of `stepId` →
+ * top-left `{ x, y }`, the same shape the previous custom layout produced.
+ *
+ * Only control-flow transitions are passed here — drag-authored data mappings
+ * are not transitions (they live in the target step's `config.inputMapping`).
  */
-function calculateSmartLayout(
+/**
+ * Approximate the rendered footprint of a transition-label pill so the dagre
+ * layout can reserve space for it between ranks. Mirrors WorkflowTransitionLabel
+ * (text-xs ~6.5px/char + `px-2` padding + border); the width is capped so very
+ * long transition names don't blow the whole graph apart. Returns null for
+ * empty labels (edge takes zero label space, the prior behavior).
+ */
+function estimateEdgeLabelSize(label: unknown): { width: number; height: number } | null {
+  const text = typeof label === 'string' ? label.trim() : ''
+  if (!text) return null
+  const width = Math.min(Math.round(text.length * 6.5) + 24, 220)
+  return { width, height: 28 }
+}
+
+/**
+ * Approximate a node card's rendered footprint from its title. Cards size to
+ * their content between `NODE_WIDTH` and `NODE_MAX_WIDTH` (see WorkflowNodeCard),
+ * wrapping the title to a second line when it would overflow — so a long title
+ * makes the card both wider (up to the cap) and taller. Kept in sync with the
+ * card's bounds so dagre reserves roughly the real space.
+ */
+function estimateNodeSize(label: unknown): { width: number; height: number } {
+  const text = typeof label === 'string' ? label.trim() : ''
+  // text-sm title (~7px/char) + status icon + type row + padding (~64px).
+  const rawWidth = Math.round(text.length * 7) + 64
+  const width = Math.min(Math.max(NODE_WIDTH, rawWidth), NODE_MAX_WIDTH)
+  // Overflowing the cap means the title wraps to a second line → taller card.
+  const height = rawWidth > NODE_MAX_WIDTH ? NODE_HEIGHT + 20 : NODE_HEIGHT
+  return { width, height }
+}
+
+function layoutWithDagre(
   steps: any[],
   transitions: any[],
-  spacing: { vertical: number; horizontal: number }
+  options: LayoutWithDagreOptions = {}
 ): Map<string, { x: number; y: number }> {
   const positions = new Map<string, { x: number; y: number }>()
 
   if (steps.length === 0) return positions
 
-  // Build adjacency lists
-  const outgoing = new Map<string, string[]>() // node -> children
-  const incoming = new Map<string, string[]>() // node -> parents
+  const rankdir = options.direction ?? 'LR'
+
+  const graph = new dagre.graphlib.Graph()
+  graph.setDefaultEdgeLabel(() => ({}))
+  graph.setGraph({ rankdir, nodesep: 70, ranksep: 90 })
+
+  // Nodes size to their label (cards are no longer a fixed 180px wide), so the
+  // layout must reserve each node's real footprint or wide cards overlap their
+  // neighbours after auto-arrange.
+  for (const step of steps) {
+    graph.setNode(step.stepId, estimateNodeSize(step.stepName ?? step.label))
+  }
+
+  for (const transition of transitions) {
+    if (graph.hasNode(transition.fromStepId) && graph.hasNode(transition.toStepId)) {
+      // Reserve room for the transition-label pill between ranks. Without this
+      // dagre packs ranks against `ranksep` only and the label overlaps the
+      // downstream node (the label is rendered at the edge midpoint by
+      // WorkflowTransitionEdge). A labelled edge becomes a dummy label node of
+      // these dimensions, so the rank gap grows to fit the text.
+      const labelSize = estimateEdgeLabelSize(transition.label ?? transition.transitionName)
+      graph.setEdge(
+        transition.fromStepId,
+        transition.toStepId,
+        labelSize ? { width: labelSize.width, height: labelSize.height, labelpos: 'c' } : {},
+      )
+    }
+  }
+
+  dagre.layout(graph)
 
   for (const step of steps) {
-    outgoing.set(step.stepId, [])
-    incoming.set(step.stepId, [])
-  }
-
-  for (const t of transitions) {
-    const children = outgoing.get(t.fromStepId) || []
-    children.push(t.toStepId)
-    outgoing.set(t.fromStepId, children)
-
-    const parents = incoming.get(t.toStepId) || []
-    parents.push(t.fromStepId)
-    incoming.set(t.toStepId, parents)
-  }
-
-  // Find start node(s) - nodes with no incoming edges
-  const startNodes = steps.filter(s => (incoming.get(s.stepId) || []).length === 0)
-  if (startNodes.length === 0) {
-    // Fallback: use first step as start
-    startNodes.push(steps[0])
-  }
-
-  // Assign levels using BFS (longest path from start)
-  const levels = new Map<string, number>()
-  const queue: Array<{ id: string; level: number }> = []
-
-  for (const start of startNodes) {
-    queue.push({ id: start.stepId, level: 0 })
-  }
-
-  while (queue.length > 0) {
-    const { id, level } = queue.shift()!
-    const currentLevel = levels.get(id)
-
-    // Take the maximum level (longest path)
-    if (currentLevel === undefined || level > currentLevel) {
-      levels.set(id, level)
-    }
-
-    const children = outgoing.get(id) || []
-    for (const child of children) {
-      queue.push({ id: child, level: level + 1 })
-    }
-  }
-
-  // Group nodes by level
-  const nodesByLevel = new Map<number, string[]>()
-  for (const [nodeId, level] of levels) {
-    const nodesAtLevel = nodesByLevel.get(level) || []
-    nodesAtLevel.push(nodeId)
-    nodesByLevel.set(level, nodesAtLevel)
-  }
-
-  // Calculate positions
-  const centerX = 400 // Center line for the graph
-  const startY = 50
-
-  for (const [level, nodeIds] of nodesByLevel) {
-    const count = nodeIds.length
-    const y = startY + level * spacing.vertical
-
-    if (count === 1) {
-      // Single node at this level - center it
-      positions.set(nodeIds[0], { x: centerX, y })
-    } else {
-      // Multiple nodes at this level - spread them horizontally
-      const totalWidth = (count - 1) * spacing.horizontal
-      const startX = centerX - totalWidth / 2
-
-      // Sort nodes by their parent's position for consistent ordering
-      nodeIds.sort((a, b) => {
-        const parentsA = incoming.get(a) || []
-        const parentsB = incoming.get(b) || []
-        const parentPosA = parentsA.length > 0 ? (positions.get(parentsA[0])?.x || 0) : 0
-        const parentPosB = parentsB.length > 0 ? (positions.get(parentsB[0])?.x || 0) : 0
-        return parentPosA - parentPosB
-      })
-
-      nodeIds.forEach((nodeId, idx) => {
-        positions.set(nodeId, { x: startX + idx * spacing.horizontal, y })
-      })
-    }
+    const node = graph.node(step.stepId)
+    if (!node || typeof node.x !== 'number' || typeof node.y !== 'number') continue
+    // dagre returns the node center; React Flow positions use the top-left corner.
+    // Offset by this node's own footprint (set above), not a shared constant.
+    positions.set(step.stepId, {
+      x: node.x - node.width / 2,
+      y: node.y - node.height / 2,
+    })
   }
 
   return positions
+}
+
+/**
+ * Re-run the dagre layered layout (`rankdir: 'LR'`) directly over React Flow
+ * nodes + edges and return a NEW node array with refreshed `position` values.
+ *
+ * This is the single intentional full re-layout entry point (the "Auto-arrange"
+ * toolbar action): it deliberately IGNORES any stored `_editorPosition` and
+ * re-tidies the whole graph. Every other node field (`data`, `type`, handle
+ * config, …) is preserved — only `position` is replaced. Data-mapping edges are
+ * excluded from the rank graph since they are not control-flow transitions.
+ */
+export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
+  const steps = nodes.map((node) => ({ stepId: node.id, stepName: (node.data as any)?.label }))
+  const transitions = edges
+    .filter((edge) => !isDataMappingEdge(edge))
+    .map((edge) => ({
+      fromStepId: edge.source,
+      toStepId: edge.target,
+      // Carry the label so the layout reserves room for the transition pill.
+      label: (edge.data as any)?.label ?? (edge.data as any)?.transitionName,
+    }))
+
+  const positions = layoutWithDagre(steps, transitions, {
+    direction: 'LR',
+    nodeWidth: NODE_WIDTH,
+    nodeHeight: NODE_HEIGHT,
+  })
+
+  return nodes.map((node) => {
+    const next = positions.get(node.id)
+    return next ? { ...node, position: { x: next.x, y: next.y } } : node
+  })
 }
 
 /**

@@ -352,6 +352,38 @@ const HeaderContext = createContext<{
   setTitle: (t?: string) => void
 } | null>(null)
 
+/**
+ * Additive contract that lets a page under the backend shell drive the desktop
+ * sidebar collapse without owning the shell. `requestCollapse(true)` forces the
+ * sidebar to render collapsed without overwriting the user's persisted manual
+ * preference; `releaseRequest()` drops the request and falls back to whatever
+ * the underlying state is (including any active settings/profile force-collapse).
+ */
+export type SidebarCollapseContextValue = {
+  collapsed: boolean
+  setCollapsed: (next: boolean) => void
+  requestCollapse: (next: boolean) => void
+  releaseRequest: () => void
+}
+
+const noopSidebarCollapse: SidebarCollapseContextValue = {
+  collapsed: false,
+  setCollapsed: () => {},
+  requestCollapse: () => {},
+  releaseRequest: () => {},
+}
+
+const SidebarCollapseContext = createContext<SidebarCollapseContextValue | null>(null)
+
+/**
+ * Read the backend shell's sidebar-collapse controls. Returns a safe no-op
+ * default when called outside `AppShell` so standalone renders and tests never
+ * crash.
+ */
+export function useSidebarCollapse(): SidebarCollapseContextValue {
+  return useContext(SidebarCollapseContext) ?? noopSidebarCollapse
+}
+
 export function ApplyBreadcrumb({ breadcrumb, title, titleKey }: { breadcrumb?: Array<{ label: string; href?: string; labelKey?: string }>; title?: string; titleKey?: string }) {
   const ctx = useContext(HeaderContext)
   const t = useT()
@@ -471,6 +503,17 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   }, [mobileOpen])
   // Initialize from server-provided prop only to avoid hydration flicker
   const [collapsed, setCollapsed] = React.useState(sidebarCollapsedDefault)
+  // External collapse request (additive). A page under the shell can force the
+  // sidebar collapsed via `useSidebarCollapse().requestCollapse(true)` without
+  // touching `collapsed` (the user's persisted manual preference) — so nothing
+  // is written to localStorage/cookie and `releaseRequest()` restores the prior
+  // underlying state. Default `null` means "no request", keeping behavior
+  // byte-for-byte identical when no page consumes the context.
+  const [externalCollapseRequest, setExternalCollapseRequest] = React.useState<boolean | null>(null)
+  // Remember the value the user manually had before an external request took
+  // over, mirroring `collapsedBeforeSectionRef`. Not required for correctness
+  // (the request never mutates `collapsed`) but keeps the intent explicit.
+  const collapsedBeforeExternalRequestRef = React.useRef<boolean | null>(null)
   // Maintain internal nav state so we can augment it client-side
   const [navGroups, setNavGroups] = React.useState(resolvedGroups)
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() =>
@@ -486,8 +529,28 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     if (!label) return false
     return label.toLowerCase().includes(navQueryNorm)
   }, [navQueryActive, navQueryNorm])
-  const effectiveCollapsed = collapsed
+  // An active external collapse request wins over the manual/section state
+  // ("collapsed wins"); when released (`null`) we fall back to `collapsed`,
+  // which already reflects any settings/profile force-collapse.
+  const effectiveCollapsed = externalCollapseRequest === true ? true : collapsed
   const expandedSidebarWidth = '240px'
+
+  const requestCollapse = React.useCallback((next: boolean) => {
+    setExternalCollapseRequest((prev) => {
+      if (prev === null) collapsedBeforeExternalRequestRef.current = collapsed
+      return next
+    })
+  }, [collapsed])
+  const releaseRequest = React.useCallback(() => {
+    collapsedBeforeExternalRequestRef.current = null
+    setExternalCollapseRequest(null)
+  }, [])
+  const sidebarCollapseValue = React.useMemo<SidebarCollapseContextValue>(() => ({
+    collapsed: effectiveCollapsed,
+    setCollapsed: (next: boolean) => setCollapsed(next),
+    requestCollapse,
+    releaseRequest,
+  }), [effectiveCollapsed, requestCollapse, releaseRequest])
 
   // Track scroll position of the desktop sidebar's inner scroll container so we can
   // flip the affordance chevron between down/up (and hide it entirely when content
@@ -1183,9 +1246,19 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
 
   return (
     <HeaderContext.Provider value={headerCtxValue}>
+    <SidebarCollapseContext.Provider value={sidebarCollapseValue}>
     <div
       className={`relative min-h-svh lg:grid transition-[grid-template-columns] duration-200 ease-out ${gridColsClass}`}
-      style={{ '--topbar-height': '61px' } as React.CSSProperties}
+      style={{
+        '--topbar-height': '61px',
+        // Left offset of the content column (sidebar, plus the section sidebar on
+        // settings/profile routes). Exposed so full-bleed pages — e.g. the
+        // workflow visual editor — can size themselves to the content column with
+        // `calc(100vw - var(--app-content-offset))` instead of being capped by
+        // `main`'s centered max-width. Only meaningful at `lg` and up, where the
+        // grid (and the sidebar) is active.
+        '--app-content-offset': isSectionView ? `calc(${asideWidth} + 240px)` : asideWidth,
+      } as React.CSSProperties}
     >
       {/* Desktop sidebar collapse/expand toggle — sits on the divider line between
           sidebar and content, like Notion/Vercel. Hidden on mobile (hamburger in
@@ -1471,6 +1544,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
       )}
     </div>
     <UmesDevToolsPanel />
+    </SidebarCollapseContext.Provider>
     </HeaderContext.Provider>
   )
 }

@@ -9,8 +9,9 @@ import { EdgeEditDialogCrudForm } from '../../../components/EdgeEditDialogCrudFo
 import { Node, Edge, addEdge, Connection, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange } from '@xyflow/react'
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
+import { graphToDefinition, definitionToGraph, applyAutoLayout, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
+import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard'
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
 import { Page } from '@open-mercato/ui/backend/Page'
@@ -41,7 +42,10 @@ import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { CircleQuestionMark, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
+import { CircleQuestionMark, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersistedBooleanFlag'
+import { useSidebarCollapse } from '@open-mercato/ui/backend/AppShell'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
 import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggersEditor'
 import { MobileVisualEditor } from '../../../components/mobile/MobileVisualEditor'
@@ -95,6 +99,8 @@ async function loadSubWorkflowContracts(
   return contracts
 }
 
+const PALETTE_NODE_TYPES = ['start', 'userTask', 'automated', 'invokeAgent', 'waitForSignal', 'waitForTimer', 'subWorkflow', 'end'] as const
+
 export default function VisualEditorPage() {
   const t = useT()
   const router = useRouter()
@@ -112,6 +118,48 @@ export default function VisualEditorPage() {
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
   const [showMetadata, setShowMetadata] = useState(true)
   const [isCompactViewport, setIsCompactViewport] = useState(false)
+  const [autosaveState, setAutosaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  // Debounced autosave-on-drag plumbing. `performAutosaveRef` is reassigned each
+  // render so the debounced timer always runs the latest closure (no stale nodes).
+  const autosaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const performAutosaveRef = React.useRef<() => Promise<void>>(async () => {})
+  const { value: paletteCollapsed, toggle: togglePaletteCollapsed, setValue: setPaletteCollapsed } = usePersistedBooleanFlag('om:wf-editor-palette', false)
+  const [showPaletteHowTo, setShowPaletteHowTo] = useState(false)
+  const { value: focusMode, setValue: setFocusMode, toggle: toggleFocus } = usePersistedBooleanFlag('om:wf-editor-focus', false)
+  const { requestCollapse, releaseRequest } = useSidebarCollapse()
+  // Remember the palette/metadata state from before Focus mode took over so we
+  // can restore exactly what the author had when they exit.
+  const priorPaletteCollapsedRef = React.useRef<boolean | null>(null)
+  const priorShowMetadataRef = React.useRef<boolean | null>(null)
+
+  // Focus mode orchestrator: collapse the app sidebar + palette and hide the
+  // metadata form when entering; restore the author's prior palette/metadata
+  // state when leaving. Runs on mount too, so a persisted `focusMode === true`
+  // applies the collapses immediately.
+  useEffect(() => {
+    if (focusMode) {
+      if (priorPaletteCollapsedRef.current === null) priorPaletteCollapsedRef.current = paletteCollapsed
+      if (priorShowMetadataRef.current === null) priorShowMetadataRef.current = showMetadata
+      requestCollapse(true)
+      setPaletteCollapsed(true)
+      setShowMetadata(false)
+    } else {
+      releaseRequest()
+      if (priorPaletteCollapsedRef.current !== null) {
+        setPaletteCollapsed(priorPaletteCollapsedRef.current)
+        priorPaletteCollapsedRef.current = null
+      }
+      if (priorShowMetadataRef.current !== null) {
+        setShowMetadata(priorShowMetadataRef.current)
+        priorShowMetadataRef.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusMode])
+
+  // Always release the app-sidebar request when the editor unmounts so the
+  // user's prior sidebar state is restored when they navigate away.
+  useEffect(() => () => releaseRequest(), [releaseRequest])
 
   // Auto-collapse metadata on compact viewports after hydration
   useEffect(() => {
@@ -153,6 +201,35 @@ export default function VisualEditorPage() {
   const [startOpen, setStartOpen] = useState(false)
   const [startContext, setStartContext] = useState('{}')
   const [starting, setStarting] = useState(false)
+
+  // Keyboard shortcuts: `F` toggles Focus mode, `Esc` exits it. Suppressed while
+  // the user is typing in a field or a dialog is open, so it never hijacks form
+  // input or the dialog's own Escape-to-close.
+  useEffect(() => {
+    if (isMobile) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      const active = document.activeElement as HTMLElement | null
+      const tag = (active?.tagName || '').toLowerCase()
+      const isEditing = tag === 'input' || tag === 'textarea' || tag === 'select' || !!active?.isContentEditable
+      if (isEditing) return
+      const isDialogOpen = showNodeDialog || showEdgeDialog || showClearConfirm || startOpen
+      if (event.key === 'Escape') {
+        if (focusMode && !isDialogOpen) {
+          event.preventDefault()
+          setFocusMode(false)
+        }
+        return
+      }
+      if (event.key === 'f' || event.key === 'F') {
+        if (isDialogOpen) return
+        event.preventDefault()
+        toggleFocus()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isMobile, focusMode, showNodeDialog, showEdgeDialog, showClearConfirm, startOpen, toggleFocus, setFocusMode])
 
   const mutationContextId = `workflows.definitions.visual-editor:${definitionId ?? 'unknown'}`
   const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
@@ -221,11 +298,38 @@ export default function VisualEditorPage() {
     loadDefinition()
   }, [definitionId])
 
+  // Schedule a quiet debounced autosave (~900ms). Only for already-saved,
+  // editable definitions; new unsaved drafts fall back to an explicit Save.
+  const scheduleAutosave = useCallback(() => {
+    if (!definitionId || isCodeOnly) return
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+    autosaveTimerRef.current = setTimeout(() => {
+      autosaveTimerRef.current = null
+      void performAutosaveRef.current()
+    }, 900)
+  }, [definitionId, isCodeOnly])
+
+  // Clear any pending autosave timer on unmount.
+  useEffect(() => () => {
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+  }, [])
+
   // Handle node changes from ReactFlow
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
     if (isCodeOnly) return
     setNodes((nds) => applyNodeChanges(changes, nds))
-  }, [isCodeOnly])
+    // Drag end → persist the new arrangement without an explicit Save.
+    const draggedToRest = changes.some((change) => change.type === 'position' && change.dragging === false)
+    if (draggedToRest) scheduleAutosave()
+  }, [isCodeOnly, scheduleAutosave])
+
+  // Auto-arrange / Tidy: the single intentional full re-layout. Re-runs dagre
+  // (LR) over the current graph, overwrites positions, and persists via autosave.
+  const handleAutoArrange = useCallback(() => {
+    if (isCodeOnly) return
+    setNodes((nds) => applyAutoLayout(nds, edges))
+    scheduleAutosave()
+  }, [isCodeOnly, edges, scheduleAutosave])
 
   // Handle edge changes from ReactFlow
   const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
@@ -320,6 +424,19 @@ export default function VisualEditorPage() {
       notifyDeleted: () => flash('Step deleted successfully', 'success'),
     })
   }, [confirm, nodes, t])
+
+  // Inline node delete: a node's trash button dispatches WORKFLOW_NODE_DELETE_EVENT
+  // (decoupled from the node component); route it through the same confirm +
+  // edge-cleanup flow as the edit dialog's delete. No-op in read-only mode.
+  useEffect(() => {
+    if (isCodeOnly) return
+    const onNodeDelete = (event: Event) => {
+      const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId
+      if (typeof nodeId === 'string') void handleDeleteNode(nodeId)
+    }
+    window.addEventListener(WORKFLOW_NODE_DELETE_EVENT, onNodeDelete)
+    return () => window.removeEventListener(WORKFLOW_NODE_DELETE_EVENT, onNodeDelete)
+  }, [isCodeOnly, handleDeleteNode])
 
   // Handle new connections. A drop onto a sub-workflow IN port authors a field
   // mapping (written to the target step's config.inputMapping + a distinct data
@@ -515,6 +632,78 @@ export default function VisualEditorPage() {
       setIsSaving(false)
     }
   }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, definitionId, updatedAt, router])
+
+  // Quiet autosave routine (no redirect, no success flash). Mirrors the update
+  // branch of `handleSave` exactly — same payload and the same optimistic-lock
+  // header — so dragged positions persist without an explicit Save. Reassigned
+  // every render and invoked through `performAutosaveRef` by the debounced timer
+  // so it always sees the latest nodes/edges/metadata.
+  performAutosaveRef.current = async () => {
+    if (!definitionId || isCodeOnly) return
+    if (!workflowId || !workflowName) return
+
+    const criticalErrors = validateWorkflowGraph(nodes, edges).filter((e) => e.type === 'error')
+    if (criticalErrors.length > 0) return
+
+    const graphDefinition = graphToDefinition(nodes, edges, { includePositions: true })
+    const definitionData = {
+      ...graphDefinition,
+      triggers: triggers.length > 0 ? triggers : undefined,
+    }
+    if (!workflowDefinitionDataSchema.safeParse(definitionData).success) return
+
+    const metadata: any = {}
+    if (category) metadata.category = category
+    if (tags.length > 0) metadata.tags = tags
+    if (icon) metadata.icon = icon
+
+    setAutosaveState('saving')
+    try {
+      const result = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(updatedAt),
+        () => apiCall<{ data: any; error?: string }>(`/api/workflows/definitions/${definitionId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workflowName,
+            description: description || null,
+            version,
+            definition: definitionData,
+            metadata: Object.keys(metadata).length > 0 ? metadata : null,
+            enabled,
+            effectiveFrom: effectiveFrom || null,
+            effectiveTo: effectiveTo || null,
+          }),
+        }),
+      )
+
+      if (!result.ok) {
+        setAutosaveState('idle')
+        const conflictError = Object.assign(new Error('[internal] workflow autosave failed'), {
+          status: result.status,
+          ...(result.result && typeof result.result === 'object' ? result.result : {}),
+        })
+        surfaceRecordConflict(conflictError, t)
+        return
+      }
+
+      const savedDefinition = result.result?.data
+      if (typeof savedDefinition?.updatedAt === 'string') {
+        setUpdatedAt(savedDefinition.updatedAt)
+      }
+      setAutosaveState('saved')
+    } catch (error) {
+      console.error('[internal] workflow autosave failed', error)
+      setAutosaveState('idle')
+    }
+  }
+
+  // Fade the "Saved" affordance back to idle shortly after a successful autosave.
+  useEffect(() => {
+    if (autosaveState !== 'saved') return
+    const timer = setTimeout(() => setAutosaveState('idle'), 2000)
+    return () => clearTimeout(timer)
+  }, [autosaveState])
 
   // Customize a code-defined workflow → creates an override and reloads the
   // editor pointed at the new UUID. Mirrors the non-visual edit page button.
@@ -842,21 +1031,60 @@ export default function VisualEditorPage() {
     )
   }
 
+  // Break the editor out of `main`'s centered `max-w-screen-2xl` so the canvas
+  // uses the full content column on wide screens (the side gutters the author
+  // saw). Width = the content column (viewport minus the sidebar offset exposed
+  // by AppShell); the negative margins cancel `main`'s auto-centering
+  // (`max(0, (col-1536)/2)`) and its `lg:p-6` padding (24px). Desktop-only — the
+  // compact (<1280px) layout keeps the normal centered container.
+  const fullBleedSideMargin =
+    'calc(-1 * (max(0px, (100vw - var(--app-content-offset, 0px) - 1536px) / 2) + 24px))'
+  const fullBleedStyle: React.CSSProperties = !isCompactViewport
+    ? {
+        width: 'calc(100vw - var(--app-content-offset, 0px))',
+        marginLeft: fullBleedSideMargin,
+        marginRight: fullBleedSideMargin,
+      }
+    : {}
+
   return (
-    <Page className="space-y-0 overflow-x-hidden">
+    <Page
+      className="flex min-h-[calc(100svh-7rem)] flex-col space-y-0 overflow-x-hidden"
+      style={fullBleedStyle}
+    >
       {/* Page Header */}
-      <div className="shrink-0 border-b border-border bg-background px-3 py-2 md:px-6 md:py-3">
+      <div className={`shrink-0 border-b border-border bg-background ${focusMode ? 'px-3 py-1.5 md:px-4' : 'px-3 py-2 md:px-6 md:py-3'}`}>
         <FormHeader
           mode="detail"
           backHref="/backend/definitions"
           backLabel={t('workflows.definitions.backToList', 'Back to definitions')}
           title={definitionId ? (workflowName || t('workflows.definitions.singular')) : t('workflows.backend.definitions.visual_editor.title')}
-          subtitle={definitionId
-            ? t('workflows.definitions.detail.summary', 'Editing workflow definition')
-            : t('workflows.definitions.create.summary', 'Create and edit workflow definitions visually with a drag-and-drop interface')
+          subtitle={focusMode
+            ? undefined
+            : definitionId
+              ? t('workflows.definitions.detail.summary', 'Editing workflow definition')
+              : t('workflows.definitions.create.summary', 'Create and edit workflow definitions visually with a drag-and-drop interface')
           }
           actionsContent={
             <div className="flex flex-wrap items-center justify-end gap-1 md:gap-2">
+              {!isCodeOnly && definitionId && autosaveState !== 'idle' && (
+                <span className="mr-1 text-xs text-muted-foreground" aria-live="polite">
+                  {autosaveState === 'saving' ? t('workflows.visualEditor.autosaving') : t('workflows.visualEditor.autosaved')}
+                </span>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={toggleFocus}
+                disabled={isSaving}
+                className="h-8 px-2 text-xs"
+                aria-label={focusMode ? t('workflows.visualEditor.exitFocusMode') : t('workflows.visualEditor.enterFocusMode')}
+              >
+                {focusMode ? <Minimize2 className="mr-1.5 h-4 w-4" /> : <Maximize2 className="mr-1.5 h-4 w-4" />}
+                {focusMode ? t('workflows.visualEditor.exitFocusMode') : t('workflows.visualEditor.enterFocusMode')}
+              </Button>
+              {!focusMode && (
+              <>
               <Button
                 variant="outline"
                 size="sm"
@@ -877,6 +1105,19 @@ export default function VisualEditorPage() {
                   className="h-8 text-xs"
                 >
                   {t('workflows.visualEditor.loadExample')}
+                </Button>
+              )}
+              {!isCodeOnly && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAutoArrange}
+                  disabled={isSaving || nodes.length === 0}
+                  className="h-8 px-2 text-xs"
+                  aria-label={t('workflows.visualEditor.autoArrange')}
+                >
+                  <Network className="mr-1.5 h-4 w-4" />
+                  {t('workflows.visualEditor.autoArrange')}
                 </Button>
               )}
               {!isCodeOnly && (
@@ -926,6 +1167,8 @@ export default function VisualEditorPage() {
                   {t('workflows.actions.resetToCode')}
                 </Button>
               )}
+              </>
+              )}
               {isCodeOnly ? (
                 <Button
                   size="sm"
@@ -969,10 +1212,10 @@ export default function VisualEditorPage() {
       )}
 
       {/* Workflow Metadata Form */}
-      {showMetadata && (
+      {showMetadata && !focusMode && (
         <div className={isCompactViewport
           ? 'shrink-0 border-b border-border bg-background px-3 py-2 max-h-[60svh] overflow-y-auto overscroll-contain md:px-6 md:py-3'
-          : 'shrink-0 border-b border-border bg-background px-3 py-2 md:px-6 md:py-3'
+          : 'shrink-0 border-b border-border bg-background px-3 py-2 max-h-[45svh] overflow-y-auto overscroll-contain md:px-6 md:py-3'
         }>
           <fieldset disabled={isCodeOnly} className="rounded-lg border bg-card p-3 disabled:opacity-70 md:p-4">
             <h2 className="mb-3 text-xs font-semibold uppercase text-muted-foreground">{t('workflows.visualEditor.workflowMetadata')}</h2>
@@ -1171,158 +1414,98 @@ export default function VisualEditorPage() {
           )}
         </div>
       ) : (
-        <div className="flex min-h-[72svh] min-w-0 flex-1 border-t border-border">
-          {/* Left Sidebar - Step Palette (hidden in read-only mode) */}
+        <div className="flex min-h-0 min-w-0 flex-1 border-t border-border pl-3 md:pl-6">
+          {/* Left Sidebar - Step Palette rail (hidden in read-only mode) */}
           {!isCodeOnly && (
-          <div className="w-[24rem] shrink-0 overflow-y-auto border-r border-border bg-background p-6">
-            <div className="rounded-lg border bg-card p-4">
-              <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">{t('workflows.visualEditor.stepPalette')}</h2>
-              <p className="mb-4 text-xs text-muted-foreground">
-                {t('workflows.visualEditor.clickToAdd')}
-              </p>
-
-              <div className="space-y-3">
-                {/* START Step */}
-                <button
-                  onClick={() => handleAddNode('start')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.start} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.start
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.start.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.start.description}</div>
-                </button>
-
-                {/* USER_TASK Step */}
-                <button
-                  onClick={() => handleAddNode('userTask')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.userTask} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.userTask
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.userTask.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.userTask.description}</div>
-                </button>
-
-                {/* AUTOMATED Step */}
-                <button
-                  onClick={() => handleAddNode('automated')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.automated} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.automated
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.automated.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.automated.description}</div>
-                </button>
-
-                {/* INVOKE_AGENT Step */}
-                <button
-                  onClick={() => handleAddNode('invokeAgent')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.invokeAgent} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.invokeAgent
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.invokeAgent.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.invokeAgent.description}</div>
-                </button>
-
-                {/* WAIT_FOR_SIGNAL Step */}
-                <button
-                  onClick={() => handleAddNode('waitForSignal')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.waitForSignal} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.waitForSignal
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.waitForSignal.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.waitForSignal.description}</div>
-                </button>
-
-                {/* WAIT_FOR_TIMER Step */}
-                <button
-                  onClick={() => handleAddNode('waitForTimer')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.waitForTimer} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.waitForTimer
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.waitForTimer.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.waitForTimer.description}</div>
-                </button>
-
-                {/* SUB_WORKFLOW Step */}
-                <button
-                  onClick={() => handleAddNode('subWorkflow')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.subWorkflow} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.subWorkflow
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.subWorkflow.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.subWorkflow.description}</div>
-                </button>
-
-                {/* END Step */}
-                <button
-                  onClick={() => handleAddNode('end')}
-                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
-                >
-                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.end} opacity-60 transition-opacity group-hover:opacity-100`}>
-                    {(() => {
-                      const Icon = NODE_TYPE_ICONS.end
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.end.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.end.description}</div>
-                </button>
-              </div>
-
-              {/* Instructions */}
-              <Alert variant="info" className="mt-6">
-                <AlertTitle className="text-xs">{t('workflows.visualEditor.howToUse', 'How to use:')}</AlertTitle>
-                <div className="mt-2">
-                  <ul className="list-inside list-disc space-y-1 text-xs">
-                    <li>{t('workflows.visualEditor.hint.addSteps', 'Click step types to add them')}</li>
-                    <li>{t('workflows.visualEditor.hint.dragSteps', 'Drag steps to position them')}</li>
-                    <li>{t('workflows.visualEditor.hint.connectSteps', 'Connect steps by dragging from handles')}</li>
-                    <li>{t('workflows.visualEditor.hint.editSteps', 'Click steps and transitions to edit them')}</li>
-                    <li>{t('workflows.visualEditor.hint.validate', 'Validate before saving')}</li>
-                  </ul>
-                </div>
-              </Alert>
+          <div className={`${paletteCollapsed ? 'w-14' : 'w-48'} shrink-0 overflow-y-auto border-r border-border bg-background p-2`}>
+            <div className={`mb-2 flex items-center ${paletteCollapsed ? 'justify-center' : 'justify-between'}`}>
+              {!paletteCollapsed && (
+                <h2 className="px-1 text-xs font-semibold uppercase text-muted-foreground">{t('workflows.visualEditor.stepPalette')}</h2>
+              )}
+              <IconButton
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={togglePaletteCollapsed}
+                title={paletteCollapsed ? t('workflows.visualEditor.expandPalette') : t('workflows.visualEditor.collapsePalette')}
+                aria-label={paletteCollapsed ? t('workflows.visualEditor.expandPalette') : t('workflows.visualEditor.collapsePalette')}
+              >
+                {paletteCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+              </IconButton>
             </div>
+
+            {!paletteCollapsed && (
+              <p className="mb-2 px-1 text-xs text-muted-foreground">{t('workflows.visualEditor.clickToAdd')}</p>
+            )}
+
+            <div className={`flex flex-col gap-1 ${paletteCollapsed ? 'items-center' : ''}`}>
+              {PALETTE_NODE_TYPES.map((nodeType) => {
+                const Icon = NODE_TYPE_ICONS[nodeType]
+                const label = NODE_TYPE_LABELS[nodeType]
+                const tooltip = `${label.title} — ${label.description}`
+                if (paletteCollapsed) {
+                  return (
+                    <button
+                      key={nodeType}
+                      type="button"
+                      onClick={() => handleAddNode(nodeType)}
+                      title={tooltip}
+                      aria-label={tooltip}
+                      className="flex h-9 w-9 items-center justify-center rounded-md border hover:bg-muted"
+                    >
+                      <Icon className={`h-4 w-4 ${NODE_TYPE_COLORS[nodeType]}`} />
+                    </button>
+                  )
+                }
+                return (
+                  <button
+                    key={nodeType}
+                    type="button"
+                    onClick={() => handleAddNode(nodeType)}
+                    title={label.description}
+                    className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs hover:bg-muted"
+                  >
+                    <Icon className={`h-4 w-4 shrink-0 ${NODE_TYPE_COLORS[nodeType]}`} />
+                    <span className="truncate font-medium text-foreground">{label.title}</span>
+                  </button>
+                )
+              })}
+            </div>
+
+            {!paletteCollapsed && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowPaletteHowTo((prev) => !prev)}
+                  aria-expanded={showPaletteHowTo}
+                  className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <CircleQuestionMark className="h-3.5 w-3.5" />
+                  <span>{t('workflows.visualEditor.howToUse', 'How to use:')}</span>
+                </button>
+                {showPaletteHowTo && (
+                  <Alert variant="info" className="mt-2">
+                    <AlertTitle className="text-xs">{t('workflows.visualEditor.howToUse', 'How to use:')}</AlertTitle>
+                    <div className="mt-2">
+                      <ul className="list-inside list-disc space-y-1 text-xs">
+                        <li>{t('workflows.visualEditor.hint.addSteps', 'Click step types to add them')}</li>
+                        <li>{t('workflows.visualEditor.hint.dragSteps', 'Drag steps to position them')}</li>
+                        <li>{t('workflows.visualEditor.hint.connectSteps', 'Connect steps by dragging from handles')}</li>
+                        <li>{t('workflows.visualEditor.hint.editSteps', 'Click steps and transitions to edit them')}</li>
+                        <li>{t('workflows.visualEditor.hint.validate', 'Validate before saving')}</li>
+                      </ul>
+                    </div>
+                  </Alert>
+                )}
+              </div>
+            )}
           </div>
           )}
 
-          {/* Main Canvas */}
+          {/* Main Canvas — the header already carries the Focus toggle, so no
+              separate in-canvas Exit-focus button (avoids two identical controls). */}
           <div className="min-w-0 flex-1 p-6">
-            <div className="relative h-[72svh] min-h-[640px]">
+            <div className="relative h-full min-h-[480px]">
               <div className="h-full rounded-lg border bg-card">
                 <WorkflowGraph
                   initialNodes={nodes}

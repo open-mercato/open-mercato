@@ -345,6 +345,10 @@ export const workflowStepSchema = z.object({
   retryPolicy: retryPolicySchema.optional(),
   // Pre-conditions for START step (business rules to validate before workflow can be started)
   preConditions: z.array(startPreConditionSchema).optional(),
+  // Visual-editor node coordinate persisted in the jsonb definition so a saved
+  // graph re-opens exactly as the author arranged it. Additive/optional — legacy
+  // and code-authored definitions omit it and auto-arrange on load.
+  _editorPosition: z.object({ x: z.number(), y: z.number() }).optional(),
 }).superRefine((step, ctx) => {
   if (step.stepType !== 'WAIT_FOR_TIMER') return
   const config = step.config || {}

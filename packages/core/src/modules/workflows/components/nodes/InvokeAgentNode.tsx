@@ -26,7 +26,7 @@ export interface InvokeAgentNodeData {
  * AUTOMATED step carrying a single INVOKE_AGENT activity (see NodeEditDialog +
  * graph-utils); `agentId` here is for display only.
  */
-export function InvokeAgentNode({ data, isConnectable, selected }: NodeProps) {
+export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps) {
   const t = useT()
   const nodeData = data as unknown as InvokeAgentNodeData
 
@@ -77,10 +77,10 @@ export function InvokeAgentNode({ data, isConnectable, selected }: NodeProps) {
     <div className="invoke-agent-node" title={nodeData.tooltip}>
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         id="target"
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-brand-violet !border-2 !border-white"
+        className="!w-3 !h-3 !bg-brand-violet !border-2 !border-background"
       />
 
       <div className="relative">
@@ -90,6 +90,8 @@ export function InvokeAgentNode({ data, isConnectable, selected }: NodeProps) {
           status={workflowStatus}
           nodeType="invokeAgent"
           selected={selected}
+          nodeId={id}
+          editable={isConnectable}
         />
         {chip && (
           <span
@@ -102,10 +104,10 @@ export function InvokeAgentNode({ data, isConnectable, selected }: NodeProps) {
 
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         id="source"
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-brand-violet !border-2 !border-white"
+        className="!w-3 !h-3 !bg-brand-violet !border-2 !border-background"
       />
     </div>
   )
