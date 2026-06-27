@@ -748,7 +748,12 @@ export async function completeWorkflow(
         })
 
         // Note: instance status already updated by compensateWorkflow
-        // It will be COMPENSATED or remain FAILED
+        // It will be COMPENSATED or remain FAILED.
+        // A compensated/failed child must still resume its parent SUB_WORKFLOW
+        // step — otherwise a parent parked on this child stays PAUSED forever.
+        // From the parent's perspective the sub-workflow did not succeed, so this
+        // mirrors the normal-path enqueue below but always signals FAILED.
+        await enqueueSubWorkflowParentResume(instance, 'FAILED')
         return
       } catch (error: any) {
         logger.error('Compensation failed with exception', { err: error })

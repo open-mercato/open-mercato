@@ -21,6 +21,7 @@ import type { AwilixContainer } from 'awilix'
 const enqueueMock = jest.fn<Promise<string>, [unknown, unknown?]>()
 const sendSignalMock = jest.fn<Promise<void>, [unknown, unknown, unknown]>()
 const completeWorkflowMock = jest.fn<Promise<void>, [unknown, unknown, string, string, unknown?]>()
+const compensateWorkflowMock = jest.fn<Promise<any>, [unknown, unknown, unknown, unknown, unknown?]>()
 
 jest.mock('@open-mercato/queue', () => ({
   createModuleQueue: jest.fn(() => ({ enqueue: enqueueMock })),
@@ -28,6 +29,10 @@ jest.mock('@open-mercato/queue', () => ({
 
 jest.mock('../signal-handler', () => ({
   sendSignal: (...args: unknown[]) => sendSignalMock(args[0], args[1], args[2]),
+}))
+
+jest.mock('../compensation-handler', () => ({
+  compensateWorkflow: (...args: unknown[]) => compensateWorkflowMock(args[0], args[1], args[2], args[3], args[4]),
 }))
 
 import * as stepHandler from '../step-handler'
@@ -116,6 +121,7 @@ beforeEach(() => {
   enqueueMock.mockReset().mockResolvedValue('job-1')
   sendSignalMock.mockReset().mockResolvedValue(undefined)
   completeWorkflowMock.mockReset().mockResolvedValue(undefined)
+  compensateWorkflowMock.mockReset().mockResolvedValue({ status: 'COMPENSATED', compensatedActivities: 1, totalActivities: 1 })
   jest.clearAllMocks()
 })
 
@@ -276,5 +282,56 @@ describe('resumeParentAfterSubWorkflow', () => {
 
     await expect(resumeParentAfterSubWorkflow(em, container, makeResumeJob())).rejects.toThrow(/not parked yet/)
     expect(sendSignalMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('completeWorkflow resumes the parent even when the failed child compensates', () => {
+  // A child sub-workflow that FAILS and has compensatable activities takes the
+  // early-return compensation path in completeWorkflow. Without enqueuing the
+  // parent-resume there, a parent parked on this child would stay PAUSED forever.
+  const compensatableChildDefinition: Partial<WorkflowDefinition> = {
+    id: 'child-def',
+    definition: {
+      steps: [],
+      transitions: [
+        { fromStepId: 'a', toStepId: 'b', activities: [{ activityId: 'x', compensation: { activityId: 'undo-x' } }] },
+      ],
+    } as any,
+  }
+
+  const failedChildWithParent: Partial<WorkflowInstance> = {
+    ...childInstance,
+    status: 'FAILED',
+    definitionId: 'child-def',
+    metadata: { labels: { parentInstanceId, parentStepId, parentStepInstanceId: stepInstanceId } } as any,
+  }
+
+  function makeEm(): EntityManager {
+    const findOne = jest.fn(async (entity: any) => {
+      const name = typeof entity === 'function' ? entity.name : entity
+      if (name === 'WorkflowInstance') return failedChildWithParent
+      if (name === 'WorkflowDefinition') return compensatableChildDefinition
+      return null
+    })
+    return { findOne, flush: jest.fn().mockResolvedValue(undefined) } as unknown as EntityManager
+  }
+
+  test('enqueues a resume_subworkflow_parent job (FAILED) on the compensation path', async () => {
+    const em = makeEm()
+    const container = {} as AwilixContainer
+
+    await workflowExecutor.completeWorkflow(em, container, childInstanceId, 'FAILED', { error: 'boom' })
+
+    expect(compensateWorkflowMock).toHaveBeenCalledTimes(1)
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+    const [job] = enqueueMock.mock.calls[0] as [WorkflowActivityJobResumeSubWorkflowParent, unknown]
+    expect(job).toMatchObject({
+      kind: 'resume_subworkflow_parent',
+      parentInstanceId,
+      parentStepId,
+      parentStepInstanceId: stepInstanceId,
+      childInstanceId,
+      childStatus: 'FAILED',
+    })
   })
 })
