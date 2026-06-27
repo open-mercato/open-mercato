@@ -9,7 +9,7 @@ import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgr
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { WorkflowInstance, WorkflowBranchInstance, WorkflowDefinition, StepInstance } from '../data/entities'
-import { INVOKE_AGENT_SIGNAL_NAME } from './activity-executor'
+import { INVOKE_AGENT_SIGNAL_NAME, SUB_WORKFLOW_SIGNAL_NAME } from './activity-executor'
 import type * as eventLoggerModule from './event-logger'
 import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
@@ -211,11 +211,16 @@ export async function sendSignal(
     !!currentStep &&
     Array.isArray(currentStep.activities) &&
     currentStep.activities.some((a: any) => a?.activityType === 'INVOKE_AGENT')
+  // SUB_WORKFLOW steps park while their child instance runs its own async/agent
+  // steps and resume on SUB_WORKFLOW_SIGNAL_NAME once the child terminates;
+  // recognize them even without an explicit signalConfig.signalName.
+  const isSubWorkflowStep = !!currentStep && currentStep.stepType === 'SUB_WORKFLOW'
   const stepCanReceiveSignal =
     !!currentStep &&
     (currentStep.stepType === 'WAIT_FOR_SIGNAL' ||
       !!currentStep.signalConfig?.signalName ||
-      isInvokeAgentStep)
+      isInvokeAgentStep ||
+      isSubWorkflowStep)
   if (!stepCanReceiveSignal) {
     throw new SignalError(
       'Workflow is not waiting for signal',
@@ -227,7 +232,11 @@ export async function sendSignal(
   // Check signal name matches
   const expectedSignalName =
     currentStep.signalConfig?.signalName ||
-    (isInvokeAgentStep ? INVOKE_AGENT_SIGNAL_NAME : currentStep.stepId)
+    (isInvokeAgentStep
+      ? INVOKE_AGENT_SIGNAL_NAME
+      : isSubWorkflowStep
+        ? SUB_WORKFLOW_SIGNAL_NAME
+        : currentStep.stepId)
   if (expectedSignalName !== signalName) {
     throw new SignalError(
       'Signal name mismatch',

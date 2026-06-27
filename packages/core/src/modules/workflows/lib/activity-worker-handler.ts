@@ -6,11 +6,17 @@
  */
 
 import { JobHandler } from '@open-mercato/queue'
-import { WorkflowActivityJob, WorkflowActivityJobInvokeAgent } from './activity-queue-types'
+import {
+  WorkflowActivityJob,
+  WorkflowActivityJobInvokeAgent,
+  WorkflowActivityJobResumeSubWorkflowParent,
+} from './activity-queue-types'
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
-import { WorkflowInstance } from '../data/entities'
+import { WorkflowDefinition, WorkflowInstance, StepInstance } from '../data/entities'
+import type { WorkflowIoContract } from '../data/validators'
 import { logWorkflowEvent } from './event-logger'
+import { SUB_WORKFLOW_SIGNAL_NAME } from './activity-executor'
 import {
   executeSendEmail,
   executeEmitEvent,
@@ -63,6 +69,13 @@ export function createActivityWorkerHandler(
     // transaction, then resume the parked step (see handleInvokeAgentJob).
     if (payload.kind === 'invoke_agent') {
       await handleInvokeAgentJob(em, container, payload)
+      return
+    }
+
+    // Resume-parent jobs resume a parent instance parked on a SUB_WORKFLOW step
+    // after its child reached a terminal state (see resumeParentAfterSubWorkflow).
+    if (payload.kind === 'resume_subworkflow_parent') {
+      await resumeParentAfterSubWorkflow(em, container, payload)
       return
     }
 
@@ -330,6 +343,159 @@ export async function handleInvokeAgentJob(
     // log and leave the instance parked (resumable via a manual signal).
     console.error(
       `[ActivityWorker] invoke_agent ${payload.agentId} ran but resume failed for instance ${payload.workflowInstanceId}; left parked:`,
+      resumeError?.message
+    )
+  }
+}
+
+/**
+ * Resume a parent instance parked on a SUB_WORKFLOW step after its child reached
+ * a terminal state. Modelled on `handleInvokeAgentJob`:
+ *
+ * Idempotency / ordering guards (mirror handleInvokeAgentJob):
+ *   - parent not found → throw (parking txn may not be visible yet; retry)
+ *   - parent.currentStepId !== parentStepId → already advanced or never parked
+ *     here (synchronous fast path) → skip (no retry)
+ *   - parent.status !== 'PAUSED' → not parked yet → throw (retry)
+ *
+ * A COMPLETED child maps its output (shared mapSubWorkflowOutput helper) and
+ * resumes via `sendSignal`. A FAILED child fails the parent. Once the resume work
+ * has run, a resume failure is logged rather than rethrown so a retry cannot
+ * double-execute side effects.
+ */
+export async function resumeParentAfterSubWorkflow(
+  em: EntityManager,
+  container: AwilixContainer,
+  payload: WorkflowActivityJobResumeSubWorkflowParent
+): Promise<void> {
+  const { parentInstanceId, parentStepId, parentStepInstanceId, childInstanceId, childStatus, tenantId, organizationId } =
+    payload
+
+  const parent = await em.findOne(WorkflowInstance, {
+    id: parentInstanceId,
+    tenantId,
+    organizationId,
+  })
+  if (!parent) {
+    // The parking transaction may not be visible yet — retry.
+    throw new Error(`Parent workflow instance ${parentInstanceId} not found for resume_subworkflow_parent job`)
+  }
+
+  if (parent.currentStepId !== parentStepId) {
+    console.log(
+      `[ActivityWorker] resume_subworkflow_parent skipped — parent ${parentInstanceId} current step is ${parent.currentStepId}, not ${parentStepId} (already resolved or synchronous fast path)`
+    )
+    return
+  }
+  if (parent.status !== 'PAUSED') {
+    // Parking transaction has not committed yet; retry before resuming.
+    throw new Error(
+      `resume_subworkflow_parent: parent ${parentInstanceId} not parked yet (status=${parent.status}); retrying`
+    )
+  }
+
+  const { completeWorkflow } = await import('./workflow-executor')
+
+  const failParent = async (error: string): Promise<void> => {
+    const activeStep = await em.findOne(StepInstance, {
+      workflowInstanceId: parentInstanceId,
+      stepId: parentStepId,
+      status: 'ACTIVE',
+    })
+    if (activeStep) {
+      const now = new Date()
+      activeStep.status = 'FAILED'
+      activeStep.errorData = { error }
+      activeStep.exitedAt = now
+      activeStep.updatedAt = now
+      await em.flush()
+    }
+    await completeWorkflow(em, container, parentInstanceId, 'FAILED', { error })
+  }
+
+  if (childStatus === 'FAILED') {
+    const message = `Sub-workflow child ${childInstanceId} failed`
+    await logWorkflowEvent(em, {
+      workflowInstanceId: parentInstanceId,
+      stepInstanceId: parentStepInstanceId,
+      eventType: 'SUB_WORKFLOW_FAILED',
+      eventData: { childInstanceId, error: message },
+      tenantId,
+      organizationId,
+    })
+    await failParent(message)
+    return
+  }
+
+  // COMPLETED child: map its output against the SUB_WORKFLOW step's outputMapping
+  // and the child's declared io output ports.
+  const parentDefinition = await em.findOne(WorkflowDefinition, { id: parent.definitionId })
+  const stepDef = parentDefinition?.definition.steps.find((s: any) => s.stepId === parentStepId)
+  const { subWorkflowId, outputMapping, version } = (stepDef?.config || {}) as {
+    subWorkflowId?: string
+    outputMapping?: Record<string, string>
+    version?: number
+  }
+
+  const childInstance = await em.findOne(WorkflowInstance, {
+    id: childInstanceId,
+    tenantId,
+    organizationId,
+  })
+  if (!childInstance) {
+    throw new Error(`Child workflow instance ${childInstanceId} not found for resume_subworkflow_parent job`)
+  }
+
+  const { findWorkflowDefinition } = await import('./find-definition')
+  const childDefinition = subWorkflowId
+    ? await findWorkflowDefinition(em, { workflowId: subWorkflowId, version, tenantId, organizationId })
+    : null
+  const ioContract = (childDefinition?.definition as { io?: WorkflowIoContract } | undefined)?.io
+
+  const { mapSubWorkflowOutput } = await import('./step-handler')
+  const mapped = mapSubWorkflowOutput(childInstance.context || {}, outputMapping || {}, ioContract)
+
+  if (mapped.error) {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: parentInstanceId,
+      stepInstanceId: parentStepInstanceId,
+      eventType: 'SUB_WORKFLOW_FAILED',
+      eventData: { childInstanceId, reason: 'OUTPUT_VALIDATION', error: mapped.error },
+      tenantId,
+      organizationId,
+    })
+    await failParent(mapped.error)
+    return
+  }
+
+  const outputData = mapped.outputData
+
+  await logWorkflowEvent(em, {
+    workflowInstanceId: parentInstanceId,
+    stepInstanceId: parentStepInstanceId,
+    eventType: 'SUB_WORKFLOW_COMPLETED',
+    eventData: { childInstanceId, outputData },
+    tenantId,
+    organizationId,
+  })
+
+  // Resume the parent via sendSignal: merges outputData into context, exits the
+  // active SUB_WORKFLOW step, runs the auto transition out of it, and resumes
+  // executeWorkflow(parent). After this side-effecting work, a failure is logged
+  // rather than rethrown to avoid double-execution on retry.
+  try {
+    const { sendSignal } = await import('./signal-handler')
+    await sendSignal(em, container, {
+      instanceId: parentInstanceId,
+      signalName: SUB_WORKFLOW_SIGNAL_NAME,
+      payload: outputData,
+      userId: payload.userId,
+      tenantId,
+      organizationId,
+    })
+  } catch (resumeError: any) {
+    console.error(
+      `[ActivityWorker] resume_subworkflow_parent: child ${childInstanceId} completed but resuming parent ${parentInstanceId} failed; left parked:`,
       resumeError?.message
     )
   }

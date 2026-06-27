@@ -112,6 +112,14 @@ export type ActivityType =
 export const INVOKE_AGENT_SIGNAL_NAME = 'agent_orchestrator.proposal.ready'
 
 /**
+ * Signal name a parked SUB_WORKFLOW step resumes on once its child instance
+ * reaches a terminal state. `completeWorkflow` enqueues a resume job when the
+ * child carries a parent linkage; the worker resumes the parent step via
+ * `sendSignal` with this name.
+ */
+export const SUB_WORKFLOW_SIGNAL_NAME = 'workflows.sub_workflow.completed'
+
+/**
  * Small enqueue delay for the INVOKE_AGENT job so the workflow transaction that
  * parked the step commits before the worker picks the job up. The worker also
  * guards against the race (it requires the instance to be PAUSED at the step
