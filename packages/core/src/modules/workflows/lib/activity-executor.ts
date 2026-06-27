@@ -990,6 +990,23 @@ export async function executeInvokeAgent(
     context.stepContext?.stepId ||
     context.workflowInstance.currentStepId
 
+  // Resolve the traceable principal this agent run executes as, from the
+  // workflow instance (NOT the unreliable execution `context.userId`, which is
+  // empty for event/sub-workflow paths). Same security model as CALL_API: the
+  // run must never exceed the permissions of the human who triggered (or
+  // authored) the workflow, and there is no anonymous "system" fallback —
+  // passing an empty user id downstream both poisons the DB transaction
+  // (invalid uuid `""`) and would mint a session token attributed to no one.
+  const principalEm = container.resolve<PostgreSqlEntityManager>('em')
+  const effectiveUserId = await resolveWorkflowPrincipalUserId(principalEm, context.workflowInstance)
+  if (!effectiveUserId) {
+    throw new Error(
+      `[INVOKE_AGENT] Refusing to execute for workflow instance ${context.workflowInstance.id}: ` +
+      `no traceable user (instance initiatedBy or definition author) could be resolved. ` +
+      `Agent runs must execute under the identity of the user who triggered them.`
+    )
+  }
+
   // Parallel-branch agent steps keep the legacy inline path. The async fix below
   // parks and resumes at the INSTANCE level, and sendSignal's FORKED branch
   // resume only matches WAIT_FOR_SIGNAL steps — so an instance-level resume would
@@ -1004,7 +1021,7 @@ export async function executeInvokeAgent(
       ctx: {
         tenantId: context.workflowInstance.tenantId,
         organizationId: context.workflowInstance.organizationId,
-        userId: context.userId,
+        userId: effectiveUserId,
         processId: context.workflowInstance.id,
         stepId,
       },
@@ -1051,7 +1068,7 @@ export async function executeInvokeAgent(
     onResult,
     tenantId: context.workflowInstance.tenantId,
     organizationId: context.workflowInstance.organizationId,
-    userId: context.userId,
+    userId: effectiveUserId,
   }
   const jobId = await queue.enqueue(job, { delayMs: INVOKE_AGENT_ENQUEUE_DELAY_MS })
 
@@ -1288,6 +1305,41 @@ export async function resolveCallApiRoleIds(
   if (!authorUserId) return []
 
   return resolveActiveRoleIdsForUser(em, authorUserId, scope)
+}
+
+/**
+ * Resolve the traceable principal user id an INVOKE_AGENT run executes as.
+ *
+ * Mirrors `resolveCallApiRoleIds`' principal chain so workflow-originated agent
+ * runs carry the same audited identity as CALL_API:
+ *   1. The instance's `metadata.initiatedBy` (whoever started it; inherited by
+ *      sub-workflows from the parent instance).
+ *   2. The definition's `createdBy` (author) for event-triggered instances with
+ *      no human initiator. Soft-deleted definitions resolve to no principal.
+ *
+ * Returns `null` when no traceable principal exists — callers MUST refuse rather
+ * than fall back to an empty/anonymous user id (which breaks uuid columns and
+ * bypasses RBAC attribution).
+ */
+export async function resolveWorkflowPrincipalUserId(
+  em: any,
+  instance: CallApiInstanceLike
+): Promise<string | null> {
+  const initiatorUserId = instance.metadata?.initiatedBy ?? null
+  if (initiatorUserId) return initiatorUserId
+
+  if (!instance.definitionId) return null
+
+  const { findOneWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
+  const { WorkflowDefinition } = await import('../data/entities')
+
+  const definition = await findOneWithDecryption(em, WorkflowDefinition, {
+    id: instance.definitionId,
+    tenantId: instance.tenantId,
+    deletedAt: null,
+  }, {}, { tenantId: instance.tenantId, organizationId: instance.organizationId })
+
+  return definition?.createdBy ?? null
 }
 
 /**
