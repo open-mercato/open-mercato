@@ -1,146 +1,127 @@
 # Pre-Implementation Analysis: ts-morph Module Fact-Sheets — Generated Standalone Guides
 
 - **Spec:** `.ai/specs/2026-06-27-ts-morph-module-fact-sheets.md`
-- **Analysis date:** 2026-06-27
+- **Analysis date:** 2026-06-27 (refreshed — second pass, post-D6)
 - **Analyst:** pre-implement-spec
-- **Scope reviewed:** create-app guide wiring, cli ts-morph generator infra, customers-module facts (the spec's worked example)
+- **Scope reviewed:** create-app guide wiring (`build.mjs`, `shared.ts`, `AGENTS.md.template`), the scaffold flow (`index.ts` → `wizard.ts` → `tools/{shared,codex}.ts`), template `enabledModules`, cli ts-morph generator infra, customers-module facts
+- **Supersedes:** the first pass (this same file, 14:16) whose findings GAP-1/2/3/4 + the missing test section are now **incorporated into the spec** (see "Prior pass — resolved"). This refresh re-validates those and focuses on the newly added **Decision D6** (dynamic per-enabled-module AGENTS.md), **R5**, and **T6**.
 
 ## Executive Summary
 
-The spec's **architecture is sound and its motivating premise is real** — the customers guide's broken `make-crud-route` import was confirmed verbatim, and all the infrastructure the spec proposes to reuse (ts-morph AST helpers, `entity-ids`/`module-di`/`events` generators, the generated `E` registry) exists as described. The approach (replace 9 hand-written per-module guides with one conceptual guide + AST-generated fact-sheets) is the correct response to the drift problem.
+The spec's architecture remains sound and the prior pass's critical data-accuracy defects are **all resolved in the current text** (colon-form entity IDs, the `apis[].metadata` auth source, the versioned committed-output location, corrected counts, and a real §10 test section). The new **D6** (generate the AGENTS.md *Module-Specific Guides* table per app from the enabled module set) is a correct, well-scoped addition: it honors the §2 Non-Goal by keeping the 7 package/conceptual rows static and confining "dynamic" to the genuinely per-module surface, and its claimed reuse of the Codex marker-injection idiom and its scaffold-ordering assumption both **check out against the code**.
 
-However, the spec is **not ready to implement as written** because two of its load-bearing technical claims are factually wrong, and the document presents fabricated example data under the label "verified real data." Specifically: (1) the API-route auth source is misnamed — the named manifest does **not** carry per-method auth; (2) every entity-ID in the spec uses a `customers.person` dotted form that **does not exist** in the authoritative `E` registry (which uses `customers:customer_person_profile` colon form). Both must be corrected before coding, because they define the extractor's two most important outputs. There are also example-count errors, a committed-vs-ephemeral output-location contradiction, and a missing integration-test section.
+There are **no Critical blockers**. D6 ships with **one Important clarification gap**: it says "read the already-written `targetDir/src/modules.ts`" but never specifies *how* to extract the enabled set, and the real `enabledModules` is a static literal array **plus conditional `.push()` calls and a `...officialModuleEntries` spread** — a naive static read sees only the literal. This happens to be safe (all 9 D5 modules are static literals), but the spec must say so explicitly or an implementer will either over-engineer (dynamic import) or silently regress. Two Minor items: pick one enabled-set mechanism for both invocation sites, and correct the T5/T6 test locations (they are create-app tests, not cli tests).
 
-**Recommendation: Needs spec updates first (no major revision).** The design holds; fix the data contract (§ items BC-1, GAP-1, GAP-2) and re-issue.
+**Recommendation: Ready to implement after minor spec clarifications** (D6-A extraction mechanism + static-literal caveat; D6-B single mechanism; D6-D test location). All are documentation precision, not architecture.
 
 ---
 
-## Backward Compatibility
+## Prior pass — resolved (re-validated against current spec text)
 
-This is a docs/tooling change. It adds no runtime types, events, routes, schema, DI keys, ACL features, or notifications. It is read-only AST extraction. BC exposure is limited to **generated-file / import-path-like contracts** and **CLI commands**.
+| Prior finding | Status now |
+|---|---|
+| GAP-1 / BC-1 — API auth read from the wrong manifest | **Resolved** — §4 row, §5 "CRUD route auth caveat", D4 now read auth from `modules.runtime.generated.ts` `apis[].metadata` via `buildApiMetadataLiteral()`; `api-routes.generated.ts` explicitly excluded. `buildApiMetadataLiteral` confirmed present in `packages/cli/src/lib/generators/module-registry.ts`. |
+| GAP-2 — dotted `customers.person` entity IDs that don't exist in `E` | **Resolved** — all examples now colon form (`customers:customer_person_profile`), with the dotted-enricher-alias distinction documented. |
+| GAP-3 — committed output in git-ignored `.mercato/generated/` | **Resolved** — D4/§5/§7 now write versioned `apps/mercato/src/module-facts.generated.json`. |
+| GAP-4 — fabricated counts | **Resolved** — ACL 21, events 49, search 6, notifications 2; `diTokens`/`cli` empty. |
+| Missing test/BC-guard section | **Resolved** — §10 added (T1–T5) incl. the BC guard (T3). |
 
-### Violations / Concerns Found
+Infrastructure re-confirmed present: `packages/cli/src/lib/generators/{entity-ids,module-di,module-registry}.ts`, `extensions/events.ts`, `ast/{index,imports,source-file,writers}.ts`; the 9 module-level + 7 package-level `agentic/standalone-guide.md` files exist exactly as the spec's counts state.
+
+---
+
+## Backward Compatibility (D6 delta)
+
+Still a docs/tooling change — no runtime types, events, routes, schema, DI keys, ACL features, or notifications. BC exposure remains limited to generated-file/guide-path contracts and CLI commands; the §7 redirect-stub bridge for the 9 legacy `core.<module>.md` names is intact.
 
 | # | Surface | Issue | Severity | Proposed Fix |
 |---|---------|-------|----------|-------------|
-| BC-1 | (13) API route URLs / **spec accuracy** | The spec (§4 API-routes row, §5 "CRUD route auth caveat", D4) says per-method auth is read from "the generated route/registry manifest produced by `yarn generate`". The actual manifest `apps/mercato/.mercato/generated/api-routes.generated.ts` carries only `{ moduleId, kind, path, methods, load }` — **no auth**. Per-method `requireAuth`/`requireFeatures`/`requireRoles` live in `modules.runtime.generated.ts` / `modules.app.generated.ts` (`apis[].metadata`, built by `buildApiMetadataLiteral()` in `module-registry.ts`). | **Critical (spec inaccuracy)** | Re-point the auth source to the `apis[].metadata` literal in the runtime/app module registry, not `api-routes.generated.ts`. The data exists; only the named file is wrong. Update §5 and D4. |
-| BC-2 | (1)(14) Generated-file/guide filenames | The 9 `.ai/guides/core.<module>.md` filenames are referenced by `AGENTS.md.template` and consumed by scaffolded apps. Removing them is a generated-output contract break. | Warning (already addressed) | **Spec already handles this correctly** (§7): emit legacy `core.<module>.md` as redirect stubs (`→ see modules/<module>.md`) for ≥1 minor version, note in `RELEASE_NOTES.md`, delete the 9 source guides only after stubs land. No change needed beyond keeping the stubs in Phase 3/4. |
-| BC-3 | (13) CLI commands | Adds a new `generate` sub-step / generator. | None (additive) | New generator command is additive — OK. Ensure it is wired into `runGeneratorSuite()` additively, not by renaming an existing step. |
-
-### Missing BC Section
-
-The spec has **§7 "Wiring & backward compatibility"** which substantively covers the redirect-stub bridge and RELEASE_NOTES requirement — this satisfies the intent of a "Migration & Backward Compatibility" section. Recommend renaming it to that canonical heading for checklist hygiene, but it is **not** a blocker.
+| BC-D6-1 | (13) Generated-file/guide paths | D6 makes the scaffolded `AGENTS.md` *Module-Specific Guides* rows point at `.ai/guides/modules/<module>.md` and **stop referencing** `core.<module>.md`. The §7 legacy `core.<module>.md` redirect stubs are for **in-place upgrades** of existing apps, not fresh scaffolds (a fresh D6 app references neither). | None (consistent) | No change required. Optionally clarify in §7 that fresh D6-scaffolded apps don't reference the legacy stubs — the stubs exist purely for apps upgrading in place. Confirm the stubs are still bundled by `build.mjs` even though the D6 dynamic block never links them. |
+| BC-D6-2 | Internal asset, not a third-party contract | `AGENTS.md.template`'s *Module-Specific Guides* section moves from static table to marker-delimited generated block. | None | The template is an internal create-app asset; only the emitted `.ai/guides/...` paths are a contract, and those are handled. |
 
 ---
 
-## Spec Completeness
+## Spec Completeness (D6 delta)
 
-The spec is unusually complete for a design doc (TLDR, Problem, Goals/Non-Goals, locked Decisions, Architecture, Extraction impl, Output shapes, Wiring, Phasing, Risks, Open Questions, Deferred, Changelog). Gaps against the spec-content checklist:
-
-### Missing Sections
-
-| Section | Impact | Recommendation |
-|---------|--------|---------------|
-| **Integration / Test Coverage** | AGENTS.md requires every feature to list test coverage. The spec names a "BC guard" (TLDR, D4) but never defines it. A drift-prevention feature with no test will itself silently rot. | Add a test plan: (a) a snapshot/fixture test of `module-facts.json` for `customers` (asserting real IDs/counts), (b) a **BC guard test** that fails if a fact-sheet references an entity ID / event ID / ACL feature absent from the live `E`/`events`/`acl` source, (c) a parser-robustness test (malformed `events.ts` without `as const` → empty section + warning, never crash — covers R4). |
-| **Final Compliance Report** | Spec-writing checklist expects it. | Add a short compliance checklist result before merge. |
+D6 added a matching Goal, the D6 decision row, §7 wiring (3 bullets), R5, and T6 — structurally complete. Remaining precision gaps:
 
 ### Incomplete Sections
 
 | Section | Gap | Recommendation |
 |---------|-----|---------------|
-| §6 Output shape | JSON sidecar schema labelled "illustrative"; the example data is wrong (see GAP-2). For a *data contract* consumed by skills + a BC guard, "illustrative" is too loose. | Pin the JSON schema as authoritative (it is the stated data contract per §9). Regenerate the example from real extractor output once the ID format is fixed. |
-| §4 Entities row | Glosses over the fact that table name + `updated_at` are **not** in `E` (confirmed: `E` carries only ID→class; tables come from `@Entity` decorators, fields from `entities/<entity>/index.ts`). | State the 3-way join explicitly: `E` (ID↔class) × AST `@Entity` (class↔table, `updated_at`) × `ce.ts` (custom fields). |
+| §7 "Enabled-module source (D6)" | States *what* to read (`targetDir/src/modules.ts`) but not *how*. The real `enabledModules` (template `src/modules.ts:65`) is a typed array literal of ~50 static `{ id, from }` entries **followed by** conditional `.push()` blocks (official modules, `example_customers_sync`, `storage_s3`, enterprise `record_locks`/`sso`/`security`) and a `...officialModuleEntries` spread, gated on env/preset. A static AST read of the literal does **not** see the conditional pushes. | Specify: **AST-parse the `enabledModules` array-literal** with ts-morph (already a dep), collect `id` string-literals, **intersect with the D5 allowlist**. Add the explicit caveat that this reads the *static literal*, not the runtime-resolved conditional set — which is correct **because all 9 D5 modules (`auth`, `catalog`, `currencies`, `customer_accounts`, `customers`, `data_sync`, `integrations`, `sales`, `workflows`) are static literal entries**, and a user disables a core module by deleting its literal line (which the AST read detects). Do **not** dynamically import `modules.ts` — at scaffold time the app's deps/env aren't available. |
+| §7 "Enabled-module source (D6)" | Offers two mechanisms ("extend `AgenticConfig`" **or** "read `targetDir/src/modules.ts`") without choosing. `generateShared` runs from **two** sites: the create-app wizard (`wizard.ts:146`) and retroactive `yarn mercato agentic:init` (`packages/cli/.../agentic-init.ts`, per lessons.md). | Pick the **file-read** (`read targetDir/src/modules.ts`) so both invocation sites share one mechanism. Extending `AgenticConfig` (today `{ projectName, targetDir }`) forces the `agentic:init` path to also populate it — two code paths that can diverge. |
+| §10 preamble | Says "Tests live in `packages/cli/src/lib/generators/__tests__/`", but **T5** (`build.mjs` smoke) and **T6** (`shared.ts` module-guides) test the **create-app** package, not a cli generator. | Split the statement: AST/extractor unit+snapshot tests (T1–T4) in `packages/cli/.../__tests__/`; build/shared wiring tests (T5, T6) in `packages/create-app` (run via `yarn test:create-app`). |
 
 ---
 
-## AGENTS.md Compliance
+## AGENTS.md Compliance (D6 delta)
 
 | Rule | Assessment |
 |------|-----------|
-| Code placement (generators live in `packages/cli`) | ✓ Spec puts `module-facts.ts` in `packages/cli/src/lib/generators/` — correct. |
-| Reuse canonical infra, no new deps | ✓ Reuses `ast/` helpers + `ts-morph` (already a cli dep, `^28.0.0`). Confirmed `ast/{index,imports,source-file,writers}.ts` export the builders the spec relies on. |
-| No `any` | ⚠ Implementation-time concern — extractor must emit typed structures (`z.infer` or explicit types), no `any` on AST node handling. |
-| Standalone generators must not assume monorepo paths (lessons.md) | ⚠ **Relevant pitfall.** Lessons.md ("Standalone generators must reuse package-generated entity metadata instead of parsing compiled `dist`" and "must not assume monorepo-only paths") directly applies: the create-app build invocation reads monorepo `src`, but the deferred R1 generate-time path (running in a scaffolded app) would hit compiled `dist` + package-shipped `generated/`. Spec should cite these lessons in Phase 1 / R1. |
-| Keep standalone agentic content in sync (lessons.md) | ✓ This spec *is* that sync work; aligns with the "Keep standalone agentic content in sync with module conventions" lesson. |
-| No UI/DS/i18n/encryption/tenant surface | ✓ N/A — pure static docs extraction. |
+| Code placement | ✓ Extractor in `packages/cli`; AGENTS.md generation in `packages/create-app/src/setup/tools/shared.ts`; both correct. |
+| Reuse canonical infra, no new deps | ✓ Marker-injection reuses the existing Codex idiom (`codex.ts` `MARKER_START`/`MARKER_END`); enabled-set read reuses ts-morph (already a cli dep). |
+| create-app AGENTS.md "Always #8" (keep standalone agent guidance aligned with generator behavior; update **both** `template/AGENTS.md` and `agentic/shared/AGENTS.md.template`) | ✓ The guide routing lives only in `agentic/shared/AGENTS.md.template` (verified: `template/AGENTS.md` has zero `.ai/guides` refs), so D6 touches one surface — but flag the rule so the implementer confirms `template/AGENTS.md` genuinely needs no change. |
+| lessons.md "Keep standalone agentic content in sync with module conventions" | ✓ D6 **is** that sync work. |
+| lessons.md "Standalone generators must reuse package-generated metadata, not parse compiled `dist`" / "must not assume monorepo-only paths" | ✓ Not violated by D6 — `shared.ts` reads `targetDir/src/modules.ts`, which is **template source** (always present in a scaffold), not compiled `dist`. (Still applies to the deferred R1 generate-time extractor path, already cited under R1.) |
+| Tool-scoped regeneration must not be blocked by unrelated files (lessons.md, `agentic-init.ts`) | ⚠ Implementation note: when `agentic:init` re-runs D6 generation on an existing `AGENTS.md`, it MUST replace only the content **between the module-guides markers** (idempotent re-emit), exactly as Codex does — never duplicate or block on the pre-existing block. |
+| No `any` | ⚠ Implementation-time — the modules.ts AST read must type its node handling. |
 
 ---
 
-## Risk Assessment
-
-The spec's own R1–R4 are well-formed. Additions / re-classifications:
-
-### High Risks
-
-| Risk | Impact | Mitigation |
-|------|--------|-----------|
-| **Entity-ID format is mis-specified** (see GAP-2). If the extractor ships the dotted `customers.person` form the spec documents, the IDs won't match the `E` registry (`customers:customer_person_profile`) **or** the search/host token formats agents must actually use. | An agent copying a fact-sheet ID into `getEntityIds()` / a query / an injection spot gets a non-existent ID — re-introducing exactly the "guide tells you to write code that doesn't compile" failure the spec exists to kill. | Resolve which ID the extractor emits (recommend: emit the canonical `E` colon ID **and** note the friendly enricher ID where one exists). Regenerate all §6 examples from real output. |
-| **Auth source mis-named** (BC-1). | The entire "Auth (features)" column is empty/wrong if the extractor reads `api-routes.generated.ts`. | Read from runtime/app registry `apis[].metadata`. |
+## Risk Assessment (D6 delta)
 
 ### Medium Risks
 
 | Risk | Impact | Mitigation |
 |------|--------|-----------|
-| **Committed output lives in an ephemeral dir** (GAP-3). D4 says commit `apps/mercato/.mercato/generated/module-facts.json`, but that path is **git-ignored** (verified via `git check-ignore`) and wiped by `yarn clean-generated`. | First-party consumers (`om-onboarding`, BC guard) would consume an uncommittable, ephemeral artifact; CI would never see it. | Per module-development.md "versioned vs ephemeral generated files", committed registries live as `*.generated.ts` under `apps/mercato/src/`, not `.mercato/generated/`. Pick a versioned location (e.g. `apps/mercato/src/module-facts.generated.json` or a `.ai/` docs path) for the committed copy; the create-app build copy can stay in `dist/`. |
-| **create-app build depends on monorepo `apps/mercato` generated output** (R2 amplified). The extractor at create-app build time needs the runtime registry already generated to read auth. | Stale/missing registry → silent empty auth. | Spec's R2 ("run `generate` first, fail loudly if manifest absent") is correct — extend it to the runtime registry (the real auth source), and assert presence rather than emitting silent gaps. |
+| **Enabled-set extraction silently under/over-reports** (the GAP-D6-A subtlety). If an implementer AST-reads only the literal and a future core module the team wants documented is added via a conditional push, it'd be missed; if they try to resolve conditionals, they over-engineer. | Wrong/empty Module-Specific Guides table — the exact "guide is wrong" failure the spec exists to prevent, now in the routing layer. | Pin the mechanism (AST-read the literal ∩ D5 allowlist) + the static-literal caveat in §7. Add T6 assertions for a module that is **present-but-not-enabled** (no row) and **enabled-and-allowlisted** (row), and ideally one that is enabled but **not** in the allowlist (no row). |
 
 ### Low Risks
 
 | Risk | Impact | Mitigation |
 |------|--------|-----------|
-| R3 over-extraction (DI entity-values, all 38 modules) | fact-sheet noise | Spec's D5 allowlist + service-only DI filter are correct. **Confirmed**: `customers/di.ts` registers only `asValue(CustomerEntity/Address/Interaction)` and zero services, so the service-only filter yields empty `diTokens` for customers — exactly as the spec predicts. |
-| R4 AST shape changes | empty section + warning | Spec's "treat unparseable as empty, never crash" is right; cover with the parser-robustness test (GAP-Test). |
+| R5 as written ("runs before `src/modules.ts` exists") | Empty table | **Largely already mitigated by ordering** — `index.ts:604` writes the template (incl. `src/modules.ts`) before `:612` runs agentic setup, and the `agentic:init` path runs entirely post-scaffold. R5's fallback-to-allowlist is still a reasonable belt-and-suspenders; keep it but note the ordering already prevents the primary scenario. |
+| Idempotent re-emit on `agentic:init` re-run | Duplicated/garbled block | Replace strictly between markers (see Compliance note). Covered if T6 also asserts a second generation pass is stable. |
+| Stale legacy stubs in fresh apps | 9 unreferenced `core.<module>.md` files in a fresh scaffold | Harmless; optionally have the D6 filtered copy skip legacy stubs for fresh scaffolds. Not blocking. |
 
 ---
 
-## Gap Analysis
+## Gap Analysis (D6 delta)
 
 ### Critical Gaps (Block Implementation)
-
-- **GAP-1 (auth source):** Name the correct generated source for per-method auth (runtime/app registry `apis[].metadata`), not `api-routes.generated.ts`. Without this the API-routes section cannot be built correctly.
-- **GAP-2 (entity-ID format):** The spec's "verified real data" is wrong. `E` uses **colon, full-snake** IDs: `customers:customer_person_profile`, `customers:customer_company_profile`, `customers:customer_deal`, `customers:customer_entity`. The dotted `customers.person`/`customers.company`/`customers.deal` do **not** appear in `E`. (A separate friendly `customers.person` token *does* exist on `enrichers: { entityId: ... }` in `api/people/route.ts`, distinct from the `E` ID — the spec conflates the two.) Decide and document which ID the fact-sheet emits, then regenerate every example (Markdown table, JSON sidecar, `searchEntities`, `hostTokens`).
+- **None.** Prior criticals (GAP-1/2/3) are resolved in the spec.
 
 ### Important Gaps (Should Address)
-
-- **GAP-3 (committed output location):** Resolve the ephemeral-vs-versioned contradiction in D4 (see Medium risk).
-- **GAP-Test (test coverage):** Add the integration/BC-guard/robustness test plan (see Completeness).
-- **GAP-4 (example counts):** Correct the spec's example data, all of which the spec labels "verified real data":
-  - ACL features: spec says **18**, actual **21**.
-  - Events: spec says **21**, actual **49** (and events carry `category`/`entity` as claimed; `customers.person.created` and `customers.deal.won` both exist).
-  - Search entities: spec says **2** (`customers.person`, `customers.company`), actual **6** (`customers:customer_person_profile`, `…company_profile`, `…comment`, `…deal`, `…activity`, `…todo_link`).
-  - Notifications: spec says **empty**, actual **2** (`customers.deal.won`, `customers.deal.lost`) — so the `notifications` extraction will be non-empty for customers and the example must show it.
-  - CLI: spec says **empty**; `customers/cli.ts` exists (~3.2k lines, mostly seed/example data). Verify whether it registers any *commands* before asserting empty; if it only seeds, clarify that the "CLI" surface = declared commands, not seed code.
+- **GAP-D6-A (extraction mechanism + static-literal caveat):** Specify AST-parsing the `enabledModules` literal ∩ D5 allowlist; document that it reads the static literal (correct because all 9 D5 modules are static entries) and explicitly forbid dynamic-import of `modules.ts` at scaffold time.
+- **GAP-D6-B (single mechanism for both invocation sites):** Choose the `targetDir/src/modules.ts` file-read over extending `AgenticConfig`, so create-app scaffold and `mercato agentic:init` share one path.
 
 ### Nice-to-Have Gaps
-
-- **GAP-5:** Note the table name comes from the `@Entity` decorator (not `E`), and `updated_at`→"editable" is an AST presence check — make the 3-way join explicit (see Incomplete Sections).
-- **GAP-6:** Cross-reference the two relevant lessons (standalone generators must not parse `dist` / assume monorepo paths) in R1/Phase 1.
+- **GAP-D6-C (test location):** Move T5/T6 to `packages/create-app` tests in §10; keep T1–T4 in cli.
+- **GAP-D6-D (intro copy):** The template's "These guides ship automatically when the corresponding module is installed." intro above the table should be reworded for per-enabled generation.
+- **GAP-D6-E (idempotency assertion):** Have T6 also assert a second D6 generation pass over an already-generated `AGENTS.md` is stable (marker-replace, not append).
+- **GAP-D6-F (legacy-stub clarification):** Note in §7 that fresh D6 scaffolds reference neither legacy `core.<module>.md` nor the stubs; stubs exist only for in-place upgrades.
 
 ---
 
 ## Remediation Plan
 
 ### Before Implementation (Must Do)
+1. **GAP-D6-A:** Add to §7 the exact enabled-set extraction (AST-read `enabledModules` literal via ts-morph, intersect D5 allowlist) and the static-literal caveat; forbid dynamic import at scaffold time.
+2. **GAP-D6-B:** State the chosen mechanism (file-read of `targetDir/src/modules.ts`) and apply it to both `generateShared` invocation sites.
 
-1. **Fix the auth source (GAP-1/BC-1):** rewrite §5 "CRUD route auth caveat" and D4 to read auth from the runtime/app module-registry `apis[].metadata`, not `api-routes.generated.ts`.
-2. **Fix the entity-ID contract (GAP-2):** choose the emitted ID convention (recommend canonical `E` colon ID + optional friendly enricher alias), then regenerate §6 Markdown + JSON from real extractor output.
-3. **Resolve committed-output location (GAP-3):** replace the `.mercato/generated/` committed path with a versioned location.
-
-### During Implementation (Add to Spec)
-
-1. **Add Integration/Test Coverage section** with the customers fixture snapshot, the BC-guard test, and the parser-robustness test.
-2. **Correct all example counts/data (GAP-4)** so the spec stops mislabeling fabricated numbers as verified.
-3. **Make the entity 3-way join explicit (GAP-5)** and pin the JSON schema as authoritative.
-4. **Cite the two standalone-generator lessons (GAP-6)** under R1/Phase 1.
+### During Implementation (Add to Spec / Tests)
+1. **GAP-D6-C:** Correct §10 test locations (T5/T6 → create-app).
+2. **GAP-D6-E:** Extend T6 with the not-enabled / not-allowlisted / second-pass-idempotency cases.
+3. **GAP-D6-D / -F:** Reword the table intro; clarify legacy-stub scope.
+4. Implement the marker block as an idempotent between-markers replace (mirror `codex.ts`).
 
 ### Post-Implementation (Follow Up)
-
-1. Implement the R1 generate-time regeneration path in scaffolded apps (deferred) so facts track installed package versions — reusing the `dist`/package-`generated` source path per lessons.md, not monorepo `src`.
-2. Extend D5 allowlist to the remaining 29 modules once the 9 are validated.
-3. Consider the lighter generated surface for the 7 package-level guides (Deferred §11).
+1. R1 deferred generate-time regeneration in scaffolded apps (so the per-module table can also reflect *installed* package versions, reusing the package-shipped `generated/` per lessons.md).
+2. Extend D5 to the remaining core modules; revisit whether package guides should become conditional on installed packages (would require revisiting the §2 Non-Goal — out of scope now).
 
 ---
 
 ## Recommendation
 
-**Needs spec updates first.** The architecture, decisions (D1–D5), reuse strategy, and BC bridge (redirect stubs) are correct and the motivating drift bug is confirmed real. Two load-bearing data claims are wrong (auth source, entity-ID format) and the worked example is fabricated despite the "verified real data" label. These are **document-accuracy fixes, not architectural changes** — once GAP-1, GAP-2, GAP-3, and the test section land, the spec is ready to implement against the existing `packages/cli` AST infra.
+**Ready to implement after minor spec clarifications.** The architecture (D1–D5), the prior data-accuracy fixes, and the new D6 are all sound; D6's two load-bearing claims (Codex marker idiom; `src/modules.ts` written before agentic setup) are **verified true against the code**. The only must-do items are documentation precision around D6's enabled-set extraction (GAP-D6-A) and choosing a single mechanism (GAP-D6-B) — neither changes the design. Once those land, the spec can be implemented against the existing `packages/cli` AST infra and the `packages/create-app` agentic generators.
