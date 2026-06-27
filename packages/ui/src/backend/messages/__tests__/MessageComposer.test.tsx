@@ -261,6 +261,74 @@ describe('MessageComposer draft flow', () => {
     expect(flash).not.toHaveBeenCalledWith('Failed to send message.', 'error')
   })
 
+  it('closes the compose dialog on a 409 conflict so the shared banner is not hidden behind it (TC-007)', async () => {
+    const expectedUpdatedAt = '2026-02-24T10:00:00.000Z'
+    const onOpenChange = jest.fn()
+
+    ;(apiCall as jest.Mock).mockImplementation((url: string, options?: { method?: string }) => {
+      if (url.startsWith('/api/messages/types')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          result: {
+            items: [{
+              type: 'default',
+              module: 'messages',
+              labelKey: 'messages.types.default',
+              icon: 'mail',
+              allowReply: true,
+              allowForward: true,
+            }],
+          },
+          response: { status: 200 },
+        })
+      }
+
+      if (url === '/api/messages/draft-1' && options?.method === 'PATCH') {
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          result: {
+            error: 'record_modified',
+            code: 'optimistic_lock_conflict',
+            currentUpdatedAt: '2026-02-24T11:00:00.000Z',
+            expectedUpdatedAt,
+          },
+          response: { status: 409 },
+        })
+      }
+
+      return Promise.resolve({ ok: true, status: 200, result: { items: [] }, response: { status: 200 } })
+    })
+
+    renderWithProviders(
+      <MessageComposer
+        open
+        variant="compose"
+        messageId="draft-1"
+        expectedUpdatedAt={expectedUpdatedAt}
+        onOpenChange={onOpenChange}
+        defaultValues={{
+          recipients: ['11111111-1111-4111-8111-111111111111'],
+          subject: 'Existing draft',
+          body: 'Existing draft body',
+        }}
+      />,
+      { dict: {} },
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    const sendButtons = within(dialog).getAllByRole('button', { name: 'Send' })
+    fireEvent.click(sendButtons[sendButtons.length - 1] as HTMLButtonElement)
+
+    await waitFor(() => {
+      expect(getRecordConflictForTest()).not.toBeNull()
+    })
+    // The page-level conflict banner is hidden behind the modal, so the dialog
+    // must close to reveal it (and its Refresh action) to the user.
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
   it('saves an existing draft via PATCH without a draft transition flag', async () => {
     renderWithProviders(
       <MessageComposer

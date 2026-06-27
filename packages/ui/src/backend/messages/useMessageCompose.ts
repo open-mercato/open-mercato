@@ -637,6 +637,12 @@ export function useMessageCompose({
             setSubmitError(
               t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.'),
             )
+            // The shared conflict banner renders at page level, so it is hidden
+            // behind the compose modal. Close the dialog to reveal it (with its
+            // Refresh action); the stale draft must be reloaded anyway (#3260 QA).
+            if (!inline) {
+              onOpenChange?.(false)
+            }
           } else {
             const message = toErrorMessage(call.result) ?? t('messages.errors.sendFailed', 'Failed to send message.')
             setSubmitError(message)
