@@ -249,8 +249,22 @@ export function definitionToGraph(
   // Build step map for quick lookup
   const stepMap = new Map(definition.steps.map(step => [step.stepId, step]))
 
-  // Calculate layered (left→right) layout positions if autoLayout is enabled
-  const positions = autoLayout
+  // Collect author-arranged positions persisted in the definition. A stored
+  // position always wins over an auto-computed one, so a saved graph re-opens
+  // exactly as the author left it.
+  const storedPositions = new Map<string, { x: number; y: number }>()
+  for (const step of definition.steps) {
+    const stored = (step as any)._editorPosition
+    if (stored && typeof stored.x === 'number' && typeof stored.y === 'number') {
+      storedPositions.set(step.stepId, { x: stored.x, y: stored.y })
+    }
+  }
+
+  // Auto-arrange only the steps that lack a stored position (e.g. freshly added
+  // nodes, or legacy/code graphs with no stored coordinates at all). When the
+  // caller explicitly disables autoLayout, skip dagre entirely.
+  const needsDagre = autoLayout && definition.steps.some((step) => !storedPositions.has(step.stepId))
+  const dagrePositions = needsDagre
     ? layoutWithDagre(definition.steps, definition.transitions, {
         direction: 'LR',
         nodeWidth: NODE_WIDTH,
@@ -260,13 +274,10 @@ export function definitionToGraph(
 
   // Convert steps to nodes
   const nodes: Node[] = definition.steps.map((step, index) => {
-    // Determine position
-    let position = positions?.get(step.stepId) || { x: 250, y: 50 + index * layoutSpacing.vertical }
-
-    // Use stored position if available and not auto-layouting
-    if (!autoLayout && (step as any)._editorPosition) {
-      position = (step as any)._editorPosition
-    }
+    // Determine position: stored (author-arranged) → dagre (auto) → fallback.
+    const position = storedPositions.get(step.stepId)
+      || dagrePositions?.get(step.stepId)
+      || { x: 250, y: 50 + index * layoutSpacing.vertical }
 
     // Map step type to node type. An AUTOMATED step whose activities contain a
     // single INVOKE_AGENT marker is the compiled form of an invoke-agent node —
@@ -455,6 +466,34 @@ function layoutWithDagre(
   }
 
   return positions
+}
+
+/**
+ * Re-run the dagre layered layout (`rankdir: 'LR'`) directly over React Flow
+ * nodes + edges and return a NEW node array with refreshed `position` values.
+ *
+ * This is the single intentional full re-layout entry point (the "Auto-arrange"
+ * toolbar action): it deliberately IGNORES any stored `_editorPosition` and
+ * re-tidies the whole graph. Every other node field (`data`, `type`, handle
+ * config, …) is preserved — only `position` is replaced. Data-mapping edges are
+ * excluded from the rank graph since they are not control-flow transitions.
+ */
+export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
+  const steps = nodes.map((node) => ({ stepId: node.id }))
+  const transitions = edges
+    .filter((edge) => !isDataMappingEdge(edge))
+    .map((edge) => ({ fromStepId: edge.source, toStepId: edge.target }))
+
+  const positions = layoutWithDagre(steps, transitions, {
+    direction: 'LR',
+    nodeWidth: NODE_WIDTH,
+    nodeHeight: NODE_HEIGHT,
+  })
+
+  return nodes.map((node) => {
+    const next = positions.get(node.id)
+    return next ? { ...node, position: { x: next.x, y: next.y } } : node
+  })
 }
 
 /**

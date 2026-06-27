@@ -9,7 +9,7 @@ import { EdgeEditDialogCrudForm } from '../../../components/EdgeEditDialogCrudFo
 import { Node, Edge, addEdge, Connection, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange } from '@xyflow/react'
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
+import { graphToDefinition, definitionToGraph, applyAutoLayout, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
@@ -41,7 +41,7 @@ import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { CircleQuestionMark, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
+import { CircleQuestionMark, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersistedBooleanFlag'
 import { useSidebarCollapse } from '@open-mercato/ui/backend/AppShell'
@@ -117,6 +117,11 @@ export default function VisualEditorPage() {
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
   const [showMetadata, setShowMetadata] = useState(true)
   const [isCompactViewport, setIsCompactViewport] = useState(false)
+  const [autosaveState, setAutosaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  // Debounced autosave-on-drag plumbing. `performAutosaveRef` is reassigned each
+  // render so the debounced timer always runs the latest closure (no stale nodes).
+  const autosaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const performAutosaveRef = React.useRef<() => Promise<void>>(async () => {})
   const { value: paletteCollapsed, toggle: togglePaletteCollapsed, setValue: setPaletteCollapsed } = usePersistedBooleanFlag('om:wf-editor-palette', false)
   const [showPaletteHowTo, setShowPaletteHowTo] = useState(false)
   const { value: focusMode, setValue: setFocusMode, toggle: toggleFocus } = usePersistedBooleanFlag('om:wf-editor-focus', false)
@@ -292,11 +297,38 @@ export default function VisualEditorPage() {
     loadDefinition()
   }, [definitionId])
 
+  // Schedule a quiet debounced autosave (~900ms). Only for already-saved,
+  // editable definitions; new unsaved drafts fall back to an explicit Save.
+  const scheduleAutosave = useCallback(() => {
+    if (!definitionId || isCodeOnly) return
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+    autosaveTimerRef.current = setTimeout(() => {
+      autosaveTimerRef.current = null
+      void performAutosaveRef.current()
+    }, 900)
+  }, [definitionId, isCodeOnly])
+
+  // Clear any pending autosave timer on unmount.
+  useEffect(() => () => {
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+  }, [])
+
   // Handle node changes from ReactFlow
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
     if (isCodeOnly) return
     setNodes((nds) => applyNodeChanges(changes, nds))
-  }, [isCodeOnly])
+    // Drag end → persist the new arrangement without an explicit Save.
+    const draggedToRest = changes.some((change) => change.type === 'position' && change.dragging === false)
+    if (draggedToRest) scheduleAutosave()
+  }, [isCodeOnly, scheduleAutosave])
+
+  // Auto-arrange / Tidy: the single intentional full re-layout. Re-runs dagre
+  // (LR) over the current graph, overwrites positions, and persists via autosave.
+  const handleAutoArrange = useCallback(() => {
+    if (isCodeOnly) return
+    setNodes((nds) => applyAutoLayout(nds, edges))
+    scheduleAutosave()
+  }, [isCodeOnly, edges, scheduleAutosave])
 
   // Handle edge changes from ReactFlow
   const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
@@ -586,6 +618,78 @@ export default function VisualEditorPage() {
       setIsSaving(false)
     }
   }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, definitionId, updatedAt, router])
+
+  // Quiet autosave routine (no redirect, no success flash). Mirrors the update
+  // branch of `handleSave` exactly — same payload and the same optimistic-lock
+  // header — so dragged positions persist without an explicit Save. Reassigned
+  // every render and invoked through `performAutosaveRef` by the debounced timer
+  // so it always sees the latest nodes/edges/metadata.
+  performAutosaveRef.current = async () => {
+    if (!definitionId || isCodeOnly) return
+    if (!workflowId || !workflowName) return
+
+    const criticalErrors = validateWorkflowGraph(nodes, edges).filter((e) => e.type === 'error')
+    if (criticalErrors.length > 0) return
+
+    const graphDefinition = graphToDefinition(nodes, edges, { includePositions: true })
+    const definitionData = {
+      ...graphDefinition,
+      triggers: triggers.length > 0 ? triggers : undefined,
+    }
+    if (!workflowDefinitionDataSchema.safeParse(definitionData).success) return
+
+    const metadata: any = {}
+    if (category) metadata.category = category
+    if (tags.length > 0) metadata.tags = tags
+    if (icon) metadata.icon = icon
+
+    setAutosaveState('saving')
+    try {
+      const result = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(updatedAt),
+        () => apiCall<{ data: any; error?: string }>(`/api/workflows/definitions/${definitionId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workflowName,
+            description: description || null,
+            version,
+            definition: definitionData,
+            metadata: Object.keys(metadata).length > 0 ? metadata : null,
+            enabled,
+            effectiveFrom: effectiveFrom || null,
+            effectiveTo: effectiveTo || null,
+          }),
+        }),
+      )
+
+      if (!result.ok) {
+        setAutosaveState('idle')
+        const conflictError = Object.assign(new Error('[internal] workflow autosave failed'), {
+          status: result.status,
+          ...(result.result && typeof result.result === 'object' ? result.result : {}),
+        })
+        surfaceRecordConflict(conflictError, t)
+        return
+      }
+
+      const savedDefinition = result.result?.data
+      if (typeof savedDefinition?.updatedAt === 'string') {
+        setUpdatedAt(savedDefinition.updatedAt)
+      }
+      setAutosaveState('saved')
+    } catch (error) {
+      console.error('[internal] workflow autosave failed', error)
+      setAutosaveState('idle')
+    }
+  }
+
+  // Fade the "Saved" affordance back to idle shortly after a successful autosave.
+  useEffect(() => {
+    if (autosaveState !== 'saved') return
+    const timer = setTimeout(() => setAutosaveState('idle'), 2000)
+    return () => clearTimeout(timer)
+  }, [autosaveState])
 
   // Customize a code-defined workflow → creates an override and reloads the
   // editor pointed at the new UUID. Mirrors the non-visual edit page button.
@@ -930,6 +1034,11 @@ export default function VisualEditorPage() {
           }
           actionsContent={
             <div className="flex flex-wrap items-center justify-end gap-1 md:gap-2">
+              {!isCodeOnly && definitionId && autosaveState !== 'idle' && (
+                <span className="mr-1 text-xs text-muted-foreground" aria-live="polite">
+                  {autosaveState === 'saving' ? t('workflows.visualEditor.autosaving') : t('workflows.visualEditor.autosaved')}
+                </span>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -963,6 +1072,19 @@ export default function VisualEditorPage() {
                   className="h-8 text-xs"
                 >
                   {t('workflows.visualEditor.loadExample')}
+                </Button>
+              )}
+              {!isCodeOnly && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAutoArrange}
+                  disabled={isSaving || nodes.length === 0}
+                  className="h-8 px-2 text-xs"
+                  aria-label={t('workflows.visualEditor.autoArrange')}
+                >
+                  <Network className="mr-1.5 h-4 w-4" />
+                  {t('workflows.visualEditor.autoArrange')}
                 </Button>
               )}
               {!isCodeOnly && (

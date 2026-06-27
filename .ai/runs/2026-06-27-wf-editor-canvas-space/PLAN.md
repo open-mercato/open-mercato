@@ -18,7 +18,7 @@ Execution model: one subagent per phase, run **sequentially** (shared files: `gr
 | 2 | Palette shrink + collapse rail | ✅ done | (this commit) |
 | 3 | Horizontal (L→R) layout + dagre + orthogonal edges | ✅ done | (this commit) |
 | 4 | Focus mode orchestrator (+ `useSidebarCollapse`) | ✅ done | (this commit) |
-| 5 | Persist positions + Tidy + autosave-on-drag | ⬜ pending | — |
+| 5 | Persist positions + Tidy + autosave-on-drag | ✅ done | (this commit) |
 
 Status legend: ⬜ pending · 🟡 in progress · ✅ done · ⚠️ done with caveats
 
@@ -60,4 +60,8 @@ Status legend: ⬜ pending · 🟡 in progress · ✅ done · ⚠️ done with c
 - 2026-06-27 — Phase 1 ✅ `8ea0da5f0`. Node card 280→180px, lighter (rounded-lg/border/p-2.5), `NODE_WIDTH` exported, handle/start/end colors → DS tokens. Core build PASS. Note: blue/amber/purple/cyan decorative node-type accents left as-is (no semantic DS token; spec permits).
 - 2026-06-27 — Phase 2 ✅ `15c9103d6`. Palette: 8 buttons → one `.map()` over `PALETTE_NODE_TYPES`; rail `w-48` expanded / `w-14` icon-only collapsed via `usePersistedBooleanFlag('om:wf-editor-palette')`; "How to use" → disclosure; +`collapsePalette`/`expandPalette` i18n in en/es/de/pl. Net −47 lines. Build + typecheck PASS.
 - 2026-06-27 — Phase 3 ✅ `9088bf2a8`. Added `@dagrejs/dagre@^3`. `calculateSmartLayout` → `layoutWithDagre` (`rankdir:'LR'`). Node handles → Left/Right (ids unchanged); SubWorkflow data ports → Top/Bottom; transition edges → orthogonal. Build + typecheck PASS; 585 workflows tests PASS.
-- 2026-06-27 — Phase 4 ✅. `AppShell`: additive `useSidebarCollapse()` (import `@open-mercato/ui/backend/AppShell`) via separate `externalCollapseRequest` state (no-op default outside provider; settings/profile collapse untouched — 66+/1−, the 1 deletion just composes `effectiveCollapsed`). Editor `focusMode` (`usePersistedBooleanFlag('om:wf-editor-focus')`) collapses sidebar+palette+metadata, slim header, floating Exit pill, `F`/`Esc` (guarded), restores prior state on exit/unmount. +`enterFocusMode`/`exitFocusMode` i18n ×4. ui+core build/typecheck PASS. Starting Phase 5.
+- 2026-06-27 — Phase 4 ✅ `e1076a031`. `AppShell`: additive `useSidebarCollapse()` via separate `externalCollapseRequest` state (no-op outside provider; settings/profile collapse untouched). Editor `focusMode` collapses sidebar+palette+metadata, slim header, floating Exit pill, `F`/`Esc` guarded. +i18n ×4. ui+core build/typecheck PASS.
+- 2026-06-27 — Phase 5 ✅. Traced save path: POST + PUT both validate via `workflowStepSchema` (`validators.ts:331`); added optional `_editorPosition` there → positions now persist (additive jsonb, no migration). `definitionToGraph` honors stored positions, dagre-places only steps lacking one. New `applyAutoLayout(nodes,edges)` + "Auto-arrange" toolbar button. Debounced (900ms) autosave on drag-end (`type==='position' && dragging===false`), guarded to saved non-code definitions, mirrors handleSave PUT incl. optimistic-lock header; subtle Saving…/Saved. +4 unit tests (`graph-layout-positions.test.ts`) + 3 i18n keys ×4. Full core test suite PASS (6112 tests). **All 5 phases complete.**
+
+## Outcome
+All 5 phases implemented, validated (build + typecheck + 6112 tests), and committed. New prod dep: `@dagrejs/dagre@^3`. New shared-UI export: `useSidebarCollapse` (`@open-mercato/ui/backend/AppShell`, additive). New persisted UI flags: `om:wf-editor-palette`, `om:wf-editor-focus`. Schema: additive optional `_editorPosition` on workflow steps (no DB migration). Follow-ups noted in spec: open questions (default palette state, mobile Focus); manual `needs-qa` UI pass recommended before any PR.
