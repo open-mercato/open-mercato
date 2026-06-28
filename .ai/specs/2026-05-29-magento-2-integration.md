@@ -621,7 +621,17 @@ lookupLocalId(integrationId, internalEntityType, externalId, { organizationId, t
 storeExternalIdMapping(integrationId, internalEntityType, localId, externalId, { organizationId, tenantId }): Promise<SyncExternalIdMapping>
 ```
 
-There is **no `delete` method** on the service. **This is a gap that must be resolved before implementation.** A `deleteExternalIdMapping(integrationId, internalEntityType, localId, scope)` method must be added to `externalIdMappingService` in `data_sync/di.ts`. All three deletion sites in this spec (Step 3.1a `type_id` mismatch handler, Phase 7 delete worker, Phase 7 attachment cleanup) must route through this service method — using raw `em.nativeDelete(SyncExternalIdMapping, ...)` directly from `sync_magento` would violate module isolation (Root AGENTS: "NO direct ORM relationships between modules").
+The service now also exposes delete methods (implemented in `packages/core/src/modules/data_sync/lib/id-mapping.ts`, merged prior to Phase 2):
+
+```typescript
+// Soft-delete a single mapping by local ID; returns true if found and deleted
+deleteExternalIdMapping(integrationId, internalEntityType, localId, scope): Promise<boolean>
+
+// Batch soft-delete; returns count of deleted rows; short-circuits on empty localIds
+deleteExternalIdMappings(integrationId, internalEntityType, localIds, scope): Promise<number>
+```
+
+All three deletion sites in this spec (Step 3.1a `type_id` mismatch handler, Phase 7 delete worker, Phase 7 attachment cleanup) route through these service methods — using raw `em.nativeDelete(SyncExternalIdMapping, ...)` directly from `sync_magento` would violate module isolation (Root AGENTS: "NO direct ORM relationships between modules").
 
 ---
 
@@ -1687,7 +1697,7 @@ The implementation MUST ship with integration coverage for the following paths.
 
 | Rule Source | Rule | Status | Notes |
 |---|---|---|---|
-| Root AGENTS | No direct ORM relationships between modules | ⚠️ PENDING | `MagentoSyncSettings` uses FK IDs — PASS. Three cross-module gaps require resolution before implementation: (1) `externalIdMappingService` needs a `deleteExternalIdMapping` method (data-sync module, see data-model note); (2) catalog module needs `catalogProductService.findBySku` for order-line fallback (Step 5.2); (3) sales module needs `salesOrderService.findByExternalReference` for atomicity guard (Step 5.3) |
+| Root AGENTS | No direct ORM relationships between modules | ✅ PASS | `MagentoSyncSettings` uses FK IDs. All three cross-module service gaps resolved: (1) `externalIdMappingService.deleteExternalIdMapping` / `deleteExternalIdMappings` added to `data_sync`; (2) `catalogProductService.findBySku` added to catalog module; (3) `salesOrderService.findByExternalReference` added to sales module |
 | Root AGENTS | Filter by `organization_id` | ✅ PASS | All settings queries scope by `tenant_id + organization_id` |
 | Root AGENTS | Validate all inputs with Zod | ✅ PASS | `syncSettingsSchema`, `channelStockMappingSchema`, `channelStoreMappingSchema` declared |
 | Root AGENTS | API routes MUST export `openApi` | ✅ PASS | Settings GET/PUT and validate route all export `openApi` |
@@ -1723,8 +1733,8 @@ The implementation MUST ship with integration coverage for the following paths.
 |---|---|---|
 | Data models match API contracts | ✅ Pass | `MagentoSyncSettings` fields match settings API request/response |
 | API contracts match UI/UX section | ✅ Pass | Settings UI consumes `GET/PUT /api/sync-magento/settings` and `POST /api/sync-magento/validate` |
-| Risks cover all write operations | ⚠️ PENDING | Magento product upsert, configurable linking, inventory push, attribute creation covered. Gap added: duplicate-order risk from non-atomic create+map (Step 5.3 crash-recovery guard addresses this) |
-| Commands defined for all mutations | ⚠️ PENDING | Order creation via `sales.orders.create` command (corrected from `sales.order.create`); reconciliation disable via `catalog.products.update` (corrected from `catalog.product.update`). Both command IDs verified against origin/develop |
+| Risks cover all write operations | ✅ Pass | Magento product upsert, configurable linking, inventory push, attribute creation covered. Duplicate-order risk addressed by Step 5.3 crash-recovery guard (`salesOrderService.findByExternalReference` — now implemented) |
+| Commands defined for all mutations | ✅ Pass | Order creation via `sales.orders.create` command (corrected from `sales.order.create`); reconciliation disable via `catalog.products.update` (corrected from `catalog.product.update`). Both command IDs verified against origin/develop |
 | Class A vs Class B attribute distinction explicit | ✅ Pass | Separate provisioning paths documented; configurable attribute requirements (`scope: global`, `is_configurable: true`, `frontend_input: select`) spelled out |
 | Image dedup strategy documented | ✅ Pass | `SyncExternalIdMapping` + `updated_at` comparison |
 | Order deduplication strategy documented | ✅ Pass | `SyncExternalIdMapping` by `increment_id` |
@@ -1736,17 +1746,17 @@ The implementation MUST ship with integration coverage for the following paths.
 | `DataSyncAdapter.getMapping()` implemented | ✅ Pass | All 4 adapters implement required `getMapping()` returning minimal DataMapping |
 | `ExportBatch`/`ImportBatch` contract | ✅ Pass | All adapters yield correct shapes; Steps 3.1, 3.6.1, 4.1, 5.1 |
 | `SyncExternalIdMapping` correct field names | ✅ Pass | All references use `internalEntityType`/`internalEntityId`/`integrationId: 'sync_magento'` |
-| `externalIdMappingService` via DI | ⚠️ PENDING | Service used for all lookups/creates — PASS. Three deletion sites previously instructed `em.nativeDelete` (module-isolation violation); spec now routes all deletions through `externalIdMappingService.deleteExternalIdMapping` which must be added to the service |
+| `externalIdMappingService` via DI | ✅ Pass | Service used for all lookups/creates/deletes. `deleteExternalIdMapping` and `deleteExternalIdMappings` implemented in `data_sync` service; all 3 deletion sites route through them |
 | `POST /api/data_sync/run` correct schema | ✅ Pass | Full schema with `entityType`+`direction` documented; entityType registry table added |
 | Debounce/coalesce implementable | ✅ Pass | DB accumulator table `sync_magento_pending_push` + delayed worker; `jobId` not used (verified: not in queue EnqueueOptions) |
 | Subscriber field-change detection removed | ✅ Pass | Subscribers enqueue on any product update; workers fetch current values |
-| `sales.orders.create` field mapping | ⚠️ PENDING | Command ID corrected to `sales.orders.create`. Totals mapping corrected to use actual `orderTotalsSchema` fields (`totalGrossAmount`, `totalNetAmount`, `subtotalNetAmount`, `subtotalGrossAmount`, `shippingNetAmount`, `taxAmount`). Tax-mode assumption documented. |
+| `sales.orders.create` field mapping | ✅ Pass | Command ID corrected to `sales.orders.create`. Totals mapping corrected to use actual `orderTotalsSchema` fields (`totalGrossAmount`, `totalNetAmount`, `subtotalNetAmount`, `subtotalGrossAmount`, `shippingNetAmount`, `taxAmount`). Tax-mode assumption documented. |
 | Async bulk polling non-blocking | ✅ Pass | Re-enqueue pattern with `magento-bulk-poll` deferred job; no thread-blocking poll loops |
 | `deleted_at` + `msi_mode_detected` on entity | ✅ Pass | Both columns added to `MagentoSyncSettings` |
 | `sync_magento.view` ACL feature | ✅ Pass | Declared in `acl.ts`; granted to employee+admin in `defaultRoleFeatures`; Step 1.1 |
 | `sharp` optional dependency | ✅ Pass | `optionalDependency`; graceful fallback when not installed |
 | `p-limit` explicit dependency | ✅ Pass | Listed in Step 1.1 package.json |
-| Cross-module product SKU lookup | ⚠️ PENDING | `em.findOne(CatalogProduct)` (module-isolation violation) replaced with `catalogProductService.findBySku()` — service method to be added to catalog module |
+| Cross-module product SKU lookup | ✅ Pass | `catalogProductService.findBySku(sku, scope)` implemented in catalog module; `sync_magento` uses it via DI — no raw `em.findOne(CatalogProduct)` |
 | Option ID lookup (select attrs) | ✅ Pass | Provisioning cache built after each select/multiselect/configurable attribute; used in product-mapper |
 | attribute_code sanitization rules | ✅ Pass | Sanitization function + collision detection documented in Architecture and Step 2.1 |
 | Product visibility flags | ✅ Pass | Parent configurable `visibility:4`; child simples `visibility:1`; Step 3.2/3.3 |
@@ -1755,7 +1765,7 @@ The implementation MUST ship with integration coverage for the following paths.
 | MSI detection logic | ✅ Pass | `GET /rest/V1/inventory/sources` probe with 404→legacy fallback; Step 4.1 |
 | Order configurable item dedup | ✅ Pass | Filter `product_type==='configurable'` items in Step 5.2 |
 | Order currency (base vs order) | ✅ Pass | `base_*` amounts used; `order_currency_code` stored as metadata; Step 5.2 |
-| SKU fallback lookup in order import | ⚠️ PENDING | Step 5.2: `externalIdMappingService.lookupLocalId` → `catalogProductService.findBySku` fallback (module-isolation-compliant replacement; catalog module must expose the method) |
+| SKU fallback lookup in order import | ✅ Pass | Step 5.2: `externalIdMappingService.lookupLocalId` → `catalogProductService.findBySku` fallback; method implemented in catalog module |
 | Guest order handling | ✅ Pass | `customer_id=0/null` → create-or-link by email; Step 5.2 |
 | Address name field mapping | ✅ Pass | `firstname + ' ' + lastname` → OM `name`; Step 5.2 |
 | Root category ID detection | ✅ Pass | `GET /rest/V1/store/storeGroups` probe; Step 2.3 |
@@ -1765,27 +1775,35 @@ The implementation MUST ship with integration coverage for the following paths.
 
 ### Non-Compliant Items
 
-| Item | Severity | Resolution required before implementation |
+All previously blocking items resolved. The following spec-text corrections were applied during the review pass:
+
+| Item | Severity | Status |
 |---|---|---|
-| `externalIdMappingService` missing `deleteExternalIdMapping` / `deleteExternalIdMappings` | High | Add methods to `data_sync` service — all 3 deletion sites (Step 3.1a, Phase 7 delete worker, Phase 7 attachment cleanup) must route through them |
-| `catalogProductService.findBySku` not exposed | High | Catalog module must expose a cross-module-safe SKU lookup method before Phase 5 |
-| `salesOrderService.findByExternalReference` not exposed | High | Sales module must expose this method for the Step 5.3 crash-recovery pre-check |
-| `externalId` for `catalog.product` was documented as `entity_id` | High | Corrected to sanitized SKU — already fixed in this review pass |
-| Configurable item filter was inverted | High | Corrected to `product_type === 'configurable'` only — already fixed |
-| Command IDs `sales.order.create` / `catalog.product.update` | High | Corrected to `sales.orders.create` / `catalog.products.update` — already fixed |
-| `OrderCreateInput` totals used non-existent `total` field | Medium | Corrected to `orderTotalsSchema` fields with tax-mode assumption — already fixed |
-| No Undo/rollback contract; duplicate-order hole | Medium | Step 5.3 crash-recovery guard specified; `salesOrderService.findByExternalReference` pre-check required |
-| Stale `jobId` assertions in Testable sections | Medium | Removed — already fixed in this review pass |
-| "three" child adapters in Proposed Solution | Low | Corrected to "four" — already fixed |
-| Image-throughput math (~25 min) inconsistent with performance table | Low | Corrected to ~50 min — already fixed |
+| `externalIdMappingService` missing `deleteExternalIdMapping` / `deleteExternalIdMappings` | High | ✅ Resolved — methods implemented in `data_sync` (merged 2026-06-28) |
+| `catalogProductService.findBySku` not exposed | High | ✅ Resolved — method implemented in catalog module (merged 2026-06-28) |
+| `salesOrderService.findByExternalReference` not exposed | High | ✅ Resolved — method implemented in sales module (merged 2026-06-28) |
+| `externalId` for `catalog.product` was documented as `entity_id` | High | ✅ Fixed — corrected to sanitized SKU in spec review pass |
+| Configurable item filter was inverted | High | ✅ Fixed — corrected to `product_type === 'configurable'` only |
+| Command IDs `sales.order.create` / `catalog.product.update` | High | ✅ Fixed — corrected to `sales.orders.create` / `catalog.products.update` |
+| `OrderCreateInput` totals used non-existent `total` field | Medium | ✅ Fixed — corrected to `orderTotalsSchema` fields with tax-mode assumption |
+| No Undo/rollback contract; duplicate-order hole | Medium | ✅ Resolved — Step 5.3 crash-recovery guard via `salesOrderService.findByExternalReference` (now implemented) |
+| Stale `jobId` assertions in Testable sections | Medium | ✅ Fixed — removed in spec review pass |
+| "three" child adapters in Proposed Solution | Low | ✅ Fixed — corrected to "four" |
+| Image-throughput math (~25 min) inconsistent with performance table | Low | ✅ Fixed — corrected to ~50 min |
 
 ### Verdict
 
-**Implementation-blocked on three cross-module service method gaps** — `deleteExternalIdMapping` in `data_sync`, `catalogProductService.findBySku` in `catalog`, and `salesOrderService.findByExternalReference` in `sales`. Spec is otherwise architecturally sound and correct. All other findings from the spec review have been resolved in this pass.
+**Ready for implementation.** All three cross-module service method gaps are resolved: `deleteExternalIdMapping` / `deleteExternalIdMappings` in `data_sync`, `catalogProductService.findBySku` in catalog, and `salesOrderService.findByExternalReference` in sales. Spec is architecturally sound, all compliance items pass, and no blocking issues remain.
 
 ---
 
 ## Changelog
+
+### 2026-06-28 (cross-module service gaps resolved)
+- Three implementation blockers merged to `open-mercato/open-mercato` main: `deleteExternalIdMapping` / `deleteExternalIdMappings` added to `externalIdMappingService` in `data_sync`; `catalogProductService.findBySku` added to catalog module; `salesOrderService.findByExternalReference` added to sales module
+- Data-model section updated: replaced "gap that must be resolved" note with implemented method signatures for `deleteExternalIdMapping` / `deleteExternalIdMappings`
+- All `⚠️ PENDING` compliance/consistency rows updated to `✅ Pass`
+- Non-Compliant Items table converted to resolved-items record; verdict changed from "Implementation-blocked" to "Ready for implementation"
 
 ### 2026-06-05 (spec review pass — low findings)
 - L1: "Bundle + 3 children" comment in Component Layout corrected to 4 (Proposed Solution was already fixed; this was the last stale reference)
