@@ -1265,5 +1265,14 @@
   "workflows.visualEditor.tapToAdd": "Toca un tipo de paso para añadirlo al lienzo",
   "workflows.visualEditor.tapToAddBelow": "Toca un tipo de paso debajo para añadirlo al lienzo",
   "workflows.visualEditor.validate": "Validar",
-  "workflows.visualEditor.workflowMetadata": "Metadatos del flujo de trabajo"
+  "workflows.visualEditor.workflowMetadata": "Metadatos del flujo de trabajo",
+  "workflows.instances.fields.parentInstance": "Instancia principal",
+  "workflows.instances.subWorkflows.openChild": "Abrir instancia de subflujo",
+  "workflows.instances.subWorkflows.pickerTitle": "Abrir instancia de subflujo",
+  "workflows.instances.subWorkflows.pickerDescription": "Este paso generó varias instancias de subflujo. Elige una para abrir.",
+  "workflows.instances.subWorkflows.loading": "Cargando subflujos…",
+  "workflows.instances.subWorkflows.empty": "Sin subflujos",
+  "workflows.instances.list.viewToggle": "Vista de instancias",
+  "workflows.instances.list.topLevelOnly": "Nivel superior",
+  "workflows.instances.list.showAllFlat": "Todas (lista plana)"
 }

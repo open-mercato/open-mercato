@@ -223,6 +223,63 @@ describe('Workflow Instances API', () => {
       )
     })
 
+    test('should filter direct children by parentInstanceId', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/instances?parentInstanceId=parent-1')
+      await listInstances(request)
+
+      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+        WorkflowInstance,
+        expect.objectContaining({
+          $and: expect.arrayContaining([
+            { metadata: { $contains: { labels: { parentInstanceId: 'parent-1' } } } },
+          ]),
+        }),
+        expect.any(Object)
+      )
+    })
+
+    test('should filter top-level instances when hasParent=false', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/instances?hasParent=false')
+      await listInstances(request)
+
+      const [, where] = mockEm.findAndCount.mock.calls[0]
+      expect(Array.isArray(where.$and)).toBe(true)
+      // The top-level predicate is a JSON-path IS NULL on
+      // metadata.labels.parentInstanceId, expressed via a MikroORM raw()
+      // fragment. raw() stores the condition under a Symbol key whose value is
+      // null (→ IS NULL), so reflect over own symbols, not string keys.
+      const jsonPathCondition = where.$and.find((cond: Record<string | symbol, unknown>) => {
+        const symbols = Object.getOwnPropertySymbols(cond)
+        return symbols.some(
+          (sym) => String(sym).includes('parentInstanceId') && cond[sym] === null
+        )
+      })
+      expect(jsonPathCondition).toBeDefined()
+    })
+
+    test('parentInstanceId takes precedence over hasParent', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/instances?parentInstanceId=parent-1&hasParent=false')
+      await listInstances(request)
+
+      const [, where] = mockEm.findAndCount.mock.calls[0]
+      expect(where.$and).toEqual(
+        expect.arrayContaining([
+          { metadata: { $contains: { labels: { parentInstanceId: 'parent-1' } } } },
+        ])
+      )
+      // No raw JSON-path null condition should be added when parentInstanceId wins.
+      const nullCondition = where.$and.find((cond: Record<string | symbol, unknown>) =>
+        Object.getOwnPropertySymbols(cond).some((sym) => String(sym).includes('parentInstanceId'))
+      )
+      expect(nullCondition).toBeUndefined()
+    })
+
     test('should support custom pagination', async () => {
       mockEm.findAndCount.mockResolvedValue([[], 100])
 
