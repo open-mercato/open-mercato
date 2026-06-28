@@ -65,8 +65,32 @@ export function findGeneratedFile(fileName: string): string | null {
  * pulls Next.js / route-handler internals into the `.mjs` and breaks at runtime
  * (e.g. `next/server` package-exports map).
  */
-export async function compileAndImportGenerated(tsPath: string): Promise<Record<string, unknown>> {
-  const jsPath = tsPath.replace(/\.ts$/, '.mjs')
+export type CompileGeneratedOptions = {
+  /**
+   * Compile-and-inline LOCAL (relative / `@/`) module sources so app-source TS
+   * contributions — `apps/<app>/src/modules/<m>/ai-tools.ts` / `ai-agents.ts` —
+   * load in the standalone node MCP server. Bare package specifiers
+   * (`@open-mercato/*`, `next`, `zod`, `@mikro-orm/*`, …) stay EXTERNAL and are
+   * resolved at runtime against the workspace's compiled `dist`, so this neither
+   * pulls Next.js internals into the bundle nor duplicates package singletons.
+   *
+   * Without this, a generated registry that statically imports an app-source
+   * `.ts` file throws `ERR_MODULE_NOT_FOUND` under plain node (it cannot load a
+   * `.ts`), which aborts the WHOLE registry — not just the one module.
+   * Default `false` keeps transpile-only behaviour for registries whose imports
+   * are all packages (e.g. `api-routes.generated.ts`).
+   */
+  bundleLocalModules?: boolean
+}
+
+export async function compileAndImportGenerated(
+  tsPath: string,
+  options: CompileGeneratedOptions = {},
+): Promise<Record<string, unknown>> {
+  const bundle = options.bundleLocalModules === true
+  // Separate output filename per mode so switching strategies never reuses a
+  // stale artifact from the other path via the mtime cache.
+  const jsPath = tsPath.replace(/\.ts$/, bundle ? '.bundled.mjs' : '.mjs')
   // appRoot is two directories up from `.mercato/generated/<file>.ts`.
   const appRoot = path.dirname(path.dirname(path.dirname(tsPath)))
 
@@ -80,16 +104,34 @@ export async function compileAndImportGenerated(tsPath: string): Promise<Record<
 
   if (needsCompile) {
     const esbuild = await import('esbuild')
-    const tsSource = fs.readFileSync(tsPath, 'utf-8')
-    const aliasRewritten = rewriteGeneratedAliasImports(tsSource, appRoot)
-    const result = await esbuild.transform(aliasRewritten, {
-      loader: 'ts',
-      format: 'esm',
-      target: 'node18',
-      sourcemap: false,
-      sourcefile: tsPath,
-    })
-    fs.writeFileSync(jsPath, result.code)
+    if (bundle) {
+      const result = await esbuild.build({
+        entryPoints: [tsPath],
+        bundle: true,
+        // Keep every bare package specifier external (runtime resolution);
+        // only relative / aliased app-source files get compiled and inlined.
+        packages: 'external',
+        format: 'esm',
+        platform: 'node',
+        target: 'node18',
+        sourcemap: false,
+        write: false,
+        logLevel: 'silent',
+        alias: { '@': appRoot },
+      })
+      fs.writeFileSync(jsPath, result.outputFiles[0].text)
+    } else {
+      const tsSource = fs.readFileSync(tsPath, 'utf-8')
+      const aliasRewritten = rewriteGeneratedAliasImports(tsSource, appRoot)
+      const result = await esbuild.transform(aliasRewritten, {
+        loader: 'ts',
+        format: 'esm',
+        target: 'node18',
+        sourcemap: false,
+        sourcefile: tsPath,
+      })
+      fs.writeFileSync(jsPath, result.code)
+    }
   }
 
   return (await import(pathToFileURL(jsPath).href)) as Record<string, unknown>
