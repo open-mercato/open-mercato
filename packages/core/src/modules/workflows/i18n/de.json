@@ -1265,5 +1265,14 @@
   "workflows.visualEditor.tapToAdd": "Tippe auf einen Schritttyp, um ihn zur Arbeitsfläche hinzuzufügen",
   "workflows.visualEditor.tapToAddBelow": "Tippe unten auf einen Schritttyp, um ihn zur Arbeitsfläche hinzuzufügen",
   "workflows.visualEditor.validate": "Validieren",
-  "workflows.visualEditor.workflowMetadata": "Workflow-Metadaten"
+  "workflows.visualEditor.workflowMetadata": "Workflow-Metadaten",
+  "workflows.instances.fields.parentInstance": "Übergeordnete Instanz",
+  "workflows.instances.subWorkflows.openChild": "Subworkflow-Instanz öffnen",
+  "workflows.instances.subWorkflows.pickerTitle": "Subworkflow-Instanz öffnen",
+  "workflows.instances.subWorkflows.pickerDescription": "Dieser Schritt hat mehrere Subworkflow-Instanzen erzeugt. Wähle eine zum Öffnen.",
+  "workflows.instances.subWorkflows.loading": "Subworkflows werden geladen…",
+  "workflows.instances.subWorkflows.empty": "Keine Subworkflows",
+  "workflows.instances.list.viewToggle": "Instanzansicht",
+  "workflows.instances.list.topLevelOnly": "Oberste Ebene",
+  "workflows.instances.list.showAllFlat": "Alle (flach)"
 }

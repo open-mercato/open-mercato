@@ -1265,5 +1265,14 @@
   "workflows.visualEditor.tapToAdd": "Dotknij typu kroku, aby dodać go do obszaru roboczego",
   "workflows.visualEditor.tapToAddBelow": "Dotknij typu kroku poniżej, aby dodać go do obszaru roboczego",
   "workflows.visualEditor.validate": "Waliduj",
-  "workflows.visualEditor.workflowMetadata": "Metadane przepływu pracy"
+  "workflows.visualEditor.workflowMetadata": "Metadane przepływu pracy",
+  "workflows.instances.fields.parentInstance": "Instancja nadrzędna",
+  "workflows.instances.subWorkflows.openChild": "Otwórz instancję podprzepływu",
+  "workflows.instances.subWorkflows.pickerTitle": "Otwórz instancję podprzepływu",
+  "workflows.instances.subWorkflows.pickerDescription": "Ten krok utworzył wiele instancji podprzepływu. Wybierz jedną, aby otworzyć.",
+  "workflows.instances.subWorkflows.loading": "Ładowanie podprzepływów…",
+  "workflows.instances.subWorkflows.empty": "Brak podprzepływów",
+  "workflows.instances.list.viewToggle": "Widok instancji",
+  "workflows.instances.list.topLevelOnly": "Najwyższy poziom",
+  "workflows.instances.list.showAllFlat": "Wszystkie (płaskie)"
 }

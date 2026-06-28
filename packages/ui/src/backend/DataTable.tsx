@@ -1,11 +1,12 @@
 "use client"
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn, type VisibilityState, type RowSelectionState } from '@tanstack/react-table'
+import { useReactTable, getCoreRowModel, getSortedRowModel, getExpandedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn, type VisibilityState, type RowSelectionState, type ExpandedState, type OnChangeFn } from '@tanstack/react-table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronsUpDown, Check, Inbox } from 'lucide-react'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronRight, ChevronsUpDown, Check, Inbox } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
+import { IconButton } from '../primitives/icon-button'
 import { Checkbox } from '../primitives/checkbox'
 import {
   Select,
@@ -360,6 +361,23 @@ export type DataTableProps<T> = {
     onClearAll: () => void
     onRemoveLast: () => void
   }
+  /**
+   * Opt-in expandable/nested rows (accordion). All expansion props are
+   * additive and default-off — when none are passed, the table renders and
+   * behaves exactly as before (no toggle column, no row model change).
+   *
+   * - `getSubRows`: derive child rows for a given row (TanStack hierarchy source).
+   * - `expandable`: whether a row shows an expand toggle. Pass a predicate to
+   *   show the toggle for rows whose children are not loaded yet (lazy loading);
+   *   defaults to "has sub-rows" when omitted but `getSubRows` is set.
+   * - `expanded` / `onExpandedChange`: controlled expansion state. Provide both
+   *   for lazy-loading hosts that fetch children when a row is expanded; omit
+   *   for self-managed expansion.
+   */
+  getSubRows?: (row: T) => T[] | undefined
+  expandable?: boolean | ((row: T) => boolean)
+  expanded?: ExpandedState
+  onExpandedChange?: OnChangeFn<ExpandedState>
 }
 
 const DEFAULT_EXPORT_FORMATS: DataTableExportFormat[] = ['csv', 'json', 'xml', 'markdown']
@@ -1029,6 +1047,10 @@ export function DataTable<T>({
   columnChooser,
   activeFilterChips,
   filterAwareEmptyState,
+  getSubRows,
+  expandable,
+  expanded: expandedProp,
+  onExpandedChange,
 }: DataTableProps<T>) {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -1491,14 +1513,36 @@ export function DataTable<T>({
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
   const selectionScopeKeyRef = React.useRef<string | undefined>(selectionScopeKey)
   const enableClientSorting = sortable && !manualSorting
+  // Opt-in expansion: enabled only when the host passes any expansion prop, so
+  // existing tables keep their exact row model and rendering.
+  const expansionEnabled = getSubRows !== undefined || expandable !== undefined
+  const [internalExpanded, setInternalExpanded] = React.useState<ExpandedState>({})
+  const expandedState = expandedProp !== undefined ? expandedProp : internalExpanded
+  const handleExpandedChange = React.useCallback<OnChangeFn<ExpandedState>>((updater) => {
+    if (onExpandedChange) {
+      onExpandedChange(updater)
+      return
+    }
+    setInternalExpanded((prev) => (typeof updater === 'function' ? updater(prev) : updater))
+  }, [onExpandedChange])
   const table = useReactTable<T>({
     data: clientFilteredData,
     columns: mergedColumns,
     getCoreRowModel: getCoreRowModel(),
     ...(enableClientSorting ? { getSortedRowModel: getSortedRowModel() } : {}),
+    ...(expansionEnabled ? {
+      getSubRows: getSubRows as ((row: T) => T[] | undefined) | undefined,
+      getExpandedRowModel: getExpandedRowModel(),
+      getRowCanExpand: (row) => {
+        if (typeof expandable === 'function') return expandable(row.original as T)
+        if (expandable === true) return true
+        return (row.subRows?.length ?? 0) > 0
+      },
+      onExpandedChange: handleExpandedChange,
+    } : {}),
     manualSorting: manualSorting === true,
     getRowId: resolveDataTableRowId,
-    state: { sorting, columnVisibility, columnOrder, rowSelection },
+    state: { sorting, columnVisibility, columnOrder, rowSelection, ...(expansionEnabled ? { expanded: expandedState } : {}) },
     enableRowSelection: hasInjectedBulkActions,
     onSortingChange: (updater) => {
       const next = typeof updater === 'function' ? updater(sorting) : updater
@@ -3005,9 +3049,47 @@ export function DataTable<T>({
                         </TruncatedCell>
                       ) : content
 
+                      // Expansion affordance: only on the first data cell when
+                      // expansion is enabled. Indent by nesting depth so children
+                      // read as nested under their parent; render a fixed-width
+                      // spacer for non-expandable rows to keep columns aligned.
+                      const expandAffordance = expansionEnabled && cellIndex === 0 ? (
+                        <span
+                          className="inline-flex shrink-0 items-center"
+                          style={{ paddingLeft: `${row.depth * 1.25}rem` }}
+                        >
+                          {row.getCanExpand() ? (
+                            <IconButton
+                              type="button"
+                              variant="ghost"
+                              size="xs"
+                              aria-label={row.getIsExpanded()
+                                ? t('ui.dataTable.expand.collapseRow', 'Collapse row')
+                                : t('ui.dataTable.expand.expandRow', 'Expand row')}
+                              aria-expanded={row.getIsExpanded()}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                row.toggleExpanded()
+                              }}
+                            >
+                              {row.getIsExpanded()
+                                ? <ChevronDown className="size-4" aria-hidden="true" />
+                                : <ChevronRight className="size-4" aria-hidden="true" />}
+                            </IconButton>
+                          ) : (
+                            <span className="inline-block size-6" aria-hidden="true" />
+                          )}
+                        </span>
+                      ) : null
+
                       return (
                         <TableCell key={cell.id} className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : '')}>
-                          {wrappedContent}
+                          {expandAffordance ? (
+                            <span className="flex items-center gap-1.5">
+                              {expandAffordance}
+                              <span className="min-w-0 flex-1">{wrappedContent}</span>
+                            </span>
+                          ) : wrappedContent}
                         </TableCell>
                       )
                     })}

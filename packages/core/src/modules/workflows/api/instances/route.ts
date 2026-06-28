@@ -8,6 +8,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { raw } from '@mikro-orm/core'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -67,6 +69,8 @@ export async function GET(request: NextRequest) {
     const correlationKey = searchParams.get('correlationKey')
     const entityType = searchParams.get('entityType')
     const entityId = searchParams.get('entityId')
+    const parentInstanceId = searchParams.get('parentInstanceId')
+    const hasParent = parseBooleanToken(searchParams.get('hasParent'))
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
 
@@ -108,6 +112,26 @@ export async function GET(request: NextRequest) {
           metadata: { $contains: { entityId: entityId } }
         })
       }
+    }
+
+    // Parent/sub-workflow filtering. The parent linkage is stored in
+    // metadata.labels.parentInstanceId (set by the SUB_WORKFLOW step handler).
+    // - parentInstanceId: return only the direct children of that parent
+    //   (JSONB containment; works for equality).
+    // - hasParent=false: return only top-level/standalone instances, and
+    //   hasParent=true only children. Absence of a key cannot be expressed via
+    //   $contains, so use a JSON-path predicate (null = IS NULL).
+    if (parentInstanceId) {
+      where.$and = where.$and || []
+      where.$and.push({
+        metadata: { $contains: { labels: { parentInstanceId } } },
+      })
+    } else if (hasParent !== null) {
+      where.$and = where.$and || []
+      // Unqualified column reference is unambiguous here — the instance list
+      // query is single-table (tenant/org scope adds predicates, not joins).
+      const parentIdPath = raw(`(metadata #>> '{labels,parentInstanceId}')`)
+      where.$and.push({ [parentIdPath]: hasParent ? { $ne: null } : null })
     }
 
     const [instances, total] = await em.findAndCount(
@@ -315,6 +339,8 @@ export const openApi = {
         correlationKey: z.string().optional(),
         entityType: z.string().optional(),
         entityId: z.string().optional(),
+        parentInstanceId: z.string().optional().describe('Return only direct sub-workflow children of this parent instance.'),
+        hasParent: z.boolean().optional().describe('false = only top-level/standalone instances; true = only sub-workflow children. Ignored when parentInstanceId is set.'),
         limit: z.number().int().positive().default(50).optional(),
         offset: z.number().int().min(0).default(0).optional(),
       }),
