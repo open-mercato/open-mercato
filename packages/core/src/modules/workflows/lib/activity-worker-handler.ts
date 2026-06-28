@@ -7,6 +7,7 @@
 
 import { JobHandler } from '@open-mercato/queue'
 import { WorkflowActivityJob, WorkflowActivityJobInvokeAgent } from './activity-queue-types'
+import { mapAgentResultToContext } from './agent-result-mapping'
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
@@ -299,9 +300,22 @@ export async function handleInvokeAgentJob(
 
   // informative / auto_approved: resume the parked step by firing the signal. The
   // payload is merged into workflow context (top-level), mirroring the prior
-  // inline-resolution behavior so the outgoing transition can branch.
+  // inline-resolution behavior so the outgoing transition can branch. When the
+  // activity declared an outputMapping, route the result into the chosen keys;
+  // otherwise fall back to the legacy fixed-key payload.
+  const mappedPayload = mapAgentResultToContext(
+    {
+      kind: outcome.kind,
+      agentId: payload.agentId,
+      proposalId: outcome.kind === 'auto_approved' ? outcome.proposalId : undefined,
+      proposalPayload: outcome.kind === 'auto_approved' ? outcome.payload : undefined,
+      data: outcome.kind === 'informative' ? outcome.data : undefined,
+    },
+    payload.outputMapping
+  )
   const signalPayload =
-    outcome.kind === 'auto_approved'
+    mappedPayload ??
+    (outcome.kind === 'auto_approved'
       ? {
           disposition: 'auto_approved',
           agentId: payload.agentId,
@@ -312,7 +326,7 @@ export async function handleInvokeAgentJob(
           disposition: 'informative',
           agentId: payload.agentId,
           [`${payload.stepId}_agent`]: outcome.data,
-        }
+        })
 
   try {
     const { sendSignal } = await import('./signal-handler')

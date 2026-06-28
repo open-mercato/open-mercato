@@ -59,6 +59,10 @@ export interface WorkflowActivityJobInvokeAgent extends WorkflowActivityJobBase 
   agentId: string
   input: Record<string, any>
   onResult: { autoApproveThreshold: number } | { alwaysAsk: true }
+  // Optional routing of the agent result into workflow context (see
+  // invokeAgentConfigSchema.outputMapping). Threaded through so the worker that
+  // resumes the parked step can build the same context patch the inline path does.
+  outputMapping?: Record<string, string>
 }
 
 export type WorkflowActivityJob =

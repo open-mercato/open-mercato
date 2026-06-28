@@ -39,6 +39,9 @@ function makeContext(): ActivityContext {
       tenantId,
       organizationId,
       currentStepId: stepId,
+      // The agent run executes under the user who initiated the instance
+      // (resolveWorkflowPrincipalUserId); without it the executor refuses to run.
+      metadata: { initiatedBy: 'user-1' },
     } as any,
     workflowContext: {},
     stepContext: { stepId },
