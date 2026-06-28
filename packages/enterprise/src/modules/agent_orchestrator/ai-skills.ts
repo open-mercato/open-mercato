@@ -15,8 +15,14 @@ const __esmDirname = path.dirname(fileURLToPath(import.meta.url))
 
 function resolveSkillsDir(): string | null {
   const candidates = [
+    // Colocated: source execution (tsx) or a build that copies skills into dist.
     path.join(__esmDirname, 'skills'),
-    path.join(process.cwd(), 'packages', 'core', 'src', 'modules', 'agent_orchestrator', 'skills'),
+    // Dist execution (e.g. mcp:serve runs the compiled package): walk from
+    // `<pkg>/dist/modules/agent_orchestrator` back to the source `skills` dir.
+    path.join(__esmDirname, '..', '..', '..', 'src', 'modules', 'agent_orchestrator', 'skills'),
+    // Repo-root cwd (this module lives in @open-mercato/enterprise, not core).
+    path.join(process.cwd(), 'packages', 'enterprise', 'src', 'modules', 'agent_orchestrator', 'skills'),
+    // Standalone app cwd.
     path.join(process.cwd(), 'src', 'modules', 'agent_orchestrator', 'skills'),
   ]
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? null
