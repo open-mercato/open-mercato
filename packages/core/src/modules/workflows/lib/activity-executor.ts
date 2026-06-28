@@ -990,7 +990,7 @@ export async function executeInvokeAgent(
       .join('; ')
     throw new Error(`INVOKE_AGENT config invalid: ${issues}`)
   }
-  const { agentId, input, onResult } = parsed.data
+  const { agentId, input, onResult, outputMapping } = parsed.data
 
   // Fail fast when the optional agent_orchestrator peer is absent — the worker
   // would otherwise enqueue a job that can never run.
@@ -1079,6 +1079,7 @@ export async function executeInvokeAgent(
     agentId,
     input: (input ?? {}) as Record<string, any>,
     onResult,
+    ...(outputMapping ? { outputMapping } : {}),
     tenantId: context.workflowInstance.tenantId,
     organizationId: context.workflowInstance.organizationId,
     userId: effectiveUserId,

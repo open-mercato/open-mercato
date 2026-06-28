@@ -21,6 +21,7 @@ import {
   type WorkflowStepType,
 } from '../data/entities'
 import { parseDuration } from './duration'
+import { mapAgentResultToContext } from './agent-result-mapping'
 import { logWorkflowEvent } from './event-logger'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWorkflowDefinition } from './find-definition'
@@ -555,13 +556,30 @@ async function handleAutomatedStep(
     )
     if (inlineAgent && !branch) {
       const out = inlineAgent.output as any
-      if (out.kind === 'auto_approved') {
-        instance.context = {
-          ...instance.context,
-          disposition: 'auto_approved',
-          agentProposalId: out.proposalId,
+      const agentActivity = activities.find(
+        (a: any) => a.activityType === 'INVOKE_AGENT' && a.activityId === inlineAgent.activityId,
+      )
+      const mappedPatch = mapAgentResultToContext(
+        {
+          kind: out.kind,
+          agentId: out.agentId,
+          proposalId: out.proposalId,
           proposalPayload: out.proposalPayload,
-        }
+          data: out.data,
+        },
+        agentActivity?.config?.outputMapping,
+      )
+      const contextPatch =
+        mappedPatch ??
+        (out.kind === 'auto_approved'
+          ? {
+              disposition: 'auto_approved',
+              agentProposalId: out.proposalId,
+              proposalPayload: out.proposalPayload,
+            }
+          : null)
+      if (contextPatch && Object.keys(contextPatch).length > 0) {
+        instance.context = { ...instance.context, ...contextPatch }
         instance.updatedAt = new Date()
         await em.flush()
       }

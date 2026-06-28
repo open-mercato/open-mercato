@@ -127,6 +127,12 @@ export const invokeAgentConfigSchema = z.object({
     z.object({ autoApproveThreshold: z.number().min(0).max(1) }),
     z.object({ alwaysAsk: z.literal(true) }),
   ]),
+  // Optional routing of the agent result into workflow context. Keys are the
+  // target context paths; values are plain dot-paths into the normalized agent
+  // result envelope (kind / disposition / proposalId / proposalPayload / data).
+  // Mirrors SUB_WORKFLOW's outputMapping. When omitted, the engine writes the
+  // legacy fixed keys (disposition / agentProposalId / proposalPayload).
+  outputMapping: z.record(z.string(), z.string()).optional(),
 })
 export type InvokeAgentConfig = z.infer<typeof invokeAgentConfigSchema>
 
