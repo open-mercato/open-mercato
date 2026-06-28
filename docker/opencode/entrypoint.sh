@@ -12,7 +12,7 @@
 # OpenCode reads provider credentials from the matching provider environment
 # variables, for example OPENAI_API_KEY, ANTHROPIC_API_KEY, or OPENROUTER_API_KEY.
 
-CONFIG_DIR="/home/opencode/.config/opencode"
+CONFIG_DIR="${OPENCODE_CONFIG_DIR:-/home/opencode/.config/opencode}"
 CONFIG_FILE="${CONFIG_DIR}/opencode.jsonc"
 
 # Default values — OM_AI_* wins, OPENCODE_* is the BC fallback, defaults
@@ -66,7 +66,11 @@ case "$PROVIDER" in
     PROVIDER_CONFIG='"google": {}'
     ;;
   openrouter)
-    PROVIDER_CONFIG="\"openrouter\": { \"models\": { \"$MODEL_ID\": {} } }"
+    OPENROUTER_OPTIONS=""
+    if [ -n "${OPENROUTER_BASE_URL:-}" ]; then
+      OPENROUTER_OPTIONS=", \"options\": { \"baseURL\": \"$OPENROUTER_BASE_URL\" }"
+    fi
+    PROVIDER_CONFIG="\"openrouter\": { \"models\": { \"$MODEL_ID\": {} }$OPENROUTER_OPTIONS }"
     ;;
   *)
     echo "Warning: Unknown provider '$PROVIDER', defaulting to anthropic"
