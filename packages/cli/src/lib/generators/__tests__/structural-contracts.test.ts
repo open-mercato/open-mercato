@@ -570,7 +570,7 @@ describe('frontend-routes.generated.ts', () => {
 
   it('contains orders frontend route with correct pattern', () => {
     expect(content).toContain('moduleId: "orders"')
-    expect(content).toContain('pattern: "/"')
+    expect(content).toContain('resolvePageRouteMetadata("/",')
   })
 })
 
@@ -600,9 +600,14 @@ describe('backend-routes.generated.ts', () => {
   })
 
   it('each route entry has pattern, moduleId, and load function', () => {
-    expect(content).toContain('pattern:')
-    expect(content).toContain('requireAuth:')
+    expect(content).toContain('resolvePageRouteMetadata(')
     expect(content).toContain('load: async () =>')
+  })
+
+  it('keeps backend page imports lazy in route entries', () => {
+    expect(content).toContain('@open-mercato/core/modules/orders/backend')
+    expect(content).toContain('load: async () =>')
+    expect(content).toContain('import("@open-mercato/core/modules/orders/backend')
   })
 })
 
@@ -629,6 +634,11 @@ describe('api-routes.generated.ts', () => {
   it('products API route has all 4 methods', () => {
     expect(content).toContain('path: "/products"')
     expect(content).toMatch(/methods:.*GET.*POST.*PUT.*DELETE/)
+  })
+
+  it('keeps API handler imports lazy in route entries', () => {
+    expect(content).toContain('@open-mercato/core/modules/orders/api')
+    expect(content).toContain('load: async () => import(')
   })
 })
 
@@ -1218,14 +1228,39 @@ describe('modules.app.generated.ts', () => {
   })
 })
 
+describe('modules.bootstrap.generated.ts', () => {
+  it('exports a bootstrap-only module manifest without route components', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistryApp({ resolver, quiet: true })
+    const content = readGenerated('modules.bootstrap.generated.ts')
+
+    expect(content).toContain('export const modules: Module[] = [')
+    expect(content).toContain('export default modules')
+    expect(content).toContain('id: "orders"')
+    expect(content).toContain('subscribers:')
+    expect(content).toContain('orders.order.created')
+    expect(content).toContain('setup:')
+    expect(content).toContain('features:')
+
+    expect(content).not.toContain('frontendRoutes:')
+    expect(content).not.toContain('backendRoutes:')
+    expect(content).not.toContain('createElement')
+    expect(content).not.toContain('/page.meta')
+    expect(content).not.toContain('/frontend/')
+    expect(content).not.toContain('/backend/')
+    expect(content).not.toContain('cli:')
+  })
+})
+
 describe('bootstrap-modules.generated.ts', () => {
-  it('exports legacy bootstrapModules alias from modules.app.generated.ts', async () => {
+  it('exports legacy bootstrapModules alias from modules.bootstrap.generated.ts', async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
     await generateModuleRegistryApp({ resolver, quiet: true })
     const content = readGenerated('bootstrap-modules.generated.ts')
 
-    expect(content).toContain('modules.app.generated')
+    expect(content).toContain('modules.bootstrap.generated')
     expect(content).toContain('export const bootstrapModules: Module[] = modules')
   })
 })
