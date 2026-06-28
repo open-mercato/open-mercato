@@ -355,6 +355,15 @@ export function definitionToGraph(
       const contract = subWorkflowId ? childContracts?.get(subWorkflowId) : undefined
       if (contract?.inputs?.length) nodeData.inputs = contract.inputs
       if (contract?.outputs?.length) nodeData.outputs = contract.outputs
+      // Display-only mirror of config.subWorkflowId/version, so the node renders
+      // "Invokes: <id>" without re-reading config. The runtime + editor dialog
+      // keep config.subWorkflowId/version as the source of truth.
+      if ((step as any).config) {
+        nodeData.subWorkflowId = (step as any).config.subWorkflowId
+        if ((step as any).config.version != null) {
+          nodeData.version = (step as any).config.version
+        }
+      }
     }
 
     // Add step activities data (for AUTOMATED steps)
@@ -428,34 +437,38 @@ export function definitionToGraph(
  * are not transitions (they live in the target step's `config.inputMapping`).
  */
 /**
- * Approximate the rendered footprint of a transition-label pill so the dagre
- * layout can reserve space for it between ranks. Mirrors WorkflowTransitionLabel
- * (text-xs ~6.5px/char + `px-2` padding + border); the width is capped so very
- * long transition names don't blow the whole graph apart. Returns null for
- * empty labels (edge takes zero label space, the prior behavior).
+ * Approximate a node card's rendered footprint when its true measured size is
+ * not yet known (initial open, before React Flow measures the DOM). Cards are
+ * `w-fit` between `NODE_WIDTH` and `NODE_MAX_WIDTH` (see WorkflowNodeCard); their
+ * width is driven mostly by the two-line `line-clamp-2` description, which pushes
+ * almost any described node to the max width. So a node WITH a description is
+ * estimated at the cap (and taller for the extra line); a bare-title node sizes
+ * to its title. Underestimating here is what makes ranks overlap, so this errs
+ * toward the real (larger) footprint. The Auto-arrange path uses exact measured
+ * sizes instead and does not rely on this.
  */
-function estimateEdgeLabelSize(label: unknown): { width: number; height: number } | null {
+function estimateNodeSize(label: unknown, hasDescription: boolean): { width: number; height: number } {
   const text = typeof label === 'string' ? label.trim() : ''
-  if (!text) return null
-  const width = Math.min(Math.round(text.length * 6.5) + 24, 220)
-  return { width, height: 28 }
+  const titleWidth = Math.round(text.length * 7) + 64
+  const width = hasDescription
+    ? NODE_MAX_WIDTH
+    : Math.min(Math.max(NODE_WIDTH, titleWidth), NODE_MAX_WIDTH)
+  const height = hasDescription ? NODE_HEIGHT + 24 : NODE_HEIGHT
+  return { width, height }
 }
 
 /**
- * Approximate a node card's rendered footprint from its title. Cards size to
- * their content between `NODE_WIDTH` and `NODE_MAX_WIDTH` (see WorkflowNodeCard),
- * wrapping the title to a second line when it would overflow — so a long title
- * makes the card both wider (up to the cap) and taller. Kept in sync with the
- * card's bounds so dagre reserves roughly the real space.
+ * Footprint dagre reserves for a node: its exact measured size when React Flow
+ * has already laid it out (the Auto-arrange path passes `node.measured`),
+ * otherwise the description-aware estimate above.
  */
-function estimateNodeSize(label: unknown): { width: number; height: number } {
-  const text = typeof label === 'string' ? label.trim() : ''
-  // text-sm title (~7px/char) + status icon + type row + padding (~64px).
-  const rawWidth = Math.round(text.length * 7) + 64
-  const width = Math.min(Math.max(NODE_WIDTH, rawWidth), NODE_MAX_WIDTH)
-  // Overflowing the cap means the title wraps to a second line → taller card.
-  const height = rawWidth > NODE_MAX_WIDTH ? NODE_HEIGHT + 20 : NODE_HEIGHT
-  return { width, height }
+function nodeFootprint(step: any): { width: number; height: number } {
+  if (typeof step.width === 'number' && typeof step.height === 'number') {
+    return { width: step.width, height: step.height }
+  }
+  const description = step.description
+  const hasDescription = typeof description === 'string' && description.trim().length > 0
+  return estimateNodeSize(step.stepName ?? step.label, hasDescription)
 }
 
 function layoutWithDagre(
@@ -471,28 +484,22 @@ function layoutWithDagre(
 
   const graph = new dagre.graphlib.Graph()
   graph.setDefaultEdgeLabel(() => ({}))
-  graph.setGraph({ rankdir, nodesep: 70, ranksep: 90 })
+  graph.setGraph({ rankdir, nodesep: 60, ranksep: 80 })
 
-  // Nodes size to their label (cards are no longer a fixed 180px wide), so the
-  // layout must reserve each node's real footprint or wide cards overlap their
-  // neighbours after auto-arrange.
+  // Reserve each node's real footprint (measured when available, else a
+  // description-aware estimate). `ranksep`/`nodesep` then become the actual
+  // visible gap between cards, so the spacing is neither cramped nor blown apart.
   for (const step of steps) {
-    graph.setNode(step.stepId, estimateNodeSize(step.stepName ?? step.label))
+    graph.setNode(step.stepId, nodeFootprint(step))
   }
 
+  // Transition labels are hover-only (WorkflowTransitionEdge), so they occupy no
+  // persistent canvas space — the layout no longer reserves a label pill between
+  // ranks, keeping nodes tight against `ranksep` instead of pushing them apart by
+  // the (previously up to 220px wide) label footprint.
   for (const transition of transitions) {
     if (graph.hasNode(transition.fromStepId) && graph.hasNode(transition.toStepId)) {
-      // Reserve room for the transition-label pill between ranks. Without this
-      // dagre packs ranks against `ranksep` only and the label overlaps the
-      // downstream node (the label is rendered at the edge midpoint by
-      // WorkflowTransitionEdge). A labelled edge becomes a dummy label node of
-      // these dimensions, so the rank gap grows to fit the text.
-      const labelSize = estimateEdgeLabelSize(transition.label ?? transition.transitionName)
-      graph.setEdge(
-        transition.fromStepId,
-        transition.toStepId,
-        labelSize ? { width: labelSize.width, height: labelSize.height, labelpos: 'c' } : {},
-      )
+      graph.setEdge(transition.fromStepId, transition.toStepId, {})
     }
   }
 
@@ -523,14 +530,21 @@ function layoutWithDagre(
  * excluded from the rank graph since they are not control-flow transitions.
  */
 export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
-  const steps = nodes.map((node) => ({ stepId: node.id, stepName: (node.data as any)?.label }))
+  // Use each node's exact measured footprint so dagre reserves the real on-screen
+  // size; React Flow has already measured the cards by the time the user clicks
+  // Auto-arrange. Fall back to the estimate only for any not-yet-measured node.
+  const steps = nodes.map((node) => ({
+    stepId: node.id,
+    stepName: (node.data as any)?.label,
+    description: (node.data as any)?.description,
+    width: node.measured?.width,
+    height: node.measured?.height,
+  }))
   const transitions = edges
     .filter((edge) => !isDataMappingEdge(edge))
     .map((edge) => ({
       fromStepId: edge.source,
       toStepId: edge.target,
-      // Carry the label so the layout reserves room for the transition pill.
-      label: (edge.data as any)?.label ?? (edge.data as any)?.transitionName,
     }))
 
   const positions = layoutWithDagre(steps, transitions, {
@@ -558,6 +572,8 @@ function mapNodeTypeToStepType(nodeType: string): string {
     decision: 'DECISION',
     waitForSignal: 'WAIT_FOR_SIGNAL',
     waitForTimer: 'WAIT_FOR_TIMER',
+    parallelFork: 'PARALLEL_FORK',
+    parallelJoin: 'PARALLEL_JOIN',
     // The invoke-agent node is a specialization of an AUTOMATED step.
     invokeAgent: 'AUTOMATED',
   }
@@ -577,6 +593,8 @@ function mapStepTypeToNodeType(stepType: string): string {
     DECISION: 'decision',
     WAIT_FOR_SIGNAL: 'waitForSignal',
     WAIT_FOR_TIMER: 'waitForTimer',
+    PARALLEL_FORK: 'parallelFork',
+    PARALLEL_JOIN: 'parallelJoin',
   }
   return mapping[stepType] || 'automated'
 }
@@ -591,8 +609,11 @@ function getBadgeForNodeType(nodeType: string): string {
     userTask: 'User Task',
     automated: 'Automated',
     decision: 'Decision',
+    subWorkflow: 'Sub-Workflow',
     waitForSignal: 'Wait for Signal',
     waitForTimer: 'Wait for Timer',
+    parallelFork: 'Parallel Fork',
+    parallelJoin: 'Parallel Join',
     invokeAgent: 'Invoke Agent',
   }
   return badges[nodeType] || 'Task'

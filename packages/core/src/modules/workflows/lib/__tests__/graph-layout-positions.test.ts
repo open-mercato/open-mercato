@@ -105,7 +105,7 @@ describe('applyAutoLayout', () => {
     expect((taskNode.data as any).badge).toBe('Automated')
   })
 
-  test('reserves horizontal room for transition labels so they do not overlap the next node', () => {
+  test('transition labels are hover-only and do not widen the gap to the next node', () => {
     const nodes: Node[] = [
       { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: { label: 'Start' } },
       { id: 'task', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'Task' } },
@@ -130,8 +130,60 @@ describe('applyAutoLayout', () => {
       return b - a
     }
 
-    // A labelled edge must push the downstream node further right than a bare
-    // edge, leaving room for the label pill rendered at the edge midpoint.
-    expect(gapFor(labeled)).toBeGreaterThan(gapFor(unlabeled))
+    // Labels render on hover only (WorkflowTransitionEdge), so they occupy no
+    // persistent canvas space — a labelled edge must NOT push the downstream node
+    // any further right than a bare edge.
+    expect(gapFor(labeled)).toBe(gapFor(unlabeled))
+  })
+
+  test('reserves each node measured footprint so wide cards do not overlap', () => {
+    const edges: Edge[] = [
+      { id: 'a-b', source: 'a', target: 'b', type: 'workflowTransition' },
+    ]
+    const wideNodes: Node[] = [
+      { id: 'a', type: 'start', position: { x: 0, y: 0 }, data: { label: 'A' }, measured: { width: 280, height: 90 } },
+      { id: 'b', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'B' }, measured: { width: 280, height: 90 } },
+    ]
+    const narrowNodes: Node[] = [
+      { id: 'a', type: 'start', position: { x: 0, y: 0 }, data: { label: 'A' }, measured: { width: 120, height: 60 } },
+      { id: 'b', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'B' }, measured: { width: 120, height: 60 } },
+    ]
+
+    const leftEdgeGap = (out: Node[]) => {
+      const a = out.find((node) => node.id === 'a')!
+      const b = out.find((node) => node.id === 'b')!
+      // x is the card's left edge; the visible gap is b.left − a.right.
+      const aWidth = a.measured!.width!
+      return b.position.x - (a.position.x + aWidth)
+    }
+
+    // dagre reserves the measured width, so the visible inter-card gap is the
+    // same `ranksep` regardless of how wide the cards are — wide cards keep their
+    // gap instead of overlapping the neighbour.
+    const wideGap = leftEdgeGap(applyAutoLayout(wideNodes, edges))
+    const narrowGap = leftEdgeGap(applyAutoLayout(narrowNodes, edges))
+    expect(wideGap).toBeGreaterThan(0)
+    expect(Math.abs(wideGap - narrowGap)).toBeLessThanOrEqual(1)
+  })
+
+  test('described nodes reserve more width than bare-title nodes when unmeasured', () => {
+    const edges: Edge[] = [
+      { id: 'a-b', source: 'a', target: 'b', type: 'workflowTransition' },
+    ]
+    const described: Node[] = [
+      { id: 'a', type: 'start', position: { x: 0, y: 0 }, data: { label: 'A', description: 'Some explanatory copy' } },
+      { id: 'b', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'B', description: 'Some explanatory copy' } },
+    ]
+    const bare: Node[] = [
+      { id: 'a', type: 'start', position: { x: 0, y: 0 }, data: { label: 'A' } },
+      { id: 'b', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'B' } },
+    ]
+
+    const downstreamX = (input: Node[]) =>
+      applyAutoLayout(input, edges).find((node) => node.id === 'b')!.position.x
+
+    // With no measured size, a described card is estimated at the max width, so
+    // its downstream neighbour is pushed further right than the bare-title case.
+    expect(downstreamX(described)).toBeGreaterThan(downstreamX(bare))
   })
 })
