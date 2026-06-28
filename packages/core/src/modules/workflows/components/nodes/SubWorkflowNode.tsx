@@ -1,6 +1,7 @@
 'use client'
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
+import { ArrowUpRight } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { WorkflowStatus } from '../../lib/status-colors'
@@ -20,6 +21,12 @@ export interface SubWorkflowNodeData {
   /** Declared input/output ports of the referenced sub-workflow (definition.io). */
   inputs?: PortField[]
   outputs?: PortField[]
+  /**
+   * Ids of the child workflow instances this step spawned (read-only instance
+   * viewer only). When present the node is navigable — clicking it opens the
+   * child instance (or a picker when more than one). Empty/absent in the editor.
+   */
+  childInstanceIds?: string[]
 }
 
 /**
@@ -39,6 +46,8 @@ export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps
   const nodeData = data as unknown as SubWorkflowNodeData
   const inputs = Array.isArray(nodeData.inputs) ? nodeData.inputs : []
   const outputs = Array.isArray(nodeData.outputs) ? nodeData.outputs : []
+  const childInstanceCount = Array.isArray(nodeData.childInstanceIds) ? nodeData.childInstanceIds.length : 0
+  const isNavigable = childInstanceCount > 0
 
   const mapStatus = (status?: string): WorkflowStatus => {
     if (!status || status === 'pending') return 'not_started'
@@ -58,7 +67,20 @@ export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps
         : 'Sub-workflow invocation')
 
   return (
-    <div className="sub-workflow-node" title={nodeData.tooltip}>
+    <div
+      className={`sub-workflow-node relative${isNavigable ? ' cursor-pointer' : ''}`}
+      title={nodeData.tooltip}
+      role={isNavigable ? 'button' : undefined}
+      aria-label={isNavigable
+        ? t('workflows.instances.subWorkflows.openChild', 'Open sub-workflow instance')
+        : undefined}
+    >
+      {isNavigable && (
+        <span className="absolute -right-1.5 -top-1.5 z-10 inline-flex items-center gap-0.5 rounded-full border border-border bg-background px-1.5 py-0.5 text-xs font-medium text-primary shadow-sm">
+          {childInstanceCount > 1 && <span>{childInstanceCount}</span>}
+          <ArrowUpRight className="size-3" aria-hidden="true" />
+        </span>
+      )}
       {/* Control-flow target handle (left edge under horizontal flow) */}
       <Handle
         type="target"

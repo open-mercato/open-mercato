@@ -69,11 +69,13 @@ export function WorkflowGraphReadOnly({
   edges,
   className = '',
   height = '500px',
+  onNodeClick,
 }: {
   nodes: Node[]
   edges: Edge[]
   className?: string
   height?: string
+  onNodeClick?: (event: React.MouseEvent, node: Node) => void
 }) {
   return (
     <WorkflowGraph
@@ -82,6 +84,7 @@ export function WorkflowGraphReadOnly({
       editable={false}
       className={className}
       height={height}
+      onNodeClick={onNodeClick}
     />
   )
 }

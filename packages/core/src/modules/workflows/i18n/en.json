@@ -1265,5 +1265,14 @@
   "workflows.visualEditor.tapToAdd": "Tap a step type to add it to the canvas",
   "workflows.visualEditor.tapToAddBelow": "Tap a step type below to add it to the canvas",
   "workflows.visualEditor.validate": "Validate",
-  "workflows.visualEditor.workflowMetadata": "Workflow Metadata"
+  "workflows.visualEditor.workflowMetadata": "Workflow Metadata",
+  "workflows.instances.fields.parentInstance": "Parent instance",
+  "workflows.instances.subWorkflows.openChild": "Open sub-workflow instance",
+  "workflows.instances.subWorkflows.pickerTitle": "Open sub-workflow instance",
+  "workflows.instances.subWorkflows.pickerDescription": "This step spawned multiple sub-workflow instances. Choose one to open.",
+  "workflows.instances.subWorkflows.loading": "Loading sub-workflows…",
+  "workflows.instances.subWorkflows.empty": "No sub-workflows",
+  "workflows.instances.list.viewToggle": "Instance view",
+  "workflows.instances.list.topLevelOnly": "Top-level",
+  "workflows.instances.list.showAllFlat": "All (flat)"
 }
