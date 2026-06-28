@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { CheckCircle2, Clock, Download, Filter, Gavel, Replace } from 'lucide-react'
+import { CheckCircle2, Clock, Download, Filter, Gavel, Replace, Workflow } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -27,6 +27,7 @@ type AuditRow = {
   disposition: Disposition
   operator: string | null
   reason: string | null
+  processId: string | null
 }
 
 const dispositionVariant: StatusMap<Disposition> = {
@@ -129,6 +130,7 @@ export default function AgentAuditPage() {
           disposition: dispositionOf(fieldOf(proposal, 'disposition') || 'pending'),
           operator: fieldOf(proposal, 'disposition_by', 'dispositionBy') || null,
           reason: fieldOf(proposal, 'disposition_reason', 'dispositionReason') || null,
+          processId: fieldOf(proposal, 'process_id', 'processId') || null,
         }
       })
       built.sort((a, b) => Date.parse(b.when || '') - Date.parse(a.when || ''))
@@ -306,6 +308,18 @@ export default function AgentAuditPage() {
             columnChooser={{ auto: true }}
             perspective={{ tableId: 'agent_orchestrator.audit.list', align: 'right' }}
             onRowClick={(row) => router.push(`/backend/caseload/${encodeURIComponent(row.id)}`)}
+            rowActions={(row) => (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                title={t('agent_orchestrator.proposal.openProcess', 'Open process')}
+                onClick={() => router.push(`/backend/processes/${encodeURIComponent(row.processId ?? row.id)}`)}
+              >
+                <Workflow className="size-4" />
+                <span className="sr-only">{t('agent_orchestrator.proposal.openProcess', 'Open process')}</span>
+              </Button>
+            )}
           />
         )}
       </PageBody>

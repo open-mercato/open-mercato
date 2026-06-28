@@ -44,6 +44,8 @@ export type RunView = {
   agentVersion: string | null
   humanConfirmedAt: string | null
   contextRouting: unknown
+  /** FK id → workflows process instance (drives "Open process"). */
+  processId: string | null
 }
 
 export type SpanView = {
@@ -186,6 +188,7 @@ export function mapRun(item: Record<string, unknown>): RunView | null {
     agentVersion: asString(item.agent_version) ?? asString(item.agentVersion),
     humanConfirmedAt: asString(item.human_confirmed_at) ?? asString(item.humanConfirmedAt),
     contextRouting: item.context_routing ?? item.contextRouting ?? null,
+    processId: asString(item.process_id) ?? asString(item.processId),
   }
 }
 

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, X, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw } from 'lucide-react'
+import { Check, X, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
@@ -476,6 +476,14 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                       {subtitle ? <p className="mt-0.5 font-mono text-sm text-muted-foreground">{subtitle}</p> : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => router.push(`/backend/processes/${encodeURIComponent(run.processId ?? run.id)}`)}
+                      >
+                        <Workflow className="size-4" />
+                        {t('agent_orchestrator.proposal.openProcess')}
+                      </Button>
                       <Button
                         size="sm"
                         onClick={() => flash(t('agent_orchestrator.traces.detail.actionAddEvalDone'), 'success')}
