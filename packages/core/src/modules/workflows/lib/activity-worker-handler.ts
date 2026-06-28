@@ -282,18 +282,31 @@ export async function handleInvokeAgentJob(
     throw new Error('[internal] agent_orchestrator not installed (agentWorkflowBridge unavailable)')
   }
 
-  const outcome = await bridge.invokeAgentForWorkflow({
-    agentId: payload.agentId,
-    input: payload.input,
-    onResult: payload.onResult,
-    ctx: {
-      tenantId: payload.tenantId,
-      organizationId: payload.organizationId,
-      userId: payload.userId,
-      processId: instance.id,
-      stepId: payload.stepId,
-    },
-  })
+  let outcome: Awaited<ReturnType<AgentWorkflowBridgeLike['invokeAgentForWorkflow']>>
+  try {
+    outcome = await bridge.invokeAgentForWorkflow({
+      agentId: payload.agentId,
+      input: payload.input,
+      onResult: payload.onResult,
+      ctx: {
+        tenantId: payload.tenantId,
+        organizationId: payload.organizationId,
+        userId: payload.userId,
+        processId: instance.id,
+        stepId: payload.stepId,
+      },
+    })
+  } catch (agentError: any) {
+    // Fail-stop: an INVOKE_AGENT step whose agent cannot produce an outcome
+    // (unknown agent id, run error, guardrail block) must HALT the instance, not
+    // silently retry the job forever while the step stays parked. Mark the parked
+    // step + instance FAILED so progression stops and the failure is visible, and
+    // do NOT rethrow — a retry would never succeed and would re-run any partial
+    // agent work. (A genuine human-review pause is the `user_task` branch below,
+    // which is unaffected.)
+    await failInvokeAgentStep(em, container, instance, payload, agentError)
+    return
+  }
 
   // user_task: leave the step parked — agent_orchestrator's human dispose path
   // fires the same proposal-ready signal to resume it (unchanged behavior).
@@ -491,6 +504,52 @@ export async function resumeParentAfterSubWorkflow(
     console.error(
       `[ActivityWorker] resume_subworkflow_parent: child ${childInstanceId} completed but resuming parent ${parentInstanceId} failed; left parked:`,
       resumeError?.message
+    )
+  }
+}
+
+/**
+ * Fail-stop an INVOKE_AGENT step whose agent run threw. Marks the parked step
+ * instance FAILED, then fails the whole workflow instance through the shared
+ * `completeWorkflow('FAILED')` path (records the error, logs `WORKFLOW_FAILED`,
+ * runs compensation if configured). Best-effort and self-contained: any error
+ * here is logged, never rethrown, so the queue does not retry an unwinnable job.
+ */
+async function failInvokeAgentStep(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  payload: WorkflowActivityJobInvokeAgent,
+  agentError: unknown,
+): Promise<void> {
+  const message = agentError instanceof Error ? agentError.message : String(agentError)
+  console.error(
+    `[ActivityWorker] invoke_agent ${payload.agentId} failed for instance ${payload.workflowInstanceId}; failing instance:`,
+    message,
+  )
+  try {
+    const { StepInstance } = await import('../data/entities')
+    const stepInstance = await em.findOne(StepInstance, {
+      id: payload.stepInstanceId,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+    })
+    if (stepInstance && stepInstance.status === 'ACTIVE') {
+      stepInstance.status = 'FAILED'
+      stepInstance.errorData = { agentId: payload.agentId, error: message }
+      stepInstance.exitedAt = new Date()
+      await em.flush()
+    }
+
+    const { completeWorkflow } = await import('./workflow-executor')
+    await completeWorkflow(em, container, payload.workflowInstanceId, 'FAILED', {
+      error: `INVOKE_AGENT step ${payload.stepId} failed: ${message}`,
+      details: { agentId: payload.agentId, stepId: payload.stepId },
+    })
+  } catch (failError: any) {
+    console.error(
+      `[ActivityWorker] invoke_agent ${payload.agentId}: could not mark instance ${payload.workflowInstanceId} FAILED:`,
+      failError?.message ?? failError,
     )
   }
 }
