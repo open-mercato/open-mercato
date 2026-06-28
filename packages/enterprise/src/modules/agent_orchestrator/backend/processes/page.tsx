@@ -6,7 +6,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Info } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
+import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -114,11 +114,16 @@ export default function ProcessesListPage() {
         header: t('agent_orchestrator.process.list.col.agents'),
         enableSorting: false,
         cell: ({ row }) => (
-          <AvatarStack max={4}>
-            {row.original.agentIds.map((agent) => (
+          <div className="flex flex-wrap items-center gap-1">
+            {row.original.agentIds.slice(0, 4).map((agent) => (
               <Avatar key={agent} label={agent} size="sm" />
             ))}
-          </AvatarStack>
+            {row.original.agentIds.length > 4 ? (
+              <span className="text-xs font-medium text-muted-foreground">
+                +{row.original.agentIds.length - 4}
+              </span>
+            ) : null}
+          </div>
         ),
       },
       {
