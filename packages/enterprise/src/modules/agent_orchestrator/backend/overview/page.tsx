@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle2, ClipboardList, Users, Clock, Zap, Bell, BookOpen, ArrowRight, ChevronDown, Calendar, RotateCw, Info, Check, FileSearch } from 'lucide-react'
+import { CheckCircle2, ClipboardList, Users, Clock, Zap, Bell, BookOpen, ArrowRight, ChevronDown, Calendar, RotateCw, Info, Check, FileSearch, Workflow } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -298,7 +298,19 @@ export default function AgentFleetOverviewPage() {
                       {stuck.map((row) => (
                         <tr key={row.id} className="cursor-pointer border-b border-border last:border-0 hover:bg-accent/40" onClick={() => router.push(`/backend/caseload/${encodeURIComponent(row.id)}`)}>
                           <td className="px-2 py-2.5 font-mono text-xs text-foreground">{row.claim}</td>
-                          <td className="px-2 py-2.5">{backendChip}</td>
+                          <td className="px-2 py-2.5">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                router.push(`/backend/processes/${encodeURIComponent(row.id)}`)
+                              }}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-brand-violet transition-opacity hover:opacity-80"
+                            >
+                              <Workflow className="size-3.5" />
+                              {t('agent_orchestrator.proposal.openProcess', 'Open process')}
+                            </button>
+                          </td>
                           <td className="px-2 py-2.5 text-foreground">{row.agentLabel}</td>
                           <td className="px-2 py-2.5 text-foreground">{t(`agent_orchestrator.overview.interventions.${row.waitingFor}`, titleCase(row.waitingFor))}</td>
                           <td className="px-2 py-2.5 text-right tabular-nums text-muted-foreground">{formatWait(row.waitingMin)}</td>

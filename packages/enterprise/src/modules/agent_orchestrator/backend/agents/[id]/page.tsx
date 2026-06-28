@@ -3,13 +3,14 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Brain, Copy, Info, TriangleAlert } from 'lucide-react'
+import { Brain, CircleCheck, Clock, Coins, Copy, Cpu, Hash, Info, Replace, SlidersHorizontal, TriangleAlert } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
+import { ConfidenceFaceValue } from '../../../components/cockpitStatus'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -200,8 +201,8 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
     <Page>
       <PageBody className="space-y-4">
         {/* Header */}
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="flex flex-wrap items-start justify-between gap-4 p-5">
             <div className="flex min-w-0 items-start gap-3">
               <Avatar label={agent.label || agent.id} size="lg" />
               <div className="min-w-0">
@@ -224,26 +225,26 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-7">
-            <Metric label={t('agent_orchestrator.agents.list.col.runs', 'Runs')}>
-              <span className="text-lg font-semibold tabular-nums text-foreground">{metrics.runCount.toLocaleString('en-US')}</span>
-            </Metric>
-            <Metric label={t('agent_orchestrator.agents.list.col.evalPass', 'Eval pass')}>{backendChip}</Metric>
-            <Metric label={t('agent_orchestrator.agents.list.col.override', 'Override')}>
+          <div className="grid grid-cols-2 gap-px border-t border-border bg-border sm:grid-cols-3 lg:grid-cols-7">
+            <StatCell icon={Hash} label={t('agent_orchestrator.agents.list.col.runs', 'Runs')}>
+              <span className="text-xl font-bold tabular-nums text-foreground">{metrics.runCount.toLocaleString('en-US')}</span>
+            </StatCell>
+            <StatCell icon={CircleCheck} label={t('agent_orchestrator.agents.list.col.evalPass', 'Eval pass')}>{backendChip}</StatCell>
+            <StatCell icon={Replace} label={t('agent_orchestrator.agents.list.col.override', 'Override')}>
               {overridePct == null
                 ? <PendingChip label={t('agent_orchestrator.agents.list.pending.noData', 'No data')} />
-                : <span className={`text-lg font-semibold tabular-nums ${overrideGate ? 'text-status-error-text' : 'text-foreground'}`}>{overridePct}%</span>}
-            </Metric>
-            <Metric label={t('agent_orchestrator.agents.list.col.cost', 'Cost / run')}>{backendChip}</Metric>
-            <Metric label={t('agent_orchestrator.agentDetail.fields.lastActive', 'Last active')}>
-              <span className="text-lg font-semibold tabular-nums text-foreground">{metrics.lastActive || '—'}</span>
-            </Metric>
-            <Metric label={t('agent_orchestrator.agentDetail.fields.model', 'Model')}>
+                : <span className={`text-xl font-bold tabular-nums ${overrideGate ? 'text-status-error-text' : 'text-foreground'}`}>{overridePct}%</span>}
+            </StatCell>
+            <StatCell icon={Coins} label={t('agent_orchestrator.agents.list.col.cost', 'Cost / run')}>{backendChip}</StatCell>
+            <StatCell icon={Clock} label={t('agent_orchestrator.agentDetail.fields.lastActive', 'Last active')}>
+              <span className="text-xl font-bold tabular-nums text-foreground">{metrics.lastActive || '—'}</span>
+            </StatCell>
+            <StatCell icon={Cpu} label={t('agent_orchestrator.agentDetail.fields.model', 'Model')}>
               <span className="truncate font-mono text-sm text-foreground">{agent.defaultModel ?? t('agent_orchestrator.agentDetail.defaultValue')}</span>
-            </Metric>
-            <Metric label={t('agent_orchestrator.agents.list.col.autonomy', 'Autonomy')}>
-              <span className="text-lg font-semibold text-foreground">{t(`agent_orchestrator.agents.list.autonomy.${autonomy}`, titleCase(autonomy))}</span>
-            </Metric>
+            </StatCell>
+            <StatCell icon={SlidersHorizontal} label={t('agent_orchestrator.agents.list.col.autonomy', 'Autonomy')}>
+              <span className="text-xl font-bold text-foreground">{t(`agent_orchestrator.agents.list.autonomy.${autonomy}`, titleCase(autonomy))}</span>
+            </StatCell>
           </div>
         </div>
 
@@ -274,7 +275,13 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
                         <tr key={run.id} className="border-b border-border last:border-0">
                           <td className="py-2.5 pr-3 font-mono text-xs text-foreground">{run.claim}</td>
                           <td className="py-2.5 pr-3 text-foreground">{run.decision}</td>
-                          <td className="py-2.5 pr-3 text-right tabular-nums text-muted-foreground">{run.confidence == null ? '—' : run.confidence.toFixed(2)}</td>
+                          <td className="py-2.5 pr-3 text-right text-muted-foreground">
+                            <ConfidenceFaceValue
+                              confidence={run.confidence}
+                              display={run.confidence == null ? undefined : run.confidence.toFixed(2)}
+                              className="justify-end"
+                            />
+                          </td>
                           <td className="py-2.5 pr-3">
                             <StatusBadge variant={outcomeVariant[run.outcome]}>
                               {t(`agent_orchestrator.agentDetail.outcome.${run.outcome}`, titleCase(run.outcome))}
@@ -388,11 +395,23 @@ function autonomyHintFallback(autonomy: Autonomy): string {
   return 'A human reviews every output before it is applied.'
 }
 
-function Metric({ label, children }: { label: string; children: React.ReactNode }) {
+// Hairline spec-grid cell, matching the trace inspector run-stats grid.
+function StatCell({
+  icon: Icon,
+  label,
+  children,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  children: React.ReactNode
+}) {
   return (
-    <div className="min-w-0 rounded-xl bg-muted/40 px-3.5 py-2.5">
-      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="mt-1.5 flex min-h-7 items-center">{children}</div>
+    <div className="min-w-0 bg-card p-4">
+      <div className="flex items-center gap-1.5 text-muted-foreground">
+        <Icon className="size-3.5 shrink-0" />
+        <p className="text-xs font-medium uppercase tracking-wide">{label}</p>
+      </div>
+      <div className="mt-1 flex min-h-8 items-center">{children}</div>
     </div>
   )
 }

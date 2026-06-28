@@ -11,7 +11,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { AgentIoDrawer } from './AgentIoDrawer'
 import { mapProposal, mapRun, formatConfidence, type ProposalView, type RunView } from './types'
-import { dispositionLabelKey, dispositionVariant } from './cockpitStatus'
+import { dispositionLabelKey, dispositionVariant, ConfidenceFaceValue } from './cockpitStatus'
 
 type ProposalsResponse = { items?: Array<Record<string, unknown>> }
 type RunsResponse = { items?: Array<Record<string, unknown>> }
@@ -138,7 +138,13 @@ export function AgentTimeline({ processId }: AgentTimelineProps) {
                     </div>
                     <p className="truncate font-mono text-xs text-muted-foreground">{proposal.agentId}</p>
                   </div>
-                  {confidence ? <span className="text-xs text-muted-foreground">{confidence}</span> : null}
+                  {proposal.confidence != null ? (
+                    <ConfidenceFaceValue
+                      confidence={proposal.confidence}
+                      display={confidence ?? undefined}
+                      className="text-xs text-muted-foreground"
+                    />
+                  ) : null}
                 </div>
                 <div className="mt-2 flex items-center gap-2">
                   <Button type="button" variant="outline" size="sm" onClick={() => openDrawer(run)}>
