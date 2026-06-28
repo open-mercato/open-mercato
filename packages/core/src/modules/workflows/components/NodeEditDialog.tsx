@@ -128,6 +128,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
   const [agentInputRows, setAgentInputRows] = useState<AgentInputRow[]>([])
   const [agentResultMode, setAgentResultMode] = useState<'autoApprove' | 'alwaysAsk'>('autoApprove')
   const [agentAutoApproveThreshold, setAgentAutoApproveThreshold] = useState('0.8')
+  const [agentOutputMappings, setAgentOutputMappings] = useState<Array<{ key: string; value: string }>>([])
 
   // Inline validation errors keyed by field name
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
@@ -307,11 +308,18 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               : '0.8',
           )
         }
+        const outputMapping = (config as Partial<InvokeAgentConfig>).outputMapping
+        setAgentOutputMappings(
+          outputMapping
+            ? Object.entries(outputMapping).map(([key, value]) => ({ key, value: value as string }))
+            : [],
+        )
       } else {
         setAgentId('')
         setAgentInputRows([])
         setAgentResultMode('autoApprove')
         setAgentAutoApproveThreshold('0.8')
+        setAgentOutputMappings([])
       }
 
       // Load form fields from userTaskConfig.formSchema
@@ -608,10 +616,17 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
           ? { alwaysAsk: true }
           : { autoApproveThreshold: Number.parseFloat(agentAutoApproveThreshold) || 0 }
 
+      const outputMapping = agentOutputMappings.reduce<Record<string, string>>((acc, row) => {
+        const key = row.key.trim()
+        if (key) acc[key] = row.value
+        return acc
+      }, {})
+
       const config: InvokeAgentConfig = {
         agentId,
         input,
         onResult,
+        ...(Object.keys(outputMapping).length > 0 ? { outputMapping } : {}),
       }
 
       updates.agentId = agentId || undefined
@@ -1828,6 +1843,90 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     <p className="text-xs text-gray-500 mt-1">
                       {t('workflows.form.invokeAgent.threshold')}
                     </p>
+                  </div>
+
+                  {/* Output Mapping */}
+                  <div className="border-t border-gray-200 pt-4 mt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 className="text-sm font-semibold text-foreground">
+                          {t('workflows.form.invokeAgent.outputMapping', {
+                            count: agentOutputMappings.length,
+                          })}
+                        </h4>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {t('workflows.form.invokeAgent.outputMappingDescription')}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          setAgentOutputMappings([...agentOutputMappings, { key: '', value: '' }])
+                        }
+                      >
+                        <Plus className="size-3 mr-1" />
+                        {t('workflows.form.addMapping')}
+                      </Button>
+                    </div>
+
+                    {agentOutputMappings.length === 0 ? (
+                      <p className="text-sm text-gray-500 italic">
+                        {t('workflows.form.invokeAgent.noOutputMappings')}
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {agentOutputMappings.map((mapping, index) => (
+                          <div key={index} className="flex gap-2 items-start">
+                            <div className="flex-1">
+                              <Input
+                                type="text"
+                                value={mapping.key}
+                                onChange={(e) => {
+                                  const updated = [...agentOutputMappings]
+                                  updated[index] = { ...updated[index], key: e.target.value }
+                                  setAgentOutputMappings(updated)
+                                }}
+                                placeholder={t('workflows.form.invokeAgent.outputKeyPlaceholder')}
+                              />
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                {t('workflows.form.invokeAgent.outputKeyDescription')}
+                              </p>
+                            </div>
+                            <span className="text-gray-400 mt-2">←</span>
+                            <div className="flex-1">
+                              <Input
+                                type="text"
+                                value={mapping.value}
+                                onChange={(e) => {
+                                  const updated = [...agentOutputMappings]
+                                  updated[index] = { ...updated[index], value: e.target.value }
+                                  setAgentOutputMappings(updated)
+                                }}
+                                placeholder={t('workflows.form.invokeAgent.outputPathPlaceholder')}
+                              />
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                {t('workflows.form.invokeAgent.outputPathDescription')}
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() =>
+                                setAgentOutputMappings(
+                                  agentOutputMappings.filter((_, i) => i !== index),
+                                )
+                              }
+                              className="mt-1"
+                            >
+                              <Trash2 className="size-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
