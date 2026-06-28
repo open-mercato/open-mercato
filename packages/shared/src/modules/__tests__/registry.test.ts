@@ -387,7 +387,7 @@ describe('CLI Modules Registry', () => {
 
 describe('resolvePageRouteMetadata', () => {
   it('normalizes page metadata aliases into route manifest fields', () => {
-    expect(resolvePageRouteMetadata('/backend/orders', {
+    const resolved = resolvePageRouteMetadata('/backend/orders', {
       requireAuth: true,
       requireFeatures: ['sales.orders.view'],
       pageTitle: 'Orders',
@@ -399,7 +399,10 @@ describe('resolvePageRouteMetadata', () => {
       navHidden: false,
       pageContext: 'main',
       breadcrumb: [{ label: 'Orders' }],
-    })).toEqual({
+    })
+
+    expect('Component' in resolved).toBe(false)
+    expect(resolved).toEqual({
       pattern: '/backend/orders',
       requireAuth: true,
       requireRoles: undefined,

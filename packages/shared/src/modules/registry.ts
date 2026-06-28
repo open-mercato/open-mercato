@@ -56,6 +56,8 @@ export type PageMetadata = {
   // Ordering and visuals
   order?: number
   pageOrder?: number
+  priority?: number
+  pagePriority?: number
   icon?: ReactNode
   navHidden?: boolean
   // Dynamic flags
@@ -122,6 +124,8 @@ export type ModuleRoute = {
   }
   Component: (props: any) => ReactNode | Promise<ReactNode>
 }
+
+export type ModuleRouteMetadata = Omit<ModuleRoute, 'Component'>
 
 export type ModuleApiLegacy = {
   method: HttpMethod
@@ -399,7 +403,7 @@ export function findApiRouteManifestMatch<T extends { path: string; methods: Htt
   }
 }
 
-export function resolvePageRouteMetadata(pattern: string, metadata: PageMetadata | null | undefined): ModuleRoute {
+export function resolvePageRouteMetadata(pattern: string, metadata: PageMetadata | null | undefined): ModuleRouteMetadata {
   return {
     pattern: pattern || '/',
     requireAuth: metadata?.requireAuth,
