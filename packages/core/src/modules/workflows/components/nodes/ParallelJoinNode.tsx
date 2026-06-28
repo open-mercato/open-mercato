@@ -2,7 +2,7 @@
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
-import { WorkflowStatus } from '../../lib/status-colors'
+import { toWorkflowStatus } from '../../lib/status-colors'
 
 /**
  * ParallelJoinNode display data.
@@ -20,13 +20,6 @@ export interface ParallelJoinNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
-}
-
-function mapStatus(status?: string): WorkflowStatus {
-  if (!status || status === 'pending') return 'not_started'
-  if (status === 'running' || status === 'in_progress') return 'in_progress'
-  if (status === 'completed') return 'completed'
-  return 'not_started'
 }
 
 /**
@@ -49,7 +42,7 @@ export function ParallelJoinNode({ id, data, isConnectable, selected }: NodeProp
       <WorkflowNodeCard
         title={nodeData.label}
         description={nodeData.description}
-        status={mapStatus(nodeData.status)}
+        status={toWorkflowStatus(nodeData.status)}
         nodeType="parallelJoin"
         selected={selected}
         nodeId={id}

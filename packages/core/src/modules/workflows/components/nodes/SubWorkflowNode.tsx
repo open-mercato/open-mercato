@@ -4,7 +4,7 @@ import { Handle, Position, NodeProps } from '@xyflow/react'
 import { ArrowUpRight } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
-import { WorkflowStatus } from '../../lib/status-colors'
+import { toWorkflowStatus } from '../../lib/status-colors'
 import type { PortField } from '../../data/validators'
 
 export interface SubWorkflowNodeData {
@@ -49,15 +49,7 @@ export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps
   const childInstanceCount = Array.isArray(nodeData.childInstanceIds) ? nodeData.childInstanceIds.length : 0
   const isNavigable = childInstanceCount > 0
 
-  const mapStatus = (status?: string): WorkflowStatus => {
-    if (!status || status === 'pending') return 'not_started'
-    if (status === 'running' || status === 'in_progress') return 'in_progress'
-    if (status === 'completed') return 'completed'
-    if (status === 'error') return 'not_started'
-    return 'not_started'
-  }
-
-  const workflowStatus = mapStatus(nodeData.status)
+  const workflowStatus = toWorkflowStatus(nodeData.status)
 
   const description = nodeData.description ||
     (nodeData.subWorkflowName

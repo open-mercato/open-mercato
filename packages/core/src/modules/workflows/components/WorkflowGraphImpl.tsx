@@ -23,7 +23,7 @@ import {
 import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, ParallelForkNode, ParallelJoinNode, InvokeAgentNode} from './nodes'
 import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
 import { WorkflowDataMappingEdge } from './WorkflowDataMappingEdge'
-import { STATUS_COLORS } from '../lib/status-colors'
+import { STATUS_COLORS, toWorkflowStatus } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
 import { useTheme } from '@open-mercato/ui/theme'
@@ -242,7 +242,7 @@ export default function WorkflowGraphImpl({
           <MiniMap
             nodeStrokeWidth={3}
             nodeColor={(node) => {
-              const status = (node.data?.status || 'not_started') as keyof typeof STATUS_COLORS
+              const status = toWorkflowStatus(node.data?.status as string | undefined)
               return STATUS_COLORS[status]?.hex || STATUS_COLORS.not_started.hex
             }}
             maskColor="rgba(0, 0, 0, 0.1)"
