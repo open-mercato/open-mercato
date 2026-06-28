@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Download, Filter } from 'lucide-react'
+import { CheckCircle2, Clock, Download, Filter, Gavel, Replace } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -11,6 +11,7 @@ import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
+import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { mapAgent } from '../../components/types'
@@ -77,6 +78,7 @@ export default function AgentAuditPage() {
   const [error, setError] = React.useState<string | null>(null)
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(20)
+  const [query, setQuery] = React.useState('')
 
   React.useEffect(() => {
     let cancelled = false
@@ -214,8 +216,19 @@ export default function AgentAuditPage() {
   const approvedCount = rows.filter((row) => APPROVED.includes(row.disposition)).length
   const overriddenCount = rows.filter((row) => OVERRIDDEN.includes(row.disposition)).length
   const pendingCount = rows.filter((row) => row.disposition === 'pending').length
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize)
+
+  // KPIs summarize the whole log; the search narrows only the table below.
+  const q = query.trim().toLowerCase()
+  const filteredRows = q
+    ? rows.filter((row) =>
+        [row.claim, row.agentLabel, row.agentId, row.operator, row.reason].some((value) =>
+          (value ?? '').toLowerCase().includes(q),
+        ),
+      )
+    : rows
+  const filteredTotal = filteredRows.length
+  const totalPages = Math.max(1, Math.ceil(filteredTotal / pageSize))
+  const pagedRows = filteredRows.slice((page - 1) * pageSize, page * pageSize)
 
   return (
     <Page>
@@ -235,18 +248,30 @@ export default function AgentAuditPage() {
         </div>
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard label={t('agent_orchestrator.audit.kpi.total', 'Decisions')}>
-            <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{total.toLocaleString('en-US')}</span>
-          </StatCard>
-          <StatCard label={t('agent_orchestrator.audit.kpi.approved', 'Approved')}>
-            <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{approvedCount.toLocaleString('en-US')}</span>
-          </StatCard>
-          <StatCard label={t('agent_orchestrator.audit.kpi.overridden', 'Overridden')}>
-            <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{overriddenCount.toLocaleString('en-US')}</span>
-          </StatCard>
-          <StatCard label={t('agent_orchestrator.audit.kpi.pending', 'Pending')}>
-            <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{pendingCount.toLocaleString('en-US')}</span>
-          </StatCard>
+          <StatCard
+            icon={Gavel}
+            label={t('agent_orchestrator.audit.kpi.total', 'Decisions')}
+            value={total.toLocaleString('en-US')}
+            sub={t('agent_orchestrator.audit.kpi.totalSub', 'Agent decisions logged')}
+          />
+          <StatCard
+            icon={CheckCircle2}
+            label={t('agent_orchestrator.audit.kpi.approved', 'Approved')}
+            value={approvedCount.toLocaleString('en-US')}
+            sub={t('agent_orchestrator.audit.kpi.approvedSub', 'Approved or auto-approved')}
+          />
+          <StatCard
+            icon={Replace}
+            label={t('agent_orchestrator.audit.kpi.overridden', 'Overridden')}
+            value={overriddenCount.toLocaleString('en-US')}
+            sub={t('agent_orchestrator.audit.kpi.overriddenSub', 'Edited or rejected')}
+          />
+          <StatCard
+            icon={Clock}
+            label={t('agent_orchestrator.audit.kpi.pending', 'Pending')}
+            value={pendingCount.toLocaleString('en-US')}
+            sub={t('agent_orchestrator.audit.kpi.pendingSub', 'Awaiting a decision')}
+          />
         </div>
 
         {rows.length === 0 ? (
@@ -259,10 +284,20 @@ export default function AgentAuditPage() {
             columns={columns}
             data={pagedRows}
             sortable
+            // Search lives in the DataTable title slot (left) so it shares one row
+            // with the right-aligned Views switcher — no divider, no stray ••• band.
+            title={
+              <SearchInput
+                value={query}
+                onChange={(value) => { setQuery(value); setPage(1) }}
+                placeholder={t('agent_orchestrator.audit.searchPlaceholder', 'Search logs…')}
+                className="w-full max-w-xs"
+              />
+            }
             pagination={{
               page,
               pageSize,
-              total,
+              total: filteredTotal,
               totalPages,
               onPageChange: setPage,
               pageSizeOptions: [10, 20, 50],
@@ -282,13 +317,32 @@ function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
-function StatCard({ label, children }: { label: string; children: React.ReactNode }) {
+// Matches the canonical cockpit KPI tile (overview): a white card with an icon
+// chip and a thin brand gradient accent bar along the bottom.
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  sub,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  value: string
+  sub: string
+}) {
   return (
-    <div className="flex h-full flex-col rounded-xl bg-gradient-to-br from-brand-lime via-brand-lime/80 to-brand-lime/40">
-      <div className="px-3.5 pb-1.5 pt-2 text-xs font-semibold text-brand-lime-foreground">{label}</div>
-      <div className="mx-1 mb-1 flex flex-1 flex-col rounded-lg bg-card p-3.5">
-        <div className="flex min-h-9 items-end">{children}</div>
+    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm text-muted-foreground">{label}</p>
+        <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-brand-violet">
+          <Icon className="size-4" />
+        </span>
       </div>
+      <div className="mt-2 flex min-h-9 items-center">
+        <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{value}</span>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
+      <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-brand-lime via-brand-lime to-brand-violet" />
     </div>
   )
 }

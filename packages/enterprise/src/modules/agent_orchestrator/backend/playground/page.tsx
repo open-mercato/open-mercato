@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
+import { Play } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -171,16 +172,16 @@ export default function AgentPlaygroundPage() {
           />
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-end">
           <Button
             type="button"
             onClick={() => void run()}
             disabled={running || !agentId}
-            className="bg-brand-violet text-white hover:bg-brand-violet/90"
+            className="bg-brand-violet text-brand-violet-foreground hover:bg-brand-violet/90"
           >
+            {running ? <Spinner className="size-4" /> : <Play className="size-4" />}
             {running ? t('agent_orchestrator.playground.running') : t('agent_orchestrator.playground.run')}
           </Button>
-          {running ? <Spinner className="text-brand-violet" /> : null}
         </div>
 
         {error ? (

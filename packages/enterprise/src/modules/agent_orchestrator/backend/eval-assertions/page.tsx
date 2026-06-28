@@ -49,7 +49,7 @@ type FormValues = {
   updatedAt?: string | null
 }
 
-const severityVariant: StatusMap<'gate' | 'warn'> = { gate: 'error', warn: 'neutral' }
+const severityVariant: StatusMap<'gate' | 'warn'> = { gate: 'error', warn: 'warning' }
 const TYPE_ICON: Record<'deterministic' | 'llm_judge', React.ComponentType<{ className?: string }>> = {
   deterministic: Binary,
   llm_judge: Sparkles,

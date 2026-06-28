@@ -21,7 +21,7 @@ import {
   type SpanView,
   type ToolCallView,
 } from '../../../components/types'
-import { runStatusVariant, runStatusLabelKey } from '../../../components/cockpitStatus'
+import { runStatusVariant, runStatusLabelKey, confidenceFace, confidencePctOf, ConfidenceFaceValue } from '../../../components/cockpitStatus'
 import { EmptyArt } from '../../../components/EmptyArt'
 
 // llm / tool / system get distinct DS tokens so the waterfall reads at a glance
@@ -90,15 +90,17 @@ function StatCell({
   label,
   value,
   icon: Icon,
+  iconClassName,
 }: {
   label: string
   value: string
   icon: React.ComponentType<{ className?: string }>
+  iconClassName?: string
 }) {
   return (
     <div className="bg-card p-4">
       <div className="flex items-center gap-1.5 text-muted-foreground">
-        <Icon className="size-3.5 shrink-0" />
+        <Icon className={`size-3.5 shrink-0 ${iconClassName ?? ''}`} />
         <p className="text-xs font-medium uppercase tracking-wide">{label}</p>
       </div>
       <p className="mt-1 text-xl font-bold tabular-nums tracking-tight text-foreground">{value}</p>
@@ -242,7 +244,7 @@ function ModelComparisonCard({ currentModel }: { currentModel: string | null }) 
                 </span>
               ) : null}
             </span>
-            <span className="w-16 text-right tabular-nums text-muted-foreground">{row.confidence.toFixed(2)}</span>
+            <ConfidenceFaceValue confidence={row.confidence} display={row.confidence.toFixed(2)} className="w-16 justify-end text-muted-foreground" />
             <span className="w-16 text-right font-medium tabular-nums text-foreground">{row.cost.toFixed(2)} zł</span>
           </li>
         ))}
@@ -511,7 +513,8 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                   {/* Run stats — same card, hairline-divided spec grid */}
                   <div className="grid grid-cols-2 gap-px border-t border-border bg-border sm:grid-cols-4">
                     <StatCell
-                      icon={Target}
+                      icon={run.confidence != null ? confidenceFace(confidencePctOf(run.confidence)!).Icon : Target}
+                      iconClassName={run.confidence != null ? confidenceFace(confidencePctOf(run.confidence)!).color : undefined}
                       label={t('agent_orchestrator.traces.detail.confidence')}
                       value={formatConfidence(run.confidence) ?? '—'}
                     />

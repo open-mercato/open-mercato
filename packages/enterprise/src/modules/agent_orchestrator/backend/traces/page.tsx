@@ -19,7 +19,7 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { mapRun, type RunView } from '../../components/types'
+import { mapRun, formatCostMinor, type RunView } from '../../components/types'
 import { runStatusLabelKey } from '../../components/cockpitStatus'
 
 type RunsResponse = { items?: Array<Record<string, unknown>> }
@@ -78,10 +78,6 @@ function exactFrom(createdAt: string | null): string {
 function formatLatency(latencyMs: number | null): string | null {
   if (latencyMs == null) return null
   return latencyMs < 1000 ? `${latencyMs}ms` : `${(latencyMs / 1000).toFixed(1)}s`
-}
-function formatCost(costMinor: number | null): string | null {
-  if (costMinor == null) return null
-  return (costMinor / 100).toFixed(2)
 }
 function matchesSearch(run: RunView, query: string): boolean {
   const q = query.trim().toLowerCase()
@@ -252,7 +248,7 @@ export default function AgentTracesPage() {
       accessorKey: 'costMinor',
       header: t('agent_orchestrator.traces.col.cost', 'Cost'),
       cell: ({ row }) => {
-        const value = formatCost(row.original.costMinor)
+        const value = formatCostMinor(row.original.costMinor, row.original.currency)
         return value
           ? <span className="text-sm tabular-nums text-muted-foreground">{value}</span>
           : <span className="text-sm text-muted-foreground">—</span>
