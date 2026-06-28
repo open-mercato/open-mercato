@@ -11,6 +11,7 @@ import type { AwilixContainer } from 'awilix'
 
 const enqueueMock = jest.fn<Promise<string>, [unknown, unknown?]>()
 const sendSignalMock = jest.fn<Promise<void>, [unknown, unknown, unknown]>()
+const completeWorkflowMock = jest.fn<Promise<void>, [unknown, unknown, string, string, unknown?]>()
 
 jest.mock('@open-mercato/queue', () => ({
   createModuleQueue: jest.fn(() => ({ enqueue: enqueueMock })),
@@ -18,6 +19,11 @@ jest.mock('@open-mercato/queue', () => ({
 
 jest.mock('../signal-handler', () => ({
   sendSignal: (...args: unknown[]) => sendSignalMock(args[0], args[1], args[2]),
+}))
+
+jest.mock('../workflow-executor', () => ({
+  completeWorkflow: (...args: unknown[]) =>
+    completeWorkflowMock(args[0], args[1], args[2] as string, args[3] as string, args[4]),
 }))
 
 import {
@@ -39,8 +45,8 @@ function makeContext(): ActivityContext {
       tenantId,
       organizationId,
       currentStepId: stepId,
-      // The agent run executes under the user who initiated the instance
-      // (resolveWorkflowPrincipalUserId); without it the executor refuses to run.
+      // executeInvokeAgent resolves the traceable principal from the instance
+      // (initiatedBy → definition author); without one it refuses to run.
       metadata: { initiatedBy: 'user-1' },
     } as any,
     workflowContext: {},
@@ -69,6 +75,7 @@ function makeJob(): WorkflowActivityJobInvokeAgent {
 beforeEach(() => {
   enqueueMock.mockReset().mockResolvedValue('job-1')
   sendSignalMock.mockReset().mockResolvedValue(undefined)
+  completeWorkflowMock.mockReset().mockResolvedValue(undefined)
 })
 
 describe('executeInvokeAgent (enqueue + park)', () => {
@@ -89,6 +96,7 @@ describe('executeInvokeAgent (enqueue + park)', () => {
     expect(job.agentId).toBe('claims.liability.policy_check')
     expect(job.input).toEqual({ claimId: 'claim-1' })
     expect(job.signalName).toBe(INVOKE_AGENT_SIGNAL_NAME)
+    expect(job.userId).toBe('user-1')
     expect(options?.delayMs).toBeGreaterThan(0)
 
     expect(result).toMatchObject({
@@ -174,5 +182,26 @@ describe('handleInvokeAgentJob (run agent off-transaction + resume)', () => {
     )
     await handleInvokeAgentJob(em, container, makeJob())
     expect(sendSignalMock).not.toHaveBeenCalled()
+  })
+
+  it('fail-stops the instance (no resume, no rethrow) when the agent run throws', async () => {
+    const invokeAgentForWorkflow = jest.fn().mockRejectedValue(new Error('unknown agent id "claims.liability.policy_check"'))
+    const em = { findOne: jest.fn().mockResolvedValue({ id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId }) } as unknown as EntityManager
+    const container = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'agentWorkflowBridge') return { invokeAgentForWorkflow }
+        throw new Error(`unexpected resolve(${name})`)
+      }),
+    } as unknown as AwilixContainer
+
+    // A missing/erroring agent must NOT resume the workflow and must NOT rethrow
+    // (rethrow → endless queue retry of an unwinnable job); it fails the instance.
+    await expect(handleInvokeAgentJob(em, container, makeJob())).resolves.toBeUndefined()
+    expect(invokeAgentForWorkflow).toHaveBeenCalledTimes(1)
+    expect(sendSignalMock).not.toHaveBeenCalled()
+    expect(completeWorkflowMock).toHaveBeenCalledTimes(1)
+    const [, , instanceId, status] = completeWorkflowMock.mock.calls[0]
+    expect(instanceId).toBe('instance-1')
+    expect(status).toBe('FAILED')
   })
 })

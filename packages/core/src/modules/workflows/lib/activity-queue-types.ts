@@ -65,9 +65,26 @@ export interface WorkflowActivityJobInvokeAgent extends WorkflowActivityJobBase 
   outputMapping?: Record<string, string>
 }
 
+/**
+ * Resume-parent job enqueued by `completeWorkflow` when a child instance with a
+ * parent linkage reaches a terminal state. The worker loads the parent, confirms
+ * it is still parked on the SUB_WORKFLOW step, maps the child output, and resumes
+ * (or fails) the parent. Idempotent: a child completed inline (synchronous fast
+ * path) enqueues a job that the worker guard skips.
+ */
+export interface WorkflowActivityJobResumeSubWorkflowParent extends WorkflowActivityJobBase {
+  kind: 'resume_subworkflow_parent'
+  parentInstanceId: string
+  parentStepId: string
+  parentStepInstanceId: string
+  childInstanceId: string
+  childStatus: 'COMPLETED' | 'FAILED'
+}
+
 export type WorkflowActivityJob =
   | WorkflowActivityJobActivity
   | WorkflowActivityJobTimer
   | WorkflowActivityJobInvokeAgent
+  | WorkflowActivityJobResumeSubWorkflowParent
 
 export const WORKFLOW_ACTIVITIES_QUEUE_NAME = 'workflow-activities'

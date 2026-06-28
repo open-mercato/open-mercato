@@ -793,27 +793,23 @@ async function handleSubWorkflowStep(
 
     // Handle child workflow result
     if (result.status === 'COMPLETED') {
-      // Map output data from child context to parent context
-      let outputData = mapOutputData(result.context, outputMapping || {})
-
-      // Validate/coerce mapped outputs against the child's declared output ports.
-      if (ioContract?.outputs?.length) {
-        const { coerced, errors } = validateAgainstPorts(outputData, ioContract.outputs)
-        if (errors.length > 0) {
-          const message = `Sub-workflow output validation failed: ${errors.map((e) => e.message).join('; ')}`
-          await logStepEvent(em, {
-            workflowInstanceId: instance.id,
-            stepInstanceId: stepInstance.id,
-            eventType: 'SUB_WORKFLOW_FAILED',
-            eventData: { childInstanceId: childInstance.id, reason: 'OUTPUT_VALIDATION', error: message },
-            userId: context.userId,
-            tenantId: instance.tenantId,
-            organizationId: instance.organizationId,
-          })
-          return { status: 'FAILED', error: message }
-        }
-        outputData = coerced
+      // Map output data from child context to parent context (+ io-port
+      // validation). Shared with the async resume path so both apply identical
+      // mapping/validation rules.
+      const mapped = mapSubWorkflowOutput(result.context, outputMapping || {}, ioContract)
+      if (mapped.error) {
+        await logStepEvent(em, {
+          workflowInstanceId: instance.id,
+          stepInstanceId: stepInstance.id,
+          eventType: 'SUB_WORKFLOW_FAILED',
+          eventData: { childInstanceId: childInstance.id, reason: 'OUTPUT_VALIDATION', error: mapped.error },
+          userId: context.userId,
+          tenantId: instance.tenantId,
+          organizationId: instance.organizationId,
+        })
+        return { status: 'FAILED', error: mapped.error }
       }
+      const outputData = mapped.outputData
 
       await logStepEvent(em, {
         workflowInstanceId: instance.id,
@@ -851,10 +847,34 @@ async function handleSubWorkflowStep(
         error: `Sub-workflow failed: ${result.errors?.join(', ')}`,
       }
     } else {
-      // WAITING, PAUSED, etc. - For synchronous execution, treat as error
+      // The child parked at its first async/agent step (RUNNING / PAUSED /
+      // WAITING_FOR_ACTIVITIES). Make the SUB_WORKFLOW step suspendable: park the
+      // parent on SUB_WORKFLOW_SIGNAL_NAME. The child's terminal completeWorkflow
+      // enqueues a resume job that resumes this parent (mirrors the INVOKE_AGENT
+      // __park branch above).
+      const { SUB_WORKFLOW_SIGNAL_NAME } = await import('./activity-executor')
+      const now = new Date()
+      await logStepEvent(em, {
+        workflowInstanceId: instance.id,
+        stepInstanceId: stepInstance.id,
+        eventType: 'SIGNAL_AWAITING',
+        eventData: {
+          signalName: SUB_WORKFLOW_SIGNAL_NAME,
+          childInstanceId: childInstance.id,
+          reason: 'SUB_WORKFLOW',
+        },
+        userId: context.userId,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+      })
+      instance.status = 'PAUSED'
+      instance.pausedAt = now
+      instance.updatedAt = now
+      await em.flush()
       return {
-        status: 'FAILED',
-        error: `Sub-workflow ended in unexpected state: ${result.status}`,
+        status: 'WAITING',
+        waitReason: 'SIGNAL',
+        outputData: { childInstanceId: childInstance.id },
       }
     }
   } catch (error: any) {
@@ -1210,4 +1230,30 @@ function mapOutputData(
 
   // If no mapping provided, pass entire child context
   return Object.keys(result).length > 0 ? result : childContext
+}
+
+/**
+ * Map a completed sub-workflow's child context to parent output and validate it
+ * against the child's declared output ports. Shared by the synchronous
+ * (inline) completion branch in `handleSubWorkflowStep` and the async parent
+ * resume path so both apply identical mapping/validation rules. Returns the
+ * mapped `outputData` on success or an `error` message on port-validation
+ * failure (never throws).
+ */
+export function mapSubWorkflowOutput(
+  childContext: Record<string, any>,
+  outputMapping: Record<string, string>,
+  ioContract?: WorkflowIoContract
+): { outputData: Record<string, any>; error?: undefined } | { outputData?: undefined; error: string } {
+  let outputData = mapOutputData(childContext, outputMapping || {})
+
+  if (ioContract?.outputs?.length) {
+    const { coerced, errors } = validateAgainstPorts(outputData, ioContract.outputs)
+    if (errors.length > 0) {
+      return { error: `Sub-workflow output validation failed: ${errors.map((e) => e.message).join('; ')}` }
+    }
+    outputData = coerced
+  }
+
+  return { outputData }
 }
