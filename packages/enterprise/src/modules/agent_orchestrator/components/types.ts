@@ -38,6 +38,12 @@ export type RunView = {
   evalPassed: boolean | null
   latencyMs: number | null
   costMinor: number | null
+  inputTokens: number | null
+  outputTokens: number | null
+  currency: string | null
+  agentVersion: string | null
+  humanConfirmedAt: string | null
+  contextRouting: unknown
 }
 
 export type SpanView = {
@@ -174,6 +180,12 @@ export function mapRun(item: Record<string, unknown>): RunView | null {
     evalPassed: asBoolean(item.eval_passed) ?? asBoolean(item.evalPassed),
     latencyMs: asNumber(item.latency_ms) ?? asNumber(item.latencyMs),
     costMinor: asNumber(item.cost_minor) ?? asNumber(item.costMinor),
+    inputTokens: asNumber(item.input_tokens) ?? asNumber(item.inputTokens),
+    outputTokens: asNumber(item.output_tokens) ?? asNumber(item.outputTokens),
+    currency: asString(item.currency),
+    agentVersion: asString(item.agent_version) ?? asString(item.agentVersion),
+    humanConfirmedAt: asString(item.human_confirmed_at) ?? asString(item.humanConfirmedAt),
+    contextRouting: item.context_routing ?? item.contextRouting ?? null,
   }
 }
 
@@ -296,4 +308,22 @@ export function formatConfidence(confidence: number | null): string | null {
   if (confidence == null) return null
   const pct = confidence <= 1 ? confidence * 100 : confidence
   return `${Math.round(pct)}%`
+}
+
+export function formatDurationMs(ms: number | null): string | null {
+  if (ms == null) return null
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+export function formatTokens(total: number | null): string | null {
+  if (total == null) return null
+  if (total >= 1000) return `${(total / 1000).toFixed(1)}k`
+  return String(Math.round(total))
+}
+
+export function formatCostMinor(costMinor: number | null, currency: string | null): string | null {
+  if (costMinor == null) return null
+  const code = currency ?? 'USD'
+  return `${(costMinor / 100).toFixed(2)} ${code}`
 }

@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { RotateCw, Check, X, Smile, Meh, Frown, Sparkles, TriangleAlert, Clock, ArrowUpDown, ChevronDown } from 'lucide-react'
+import { RotateCw, Check, X, Smile, Meh, Frown, Sparkles, TriangleAlert, Clock, ArrowUpDown, ChevronDown, Inbox, Activity, CheckCircle2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -43,6 +43,7 @@ type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
 // A single status taxonomy drives the tiles, the filter segment, and the table
 // Status column so the operator never has to reconcile two vocabularies.
 type CaseStatus = 'actionRequired' | 'approved' | 'rejected'
+type CaseVerb = 'decide' | 'answer' | 'do'
 type SegmentKey = CaseStatus | 'all'
 type ViewKey = 'inbox' | 'list'
 type SortKey = 'waitingDesc' | 'waitingAsc' | 'confidenceDesc' | 'confidenceAsc' | 'agentAsc'
@@ -76,9 +77,16 @@ type QueueRow = {
   waitingLabel: string
   waitingStale: boolean
   status: CaseStatus
+  verb: CaseVerb
   waitingValue: number
   isPending: boolean
   updatedAt: string | null
+}
+
+function verbOf(confidencePct: number | null): CaseVerb {
+  if (confidencePct == null || confidencePct < 45) return 'answer'
+  if (confidencePct > 80) return 'do'
+  return 'decide'
 }
 
 const STATUS_VARIANT: Record<CaseStatus, 'info' | 'success' | 'error'> = {
@@ -162,12 +170,31 @@ async function fetchItems(path: string): Promise<Array<Record<string, unknown>>>
   return call.ok && Array.isArray(call.result?.items) ? call.result!.items : []
 }
 
+function LifecycleTile({ icon: Icon, label, value, sub }: { icon: React.ComponentType<{ className?: string }>; label: string; value: React.ReactNode; sub: React.ReactNode }) {
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm text-muted-foreground">{label}</p>
+        <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-brand-violet">
+          <Icon className="size-4" />
+        </span>
+      </div>
+      <div className="mt-2 flex min-h-9 items-center gap-2">
+        <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{value}</span>
+      </div>
+      <div className="mt-1 text-xs text-muted-foreground">{sub}</div>
+      <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-brand-lime via-brand-lime to-brand-violet" />
+    </div>
+  )
+}
+
 export default function AgentCaseloadPage() {
   const t = useT()
   const router = useRouter()
   const [proposals, setProposals] = React.useState<ProposalView[]>([])
   const [agentLabels, setAgentLabels] = React.useState<Map<string, string>>(new Map())
   const [runClaims, setRunClaims] = React.useState<Map<string, string>>(new Map())
+  const [runStats, setRunStats] = React.useState<{ running: number; waiting: number }>({ running: 0, waiting: 0 })
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [view, setView] = React.useState<ViewKey>('inbox')
@@ -214,13 +241,19 @@ export default function AgentCaseloadPage() {
         }
         setAgentLabels(labels)
         const claims = new Map<string, string>()
+        let running = 0
+        let waiting = 0
         for (const run of runs) {
           const id = fieldOf(run, 'id')
           if (!id) continue
           const input = asObject(run.input)
           claims.set(id, (input && fieldOf(input, 'claimId', 'claim_id', 'dealId', 'deal_id', 'reference')) || id.slice(0, 12))
+          const runStatus = fieldOf(run, 'status').toLowerCase()
+          if (runStatus === 'running' || runStatus === 'in_progress') running += 1
+          else if (runStatus === 'queued' || runStatus === 'waiting' || runStatus === 'pending' || runStatus === 'scheduled') waiting += 1
         }
         setRunClaims(claims)
+        setRunStats({ running, waiting })
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : t('agent_orchestrator.caseload.error'))
       } finally {
@@ -246,16 +279,18 @@ export default function AgentCaseloadPage() {
     return proposals
       .map((proposal) => {
         const waiting = waitingFrom(proposal.createdAt, now)
+        const confidencePct = confidencePctOf(proposal.confidence)
         return {
           id: proposal.id,
           agentLabel: agentLabels.get(proposal.agentId) || proposal.agentId,
           claim: runClaims.get(proposal.runId) || proposal.id.slice(0, 12),
           proposes: summarizeProposal(proposal.payload),
-          confidencePct: confidencePctOf(proposal.confidence),
+          confidencePct,
           waitingLabel: waiting.label,
           waitingStale: waiting.stale,
           waitingValue: waiting.value,
           status: statusOf(proposal.disposition),
+          verb: verbOf(confidencePct),
           isPending: proposal.disposition === 'pending',
           updatedAt: proposal.updatedAt,
         }
@@ -283,6 +318,27 @@ export default function AgentCaseloadPage() {
     }
     return { actionRequired, approved, rejected }
   }, [searchedFiltered])
+  const lifecycle = React.useMemo(() => {
+    const now = new Date()
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    let needYou = 0
+    let decide = 0
+    let answer = 0
+    let act = 0
+    let closedToday = 0
+    for (const row of allRows) {
+      if (row.status === 'actionRequired') {
+        needYou += 1
+        if (row.verb === 'decide') decide += 1
+        else if (row.verb === 'answer') answer += 1
+        else act += 1
+      } else {
+        const ts = row.updatedAt ? Date.parse(row.updatedAt) : Number.NaN
+        if (!Number.isNaN(ts) && ts >= startOfToday) closedToday += 1
+      }
+    }
+    return { needYou, decide, answer, act, waiting: runStats.waiting, running: runStats.running, closedToday }
+  }, [allRows, runStats])
   const sortedRows = React.useMemo(() => {
     const scoped = searchedFiltered.filter((row) => segment === 'all' || row.status === segment)
     return sortRows(scoped, sortKey)
@@ -535,7 +591,7 @@ export default function AgentCaseloadPage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">{t('agent_orchestrator.caseload.title')}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{t('agent_orchestrator.caseload.subtitle')}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t('agent_orchestrator.caseload.subtitlePersonal', undefined, { count: allRows.length })}</p>
           </div>
           <div className="flex items-center gap-2">
             <SegmentedControl value={view} onValueChange={(value) => setView(value as ViewKey)}>
@@ -547,6 +603,26 @@ export default function AgentCaseloadPage() {
             </Button>
           </div>
         </div>
+
+        {!isLoading && !error && allRows.length > 0 ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <LifecycleTile
+              icon={Inbox}
+              label={t('agent_orchestrator.caseload.lifecycle.needYou')}
+              value={lifecycle.needYou}
+              sub={
+                <span className="flex flex-wrap gap-x-3 gap-y-0.5">
+                  <span><span className="font-medium tabular-nums text-foreground">{lifecycle.decide}</span> {t('agent_orchestrator.caseload.verb.decide')}</span>
+                  <span><span className="font-medium tabular-nums text-foreground">{lifecycle.answer}</span> {t('agent_orchestrator.caseload.verb.answer')}</span>
+                  <span><span className="font-medium tabular-nums text-foreground">{lifecycle.act}</span> {t('agent_orchestrator.caseload.verb.do')}</span>
+                </span>
+              }
+            />
+            <LifecycleTile icon={Clock} label={t('agent_orchestrator.caseload.lifecycle.waiting')} value={lifecycle.waiting} sub={t('agent_orchestrator.caseload.lifecycle.waitingHint')} />
+            <LifecycleTile icon={Activity} label={t('agent_orchestrator.caseload.lifecycle.running')} value={lifecycle.running} sub={t('agent_orchestrator.caseload.lifecycle.runningHint')} />
+            <LifecycleTile icon={CheckCircle2} label={t('agent_orchestrator.caseload.lifecycle.closedToday')} value={lifecycle.closedToday} sub={t('agent_orchestrator.caseload.lifecycle.closedHint')} />
+          </div>
+        ) : null}
 
         {isLoading ? (
           <LoadingMessage label={t('agent_orchestrator.caseload.title')} />
