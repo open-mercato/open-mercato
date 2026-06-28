@@ -269,8 +269,8 @@ function buildCfDefIndexCacheKey(opts: {
   fieldsetKey: string | null
 }): string {
   const tenant = opts.tenantId ?? 'global'
-  const entities = opts.entityIds.slice().sort().join('|')
-  const orgs = opts.organizationIds.length ? opts.organizationIds.slice().sort().join('|') : 'none'
+  const entities = opts.entityIds.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join('|')
+  const orgs = opts.organizationIds.length ? opts.organizationIds.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join('|') : 'none'
   const fieldset = opts.fieldsetKey ?? 'all'
   return `${CF_DEF_INDEX_CACHE_KEY_PREFIX}:${tenant}:${entities}:${orgs}:${fieldset}`
 }
@@ -295,7 +295,7 @@ function normalizeFieldsetKey(value: string | string[] | null | undefined): stri
       .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
       .filter((entry) => entry.length > 0)
     if (!cleaned.length) return null
-    return cleaned.sort().join(',')
+    return cleaned.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',')
   }
   if (typeof value !== 'string') return null
   const trimmed = value.trim()

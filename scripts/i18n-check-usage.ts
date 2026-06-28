@@ -120,7 +120,7 @@ function main() {
   const missingKeys = new Set(missingRefs.map(r => r.key))
 
   // Unused keys: in en.json but never referenced in code
-  const unusedKeys = [...allTranslationKeys].filter(k => !usedKeys.has(k)).sort()
+  const unusedKeys = [...allTranslationKeys].filter(k => !usedKeys.has(k)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
   let hasErrors = false
 
