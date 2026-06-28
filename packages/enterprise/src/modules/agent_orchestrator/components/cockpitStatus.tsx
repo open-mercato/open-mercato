@@ -1,5 +1,8 @@
 "use client"
 
+import type { ComponentType } from 'react'
+import { Frown, Meh, Smile } from 'lucide-react'
+import { cn } from '@open-mercato/shared/lib/utils'
 import type { StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 
 /**
@@ -106,4 +109,46 @@ export function proposalVerdict(confidence: number | null | undefined): Proposal
     return { status: 'success', labelKey: 'agent_orchestrator.proposal.verdict.approve' }
   }
   return { status: 'warning', labelKey: 'agent_orchestrator.proposal.verdict.ask' }
+}
+
+/** Confidence as 0–100. Accepts a 0–1 fraction or an already-0–100 value. */
+export function confidencePctOf(confidence: number | null): number | null {
+  if (confidence == null) return null
+  return confidence <= 1 ? confidence * 100 : confidence
+}
+
+/**
+ * Confidence reads faster as a face than a number: high = sure (smile, green),
+ * mid = neutral (meh), low = scrutinise (frown, red). Colours stay on
+ * success/muted/error (no amber per DS).
+ */
+export function confidenceFace(pct: number): { Icon: ComponentType<{ className?: string }>; color: string } {
+  if (pct >= 70) return { Icon: Smile, color: 'text-status-success-text' }
+  if (pct >= 40) return { Icon: Meh, color: 'text-muted-foreground' }
+  return { Icon: Frown, color: 'text-status-error-text' }
+}
+
+/**
+ * Confidence rendered as a coloured face + value (the cockpit-wide treatment).
+ * `display` overrides the text (e.g. a "0.88" decimal); defaults to a rounded %.
+ * Renders "—" when confidence is null.
+ */
+export function ConfidenceFaceValue({
+  confidence,
+  display,
+  className,
+}: {
+  confidence: number | null
+  display?: string
+  className?: string
+}) {
+  const pct = confidencePctOf(confidence)
+  if (pct == null) return <span className={cn('text-muted-foreground', className)}>{display ?? '—'}</span>
+  const { Icon, color } = confidenceFace(pct)
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 tabular-nums', className)}>
+      <Icon className={cn('size-4 shrink-0', color)} />
+      {display ?? `${Math.round(pct)}%`}
+    </span>
+  )
 }
