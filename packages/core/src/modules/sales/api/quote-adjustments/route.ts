@@ -1,10 +1,11 @@
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/core'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { SalesQuoteAdjustment } from '../../data/entities'
 import {
-  enforceReturnAdjustmentSign,
+  enforceAdjustmentSign,
   quoteAdjustmentCreateSchema,
 } from '../../data/validators'
 import { createPagedListResponseSchema, createSalesCrudOpenApi, defaultOkResponseSchema } from '../openapi'
@@ -34,7 +35,7 @@ const routeMetadata = {
 
 const upsertSchema = quoteAdjustmentCreateSchema
   .extend({ id: z.string().uuid().optional() })
-  .superRefine(enforceReturnAdjustmentSign)
+  .superRefine(enforceAdjustmentSign)
 
 const deleteSchema = z.object({
   id: z.string().uuid(),
@@ -50,6 +51,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  indexer: { entityType: E.sales.sales_quote_adjustment },
   list: {
     schema: listSchema,
     entityId: E.sales.sales_quote_adjustment,
@@ -82,7 +84,7 @@ const crud = makeCrudRoute({
       const filters: Record<string, unknown> = {}
       if (query.quoteId) filters.quote_id = { $eq: query.quoteId }
       try {
-        const em = ctx.container.resolve('em')
+        const em = ctx.container.resolve<EntityManager>('em')
         const cfFilters = await buildCustomFieldFiltersFromQuery({
           entityId: E.sales.sales_quote_adjustment,
           query,

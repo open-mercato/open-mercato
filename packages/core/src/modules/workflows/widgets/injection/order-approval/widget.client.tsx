@@ -42,7 +42,7 @@ type DictionaryEntry = {
   icon?: string
 }
 
-const WORKFLOW_ID = 'sales_order_approval_v1'
+const WORKFLOW_ID = 'sales.order-approval'
 
 export default function OrderApprovalWidget({ data }: InjectionWidgetComponentProps<unknown, OrderRecord>) {
   const t = useT()

@@ -6,5 +6,6 @@ const packageDir = dirname(fileURLToPath(import.meta.url))
 
 await buildPackage(packageDir, {
   name: 'ai-assistant',
+  clearDist: true,
   copyJson: true,
 })

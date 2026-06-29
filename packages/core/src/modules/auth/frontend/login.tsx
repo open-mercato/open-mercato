@@ -13,6 +13,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { clearAllOperations } from '@open-mercato/ui/backend/operations/store'
+import { notifyAuthIdentityChange } from '@open-mercato/ui/backend/AuthSessionGuard'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { X } from 'lucide-react'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
@@ -110,6 +111,7 @@ export default function LoginPage() {
   const [authOverride, setAuthOverride] = useState<AuthOverride | null>(null)
   const [authOverridePending, setAuthOverridePending] = useState(false)
   const [clientReady, setClientReady] = useState(false)
+  const [activeAuthenticatedUser, setActiveAuthenticatedUser] = useState(false)
   const [email, setEmail] = useState('')
   const [tenantId, setTenantId] = useState<string | null>(null)
   const [tenantName, setTenantName] = useState<string | null>(null)
@@ -124,6 +126,51 @@ export default function LoginPage() {
   useEffect(() => {
     setClientReady(true)
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const hasAclChallenge = requiredFeatures.length > 0 || requiredRoles.length > 0
+    void (async () => {
+      try {
+        const res = await apiCall<{ userId?: string }>('/api/auth/feature-check', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ features: [] }),
+          cache: 'no-store',
+        })
+        if (cancelled) return
+        const activeUserId = typeof res.result?.userId === 'string' ? res.result.userId : ''
+        if (!activeUserId) return
+        setActiveAuthenticatedUser(true)
+        // When a feature/role challenge is present in the URL, the user already
+        // failed an ACL check while authenticated. Auto-redirecting back to
+        // `redirect` would re-trigger the same 403 and re-bounce here,
+        // producing an infinite loop (see GH #2070). Stay on the login page so
+        // the access-denied banner is visible.
+        if (hasAclChallenge) return
+        const rawRedirect = searchParams.get('redirect') || ''
+        let destination = '/backend'
+        if (rawRedirect) {
+          try {
+            const resolved = new URL(rawRedirect, window.location.origin)
+            if (
+              resolved.origin === window.location.origin &&
+              resolved.pathname.startsWith('/') &&
+              !resolved.pathname.includes('//')
+            ) {
+              destination = resolved.pathname + resolved.search + resolved.hash
+            }
+          } catch {
+            // fall back to /backend
+          }
+        }
+        router.replace(destination)
+      } catch {
+        // ignore — leave login form usable on network failure
+      }
+    })()
+    return () => { cancelled = true }
+  }, [router, searchParams, requiredFeatures.length, requiredRoles.length])
 
   useEffect(() => {
     const tenantParam = (searchParams.get('tenant') || '').trim()
@@ -212,6 +259,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/login', { method: 'POST', body: form })
       if (res.redirected) {
         clearAllOperations()
+        notifyAuthIdentityChange()
         // NextResponse.redirect from API
         router.replace(res.url)
         return
@@ -265,6 +313,7 @@ export default function LoginPage() {
       const data = await res.json().catch(() => null) as LoginResponseEventDetail
       emitLoginResponseEvent(data)
       clearAllOperations()
+      notifyAuthIdentityChange()
       if (data && typeof data.redirect === 'string' && data.redirect.length > 0) {
         router.replace(data.redirect)
       }
@@ -324,31 +373,40 @@ export default function LoginPage() {
                   </AlertDescription>
                 </Alert>
               )}
+              {activeAuthenticatedUser && (translatedRoles.length || translatedFeatures.length) ? (
+                <div className="flex justify-center" data-testid="login-return-dashboard">
+                  <Button asChild type="button" variant="outline" size="sm">
+                    <Link href="/backend">
+                      {translate('auth.accessDenied.dashboard', 'Go to Dashboard')}
+                    </Link>
+                  </Button>
+                </div>
+              ) : null}
               {showTenantInvalid ? (
-                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-xs text-red-700">
+                <div className="rounded-md border border-status-error-border bg-status-error-bg px-3 py-2 text-center text-xs text-status-error-text">
                   <div className="font-medium">{translate('auth.login.errors.tenantInvalid', 'Tenant not found. Clear the tenant selection and try again.')}</div>
-                  <Button type="button" variant="outline" size="sm" className="mt-2 border-red-300 text-red-700" onClick={handleClearTenant}>
+                  <Button type="button" variant="outline" size="sm" className="mt-2 border-status-error-border text-status-error-text hover:text-status-error-text" onClick={handleClearTenant}>
                     <X className="mr-2 size-4" aria-hidden="true" />
                     {translate('auth.login.tenantClear', 'Clear')}
                   </Button>
                 </div>
               ) : tenantId ? (
-                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs text-emerald-900">
+                <div className="rounded-md border border-status-success-border bg-status-success-bg px-3 py-2 text-center text-xs text-status-success-text">
                   <div className="font-medium">
                     {tenantLoading
                       ? translate('auth.login.tenantLoading', 'Loading tenant details...')
-                      : translate('auth.login.tenantBanner', "You're logging in to {tenant} tenant.", {
+                      : translate('auth.login.tenantBanner', "You're logging in to {tenant}.", {
                           tenant: tenantName || tenantId,
                         })}
                   </div>
-                  <Button type="button" variant="outline" size="sm" className="mt-2 border-emerald-300 text-emerald-900" onClick={handleClearTenant}>
+                  <Button type="button" variant="outline" size="sm" className="mt-2 border-status-success-border text-status-success-text hover:text-status-success-text" onClick={handleClearTenant}>
                     <X className="mr-2 size-4" aria-hidden="true" />
                     {translate('auth.login.tenantClear', 'Clear')}
                   </Button>
                 </div>
               ) : null}
               {error && !showTenantInvalid && (
-                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-700" role="alert" aria-live="polite">
+                <div className="rounded-md border border-status-error-border bg-status-error-bg px-3 py-2 text-center text-sm text-status-error-text" role="alert" aria-live="polite">
                   {error}
                 </div>
               )}

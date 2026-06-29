@@ -690,13 +690,50 @@ The S3 integration appears in the Integration Marketplace under the **Storage** 
 | Implementation phased | Yes — 3 phases, 23 steps |
 | Integration test coverage | Yes — 13 test cases |
 | No frozen surface violations | Yes — no event ID, widget spot ID, or auto-discovery changes |
-| New dependency declared | Yes — `@aws-sdk/client-s3` |
+| New dependency declared | Yes — `@aws-sdk/client-s3` in `@open-mercato/storage-s3` (not core) |
+
+---
+
+## 16. Migration & Backward Compatibility
+
+### Default storage remains local
+
+Enabling the storage hub does not change the storage behavior for any existing tenant or partition. All existing partitions that have no explicit `storageDriver` continue to resolve through `LocalStorageDriver` using the same `resolvePartitionRoot` logic. No data migration is required.
+
+### `ATTACHMENT_PARTITION_<CODE>_ROOT` env vars
+
+These env vars remain fully supported and are honoured exclusively by `LocalStorageDriver`. They have no effect when a partition uses the `s3` driver. Existing deployments that set these env vars will continue to work identically after upgrading.
+
+### Thumbnail cache relocation
+
+Thumbnail files previously cached at `{resolvePartitionRoot(code)}/.cache/thumbnails/...` are now stored at `process.cwd()/storage/.cache/thumbnails/{code}/`. Existing cached thumbnails become orphaned on upgrade but **are not deleted** — they simply no longer serve requests. New thumbnails are regenerated transparently on the next request. This is a low-impact self-healing change; no manual action is required unless disk reclamation is needed.
+
+### Deprecated `storage.ts` helpers
+
+The following helpers in `packages/core/src/modules/attachments/lib/storage.ts` are marked `@deprecated` and will be removed in a future minor release:
+
+| Helper | Replacement |
+| -------- | ----------- |
+| `storePartitionFile(code, name, buffer)` | Use `storageDriverFactory.resolveForPartition(code).store(...)` |
+| `deletePartitionFile(code, path)` | Use `storageDriverFactory.resolveForPartition(code).delete(code, path)` |
+| `resolveAttachmentAbsolutePath(code, path)` | Use `storageDriverFactory.resolveForPartition(code).toLocalPath(code, path)` |
+
+All three helpers remain functional (they delegate to `LocalStorageDriver` internally) and will continue to work for the current minor series.
+
+### `@open-mercato/storage-s3` opt-in
+
+The `storage_s3` module is **not enabled by default**. Enabling it requires setting `OM_ENABLE_STORAGE_S3=true` in the app environment. Without this flag, the AWS SDK is never loaded and no S3-related ACL features, API routes, or Integration Marketplace entries are registered.
+
+### S3 driver ownership
+
+The `S3StorageDriver` class lives in `@open-mercato/storage-s3` (at `src/modules/storage_s3/lib/s3-driver.ts`). It is registered with the `StorageDriverFactory` at DI startup time by the storage-s3 module's `di.ts`. External packages that previously imported `S3StorageDriver` from `@open-mercato/core` must update their import to `@open-mercato/storage-s3`.
 
 ---
 
 ## Changelog
 
 | Date | Author | Change |
-|------|--------|--------|
+| ---- | ------ | ------ |
 | 2026-03-10 | Claude | Initial draft — merged from SPEC-045e storage section and SPEC-058 (PR #875) |
 | 2026-03-11 | Claude | Removed database storage driver (PostgreSQL bytea); kept local (BC default) + S3 only. Added standalone S3 usage API and documentation (§10) for direct file operations without attachments module. |
+| 2026-04-28 | Claude | Post-CR fixes: moved S3StorageDriver + AWS SDK out of core into storage-s3; renamed s3Driver.ts → s3-driver.ts (kebab-case); added StorageDriverFactory.registerDriver() for external driver registration; gated storage_s3 behind OM_ENABLE_STORAGE_S3 env var; moved LocalStack behind docker compose profiles:storage-s3; added tenant-key scoping to standalone S3 API endpoints; fixed storage-service.ts to use driver.listObjects(); reverted accidental data/cache.db bump; added §16 Migration & Backward Compatibility section. |

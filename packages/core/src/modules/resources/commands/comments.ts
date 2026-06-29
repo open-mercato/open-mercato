@@ -14,6 +14,7 @@ import {
   type ResourcesResourceCommentUpdateInput,
 } from '../data/validators'
 import { resourcesResourceCommentCrudEvents } from '../lib/crud'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireResource } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
@@ -132,6 +133,25 @@ const createCommentCommand: CommandHandler<
       await em.flush()
     }
   },
+  redo: makeCreateRedo<ResourcesResourceComment, CommentSnapshot, ResourcesResourceCommentCreateInput, { commentId: string; authorUserId: string | null }>({
+    entityClass: ResourcesResourceComment,
+    seedFromSnapshot: (after) => ({
+      id: after.id,
+      organizationId: after.organizationId,
+      tenantId: after.tenantId,
+      body: after.body,
+      authorUserId: after.authorUserId,
+      appearanceIcon: after.appearanceIcon,
+      appearanceColor: after.appearanceColor,
+    }),
+    beforeRestore: async ({ em, snapshot }) => {
+      const resource = await requireResource(em, snapshot.resourceId, 'Resource not found')
+      return { resource }
+    },
+    buildResult: (entity) => ({ commentId: entity.id, authorUserId: entity.authorUserId ?? null }),
+    events: resourcesResourceCommentCrudEvents,
+    indexer: commentCrudIndexer,
+  }),
 }
 
 const updateCommentCommand: CommandHandler<ResourcesResourceCommentUpdateInput, { commentId: string }> = {

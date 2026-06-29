@@ -8,6 +8,11 @@ jest.mock('@/.mercato/generated/backend-routes.generated', () => ({
   backendRoutes: [],
 }))
 
+jest.mock('@/bootstrap', () => ({
+  bootstrap: jest.fn(),
+  isBootstrapped: jest.fn(() => true),
+}))
+
 import BackendCatchAll from '@/app/(backend)/backend/[...slug]/page'
 
 // Mock UI breadcrumb component to avoid UI package dependency
@@ -39,6 +44,8 @@ jest.mock('@open-mercato/shared/modules/registry', () => ({
     },
     params: {},
   })),
+  getBackendRouteManifests: jest.fn(() => []),
+  registerBackendRouteManifests: jest.fn(),
 }))
 
 jest.mock('@/.mercato/generated/backend-middleware.generated', () => ({

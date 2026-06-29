@@ -187,6 +187,66 @@ describe('agent-registry', () => {
     })
   })
 
+  it('adds the internal task-plan tool only when taskPlan is enabled', () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'customers.account_assistant',
+        moduleId: 'customers',
+        allowedTools: ['customers.list_people'],
+        taskPlan: { enabled: true },
+      }),
+      makeAgent({
+        id: 'catalog.catalog_assistant',
+        moduleId: 'catalog',
+        allowedTools: ['catalog.list_products', 'meta.update_task_plan'],
+      }),
+    ])
+
+    expect(getAgent('customers.account_assistant')).toMatchObject({
+      taskPlan: { enabled: true },
+      allowedTools: ['customers.list_people', 'meta.update_task_plan'],
+    })
+    const catalogAgent = getAgent('catalog.catalog_assistant')
+    expect(catalogAgent?.taskPlan).toBeUndefined()
+    expect(catalogAgent?.allowedTools).toEqual(['catalog.list_products'])
+  })
+
+  it('lets extensions opt an existing agent in or out of visible task planning', () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.catalog_assistant',
+        moduleId: 'catalog',
+        allowedTools: ['catalog.list_products'],
+      }),
+      makeAgent({
+        id: 'customers.account_assistant',
+        moduleId: 'customers',
+        allowedTools: ['customers.list_people'],
+        taskPlan: { enabled: true },
+      }),
+    ])
+
+    applyAgentExtensionEntriesForTests([
+      {
+        targetAgentId: 'catalog.catalog_assistant',
+        taskPlan: { enabled: true },
+      },
+      {
+        targetAgentId: 'customers.account_assistant',
+        taskPlan: { enabled: false },
+      },
+    ])
+
+    expect(getAgent('catalog.catalog_assistant')).toMatchObject({
+      taskPlan: { enabled: true },
+      allowedTools: ['catalog.list_products', 'meta.update_task_plan'],
+    })
+    expect(getAgent('customers.account_assistant')).toMatchObject({
+      taskPlan: { enabled: false },
+      allowedTools: ['customers.list_people'],
+    })
+  })
+
   it('resetAgentRegistryForTests clears the cache so a subsequent seed sees fresh fixtures', () => {
     seedAgentRegistryForTests([
       makeAgent({ id: 'catalog.merchandiser', moduleId: 'catalog' }),

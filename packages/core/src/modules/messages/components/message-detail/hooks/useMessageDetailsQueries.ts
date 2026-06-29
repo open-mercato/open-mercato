@@ -26,10 +26,22 @@ export function useMessageDetailsQueries({
     [id, scopeVersion],
   )
 
-  const detailQuery = useQuery({
+  const suppressAutoMarkReadRef = React.useRef(false)
+
+  React.useEffect(() => {
+    suppressAutoMarkReadRef.current = false
+  }, [id])
+
+  const detailQuery = useQuery<MessageDetail | null>({
     queryKey: detailQueryKey,
     queryFn: async () => {
-      const call = await apiCall<MessageDetail>(`/api/messages/${encodeURIComponent(id)}`)
+      const detailUrl = suppressAutoMarkReadRef.current
+        ? `/api/messages/${encodeURIComponent(id)}?skipMarkRead=1`
+        : `/api/messages/${encodeURIComponent(id)}`
+      const call = await apiCall<MessageDetail>(detailUrl)
+      if (call.status === 404) {
+        return null
+      }
       if (!call.ok || !call.result) {
         throw new Error(
           toErrorMessage(call.result)
@@ -42,16 +54,23 @@ export function useMessageDetailsQueries({
 
   const detail = detailQuery.data ?? null
   const isLoadingDetail = detailQuery.isLoading
-  const loadErrorMessage = detailQuery.error instanceof Error
-    ? detailQuery.error.message
-    : t('messages.errors.loadDetailFailed', 'Failed to load message details.')
+  const isDetailMissing = detailQuery.isSuccess && detailQuery.data === null
+  const loadErrorMessage = isDetailMissing
+    ? t('messages.errors.messageDeleted', 'This message is no longer available.')
+    : detailQuery.error instanceof Error
+      ? detailQuery.error.message
+      : t('messages.errors.loadDetailFailed', 'Failed to load message details.')
 
-  const attachmentsQuery = useQuery({
+  const attachmentsQuery = useQuery<MessageAttachment[]>({
     queryKey: ['messages', 'detail', id, 'attachments', scopeVersion],
     queryFn: async () => {
       const call = await apiCall<{ attachments?: MessageAttachment[] }>(
         `/api/messages/${encodeURIComponent(id)}/attachments`,
       )
+
+      if (call.status === 404) {
+        return []
+      }
 
       if (!call.ok) {
         throw new Error(
@@ -71,6 +90,11 @@ export function useMessageDetailsQueries({
       `/api/messages/${encodeURIComponent(id)}?skipMarkRead=1`,
     )
 
+    if (call.status === 404) {
+      queryClient.setQueryData(detailQueryKey, null)
+      return null
+    }
+
     if (!call.ok || !call.result) {
       throw new Error(
         toErrorMessage(call.result)
@@ -82,6 +106,10 @@ export function useMessageDetailsQueries({
     return call.result
   }, [detailQueryKey, id, queryClient, t])
 
+  const suppressAutoMarkRead = React.useCallback(() => {
+    suppressAutoMarkReadRef.current = true
+  }, [])
+
   const listItemComponentKey = detail?.typeDefinition.ui?.listItemComponent ?? null
   const contentComponentKey = detail?.typeDefinition.ui?.contentComponent ?? null
   const actionsComponentKey = detail?.typeDefinition.ui?.actionsComponent ?? null
@@ -91,10 +119,12 @@ export function useMessageDetailsQueries({
     detailQuery,
     detail,
     isLoadingDetail,
+    isDetailMissing,
     loadErrorMessage,
     attachmentsQuery,
     attachments,
     refreshDetailWithoutAutoMarkRead,
+    suppressAutoMarkRead,
     listItemComponentKey,
     contentComponentKey,
     actionsComponentKey,

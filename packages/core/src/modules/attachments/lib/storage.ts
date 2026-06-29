@@ -2,6 +2,7 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import { resolvePartitionEnvKey } from './partitionEnv'
+import { resolveContainedPath, resolveLegacyPublicRoot } from './pathContainment'
 
 export function resolvePartitionRoot(code: string): string {
   const envKey = resolvePartitionEnvKey(code)
@@ -27,6 +28,10 @@ function resolveTenantSegment(tenantId: string | null | undefined): string {
   return 'tenant_shared'
 }
 
+/**
+ * @deprecated Use `StorageDriverFactory.resolveForPartition()` + `driver.store()` instead.
+ * Kept for backward compatibility with external callers.
+ */
 export type StorePartitionFilePayload = {
   partitionCode: string
   orgId: string | null | undefined
@@ -41,6 +46,9 @@ export type StoredPartitionFile = {
   fileName: string
 }
 
+/**
+ * @deprecated Use `StorageDriverFactory.resolveForPartition()` + `driver.store()` instead.
+ */
 export async function storePartitionFile(payload: StorePartitionFilePayload): Promise<StoredPartitionFile> {
   const root = resolvePartitionRoot(payload.partitionCode)
   const orgSegment = resolveOrgSegment(payload.orgId ?? null)
@@ -59,25 +67,24 @@ export async function storePartitionFile(payload: StorePartitionFilePayload): Pr
   }
 }
 
+/**
+ * @deprecated Use `StorageDriverFactory.resolveForAttachment()` + `driver.read()` / `driver.toLocalPath()` instead.
+ */
 export function resolveAttachmentAbsolutePath(
   partitionCode: string,
   storagePath: string,
   storageDriver?: string | null
 ): string {
-  // Remove leading slashes first
-  let safeRelative = storagePath.replace(/^\/*/, '')
-  // Remove all ../ (and ..\) path traversal segments, repeatedly until gone
-  do {
-    var prev = safeRelative
-    safeRelative = safeRelative.replace(/\.\.(\/|\\)/g, '')
-  } while (safeRelative !== prev)
   if (storageDriver === 'legacyPublic') {
-    return path.join(process.cwd(), safeRelative)
+    return resolveContainedPath(process.cwd(), storagePath, resolveLegacyPublicRoot())
   }
   const root = resolvePartitionRoot(partitionCode)
-  return path.join(root, safeRelative)
+  return resolveContainedPath(root, storagePath)
 }
 
+/**
+ * @deprecated Use `StorageDriverFactory.resolveForAttachment()` + `driver.delete()` instead.
+ */
 export async function deletePartitionFile(
   partitionCode: string,
   storagePath: string,

@@ -18,7 +18,8 @@ import { WorkflowLegend } from '../../../components/WorkflowLegend'
 import { MobileInstanceOverview } from '../../../components/mobile/MobileInstanceOverview'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import { definitionToGraph } from '../../../lib/graph-utils'
-import { Node } from '@xyflow/react'
+import type { Node } from '@xyflow/react'
+import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 export default function WorkflowInstanceDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -32,7 +33,13 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
     queryFn: async () => {
       const response = await apiFetch(`/api/workflows/instances/${id}`)
       if (!response.ok) {
-        throw new Error(t('workflows.instances.notFound') || 'Instance not found')
+        const httpErr = new Error(
+          response.status === 404
+            ? t('workflows.instances.detail.notFound', 'Workflow instance not found.')
+            : t('workflows.instances.loadFailed', 'Failed to load workflow instance.')
+        ) as Error & { status: number }
+        httpErr.status = response.status
+        throw httpErr
       }
       const data = await response.json()
       return data.data as WorkflowInstance
@@ -368,18 +375,35 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
     )
   }
 
+  const isNotFound = !isLoading && (error as (Error & { status?: number }) | null)?.status === 404
+
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('workflows.instances.detail.notFound', 'Workflow instance not found.')}
+            backHref="/backend/instances"
+            backLabel={t('workflows.instances.actions.backToList', 'Back to instances')}
+          />
+        </PageBody>
+        {ConfirmDialogElement}
+      </Page>
+    )
+  }
+
   if (error || !instance) {
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <p>{error ? t('workflows.instances.loadFailed') : t('workflows.instances.detail.notFound') || 'Workflow instance not found.'}</p>
-            <Button asChild variant="outline">
-              <Link href="/backend/instances">
-                {t('workflows.instances.actions.backToList') || 'Back to instances'}
-              </Link>
-            </Button>
-          </div>
+          <ErrorMessage
+            label={(error as Error | null)?.message ?? t('workflows.instances.loadFailed', 'Failed to load workflow instance.')}
+            action={
+              <Button asChild variant="outline" size="sm">
+                <Link href="/backend/instances">{t('workflows.instances.actions.backToList', 'Back to instances')}</Link>
+              </Button>
+            }
+          />
         </PageBody>
         {ConfirmDialogElement}
       </Page>

@@ -66,8 +66,8 @@ export function register(container: AppContainer) {
     const makeUpsertHandler = (entityType: string) => async (payload: any, ctx: any) => {
       try {
         const em = ctx.resolve('em')
-        let orgId = payload?.organizationId || payload?.orgId || null
-        let tenantId = payload?.tenantId || null
+        let orgId = payload?.organizationId || payload?.orgId || ctx?.organizationId || null
+        let tenantId = payload?.tenantId || ctx?.tenantId || null
         const id = String(payload?.id || payload?.recordId || '')
         if (!id) return
         if (!orgId || !tenantId) {
@@ -119,24 +119,26 @@ export function register(container: AppContainer) {
     const makeDeleteHandler = (entityType: string) => async (payload: any, ctx: any) => {
       try {
         const em = ctx.resolve('em')
-        let orgId = payload?.organizationId || payload?.orgId || null
+        let orgId = payload?.organizationId || payload?.orgId || ctx?.organizationId || null
+        let tenantId = payload?.tenantId || ctx?.tenantId || null
         const id = String(payload?.id || payload?.recordId || '')
         if (!id) return
-        if (!orgId) {
+        if (!orgId || !tenantId) {
           try {
             const db = (em as any).getKysely()
             const table = resolveEntityTableName(em, entityType)
             const row = await db
               .selectFrom(table as any)
-              .select(['organization_id' as any])
+              .select(['organization_id' as any, 'tenant_id' as any])
               .where('id' as any, '=', id)
-              .executeTakeFirst() as { organization_id: string | null } | undefined
+              .executeTakeFirst() as { organization_id: string | null; tenant_id: string | null } | undefined
             orgId = row?.organization_id ?? orgId
+            tenantId = row?.tenant_id ?? tenantId
           } catch {}
         }
         try {
           const bus = ctx.resolve('eventBus') as any
-          await bus.emitEvent('query_index.delete_one', { entityType, recordId: id, organizationId: orgId })
+          await bus.emitEvent('query_index.delete_one', { entityType, recordId: id, organizationId: orgId, tenantId })
         } catch {}
       } catch {}
     }

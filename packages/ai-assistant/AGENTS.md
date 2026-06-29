@@ -2,6 +2,36 @@
 
 > **IMPORTANT**: Update this file with every major change to this module. When implementing new features, modifying architecture, or changing key interfaces, update the relevant sections to keep guidance accurate for future agents.
 
+## Always
+
+- Treat the public AI assistant docs linked below as the source of truth when they disagree with this file.
+- Use `registerMcpTool`/`defineAiTool` with Zod schemas, `moduleId`, `requiredFeatures`, and serializable handler results.
+- Run `yarn generate` after adding or changing agents, tools, API discovery metadata, or tool packs.
+- Route model selection through `createModelFactory(container)` instead of ad hoc provider clients.
+- Route mutation-capable AI tools through the mutation approval path before execution.
+
+## Ask First
+
+- Use `AskUserQuestion` before any AI operation that creates, updates, or deletes data.
+- Ask before changing OpenCode Docker configuration, MCP authentication, provider/model resolution precedence, or session-token semantics.
+- Ask before widening tool allowlists, relaxing mutation policies, or exposing new data surfaces to an agent.
+
+## Never
+
+- Never leave `requiredFeatures` empty for tools that access tenant data.
+- Never bypass endpoint-level RBAC in Code Mode or MCP tool execution.
+- Never call the OpenCode HTTP API directly from chat flows; use the module handlers.
+- Never log credentials, session tokens, API keys, prompt secrets, or raw tenant data.
+- Never cache MCP server instances across requests or skip per-tool ACL checks.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/ai-assistant test
+yarn workspace @open-mercato/ai-assistant build
+```
+
 ## Where to look first
 
 Before editing this module — and especially before writing or reviewing a new agent — read the public framework docs. They are the source of truth and stay in sync with this AGENTS.md by review:
@@ -9,7 +39,7 @@ Before editing this module — and especially before writing or reviewing a new 
 | Topic | Public doc | This file |
 |-------|------------|-----------|
 | System map, request flow, persistence | [`apps/docs/docs/framework/ai-assistant/architecture.mdx`](../../apps/docs/docs/framework/ai-assistant/architecture.mdx) | "Architecture Constraints" below |
-| End-to-end "add a new agent" walkthrough | [`apps/docs/docs/framework/ai-assistant/developer-guide.mdx`](../../apps/docs/docs/framework/ai-assistant/developer-guide.mdx) + [`.ai/skills/create-ai-agent/SKILL.md`](../../.ai/skills/create-ai-agent/SKILL.md) | "How to Add a New AI Agent" below |
+| End-to-end "add a new agent" walkthrough | [`apps/docs/docs/framework/ai-assistant/developer-guide.mdx`](../../apps/docs/docs/framework/ai-assistant/developer-guide.mdx) + [`.ai/skills/om-create-ai-agent/SKILL.md`](../../.ai/skills/om-create-ai-agent/SKILL.md) | "How to Add a New AI Agent" below |
 | Agent contract reference | [`apps/docs/docs/framework/ai-assistant/agents.mdx`](../../apps/docs/docs/framework/ai-assistant/agents.mdx) | "How to Add an AI Tool Pack" below |
 | Record cards + custom inline UI parts | [`apps/docs/docs/framework/ai-assistant/ui-parts.mdx`](../../apps/docs/docs/framework/ai-assistant/ui-parts.mdx) | "Adding UI Parts" below |
 | File upload contract | [`apps/docs/docs/framework/ai-assistant/attachments.mdx`](../../apps/docs/docs/framework/ai-assistant/attachments.mdx) | — |
@@ -98,14 +128,14 @@ APIs are automatically available via the Code Mode `search` tool (reads the Open
 
 ### How to Add a New AI Agent
 
-> **Use the [`create-ai-agent` skill](../../.ai/skills/create-ai-agent/SKILL.md)** for the full step-by-step procedure (file layout, tool pack registration, mutation approval wiring, ACL/setup, generator + cache refresh, `<AiChat>` embedding, standalone vs monorepo differences, and a verification checklist). The summary below stays here for quick reference.
+> **Use the [`om-create-ai-agent` skill](../../.ai/skills/om-create-ai-agent/SKILL.md)** for the full step-by-step procedure (file layout, tool pack registration, mutation approval wiring, ACL/setup, generator + cache refresh, `<AiChat>` embedding, standalone vs monorepo differences, and a verification checklist). The summary below stays here for quick reference.
 
 Typed AI agents live in each module's root `ai-agents.ts`. The generator auto-discovers the file and aggregates it into `apps/mercato/.mercato/generated/ai-agents.generated.ts`. Reference implementations: `packages/core/src/modules/customers/ai-agents.ts` and `packages/core/src/modules/catalog/ai-agents.ts`.
 
 1. Create `<module>/ai-agents.ts` and export `aiAgents: AiAgentDefinition[]` (default export optional).
 2. Declare the agent with `defineAiAgent({ ... })` from `@open-mercato/ai-assistant`. Required fields: `id`, `moduleId`, `label`, `description`, `systemPrompt`, `allowedTools`. Useful optional fields: `executionMode` (`'chat'` — default — or `'object'`), `executionEngine` (`'stream-text'` — default — or `'tool-loop-agent'`; see §"Loop controls and execution engines" below), `defaultProvider` (registered provider id the agent prefers; when paired with `defaultModel`, the pair fails closed if the provider is unconfigured; Phase 1 of `2026-04-27-ai-agents-provider-model-baseurl-overrides`), `defaultModel` (plain model id or slash-qualified `<provider>/<model>` shorthand, e.g. `openai/gpt-5-mini`), `acceptedMediaTypes`, `requiredFeatures`, `uiParts`, `readOnly`, `mutationPolicy` (`'read-only'` | `'confirm-required'` | `'destructive-confirm-required'`), `maxSteps`, `loop` (Phase 0–5 of spec `2026-04-28-ai-agents-agentic-loop-controls`), `output` (Zod schema for `'object'` mode), `resolvePageContext`, `keywords`, `suggestions`, `domain`, `dataCapabilities`.
 3. Add the feature(s) you list in `requiredFeatures` to the module's `acl.ts` and grant them in `setup.ts` `defaultRoleFeatures`.
-4. Put the agent's tool allowlist behind the narrowest set possible. Start from the general-purpose packs (`search.hybrid_search`, `search.get_record_context`, `attachments.list_record_attachments`, `attachments.read_attachment`, `meta.describe_agent`) and add your module's own `defineAiTool`-registered tools.
+4. Put the agent's tool allowlist behind the narrowest set possible. Start from the general-purpose packs (`search.hybrid_search`, `search.get_record_context`, `attachments.list_record_attachments`, `attachments.read_attachment`, `meta.describe_agent`) and add your module's own `defineAiTool`-registered tools. Do not list `meta.update_task_plan` manually; set `taskPlan: { enabled: true }` when the agent should expose the visible planning helper.
 5. For mutation-capable agents, keep `readOnly: true` + `mutationPolicy: 'read-only'` on the agent and light up writes only via the per-tenant mutation-policy override table (spec Phase 3 WS-C §5.4). The runtime filters out any `isMutation: true` tool when the override is still read-only.
 6. Run `yarn generate` so the agent shows up in the registry. Smoke-test via `/backend/config/ai-assistant/playground` (see `/framework/ai-assistant/playground`), then embed `<AiChat agent="<module>.<agent>" />` in the page where you want the operator UI.
 
@@ -138,9 +168,16 @@ MUST rules:
 - MUST use Zod for `inputSchema` — never raw JSON Schema.
 - MUST set `isMutation: true` on write tools. The policy gate strips these from read-only agents and from read-only tenant overrides.
 - MUST route every mutation tool through `prepareMutation(...)` (see the Mutation Approvals guide at `/framework/ai-assistant/mutation-approvals`). Writing directly inside the handler bypasses the approval gate — the runtime fails closed and refuses to return a result to the operator.
+- Mutation preview resolvers SHOULD return a normalized `after` snapshot and display hints when tool inputs contain dictionary IDs or other opaque values. Use `display.fieldLabels`, `display.before`, and `display.after` so `field-diff-card` shows operator-friendly names while `field`, `before`, and `after` keep the raw execution values.
 - MUST expose tools to an agent by listing the tool name in the agent's `allowedTools`. Tools not on the whitelist never reach the model.
 
 Run `yarn generate` after adding/changing tool definitions so the typed tool registry picks them up.
+
+### Visible Task Plans
+
+Operator-facing chat agents can enable visible plans with `taskPlan: { enabled: true }`. CRM/customer agents enable it by default; other agents stay quiet unless their definition or an `AiAgentExtension` opts in. When enabled, the registry exposes the read-only `meta.update_task_plan` helper and the runtime injects prompt guidance to call it before domain tools on tool-using turns. Labels are user-visible progress copy: keep them short, include `toolName` when a step maps to a known tool, and never include private reasoning, chain-of-thought, scratchpad notes, or XML thinking tags. The runtime sanitizes and rejects unsafe labels before streaming `data-agent-task-plan` / `data-agent-task-update` chunks.
+
+`<AiChat>` renders runtime tool lifecycle rows under **Tool calls**, not as Plan rows. When a task-plan chunk carries a label for a `toolCallId`, the Tool calls row uses it as a friendly caption while still showing the raw tool id in parentheses.
 
 ### How to Add a UI Part (record cards / custom inline widgets)
 
@@ -182,7 +219,7 @@ Full reference: `apps/docs/docs/framework/ai-assistant/ui-parts.mdx`.
 
 ### How to Override or Extend Another Module's Agent or Tool
 
-Modules can replace/disable any AI agent or AI tool that another module registered, or patch an existing agent by appending, deleting, or replacing allowed tools, system-prompt text, and starter suggestions. Use full overrides when you need to swap the whole behavior; use `aiAgentExtensions` when a downstream module only wants to adjust a shipped agent, such as adding "show catalog stats" while removing an irrelevant starter prompt. See spec `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` and `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
+Modules can replace/disable any AI agent or AI tool that another module registered, or patch an existing agent by appending, deleting, or replacing allowed tools, system-prompt text, and starter suggestions. Use full overrides when you need to swap the whole behavior; use `aiAgentExtensions` when a downstream module only wants to adjust a shipped agent, such as adding "show catalog stats" while removing an irrelevant starter prompt. See spec `.ai/specs/implemented/2026-04-30-ai-overrides-and-module-disable.md` and `apps/docs/docs/framework/ai-assistant/overrides.mdx`.
 
 There are three paths.
 
@@ -240,7 +277,7 @@ export const aiToolOverrides: AiToolOverridesMap = {
 }
 ```
 
-**Path B — `modules.ts` inline (app-level static, unified `entry.overrides`).** Declare overrides under the umbrella `overrides.ai` key on a `ModuleEntry` inside `apps/<app>/src/modules.ts`. Other contracts a module presents (routes, events, workers, widgets, …) reuse the same `entry.overrides` shape per spec `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` (AI is Phase 1; other domains roll out as separate PRs). The app's `bootstrap.ts` calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` once at boot — both `apps/mercato` and the `create-mercato-app` template ship that wiring.
+**Path B — `modules.ts` inline (app-level static, unified `entry.overrides`).** Declare overrides under the umbrella `overrides.ai` key on a `ModuleEntry` inside `apps/<app>/src/modules.ts`. Other contracts a module presents (routes, events, workers, widgets, notifications, interceptors, setup, ACL, DI, encryption, …) reuse the same `entry.overrides` shape per spec `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md`; phases 1-18 are wired. The app's `bootstrap.ts` calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` once at boot — both `apps/mercato` and the `create-mercato-app` template ship that wiring.
 
 ```ts
 // apps/<app>/src/modules.ts
@@ -284,7 +321,7 @@ MUST rules:
 Resolution order (highest precedence first):
 
 1. Programmatic `applyAiAgentOverrides` / `applyAiToolOverrides` calls (last call per id wins).
-2. `modules.ts` inline (`aiAgentOverrides` / `aiToolOverrides` on `ModuleEntry`; last entry per id wins).
+2. `modules.ts` inline (`entry.overrides.ai.agents` / `entry.overrides.ai.tools`; last entry per id wins).
 3. File-based `<module>/ai-agents.ts` / `<module>/ai-tools.ts` overrides (last module load order wins).
 4. The base `<module>/ai-agents.ts` / `<module>/ai-tools.ts` registrations.
 
@@ -592,7 +629,7 @@ when the registry has no configured provider and `code: 'api_key_missing'`
 when the picked provider returns an empty key — every current call site
 already relies on the throw bubbling up, do not swallow it.
 
-## MANDATORY: Use AskUserQuestion for Confirmations
+## Ask First: Use AskUserQuestion for Confirmations
 
 > **This is the MOST IMPORTANT rule. NEVER skip this.**
 
@@ -1426,6 +1463,62 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 ---
 
 ## Changelog
+
+### 2026-06-24 - MCP dev server loads ai-tools for @app local modules (#3524)
+
+**What changed** (`lib/generated-registry-loader.ts`):
+- `rewriteGeneratedAliasImports` now also rewrites the `../../src/...` relative imports the generator emits for `@app` local modules (e.g. `from "../../src/modules/<id>/ai-tools"`), resolving them against the generated file's directory (`<appRoot>/.mercato/generated`) to absolute `file://` URLs with the same `.ts`-suffix probe used for `@/` aliases. Previously only `@/` aliases were rewritten, so the `../../src/...` specifier passed through `esbuild.transform` (transpile-only) into the compiled `.mjs` and Node ESM threw `ERR_MODULE_NOT_FOUND` resolving the extensionless `.ts`-only target. Package-backed modules (`@open-mercato/*`) were never affected — their bare specifiers resolve through `node_modules` to compiled `.js`.
+
+**Files**: `lib/generated-registry-loader.ts`. Regression test: `lib/__tests__/generated-registry-loader.test.ts` (3 cases covering static import, dynamic `import()`, and `.ts`-suffix resolution for the `../../src/...` shape).
+
+**Backward compatibility**: Strictly additive — the `rewriteGeneratedAliasImports(source, appRoot)` signature is unchanged, and `@/` aliases, bare package imports, and sibling `./` imports keep their prior behavior. Only previously-broken `../../src/...` specifiers change (from unresolved to resolved).
+
+### 2026-06-11 - Rate-limit AI chat dispatch routes (#2975)
+
+**What changed**:
+- Both AI chat dispatch handlers — `POST /api/ai_assistant/ai/chat` (`api/ai/chat/route.ts`) and the legacy `POST /api/chat` (`api/chat/route.ts`) — now consult a per-user/per-tenant rate limit before running the LLM agent loop, per-turn DB reads/writes, and (legacy) the ephemeral `api_keys` insert.
+- Added `lib/rate-limit.ts` exporting `checkAiChatRateLimit({ req, container, userId, tenantId })`. It resolves the already-registered `rateLimiterService` from the request DI container (NOT a static `@open-mercato/core` import — core is not a dependency of this package), builds an additive `RATE_LIMIT_AI_CHAT_*` bucket via `readEndpointRateLimitConfig`, keys on `userId:tenantId`, and returns a typed 429 on breach.
+- **Fail-open**, mirroring auth's `checkAuthRateLimit`: when the limiter service is unavailable (unregistered, null, throws) the request proceeds unthrottled. No response shape, DI key, route, or event-id change.
+
+**New environment variables** (all optional, additive):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `RATE_LIMIT_AI_CHAT_POINTS` | `30` | Max chat turns per window per user/tenant. |
+| `RATE_LIMIT_AI_CHAT_DURATION` | `60` | Window length (seconds). |
+| `RATE_LIMIT_AI_CHAT_BLOCK_DURATION` | unset | Optional block window (seconds) after breach. |
+| `OM_TEST_AI_CHAT_RATE_LIMIT_MODE` | unset | Set to `opt-in` (with `OM_TEST_MODE=1`) so the bucket is only exercised when a request sends `x-om-test-rate-limit: on`, mirroring auth's test opt-in. |
+
+The global `RATE_LIMIT_ENABLED` kill switch (auto-off under `OM_INTEGRATION_TEST`) still disables the bucket wholesale.
+
+**Files**:
+- Added `lib/rate-limit.ts` + `lib/__tests__/rate-limit.test.ts`.
+- `api/ai/chat/route.ts`, `api/chat/route.ts` — call the gate near the top of the POST handler (legacy route reuses the request container resolved for the answerQuestion ownership re-check).
+
+### 2026-06-11 - Harden latent MCP server-config module (#2672)
+
+**What changed** (`lib/mcp-server-config.ts`, currently dead code — no callers):
+- Added `validateMcpServerUrl()` (exported): restricts external MCP server URLs to `http:`/`https:` (blocks `file:`/`gopher:`/`data:` local-file disclosure) and rejects literal loopback, link-local (`169.254.0.0/16`, `fe80::/10`), and RFC1918 private hosts plus `localhost`/`0.0.0.0`/IPv4-mapped IPv6 — reducing SSRF exposure if a management route is ever wired up. `validateMcpServerConfig` now uses it for HTTP configs.
+- `saveMcpServerConfig` / `updateMcpServerConfig` now call `validateMcpServerConfig` and throw on invalid input, so persistence is **fail-closed**.
+- `generateId()` now uses `randomUUID()` (CSPRNG) instead of `Date.now()` + `Math.random()`.
+
+Note: the guard is intentionally NOT added to `mcp-client.ts` `connectHttp`, which legitimately connects to the app's own loopback MCP server (`localhost:3001`). DNS-rebinding (resolution-time checks) is out of scope for this dead-code hardening.
+
+**Files**: `lib/mcp-server-config.ts`. Regression test: `lib/__tests__/mcp-server-config-hardening.test.ts`.
+
+**Backward compatibility**: `validateMcpServerUrl` is additive. The module has no callers, so the tightened HTTP validation + fail-closed persistence change no live behavior.
+
+### 2026-06-11 - MCP stdio server fails closed without auth (#2673)
+
+**What changed**:
+- `createMcpServer` / `runMcpServer` (`lib/mcp-server.ts`) no longer silently grant `isSuperAdmin = true` when no auth is supplied. The two fail-open branches (a `context` without a `userId`, and neither `apiKeySecret` nor `context`) now **throw** instead of escalating to an unscoped superadmin.
+- `apiKeySecret` is normalized — an empty / whitespace-only string is treated as missing instead of falling through to the unauthenticated branch.
+- Added an explicit, loud opt-in `McpServerOptions.allowUnauthenticatedSuperadmin` (default off) for local dev/testing. When enabled the server runs as superadmin with a startup `WARNING` log; when off and unauthenticated it refuses to start.
+- `mcp:serve` CLI: `--user` is now effectively required alongside `--tenant`; the legacy "no user → superadmin" behavior is preserved only behind the new `--allow-unauthenticated-superadmin` flag (documented in `--help`).
+
+**Files modified**: `lib/mcp-server.ts`, `lib/types.ts`, `cli.ts`. Regression test: `lib/__tests__/mcp-server-auth-fail-closed.test.ts`.
+
+**Backward compatibility**: `allowUnauthenticatedSuperadmin` is an additive optional field. The only behavior change is that a previously fail-open misconfiguration now fails closed — callers that relied on auth-less superadmin must pass the explicit opt-in.
 
 ### 2026-05-13 - Remove dead `indexApiEndpoints` from MCP boot (#1876)
 

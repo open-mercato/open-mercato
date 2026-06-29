@@ -1,6 +1,7 @@
 import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
 import { CacheDependencyUnavailableError } from '../errors'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { matchCacheKeyPattern } from '../patterns'
 
 type RedisPipeline = {
   set(key: string, value: string): RedisPipeline
@@ -12,6 +13,7 @@ type RedisPipeline = {
 }
 
 type RedisClient = {
+  ping(): Promise<string>
   get(key: string): Promise<string | null>
   set(key: string, value: string): Promise<unknown>
   setex(key: string, ttlSeconds: number, value: string): Promise<unknown>
@@ -177,15 +179,6 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
   function isExpired(entry: CacheEntry): boolean {
     if (entry.expiresAt === null) return false
     return Date.now() > entry.expiresAt
-  }
-
-  function matchPattern(key: string, pattern: string): boolean {
-    const regexPattern = pattern
-      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-      .replace(/\*/g, '.*')
-      .replace(/\?/g, '.')
-    const regex = new RegExp(`^${regexPattern}$`)
-    return regex.test(key)
   }
 
   const get = async (key: string, options?: CacheGetOptions): Promise<CacheValue | null> => {
@@ -372,7 +365,7 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     if (!pattern) return result
     
     // Apply pattern matching (Redis KEYS command uses glob pattern, but we want our pattern)
-    return result.filter((key: string) => matchPattern(key, pattern))
+    return result.filter((key: string) => matchCacheKeyPattern(key, pattern))
   }
 
   const stats = async (): Promise<{ size: number; expired: number }> => {
@@ -428,6 +421,11 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     redis = null
   }
 
+  const healthcheck = async (): Promise<void> => {
+    const client = await getRedisClient()
+    await client.ping()
+  }
+
   return {
     get,
     set,
@@ -437,6 +435,7 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     clear,
     keys,
     stats,
+    healthcheck,
     cleanup,
     close,
   }

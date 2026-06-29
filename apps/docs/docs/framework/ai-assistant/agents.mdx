@@ -27,6 +27,7 @@ export const accountAssistant: AiAgentDefinition = {
     'customers.list_deals',
     'customers.get_activities',
   ],
+  taskPlan: { enabled: true },
   readOnly: true,
   mutationPolicy: 'read-only',
   requiredFeatures: ['customers.view'],
@@ -70,6 +71,7 @@ The generator aggregates every module's agents into `apps/mercato/.mercato/gener
 | `loop` | no | Agentic loop controls — `stopWhen`, `prepareStep`, `repairToolCall`, `onStepFinish`, `activeTools`, `toolChoice`, and `budget` (`maxToolCalls`, `maxWallClockMs`, `maxTokens`). See [Agentic loop controls](#agentic-loop-controls) below. |
 | `executionEngine` | no (default `stream-text`) | `'stream-text'` (default `streamText` dispatch) or `'tool-loop-agent'` (opt into Vercel `Experimental_Agent`). See [Choosing an execution engine](#choosing-an-execution-engine). |
 | `allowRuntimeOverride` | no (default `true`) | Permit per-call `<ModelPicker>` + `?provider=&model=&loopBudget=...` overrides. Renamed from `allowRuntimeModelOverride`. |
+| `taskPlan` | no | `{ enabled: true }` opts the agent into the visible planning helper. The registry exposes `meta.update_task_plan` automatically; omit it from `allowedTools`. CRM/customer agents enable this by default, other shipped agents do not. |
 | `resolvePageContext` | no | Async callback invoked when the request carries `{ entityType, recordId }`. Returns extra prompt text appended to `systemPrompt`. |
 | `suggestions` | no | Starter prompts shown by generic chat launchers before the first message. |
 | `keywords` / `domain` / `dataCapabilities` | no | Metadata for the agent picker and search. |
@@ -109,7 +111,7 @@ export const auditAgent: AiAgentDefinition = {
 
 When `false`, the runtime also rejects `?provider=` / `?model=` / `?loopBudget=` query parameters sent to the chat dispatcher route — the server-side resolution chain (steps 2–7 in [Overview → Model resolution order](./overview#model-resolution-order)) still applies.
 
-> The field was renamed from `allowRuntimeModelOverride` in Phase 4 of spec [`2026-04-28-ai-agents-agentic-loop-controls`](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md) because its scope now covers loop overrides as well. The runtime accepts both names — `allowRuntimeOverride` wins when both are set. Migrate at your convenience; the deprecated alias remains for one minor version.
+> The field was renamed from `allowRuntimeModelOverride` in Phase 4 of spec [`2026-04-28-ai-agents-agentic-loop-controls`](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/implemented/2026-04-28-ai-agents-agentic-loop-controls.md) because its scope now covers loop overrides as well. The runtime accepts both names — `allowRuntimeOverride` wins when both are set. Migrate at your convenience; the deprecated alias remains for one minor version.
 
 ### Runtime model picker (`<ModelPicker>`)
 
@@ -169,7 +171,7 @@ export const getPerson = defineAiTool({
 |------|------------------|-------------|
 | `search.*` | `search.entities`, `search.customers` | Cross-entity fulltext/vector search |
 | `attachments.*` | `attachments.download`, `attachments.list` | Read attachment metadata and fetch blobs |
-| `meta.*` | `meta.describe_agent` | Self-description so the model can list its own capabilities |
+| `meta.*` | `meta.describe_agent`, `meta.update_task_plan` | Self-description and, when `taskPlan.enabled`, safe visible task-plan updates |
 | `customers.*` | `customers.get_person`, `customers.list_deals`, `customers.update_deal_stage` | CRM read + a single curated mutation |
 | `catalog.*` | `catalog.list_products`, `catalog.update_product`, `catalog.bulk_update_products`, `catalog.apply_attribute_extraction`, `catalog.update_product_media_descriptions` | Merchandising demo tools (read + four D18 writes) |
 
@@ -180,6 +182,21 @@ When `agent.readOnly === true` (the default), the runtime strips any tool with `
 ### Default policy for write-capable agents
 
 Agents shipped in `packages/core` that whitelist any `isMutation: true` tool default to **`mutationPolicy: 'confirm-required'`**, not `read-only`. The intent: writes are allowed but every one needs explicit user approval through the [mutation approval card](./mutation-approvals). Per-tenant overrides can downgrade to `read-only` to lock writes back down without a redeploy. They cannot escalate above what the agent declares.
+
+### Visible task plans
+
+For operator-facing chat agents, set `taskPlan: { enabled: true }` to expose the read-only `meta.update_task_plan` helper. The runtime injects prompt guidance telling the model to call it before domain tools on tool-using turns, and `<AiChat>` renders those agent-authored steps as the compact live plan above raw tool-call details.
+
+This is a code-level agent contract, not a tenant setting in **AI Agents**. CRM/customer agents ship with it enabled by default; other agents stay quiet unless their `AiAgentDefinition` or an `aiAgentExtensions` entry opts in.
+
+Keep labels short and user-facing:
+
+```ts
+taskPlan: { enabled: true },
+allowedTools: ['catalog.search_products', 'catalog.get_product']
+```
+
+Prompt guidance should say that task-plan labels are progress UI, not hidden reasoning. Do not put chain-of-thought, scratchpad notes, or XML thinking tags in the plan. When you know which tool a step maps to, include `toolName` so the runtime can update that planned row from `pending` to `running` and `done` as the tool lifecycle streams.
 
 ### Replacing or disabling a registered agent
 
@@ -213,6 +230,7 @@ Supported patch fields:
 | Field | Effect |
 |-------|--------|
 | `replaceAllowedTools` / `deleteAllowedTools` / `appendAllowedTools` | Replace, remove, or append tool names in the agent whitelist. |
+| `taskPlan` | Opt the agent into or out of the visible planning helper, for example `{ enabled: true }`. The registry adds/removes `meta.update_task_plan` automatically. |
 | `replaceSystemPrompt` / `appendSystemPrompt` | Replace the prompt or append an extra prompt paragraph. |
 | `replaceSuggestions` / `deleteSuggestions` / `appendSuggestions` | Replace, remove by label/prompt, or append starter prompts. |
 | `suggestions` | Backward-compatible alias for `appendSuggestions`. |
@@ -416,7 +434,7 @@ Pick Option B by default when you "just need one extra AI SDK option" — it kee
 
 ## Agentic loop controls
 
-The runtime always runs a tool-using loop (`streamText` with `stopWhen`). Spec [`2026-04-28-ai-agents-agentic-loop-controls`](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md) promotes that loop from "one step-count cap" to a first-class part of the agent contract — declarative `loop` block, per-call overrides, per-tenant operator budgets, runtime LoopTrace, and an opt-in `ToolLoopAgent` engine.
+The runtime always runs a tool-using loop (`streamText` with `stopWhen`). Spec [`2026-04-28-ai-agents-agentic-loop-controls`](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/implemented/2026-04-28-ai-agents-agentic-loop-controls.md) promotes that loop from "one step-count cap" to a first-class part of the agent contract — declarative `loop` block, per-call overrides, per-tenant operator budgets, runtime LoopTrace, and an opt-in `ToolLoopAgent` engine.
 
 ### Resolution chain — per loop axis
 

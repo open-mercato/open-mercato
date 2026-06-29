@@ -16,12 +16,13 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { CredentialFieldType, IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
-import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 
 type CredentialField = IntegrationCredentialField
 
@@ -37,6 +38,7 @@ type BundleIntegration = {
   description?: string
   category?: string
   isEnabled: boolean
+  state?: { updatedAt?: string | null }
 }
 
 type BundleDetail = {
@@ -55,6 +57,7 @@ type BundleDetail = {
   bundleIntegrations: BundleIntegration[]
   state: { isEnabled: boolean }
   hasCredentials: boolean
+  credentialsUpdatedAt?: string | null
 }
 
 type BundleConfigPageProps = {
@@ -83,9 +86,19 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
   const [detail, setDetail] = React.useState<BundleDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [credValues, setCredValues] = React.useState<Record<string, unknown>>({})
+  const [credentialsUpdatedAt, setCredentialsUpdatedAt] = React.useState<string | null>(null)
   const [isSavingCreds, setIsSavingCreds] = React.useState(false)
   const [togglingIds, setTogglingIds] = React.useState<Set<string>>(new Set())
+
+  const mutationContextId = React.useMemo(
+    () => `integrations.bundle:${bundleId ?? 'unknown'}`,
+    [bundleId],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: mutationContextId,
+  })
 
   const resolveCurrentBundleId = React.useCallback(() => {
     return bundleId ?? (
@@ -104,25 +117,41 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     }
     setIsLoading(true)
     setError(null)
+    setIsNotFound(false)
     const call = await apiCall<BundleDetail>(
       `/api/integrations/${encodeURIComponent(currentBundleId)}`,
       undefined,
       { fallback: null },
     )
     if (!call.ok || !call.result) {
-      setError(t('integrations.detail.loadError'))
+      if (call.status === 404) {
+        setIsNotFound(true)
+      } else {
+        setError(t('integrations.detail.loadError'))
+      }
       setIsLoading(false)
       return
     }
     setDetail(call.result)
 
-    const credCall = await apiCall<{ credentials: Record<string, unknown> }>(
+    const credCall = await apiCall<{ credentials: Record<string, unknown>; updatedAt?: string | null }>(
       `/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`,
       undefined,
       { fallback: null },
     )
+    if (credCall.ok && credCall.result) {
+      setCredentialsUpdatedAt(credCall.result.updatedAt ?? null)
+    }
     if (credCall.ok && credCall.result?.credentials) {
-      setCredValues(credCall.result.credentials)
+      const next = { ...credCall.result.credentials }
+      if (currentBundleId === 'storage_s3') {
+        const authMode = next.authMode
+        if (authMode !== 'access_keys' && authMode !== 'ambient') {
+          const hasKeys = Boolean(next.accessKeyId || next.secretAccessKey)
+          next.authMode = hasKeys ? 'access_keys' : 'ambient'
+        }
+      }
+      setCredValues(next)
     }
     setIsLoading(false)
   }, [resolveCurrentBundleId, t])
@@ -133,52 +162,114 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     const currentBundleId = resolveCurrentBundleId()
     if (!currentBundleId) return
     setIsSavingCreds(true)
-    const call = await apiCall(`/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ credentials: credValues }),
-    }, { fallback: null })
-    if (call.ok) {
-      flash(t('integrations.detail.credentials.saved'), 'success')
-    } else {
-      flash(t('integrations.detail.credentials.saveError'), 'error')
-    }
-    setIsSavingCreds(false)
-  }, [resolveCurrentBundleId, credValues, t])
-
-  const handleToggle = React.useCallback(async (integrationId: string, enabled: boolean) => {
-    setTogglingIds((prev) => new Set(prev).add(integrationId))
-    const call = await apiCall(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isEnabled: enabled }),
-    }, { fallback: null })
-    if (call.ok) {
-      setDetail((prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          bundleIntegrations: prev.bundleIntegrations.map((item) =>
-            item.id === integrationId ? { ...item, isEnabled: enabled } : item,
-          ),
-        }
+    try {
+      const call = await runMutation({
+        mutationPayload: { bundleId: currentBundleId, credentials: credValues },
+        context: {
+          formId: mutationContextId,
+          operation: 'update',
+          actionId: 'save-credentials',
+          resourceKind: 'integrations.bundle',
+          resourceId: currentBundleId,
+          bundleId: currentBundleId,
+          retryLastMutation,
+        },
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(credentialsUpdatedAt),
+          () => apiCall(`/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credentials: credValues }),
+          }, { fallback: null }),
+        ),
       })
-    } else {
-      flash(t('integrations.detail.stateError'), 'error')
+      if (call.ok) {
+        flash(t('integrations.detail.credentials.saved'), 'success')
+        await load()
+      } else {
+        flash(t('integrations.detail.credentials.saveError'), 'error')
+      }
+    } catch {
+      flash(t('integrations.detail.credentials.saveError'), 'error')
+    } finally {
+      setIsSavingCreds(false)
     }
-    setTogglingIds((prev) => { const next = new Set(prev); next.delete(integrationId); return next })
-  }, [t])
+  }, [resolveCurrentBundleId, runMutation, mutationContextId, retryLastMutation, credValues, credentialsUpdatedAt, load, t])
+
+  const handleToggle = React.useCallback(async (integrationId: string, enabled: boolean, updatedAt?: string | null) => {
+    setTogglingIds((prev) => new Set(prev).add(integrationId))
+    try {
+      const call = await runMutation({
+        mutationPayload: { integrationId, isEnabled: enabled },
+        context: {
+          formId: mutationContextId,
+          operation: 'update',
+          actionId: 'toggle-state',
+          resourceKind: 'integrations.integration',
+          resourceId: integrationId,
+          integrationId,
+          retryLastMutation,
+        },
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt),
+          () => apiCall<{ updatedAt?: string | null }>(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isEnabled: enabled }),
+          }, { fallback: null }),
+        ),
+      })
+      if (call.ok) {
+        const nextUpdatedAt = call.result?.updatedAt ?? null
+        setDetail((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            bundleIntegrations: prev.bundleIntegrations.map((item) =>
+              item.id === integrationId
+                ? { ...item, isEnabled: enabled, state: { updatedAt: nextUpdatedAt ?? item.state?.updatedAt ?? null } }
+                : item,
+            ),
+          }
+        })
+      } else {
+        flash(t('integrations.detail.stateError'), 'error')
+      }
+    } catch {
+      flash(t('integrations.detail.stateError'), 'error')
+    } finally {
+      setTogglingIds((prev) => { const next = new Set(prev); next.delete(integrationId); return next })
+    }
+  }, [runMutation, mutationContextId, retryLastMutation, t])
 
   const handleBulkToggle = React.useCallback(async (enabled: boolean) => {
     if (!detail) return
     const targets = detail.bundleIntegrations.filter((item) => item.isEnabled !== enabled)
-    await Promise.all(targets.map((item) => handleToggle(item.id, enabled)))
+    await Promise.all(targets.map((item) => handleToggle(item.id, enabled, item.state?.updatedAt)))
   }, [detail, handleToggle])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.bundle.title')} /></PageBody></Page>
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('integrations.detail.notFound', 'Integration not found.')}
+            backHref="/backend/integrations"
+            backLabel={t('integrations.detail.backToList', 'Back to integrations')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
   if (error || !detail?.bundle) return <Page><PageBody><ErrorMessage label={error ?? t('integrations.detail.loadError')} /></PageBody></Page>
 
   const credFields = (detail.bundle.credentials?.fields ?? []).filter(isEditableCredentialField)
+
+  function isFieldVisible(field: CredentialField): boolean {
+    if (!field.visibleWhen) return true
+    return credValues[field.visibleWhen.field] === field.visibleWhen.equals
+  }
 
   return (
     <Page>
@@ -202,7 +293,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
               <CardTitle>{t('integrations.bundle.sharedCredentials')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {credFields.map((field) => (
+              {credFields.filter(isFieldVisible).map((field) => (
                 <div key={field.key} className="space-y-1.5">
                   <label className="text-sm font-medium">
                     {field.label}{field.required && <span className="text-red-500 ml-0.5">*</span>}
@@ -285,7 +376,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
                     <Switch
                       checked={item.isEnabled}
                       disabled={togglingIds.has(item.id)}
-                      onCheckedChange={(checked) => void handleToggle(item.id, checked)}
+                      onCheckedChange={(checked) => void handleToggle(item.id, checked, item.state?.updatedAt)}
                     />
                   </div>
                 </div>

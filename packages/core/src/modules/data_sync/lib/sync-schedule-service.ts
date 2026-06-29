@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import type { AwilixContainer } from 'awilix'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { enforceCommandOptimisticLockWithGuards, enforceRecordGoneIsConflict } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { SyncSchedule } from '../data/entities'
 
 type SyncScope = {
@@ -129,10 +131,30 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
       timezone: string
       fullSync: boolean
       isEnabled: boolean
-    }, scope: SyncScope): Promise<SyncSchedule> {
+      expectedUpdatedAt?: string | null
+    }, scope: SyncScope, container?: AwilixContainer): Promise<SyncSchedule> {
       const existing = input.id
         ? await getById(input.id, scope)
         : await getByKey(input.integrationId, input.entityType, input.direction, scope)
+
+      if (existing && container) {
+        await enforceCommandOptimisticLockWithGuards(container, {
+          resourceKind: 'data_sync.schedule',
+          resourceId: existing.id,
+          current: existing.updatedAt ?? null,
+          expected: input.expectedUpdatedAt ?? null,
+        })
+      } else if (!existing && input.expectedUpdatedAt) {
+        // Concurrent delete-then-edit race: the client edited a schedule that was
+        // removed before this keyed upsert ran. Surface the unified conflict
+        // instead of silently re-creating it. No-op when no expected version was
+        // sent (a genuine create) or when OM_OPTIMISTIC_LOCK is off.
+        enforceRecordGoneIsConflict({
+          resourceKind: 'data_sync.schedule',
+          resourceId: input.id ?? `${input.integrationId}:${input.entityType}:${input.direction}`,
+          expected: input.expectedUpdatedAt,
+        })
+      }
 
       const row = existing ?? em.create(SyncSchedule, {
         id: randomUUID(),
@@ -189,9 +211,23 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
       return row
     },
 
-    async deleteSchedule(id: string, scope: SyncScope): Promise<boolean> {
+    async deleteSchedule(
+      id: string,
+      scope: SyncScope,
+      container?: AwilixContainer,
+      expectedUpdatedAt?: string | null,
+    ): Promise<boolean> {
       const row = await getById(id, scope)
       if (!row) return false
+
+      if (container) {
+        await enforceCommandOptimisticLockWithGuards(container, {
+          resourceKind: 'data_sync.schedule',
+          resourceId: row.id,
+          current: row.updatedAt ?? null,
+          expected: expectedUpdatedAt ?? null,
+        })
+      }
 
       const scheduledJobId = row.scheduledJobId ?? row.id
       await requireScheduler().unregister(scheduledJobId)

@@ -7,7 +7,8 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
@@ -20,6 +21,8 @@ import {
   NotesSection,
   type CommentSummary,
   type SectionAction,
+  RecordNotFoundState,
+  ErrorMessage,
 } from '@open-mercato/ui/backend/detail'
 import {
   TagsSection,
@@ -66,6 +69,7 @@ type PersonOverview = {
     nextInteractionIcon?: string | null
     nextInteractionColor?: string | null
     organizationId?: string | null
+    updatedAt?: string | null
   }
   profile: {
     id: string
@@ -116,6 +120,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   const [data, setData] = React.useState<PersonOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<SectionKey>(initialTab)
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
@@ -276,7 +281,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   const initialLoadDoneRef = React.useRef(false)
   const loadData = React.useCallback(async () => {
     if (!id) {
-      setError(t('customers.people.detail.error.notFound'))
+      setIsNotFound(true)
       setIsLoading(false)
       return
     }
@@ -284,6 +289,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       setIsLoading(true)
     }
     setError(null)
+    setIsNotFound(false)
     try {
       const payload = await readApiResultOrThrow<PersonOverview>(
         `/api/customers/people/${encodeURIComponent(id)}?include=todos`,
@@ -292,8 +298,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       )
       setData(payload as PersonOverview)
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('customers.people.detail.error.load')
-      setError(message)
+      if ((err as { status?: number }).status === 404) {
+        setIsNotFound(true)
+      } else {
+        const message = err instanceof Error ? err.message : t('customers.people.detail.error.load')
+        setError(message)
+      }
       if (!initialLoadDoneRef.current) setData(null)
     } finally {
       setIsLoading(false)
@@ -309,19 +319,31 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     async (patch: Record<string, unknown>, apply: (prev: PersonOverview) => PersonOverview) => {
       if (!data) return
       const payload = { id: data.person.id, ...patch }
-      await runMutationWithContext(
-        () => apiCallOrThrow(
-          '/api/customers/people',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          },
-          { errorMessage: t('customers.people.detail.inline.error') },
+      const result = await runMutationWithContext(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader((data?.person as { updatedAt?: string } | undefined)?.updatedAt),
+          () => apiCallOrThrow<{ ok?: boolean; updatedAt?: string | null }>(
+            '/api/customers/people',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: t('customers.people.detail.inline.error') },
+          ),
         ),
         payload,
       )
-      setData((prev) => (prev ? apply(prev) : prev))
+      // Refresh the optimistic-lock token so the next sequential inline edit does not
+      // send a stale updatedAt and falsely 409 (#2055, default-ON locking).
+      const nextUpdatedAt = result?.result?.updatedAt ?? null
+      setData((prev) => {
+        if (!prev) return prev
+        const applied = apply(prev)
+        return nextUpdatedAt
+          ? { ...applied, person: { ...applied.person, updatedAt: nextUpdatedAt } }
+          : applied
+      })
     },
     [data, runMutationWithContext, t]
   )
@@ -374,13 +396,16 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     setIsDeleting(true)
     try {
       await runMutationWithContext(
-        () => apiCallOrThrow(
-          `/api/customers/people?id=${encodeURIComponent(personId)}`,
-          {
-            method: 'DELETE',
-            headers: { 'content-type': 'application/json' },
-          },
-          { errorMessage: t('customers.people.list.deleteError') },
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader((data?.person as { updatedAt?: string } | undefined)?.updatedAt),
+          () => apiCallOrThrow(
+            `/api/customers/people?id=${encodeURIComponent(personId)}`,
+            {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+            },
+            { errorMessage: t('customers.people.list.deleteError') },
+          ),
         ),
         { id: personId },
       )
@@ -420,14 +445,17 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           customFields: customPayload,
         }
         await runMutationWithContext(
-          () => apiCallOrThrow(
-            '/api/customers/people',
-            {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload),
-            },
-            { errorMessage: t('customers.people.detail.inline.error') },
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader((data?.person as { updatedAt?: string } | undefined)?.updatedAt),
+            () => apiCallOrThrow(
+              '/api/customers/people',
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage: t('customers.people.detail.inline.error') },
+            ),
           ),
           payload,
         )
@@ -469,18 +497,34 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       )
     }
   
+    if (isNotFound) {
+      return (
+        <Page>
+          <PageBody>
+            <RecordNotFoundState
+              label={t('customers.people.detail.error.notFound', 'Person not found.')}
+              backHref="/backend/customers/people"
+              backLabel={t('customers.people.detail.actions.backToList', 'Back to people')}
+            />
+          </PageBody>
+        </Page>
+      )
+    }
+
     if (error || !data || !personId) {
       return (
         <Page>
           <PageBody>
-            <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-              <p>{error || t('customers.people.detail.error.notFound')}</p>
-              <Button asChild variant="outline">
-                <Link href="/backend/customers/people">
-                  {t('customers.people.detail.actions.backToList')}
-                </Link>
-              </Button>
-            </div>
+            <ErrorMessage
+              label={error ?? t('customers.people.detail.error.notFound', 'Person not found.')}
+              action={
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/backend/customers/people">
+                    {t('customers.people.detail.actions.backToList', 'Back to people')}
+                  </Link>
+                </Button>
+              }
+            />
           </PageBody>
         </Page>
       )

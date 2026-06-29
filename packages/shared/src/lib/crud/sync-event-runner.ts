@@ -1,22 +1,13 @@
 import type { SyncCrudEventPayload } from './sync-event-types'
 import type { SyncSubscriberEntry } from './sync-subscriber-store'
+import { matchWildcardPattern } from '@open-mercato/shared/lib/patterns/wildcard'
 
 // ---------------------------------------------------------------------------
 // Event pattern matching
 // ---------------------------------------------------------------------------
 
-function escapeRegex(input: string): string {
-  // Escape all characters with special meaning in regular expressions
-  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 export function matchesEventPattern(pattern: string, eventId: string): boolean {
-  if (pattern === eventId) return true
-  if (pattern === '*') return true
-  // Escape the pattern for literal use in a RegExp, then turn "\*" into ".*" for wildcard support
-  const escaped = escapeRegex(pattern).replace(/\\\*/g, '.*')
-  const regex = new RegExp('^' + escaped + '$')
-  return regex.test(eventId)
+  return matchWildcardPattern(eventId, pattern)
 }
 
 // ---------------------------------------------------------------------------

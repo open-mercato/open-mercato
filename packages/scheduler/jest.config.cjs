@@ -1,5 +1,8 @@
 /** @type {import('jest').Config} */
+const base = require('../../jest.config.base.cjs')
+
 module.exports = {
+  ...base,
   testEnvironment: 'node',
   watchman: false,
   roots: ['<rootDir>/src'],
@@ -19,6 +22,8 @@ module.exports = {
       '<rootDir>/../../scripts/jest-mikroorm-transformer.cjs',
       {
         tsconfig: {
+          rootDir: '.',
+          ignoreDeprecations: '6.0',
           esModuleInterop: true,
           allowJs: true,
         },
@@ -26,6 +31,6 @@ module.exports = {
     ],
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(@mikro-orm)/)',
+    'node_modules/(?!(@mikro-orm|kysely)/)',
   ],
 }

@@ -2,6 +2,8 @@
 
 > Detailed API proposals (props, variants, examples) for Alert, StatusBadge, SectionHeader, FormField, Card, DataTable, EmptyState, FlashMessages, Badge, and Dialog.
 
+> **v5 status update (2026-05-18)** — Phase 5 of the DS Foundation programme shipped 20 primitives (12 new + 8 rewrites). The proposals below — from the original v0 hackathon — are early API sketches. For the canonical live primitive APIs (current props, variants, sizes, tones, MUST rules) see [`.ai/ui-components.md`](../../.ai/ui-components.md) and the per-primitive AGENTS row in [`packages/ui/AGENTS.md`](../../packages/ui/AGENTS.md). The v5 spec at `.ai/specs/2026-05-13-ds-foundation-v5.md` documents every primitive's final API + tests + Figma source nodes.
+
 ---
 
 ## G.1 FormField

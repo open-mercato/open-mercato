@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerRole, CustomerRoleAcl } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { createRoleSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
@@ -37,7 +38,7 @@ export async function GET(req: Request) {
   }
 
   if (search) {
-    const escapedSearch = search.replace(/[%_\\]/g, '\\$&')
+    const escapedSearch = escapeLikePattern(search)
     where.$or = [
       { name: { $ilike: `%${escapedSearch}%` } },
       { slug: { $ilike: `%${escapedSearch}%` } },
@@ -62,6 +63,7 @@ export async function GET(req: Request) {
     isSystem: role.isSystem,
     customerAssignable: role.customerAssignable,
     createdAt: role.createdAt,
+    updatedAt: role.updatedAt || null,
   }))
 
   return NextResponse.json({ ok: true, items, total, totalPages, page })
@@ -159,6 +161,7 @@ const roleSchema = z.object({
   isSystem: z.boolean(),
   customerAssignable: z.boolean(),
   createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime().nullable(),
 })
 
 const roleResponseSchema = z.object({

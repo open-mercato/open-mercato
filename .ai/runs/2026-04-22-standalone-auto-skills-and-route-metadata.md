@@ -18,7 +18,7 @@ Two additional items landed mid-flight:
 
 - Stop re-shipping broken `route.ts` templates in create-mercato-app.
 - Make the standalone template enforce the "metadata is required on route files" rule in AGENTS.md, with a clear example.
-- Make the four `auto-*` skills (`auto-create-pr`, `auto-continue-pr`, `auto-review-pr`, `auto-fix-github`) ship with create-mercato-app and work inside an end-user standalone repo (default branch probe, optional labels, probe-before-run validation gate, standalone file layout).
+- Make the four `auto-*` skills (`om-auto-create-pr`, `om-auto-continue-pr`, `om-auto-review-pr`, `om-auto-fix-github`) ship with create-mercato-app and work inside an end-user standalone repo (default branch probe, optional labels, probe-before-run validation gate, standalone file layout).
 - Surface the auto-* skills to users at project creation time (post-install message + template README + AGENTS.md Task Router).
 - Fix `yarn dev` so new modules are reliably applied.
 - Add an opt-out env-controlled auto-migrate step to `yarn dev` with actionable conflict messaging.
@@ -72,10 +72,10 @@ Copy the four skills from `.ai/skills/` into `packages/create-app/agentic/shared
 
 Emit a short, discoverable "AI coding workflow" panel after `create-mercato-app` finishes scaffolding. Bullet list:
 
-- `/auto-create-pr <task>` — delegate an autonomous task as a PR.
-- `/auto-continue-pr <PR#>` — resume an in-progress agent PR.
-- `/auto-review-pr <PR#>` — review a PR end-to-end.
-- `/auto-fix-github <issue#>` — fix an issue and open a PR.
+- `/om-auto-create-pr <task>` — delegate an autonomous task as a PR.
+- `/om-auto-continue-pr <PR#>` — resume an in-progress agent PR.
+- `/om-auto-review-pr <PR#>` — review a PR end-to-end.
+- `/om-auto-fix-github <issue#>` — fix an issue and open a PR.
 
 Mirror the same block in the standalone template AGENTS.md / top-level README if present.
 
@@ -128,11 +128,11 @@ Title: `fix(create-app): route metadata + standalone auto-skills + dev DX`.
 
 Labels: `review`, `needs-qa`, `documentation`, `feature` (via `gh pr edit`).
 
-Post a comment per label per PR workflow. Then run the `auto-review-pr` skill against the resulting PR in autofix mode.
+Post a comment per label per PR workflow. Then run the `om-auto-review-pr` skill against the resulting PR in autofix mode.
 
 ## Risks
 
-- Scope is wider than a typical single run — explicit Progress entries per phase so `auto-continue-pr` can resume without replaying work.
+- Scope is wider than a typical single run — explicit Progress entries per phase so `om-auto-continue-pr` can resume without replaying work.
 - Shipping skills into create-mercato-app means future edits to the monorepo copy need to be mirrored; add a lint/sync note.
 - Auto-migrate touches dev flow — default ON could surprise users; mitigated by env opt-out and clear warning text.
 - Dev watcher changes must not break existing tests (`scripts/__tests__/dev-orchestration-log-policy.test.mjs`).

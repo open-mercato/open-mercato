@@ -29,7 +29,7 @@ const TEMPLATE_SRC_ROOT = path.join(ROOT, 'packages', 'create-app', 'template', 
 const APP_PACKAGE_FILE = path.join(ROOT, 'apps', 'mercato', 'package.json')
 const TEMPLATE_PACKAGE_FILE = path.join(ROOT, 'packages', 'create-app', 'template', 'package.json.template')
 const SYNC_FOLDERS = ['app', 'components', 'lib', 'modules'] as const
-const SYNC_ROOT_FILES = ['bootstrap.ts', 'modules.ts'] as const
+const SYNC_ROOT_FILES = ['bootstrap.ts', 'modules.ts', 'official-modules.generated.ts'] as const
 const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
   {
     sourceFile: path.join(ROOT, 'scripts', 'dev.mjs'),
@@ -45,6 +45,21 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash-helpers.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-helpers.mjs'),
     rel: 'scripts/dev-splash-helpers.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-cache-purge.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-cache-purge.mjs'),
+    rel: 'scripts/dev-cache-purge.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-inotify-limits.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-inotify-limits.mjs'),
+    rel: 'scripts/dev-inotify-limits.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'fix-wsl-inotify.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'fix-wsl-inotify.mjs'),
+    rel: 'scripts/fix-wsl-inotify.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash-state.mjs'),
@@ -72,9 +87,19 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-orchestration-log-policy.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-shutdown-utils.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-shutdown-utils.mjs'),
+    rel: 'scripts/dev-shutdown-utils.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-database-url.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-database-url.mjs'),
     rel: 'scripts/dev-database-url.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'watch-scope.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'watch-scope.mjs'),
+    rel: 'scripts/watch-scope.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev.mjs'),
@@ -86,8 +111,15 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-log-policy.mjs'),
     rel: 'scripts/dev-runtime-log-policy.mjs',
   },
+  {
+    sourceFile: path.join(ROOT, 'docker', 'redis', 'redis.conf'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'docker', 'redis', 'redis.conf'),
+    rel: 'docker/redis/redis.conf',
+  },
 ] as const
 const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
+  'app/api/healthz/__tests__/route.test.ts',
+  'app/api/healthz/route.ts',
   'modules/auth/__integration__/TC-AUTH-001.spec.ts',
   'modules/auth/__integration__/helpers/auth.ts',
 ])
@@ -106,6 +138,11 @@ const SYNC_INTERNAL_PACKAGE_KEYS = [
 const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> = {
   // Standalone template has shallower node_modules path than monorepo app.
   'app/globals.css': (content) => content.replaceAll('../../../../node_modules/', '../../node_modules/'),
+  'scripts/dev-cache-purge.mjs': (content) =>
+    content
+      .replaceAll("['apps', 'mercato', '.mercato', 'next'", "['.mercato', 'next'")
+      .replaceAll("['apps', 'mercato', '.next']", "['.next']")
+      .replace('`.mercato/next/dev/cache/turbopack`. See issue\n// #1950.', '`.mercato/next/dev/cache/turbopack`.')
 }
 const MAX_DIFFS_TO_SHOW = 20
 
@@ -138,6 +175,10 @@ function relFromRoot(absPath: string): string {
   return path.relative(ROOT, absPath).split(path.sep).join('/')
 }
 
+function relFromBase(baseDir: string, absPath: string): string {
+  return path.relative(baseDir, absPath).split(path.sep).join('/')
+}
+
 function collectSourceFiles(): string[] {
   const folderFiles = SYNC_FOLDERS.flatMap((folder) =>
     globSync(`${folder}/**/*`, {
@@ -150,7 +191,7 @@ function collectSourceFiles(): string[] {
   const rootFiles = SYNC_ROOT_FILES
     .map((rel) => path.join(APP_SRC_ROOT, rel))
     .filter((abs) => fs.existsSync(abs))
-  return [...folderFiles, ...rootFiles].sort()
+  return [...folderFiles, ...rootFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 function collectTemplateFiles(): string[] {
@@ -165,7 +206,7 @@ function collectTemplateFiles(): string[] {
   const rootFiles = SYNC_ROOT_FILES
     .map((rel) => path.join(TEMPLATE_SRC_ROOT, rel))
     .filter((abs) => fs.existsSync(abs))
-  return [...folderFiles, ...rootFiles].sort()
+  return [...folderFiles, ...rootFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 function getExpectedTemplateContent(rel: string, source: Buffer): Buffer {
@@ -179,10 +220,10 @@ function computeDrift(): Drift[] {
   const sourceFiles = collectSourceFiles()
   const templateFiles = collectTemplateFiles()
   const drifts: Drift[] = []
-  const sourceRelSet = new Set(sourceFiles.map((file) => path.relative(APP_SRC_ROOT, file)))
+  const sourceRelSet = new Set(sourceFiles.map((file) => relFromBase(APP_SRC_ROOT, file)))
 
   for (const sourceFile of sourceFiles) {
-    const rel = path.relative(APP_SRC_ROOT, sourceFile)
+    const rel = relFromBase(APP_SRC_ROOT, sourceFile)
     const templateFile = path.join(TEMPLATE_SRC_ROOT, rel)
     if (!fs.existsSync(templateFile)) {
       drifts.push({
@@ -208,7 +249,7 @@ function computeDrift(): Drift[] {
   }
 
   for (const templateFile of templateFiles) {
-    const rel = path.relative(TEMPLATE_SRC_ROOT, templateFile)
+    const rel = relFromBase(TEMPLATE_SRC_ROOT, templateFile)
     if (TEMPLATE_ONLY_RELATIVE_FILES.has(rel)) continue
     if (sourceRelSet.has(rel)) continue
     drifts.push({
@@ -349,12 +390,12 @@ function printPackageDrift(drifts: PackageDrift[]): void {
 function applyFullSync(): number {
   const sourceFiles = collectSourceFiles()
   const templateFiles = collectTemplateFiles()
-  const sourceRelSet = new Set(sourceFiles.map((file) => path.relative(APP_SRC_ROOT, file)))
+  const sourceRelSet = new Set(sourceFiles.map((file) => relFromBase(APP_SRC_ROOT, file)))
   let updated = 0
 
   // Always rewrite template targets from source of truth.
   for (const sourceFile of sourceFiles) {
-    const rel = path.relative(APP_SRC_ROOT, sourceFile)
+    const rel = relFromBase(APP_SRC_ROOT, sourceFile)
     const templateFile = path.join(TEMPLATE_SRC_ROOT, rel)
     const source = fs.readFileSync(sourceFile)
     const expectedTemplate = getExpectedTemplateContent(rel, source)
@@ -367,7 +408,7 @@ function applyFullSync(): number {
 
   // Remove template files that are not in source (except explicit template-only files).
   for (const templateFile of templateFiles) {
-    const rel = path.relative(TEMPLATE_SRC_ROOT, templateFile)
+    const rel = relFromBase(TEMPLATE_SRC_ROOT, templateFile)
     if (TEMPLATE_ONLY_RELATIVE_FILES.has(rel)) continue
     if (sourceRelSet.has(rel)) continue
     fs.rmSync(templateFile, { force: true })

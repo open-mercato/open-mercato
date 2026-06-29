@@ -177,6 +177,81 @@ export const requireAuth = true
 export const requireRoles = ['admin']
 ```
 
+### Overriding Routes from Downstream Apps
+
+Downstream apps can replace or disable API routes and page routes registered by an upstream module without forking the source. The override surface is the unified `entry.overrides` field on a `ModuleEntry` in `apps/<app>/src/modules.ts`; see [Module overrides](./overrides) for the full domain list.
+
+Two paths are wired.
+
+**Path A — `modules.ts` inline (per-app static decisions).** Declare API overrides under `overrides.routes.api`, keyed by `'METHOD /api/path'`. Declare page overrides under `overrides.routes.pages`, keyed by `'/backend/path'` or `'/frontend/path'`. A `null` value disables the matching route; an object replaces it.
+
+```ts
+// apps/<app>/src/modules.ts
+import { NextResponse } from 'next/server'
+
+export const enabledModules: ModuleEntry[] = [
+  { id: 'example', from: '@app',
+    overrides: {
+      routes: {
+        api: {
+          // Disable an upstream module's `DELETE /api/example/items` endpoint.
+          'DELETE /api/example/items': null,
+          // Replace the handler for `POST /api/example/items` and tighten auth.
+          'POST /api/example/items': {
+            handler: async (req) => NextResponse.json({ ok: true }),
+            metadata: { requireAuth: true, requireFeatures: ['example.manage'] },
+          },
+        },
+        pages: {
+          // Disable an upstream backend page.
+          '/backend/example/reports': null,
+          // Replace page metadata while keeping the original component.
+          '/frontend/example': {
+            metadata: { title: 'Example storefront', navHidden: true },
+          },
+        },
+      },
+    },
+  },
+]
+```
+
+The app's `bootstrap.ts` calls `applyModuleOverridesFromEnabledModules(enabledModules)` from `@open-mercato/shared/modules/overrides` before the catch-all API route loads the manifest. Both `apps/mercato` and the `create-mercato-app` template ship that wiring out of the box.
+
+**Path B — programmatic API (boot-time / env-driven / test scaffolds).** Use `applyApiRouteOverrides` or `applyPageRouteOverrides` from the same package. Programmatic overrides supersede `modules.ts` overrides for the same key.
+
+```ts
+import {
+  applyApiRouteOverrides,
+  applyPageRouteOverrides,
+} from '@open-mercato/shared/modules/overrides'
+
+applyApiRouteOverrides({
+  'GET /api/example/items': null, // disable
+})
+applyPageRouteOverrides({
+  '/backend/example/reports': null, // disable
+})
+```
+
+MUST rules:
+
+- MUST key overrides as `'METHOD /api/path'`. The method is normalized to uppercase; the path may omit the leading slash. Trailing slashes are stripped.
+- MUST key page overrides as `'/backend/path'` or `'/frontend/path'`. Frontend route keys map to the public frontend route path; backend route keys map to `/backend/...`.
+- MUST keep replacement handlers same-signature as the original route (`(req, ctx?) => Promise<Response> | Response`).
+- MUST call the dispatcher BEFORE route manifest registration runs — the override map is consulted once at manifest registration time. Apps that follow the standard `bootstrap.ts` order already do this.
+- MUST NOT use overrides to patch your own module's route — author it directly in `<module>/api/...`, `<module>/backend/...`, or `<module>/frontend/...` instead. The convention is for **cross-module** replacement.
+- Disabling every method on a route drops the entry entirely (404 from the catch-all).
+- Override keys that do not match any registered route log a single warning so an operator notices a stale override.
+
+Resolution order (highest precedence first):
+
+1. Programmatic `applyApiRouteOverrides({...})`.
+2. `modules.ts` inline (`entry.overrides.routes.*`; last entry per key wins).
+3. The module's own route file (base).
+
+`null` disables at every tier; a higher tier can resurrect a disabled route by mapping it back to a definition.
+
 ## Authentication & Authorization
 
 ### How It Works

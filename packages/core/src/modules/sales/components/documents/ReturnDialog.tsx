@@ -8,10 +8,13 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { computeAvailableReturnQuantity } from '@open-mercato/core/modules/sales/lib/returnQuantity'
+import { handleSectionMutationError } from './optimisticLock'
 
 export type ReturnOrderLine = {
   id: string
@@ -19,6 +22,7 @@ export type ReturnOrderLine = {
   lineNumber: number | null
   quantity: number
   returnedQuantity: number
+  shippedQuantity?: number
   thumbnail?: string | null
 }
 
@@ -26,6 +30,7 @@ type ReturnDialogProps = {
   open: boolean
   orderId: string
   lines: ReturnOrderLine[]
+  documentUpdatedAt?: string | null
   onClose: () => void
   onSaved: () => Promise<void>
 }
@@ -39,7 +44,7 @@ const normalizeNumber = (value: unknown): number => {
   return 0
 }
 
-export function ReturnDialog({ open, orderId, lines, onClose, onSaved }: ReturnDialogProps) {
+export function ReturnDialog({ open, orderId, lines, documentUpdatedAt, onClose, onSaved }: ReturnDialogProps) {
   const t = useT()
   const { runMutation } = useGuardedMutation({ contextId: `sales-returns-${orderId}` })
   const [reason, setReason] = React.useState('')
@@ -104,19 +109,23 @@ export function ReturnDialog({ open, orderId, lines, onClose, onSaved }: ReturnD
         context: { kind: 'order', record: { id: orderId } },
         mutationPayload: { orderId, lines: linesForRequest, reason, notes },
         operation: async () => {
-          const response = await apiCallOrThrow<{ id: string | null }>(
-            '/api/sales/returns',
-            {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({
-                orderId,
-                lines: linesForRequest,
-                ...(reason.trim().length ? { reason: reason.trim() } : {}),
-                ...(notes.trim().length ? { notes: notes.trim() } : {}),
-              }),
-            },
-            { errorMessage: t('sales.returns.errors.create', 'Failed to create return.') },
+          const response = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(documentUpdatedAt),
+            () =>
+              apiCallOrThrow<{ id: string | null }>(
+                '/api/sales/returns',
+                {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({
+                    orderId,
+                    lines: linesForRequest,
+                    ...(reason.trim().length ? { reason: reason.trim() } : {}),
+                    ...(notes.trim().length ? { notes: notes.trim() } : {}),
+                  }),
+                },
+                { errorMessage: t('sales.returns.errors.create', 'Failed to create return.') },
+              ),
           )
           return response.result?.id ?? null
         },
@@ -124,12 +133,18 @@ export function ReturnDialog({ open, orderId, lines, onClose, onSaved }: ReturnD
       flash(t('sales.returns.created', 'Return created.'), 'success')
       onClose()
       await onSaved()
-    } catch {
-      flash(t('sales.returns.errors.create', 'Failed to create return.'), 'error')
+    } catch (err) {
+      if (handleSectionMutationError(err, t, () => void onSaved())) {
+        onClose()
+        return
+      }
+      const normalized = normalizeCrudServerError(err)
+      const fallback = t('sales.returns.errors.create', 'Failed to create return.')
+      flash(normalized.message || fallback, 'error')
     } finally {
       setSaving(false)
     }
-  }, [availableLines, notes, onClose, onSaved, orderId, quantities, reason, runMutation, saving, t])
+  }, [availableLines, documentUpdatedAt, notes, onClose, onSaved, orderId, quantities, reason, runMutation, saving, t])
 
   const onKeyDown = React.useCallback(
     (e: React.KeyboardEvent) => {

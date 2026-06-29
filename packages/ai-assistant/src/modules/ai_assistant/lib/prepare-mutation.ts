@@ -5,6 +5,7 @@ import type { AiAgentDefinition, AiAgentMutationPolicy } from './ai-agent-defini
 import type { AiChatRequestContext, AiUiPart } from './attachment-bridge-types'
 import type {
   AiToolDefinition,
+  AiToolFieldDiffDisplayHints,
   AiToolLoadBeforeRecord,
   AiToolLoadBeforeSingleRecord,
   McpToolContext,
@@ -163,6 +164,7 @@ export function computeMutationIdempotencyKey(input: {
 function computeFieldDiff(
   before: Record<string, unknown>,
   after: Record<string, unknown>,
+  display?: AiToolFieldDiffDisplayHints,
 ): AiPendingActionFieldDiff[] {
   const diff: AiPendingActionFieldDiff[] = []
   const keys = new Set<string>([
@@ -173,7 +175,17 @@ function computeFieldDiff(
     const beforeValue = before ? before[field] : undefined
     const afterValue = after ? after[field] : undefined
     if (!Object.is(beforeValue, afterValue) && safeStringify(beforeValue) !== safeStringify(afterValue)) {
-      diff.push({ field, before: beforeValue, after: afterValue })
+      const fieldLabel = display?.fieldLabels?.[field]
+      const beforeDisplay = display?.before?.[field]
+      const afterDisplay = display?.after?.[field]
+      diff.push({
+        field,
+        ...(fieldLabel !== undefined ? { fieldLabel } : {}),
+        before: beforeValue,
+        after: afterValue,
+        ...(beforeDisplay !== undefined ? { beforeDisplay } : {}),
+        ...(afterDisplay !== undefined ? { afterDisplay } : {}),
+      })
     }
   }
   return diff
@@ -276,8 +288,8 @@ async function buildSingleRecordDiff(
       sideEffectsSummary: null,
     }
   }
-  const patch = extractPatchFromArgs(input.toolCallArgs)
-  const fieldDiff = computeFieldDiff(before.before, patch)
+  const patch = before.after ?? extractPatchFromArgs(input.toolCallArgs)
+  const fieldDiff = computeFieldDiff(before.before, patch, before.display)
   return {
     fieldDiff,
     targetEntityType: before.entityType,
@@ -320,12 +332,12 @@ async function buildBatchRecords(
     }
   }
   const diffs: AiPendingActionRecordDiff[] = rows.map((row) => {
-    const patch = matchBatchPatch(input.toolCallArgs, row.recordId)
+    const patch = row.after ?? matchBatchPatch(input.toolCallArgs, row.recordId)
     return {
       recordId: row.recordId,
       entityType: row.entityType,
       label: row.label,
-      fieldDiff: computeFieldDiff(row.before, patch),
+      fieldDiff: computeFieldDiff(row.before, patch, row.display),
       recordVersion: row.recordVersion ?? null,
     }
   })

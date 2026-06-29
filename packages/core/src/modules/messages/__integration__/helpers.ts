@@ -1,5 +1,7 @@
 import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
+import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash';
 
 export type IntegrationRole = 'admin' | 'employee' | 'superadmin';
 
@@ -8,6 +10,7 @@ export type ComposeMessagePayload = {
   subject: string;
   body: string;
   sendViaEmail?: boolean;
+  isDraft?: boolean;
   actionData?: {
     actions: Array<{
       id: string;
@@ -107,6 +110,23 @@ export async function composeInternalMessage(
   };
 }
 
+export async function replyToMessageWithToken(
+  request: APIRequestContext,
+  token: string,
+  parentMessageId: string,
+  body: string,
+): Promise<string> {
+  const response = await apiRequest(request, 'POST', `/api/messages/${parentMessageId}/reply`, {
+    token,
+    data: { body, sendViaEmail: false },
+  });
+
+  expect(response.status()).toBe(201);
+  const payload = (await response.json()) as { id?: unknown };
+  expect(typeof payload.id).toBe('string');
+  return payload.id as string;
+}
+
 export async function uploadAttachmentToMessage(
   request: APIRequestContext,
   token: string,
@@ -181,12 +201,24 @@ export async function selectRecipientFromComposer(root: Page | Locator, email: s
 
 export async function searchMessages(page: Page, searchValue: string): Promise<void> {
   const input = page.getByPlaceholder('Search messages');
+  const currentValue = await input.inputValue().catch(() => '');
+  const expectedSearch = searchValue.trim();
+  if (currentValue.trim() === expectedSearch) {
+    await page.waitForTimeout(200);
+    return;
+  }
+  // Register the response listener BEFORE filling so a fast network response is
+  // not missed. Accept any /api/messages OK GET — the initial unfiltered load
+  // or the debounced search-filtered response — either signals that the table
+  // has fresh data. Search tokens are populated by an ephemeral subscriber, so
+  // waiting strictly for `search=expected` can resolve against an empty index.
   const listResponsePromise = page.waitForResponse(
-    (response) =>
-      response.request().method() === 'GET' &&
-      /\/api\/messages(?:\?|$)/.test(response.url()) &&
-      response.ok(),
-    { timeout: 5_000 },
+    (response) => {
+      if (response.request().method() !== 'GET' || !response.ok()) return false;
+      const url = new URL(response.url());
+      return url.pathname === '/api/messages';
+    },
+    { timeout: 10_000 },
   ).catch(() => null);
   await input.fill(searchValue);
   await listResponsePromise;
@@ -237,5 +269,55 @@ export async function deleteMessageIfExists(
   if (!token || !messageId) return;
   await apiRequest(request, 'DELETE', `/api/messages/${encodeURIComponent(messageId)}`, {
     token,
+  }).catch(() => {});
+}
+
+// Public message-access tokens are only ever minted internally (the "view in
+// browser" email link) and are stored HMAC-SHA-256 hashed at rest, so there is
+// no API to obtain a usable raw token in a test. We seed rows directly via the
+// shared dbFixtures pg client and store the same hash the route computes from
+// the URL token (`hashAuthToken(raw)`), so the route's hashed-only lookup
+// matches. The integration run and the app server share `JWT_SECRET`, so the
+// hash computed here equals the one the route derives. Callers pass the raw
+// sentinel for both seeding and lookup; these helpers hash it internally.
+export async function seedMessageAccessToken(input: {
+  messageId: string;
+  recipientUserId: string;
+  token: string;
+  expiresAt: Date;
+  useCount?: number;
+}): Promise<void> {
+  await withClient(async (client) => {
+    // created_at is NOT NULL without a DB default (MikroORM sets it via onCreate),
+    // so a raw insert must provide it explicitly.
+    await client.query(
+      `insert into message_access_tokens (message_id, recipient_user_id, token, expires_at, use_count, created_at)
+       values ($1, $2, $3, $4, $5, now())`,
+      [
+        input.messageId,
+        input.recipientUserId,
+        hashAuthToken(input.token),
+        input.expiresAt.toISOString(),
+        input.useCount ?? 0,
+      ],
+    );
+  });
+}
+
+export async function readMessageAccessTokenUseCount(token: string): Promise<number | null> {
+  return withClient(async (client) => {
+    const result = await client.query<{ use_count: number }>(
+      `select use_count from message_access_tokens where token = $1`,
+      [hashAuthToken(token)],
+    );
+    if (result.rows.length === 0) return null;
+    return Number(result.rows[0].use_count);
+  });
+}
+
+export async function deleteMessageAccessTokenIfExists(token: string | null | undefined): Promise<void> {
+  if (!token) return;
+  await withClient(async (client) => {
+    await client.query(`delete from message_access_tokens where token = $1`, [hashAuthToken(token)]);
   }).catch(() => {});
 }

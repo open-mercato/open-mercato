@@ -275,6 +275,18 @@ export interface AiAgentSuggestion {
   prompt: string
 }
 
+export interface AiAgentTaskPlanConfig {
+  /**
+   * Enables the optional visible planning helper for this agent. When true,
+   * the runtime exposes `meta.update_task_plan` and injects prompt guidance
+   * telling the model to set a user-visible plan before domain tools.
+   *
+   * Defaults to false. CRM/customer agents enable this by default in core;
+   * other agents can opt in from their agent definition or extension config.
+   */
+  enabled?: boolean
+}
+
 export interface AiAgentDefinition {
   id: string
   moduleId: string
@@ -368,6 +380,7 @@ export interface AiAgentDefinition {
   allowRuntimeModelOverride?: boolean
   acceptedMediaTypes?: AiAgentAcceptedMediaType[]
   requiredFeatures?: string[]
+  taskPlan?: AiAgentTaskPlanConfig
   uiParts?: string[]
   readOnly?: boolean
   mutationPolicy?: AiAgentMutationPolicy
@@ -400,6 +413,7 @@ export interface AiAgentExtension {
   replaceAllowedTools?: string[]
   deleteAllowedTools?: string[]
   appendAllowedTools?: string[]
+  taskPlan?: AiAgentTaskPlanConfig
   replaceSystemPrompt?: string
   appendSystemPrompt?: string
   replaceSuggestions?: AiAgentSuggestion[]

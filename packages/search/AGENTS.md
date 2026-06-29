@@ -2,16 +2,33 @@
 
 When working on search functionality, use this guide. It covers indexing, querying, and configuring search across all entity types.
 
-## MUST / MUST NOT Rules
+## Always
 
 1. **MUST** create a `search.ts` file for every module with searchable entities.
 2. **MUST** define `fieldPolicy.excluded` for any sensitive fields (passwords, tokens, SSNs, bank accounts) -- never allow them into any index.
 3. **MUST** define `formatResult` for every entity that uses the tokens strategy -- without it, users see raw UUIDs instead of names.
 4. **MUST** include `checksumSource` in every `buildSource` return value so the indexer can detect changes and skip redundant re-embedding.
 5. **MUST** use the `entityId` format `module:entity_name` and ensure it matches the entity registry exactly.
-6. **MUST NOT** call raw `fetch` against the search API -- use `apiCall`/`apiCallOrThrow` from `@open-mercato/ui/backend/utils/apiCall`.
-7. **MUST NOT** include encrypted or sensitive fields in `buildSource` text output -- they end up in plain text in vector stores.
-8. **MUST NOT** skip `fieldPolicy.hashOnly` for PII fields (email, phone, tax_id) that need exact-match filtering but not fuzzy search.
+6. **MUST** use `fieldPolicy.hashOnly` for PII fields (email, phone, tax_id) that need exact-match filtering but not fuzzy search.
+
+## Ask First
+
+- Ask before changing search strategy defaults, entity IDs, queue behavior, or vector provider assumptions.
+- Ask before indexing a field whose sensitivity is unclear.
+
+## Never
+
+- Never call raw `fetch` against the search API; use `apiCall`/`apiCallOrThrow` from `@open-mercato/ui/backend/utils/apiCall`.
+- Never include encrypted or sensitive fields in `buildSource` text output; they end up in plain text in vector stores.
+- Never skip `fieldPolicy.hashOnly` for PII fields (email, phone, tax_id) that need exact-match filtering but not fuzzy search.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/search test
+yarn workspace @open-mercato/search build
+```
 
 ## Search Strategies -- When to Use Each
 
@@ -27,17 +44,31 @@ Strategies automatically become unavailable if their backend is not configured (
 
 ## Configure Global Search (Cmd+K)
 
+Search settings (Cmd+K strategies, embedding provider/model, auto-index flag) are
+**tenant-scoped**: each tenant reads/writes its own row and never overwrites another
+tenant's settings. A tenant with no saved row inherits the instance default (legacy
+global row) and finally the env-derived default; GET responses carry a `source` of
+`tenant | instance | env`. Scope is always derived from the authenticated context,
+never from the request body. The vector index itself (shared pgvector table) stays
+instance-level; per-tenant scoping covers settings selection, not the stored vectors.
+
 Set global search dialog strategies per-tenant via **Settings > Search** or the API:
 
 ```typescript
 // Get current config
 GET /api/search/settings/global-search
-// Response: { "enabledStrategies": ["fulltext", "vector", "tokens"] }
+// Response: { "enabledStrategies": ["fulltext", "vector", "tokens"], "source": "tenant" }
 
-// Update config
+// Update config (writes only this tenant's row)
 POST /api/search/settings/global-search
 // Body: { "enabledStrategies": ["fulltext", "tokens"] }
 ```
+
+Provider availability is verified by an active, cached, fail-closed probe
+(`embeddingProviderProbe`): Ollama is checked via `GET {OLLAMA_BASE_URL}/api/tags`
+(no longer assumed reachable), key-based providers via env-key presence. The
+embeddings GET returns per-provider `available`/`reason`; the embeddings POST
+rejects selecting an unreachable provider with `409 { error, reason }`.
 
 ## Create a Search Configuration
 

@@ -76,6 +76,15 @@ export function useInjectionWidgets<TContext = unknown>(
   const [error, setError] = React.useState<string | null>(null)
   const [registryVersion, setRegistryVersion] = React.useState(() => getInjectionRegistryVersion())
   const loadedRef = React.useRef(false)
+  const contextRef = React.useRef(options?.context)
+  const triggerOnLoadRef = React.useRef(options?.triggerOnLoad)
+  const onEventRef = React.useRef(options?.onEvent)
+
+  React.useEffect(() => {
+    contextRef.current = options?.context
+    triggerOnLoadRef.current = options?.triggerOnLoad
+    onEventRef.current = options?.onEvent
+  })
 
   React.useEffect(() => {
     return subscribeToInjectionRegistryChanges(() => {
@@ -105,16 +114,16 @@ export function useInjectionWidgets<TContext = unknown>(
           placement: w.placement,
         }))
         setWidgets(widgetList)
-        
+
         // Trigger onLoad for all widgets
-        if (!loadedRef.current && options?.triggerOnLoad) {
+        if (!loadedRef.current && triggerOnLoadRef.current) {
           loadedRef.current = true
           for (const widget of widgetList) {
             if (widget.module.eventHandlers?.onLoad) {
               try {
-                const widgetContext = injectSharedStateIntoContext(options.context as TContext, widget.moduleId)
+                const widgetContext = injectSharedStateIntoContext(contextRef.current as TContext, widget.moduleId)
                 await widget.module.eventHandlers.onLoad(widgetContext)
-                options.onEvent?.('onLoad', widget.widgetId)
+                onEventRef.current?.('onLoad', widget.widgetId)
               } catch (err) {
                 console.error(`[InjectionSpot] Error in onLoad for widget ${widget.widgetId}:`, err)
               }
@@ -133,7 +142,9 @@ export function useInjectionWidgets<TContext = unknown>(
     return () => {
       mounted = false
     }
-  }, [spotId, options?.context, options?.triggerOnLoad, options?.onEvent, registryVersion])
+    // context/triggerOnLoad/onEvent are read from refs so only a real registry-version bump reloads the spot
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spotId, registryVersion])
 
   return { widgets, loading, error }
 }
@@ -148,16 +159,25 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
   widgetsOverride,
 }: InjectionSpotProps<TContext, TData>) {
   const useSpotId = widgetsOverride ? null : spotId
+  const onEventRef = React.useRef(onEvent)
+  React.useEffect(() => {
+    onEventRef.current = onEvent
+  })
+  const hasOnEvent = Boolean(onEvent)
+  const stableOnEvent = React.useMemo(
+    () => (hasOnEvent ? (event: 'onLoad', id: string) => onEventRef.current?.(event, id) : undefined),
+    [hasOnEvent],
+  )
   const { widgets, loading, error } = useInjectionWidgets<TContext>(useSpotId, {
     context,
     triggerOnLoad: !widgetsOverride,
-    onEvent: onEvent ? (event, id) => onEvent(event, id) : undefined,
+    onEvent: stableOnEvent,
   })
   const effectiveWidgets = widgetsOverride ?? widgets
   const effectiveLoading = widgetsOverride ? false : loading
   const effectiveError = widgetsOverride ? null : error
 
-  if (effectiveLoading) {
+  if (effectiveLoading && effectiveWidgets.length === 0) {
     return null
   }
 

@@ -164,7 +164,7 @@ const slotVariants = cva(
       state: {
         default: 'bg-background hover:bg-muted/50 text-muted-foreground cursor-pointer',
         hover: 'bg-muted/50 text-muted-foreground cursor-pointer',
-        active: 'bg-brand-violet/10 text-brand-violet cursor-pointer',
+        active: 'bg-primary/10 text-primary cursor-pointer',
         disabled: 'bg-background text-muted-foreground/40 cursor-not-allowed',
       },
     },
@@ -225,7 +225,7 @@ export const TimePickerSlot = React.forwardRef<HTMLButtonElement, TimePickerSlot
         <span className="flex min-w-0 flex-1 items-center gap-1">
           <span>{display.main}</span>
           {display.suffix ? (
-            <span className={effectiveState === 'active' ? 'text-brand-violet/60' : 'text-muted-foreground/60'}>
+            <span className={effectiveState === 'active' ? 'text-primary/60' : 'text-muted-foreground/60'}>
               {display.suffix}
             </span>
           ) : null}
@@ -234,14 +234,14 @@ export const TimePickerSlot = React.forwardRef<HTMLButtonElement, TimePickerSlot
           <span className="flex min-w-0 items-center justify-end gap-1">
             <span>{right.main}</span>
             {right.suffix ? (
-              <span className={effectiveState === 'active' ? 'text-brand-violet/60' : 'text-muted-foreground/60'}>
+              <span className={effectiveState === 'active' ? 'text-primary/60' : 'text-muted-foreground/60'}>
                 {right.suffix}
               </span>
             ) : null}
           </span>
         ) : null}
         {effectiveState === 'active' ? (
-          <Check className="size-3.5 shrink-0 text-brand-violet" aria-hidden="true" />
+          <Check className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
         ) : null}
       </button>
     )
@@ -257,7 +257,7 @@ const durationChipVariants = cva(
         default:
           'bg-background border border-border shadow-xs text-muted-foreground hover:bg-muted/40 cursor-pointer',
         hover: 'bg-muted/40 border border-border text-muted-foreground cursor-pointer',
-        active: 'bg-brand-violet/10 text-brand-violet cursor-pointer',
+        active: 'bg-primary/10 text-primary cursor-pointer',
         disabled:
           'bg-background border border-border text-muted-foreground/40 cursor-not-allowed shadow-xs',
       },
@@ -462,8 +462,7 @@ export function HorizontalScrollRow({
         <div
           ref={scrollRef}
           className={cn(
-            'flex items-center gap-2 overflow-x-auto py-3.5',
-            '[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',
+            'scrollbar-hide flex items-center gap-2 overflow-x-auto py-3.5',
             contentClassName,
           )}
           role="group"
@@ -705,8 +704,7 @@ function TimePickerCard({
   return (
     <div
       className={cn(
-        'flex w-[348px] flex-col overflow-hidden rounded-[20px] border border-border bg-background',
-        'shadow-[0px_1px_2px_0px_rgba(10,13,20,0.03),0px_24px_24px_-12px_rgba(51,51,51,0.04),0px_12px_12px_-6px_rgba(51,51,51,0.04)]',
+        'flex w-80 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl',
         className,
       )}
       role="dialog"
@@ -799,7 +797,7 @@ function TimePickerCard({
               type="button"
               onClick={action.onClick}
               disabled={disabled}
-              className="flex h-9 w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-brand-violet transition-colors hover:bg-brand-violet/10 cursor-pointer disabled:pointer-events-none disabled:opacity-60"
+              className="flex h-9 w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10 cursor-pointer disabled:pointer-events-none disabled:opacity-60"
               data-slot="time-picker-pinned-action"
             >
               {action.icon ? (
@@ -809,7 +807,7 @@ function TimePickerCard({
               ) : null}
               <span className="flex-1 text-left">{action.label}</span>
               {action.rightText ? (
-                <span className="text-brand-violet/60">{action.rightText}</span>
+                <span className="text-primary/60">{action.rightText}</span>
               ) : null}
             </button>
           ))}

@@ -1,6 +1,7 @@
 "use client"
 import { useEffect, useRef } from 'react'
 import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
+import { matchWildcardPattern } from '@open-mercato/shared/lib/patterns/wildcard'
 
 /**
  * DOM Event Bridge event name.
@@ -23,15 +24,7 @@ export const APP_EVENT_DOM_NAME = 'om:event'
  * matchesPattern('*', 'anything.here') // true
  */
 export function matchesPattern(pattern: string, eventId: string): boolean {
-  if (pattern === '*') return true
-  if (!pattern.includes('*')) return pattern === eventId
-  const escapedPattern = pattern
-    .replace(/[|\\{}()[\]^$+?.]/g, '\\$&')
-    .replace(/\*/g, '.*')
-  const regex = new RegExp(
-    '^' + escapedPattern + '$',
-  )
-  return regex.test(eventId)
+  return matchWildcardPattern(eventId, pattern)
 }
 
 /**

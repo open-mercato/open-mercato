@@ -34,6 +34,12 @@ export interface CustomersToolLoadBeforeSingleRecord {
   entityType: string
   recordVersion: string | null
   before: Record<string, unknown>
+  after?: Record<string, unknown>
+  display?: {
+    fieldLabels?: Record<string, string>
+    before?: Record<string, unknown>
+    after?: Record<string, unknown>
+  }
 }
 
 export interface CustomersAiToolDefinition<TInput = unknown, TOutput = unknown> {

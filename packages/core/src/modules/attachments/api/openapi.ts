@@ -78,6 +78,8 @@ export const partitionSchema = z.object({
   isPublic: z.boolean(),
   requiresOcr: z.boolean(),
   ocrModel: z.string().nullable(),
+  storageDriver: z.string().optional().describe('Storage driver: local (default) or s3'),
+  configJson: z.record(z.string(), z.unknown()).nullable().optional().describe('Driver-specific configuration'),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
   envKey: z.string(),
@@ -99,6 +101,8 @@ export const partitionCreateSchema = z.object({
   isPublic: z.boolean().optional().describe('Whether partition is publicly accessible'),
   requiresOcr: z.boolean().optional().describe('Whether OCR should be performed on uploads'),
   ocrModel: z.string().max(50).nullable().optional().describe('OCR model to use'),
+  storageDriver: z.enum(['local', 's3']).optional().default('local').describe('Storage driver to use'),
+  configJson: z.record(z.string(), z.unknown()).nullable().optional().describe('Driver-specific configuration (e.g. S3 bucket, region, endpoint)'),
 })
 
 export const partitionUpdateSchema = partitionCreateSchema.extend({

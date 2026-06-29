@@ -267,6 +267,49 @@ describe('prepareMutation', () => {
     expect(pendingAction.organizationId).toBe('org-alpha')
   })
 
+  it('uses resolver-provided after snapshots and display labels for operator previews', async () => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    const tool = makeTool({
+      name: 'customers.update_deal_stage',
+      isMutation: true,
+      loadBeforeRecord: async () => ({
+        recordId: 'deal-1',
+        entityType: 'customers.deal',
+        recordVersion: 'v-1',
+        before: { pipelineStageId: 'stage-old' },
+        after: { pipelineStageId: 'stage-new' },
+        display: {
+          fieldLabels: { pipelineStageId: 'Pipeline stage' },
+          before: { pipelineStageId: 'Offering' },
+          after: { pipelineStageId: 'Lost' },
+        },
+      }),
+    })
+    const agent = makeAgent({ id: 'customers.deal_analyzer' })
+
+    const { uiPart, pendingAction } = await prepareMutation(
+      {
+        agent,
+        tool,
+        toolCallArgs: { dealId: 'deal-1', toPipelineStageId: 'stage-new' },
+      },
+      { ...baseCtx, container },
+    )
+
+    expect(uiPart.props.fieldDiff).toEqual([
+      {
+        field: 'pipelineStageId',
+        fieldLabel: 'Pipeline stage',
+        before: 'stage-old',
+        after: 'stage-new',
+        beforeDisplay: 'Offering',
+        afterDisplay: 'Lost',
+      },
+    ])
+    expect(pendingAction.fieldDiff).toEqual(uiPart.props.fieldDiff)
+  })
+
   it('batch happy path: populates records[] with per-record diffs (fieldDiff stays []) when isBulk=true', async () => {
     const em = mockEm()
     const container = makeContainer(em)

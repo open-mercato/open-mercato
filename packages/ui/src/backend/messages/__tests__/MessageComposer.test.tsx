@@ -121,6 +121,78 @@ describe('MessageComposer draft flow', () => {
     expect(flash).toHaveBeenCalledWith('Draft saved.', 'success')
   })
 
+  it('sends an existing draft via PATCH with isDraft=false', async () => {
+    renderWithProviders(
+      <MessageComposer
+        inline
+        variant="compose"
+        messageId="draft-1"
+        defaultValues={{
+          recipients: ['11111111-1111-4111-8111-111111111111'],
+          subject: 'Existing draft',
+          body: 'Existing draft body',
+        }}
+      />,
+      { dict: {} },
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Send' }))
+
+    await waitFor(() => {
+      expect(apiCall).toHaveBeenCalledWith(
+        '/api/messages/draft-1',
+        expect.objectContaining({
+          method: 'PATCH',
+        }),
+      )
+    })
+
+    const updateRequest = (apiCall as jest.Mock).mock.calls.find(
+      (call) => call[0] === '/api/messages/draft-1' && call[1]?.method === 'PATCH',
+    )
+    const payload = JSON.parse(updateRequest?.[1]?.body ?? '{}') as Record<string, unknown>
+    expect(payload.isDraft).toBe(false)
+    expect(payload.recipients).toEqual([{ userId: '11111111-1111-4111-8111-111111111111', type: 'to' }])
+    expect(flash).toHaveBeenCalledWith('Message sent.', 'success')
+  })
+
+  it('saves an existing draft via PATCH without a draft transition flag', async () => {
+    renderWithProviders(
+      <MessageComposer
+        inline
+        variant="compose"
+        messageId="draft-1"
+        defaultValues={{
+          subject: 'Existing draft',
+          body: 'Existing draft body',
+        }}
+      />,
+      { dict: {} },
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Save draft' }))
+
+    await waitFor(() => {
+      expect(apiCall).toHaveBeenCalledWith(
+        '/api/messages/draft-1',
+        expect.objectContaining({
+          method: 'PATCH',
+        }),
+      )
+    })
+
+    const updateRequest = (apiCall as jest.Mock).mock.calls.find(
+      (call) => call[0] === '/api/messages/draft-1' && call[1]?.method === 'PATCH',
+    )
+    const payload = JSON.parse(updateRequest?.[1]?.body ?? '{}') as Record<string, unknown>
+    expect(payload).not.toHaveProperty('isDraft')
+    expect(payload).toEqual(expect.objectContaining({
+      subject: 'Existing draft',
+      body: 'Existing draft body',
+    }))
+    expect(flash).toHaveBeenCalledWith('Draft saved.', 'success')
+  })
+
   it('keeps the send action disabled after a successful compose submit until the composer resets', async () => {
     let resolveMessagePost!: (value: {
       ok: boolean
@@ -342,6 +414,11 @@ describe('MessageComposer draft flow', () => {
     await waitFor(() => {
       expect(apiCall).toHaveBeenCalledWith(
         expect.stringMatching(/^\/api\/auth\/users\?/),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'x-om-forbidden-redirect': '0',
+          }),
+        }),
       )
     })
   })

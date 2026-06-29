@@ -73,6 +73,17 @@ export function useT() {
   return ctx.t
 }
 
+/**
+ * Like `useT`, but returns `undefined` instead of throwing when no
+ * `I18nProvider` is in scope. Use where a translator is desirable but not
+ * guaranteed (e.g. plumbing `t` into side-effect handlers that may run before
+ * the provider mounts) — callers MUST provide a fallback.
+ */
+export function useOptionalT(): TranslateFn | undefined {
+  const ctx = useContext(I18nContext)
+  return ctx?.t
+}
+
 export function useLocale() {
   const ctx = useContext(I18nContext)
   if (!ctx) throw new Error('useLocale must be used within I18nProvider')

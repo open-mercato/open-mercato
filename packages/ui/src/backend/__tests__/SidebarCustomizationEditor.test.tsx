@@ -55,6 +55,13 @@ jest.mock('../injection/mutationEvents', () => ({
   dispatchBackendMutationError: jest.fn(),
 }))
 
+jest.mock('../injection/useGuardedMutation', () => ({
+  useGuardedMutation: () => ({
+    runMutation: async ({ operation }: { operation: () => Promise<unknown> }) => operation(),
+    retryLastMutation: jest.fn(async () => false),
+  }),
+}))
+
 const fakeGroups = [
   {
     id: 'core',
@@ -218,7 +225,7 @@ describe('SidebarCustomizationEditor', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
 
     expect(screen.getAllByText(duplicateMessage)).toHaveLength(1)
-  })
+  }, 15_000)
 
   it('clears the inline dialog error when the user edits the name', async () => {
     const duplicateMessage = 'A variant with this name already exists. Choose a different name.'

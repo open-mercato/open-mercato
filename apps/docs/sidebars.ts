@@ -66,6 +66,11 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Deployment",
+      items: ["deployment/railway"],
+    },
+    {
+      type: "category",
       label: "User Guide",
       items: [
         "user-guide/overview",
@@ -118,6 +123,16 @@ const sidebars: SidebarsConfig = {
           items: [
             "user-guide/integrations",
             "user-guide/webhooks",
+            {
+              type: "category",
+              label: "Email (Communication Channels)",
+              link: { type: "doc", id: "user-guide/communication-channels" },
+              items: [
+                "user-guide/communication-channels-gmail",
+                "user-guide/communication-channels-imap",
+                "user-guide/customers-email",
+              ],
+            },
             "user-guide/akeneo-pim",
             "user-guide/checkout",
             "user-guide/stripe-payments",
@@ -169,7 +184,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Architecture",
-      items: ["architecture/system-overview", "architecture/generators", "architecture/cache-cli", "architecture/data-encryption"],
+      items: ["architecture/system-overview", "architecture/module-dependencies", "architecture/generators", "architecture/cache-cli", "architecture/data-encryption"],
     },
     {
       type: "category",
@@ -364,7 +379,9 @@ const sidebars: SidebarsConfig = {
               ],
             },
             "framework/modules/official-modules",
+            "framework/modules/official-modules-development",
             "framework/modules/routes-and-pages",
+            "framework/modules/overrides",
             "framework/modules/notifications",
             "framework/modules/messages",
             "framework/modules/currencies",
@@ -394,6 +411,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/ai-assistant/overview",
             "framework/ai-assistant/architecture",
+            "framework/ai-assistant/mcp",
             "framework/ai-assistant/developer-guide",
             "framework/ai-assistant/agents",
             "framework/ai-assistant/ui-parts",
@@ -455,6 +473,11 @@ const sidebars: SidebarsConfig = {
           ],
         },
         "framework/webhooks/overview",
+        {
+          type: "category",
+          label: "Data Integrity",
+          items: ["framework/data-integrity/concurrency-locking"],
+        },
         "framework/pricing-tax-overrides",
         "framework/rbac/overview",
         "framework/feature-toggles/overview",

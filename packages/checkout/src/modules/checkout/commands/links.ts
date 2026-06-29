@@ -4,8 +4,10 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { buildCustomFieldResetMap, loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CheckoutLink, CheckoutLinkTemplate, CheckoutTransaction } from '../data/entities'
@@ -199,6 +201,59 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
     link.deletedAt = new Date()
     await em.flush()
   },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<CheckoutLinkSnapshot>(logEntry)
+    if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for checkout link create' })
+    const em = ctx.container.resolve('em') as EntityManager
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    let link = await findOneWithDecryption(
+      em,
+      CheckoutLink,
+      { id: after.id },
+      {},
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    if (link) {
+      restoreLinkFromSnapshot(link, after)
+      link.deletedAt = null
+      link.slug = await resolveRestoredLinkSlug(em, after)
+    } else {
+      link = em.create(CheckoutLink, {
+        ...createLinkFromSnapshot(after),
+        slug: await resolveRestoredLinkSlug(em, after),
+      })
+      em.persist(link)
+    }
+    await em.flush()
+    const reset = buildCustomFieldResetMap(after.custom, undefined)
+    if (Object.keys(reset).length) {
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: CHECKOUT_ENTITY_IDS.link,
+        recordId: after.id,
+        tenantId: after.tenantId,
+        organizationId: after.organizationId,
+        values: reset,
+        notify: false,
+      })
+    }
+    await emitCheckoutEvent('checkout.link.created', {
+      id: link.id,
+      slug: link.slug,
+      status: link.status,
+      tenantId: after.tenantId,
+      organizationId: after.organizationId,
+    }).catch(() => undefined)
+    if (link.status === 'active') {
+      await emitCheckoutEvent('checkout.link.published', {
+        id: link.id,
+        slug: link.slug,
+        tenantId: after.tenantId,
+        organizationId: after.organizationId,
+      }).catch(() => undefined)
+    }
+    return { id: link.id, slug: link.slug }
+  },
 }
 
 const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slug: string }> = {
@@ -234,6 +289,12 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
       deletedAt: null,
     }, undefined, scope)
     if (!link) throw new CrudHttpError(404, { error: 'Link not found' })
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: 'checkout.link',
+      resourceId: link.id,
+      current: link.updatedAt ?? null,
+      request: ctx.request ?? null,
+    })
     if (link.isLocked) {
       throw new CrudHttpError(422, { error: 'This link has active transactions and cannot be edited' })
     }
@@ -380,6 +441,12 @@ const deleteLinkCommand: CommandHandler<Record<string, unknown>, { ok: true }> =
       deletedAt: null,
     }, undefined, scope)
     if (!link) throw new CrudHttpError(404, { error: 'Link not found' })
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: 'checkout.link',
+      resourceId: link.id,
+      current: link.updatedAt ?? null,
+      request: ctx.request ?? null,
+    })
     const activeCount = await em.count(CheckoutTransaction, {
       linkId: link.id,
       organizationId: scope.organizationId,

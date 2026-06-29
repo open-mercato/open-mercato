@@ -85,31 +85,46 @@ export function setAuthRedirectConfig(cfg: { defaultForbiddenRoles?: readonly st
   }
 }
 
-export function redirectToForbiddenLogin(options?: { requiredRoles?: string[] | null; requiredFeatures?: string[] | null }) {
+function formatForbiddenAccessMessage(options?: { requiredRoles?: string[] | null; requiredFeatures?: string[] | null }): string {
+  const features = options?.requiredFeatures?.filter(Boolean) ?? []
+  const roles = options?.requiredRoles?.filter(Boolean) ?? []
+  const effectiveRoles = roles.length ? roles : DEFAULT_FORBIDDEN_ROLES.filter(Boolean)
+  if (features.length) {
+    return `Access denied: you are missing the required permission "${features.join(', ')}". Contact your administrator.`
+  }
+  if (effectiveRoles.length) {
+    return `Access denied: this area requires the role "${effectiveRoles.join(', ')}". Contact your administrator.`
+  }
+  return 'Access denied: you do not have permission to perform this action.'
+}
+
+/**
+ * Signal a forbidden access attempt for an authenticated user via a flash banner.
+ *
+ * Authenticated 403 responses must never redirect to `/login` — that creates an
+ * infinite loop because the login page detects the active session and bounces
+ * the user back to the failing destination (see GH #2070). Pages that need an
+ * inline banner should catch `ForbiddenError` and render `AccessDeniedMessage`
+ * from `@open-mercato/ui/backend/detail`.
+ */
+export function notifyForbiddenAccess(options?: { requiredRoles?: string[] | null; requiredFeatures?: string[] | null }) {
   if (typeof window === 'undefined') return
-  if (window.location.pathname.startsWith('/login')) return
-  // Portal routes have their own customer auth — never redirect to staff login
+  // Portal routes have their own customer auth — keep the existing no-op contract.
   if (/\/[^/]+\/portal(\/|$)/.test(window.location.pathname)) return
   try {
-    const current = window.location.pathname + window.location.search
-    const features = options?.requiredFeatures?.filter(Boolean) ?? []
-    const roles = options?.requiredRoles?.filter(Boolean) ?? []
-    const fallbackRoles = DEFAULT_FORBIDDEN_ROLES.filter(Boolean)
-    const effectiveRoles = roles.length ? roles : fallbackRoles
-    const query = features.length
-      ? `requireFeature=${encodeURIComponent(features.join(','))}`
-      : effectiveRoles.length
-        ? `requireRole=${encodeURIComponent(effectiveRoles.map(String).join(','))}`
-        : ''
-    const url = query
-      ? `/login?${query}&redirect=${encodeURIComponent(current)}`
-      : `/login?redirect=${encodeURIComponent(current)}`
-    flash('Insufficient permissions. Redirecting to login…', 'warning')
-    setTimeout(() => { window.location.href = url }, 60)
+    flash(formatForbiddenAccessMessage(options), 'warning')
   } catch {
     // no-op
   }
 }
+
+/**
+ * @deprecated Renamed to {@link notifyForbiddenAccess}. The previous name
+ * implied a `/login` redirect that no longer happens (see GH #2070). Kept as an
+ * exported alias for one minor version so third-party module imports keep
+ * building; update imports to `notifyForbiddenAccess`.
+ */
+export const redirectToForbiddenLogin = notifyForbiddenAccess
 
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   type FetchType = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
@@ -191,7 +206,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       } catch {}
       const hasAclHints = Boolean((roles && roles.length) || (features && features.length))
       if (hasAclHints) {
-        redirectToForbiddenLogin({ requiredRoles: roles, requiredFeatures: features })
+        notifyForbiddenAccess({ requiredRoles: roles, requiredFeatures: features })
       }
       let msg = 'Forbidden'
       if (aclData && typeof aclData === 'object') {

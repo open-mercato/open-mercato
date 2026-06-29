@@ -173,10 +173,11 @@ async function loadCustomerEntityBundle(ctx: SearchContext, opts: CustomerEntity
   const resolvedEntityId = typeof opts.entityId === 'string' && opts.entityId.length ? opts.entityId : null
   const resolvedProfileId =
     opts.profileId != null && String(opts.profileId).trim().length > 0 ? String(opts.profileId).trim() : null
+  const shouldJoinProfileSource = Boolean(opts.profileKind && resolvedProfileId && !resolvedEntityId)
   if (resolvedEntityId) {
     filters.id = { $eq: resolvedEntityId }
   }
-  if (opts.profileKind && resolvedProfileId) {
+  if (shouldJoinProfileSource) {
     const alias = opts.profileKind === 'person' ? 'person_profile' : 'company_profile'
     filters[`${alias}.id`] = { $eq: resolvedProfileId }
   }
@@ -187,7 +188,7 @@ async function loadCustomerEntityBundle(ctx: SearchContext, opts: CustomerEntity
       organizationId: ctx.organizationId ?? undefined,
       filters,
       includeCustomFields: true,
-      customFieldSources: CUSTOMER_CUSTOM_FIELD_SOURCES,
+      ...(shouldJoinProfileSource ? { customFieldSources: CUSTOMER_CUSTOM_FIELD_SOURCES } : {}),
       fields: CUSTOMER_ENTITY_FIELDS,
       page: { page: 1, pageSize: 1 },
     })
@@ -362,9 +363,9 @@ async function getLinkedTodo(ctx: SearchContext) {
 function buildCustomerUrl(kind: string | null | undefined, id?: string | null): string | null {
   if (!id) return null
   const encoded = encodeURIComponent(id)
-  if (kind === 'person') return `/backend/customers/people/${encoded}`
-  if (kind === 'company') return `/backend/customers/companies/${encoded}`
-  return `/backend/customers/companies/${encoded}`
+  if (kind === 'person') return `/backend/customers/people-v2/${encoded}`
+  if (kind === 'company') return `/backend/customers/companies-v2/${encoded}`
+  return `/backend/customers/companies-v2/${encoded}`
 }
 
 function formatDealValue(record: Record<string, unknown>): string | undefined {
@@ -692,6 +693,7 @@ export const searchConfig: SearchModuleConfig = {
         hashOnly: ['primary_email', 'primary_phone', 'personal_email'],
         excluded: ['date_of_birth', 'government_id', 'ssn', 'tax_id'],
       },
+      aclFeatures: ['customers.people.view'],
     },
 
     // =========================================================================
@@ -781,6 +783,7 @@ export const searchConfig: SearchModuleConfig = {
         hashOnly: ['tax_id', 'registration_number'],
         excluded: ['bank_account', 'billing_info', 'credit_info'],
       },
+      aclFeatures: ['customers.companies.view'],
     },
 
     // =========================================================================
@@ -857,6 +860,7 @@ export const searchConfig: SearchModuleConfig = {
         hashOnly: [],
         excluded: [],
       },
+      aclFeatures: ['customers.activities.view'],
     },
 
     // =========================================================================
@@ -943,6 +947,7 @@ export const searchConfig: SearchModuleConfig = {
         hashOnly: [],
         excluded: ['value_amount', 'value_currency'],
       },
+      aclFeatures: ['customers.deals.view'],
     },
 
     // =========================================================================
@@ -1015,6 +1020,7 @@ export const searchConfig: SearchModuleConfig = {
         hashOnly: [],
         excluded: [],
       },
+      aclFeatures: ['customers.activities.view'],
     },
 
     // =========================================================================
@@ -1081,6 +1087,7 @@ export const searchConfig: SearchModuleConfig = {
         hashOnly: [],
         excluded: [],
       },
+      aclFeatures: ['customers.activities.view'],
     },
   ],
 }

@@ -1,20 +1,25 @@
 "use client"
 import * as React from 'react'
+import { usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
 import { WidgetVisibilityEditor, type WidgetVisibilityEditorHandle } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
 import { E } from '#generated/entities.ids.generated'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
+import { Alert } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 
 type EditRoleFormValues = {
   name?: string
   tenantId?: string | null
+  updatedAt?: string | null
 } & Record<string, unknown>
 
 type RoleRecord = {
@@ -23,6 +28,7 @@ type RoleRecord = {
   tenantId: string | null
   tenantName?: string | null
   usersCount?: number | null
+  updatedAt?: string | null
 } & Record<string, unknown>
 
 type RoleListResponse = {
@@ -33,9 +39,11 @@ type RoleListResponse = {
 export default function EditRolePage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const pathname = usePathname()
   const [initial, setInitial] = React.useState<RoleRecord | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
+  const [aclUpdatedAt, setAclUpdatedAt] = React.useState<string | null>(null)
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const widgetEditorRef = React.useRef<WidgetVisibilityEditorHandle | null>(null)
@@ -93,6 +101,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
         label: t('auth.roles.form.field.tenant', 'Tenant'),
         type: 'custom',
         required: true,
+        disabled,
         component: ({ value, setValue }) => {
           const normalizedValue = typeof value === 'string'
             ? value
@@ -104,10 +113,13 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
               onChange={(next) => {
                 const resolved = next ?? null
                 setValue(resolved)
+                if (selectedTenantId !== resolved) {
+                  setAclData((prev) => ({ ...prev, organizations: null }))
+                }
                 setSelectedTenantId(resolved)
-                setAclData({ isSuperAdmin: false, features: [], organizations: null })
               }}
               includeEmptyOption
+              disabled={disabled}
               className="w-full h-9 rounded border px-2 text-sm"
               tenants={preloadedTenants}
             />
@@ -131,19 +143,36 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
       id: 'acl',
       title: t('auth.roles.form.group.access', 'Access'),
       column: 1,
-      component: () => (id
-        ? (
-          <AclEditor
-            kind="role"
-            targetId={String(id)}
-            canEditOrganizations
-            value={aclData}
-            onChange={setAclData}
-            currentUserIsSuperAdmin={actorIsSuperAdmin}
-            tenantId={selectedTenantId ?? null}
-          />
+      component: () => {
+        if (!id) return null
+        const initialTenantId = initial?.tenantId ?? null
+        const tenantReassigned = actorIsSuperAdmin
+          && initial != null
+          && (selectedTenantId ?? null) !== (initialTenantId ?? null)
+        return (
+          <div className="space-y-3">
+            {tenantReassigned ? (
+              <Alert status="warning" style="lighter">
+                {t(
+                  'auth.roles.form.tenantReassignWarning',
+                  'This role is being reassigned to a different tenant. The permissions selected here will be saved under the new tenant when you submit.',
+                )}
+              </Alert>
+            ) : null}
+            <AclEditor
+              kind="role"
+              targetId={String(id)}
+              canEditOrganizations
+              value={aclData}
+              onChange={setAclData}
+              onVersionChange={setAclUpdatedAt}
+              currentUserIsSuperAdmin={actorIsSuperAdmin}
+              tenantId={selectedTenantId ?? null}
+              preserveOnTenantChange
+            />
+          </div>
         )
-        : null),
+      },
     },
     {
       id: 'dashboardWidgets',
@@ -155,12 +184,27 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
             kind="role"
             targetId={String(id)}
             tenantId={selectedTenantId ?? (initial?.tenantId ?? null)}
+            preserveOnTenantChange
             ref={widgetEditorRef}
           />
         )
         : null),
     },
   ]), [aclData, actorIsSuperAdmin, detailFieldIds, id, initial, loading, selectedTenantId, t])
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `auth.role` + id explicitly.
+  // The resourceKind mirrors the CrudForm `versionHistory` so the held lock matches
+  // the save-time conflict surface for the same role.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'auth.role',
+      resourceId: id || null,
+      updatedAt: initial?.updatedAt ?? null,
+      data: initial as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
 
   if (!id) return null
   return (
@@ -191,17 +235,37 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
             if (Object.keys(customFields).length) {
               payload.customFields = customFields
             }
-            await updateCrud('auth/roles', payload)
-            await updateCrud('auth/roles/acl', { roleId: id, tenantId: effectiveTenantId, ...aclData }, {
+            const roleOptimisticLockHeader = buildOptimisticLockHeader(initial?.updatedAt)
+            if (Object.keys(roleOptimisticLockHeader).length > 0) {
+              await withScopedApiRequestHeaders(roleOptimisticLockHeader, () => updateCrud('auth/roles', payload))
+            } else {
+              await updateCrud('auth/roles', payload)
+            }
+            // Optimistic lock the ACL save against the loaded RoleAcl version so a
+            // concurrent permission edit cannot silently overwrite (#2055). CrudForm
+            // surfaces the 409 as the unified conflict bar.
+            const aclLockHeader = buildOptimisticLockHeader(aclUpdatedAt)
+            const saveRoleAcl = () => updateCrud('auth/roles/acl', { roleId: id, tenantId: effectiveTenantId, ...aclData }, {
               errorMessage: t('auth.roles.form.errors.aclUpdate', 'Failed to update role access control'),
             })
+            if (Object.keys(aclLockHeader).length > 0) {
+              await withScopedApiRequestHeaders(aclLockHeader, saveRoleAcl)
+            } else {
+              await saveRoleAcl()
+            }
             await widgetEditorRef.current?.save()
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
           onDelete={async () => {
-            await deleteCrud('auth/roles', String(id), {
+            const roleOptimisticLockHeader = buildOptimisticLockHeader(initial?.updatedAt)
+            const deleteRole = () => deleteCrud('auth/roles', String(id), {
               errorMessage: t('auth.roles.form.errors.delete', 'Failed to delete role'),
             })
+            if (Object.keys(roleOptimisticLockHeader).length > 0) {
+              await withScopedApiRequestHeaders(roleOptimisticLockHeader, deleteRole)
+            } else {
+              await deleteRole()
+            }
           }}
           deleteRedirect={`/backend/roles?flash=${encodeURIComponent(t('auth.roles.flash.deleted', 'Role deleted'))}&type=success`}
         />

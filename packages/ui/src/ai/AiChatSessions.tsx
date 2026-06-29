@@ -4,12 +4,10 @@
  * Multi-tab AI chat sessions.
  *
  * Each agent can have several concurrent conversation threads (sessions).
- * The provider stores their *metadata* — id, conversationId, optional
- * user-given name, timestamps, status — in localStorage, so closing and
- * re-opening the chat pane (or refreshing the page) restores the tabs and
- * their history. The actual messages live in `useAiChat`'s per-conversation
- * persistence slot keyed by `(agent, conversationId)`, which is why every
- * session gets its own UUID even when it shares an agent with the next tab.
+ * The provider mirrors session metadata from the server-side conversation
+ * store. localStorage remains a backward-compatible cache so existing browser
+ * sessions can be imported rather than orphaned, but the server is the source
+ * of truth whenever it is reachable.
  *
  * Sessions are partitioned into:
  *   - `open`   → currently shown in the tab strip
@@ -22,9 +20,38 @@
  */
 
 import * as React from 'react'
+import {
+  getCurrentOrganizationScope,
+  subscribeOrganizationScopeChanged,
+} from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { readVersionedPreference, writeVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
+import {
+  createAiServerConversation,
+  listAiServerConversations,
+  updateAiServerConversation,
+  type AiServerConversation,
+} from './conversation-store'
 
-const STORAGE_KEY = 'om-ai-chat-sessions-v1'
+/**
+ * Legacy app-global storage key used before tenant/org scoping.
+ *
+ * Kept only as a documented constant for grep / debugging. No code path
+ * reads or writes it any more — the legacy entry is intentionally
+ * abandoned (not migrated) because the origin scope of any data stored
+ * under this key is unknown; silently importing it into the wrong scope
+ * is worse than empty state. `listAiServerConversations` repopulates
+ * sessions from the authoritative server source on first load.
+ */
+export const LEGACY_STORAGE_KEY = 'om-ai-chat-sessions-v1'
+const STORAGE_KEY_PREFIX = 'om-ai-chat-sessions-v1'
 const HISTORY_LIMIT = 50
+
+function getScopedStorageKey(
+  tenantId: string | null | undefined,
+  organizationId: string | null | undefined,
+): string {
+  return `${STORAGE_KEY_PREFIX}:${tenantId ?? 'no-tenant'}:${organizationId ?? 'no-org'}`
+}
 
 export type AiChatSessionStatus = 'open' | 'closed'
 
@@ -82,57 +109,105 @@ function makeId(): string {
   return `${Date.now().toString(16)}-${rand()}-${rand()}`
 }
 
-function readPersisted(): AiChatSessionsState {
-  if (typeof window === 'undefined') return { sessions: [], activeByAgent: {} }
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { sessions: [], activeByAgent: {} }
-    const parsed = JSON.parse(raw) as Partial<AiChatSessionsState> | null
-    const sessions = Array.isArray(parsed?.sessions)
-      ? (parsed!.sessions as unknown[])
-          .filter((entry): entry is AiChatSession => {
-            if (!entry || typeof entry !== 'object') return false
-            const value = entry as Record<string, unknown>
-            return (
-              typeof value.id === 'string' &&
-              typeof value.agentId === 'string' &&
-              typeof value.conversationId === 'string' &&
-              typeof value.createdAt === 'number' &&
-              typeof value.lastUsedAt === 'number' &&
-              (value.status === 'open' || value.status === 'closed')
-            )
-          })
-          .map((entry) => {
-            const value = entry as unknown as Record<string, unknown>
-            const candidate = value.name
-            return {
-              ...entry,
-              name: typeof candidate === 'string' ? candidate : undefined,
-            }
-          })
-      : []
-    const activeByAgent =
-      parsed?.activeByAgent && typeof parsed.activeByAgent === 'object'
-        ? Object.fromEntries(
-            Object.entries(parsed.activeByAgent as Record<string, unknown>).filter(
-              (entry): entry is [string, string] =>
-                typeof entry[0] === 'string' && typeof entry[1] === 'string',
-            ),
+// Versioned-envelope discriminator for the persisted sessions cache. Bump when
+// the stored shape changes incompatibly; legacy bare `{ sessions, activeByAgent }`
+// values are migrated forward on the next write. See
+// `@open-mercato/shared/lib/browser/versionedPreference`.
+const AI_CHAT_SESSIONS_VERSION = 1
+
+function isPersistedSessionsShape(value: unknown): value is Partial<AiChatSessionsState> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+export function readPersisted(storageKey: string): AiChatSessionsState {
+  const parsed = readVersionedPreference<Partial<AiChatSessionsState> | null>(
+    storageKey,
+    AI_CHAT_SESSIONS_VERSION,
+    (value): value is Partial<AiChatSessionsState> | null => isPersistedSessionsShape(value),
+    null,
+    { legacyIsValid: (value): value is Partial<AiChatSessionsState> | null => isPersistedSessionsShape(value) },
+  )
+  if (!parsed) return { sessions: [], activeByAgent: {} }
+  const sessions = Array.isArray(parsed.sessions)
+    ? (parsed.sessions as unknown[])
+        .filter((entry): entry is AiChatSession => {
+          if (!entry || typeof entry !== 'object') return false
+          const value = entry as Record<string, unknown>
+          return (
+            typeof value.id === 'string' &&
+            typeof value.agentId === 'string' &&
+            typeof value.conversationId === 'string' &&
+            typeof value.createdAt === 'number' &&
+            typeof value.lastUsedAt === 'number' &&
+            (value.status === 'open' || value.status === 'closed')
           )
-        : {}
-    return { sessions, activeByAgent }
-  } catch {
-    return { sessions: [], activeByAgent: {} }
+        })
+        .map((entry) => {
+          const value = entry as unknown as Record<string, unknown>
+          const candidate = value.name
+          return {
+            ...entry,
+            name: typeof candidate === 'string' ? candidate : undefined,
+          }
+        })
+    : []
+  const activeByAgent =
+    parsed.activeByAgent && typeof parsed.activeByAgent === 'object'
+      ? Object.fromEntries(
+          Object.entries(parsed.activeByAgent as Record<string, unknown>).filter(
+            (entry): entry is [string, string] =>
+              typeof entry[0] === 'string' && typeof entry[1] === 'string',
+          ),
+        )
+      : {}
+  return { sessions, activeByAgent }
+}
+
+export function writePersisted(storageKey: string, state: AiChatSessionsState): void {
+  writeVersionedPreference(storageKey, AI_CHAT_SESSIONS_VERSION, state)
+}
+
+function serverConversationToSession(
+  conversation: AiServerConversation,
+  existing?: AiChatSession,
+): AiChatSession {
+  const createdAt = Date.parse(conversation.createdAt)
+  const updatedAt = Date.parse(conversation.lastMessageAt ?? conversation.updatedAt)
+  return {
+    id: existing?.id ?? conversation.conversationId,
+    agentId: conversation.agentId,
+    conversationId: conversation.conversationId,
+    name: conversation.title ?? existing?.name,
+    createdAt: Number.isFinite(createdAt) ? createdAt : existing?.createdAt ?? Date.now(),
+    lastUsedAt: Number.isFinite(updatedAt) ? updatedAt : existing?.lastUsedAt ?? Date.now(),
+    status: conversation.status,
   }
 }
 
-function writePersisted(state: AiChatSessionsState): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-  } catch {
-    /* quota / privacy mode — drop silently */
+function mergeServerConversations(
+  prev: AiChatSessionsState,
+  conversations: AiServerConversation[],
+): AiChatSessionsState {
+  const byConversationId = new Map(prev.sessions.map((session) => [session.conversationId, session]))
+  const serverSessions = conversations.map((conversation) =>
+    serverConversationToSession(conversation, byConversationId.get(conversation.conversationId)),
+  )
+  const serverIds = new Set(serverSessions.map((session) => session.conversationId))
+  const localOnly = prev.sessions.filter((session) => !serverIds.has(session.conversationId))
+  const sessions = [...serverSessions, ...localOnly]
+  const activeByAgent = { ...prev.activeByAgent }
+  const agentIds = new Set(sessions.map((session) => session.agentId))
+  for (const agentId of agentIds) {
+    const activeId = activeByAgent[agentId]
+    const active = sessions.find((session) => session.id === activeId)
+    if (active && active.status === 'open') continue
+    const nextOpen = sessions
+      .filter((session) => session.agentId === agentId && session.status === 'open')
+      .sort((a, b) => b.lastUsedAt - a.lastUsedAt)[0]
+    if (nextOpen) activeByAgent[agentId] = nextOpen.id
+    else delete activeByAgent[agentId]
   }
+  return { sessions, activeByAgent }
 }
 
 export function AiChatSessionsProvider({ children }: { children: React.ReactNode }) {
@@ -147,11 +222,45 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
   // server (no `window`), so SSR stays consistent with the bare-bones
   // shell — actual session-dependent UI only renders after a user
   // interaction opens a chat surface.
-  const [state, setState] = React.useState<AiChatSessionsState>(() => readPersisted())
+  //
+  // The storage key is scoped to the current tenant/organization so a
+  // scope switch in the topbar does not surface another tenant's
+  // sessions. `getCurrentOrganizationScope()` reads module-level state
+  // populated by the topbar before the provider mounts; a `null` scope
+  // (pre-resolution) lands in a harmless `no-tenant:no-org` bucket that
+  // the scope-change subscription below immediately corrects when the
+  // real scope arrives.
+  const [storageKey, setStorageKey] = React.useState<string>(() => {
+    const scope = getCurrentOrganizationScope()
+    return getScopedStorageKey(scope.tenantId, scope.organizationId)
+  })
+  const [state, setState] = React.useState<AiChatSessionsState>(() => readPersisted(storageKey))
 
   React.useEffect(() => {
-    writePersisted(state)
-  }, [state])
+    return subscribeOrganizationScopeChanged((detail) => {
+      const nextKey = getScopedStorageKey(detail.tenantId, detail.organizationId)
+      if (nextKey === storageKey) return
+      // React 18 batches both updates within the synchronous handler so
+      // there is no intermediate render with a mismatched key/state pair.
+      setStorageKey(nextKey)
+      setState(readPersisted(nextKey))
+    })
+  }, [storageKey])
+
+  React.useEffect(() => {
+    writePersisted(storageKey, state)
+  }, [storageKey, state])
+
+  React.useEffect(() => {
+    let cancelled = false
+    void listAiServerConversations({ limit: 100 }).then((conversations) => {
+      if (cancelled || !conversations) return
+      setState((prev) => mergeServerConversations(prev, conversations))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [storageKey])
 
   const update = React.useCallback(
     (mutator: (prev: AiChatSessionsState) => AiChatSessionsState) => {
@@ -197,6 +306,10 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
       lastUsedAt: Date.now(),
       status: 'open',
     }
+    void createAiServerConversation({
+      agentId: session.agentId,
+      conversationId: session.conversationId,
+    })
     update((prev) => ({
       sessions: [...prev.sessions, session],
       activeByAgent: { ...prev.activeByAgent, [agentId]: session.id },
@@ -206,6 +319,10 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
 
   const closeSession = React.useCallback(
     (sessionId: string) => {
+      const serverTarget = state.sessions.find((s) => s.id === sessionId)
+      if (serverTarget) {
+        void updateAiServerConversation(serverTarget.conversationId, { status: 'closed' })
+      }
       update((prev) => {
         const target = prev.sessions.find((s) => s.id === sessionId)
         if (!target) return prev
@@ -227,11 +344,15 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
         return { sessions, activeByAgent }
       })
     },
-    [update],
+    [state.sessions, update],
   )
 
   const reopenSession = React.useCallback(
     (sessionId: string) => {
+      const serverTarget = state.sessions.find((s) => s.id === sessionId)
+      if (serverTarget) {
+        void updateAiServerConversation(serverTarget.conversationId, { status: 'open' })
+      }
       update((prev) => {
         const target = prev.sessions.find((s) => s.id === sessionId)
         if (!target) return prev
@@ -244,7 +365,7 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
         }
       })
     },
-    [update],
+    [state.sessions, update],
   )
 
   const setActiveSession = React.useCallback(
@@ -252,6 +373,7 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
       update((prev) => {
         const target = prev.sessions.find((s) => s.id === sessionId)
         if (!target || target.status !== 'open') return prev
+        if (prev.activeByAgent[target.agentId] === sessionId) return prev
         const sessions = prev.sessions.map((s) =>
           s.id === sessionId ? { ...s, lastUsedAt: Date.now() } : s,
         )
@@ -267,6 +389,12 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
   const renameSession = React.useCallback(
     (sessionId: string, name: string) => {
       const trimmed = name.trim()
+      const serverTarget = state.sessions.find((s) => s.id === sessionId)
+      if (serverTarget) {
+        void updateAiServerConversation(serverTarget.conversationId, {
+          title: trimmed.length > 0 ? trimmed : null,
+        })
+      }
       update((prev) => ({
         ...prev,
         sessions: prev.sessions.map((s) =>
@@ -276,7 +404,7 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
         ),
       }))
     },
-    [update],
+    [state.sessions, update],
   )
 
   const touchSession = React.useCallback(
@@ -334,6 +462,10 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
             lastUsedAt: Date.now(),
             status: 'open',
           }
+          void createAiServerConversation({
+            agentId: mintedSession.agentId,
+            conversationId: mintedSession.conversationId,
+          })
         }
         resolved = mintedSession
         return {

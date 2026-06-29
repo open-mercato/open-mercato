@@ -42,14 +42,43 @@ async function cleanupMessageCopies(
 ): Promise<void> {
   for (const messageId of messageIds) {
     for (const token of tokens) {
-      await deleteMessageIfExists(request, token, messageId);
+  await deleteMessageIfExists(request, token, messageId);
     }
   }
 }
 
+async function waitForFlashEvent(page: Parameters<typeof expectFlashMessage>[0], expectedMessage: string): Promise<boolean> {
+  return page.evaluate((message) => new Promise<boolean>((resolve) => {
+    const timeout = window.setTimeout(() => {
+      window.removeEventListener('flash', handleFlash);
+      resolve(false);
+    }, 10_000);
+
+    function complete(matched: boolean) {
+      window.clearTimeout(timeout);
+      window.removeEventListener('flash', handleFlash);
+      resolve(matched);
+    }
+
+    function handleFlash(event: Event) {
+      const detail = (event as CustomEvent<{ message?: unknown }>).detail;
+      if (detail?.message === message) {
+        complete(true);
+      }
+    }
+
+    if (document.body.textContent?.includes(message)) {
+      complete(true);
+      return;
+    }
+
+    window.addEventListener('flash', handleFlash);
+  }), expectedMessage);
+}
+
 /**
  * TC-MSG-014: Inbox Bulk Archive And Delete
- * Source: .ai/specs/2026-04-23-messages-inbox-bulk-actions.md
+ * Source: .ai/specs/implemented/2026-04-23-messages-inbox-bulk-actions.md
  */
 test.describe('TC-MSG-014: Inbox Bulk Archive And Delete', () => {
   test('should report partial archive success and confirm bulk delete', async ({ page, request }) => {
@@ -94,8 +123,9 @@ test.describe('TC-MSG-014: Inbox Bulk Archive And Delete', () => {
 
       await selectMessageRowsBySubject(page, [`${archivePrefix} alpha`, `${archivePrefix} beta`]);
       await expect(page.getByText('2 selected')).toBeVisible();
+      const partialArchiveFlashPromise = waitForFlashEvent(page, '1 of 2 messages processed; 1 failed.');
       await page.getByRole('button', { name: /^Archive$/i }).click();
-      await expectFlashMessage(page, '1 of 2 messages processed; 1 failed.');
+      expect(await partialArchiveFlashPromise).toBe(true);
       await expect(page.getByText('2 selected')).toHaveCount(0);
 
       await expect.poll(async () => {

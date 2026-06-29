@@ -7,9 +7,38 @@ import {
   type AiAgentExtensionConfigEntry,
   type AiAgentOverrideConfigEntry,
 } from './ai-overrides'
+import { TASK_PLAN_TOOL_NAME } from './task-plan-labels'
+import { findGeneratedFile, compileAndImportGenerated } from './generated-registry-loader'
 
 const agentsById = new Map<string, AiAgentDefinition>()
 let loaded = false
+
+/**
+ * Import the generated `ai-agents.generated.ts` registry.
+ *
+ * Dual-strategy, mirroring `tool-loader`'s `importGeneratedAiToolsModule`:
+ *  1. Prefer the `@/` path-alias import — the Next.js bundler resolves it at
+ *     build time, so the in-app agent runtime is unchanged.
+ *  2. Fall back to locating + compiling the file from disk when the alias
+ *     import throws. That only happens in a standalone Node process (the
+ *     `mcp:dev` / `mcp:serve` MCP servers), where `@/` is not a real package
+ *     specifier and Node throws `ERR_MODULE_NOT_FOUND`. Without this the
+ *     `meta.list_agents` / `meta.describe_agent` tools return an empty agent
+ *     registry over MCP.
+ *
+ * Returns `null` when no generated file exists (pre-generate builds, tests).
+ */
+async function importGeneratedAiAgentsModule(): Promise<Record<string, unknown> | null> {
+  try {
+    return (await import(
+      '@/.mercato/generated/ai-agents.generated'
+    )) as Record<string, unknown>
+  } catch {
+    const tsPath = findGeneratedFile('ai-agents.generated.ts')
+    if (!tsPath) return null
+    return compileAndImportGenerated(tsPath)
+  }
+}
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string')
@@ -29,6 +58,11 @@ function isAiAgentExtension(value: unknown): value is AiAgentExtension {
     (!('replaceAllowedTools' in candidate) || isStringArray(candidate.replaceAllowedTools)) &&
     (!('deleteAllowedTools' in candidate) || isStringArray(candidate.deleteAllowedTools)) &&
     (!('appendAllowedTools' in candidate) || isStringArray(candidate.appendAllowedTools)) &&
+    (!('taskPlan' in candidate) ||
+      (candidate.taskPlan != null &&
+        typeof candidate.taskPlan === 'object' &&
+        (!('enabled' in candidate.taskPlan) ||
+          typeof (candidate.taskPlan as { enabled?: unknown }).enabled === 'boolean'))) &&
     (!('replaceSystemPrompt' in candidate) || typeof candidate.replaceSystemPrompt === 'string') &&
     (!('appendSystemPrompt' in candidate) || typeof candidate.appendSystemPrompt === 'string') &&
     (!('replaceSuggestions' in candidate) ||
@@ -56,6 +90,28 @@ function isAiAgentDefinition(value: unknown): value is AiAgentDefinition {
 
 function uniqueStrings(values: readonly string[]): string[] {
   return Array.from(new Set(values.filter((value) => typeof value === 'string' && value.length > 0)))
+}
+
+export function isAgentTaskPlanEnabled(agent: Pick<AiAgentDefinition, 'taskPlan'>): boolean {
+  return agent.taskPlan?.enabled === true
+}
+
+function normalizeTaskPlanTool(agent: AiAgentDefinition): AiAgentDefinition {
+  const enabled = isAgentTaskPlanEnabled(agent)
+  const withoutInternalTool = agent.allowedTools.filter((toolName) => toolName !== TASK_PLAN_TOOL_NAME)
+  const allowedTools = enabled
+    ? uniqueStrings([...withoutInternalTool, TASK_PLAN_TOOL_NAME])
+    : uniqueStrings(withoutInternalTool)
+  if (
+    allowedTools.length === agent.allowedTools.length &&
+    allowedTools.every((toolName, index) => toolName === agent.allowedTools[index])
+  ) {
+    return agent
+  }
+  return {
+    ...agent,
+    allowedTools,
+  }
 }
 
 function applyStringListPatch(
@@ -106,9 +162,10 @@ function applySuggestionPatch(
 }
 
 function validateAndNormalizeAgent(candidate: AiAgentDefinition): AiAgentDefinition {
+  const taskPlanNormalized = normalizeTaskPlanTool(candidate)
   const rawProvider = candidate.defaultProvider
   if (typeof rawProvider !== 'string' || rawProvider.trim().length === 0) {
-    return candidate
+    return taskPlanNormalized
   }
   const providerHint = rawProvider.trim()
   const registered = llmProviderRegistry.get(providerHint)
@@ -118,9 +175,9 @@ function validateAndNormalizeAgent(candidate: AiAgentDefinition): AiAgentDefinit
         `The agent will be registered with defaultProvider: undefined so the resolution chain still works. ` +
         `Built-in provider ids: anthropic, google, openai, deepinfra, groq, together, fireworks, azure, litellm, ollama.`,
     )
-    return { ...candidate, defaultProvider: undefined }
+    return { ...taskPlanNormalized, defaultProvider: undefined }
   }
-  return candidate
+  return taskPlanNormalized
 }
 
 function populateFromAgents(agents: unknown[]): void {
@@ -141,10 +198,10 @@ function populateFromAgents(agents: unknown[]): void {
 
 async function loadOverrideEntries(): Promise<AiAgentOverrideConfigEntry[]> {
   try {
-    const mod = (await import(
-      '@/.mercato/generated/ai-agents.generated'
-    )) as { aiAgentOverrideEntries?: unknown[] }
-    return Array.isArray(mod.aiAgentOverrideEntries)
+    const mod = (await importGeneratedAiAgentsModule()) as {
+      aiAgentOverrideEntries?: unknown[]
+    } | null
+    return mod && Array.isArray(mod.aiAgentOverrideEntries)
       ? (mod.aiAgentOverrideEntries as AiAgentOverrideConfigEntry[])
       : []
   } catch {
@@ -167,12 +224,13 @@ function applyOverridesToRegistry(entries: readonly AiAgentOverrideConfigEntry[]
 
 async function loadExtensionEntries(): Promise<AiAgentExtension[]> {
   try {
-    const mod = (await import(
-      '@/.mercato/generated/ai-agents.generated'
-    )) as { aiAgentExtensionEntries?: unknown[] }
-    const entries = Array.isArray(mod.aiAgentExtensionEntries)
-      ? (mod.aiAgentExtensionEntries as AiAgentExtensionConfigEntry[])
-      : []
+    const mod = (await importGeneratedAiAgentsModule()) as {
+      aiAgentExtensionEntries?: unknown[]
+    } | null
+    const entries =
+      mod && Array.isArray(mod.aiAgentExtensionEntries)
+        ? (mod.aiAgentExtensionEntries as AiAgentExtensionConfigEntry[])
+        : []
     return composeAgentExtensionEntries(entries).filter(isAiAgentExtension)
   } catch {
     return []
@@ -193,13 +251,14 @@ function applyExtensionsToRegistry(extensions: readonly AiAgentExtension[]): voi
     const replacementSystemPrompt = extension.replaceSystemPrompt?.trim()
     const appendSystemPrompt = extension.appendSystemPrompt?.trim()
     const systemPrompt = replacementSystemPrompt ?? agent.systemPrompt.trim()
-    agentsById.set(agent.id, {
+    const patchedAgent: AiAgentDefinition = {
       ...agent,
       allowedTools: applyStringListPatch(agent.allowedTools, {
         replace: extension.replaceAllowedTools,
         delete: extension.deleteAllowedTools,
         append: extension.appendAllowedTools,
       }),
+      taskPlan: extension.taskPlan !== undefined ? extension.taskPlan : agent.taskPlan,
       systemPrompt: appendSystemPrompt
         ? `${systemPrompt}\n\n${appendSystemPrompt}`
         : systemPrompt,
@@ -211,17 +270,18 @@ function applyExtensionsToRegistry(extensions: readonly AiAgentExtension[]): voi
           ...(extension.suggestions ?? []),
         ],
       }),
-    })
+    }
+    agentsById.set(agent.id, validateAndNormalizeAgent(patchedAgent))
   }
 }
 
 export async function loadAgentRegistry(): Promise<void> {
   if (loaded) return
   try {
-    const mod = (await import(
-      '@/.mercato/generated/ai-agents.generated'
-    )) as { allAiAgents?: unknown[] }
-    const agents = Array.isArray(mod.allAiAgents) ? mod.allAiAgents : []
+    const mod = (await importGeneratedAiAgentsModule()) as {
+      allAiAgents?: unknown[]
+    } | null
+    const agents = mod && Array.isArray(mod.allAiAgents) ? mod.allAiAgents : []
     populateFromAgents(agents)
   } catch (error) {
     console.error(

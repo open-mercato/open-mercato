@@ -71,6 +71,7 @@ describe('defineAiAgentExtension', () => {
       replaceAllowedTools: ['catalog.list_products'],
       deleteAllowedTools: ['catalog.old_tool'],
       appendAllowedTools: ['example.catalog_stats'],
+      taskPlan: { enabled: true },
       replaceSystemPrompt: 'Replacement prompt.',
       appendSystemPrompt: 'Use example.catalog_stats for app-level catalog metrics.',
       replaceSuggestions: [
@@ -86,6 +87,7 @@ describe('defineAiAgentExtension', () => {
     expect(extension.replaceAllowedTools).toEqual(['catalog.list_products'])
     expect(extension.deleteAllowedTools).toEqual(['catalog.old_tool'])
     expect(extension.appendAllowedTools).toEqual(['example.catalog_stats'])
+    expect(extension.taskPlan).toEqual({ enabled: true })
     expect(extension.replaceSystemPrompt).toBe('Replacement prompt.')
     expect(extension.deleteSuggestions).toEqual(['Old prompt'])
     expect(extension.appendSuggestions).toEqual([
@@ -128,6 +130,7 @@ describe('defineAiAgent', () => {
       defaultModel: 'gpt-4o',
       acceptedMediaTypes: ['image', 'pdf', 'file'],
       requiredFeatures: ['catalog.products.view'],
+      taskPlan: { enabled: true },
       uiParts: ['mutation-preview-card'],
       readOnly: true,
       mutationPolicy: 'read-only',
@@ -163,6 +166,7 @@ describe('defineAiAgent', () => {
     expect(agent.domain).toBe('catalog')
     expect(agent.acceptedMediaTypes).toEqual(['image', 'pdf', 'file'])
     expect(agent.requiredFeatures).toEqual(['catalog.products.view'])
+    expect(agent.taskPlan).toEqual({ enabled: true })
     expect(agent.uiParts).toEqual(['mutation-preview-card'])
     expect(agent.readOnly).toBe(true)
     expect(agent.defaultModel).toBe('gpt-4o')

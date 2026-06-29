@@ -7,7 +7,8 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { Badge, type BadgeProps } from '@open-mercato/ui/primitives/badge'
+import { Badge } from '@open-mercato/ui/primitives/badge'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -23,7 +24,9 @@ import {
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -39,6 +42,7 @@ import {
   Settings2,
   ShieldCheck,
 } from 'lucide-react'
+import { getSyncRunStatusVariant, getSyncSummaryVariant } from '../../lib/syncRunStatus'
 
 type SyncRunRow = {
   id: string
@@ -65,6 +69,8 @@ type SyncOption = {
   description?: string | null
   providerKey?: string | null
   direction: 'import' | 'export' | 'bidirectional'
+  runMode?: 'generic' | 'provider'
+  canStartRun?: boolean
   supportedEntities: string[]
   hasCredentials: boolean
   isEnabled: boolean
@@ -86,6 +92,7 @@ type SyncScheduleRecord = {
   fullSync: boolean
   isEnabled: boolean
   lastRunAt: string | null
+  updatedAt?: string | null
 }
 
 type SyncSchedulesResponse = {
@@ -100,58 +107,10 @@ type SyncScheduleEditorState = {
   fullSync: boolean
   isEnabled: boolean
   lastRunAt: string | null
-}
-
-const STATUS_STYLES: Record<string, string> = {
-  pending: 'bg-gray-100 text-gray-800',
-  running: 'bg-blue-100 text-blue-800',
-  completed: 'bg-green-100 text-green-800',
-  failed: 'bg-red-100 text-red-800',
-  cancelled: 'bg-yellow-100 text-yellow-800',
-  paused: 'bg-orange-100 text-orange-800',
+  updatedAt?: string | null
 }
 
 const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-
-type SummaryBadgeStyle = {
-  variant: BadgeProps['variant']
-  className?: string
-}
-
-function getSummaryBadgeStyle(kind: 'enabled' | 'disabled' | 'ready' | 'missing' | 'scheduled' | 'paused' | 'none'): SummaryBadgeStyle {
-  if (kind === 'enabled' || kind === 'ready') {
-    return {
-      variant: 'outline',
-      className: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-200',
-    }
-  }
-
-  if (kind === 'disabled' || kind === 'missing') {
-    return {
-      variant: 'outline',
-      className: 'border-red-500/30 bg-red-500/15 text-red-200',
-    }
-  }
-
-  if (kind === 'paused') {
-    return {
-      variant: 'outline',
-      className: 'border-amber-500/30 bg-amber-500/15 text-amber-200',
-    }
-  }
-
-  if (kind === 'scheduled') {
-    return {
-      variant: 'outline',
-      className: 'border-sky-500/30 bg-sky-500/15 text-sky-200',
-    }
-  }
-
-  return {
-    variant: 'outline',
-    className: 'border-muted-foreground/20 bg-muted/50 text-muted-foreground',
-  }
-}
 
 function formatEntityTypeLabel(entityType: string): string {
   return entityType
@@ -169,6 +128,7 @@ function buildDefaultScheduleState(entityType: string): SyncScheduleEditorState 
     fullSync: normalized !== 'products',
     isEnabled: true,
     lastRunAt: null,
+    updatedAt: null,
   }
 }
 
@@ -208,6 +168,7 @@ export default function SyncRunsDashboardPage() {
       params.set('pageSize', '20')
       if (filterValues.status) params.set('status', filterValues.status as string)
       if (filterValues.direction) params.set('direction', filterValues.direction as string)
+      if (search.trim()) params.set('search', search.trim())
       const fallback: ResponsePayload = { items: [], total: 0, page, totalPages: 1 }
       const call = await apiCall<ResponsePayload>(
         `/api/data_sync/runs?${params.toString()}`,
@@ -229,7 +190,7 @@ export default function SyncRunsDashboardPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [page, filterValues, reloadToken, scopeVersion, t])
+  }, [page, filterValues, search, reloadToken, scopeVersion, t])
 
   React.useEffect(() => {
     let cancelled = false
@@ -326,6 +287,7 @@ export default function SyncRunsDashboardPage() {
         fullSync: record.fullSync,
         isEnabled: record.isEnabled,
         lastRunAt: record.lastRunAt,
+        updatedAt: record.updatedAt ?? null,
       })
       setIsLoadingSchedule(false)
     }
@@ -339,6 +301,7 @@ export default function SyncRunsDashboardPage() {
   }, [])
 
   const handleCancel = React.useCallback(async (row: SyncRunRow) => {
+    // optimistic-lock-exempt: run lifecycle action endpoint (cancel), not a concurrent record edit
     const call = await apiCall(`/api/data_sync/runs/${encodeURIComponent(row.id)}/cancel`, {
       method: 'POST',
     }, { fallback: null })
@@ -351,6 +314,7 @@ export default function SyncRunsDashboardPage() {
   }, [t])
 
   const handleRetry = React.useCallback(async (row: SyncRunRow) => {
+    // optimistic-lock-exempt: run lifecycle action endpoint (retry), not a concurrent record edit
     const call = await apiCall(`/api/data_sync/runs/${encodeURIComponent(row.id)}/retry`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -389,6 +353,7 @@ export default function SyncRunsDashboardPage() {
 
     try {
       const call = await runMutation({
+        // optimistic-lock-exempt: starts a new sync run (create), not a concurrent record edit
         operation: () => apiCall<{ id: string }>('/api/data_sync/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -438,20 +403,27 @@ export default function SyncRunsDashboardPage() {
     setIsSavingSchedule(true)
     try {
       const call = await runMutation({
-        operation: () => apiCall<SyncScheduleRecord>('/api/data_sync/schedules', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            integrationId: selectedIntegration.integrationId,
-            entityType: selectedEntityType,
-            direction: selectedDirection,
-            scheduleType: scheduleEditor.scheduleType,
-            scheduleValue: scheduleEditor.scheduleValue.trim(),
-            timezone: scheduleEditor.timezone.trim() || DEFAULT_TIMEZONE,
-            fullSync: scheduleEditor.fullSync,
-            isEnabled: scheduleEditor.isEnabled,
-          }),
-        }, { fallback: null }),
+        // Keyed upsert (POST). When the editor holds an existing schedule's
+        // `updatedAt`, the lock header version-checks the resolved row on the
+        // server; a brand-new schedule has a null `updatedAt`, so the header is
+        // empty and the create path stays unaffected.
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(scheduleEditor.updatedAt),
+          () => apiCall<SyncScheduleRecord>('/api/data_sync/schedules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              integrationId: selectedIntegration.integrationId,
+              entityType: selectedEntityType,
+              direction: selectedDirection,
+              scheduleType: scheduleEditor.scheduleType,
+              scheduleValue: scheduleEditor.scheduleValue.trim(),
+              timezone: scheduleEditor.timezone.trim() || DEFAULT_TIMEZONE,
+              fullSync: scheduleEditor.fullSync,
+              isEnabled: scheduleEditor.isEnabled,
+            }),
+          }, { fallback: null }),
+        ),
         mutationPayload: {
           integrationId: selectedIntegration.integrationId,
           entityType: selectedEntityType,
@@ -470,6 +442,16 @@ export default function SyncRunsDashboardPage() {
       })
 
       if (!call.ok || !call.result) {
+        const conflictError = Object.assign(
+          new Error((call.result as { error?: string } | null)?.error ?? t('data_sync.dashboard.schedule.error', 'Failed to save recurring schedule')),
+          {
+            status: call.status,
+            ...(call.result && typeof call.result === 'object' ? call.result : {}),
+          },
+        )
+        if (surfaceRecordConflict(conflictError, t)) {
+          return
+        }
         flash((call.result as { error?: string } | null)?.error ?? t('data_sync.dashboard.schedule.error', 'Failed to save recurring schedule'), 'error')
         return
       }
@@ -482,6 +464,7 @@ export default function SyncRunsDashboardPage() {
         fullSync: call.result.fullSync,
         isEnabled: call.result.isEnabled,
         lastRunAt: call.result.lastRunAt,
+        updatedAt: call.result.updatedAt ?? null,
       })
       flash(t('data_sync.dashboard.schedule.success', 'Recurring schedule saved'), 'success')
     } catch (error) {
@@ -498,9 +481,12 @@ export default function SyncRunsDashboardPage() {
     setIsDeletingSchedule(true)
     try {
       const call = await runMutation({
-        operation: () => apiCall(`/api/data_sync/schedules/${encodeURIComponent(scheduleEditor.id as string)}`, {
-          method: 'DELETE',
-        }, { fallback: null }),
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(scheduleEditor.updatedAt),
+          () => apiCall(`/api/data_sync/schedules/${encodeURIComponent(scheduleEditor.id as string)}`, {
+            method: 'DELETE',
+          }, { fallback: null }),
+        ),
         mutationPayload: {
           scheduleId: scheduleEditor.id,
         },
@@ -523,7 +509,7 @@ export default function SyncRunsDashboardPage() {
     } finally {
       setIsDeletingSchedule(false)
     }
-  }, [runMutation, scheduleEditor.id, selectedEntityType, t])
+  }, [runMutation, scheduleEditor.id, scheduleEditor.updatedAt, selectedEntityType, t])
 
   const filters: FilterDef[] = [
     {
@@ -574,9 +560,9 @@ export default function SyncRunsDashboardPage() {
       accessorKey: 'status',
       header: t('data_sync.dashboard.columns.status'),
       cell: ({ row }) => (
-        <Badge variant="secondary" className={STATUS_STYLES[row.original.status] ?? ''}>
+        <StatusBadge variant={getSyncRunStatusVariant(row.original.status)}>
           {t(`data_sync.dashboard.status.${row.original.status}`)}
-        </Badge>
+        </StatusBadge>
       ),
     },
     {
@@ -602,13 +588,14 @@ export default function SyncRunsDashboardPage() {
     selectedIntegration
     && selectedEntityType
     && selectedIntegration.isEnabled
+    && selectedIntegration.canStartRun !== false
     && selectedIntegration.hasCredentials,
   )
   const hasSavedSchedule = Boolean(scheduleEditor.id)
   const selectedEntityLabel = selectedEntityType ? formatEntityTypeLabel(selectedEntityType) : t('data_sync.dashboard.columns.entityType')
-  const integrationStateBadge = getSummaryBadgeStyle(selectedIntegration?.isEnabled ? 'enabled' : 'disabled')
-  const credentialsBadge = getSummaryBadgeStyle(selectedIntegration?.hasCredentials ? 'ready' : 'missing')
-  const scheduleBadge = getSummaryBadgeStyle(
+  const integrationStateVariant = getSyncSummaryVariant(selectedIntegration?.isEnabled ? 'enabled' : 'disabled')
+  const credentialsVariant = getSyncSummaryVariant(selectedIntegration?.hasCredentials ? 'ready' : 'missing')
+  const scheduleVariant = getSyncSummaryVariant(
     hasSavedSchedule
       ? (scheduleEditor.isEnabled ? 'scheduled' : 'paused')
       : 'none',
@@ -652,19 +639,19 @@ export default function SyncRunsDashboardPage() {
                   <ArrowRightLeft className="size-3.5" />
                   {t(`data_sync.dashboard.direction.${selectedDirection}`)}
                 </Badge>
-                <Badge variant={integrationStateBadge.variant} className={`gap-1.5 ${integrationStateBadge.className ?? ''}`}>
+                <Badge variant={integrationStateVariant} className="gap-1.5">
                   <ShieldCheck className="size-3.5" />
                   {selectedIntegration.isEnabled
                     ? t('data_sync.dashboard.start.status.enabled', 'Integration enabled')
                     : t('data_sync.dashboard.start.status.disabled', 'Integration disabled')}
                 </Badge>
-                <Badge variant={credentialsBadge.variant} className={`gap-1.5 ${credentialsBadge.className ?? ''}`}>
+                <Badge variant={credentialsVariant} className="gap-1.5">
                   <PlugZap className="size-3.5" />
                   {selectedIntegration.hasCredentials
                     ? t('data_sync.dashboard.start.status.credentialsReady', 'Credentials ready')
                     : t('data_sync.dashboard.start.status.credentialsMissing', 'Credentials missing')}
                 </Badge>
-                <Badge variant={scheduleBadge.variant} className={`gap-1.5 ${scheduleBadge.className ?? ''}`}>
+                <Badge variant={scheduleVariant} className="gap-1.5">
                   <CalendarClock className="size-3.5" />
                   {hasSavedSchedule
                     ? (scheduleEditor.isEnabled
@@ -975,6 +962,13 @@ export default function SyncRunsDashboardPage() {
                 </AlertDescription>
               </Alert>
             ) : null}
+            {selectedIntegration && selectedIntegration.canStartRun === false ? (
+              <Alert variant="info">
+                <AlertDescription>
+                  {t('data_sync.dashboard.start.providerManaged', 'This integration starts sync runs from its own setup flow. Open the integration settings page to continue.')}
+                </AlertDescription>
+              </Alert>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -989,6 +983,7 @@ export default function SyncRunsDashboardPage() {
           onFiltersClear={handleFiltersClear}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
+          searchPlaceholder={t('data_sync.dashboard.searchPlaceholder')}
           perspective={{ tableId: 'data_sync.runs' }}
           onRowClick={(row) => {
             router.push(`/backend/data-sync/runs/${encodeURIComponent(row.id)}`)

@@ -6,6 +6,7 @@ import type {
   PageRouteMiddleware,
 } from '@open-mercato/shared/modules/middleware/page'
 import { CONTINUE_PAGE_MIDDLEWARE, matchPageMiddlewareTarget } from '@open-mercato/shared/modules/middleware/page'
+import { applyPageGuardOverridesToEntries } from '@open-mercato/shared/modules/overrides'
 
 type ExecutePageMiddlewareArgs = {
   entries: PageMiddlewareRegistryEntry[]
@@ -31,7 +32,7 @@ function flattenAndSortMiddleware(
   mode: PageMiddlewareMode,
   pathname: string
 ): PageRouteMiddleware[] {
-  return entries
+  return applyPageGuardOverridesToEntries(entries)
     .flatMap((entry) => entry.middleware)
     .filter((middleware) => shouldRunMiddleware(middleware, mode, pathname))
     .sort(compareMiddleware)

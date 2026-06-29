@@ -57,7 +57,7 @@ function readString(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
-function buildDealAnalyzerPageContext(context: HostInjectionContext | undefined): DealAnalyzerPageContext {
+export function buildDealAnalyzerPageContext(context: HostInjectionContext | undefined): DealAnalyzerPageContext {
   const selectedIdsRaw = Array.isArray(context?.selectedRowIds) ? context?.selectedRowIds ?? [] : []
   const selectedIds = selectedIdsRaw.map(readString).filter((id) => id.length > 0)
   const selectedCount = selectedIds.length > 0

@@ -2,13 +2,32 @@
 
 Use `packages/checkout/src/modules/checkout/` for all checkout module work.
 
-## MUST Rules
+## Always
 
 1. MUST keep checkout isolated from core business modules; use DI, events, and UMES surfaces instead of direct module internals.
 2. MUST treat public pay-page security as server-authoritative. Never trust submitted amount, status, or consent state from the client.
 3. MUST store checkout customer PII through the platform encryption pipeline and gate admin PII exposure behind `checkout.viewPii`.
 4. MUST keep pay-page replacement handles and UMES spot IDs stable once released.
 5. MUST follow the pay-links Phase A spec and its companion wireframes before changing checkout UI or API behavior.
+
+## Ask First
+
+- Ask before changing checkout payment state transitions, public pay-page API contracts, password verification, or allowed-origin behavior.
+- Ask before adding a gateway-specific shortcut outside the provider or integration boundary.
+
+## Never
+
+- Never trust submitted amount, status, or consent state from the client.
+- Never expose gateway credentials, gateway settings, password hashes, or prior-customer data from public routes.
+- Never make checkout transaction status updates non-idempotent.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/checkout test
+yarn workspace @open-mercato/checkout build
+```
 
 ## Reference Files
 
@@ -33,4 +52,5 @@ Use `packages/checkout/src/modules/checkout/` for all checkout module work.
 - Password verification must remain slug-bound and cookie-backed.
 - Checkout transaction status updates must be idempotent because gateway events and status polling can race.
 - The public submit endpoint validates Origin/Referer headers against allowed origins. Extra origins can be added via `CHECKOUT_ALLOWED_ORIGINS` (comma-separated) for cross-domain pay pages.
+- Gateway-bound `successUrl`/`cancelUrl` and the embedded session's `returnUrl`/`cancelUrl` are built from a **server-pinned origin** (`APP_URL`/`NEXT_PUBLIC_APP_URL`, or `CHECKOUT_ALLOWED_ORIGINS`), never from the inbound request `Host`/`X-Forwarded-Host` — otherwise a spoofed Host would redirect payers to an attacker origin (open redirect / phishing). The allowed-origins set used to validate `Origin`/`Referer` (and to reject spoofed `Host`/`X-Forwarded-Host`) is likewise built only from those configured values. A non-loopback deployment with no configured origin rejects submit with `500 Checkout origin is not configured`; configure `APP_URL`/`NEXT_PUBLIC_APP_URL`.
 - Idempotency-Key must be 16–128 characters to prevent trivially guessable keys.

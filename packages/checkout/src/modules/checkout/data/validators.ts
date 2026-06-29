@@ -29,17 +29,20 @@ const hexColorSchema = z.string().regex(/^#([0-9a-fA-F]{6})$/, {
 const currencyCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, {
   message: 'checkout.validation.common.invalidCurrencyCode',
 })
-const optionalTrimmedString = z.union([z.string(), z.null(), z.undefined()])
-  .transform(normalizeBlankString)
-  .pipe(z.string().trim().min(1, { message: 'checkout.validation.common.required' }).optional().nullable())
-const optionalUrlSchema = z.union([z.string(), z.null(), z.undefined()])
-  .transform(normalizeBlankString)
-  .pipe(z.string().url('checkout.validation.common.invalidUrl').optional().nullable())
-const optionalFieldsetCodeSchema = z.union([z.string(), z.null(), z.undefined()])
-  .transform(normalizeBlankString)
-  .pipe(z.string().regex(fieldsetCodeRegex, {
+const optionalTrimmedString = z.preprocess(
+  normalizeBlankString,
+  z.string().trim().min(1, { message: 'checkout.validation.common.required' }).optional().nullable(),
+)
+const optionalUrlSchema = z.preprocess(
+  normalizeBlankString,
+  z.string().url('checkout.validation.common.invalidUrl').optional().nullable(),
+)
+const optionalFieldsetCodeSchema = z.preprocess(
+  normalizeBlankString,
+  z.string().regex(fieldsetCodeRegex, {
     message: 'checkout.validation.common.invalidFieldsetCode',
-  }).optional().nullable())
+  }).optional().nullable(),
+)
 const positiveMoneySchema = z.coerce.number().finite('checkout.validation.common.invalidNumber').nonnegative('checkout.validation.common.nonNegativeNumber')
 const linkStatusSchema = z.enum(CHECKOUT_LINK_STATUSES)
 
@@ -106,7 +109,7 @@ const checkoutContentSchema = z.object({
   customAmountMax: positiveMoneySchema.optional().nullable(),
   customAmountCurrencyCode: currencyCodeSchema.optional().nullable(),
   priceListItems: z.array(priceListItemSchema).optional().nullable(),
-  gatewayProviderKey: requiredTrimmedString('checkout.validation.gatewayProviderKey.required'),
+  gatewayProviderKey: optionalTrimmedString,
   gatewaySettings: gatewaySettingsSchema,
   customFieldsetCode: optionalFieldsetCodeSchema,
   collectCustomerDetails: z.boolean().default(true),
@@ -171,7 +174,16 @@ function validatePricingConsistency<T extends z.infer<typeof checkoutContentSche
   }
 }
 
-export const createTemplateSchema = checkoutContentSchema.superRefine(validatePricingConsistency)
+export const createTemplateSchema = checkoutContentSchema.superRefine((value, ctx) => {
+  validatePricingConsistency(value, ctx)
+  if (!value.gatewayProviderKey) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'checkout.validation.gatewayProviderKey.required',
+      path: ['gatewayProviderKey'],
+    })
+  }
+})
 
 function applyPartialPricingConsistency(value: Record<string, unknown>, ctx: z.RefinementCtx) {
   if (!value.pricingMode) return
@@ -192,6 +204,13 @@ export const updateTemplateSchema = checkoutContentSchema.partial().extend({
   customerFieldsSchema: z.array(customerFieldDefinitionSchema).optional(),
 }).superRefine((value, ctx) => {
   applyPartialPricingConsistency(value, ctx)
+  if (Object.prototype.hasOwnProperty.call(value, 'gatewayProviderKey') && !value.gatewayProviderKey) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'checkout.validation.gatewayProviderKey.required',
+      path: ['gatewayProviderKey'],
+    })
+  }
 })
 
 export const createLinkSchema = createTemplateSchema.safeExtend({

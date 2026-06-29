@@ -129,4 +129,77 @@ describe('settings navigation helpers', () => {
 
     expect(entries.map((item) => item.href)).toContain('/backend/customer_accounts/users')
   })
+
+  // Regression for GH #2070: an employee without any `configs.*` grant must not
+  // see the system-status page in the sidebar (including settings sections),
+  // even when modules with adjacent prefixes are granted.
+  it('hides routes whose required features are not granted, including settings-context pages', async () => {
+    const employeeGrants = [
+      'sales.orders.view',
+      'sales.quotes.view',
+      'inbox_ops.proposals.view',
+    ]
+    const entries = await buildAdminNav(
+      [
+        {
+          id: 'sales',
+          backendRoutes: [
+            {
+              pattern: '/backend/sales/orders',
+              title: 'Orders',
+              requireFeatures: ['sales.orders.view'],
+            },
+            {
+              pattern: '/backend/sales/quotes',
+              title: 'Quotes',
+              requireFeatures: ['sales.quotes.view'],
+            },
+          ],
+        },
+        {
+          id: 'inbox_ops',
+          backendRoutes: [
+            {
+              pattern: '/backend/inbox-ops',
+              title: 'Proposals',
+              requireFeatures: ['inbox_ops.proposals.view'],
+            },
+          ],
+        },
+        {
+          id: 'configs',
+          backendRoutes: [
+            {
+              pattern: '/backend/config/system-status',
+              title: 'System status',
+              requireFeatures: ['configs.system_status.view'],
+              pageContext: 'settings',
+              group: 'System',
+              groupKey: 'settings.sections.system',
+            },
+          ],
+        },
+      ],
+      { auth: { roles: [] } },
+      undefined,
+      undefined,
+      {
+        checkFeatures: async (features: string[]) =>
+          features.filter((feature) => employeeGrants.includes(feature)),
+      },
+    )
+
+    const hrefs = entries.map((item) => item.href)
+    expect(hrefs).toContain('/backend/sales/orders')
+    expect(hrefs).toContain('/backend/sales/quotes')
+    expect(hrefs).toContain('/backend/inbox-ops')
+    expect(hrefs).not.toContain('/backend/config/system-status')
+
+    // The filtered settings entry must also be absent from any settings section.
+    const settingsSections = buildSettingsSections(entries, { system: 1 })
+    const allSettingsHrefs = settingsSections.flatMap((section) =>
+      section.items.map((item) => item.href),
+    )
+    expect(allSettingsHrefs).not.toContain('/backend/config/system-status')
+  })
 })

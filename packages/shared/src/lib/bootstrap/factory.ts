@@ -13,6 +13,7 @@ import { registerMutationGuards } from '../crud/mutation-guard-store'
 import { registerCommandInterceptors } from '../commands/command-interceptor-store'
 import { registerNotificationHandlers } from '../notifications/handler-registry'
 import { clearRegisteredIntegrations, registerBundles, registerIntegrations } from '../../modules/integrations/types'
+import { applyComponentOverridesToEntries } from '../../modules/overrides'
 
 let _bootstrapped = false
 
@@ -82,7 +83,8 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
 
     // === 6d. Component overrides (for page/component replacement) ===
     if (data.componentOverrideEntries) {
-      const allOverrides = data.componentOverrideEntries.flatMap((entry) => entry.componentOverrides ?? [])
+      const finalEntries = applyComponentOverridesToEntries(data.componentOverrideEntries)
+      const allOverrides = finalEntries.flatMap((entry) => entry.componentOverrides ?? [])
       registerComponentOverrides(allOverrides)
     }
 

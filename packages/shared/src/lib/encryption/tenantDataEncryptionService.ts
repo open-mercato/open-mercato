@@ -3,7 +3,6 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { decryptWithAesGcm, encryptWithAesGcm, hashForLookup } from './aes'
 import { createKmsService, type KmsService, type TenantDek } from './kms'
 import { isTenantDataEncryptionEnabled, isEncryptionDebugEnabled } from './toggles'
-import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
 
 export type EncryptedFieldRule = {
   field: string
@@ -21,7 +20,15 @@ type MapCacheKey = {
   organizationId: string | null
 }
 
+type SqlConnection = {
+  execute(sql: string, params?: readonly unknown[]): Promise<unknown>
+}
+
 const MAP_MISS_TTL_MS = 5 * 60 * 1000
+// Mirror the Vault KMS default DEK TTL so a rotated/revoked tenant key is picked
+// up by long-lived processes without a restart (#2746). The service-level cache
+// previously had no TTL and shadowed the KMS's own 15-minute expiry.
+const DEK_CACHE_TTL_MS = 15 * 60 * 1000
 
 function cacheKey(key: MapCacheKey): string {
   return [
@@ -86,21 +93,63 @@ export function parseDecryptedFieldValue(decrypted: string): unknown {
   }
 }
 
-function isEncryptedPayload(value: unknown): boolean {
+/**
+ * A value is only treated as "already encrypted" when it actually decrypts
+ * under the tenant DEK — i.e. the AES-GCM authentication tag verifies. A purely
+ * structural `<iv>:<ct>:<tag>:v1` shape check is forgeable: attacker-controlled
+ * field values (e.g. their own profile email/phone) could impersonate ciphertext
+ * to skip encryption-at-rest and the lookup hash entirely (issue #2720). Binding
+ * the check to a successful authenticated decrypt makes forgery infeasible, so a
+ * fake payload simply gets encrypted like any other plaintext.
+ */
+function isEncryptedWithDek(value: unknown, dek: TenantDek): boolean {
   if (typeof value !== 'string') return false
   const parts = value.split(':')
-  return parts.length === 4 && parts[3] === 'v1'
+  if (parts.length !== 4 || parts[3] !== 'v1') return false
+  return decryptWithAesGcm(value, dek.key) !== null
+}
+
+function normalizeEncryptedFieldNames(fields: readonly { field?: unknown }[] | null | undefined): string[] {
+  if (!Array.isArray(fields)) return []
+  return fields
+    .map((rule) => rule.field)
+    .filter((field): field is string => typeof field === 'string' && field.trim().length > 0)
+}
+
+function readEncryptedFieldsJson(row: Record<string, unknown>): EncryptedFieldRule[] {
+  const raw = row.fields_json ?? row.fieldsJson
+  if (Array.isArray(raw)) return raw as EncryptedFieldRule[]
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed as EncryptedFieldRule[] : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+function getSqlConnection(em: EntityManager): SqlConnection | null {
+  const source = em as { getConnection?: () => unknown }
+  const conn = source.getConnection?.()
+  if (!conn || typeof conn !== 'object') return null
+  const candidate = conn as { execute?: unknown }
+  if (typeof candidate.execute !== 'function') return null
+  return candidate as SqlConnection
 }
 
 export class TenantDataEncryptionService {
   private static globalMemoryCache = new Map<string, EncryptionMapRecord>()
   private static globalInflightMaps = new Map<string, Promise<EncryptionMapRecord | null>>()
   private static globalDekCache = new Map<string, TenantDek>()
+  private static globalInflightDeks = new Map<string, Promise<TenantDek | null>>()
   private static globalMissCache = new Map<string, number>()
   private readonly kms: KmsService
   private readonly cache?: CacheStrategy
   private readonly memoryCache = TenantDataEncryptionService.globalMemoryCache
   private readonly dekCache = TenantDataEncryptionService.globalDekCache
+  private readonly inflightDeks = TenantDataEncryptionService.globalInflightDeks
   private readonly inflightMaps = TenantDataEncryptionService.globalInflightMaps
   private readonly missCache = TenantDataEncryptionService.globalMissCache
 
@@ -116,10 +165,15 @@ export class TenantDataEncryptionService {
     return isTenantDataEncryptionEnabled() && this.kms.isHealthy()
   }
 
+  private isDekExpired(dek: TenantDek): boolean {
+    return Date.now() - dek.fetchedAt > DEK_CACHE_TTL_MS
+  }
+
   async getDek(tenantId: string | null | undefined): Promise<TenantDek | null> {
     if (!tenantId) return null
     const cached = this.dekCache.get(tenantId)
-    if (cached) return cached
+    if (cached && !this.isDekExpired(cached)) return cached
+    if (cached) this.dekCache.delete(tenantId)
     const dek = await this.kms.getTenantDek(tenantId)
     if (!dek) {
       debug('🔎 dek.miss', { tenantId })
@@ -134,9 +188,22 @@ export class TenantDataEncryptionService {
     const existing = await this.getDek(tenantId)
     if (existing || !tenantId) return existing ?? null
     if (typeof this.kms.createTenantDek !== 'function') return existing ?? null
-    const created = await this.kms.createTenantDek(tenantId)
-    if (created) this.dekCache.set(tenantId, created)
-    return created ?? null
+    // Dedupe concurrent first-time creation within this process so two callers
+    // can't each generate a distinct DEK and overwrite one another (#2746).
+    // Mirrors the encryption-map inflight dedupe (`globalInflightMaps`).
+    const pending = this.inflightDeks.get(tenantId)
+    if (pending) return pending
+    const creation = (async () => {
+      const created = await this.kms.createTenantDek(tenantId)
+      if (created) this.dekCache.set(tenantId, created)
+      return created ?? null
+    })()
+    this.inflightDeks.set(tenantId, creation)
+    try {
+      return await creation
+    } finally {
+      this.inflightDeks.delete(tenantId)
+    }
   }
 
   async createDek(tenantId: string): Promise<TenantDek | null> {
@@ -147,8 +214,8 @@ export class TenantDataEncryptionService {
 
   private async fetchMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
     // Bypass ORM lifecycle hooks to avoid recursive decrypt loops by querying directly.
-    const conn: any = (this.em as any)?.getConnection?.()
-    if (!conn || typeof conn.execute !== 'function') return null
+    const conn = getSqlConnection(this.em)
+    if (!conn) return null
     const sql = `
       select entity_id, fields_json
       from encryption_maps
@@ -160,15 +227,13 @@ export class TenantDataEncryptionService {
       limit 1
     `
     const rows = await conn.execute(sql, [key.entityId, key.tenantId ?? null, key.organizationId ?? null])
-    const row = Array.isArray(rows) && rows.length ? rows[0] : null
+    const row = Array.isArray(rows) && rows.length && rows[0] && typeof rows[0] === 'object'
+      ? rows[0] as Record<string, unknown>
+      : null
     if (!row) return null
     return {
-      entityId: row.entity_id || row.entityId || key.entityId,
-      fields: Array.isArray(row.fields_json)
-        ? (row.fields_json as EncryptedFieldRule[])
-        : Array.isArray(row.fieldsJson)
-          ? (row.fieldsJson as EncryptedFieldRule[])
-          : [],
+      entityId: String(row.entity_id ?? row.entityId ?? key.entityId),
+      fields: readEncryptedFieldsJson(row),
     }
   }
 
@@ -226,6 +291,30 @@ export class TenantDataEncryptionService {
     return null
   }
 
+  private async fetchAllOrganizationFieldNames(entityId: string, tenantId: string | null): Promise<string[]> {
+    const conn = getSqlConnection(this.em)
+    if (!conn) return []
+    const sql = `
+      select fields_json
+      from encryption_maps
+      where entity_id = ?
+        and tenant_id is not distinct from ?
+        and organization_id is not null
+        and is_active = true
+        and deleted_at is null
+    `
+    const rows = await conn.execute(sql, [entityId, tenantId])
+    if (!Array.isArray(rows) || rows.length === 0) return []
+    const names = new Set<string>()
+    for (const row of rows) {
+      if (!row || typeof row !== 'object') continue
+      for (const field of normalizeEncryptedFieldNames(readEncryptedFieldsJson(row as Record<string, unknown>))) {
+        names.add(field)
+      }
+    }
+    return Array.from(names)
+  }
+
   async invalidateMap(entityId: string, tenantId: string | null, organizationId: string | null): Promise<void> {
     const tag = cacheKey({ entityId, tenantId, organizationId })
     this.memoryCache.delete(tag)
@@ -234,6 +323,31 @@ export class TenantDataEncryptionService {
     if (this.cache && typeof (this.cache as any).delete === 'function') {
       await (this.cache as any).delete(tag)
     }
+  }
+
+  // Force a flush of a tenant's cached DEK across the service-level cache and the
+  // underlying KMS cache so an operator can pick up a rotated/revoked key without
+  // a process restart (#2746).
+  invalidateDek(tenantId: string): void {
+    this.dekCache.delete(tenantId)
+    this.inflightDeks.delete(tenantId)
+    this.kms.invalidateDek?.(tenantId)
+  }
+
+  async getEncryptedFieldNames(
+    entityId: string,
+    tenantId: string | null | undefined,
+    organizationId?: string | null
+  ): Promise<string[]> {
+    if (!this.isEnabled()) return []
+    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
+    const fields = new Set(normalizeEncryptedFieldNames(map?.fields))
+    if (organizationId == null) {
+      for (const field of await this.fetchAllOrganizationFieldNames(entityId, tenantId ?? null)) {
+        fields.add(field)
+      }
+    }
+    return Array.from(fields)
   }
 
   private encryptFields(
@@ -247,8 +361,10 @@ export class TenantDataEncryptionService {
       if (!key) continue
       const value = clone[key]
       if (value === null || value === undefined) continue
-       // Avoid double-encrypting already encrypted payloads
-      if (isEncryptedPayload(value)) continue
+      // Avoid double-encrypting payloads that genuinely decrypt under this DEK.
+      // A forged ciphertext-shaped string fails this check and is encrypted as
+      // plaintext, closing the encryption-at-rest bypass (issue #2720).
+      if (isEncryptedWithDek(value, dek)) continue
       const serialized = typeof value === 'string' ? value : JSON.stringify(value)
       const payload = encryptWithAesGcm(serialized, dek.key)
       clone[key] = payload.value

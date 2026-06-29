@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
@@ -17,8 +18,9 @@ import {
   createWorkflowDefinitionInputSchema,
   type CreateWorkflowDefinitionApiInput,
 } from '../../data/validators'
-import { serializeWorkflowDefinition } from './serialize'
+import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from './serialize'
 import { invalidateTriggerCache } from '../../lib/event-trigger-service'
+import { getAllCodeWorkflows } from '../../lib/code-registry'
 
 export const metadata = {
   requireAuth: true,
@@ -92,23 +94,66 @@ export async function GET(request: NextRequest) {
 
     if (search) {
       where.$or = [
-        { workflowId: { $ilike: `%${search}%` } },
-        { workflowName: { $ilike: `%${search}%` } },
+        { workflowId: { $ilike: `%${escapeLikePattern(search)}%` } },
+        { workflowName: { $ilike: `%${escapeLikePattern(search)}%` } },
       ]
     }
 
-    const [definitions, total] = await em.findAndCount(
-      WorkflowDefinition,
-      where,
-      {
-        orderBy: { createdAt: 'DESC' },
-        limit,
-        offset,
-      }
+    // Determine which code workflows are shadowed by a DB row (so we can
+    // exclude them from the code-only list) without loading all DB rows.
+    const enabledFilter = enabled !== null ? enabled === 'true' : null
+    const searchLower = search ? search.toLowerCase() : null
+    const allCodeIds = getAllCodeWorkflows().map((cw) => cw.workflowId)
+    const shadowed = allCodeIds.length > 0
+      ? new Set(
+          (
+            await em.find(
+              WorkflowDefinition,
+              { ...where, workflowId: { $in: allCodeIds } },
+              { fields: ['workflowId'] as const },
+            )
+          ).map((d: WorkflowDefinition) => d.workflowId),
+        )
+      : new Set<string>()
+
+    const codeOnly = getAllCodeWorkflows()
+      .filter((cw) => !shadowed.has(cw.workflowId))
+      .filter((cw) => {
+        if (searchLower) {
+          const matches =
+            cw.workflowId.toLowerCase().includes(searchLower) ||
+            cw.workflowName.toLowerCase().includes(searchLower)
+          if (!matches) return false
+        }
+        if (enabledFilter !== null && cw.enabled !== enabledFilter) return false
+        if (workflowId && cw.workflowId !== workflowId) return false
+        return true
+      })
+      .map((cw) => serializeCodeWorkflowDefinition(cw, `code:${cw.workflowId}`))
+
+    const dbCount = await em.count(WorkflowDefinition, where)
+    const total = dbCount + codeOnly.length
+
+    // Fetch only the prefix of DB rows we might need to fill the requested
+    // page after merging with the (already-filtered) code-only list.
+    const dbWindowLimit = offset + limit
+    const dbWindow = dbWindowLimit > 0
+      ? await em.find(WorkflowDefinition, where, {
+          orderBy: { workflowName: 'ASC' },
+          limit: dbWindowLimit,
+        })
+      : []
+
+    const serializedDb = dbWindow.map(serializeWorkflowDefinition)
+
+    const merged = [...serializedDb, ...codeOnly].sort((a, b) =>
+      a.workflowName.localeCompare(b.workflowName),
     )
 
+    const paginated = merged.slice(offset, offset + limit)
+
     return NextResponse.json({
-      data: definitions.map(serializeWorkflowDefinition),
+      data: paginated,
       pagination: {
         total,
         limit,

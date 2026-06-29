@@ -30,6 +30,7 @@ import {
 } from './mappings'
 import {
   buildExampleCustomersSyncCommandContext,
+  createScopedSyncContainer,
   EXAMPLE_CUSTOMERS_SYNC_INBOUND_ORIGIN,
   EXAMPLE_CUSTOMERS_SYNC_OUTBOUND_ORIGIN,
   type ExampleCustomersSyncScope,
@@ -461,14 +462,24 @@ async function ensureLegacyExampleMapping(
 }
 
 export async function syncCustomerInteractionToExampleTodo(
-  container: ContainerLike,
+  rawContainer: ContainerLike,
   payload: ExampleCustomersSyncOutboundJobPayload,
 ): Promise<void> {
   const scope = { tenantId: payload.tenantId, organizationId: payload.organizationId }
-  const flags = await resolveExampleCustomersSyncFlags(container, scope.tenantId)
+  const flags = await resolveExampleCustomersSyncFlags(rawContainer, scope.tenantId)
   if (!flags.enabled) return
 
-  const em = (container.resolve('em') as EntityManager).fork()
+  // Worker's own fork — used for reads (findMappingByInteractionId,
+  // loadExampleTodoSnapshot, ensureLegacyExampleMapping) and for the
+  // error-path mapping write (markMappingError). This preserves the
+  // pre-fix behavior of the local em so the catch path keeps working.
+  const em = (rawContainer.resolve('em') as EntityManager).fork()
+  // Separate scoped container — used ONLY for command-bus calls so each
+  // sync invocation gets its own DataEngine.em. This isolates the
+  // identity-map pollution that surfaced as a todos_pkey duplicate inside
+  // setRecordCustomFields when multiple jobs touched the same interaction.id
+  // through the shared request-container DataEngine.
+  const container = createScopedSyncContainer(rawContainer)
   let mapping = await findMappingByInteractionId(em, scope, payload.interactionId)
 
   try {
@@ -600,6 +611,10 @@ export async function syncExampleTodoToCanonicalInteraction(
   const flags = await resolveExampleCustomersSyncFlags(container, scope.tenantId)
   if (!flags.enabled || !flags.bidirectional) return
 
+  // Inbound sync never hit the outbound duplicate-key bug (it creates/updates
+  // canonical interactions, not same-id Todos), so it keeps the original
+  // shared-container behavior — scoping it was speculative and regressed the
+  // inbound field-clear propagation in TC-CRM-028.
   const em = (container.resolve('em') as EntityManager).fork()
   let mapping = await findMappingByTodoId(em, scope, payload.todoId)
   let todo: ExampleTodoSnapshot | null = null
@@ -900,8 +915,8 @@ export async function reconcileLegacyExampleTodoLinks(
 ): Promise<ExampleCustomersSyncReconcileResult> {
   const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
   const limit = Math.min(Math.max(input.limit ?? 100, 1), 500)
-  const { rows, nextCursor } = await loadLegacyExampleTodoLinks(container, scope, limit, input.cursor)
   const em = (container.resolve('em') as EntityManager).fork()
+  const { rows, nextCursor } = await loadLegacyExampleTodoLinks(container, scope, limit, input.cursor)
   const items: ExampleCustomersSyncReconcileItem[] = []
   let mapped = 0
   let createdInteractions = 0

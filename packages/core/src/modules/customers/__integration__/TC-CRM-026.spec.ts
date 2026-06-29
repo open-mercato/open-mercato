@@ -104,7 +104,7 @@ test.describe('TC-CRM-026: Canonical Interactions API', () => {
 
       const createRes = await apiRequest(request, 'POST', '/api/customers/interactions', {
         token,
-        data: { entityId: companyId, interactionType: 'meeting', title: 'CRM-026 cancel test', scheduledAt: '2026-07-01T14:00:00Z' },
+        data: { entityId: companyId, interactionType: 'meeting', title: 'CRM-026 cancel test', scheduledAt: new Date(Date.now() + 30 * 86_400_000).toISOString() },
       });
       expect(createRes.status()).toBe(201);
       const created = await readJsonSafe<JsonRecord>(createRes);
@@ -194,11 +194,11 @@ test.describe('TC-CRM-026: Canonical Interactions API', () => {
       const [callRes, meetingRes] = await Promise.all([
         apiRequest(request, 'POST', '/api/customers/interactions', {
           token,
-          data: { entityId: companyId, interactionType: 'call', title: 'CRM-026 filter call', scheduledAt: '2026-08-01T10:00:00Z' },
+          data: { entityId: companyId, interactionType: 'call', title: 'CRM-026 filter call', scheduledAt: new Date(Date.now() + 30 * 86_400_000).toISOString() },
         }),
         apiRequest(request, 'POST', '/api/customers/interactions', {
           token,
-          data: { entityId: companyId, interactionType: 'meeting', title: 'CRM-026 filter meeting', scheduledAt: '2026-09-01T14:00:00Z' },
+          data: { entityId: companyId, interactionType: 'meeting', title: 'CRM-026 filter meeting', scheduledAt: new Date(Date.now() + 60 * 86_400_000).toISOString() },
         }),
       ]);
       expect(callRes.status()).toBe(201);

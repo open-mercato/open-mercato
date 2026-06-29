@@ -1,4 +1,4 @@
-name: Snapshot Release
+name: Develop Snapshot Release
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -6,12 +6,9 @@ env:
 on:
   push:
     branches: [develop]
-  pull_request:
-    branches: [develop, main, feat/wms]
 
 permissions:
   contents: read
-  pull-requests: write
 
 # Serialize snapshot runs per branch — queue rather than cancel.
 # cancel-in-progress: false is intentional: cancelling mid-publish would
@@ -26,21 +23,18 @@ jobs:
     name: Publish Snapshot
     permissions:
       contents: read
-      pull-requests: write
       id-token: write  # required for npm provenance attestation
     outputs:
       snapshot_version: ${{ steps.release.outputs.version }}
       publish_tag: ${{ steps.channel.outputs.publish_tag }}
       packages_json: ${{ steps.release.outputs.packages_json }}
     runs-on: ubuntu-latest
-    # Skip PRs from forks (no access to secrets)
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     env:
       YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -139,61 +133,6 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Comment on PR
-        if: github.event_name == 'pull_request' && steps.release.outputs.package_count != '0'
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const packages = ${{ steps.release.outputs.packages_json }};
-            const marker = '<!-- canary-release-comment -->';
-
-            let table = '| Package | Version |\n|---------|---------|';
-            for (const pkg of packages) {
-              table += `\n| \`${pkg.name}\` | \`${pkg.version}\` |`;
-            }
-
-            const createAppPkg = packages.find(p => p.name === 'create-mercato-app');
-            const createAppVersion = createAppPkg?.version || 'VERSION';
-
-            const body = `${marker}
-            ## Canary Release Published
-
-            The following packages have been published to npm:
-
-            ${table}
-
-            ### Create a new app
-
-            \`\`\`bash
-            npx create-mercato-app@${createAppVersion} my-app
-            \`\`\`
-            `;
-
-            // Find existing comment
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const existing = comments.find(c => c.body.includes(marker));
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body: body
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: body
-              });
-            }
-
   standalone-integration:
     name: Standalone App Integration Tests
     runs-on: ubuntu-latest
@@ -217,7 +156,7 @@ jobs:
     steps:
       # --- Monorepo setup (for test infrastructure) ---
       - name: Checkout monorepo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -276,6 +215,7 @@ jobs:
           DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test
           APP_URL=http://localhost:3001
           NEXT_PUBLIC_APP_URL=http://localhost:3001
+          AUTH_SECRET=ci-standalone-test-auth-secret
           JWT_SECRET=ci-standalone-test-jwt-secret
           OM_SECURITY_MFA_SETUP_SECRET=ci-standalone-test-mfa-setup-secret
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key
@@ -296,6 +236,7 @@ jobs:
           AUTO_SPAWN_WORKERS=false
           AUTO_SPAWN_SCHEDULER=false
           CACHE_STRATEGY=memory
+          OM_OPTIMISTIC_LOCK=all
           EOF
 
       - name: Install standalone app dependencies
@@ -327,6 +268,8 @@ jobs:
 
       - name: Build standalone app
         working-directory: /tmp/standalone-app
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
         run: yarn build
 
       - name: Start standalone app
@@ -360,6 +303,7 @@ jobs:
           DATABASE_URL: postgres://mercato:secret@localhost:5432/mercato_test
           APP_URL: http://localhost:3001
           NEXT_PUBLIC_APP_URL: http://localhost:3001
+          AUTH_SECRET: ci-standalone-test-auth-secret
           JWT_SECRET: ci-standalone-test-jwt-secret
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ci-standalone-test-fallback-key
           OM_SECURITY_MFA_SETUP_SECRET: ci-standalone-test-mfa-setup-secret

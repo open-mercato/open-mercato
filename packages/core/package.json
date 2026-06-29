@@ -1,6 +1,7 @@
 {
   "name": "@open-mercato/core",
-  "version": "0.6.1",
+  "version": "0.6.5",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -108,6 +109,10 @@
     "./modules/attachments": {
       "types": "./src/modules/attachments/index.ts",
       "default": "./dist/modules/attachments/index.js"
+    },
+    "./modules/attachments/lib/drivers": {
+      "types": "./src/modules/attachments/lib/drivers/index.ts",
+      "default": "./dist/modules/attachments/lib/drivers/index.js"
     },
     "./modules/dashboards": {
       "types": "./src/modules/dashboards/index.ts",
@@ -223,19 +228,22 @@
     }
   },
   "dependencies": {
-    "@mikro-orm/core": "^7.0.15",
-    "@mikro-orm/decorators": "^7.0.15",
-    "@mikro-orm/postgresql": "^7.0.15",
-    "@xyflow/react": "^12.10.2",
-    "ai": "^6.0.177",
-    "date-fns": "^4.1.0",
+    "@mikro-orm/core": "^7.1.4",
+    "@mikro-orm/decorators": "^7.1.4",
+    "@mikro-orm/postgresql": "^7.1.4",
+    "@xyflow/react": "^12.11.0",
+    "ai": "^6.0.208",
+    "date-fns": "4.4.0",
     "date-fns-tz": "^3.2.0",
-    "html-to-text": "^9.0.5",
+    "html-to-text": "^10.0.0",
     "mammoth": "^1.9.0",
-    "pdfjs-dist": "^5.7.284",
-    "semver": "^7.8.0",
+    "pdfjs-dist": "^6.0.227",
+    "resend": "^6.14.0",
+    "sanitize-html": "^2.17.5",
+    "semver": "^7.8.5",
+    "svix": "^1.96.0",
     "ts-pattern": "^5.0.0",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "peerDependencies": {
     "@open-mercato/ai-assistant": "workspace:*",
@@ -254,15 +262,17 @@
     "@types/chance": "^1.1.8",
     "@types/html-to-text": "^9.0.4",
     "@types/jest": "^30.0.0",
-    "@types/react": "^19.2.14",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@types/sanitize-html": "^2.13.0",
     "@types/semver": "^7.5.8",
     "chance": "^1.1.13",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
-    "ts-jest": "^29.4.9"
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
   },
   "publishConfig": {
     "access": "public"

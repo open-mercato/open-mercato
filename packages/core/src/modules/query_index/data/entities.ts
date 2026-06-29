@@ -33,6 +33,10 @@ import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorato
     `create index "entity_indexes_customer_company_profile_tenant_doc_idx" on "entity_indexes" ("tenant_id", "entity_id") include ("doc") where deleted_at is null and entity_type = 'customers:customer_company_profile' and organization_id is null and tenant_id is not null`,
 })
 @Index({ name: 'entity_indexes_type_tenant_idx', properties: ['entityType', 'tenantId'] })
+@Unique({
+  name: 'entity_indexes_type_entity_org_coalesced_unique',
+  properties: ['entityType', 'entityId', 'organizationIdCoalesced'],
+})
 export class EntityIndexRow {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -50,6 +54,14 @@ export class EntityIndexRow {
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   @Index({ name: 'entity_indexes_org_idx' })
   organizationId?: string | null
+
+  @Property({
+    name: 'organization_id_coalesced',
+    type: 'uuid',
+    generated: (cols) => `(coalesce(${cols.organizationId}, '00000000-0000-0000-0000-000000000000'::uuid)) stored`,
+    hidden: true,
+  })
+  organizationIdCoalesced!: string
 
   @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
   tenantId?: string | null
@@ -77,6 +89,16 @@ export class EntityIndexRow {
 
 // Track long-running index jobs (reindex/purge) per entity and org scope
 @Entity({ tableName: 'entity_index_jobs' })
+// Coalesced-scope unique index so prepareJob can upsert atomically and two
+// concurrent schedulers cannot insert duplicate rows for the same scope (#2739).
+// Declared via @Unique with a raw expression (not properties) because the scope
+// columns are nullable and NULLs must collapse to one bucket via coalesce; mirrors
+// the entity_indexes coalesced uniqueness and the domain_mappings expression unique.
+@Unique({
+  name: 'entity_index_jobs_scope_unique',
+  expression:
+    `create unique index "entity_index_jobs_scope_unique" on "entity_index_jobs" ("entity_type", coalesce("organization_id", '00000000-0000-0000-0000-000000000000'::uuid), coalesce("tenant_id", '00000000-0000-0000-0000-000000000000'::uuid), coalesce("partition_index", -1), coalesce("partition_count", -1))`,
+})
 export class EntityIndexJob {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -232,6 +254,7 @@ export class IndexerStatusLog {
 @Entity({ tableName: 'search_tokens' })
 @Index({ name: 'search_tokens_lookup_idx', properties: ['entityType', 'field', 'tokenHash', 'tenantId', 'organizationId'] })
 @Index({ name: 'search_tokens_entity_idx', properties: ['entityType', 'entityId'] })
+@Index({ name: 'search_tokens_tenant_token_hash_idx', properties: ['tenantId', 'tokenHash'] })
 export class SearchToken {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

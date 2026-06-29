@@ -1,5 +1,6 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { DataSyncAdapter, DataMapping, ImportBatch, ImportItem, ValidationResult } from '@open-mercato/core/modules/data_sync/lib/adapter'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { buildListResumeCursor, buildProductResumeCursor, parseCursor } from './cursor'
 import { createAkeneoClient } from './client'
 import { createAkeneoImporter } from './catalog-importer'
@@ -15,7 +16,7 @@ function assertEntityType(entityType: string): AkeneoEntityType {
 
 async function resolveMapping(entityType: AkeneoEntityType, scope: { organizationId: string; tenantId: string }): Promise<AkeneoDataMapping> {
   const container = await createRequestContainer()
-  const em = container.resolve('em')
+  const em = container.resolve('em') as EntityManager
   return loadAkeneoMapping(em, entityType, scope)
 }
 

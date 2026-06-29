@@ -1,6 +1,7 @@
 {
   "name": "@open-mercato/ui",
-  "version": "0.6.1",
+  "version": "0.6.5",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -46,6 +47,10 @@
       "types": "./src/backend/confirm-dialog/index.ts",
       "default": "./dist/backend/confirm-dialog/index.js"
     },
+    "./backend/conflicts": {
+      "types": "./src/backend/conflicts/index.ts",
+      "default": "./dist/backend/conflicts/index.js"
+    },
     "./backend/charts": {
       "types": "./src/backend/charts/index.ts",
       "default": "./dist/backend/charts/index.js"
@@ -69,6 +74,10 @@
     "./backend/forms": {
       "types": "./src/backend/forms/index.ts",
       "default": "./dist/backend/forms/index.js"
+    },
+    "./backend/markdown": {
+      "types": "./src/backend/markdown/index.ts",
+      "default": "./dist/backend/markdown/index.js"
     },
     "./backend/messages": {
       "types": "./src/backend/messages/index.ts",
@@ -127,15 +136,20 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
-    "@radix-ui/react-accordion": "^1.2.4",
-    "@radix-ui/react-popover": "^1.1.6",
-    "@radix-ui/react-radio-group": "^1.2.3",
-    "@radix-ui/react-select": "^2.1.6",
-    "@radix-ui/react-tooltip": "^1.2.8",
-    "@tanstack/react-virtual": "^3.13.24",
-    "date-fns": "^4.1.0",
-    "react-big-calendar": "^1.19.4",
-    "react-day-picker": "^9.14.0",
+    "@mdxeditor/editor": "^4.0.4",
+    "@radix-ui/react-accordion": "^1.2.14",
+    "@radix-ui/react-dialog": "^1.1.17",
+    "@radix-ui/react-popover": "^1.1.17",
+    "@radix-ui/react-radio-group": "^1.4.1",
+    "@radix-ui/react-scroll-area": "^1.2.12",
+    "@radix-ui/react-select": "^2.3.1",
+    "@radix-ui/react-slider": "^1.4.1",
+    "@radix-ui/react-tooltip": "^1.2.10",
+    "@tanstack/react-virtual": "^3.14.3",
+    "cmdk": "^1.0.0",
+    "date-fns": "4.4.0",
+    "react-big-calendar": "^1.20.0",
+    "react-day-picker": "^10.0.1",
     "react-markdown": "^10.1.0",
     "recharts": "^3.8.1",
     "remark-gfm": "^4.0.1"
@@ -152,14 +166,15 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
     "@types/jest": "^30.0.0",
-    "@types/react": "^19.2.14",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
-    "react-is": "^19.2.6",
-    "ts-jest": "^29.4.9"
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-is": "^19.2.7",
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
   },
   "publishConfig": {
     "access": "public"

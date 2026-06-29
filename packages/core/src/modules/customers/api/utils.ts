@@ -191,18 +191,24 @@ export async function findMatchingEntityIdsBySearchTokensAcrossSources({
   if (!trimmed) return null
 
   const enrichedSources = await enrichSearchSourcesWithCustomFieldTokens(ctx, sources)
+  const perSource = await Promise.all(
+    enrichedSources.map(async (source) => {
+      const rawIds = await findSearchTokenEntityIds({
+        ctx,
+        entityType: source.entityType,
+        fields: source.fields,
+        query: trimmed,
+      })
+      if (rawIds === null) return null
+      return source.mapToEntityIds
+        ? await mapScopedEntityIds({ ctx, ids: rawIds, config: source.mapToEntityIds })
+        : rawIds
+    }),
+  )
+
   const matchedIds = new Set<string>()
-  for (const source of enrichedSources) {
-    const rawIds = await findSearchTokenEntityIds({
-      ctx,
-      entityType: source.entityType,
-      fields: source.fields,
-      query: trimmed,
-    })
-    if (rawIds === null) return null
-    const entityIds = source.mapToEntityIds
-      ? await mapScopedEntityIds({ ctx, ids: rawIds, config: source.mapToEntityIds })
-      : rawIds
+  for (const entityIds of perSource) {
+    if (entityIds === null) return null
     entityIds.forEach((id) => matchedIds.add(id))
   }
 

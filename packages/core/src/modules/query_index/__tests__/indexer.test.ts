@@ -1,4 +1,4 @@
-import { buildIndexDoc, upsertIndexRow, markDeleted } from '../../query_index/lib/indexer'
+import { buildIndexDoc, upsertIndexRow, markDeleted, reindexSearchTokensForRecord } from '../../query_index/lib/indexer'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 
 jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
@@ -176,6 +176,97 @@ describe('Indexer', () => {
     // merge payload contains the doc stamp via raw sql fragment (JSON); presence suffices here
     expect(lastInsert.merge).toBeTruthy()
     expect(lastInsert.merge.index_version).toBe(1)
+  })
+
+  test('upsertIndexRow uses an explicit search token doc when provided', async () => {
+    const fake = createFakeKysely({
+      baseTable: 'todos',
+      baseRows: [{ id: '1', title: 'x' }],
+      cfValues: [],
+    })
+    const em: any = { getKysely: () => fake.db }
+
+    await upsertIndexRow(em, {
+      entityType: 'example:todo',
+      recordId: '1',
+      organizationId: 'org1',
+      tenantId: 't1',
+      searchTokenDoc: { title: 'Plain Title' },
+    })
+
+    const tokenInserts = fake.inserts.filter((entry) => entry.table === 'search_tokens')
+    expect(tokenInserts.length).toBeGreaterThan(0)
+    const tokenPayloads = tokenInserts.flatMap((entry) => {
+      if (Array.isArray(entry.payload)) return entry.payload
+      return entry.payload ? [entry.payload] : []
+    })
+    expect(tokenPayloads).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entity_type: 'example:todo',
+        entity_id: '1',
+        field: 'title',
+      }),
+    ]))
+  })
+
+  test('upsertIndexRow with deferSearchTokens updates the projection but skips token writes', async () => {
+    const fake = createFakeKysely({
+      baseTable: 'todos',
+      baseRows: [{ id: '1', title: 'x' }],
+      cfValues: [],
+    })
+    const em: any = { getKysely: () => fake.db }
+
+    await upsertIndexRow(em, {
+      entityType: 'example:todo',
+      recordId: '1',
+      organizationId: 'org1',
+      tenantId: 't1',
+      searchTokenDoc: { title: 'Plain Title' },
+      deferSearchTokens: true,
+    })
+
+    const projectionInserts = fake.inserts.filter((entry) => entry.table === 'entity_indexes')
+    expect(projectionInserts.length).toBeGreaterThan(0)
+    const tokenInserts = fake.inserts.filter((entry) => entry.table === 'search_tokens')
+    const tokenDeletes = fake.deletes.filter((entry) => entry.table === 'search_tokens')
+    expect(tokenInserts.length).toBe(0)
+    expect(tokenDeletes.length).toBe(0)
+  })
+
+  test('reindexSearchTokensForRecord writes tokens for a provided doc', async () => {
+    const fake = createFakeKysely({ baseTable: 'todos', baseRows: [{ id: '1', title: 'x' }], cfValues: [] })
+    const em: any = { getKysely: () => fake.db }
+
+    await reindexSearchTokensForRecord(em, {
+      entityType: 'example:todo',
+      recordId: '1',
+      organizationId: 'org1',
+      tenantId: 't1',
+      doc: { id: '1', title: 'x' },
+      searchTokenDoc: { title: 'Plain Title' },
+    })
+
+    const tokenInserts = fake.inserts.filter((entry) => entry.table === 'search_tokens')
+    expect(tokenInserts.length).toBeGreaterThan(0)
+  })
+
+  test('reindexSearchTokensForRecord clears tokens when doc is null', async () => {
+    const fake = createFakeKysely({ baseTable: 'todos', baseRows: [], cfValues: [] })
+    const em: any = { getKysely: () => fake.db }
+
+    await reindexSearchTokensForRecord(em, {
+      entityType: 'example:todo',
+      recordId: '1',
+      organizationId: 'org1',
+      tenantId: 't1',
+      doc: null,
+    })
+
+    const tokenDeletes = fake.deletes.filter((entry) => entry.table === 'search_tokens')
+    expect(tokenDeletes.length).toBeGreaterThan(0)
+    const tokenInserts = fake.inserts.filter((entry) => entry.table === 'search_tokens')
+    expect(tokenInserts.length).toBe(0)
   })
 
   test('upsertIndexRow removes index row when base row missing', async () => {

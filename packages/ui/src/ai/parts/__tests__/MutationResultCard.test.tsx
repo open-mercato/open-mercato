@@ -16,7 +16,7 @@ import type { AiPendingActionCardAction } from '../types'
 
 const dict = {
   'ai_assistant.chat.mutation_cards.result.successTitle': 'Action applied',
-  'ai_assistant.chat.mutation_cards.result.successBody': 'The mutation completed successfully.',
+  'ai_assistant.chat.mutation_cards.result.successBody': 'The requested change was saved successfully.',
   'ai_assistant.chat.mutation_cards.result.successWithCommand': 'Completed',
   'ai_assistant.chat.mutation_cards.result.viewRecord': 'View record',
   'ai_assistant.chat.mutation_cards.result.partialTitle': 'Action applied with failures',
@@ -87,6 +87,21 @@ describe('MutationResultCard', () => {
     const link = document.querySelector('[data-ai-mutation-result-link]') as HTMLAnchorElement
     expect(link).not.toBeNull()
     expect(link.getAttribute('href')).toBe('/backend/customers/people/p-1')
+    expect(link.textContent).toBe('View record')
+    expect(screen.queryByText(/customers\.updatePerson/)).toBeNull()
+    expect(screen.queryByText(/p-1/)).toBeNull()
+  })
+
+  it('does not expose internal command names or record ids when no record link exists', () => {
+    installPollingMock(baseAction())
+    renderWithProviders(
+      <MutationResultCard componentId="mutation-result-card" pendingActionId="pa-1" />,
+      { dict },
+    )
+    expect(screen.getByText('The requested change was saved successfully.')).toBeInTheDocument()
+    expect(screen.queryByText(/customers\.updatePerson/)).toBeNull()
+    expect(screen.queryByText(/p-1/)).toBeNull()
+    expect(document.querySelector('[data-ai-mutation-result-record-id]')).toBeNull()
   })
 
   it('renders the partial success variant + list of failed records', () => {

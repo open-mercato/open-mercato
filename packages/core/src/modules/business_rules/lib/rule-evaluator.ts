@@ -77,7 +77,7 @@ export async function evaluate(
     }
   }
 
-  const evaluationTime = Date.now() - startTime
+  const evaluationTime = Math.max(0, Date.now() - startTime)
 
   // Determine if conditions were met (at least one rule matched)
   const conditionsPassed = matchedRules.length > 0
@@ -140,7 +140,7 @@ export async function evaluateSingleRule(
     // Evaluate conditions
     const conditionsPassed = await evaluateConditions(rule.conditionExpression, data, context)
 
-    const evaluationTime = Date.now() - startTime
+    const evaluationTime = Math.max(0, Date.now() - startTime)
 
     console.log('[RULE EVAL] Final result:', {
       ruleId: rule.ruleId,
@@ -156,7 +156,7 @@ export async function evaluateSingleRule(
       evaluationTime,
     }
   } catch (error) {
-    const evaluationTime = Date.now() - startTime
+    const evaluationTime = Math.max(0, Date.now() - startTime)
     const errorMessage = error instanceof Error ? error.message : String(error)
 
     console.log('[RULE EVAL] ✗ ERROR:', errorMessage)

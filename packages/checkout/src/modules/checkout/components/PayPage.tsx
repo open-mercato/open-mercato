@@ -16,12 +16,21 @@ import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRe
 import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownContent'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
-import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent } from '@open-mercato/ui/primitives/card'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
+import { Radio, RadioGroup } from '@open-mercato/ui/primitives/radio'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import {
@@ -270,6 +279,27 @@ const GATEWAY_FORM_HANDLE = ComponentReplacementHandles.section('checkout.pay-pa
 const HELP_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'help')
 const FOOTER_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'footer')
 
+// Checkout supports merchant branding defaults; keep those theme fallbacks isolated from general UI state colors.
+const CHECKOUT_THEME_FALLBACKS = {
+  accent: '#1E3A8A',
+  accentSecondary: '#F59E0B',
+  darkBackground: '#0B1020',
+  lightBackground: '#F5EFE6',
+  darkText: '#F8FAFC',
+  lightText: '#111827',
+  darkMutedText: '#CBD5E1',
+  lightMutedText: '#6B7280',
+  darkSurface: '#111827',
+  lightSurface: '#FFFFFF',
+  darkShell: '#020617',
+  lightShell: '#FFFDF8',
+  darkBorder: '#E2E8F0',
+  inputBackground: 'rgba(255, 255, 255, 0.96)',
+  inputText: '#0F172A',
+} as const
+
+const PAY_PAGE_EMPTY_SELECT_VALUE = '__om_checkout_empty__'
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
 }
@@ -391,23 +421,34 @@ function withAlpha(color: string, alpha: number) {
 function getContrastText(color: string) {
   const { r, g, b } = hexToRgb(color)
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-  return luminance > 0.62 ? '#0F172A' : '#F8FAFC'
+  return luminance > 0.62 ? CHECKOUT_THEME_FALLBACKS.inputText : CHECKOUT_THEME_FALLBACKS.darkText
 }
 
 function resolveThemeTokens(payload: PayLinkPayload | null, prefersDark: boolean): PayPageThemeTokens {
-  const accent = normalizeHexColor(payload?.primaryColor, '#1E3A8A')
-  const accentSecondary = normalizeHexColor(payload?.secondaryColor, '#F59E0B')
+  const accent = normalizeHexColor(payload?.primaryColor, CHECKOUT_THEME_FALLBACKS.accent)
+  const accentSecondary = normalizeHexColor(payload?.secondaryColor, CHECKOUT_THEME_FALLBACKS.accentSecondary)
   const requestedMode = payload?.themeMode ?? 'auto'
   const mode = requestedMode === 'dark' || (requestedMode === 'auto' && prefersDark) ? 'dark' : 'light'
-  const background = normalizeHexColor(payload?.backgroundColor, mode === 'dark' ? '#0B1020' : '#F5EFE6')
-  const text = mode === 'dark' ? '#F8FAFC' : '#111827'
-  const mutedText = mode === 'dark' ? '#CBD5E1' : '#6B7280'
-  const surface = mixHexColors(background, mode === 'dark' ? '#111827' : '#FFFFFF', mode === 'dark' ? 0.62 : 0.76)
+  const background = normalizeHexColor(
+    payload?.backgroundColor,
+    mode === 'dark' ? CHECKOUT_THEME_FALLBACKS.darkBackground : CHECKOUT_THEME_FALLBACKS.lightBackground,
+  )
+  const text = mode === 'dark' ? CHECKOUT_THEME_FALLBACKS.darkText : CHECKOUT_THEME_FALLBACKS.lightText
+  const mutedText = mode === 'dark' ? CHECKOUT_THEME_FALLBACKS.darkMutedText : CHECKOUT_THEME_FALLBACKS.lightMutedText
+  const surface = mixHexColors(
+    background,
+    mode === 'dark' ? CHECKOUT_THEME_FALLBACKS.darkSurface : CHECKOUT_THEME_FALLBACKS.lightSurface,
+    mode === 'dark' ? 0.62 : 0.76,
+  )
   const surfaceMuted = mixHexColors(accentSecondary, background, mode === 'dark' ? 0.18 : 0.88)
   const surfaceStrong = mixHexColors(accent, background, mode === 'dark' ? 0.22 : 0.9)
-  const border = withAlpha(mode === 'dark' ? '#E2E8F0' : accent, mode === 'dark' ? 0.16 : 0.14)
+  const border = withAlpha(mode === 'dark' ? CHECKOUT_THEME_FALLBACKS.darkBorder : accent, mode === 'dark' ? 0.16 : 0.14)
   const borderStrong = withAlpha(accent, mode === 'dark' ? 0.34 : 0.22)
-  const shellBackground = mixHexColors(background, mode === 'dark' ? '#020617' : '#FFFDF8', mode === 'dark' ? 0.82 : 0.64)
+  const shellBackground = mixHexColors(
+    background,
+    mode === 'dark' ? CHECKOUT_THEME_FALLBACKS.darkShell : CHECKOUT_THEME_FALLBACKS.lightShell,
+    mode === 'dark' ? 0.82 : 0.64,
+  )
   const heroStart = withAlpha(accent, mode === 'dark' ? 0.26 : 0.16)
   const heroEnd = withAlpha(accentSecondary, mode === 'dark' ? 0.22 : 0.2)
   const errorBase = mode === 'dark' ? '#F87171' : '#DC2626'
@@ -431,7 +472,7 @@ function resolveThemeTokens(payload: PayLinkPayload | null, prefersDark: boolean
     border,
     borderStrong,
     shadow: mode === 'dark'
-      ? `0 32px 80px ${withAlpha('#020617', 0.55)}`
+      ? `0 32px 80px ${withAlpha(CHECKOUT_THEME_FALLBACKS.darkShell, 0.55)}`
       : `0 28px 72px ${withAlpha(accent, 0.12)}`,
     accentShadow: `0 22px 48px ${withAlpha(accent, mode === 'dark' ? 0.3 : 0.22)}`,
     heroBackground: `linear-gradient(145deg, ${heroStart} 0%, ${heroEnd} 100%)`,
@@ -443,11 +484,19 @@ function resolveThemeTokens(payload: PayLinkPayload | null, prefersDark: boolean
   }
 }
 
-function buildReadableInputStyle(themeTokens: PayPageThemeTokens, hasError: boolean): React.CSSProperties {
+function buildReadableInputStyle(themeTokens: PayPageThemeTokens, hasError: boolean, disabled = false): React.CSSProperties {
+  if (disabled) {
+    return {
+      background: 'var(--bg-disabled)',
+      color: 'var(--text-disabled)',
+      borderColor: 'var(--border-disabled)',
+    }
+  }
+
   return {
-    background: 'rgba(255, 255, 255, 0.96)',
-    color: '#0F172A',
-    borderColor: hasError ? themeTokens.errorBorder : withAlpha('#0F172A', 0.12),
+    background: CHECKOUT_THEME_FALLBACKS.inputBackground,
+    color: CHECKOUT_THEME_FALLBACKS.inputText,
+    borderColor: hasError ? themeTokens.errorBorder : withAlpha(CHECKOUT_THEME_FALLBACKS.inputText, 0.12),
     boxShadow: hasError ? `0 0 0 3px ${themeTokens.errorRing}` : undefined,
   }
 }
@@ -456,15 +505,6 @@ function buildValidationMessageStyle(themeTokens: PayPageThemeTokens): React.CSS
   return {
     color: themeTokens.errorText,
     fontWeight: 500,
-  }
-}
-
-function buildValidationNoticeStyle(themeTokens: PayPageThemeTokens): React.CSSProperties {
-  return {
-    borderColor: themeTokens.errorBorder,
-    background: themeTokens.errorSurface,
-    color: themeTokens.errorText,
-    boxShadow: `0 0 0 1px ${themeTokens.errorSurfaceStrong} inset`,
   }
 }
 
@@ -555,7 +595,7 @@ function buildButtonStyle(themeTokens: PayPageThemeTokens, variant: 'solid' | 'o
   }
 }
 
-const READABLE_INPUT_CLASSNAME = 'border bg-white/95 text-slate-900 placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-50'
+const READABLE_INPUT_CLASSNAME = 'border bg-white/95 text-slate-900 placeholder:text-slate-400 disabled:cursor-not-allowed disabled:bg-bg-disabled disabled:border-border-disabled disabled:text-text-disabled'
 
 export function PayPageSurface({
   previewBanner,
@@ -774,11 +814,10 @@ export function PayPageCustomerForm({
                     boxShadow: fieldError ? `0 0 0 2px ${themeTokens.errorRing}` : undefined,
                   }}
                 >
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={value === true}
                     disabled={inputsLocked}
-                    onChange={(event) => onFieldChange(field.key, event.target.checked)}
+                    onCheckedChange={(checked) => onFieldChange(field.key, checked === true)}
                   />
                   <span className="space-y-1">
                     <span className="font-medium">
@@ -799,27 +838,38 @@ export function PayPageCustomerForm({
                     {field.required ? ' *' : ''}
                   </label>
                   {field.kind === 'multiline' ? (
-                  <Textarea
+                    <Textarea
                       className={READABLE_INPUT_CLASSNAME}
                       value={typeof value === 'string' ? value : ''}
                       disabled={inputsLocked}
                       onChange={(event) => onFieldChange(field.key, event.target.value)}
                       placeholder={field.placeholder ?? undefined}
-                      style={buildReadableInputStyle(themeTokens, Boolean(fieldError))}
+                      style={buildReadableInputStyle(themeTokens, Boolean(fieldError), inputsLocked)}
                     />
                   ) : field.kind === 'select' || field.kind === 'radio' ? (
-                    <select
-                      className={`w-full rounded-xl px-3 py-2.5 text-sm ${READABLE_INPUT_CLASSNAME}`}
-                      value={typeof value === 'string' ? value : ''}
+                    <Select
+                      value={typeof value === 'string' && value.length > 0 ? value : PAY_PAGE_EMPTY_SELECT_VALUE}
                       disabled={inputsLocked}
-                      onChange={(event) => onFieldChange(field.key, event.target.value)}
-                      style={buildReadableInputStyle(themeTokens, Boolean(fieldError))}
+                      onValueChange={(nextValue) => {
+                        onFieldChange(field.key, nextValue === PAY_PAGE_EMPTY_SELECT_VALUE ? '' : nextValue)
+                      }}
                     >
-                      <option value="">{t('checkout.payPage.fields.selectPlaceholder', 'Select...')}</option>
-                      {(field.options ?? []).map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
+                      <SelectTrigger
+                        className={`rounded-xl ${READABLE_INPUT_CLASSNAME}`}
+                        aria-invalid={Boolean(fieldError)}
+                        style={buildReadableInputStyle(themeTokens, Boolean(fieldError), inputsLocked)}
+                      >
+                        <SelectValue placeholder={t('checkout.payPage.fields.selectPlaceholder', 'Select...')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={PAY_PAGE_EMPTY_SELECT_VALUE}>
+                          {t('checkout.payPage.fields.selectPlaceholder', 'Select...')}
+                        </SelectItem>
+                        {(field.options ?? []).map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   ) : (
                     <Input
                       className={READABLE_INPUT_CLASSNAME}
@@ -829,7 +879,7 @@ export function PayPageCustomerForm({
                       onChange={(event) => onFieldChange(field.key, event.target.value)}
                       placeholder={field.placeholder ?? undefined}
                       autoComplete={semanticType === 'email' ? 'email' : semanticType === 'phone' ? 'tel' : undefined}
-                      style={buildReadableInputStyle(themeTokens, Boolean(fieldError))}
+                      style={buildReadableInputStyle(themeTokens, Boolean(fieldError), inputsLocked)}
                     />
                   )}
                 </>
@@ -896,7 +946,7 @@ export function PayPagePricing({
               payload.customAmountMin != null ? formatAmount(payload.customAmountMin, payload.customAmountCurrencyCode) : null,
               payload.customAmountMax != null ? formatAmount(payload.customAmountMax, payload.customAmountCurrencyCode) : null,
             ].filter(Boolean).join(' - ')}
-            style={buildReadableInputStyle(themeTokens, Boolean(fieldErrors.amount))}
+            style={buildReadableInputStyle(themeTokens, Boolean(fieldErrors.amount), inputsLocked)}
           />
           {fieldErrors.amount ? (
             <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
@@ -907,39 +957,46 @@ export function PayPagePricing({
       ) : null}
 
       {payload.pricingMode === 'price_list' ? (
-        <div className="space-y-3">
-          {(payload.priceListItems ?? []).map((item) => (
-            <label
-              key={item.id}
-              className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-4 text-sm transition"
-              style={{
-                background: selectedPriceItemId === item.id
-                  ? withAlpha(themeTokens.accent, 0.08)
-                  : withAlpha(themeTokens.shellBackground, 0.66),
-                borderColor: selectedPriceItemId === item.id
-                  ? themeTokens.borderStrong
-                  : themeTokens.border,
-              }}
-            >
-              <span className="flex items-center gap-3">
-                <input
-                  type="radio"
-                  name="priceItem"
-                  checked={selectedPriceItemId === item.id}
-                  disabled={inputsLocked}
-                  onChange={() => onPriceItemSelect(item)}
-                />
-                <span className="font-medium">{item.description}</span>
-              </span>
-              <span className="whitespace-nowrap font-semibold">{formatAmount(item.amount, item.currencyCode)}</span>
-            </label>
-          ))}
+        <>
+          <RadioGroup
+            className="space-y-3"
+            value={selectedPriceItemId ?? ''}
+            disabled={inputsLocked}
+            onValueChange={(itemId) => {
+              const item = (payload.priceListItems ?? []).find((candidate) => candidate.id === itemId)
+              if (item) onPriceItemSelect(item)
+            }}
+          >
+            {(payload.priceListItems ?? []).map((item) => (
+              <label
+                key={item.id}
+                className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-4 text-sm transition"
+                style={{
+                  background: selectedPriceItemId === item.id
+                    ? withAlpha(themeTokens.accent, 0.08)
+                    : withAlpha(themeTokens.shellBackground, 0.66),
+                  borderColor: selectedPriceItemId === item.id
+                    ? themeTokens.borderStrong
+                    : themeTokens.border,
+                }}
+              >
+                <span className="flex items-center gap-3">
+                  <Radio
+                    value={item.id}
+                    disabled={inputsLocked}
+                  />
+                  <span className="font-medium">{item.description}</span>
+                </span>
+                <span className="whitespace-nowrap font-semibold">{formatAmount(item.amount, item.currencyCode)}</span>
+              </label>
+            ))}
+          </RadioGroup>
           {fieldErrors.selectedPriceItemId ? (
             <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
               {translateValidationMessage(fieldErrors.selectedPriceItemId, 'selectedPriceItemId')}
             </p>
           ) : null}
-        </div>
+        </>
       ) : null}
     </section>
   )
@@ -1017,11 +1074,10 @@ export function PayPageLegalConsent({
               }}
             >
               <label className="flex items-start gap-3 text-sm">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={acceptedLegalConsents.terms === true}
                   disabled={inputsLocked}
-                  onChange={(event) => onConsentChange('terms', event.target.checked)}
+                  onCheckedChange={(checked) => onConsentChange('terms', checked === true)}
                 />
                 <span className="space-y-2">
                   <span className="block">
@@ -1063,11 +1119,10 @@ export function PayPageLegalConsent({
               }}
             >
               <label className="flex items-start gap-3 text-sm">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={acceptedLegalConsents.privacyPolicy === true}
                   disabled={inputsLocked}
-                  onChange={(event) => onConsentChange('privacyPolicy', event.target.checked)}
+                  onCheckedChange={(checked) => onConsentChange('privacyPolicy', checked === true)}
                 />
                 <span className="space-y-2">
                   <span className="block">
@@ -1143,9 +1198,9 @@ export function PayPagePaymentForm({
   return (
     <section className="space-y-4">
       {submissionError ? (
-        <div className="rounded-xl border px-4 py-3 text-sm" style={buildValidationNoticeStyle(themeTokens)}>
-          {submissionError}
-        </div>
+        <Alert status="error" style="lighter" size="default">
+          <AlertDescription>{submissionError}</AlertDescription>
+        </Alert>
       ) : null}
 
       <InjectionSpot spotId="checkout.pay-page:gateway-widget:before" context={injectionContext} />
@@ -1355,33 +1410,31 @@ export function PayPageFooter({ payload, themeTokens }: PayPageFooterProps) {
         <div className="flex flex-wrap items-center gap-3 sm:justify-end">
           <div className="flex items-center gap-2 text-xs" style={{ color: themeTokens.mutedText }}>
             <label htmlFor={selectId}>{t('common.language', 'Language')}</label>
-            <div className="relative">
-              <select
+            <Select
+              value={locale}
+              onValueChange={(nextLocale) => setLocale(nextLocale as Locale)}
+              disabled={pending}
+            >
+              <SelectTrigger
                 id={selectId}
-                className="appearance-none rounded-full border px-3 py-1.5 pr-8 text-xs font-medium shadow-sm outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                size="sm"
+                className="w-auto min-w-28 rounded-full text-xs font-medium"
                 style={{
                   background: withAlpha(themeTokens.surface, 0.92),
                   borderColor: themeTokens.borderStrong,
                   color: themeTokens.text,
                 }}
-                value={locale}
-                onChange={(event) => setLocale(event.target.value as Locale)}
-                disabled={pending}
               >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
                 {locales.map((entry) => (
-                  <option key={entry} value={entry}>
+                  <SelectItem key={entry} value={entry}>
                     {languageLabels[entry]}
-                  </option>
+                  </SelectItem>
                 ))}
-              </select>
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-overline"
-                style={{ color: themeTokens.mutedText }}
-              >
-                ▼
-              </span>
-            </div>
+              </SelectContent>
+            </Select>
           </div>
           <div className="text-xs uppercase tracking-widest">
             {payload.gatewayProviderKey ?? t('checkout.payPage.header.autoProvider', 'Configured in checkout')}
@@ -1967,15 +2020,23 @@ export function PayPage({
   if (loadError || !payload) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16">
-        <ErrorNotice
-          title={t('checkout.payPage.errors.loadTitle', 'Unable to load payment link')}
-          message={loadError ?? t('checkout.payPage.errors.loadMessage', "We couldn't load this payment page. Please try again.")}
+        <Alert
+          status="error"
+          style="lighter"
+          size="default"
           action={(
             <Button type="button" variant="outline" onClick={() => { void loadPayload() }}>
               {t('checkout.payPage.actions.retry', 'Retry')}
             </Button>
           )}
-        />
+        >
+          <div className="space-y-1">
+            <AlertTitle>{t('checkout.payPage.errors.loadTitle', 'Unable to load payment link')}</AlertTitle>
+            <AlertDescription>
+              {loadError ?? t('checkout.payPage.errors.loadMessage', "We couldn't load this payment page. Please try again.")}
+            </AlertDescription>
+          </div>
+        </Alert>
       </div>
     )
   }

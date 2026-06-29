@@ -5,6 +5,8 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import Link from 'next/link'
 import { hasFeature, matchFeature } from '@open-mercato/shared/security/features'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { FeatureDescriptor } from '@open-mercato/shared/security/aclDependencies'
+import { AclDependencyDiagnosticsPanel } from './AclDependencyDiagnosticsPanel'
 
 function toTitleCase(value: string): string {
   return value.replace(/[-_.]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
@@ -36,7 +38,7 @@ function formatWildcardLabel(moduleId: string, wildcard: string): string {
   return `All ${suffix.split('.').map(toTitleCase).join(' / ')}`
 }
 
-type Feature = { id: string; title: string; module: string }
+type Feature = { id: string; title: string; module: string; dependsOn?: string[] }
 type ModuleInfo = { id: string; title: string }
 type RoleListItem = { id?: string | null; name?: string | null }
 type RoleListResponse = { items?: RoleListItem[] }
@@ -66,6 +68,7 @@ type AclPayload = {
   isSuperAdmin?: boolean
   features?: unknown
   organizations?: unknown
+  updatedAt?: string | null
 }
 type OrganizationListResponse = { items?: Array<{ id?: string; name?: string }> }
 
@@ -97,18 +100,27 @@ export function AclEditor({
   canEditOrganizations,
   value,
   onChange,
+  onVersionChange,
   userRoles,
   currentUserIsSuperAdmin,
   tenantId,
+  preserveOnTenantChange = false,
 }: {
   kind: 'user' | 'role'
   targetId: string
   canEditOrganizations: boolean
   value?: AclData
   onChange?: (data: AclData) => void
+  /**
+   * Reports the loaded ACL row's `updatedAt` (or null when none exists) so the
+   * parent can send the optimistic-lock header on save and reject stale ACL
+   * overwrites (#2055).
+   */
+  onVersionChange?: (updatedAt: string | null) => void
   userRoles?: string[]
   currentUserIsSuperAdmin?: boolean
   tenantId?: string | null
+  preserveOnTenantChange?: boolean
 }) {
   const actorIsSuperAdmin = !!currentUserIsSuperAdmin
   const [loading, setLoading] = React.useState(true)
@@ -142,8 +154,34 @@ export function AclEditor({
     [actorSanitizeFeatures],
   )
 
+  const tenantIdRef = React.useRef(tenantId)
+  React.useEffect(() => { tenantIdRef.current = tenantId }, [tenantId])
+  const hasMountedRef = React.useRef(false)
+
+  const fetchAclState = React.useCallback(async (forTenantId: string | null | undefined, cancelledRef: { current: boolean }) => {
+    try {
+      const aclQuery = new URLSearchParams()
+      aclQuery.set(kind === 'user' ? 'userId' : 'roleId', targetId)
+      if (forTenantId) aclQuery.set('tenantId', forTenantId)
+      const aclQueryString = aclQuery.toString()
+      const aclJson = await readJsonOr<AclPayload>(
+        `/api/auth/${kind === 'user' ? 'users' : 'roles'}/acl${aclQueryString ? `?${aclQueryString}` : ''}`,
+        undefined,
+        { hasCustomAcl: true, isSuperAdmin: false, features: [], organizations: null },
+      )
+      if (cancelledRef.current) return
+      const customAclExists = aclJson.hasCustomAcl !== false
+      setHasCustomAcl(customAclExists)
+      setOverrideEnabled(customAclExists)
+      setIsSuperAdmin(!!aclJson.isSuperAdmin)
+      setGranted(actorSanitizeFeatures(aclJson.features))
+      setOrganizations(aclJson.organizations == null ? null : Array.isArray(aclJson.organizations) ? aclJson.organizations : [])
+      onVersionChange?.(typeof aclJson.updatedAt === 'string' ? aclJson.updatedAt : null)
+    } catch {}
+  }, [kind, targetId, actorSanitizeFeatures, onVersionChange])
+
   React.useEffect(() => {
-    let cancelled = false
+    const cancelled = { current: false }
     async function load() {
       setLoading(true)
       try {
@@ -152,30 +190,30 @@ export function AclEditor({
           undefined,
           { items: [], modules: [] },
         )
-        if (!cancelled) {
+        if (!cancelled.current) {
           setFeatures(fJson.items || [])
           setModules(fJson.modules || [])
         }
       } catch {}
-      try {
-        const aclQuery = new URLSearchParams()
-        aclQuery.set(kind === 'user' ? 'userId' : 'roleId', targetId)
-        if (tenantId) aclQuery.set('tenantId', tenantId)
-        const aclQueryString = aclQuery.toString()
-        const aclJson = await readJsonOr<AclPayload>(
-          `/api/auth/${kind === 'user' ? 'users' : 'roles'}/acl${aclQueryString ? `?${aclQueryString}` : ''}`,
-          undefined,
-          { hasCustomAcl: true, isSuperAdmin: false, features: [], organizations: null },
-        )
-        if (!cancelled) {
-          const customAclExists = aclJson.hasCustomAcl !== false
-          setHasCustomAcl(customAclExists)
-          setOverrideEnabled(customAclExists)
-          setIsSuperAdmin(!!aclJson.isSuperAdmin)
-          setGranted(actorSanitizeFeatures(aclJson.features))
-          setOrganizations(aclJson.organizations == null ? null : Array.isArray(aclJson.organizations) ? aclJson.organizations : [])
-        }
-      } catch {}
+      await fetchAclState(tenantIdRef.current, cancelled)
+      hasMountedRef.current = true
+      if (!cancelled.current) setLoading(false)
+    }
+    load()
+    return () => { cancelled.current = true }
+  }, [kind, targetId, fetchAclState])
+
+  React.useEffect(() => {
+    if (!hasMountedRef.current) return
+    if (preserveOnTenantChange) return
+    const cancelled = { current: false }
+    fetchAclState(tenantId, cancelled)
+    return () => { cancelled.current = true }
+  }, [tenantId, preserveOnTenantChange, fetchAclState])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadTenantScoped() {
       if (canEditOrganizations) {
         try {
           const orgQuery = new URLSearchParams()
@@ -206,11 +244,10 @@ export function AclEditor({
           }
         } catch {}
       }
-      if (!cancelled) setLoading(false)
     }
-    load()
+    loadTenantScoped()
     return () => { cancelled = true }
-  }, [kind, targetId, canEditOrganizations, userRoles, actorSanitizeFeatures, tenantId])
+  }, [kind, canEditOrganizations, userRoles, tenantId])
 
   // Notify parent of changes
   React.useEffect(() => {
@@ -338,15 +375,23 @@ export function AclEditor({
             <div className="rounded border border-blue-200 bg-blue-50 p-3">
               <div className="text-sm font-medium text-blue-900">Global wildcard (*) enabled</div>
               <div className="text-xs text-blue-700 mt-1">This grants access to all features in the system.</div>
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 className="mt-2"
                 onClick={() => updateGranted((prev) => prev.filter((x) => x !== '*'))}
               >
                 Remove global wildcard
               </Button>
             </div>
+          )}
+          {!hasGlobalWildcard && (
+            <AclDependencyDiagnosticsPanel
+              granted={granted}
+              catalog={features as readonly FeatureDescriptor[]}
+              onGrantedChange={updateGranted}
+              hideUnknownReferences={process.env.NODE_ENV === 'production'}
+            />
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {grouped.map((group) => {

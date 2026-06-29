@@ -10,7 +10,8 @@ import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '../../lib/im
 import { readAttachmentMetadata } from '../../lib/metadata'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { applyAssignmentEnrichments, resolveAssignmentEnrichments } from '../../lib/assignmentDetails'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
+import { ensureDefaultPartitions } from '../../lib/partitions'
 import {
   attachmentsTag,
   attachmentListQuerySchema as openApiListQuerySchema,
@@ -70,6 +71,7 @@ export async function GET(req: Request) {
   const offset = (page - 1) * pageSize
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
+  await ensureDefaultPartitions(em)
   let queryEngine: QueryEngine | null = null
   try {
     queryEngine = resolve('queryEngine') as QueryEngine
@@ -83,7 +85,7 @@ export async function GET(req: Request) {
   }
   qb.where(baseFilter)
   if (search && search.trim().length > 0) {
-    qb.andWhere({ fileName: { $ilike: `%${escapeLikePattern(search.trim())}%` } })
+    qb.andWhere({ fileName: { $ilike: buildIlikeTerm(search.trim()) } })
   }
   if (partition && partition.trim().length > 0) {
     qb.andWhere({ partitionCode: partition.trim() })

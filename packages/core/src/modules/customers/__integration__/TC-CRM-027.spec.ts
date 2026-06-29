@@ -135,7 +135,7 @@ test.describe('TC-CRM-027: Person Detail & Interaction ACL', () => {
       // Create one as admin so we can test update/delete denial
       const adminCreateRes = await apiRequest(request, 'POST', '/api/customers/interactions', {
         token: adminToken,
-        data: { entityId: companyId, interactionType: 'call', title: 'Admin created', scheduledAt: '2026-09-01T10:00:00Z' },
+        data: { entityId: companyId, interactionType: 'call', title: 'Admin created', scheduledAt: new Date(Date.now() + 90 * 86_400_000).toISOString() },
       });
       const adminCreated = await readJsonSafe<JsonRecord>(adminCreateRes);
       interactionId = typeof adminCreated?.id === 'string' ? adminCreated.id : null;

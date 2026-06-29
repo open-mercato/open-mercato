@@ -1,4 +1,5 @@
 import type { NotificationHandler } from '@open-mercato/shared/modules/notifications/handler'
+import { applyNotificationHandlerOverridesToEntries } from '@open-mercato/shared/modules/overrides'
 
 const GLOBAL_NOTIFICATION_HANDLERS_KEY = '__openMercatoNotificationHandlers__'
 
@@ -29,8 +30,9 @@ function writeGlobalEntries(entries: NotificationHandlerRegistryEntry[]) {
 export function registerNotificationHandlers(
   entries: Array<{ moduleId: string; handlers: NotificationHandler[] }>,
 ) {
+  const finalEntries = applyNotificationHandlerOverridesToEntries(entries)
   const flat: NotificationHandlerRegistryEntry[] = []
-  for (const entry of entries) {
+  for (const entry of finalEntries) {
     for (const handler of entry.handlers ?? []) {
       flat.push({ moduleId: entry.moduleId, handler })
     }

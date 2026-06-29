@@ -24,7 +24,8 @@ type InstallTarget = {
   args: string[]
 }
 
-const SAFE_PACKAGE_SPEC_PATTERN = /^@open-mercato\/[a-z0-9][a-z0-9-]*(?:@.+)?$/i
+const OFFICIAL_PACKAGE_SCOPE = '@open-mercato/'
+const SAFE_PACKAGE_SPEC_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:@.+)?$/i
 const SAFE_PACKAGE_TAG_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const SAFE_PACKAGE_FILE_LOCATOR_PATTERN = /^file:[A-Za-z0-9_./: \\-]+$/
 
@@ -133,21 +134,36 @@ async function runGeneratorsWithRegistrationNotice(
   }
 }
 
+function isOfficialPackage(packageName: string): boolean {
+  return packageName.startsWith(OFFICIAL_PACKAGE_SCOPE)
+}
+
 function assertPackageName(packageName: string | null): asserts packageName is string {
-  if (!packageName || !packageName.startsWith('@open-mercato/')) {
-    throw new Error('Only @open-mercato/* package specs are supported by "mercato module add".')
+  if (!packageName) {
+    throw new Error('Could not determine a package name from the provided spec.')
   }
 }
 
-function assertSupportedPackageSpec(packageSpec: string): string {
+function assertThirdPartyAllowed(packageName: string, allowThirdParty: boolean): void {
+  if (isOfficialPackage(packageName) || allowThirdParty) {
+    return
+  }
+
+  throw new Error(
+    `Package "${packageName}" is outside the ${OFFICIAL_PACKAGE_SCOPE}* scope. Re-run with --allow-third-party to install third-party module packages.`,
+  )
+}
+
+function assertSupportedPackageSpec(packageSpec: string, allowThirdParty: boolean): string {
   const trimmed = packageSpec.trim()
 
   if (!SAFE_PACKAGE_SPEC_PATTERN.test(trimmed)) {
-    throw new Error('Unsupported package spec. Only direct @open-mercato/* package specs are allowed.')
+    throw new Error('Unsupported package spec. Provide a valid npm package name with an optional tag/version or file: locator.')
   }
 
   const packageName = parsePackageNameFromSpec(trimmed)
   assertPackageName(packageName)
+  assertThirdPartyAllowed(packageName, allowThirdParty)
 
   if (trimmed === packageName) {
     return trimmed
@@ -240,8 +256,9 @@ export async function addOfficialModule(
   packageSpec: string,
   eject: boolean,
   moduleId?: string,
+  allowThirdParty = false,
 ): Promise<ModuleCommandResult> {
-  const safePackageSpec = assertSupportedPackageSpec(packageSpec)
+  const safePackageSpec = assertSupportedPackageSpec(packageSpec, allowThirdParty)
   const packageName = parsePackageNameFromSpec(safePackageSpec)
   assertPackageName(packageName)
 
@@ -256,10 +273,9 @@ export async function enableOfficialModule(
   packageName: string,
   moduleId?: string,
   eject = false,
+  allowThirdParty = false,
 ): Promise<ModuleCommandResult> {
-  if (!packageName.startsWith('@open-mercato/')) {
-    throw new Error('Only @open-mercato/* packages can be enabled with "mercato module enable".')
-  }
+  assertThirdPartyAllowed(packageName, allowThirdParty)
 
   const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName, moduleId)
   return registerResolvedOfficialModule(resolver, modulePackage, packageName, eject)

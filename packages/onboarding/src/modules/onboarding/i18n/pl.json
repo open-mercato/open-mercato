@@ -77,7 +77,10 @@
   "onboarding.preparing.descriptionWithTenant": "Kończymy przygotowywać środowisko demo dla {tenant}. Gdy będzie gotowe, wyślemy Ci e-mail z poprawnym linkiem logowania do tenanta.",
   "onboarding.preparing.emailNotice": "Nie musisz zostawiać tej strony otwartej. Gdy wszystko będzie gotowe, wyślemy Ci e-mail.",
   "onboarding.preparing.homeCta": "Przejdź na stronę główną",
+  "onboarding.preparing.loginCta": "Otwórz logowanie do tenanta",
   "onboarding.preparing.redirecting": "Twój obszar roboczy jest gotowy. Przekierowujemy Cię teraz do strony logowania tenanta.",
+  "onboarding.preparing.statusErrorBody": "Nie udało się sprawdzić statusu obszaru roboczego. Obszar może nadal się przygotowywać; ta strona będzie ponawiać próbę.",
+  "onboarding.preparing.statusErrorTitle": "Nie udało się sprawdzić statusu obszaru",
   "onboarding.preparing.title": "Przygotowujemy Twój obszar roboczy",
   "onboarding.readyEmail.body": "Twój obszar roboczy Open Mercato dla {organizationName} jest już gotowy. Użyj bezpiecznego linku poniżej, aby się zalogować.",
   "onboarding.readyEmail.cta": "Otwórz logowanie",
@@ -87,5 +90,11 @@
   "onboarding.readyEmail.preview": "Twój obszar roboczy jest gotowy. Użyj bezpiecznego linku logowania, aby się zalogować.",
   "onboarding.readyEmail.subject": "Twój obszar roboczy Open Mercato jest gotowy",
   "onboarding.subtitle": "Opowiedz nam trochę o sobie, a my wszystko skonfigurujemy.",
-  "onboarding.title": "Utwórz swój obszar roboczy Open Mercato"
+  "onboarding.title": "Utwórz swój obszar roboczy Open Mercato",
+  "onboarding.verifyStatus.alreadyExists": "Mamy już konto z tym adresem email. Spróbuj się zalogować lub zresetować hasło.",
+  "onboarding.verifyStatus.error": "Nie udało się zakończyć weryfikacji. Spróbuj ponownie lub skontaktuj się z pomocą techniczną.",
+  "onboarding.verifyStatus.invalid": "Link weryfikacyjny jest nieprawidłowy albo wygasł. Wyślij formularz onboardingu ponownie, aby otrzymać nowy link.",
+  "onboarding.verifyStatus.originNotAllowed": "Link weryfikacyjny otwarto z niedozwolonego originu. Sprawdź APP_URL i APP_ALLOWED_ORIGINS, a potem otwórz link ponownie.",
+  "onboarding.verifyStatus.redirectMisconfigured": "Link weryfikacyjny nie może bezpiecznie przekierować, bo APP_URL nie zgadza się z URL-em, który obsłużył request. Sprawdź APP_URL i APP_ALLOWED_ORIGINS, a potem otwórz link ponownie.",
+  "onboarding.verifyStatus.urlNotConfigured": "Weryfikacja onboardingu nie jest skonfigurowana. APP_URL musi być ustawiony, zanim linki weryfikacyjne będą działać."
 }

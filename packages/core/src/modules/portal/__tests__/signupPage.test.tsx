@@ -38,7 +38,7 @@ describe('PortalSignupPage', () => {
     fireEvent.change(getByLabelText(/^password$/i), { target: { value: 'pw12345' } })
   }
 
-  it('submits the signup payload with tenant + organization scope on 202 success', async () => {
+  it('submits the signup payload with organization scope on 202 success', async () => {
     apiCallMock.mockResolvedValueOnce({ ok: true, status: 202, result: { ok: true } })
 
     const { getByLabelText, getByRole, findByRole } = renderWithProviders(
@@ -58,7 +58,6 @@ describe('PortalSignupPage', () => {
           email: 'jane@example.com',
           password: 'pw12345',
           displayName: 'Jane Smith',
-          tenantId: 't-1',
           organizationId: 'o-1',
         }),
       }),

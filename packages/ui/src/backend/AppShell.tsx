@@ -3,8 +3,17 @@ import * as React from 'react'
 import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { ChevronDown, ChevronLeft, Search, X } from 'lucide-react'
+import { ChevronDown, ChevronLeft, Home, PanelLeftClose, PanelLeftOpen, Search, X } from 'lucide-react'
 import { Button } from '../primitives/button'
+import {
+  Breadcrumb as BreadcrumbNav,
+  BreadcrumbEllipsis,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '../primitives/breadcrumb'
 import { IconButton } from '../primitives/icon-button'
 import { Input } from '../primitives/input'
 import { SearchInput } from '../primitives/search-input'
@@ -15,14 +24,22 @@ import { QueryProvider } from '../theme/QueryProvider'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
 import { LastOperationBanner } from './operations/LastOperationBanner'
+import { RecordConflictBanner } from './conflicts/RecordConflictBanner'
+import { dismissRecordConflict } from './conflicts/store'
 import { ProgressTopBar } from './progress/ProgressTopBar'
 import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
+import { OrganizationScopeBoundary } from './OrganizationScopeBoundary'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
+import { readVersionedPreference, writeVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
 import { cloneSidebarGroups } from './sidebar/customization-helpers'
 import type { SectionNavGroup } from './section-page/types'
 import { InjectionSpot } from './injection/InjectionSpot'
+import {
+  BackendRecordInjectionContextProvider,
+  type RecordInjectionContext,
+} from './injection/recordContext'
 import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/injection'
 import { LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID } from './injection/mutationEvents'
 import { mergeMenuItems } from './injection/mergeMenuItems'
@@ -48,6 +65,25 @@ import {
   GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID,
 } from './injection/spotIds'
 
+// Versioned-envelope discriminator for the persisted sidebar open/closed group
+// map. This is a structured value (a record), so it carries a version so future
+// shape changes can migrate or safely discard stale data; legacy bare
+// `Record<string, boolean>` values are migrated forward on the next write. The
+// neighbouring `om:sidebarCollapsed` / `om:progress:expanded` flags are trivial
+// scalar booleans and deliberately stay raw (see their write sites). See
+// `@open-mercato/shared/lib/browser/versionedPreference`.
+const SIDEBAR_OPEN_GROUPS_KEY = 'om:sidebarOpenGroups'
+const SIDEBAR_OPEN_GROUPS_VERSION = 1
+
+function isBooleanRecord(value: unknown): value is Record<string, boolean> {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'boolean')
+  )
+}
+
 export type ShellLogo = {
   src: string
   alt?: string
@@ -57,6 +93,7 @@ export type AppShellProps = {
   productName?: string
   logo?: ShellLogo
   email?: string
+  canManageUpgradeActions?: boolean
   groups: {
     id?: string
     name: string
@@ -101,6 +138,11 @@ export type AppShellProps = {
   profileSectionTitle?: string
   profilePathPrefixes?: string[]
   mobileSidebarSlot?: React.ReactNode
+  /**
+   * How long (ms) to keep successfully completed progress operations visible
+   * before auto-hiding. Pass `false` or `0` to disable. Defaults to 10 000 ms.
+   */
+  progressCompletedAutoHideMs?: number | false
 }
 
 type Breadcrumb = Array<{ label: string; href?: string }>
@@ -131,6 +173,11 @@ function resolveInjectedMenuLabel(
   if (item.labelKey) return t(item.labelKey, item.id)
   if (item.label && item.label.includes('.')) return t(item.label, item.id)
   return item.label ?? item.id
+}
+
+function shouldBypassLogoOptimization(src?: string | null): boolean {
+  const value = src ?? ''
+  return /^https?:\/\//.test(value) || /^\/api\/attachments\/(?:image|file)\//.test(value)
 }
 
 function mergeSidebarItemsWithInjected(
@@ -407,7 +454,7 @@ export function AppShell(props: AppShellProps) {
   )
 }
 
-function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot }: AppShellProps) {
+function AppShellBody({ productName, logo, email, canManageUpgradeActions = false, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot, progressCompletedAutoHideMs }: AppShellProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const t = useT()
@@ -427,7 +474,26 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
   const { items: topbarInjectedMenuItems } = useInjectedMenuItems('menu:topbar:actions')
   useEventBridge() // SSE DOM Event Bridge — singleton SSE connection for real-time server events
   const resolvedProductName = productName ?? t('appShell.productName')
+  const resolvedLogo = chromePayload?.brand?.logo?.src ? chromePayload.brand.logo : logo
+  const resolvedBrandName = chromePayload?.brand?.logo?.src
+    ? chromePayload.brand.name ?? resolvedProductName
+    : resolvedProductName
+  const resolvedLogoBypassesOptimization = shouldBypassLogoOptimization(resolvedLogo?.src)
   const [mobileOpen, setMobileOpen] = React.useState(false)
+  // When the mobile drawer opens on a settings/profile route, it follows the
+  // section sidebar by default. Set to 'main' to force-show the main nav even
+  // when the route is in a section context. Reset on close.
+  const [mobileDrawerView, setMobileDrawerView] = React.useState<'auto' | 'main'>('auto')
+  // Clear the persistent record-conflict bar when the route changes. The
+  // conflict is scoped to the record the user was editing, so navigating to an
+  // unrelated page should dismiss it instead of carrying a stale "Record
+  // changed" bar across modules.
+  React.useEffect(() => {
+    dismissRecordConflict()
+  }, [pathname])
+  React.useEffect(() => {
+    if (!mobileOpen) setMobileDrawerView('auto')
+  }, [mobileOpen])
   // Initialize from server-provided prop only to avoid hydration flicker
   const [collapsed, setCollapsed] = React.useState(sidebarCollapsedDefault)
   // Maintain internal nav state so we can augment it client-side
@@ -531,6 +597,21 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
     [pathname, searchParams],
   )
 
+  // AppShell-owned transport for the current detail record (Phase 0 / S2).
+  // Detail pages publish here; the merged context feeds the global
+  // `backend:record:current` mount so the record_locks widget can resolve the
+  // resource without a hardcoded path allowlist. Stale context (published for a
+  // different path) is ignored so it never leaks across route transitions.
+  const [currentRecordInjectionContext, setCurrentRecordInjectionContext] =
+    React.useState<RecordInjectionContext | null>(null)
+
+  const recordInjectionContext = React.useMemo(() => {
+    if (!currentRecordInjectionContext) return injectionContext
+    const publishedPath = currentRecordInjectionContext.path
+    if (publishedPath && pathname && publishedPath !== pathname) return injectionContext
+    return { ...injectionContext, ...currentRecordInjectionContext }
+  }, [injectionContext, currentRecordInjectionContext, pathname])
+
   const isOnSettingsPath = React.useMemo(() => {
     if (!pathname) return false
     if (pathname === '/backend/settings') return true
@@ -564,22 +645,23 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
   }, [mobileOpen])
 
   React.useEffect(() => {
-    try {
-      const savedOpen = typeof window !== 'undefined' ? localStorage.getItem('om:sidebarOpenGroups') : null
-      if (!savedOpen) return
-      const parsed = JSON.parse(savedOpen) as Record<string, boolean>
-      setOpenGroups((prev) => {
-        const next = { ...prev }
-        for (const group of resolvedGroups) {
-          const key = resolveGroupKey(group)
-          if (key in parsed) next[key] = !!parsed[key]
-          else if (group.name in parsed) next[key] = !!parsed[group.name]
-        }
-        return next
-      })
-    } catch {
-      // ignore localStorage errors to avoid breaking hydration
-    }
+    const parsed = readVersionedPreference<Record<string, boolean>>(
+      SIDEBAR_OPEN_GROUPS_KEY,
+      SIDEBAR_OPEN_GROUPS_VERSION,
+      isBooleanRecord,
+      {},
+      { legacyIsValid: isBooleanRecord },
+    )
+    if (Object.keys(parsed).length === 0) return
+    setOpenGroups((prev) => {
+      const next = { ...prev }
+      for (const group of resolvedGroups) {
+        const key = resolveGroupKey(group)
+        if (key in parsed) next[key] = !!parsed[key]
+        else if (group.name in parsed) next[key] = !!parsed[group.name]
+      }
+      return next
+    })
   }, [resolvedGroups])
 
   const toggleGroup = (groupId: string) => setOpenGroups((prev) => ({ ...prev, [groupId]: prev[groupId] === false }))
@@ -592,6 +674,9 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
   // private/incognito mode (storage blocked) or when cookies are disabled —
   // the persisted preference is purely a UX nice-to-have, never functional, so
   // swallow the failure and let the component fall back to the default state.
+  // This is a trivial scalar flag ('1' | '0') with no schema to evolve, so it is
+  // intentionally kept raw rather than wrapped in a versioned envelope (the
+  // versioning threshold lives in `@open-mercato/shared/lib/browser/versionedPreference`).
   React.useEffect(() => {
     try { localStorage.setItem('om:sidebarCollapsed', collapsed ? '1' : '0') } catch { /* localStorage blocked (private mode) — non-critical */ }
     try {
@@ -618,7 +703,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
     previousSidebarModeRef.current = sidebarMode
   }, [sidebarMode, collapsed])
   React.useEffect(() => {
-    try { localStorage.setItem('om:sidebarOpenGroups', JSON.stringify(openGroups)) } catch { /* localStorage blocked (private mode) — non-critical */ }
+    writeVersionedPreference(SIDEBAR_OPEN_GROUPS_KEY, SIDEBAR_OPEN_GROUPS_VERSION, openGroups)
   }, [openGroups])
 
   // Ensure current route's group is expanded on load
@@ -669,8 +754,8 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
               aria-label={t('appShell.goToDashboard')}
             >
-              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={40} height={40} className="rounded-full shrink-0" />
-              {!compact && <span className="text-sm font-medium text-foreground">{resolvedProductName}</span>}
+              <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+              {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
             </Link>
           </div>
         )}
@@ -792,7 +877,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
   }
 
   function renderSidebar(compact: boolean, hideHeader?: boolean, forceMainOnly?: boolean) {
-    if (!isChromeReady && isChromeLoading && resolvedGroups.length === 0) {
+    if (!isChromeReady && isChromeLoading) {
       return (
         <div className="flex flex-col min-h-full gap-3" data-testid="backend-chrome-loading">
           {!hideHeader ? (
@@ -802,8 +887,8 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
                 className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
                 aria-label={t('appShell.goToDashboard')}
               >
-                <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={40} height={40} className="rounded-full shrink-0" />
-                {!compact && <span className="text-sm font-medium text-foreground">{resolvedProductName}</span>}
+                <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+                {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
               </Link>
             </div>
           ) : null}
@@ -868,8 +953,8 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
               aria-label={t('appShell.goToDashboard')}
             >
-              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={40} height={40} className="rounded-full shrink-0" />
-              {!compact && <span className="text-sm font-medium text-foreground">{resolvedProductName}</span>}
+              <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+              {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
             </Link>
           </div>
         )}
@@ -1130,7 +1215,6 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
             type="button"
             variant="outline"
             size="sm"
-            className="h-7 text-xs"
             data-menu-item-id={item.id}
             onClick={() => item.onClick?.()}
           >
@@ -1143,7 +1227,22 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
 
   return (
     <HeaderContext.Provider value={headerCtxValue}>
-    <div className={`min-h-svh lg:grid transition-[grid-template-columns] duration-200 ease-out ${gridColsClass}`}>
+    <div
+      className={`relative min-h-svh lg:grid transition-[grid-template-columns] duration-200 ease-out ${gridColsClass}`}
+      style={{ '--topbar-height': '61px' } as React.CSSProperties}
+    >
+      {/* Desktop sidebar collapse/expand toggle — sits on the divider line between
+          sidebar and content, like Notion/Vercel. Hidden on mobile (hamburger in
+          topbar handles the drawer). */}
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        aria-label={t('appShell.toggleSidebar')}
+        className="hidden lg:flex fixed top-4 z-dropdown size-7 items-center justify-center rounded-md border bg-background text-muted-foreground shadow-sm transition-all hover:text-foreground hover:bg-muted focus:outline-none focus-visible:shadow-focus"
+        style={{ left: `calc(${asideWidth} - 14px)` }}
+      >
+        {effectiveCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+      </button>
       {/* Desktop main sidebar */}
       <aside ref={sidebarAsideRef} className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative transition-[width,padding] duration-200 ease-out`} style={{ width: asideWidth }}>
         {renderSidebar(effectiveCollapsed, false, isSectionView)}
@@ -1206,7 +1305,7 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
       ) : null}
 
       <div className="flex min-h-svh flex-col min-w-0">
-        <header className="border-b bg-background/80 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
+        <header className="sticky top-0 z-sticky border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-3 sm:px-4 lg:px-6 py-3 flex items-center justify-between gap-2 sm:gap-3">
           <div
             data-testid="backend-chrome-ready"
             data-ready={isChromeReady ? 'true' : 'false'}
@@ -1214,21 +1313,8 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
           />
           <div className="flex items-center gap-2 min-w-0">
             {/* Mobile menu button */}
-            <IconButton variant="outline" size="sm" className="lg:hidden" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
+            <IconButton variant="ghost" size="sm" className="lg:hidden" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
-            </IconButton>
-            {/* Desktop collapse toggle */}
-            <IconButton
-              variant="outline"
-              size="sm"
-              className="hidden lg:inline-flex"
-              aria-label={t('appShell.toggleSidebar')}
-              onClick={() => setCollapsed((c) => !c)}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="4" width="18" height="16" rx="2"/>
-                <path d="M9 4v16"/>
-              </svg>
             </IconButton>
             {/* Header breadcrumb: always starts with Dashboard */}
             {(() => {
@@ -1243,30 +1329,65 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
                 rest = [{ label: headerTitle }]
               }
               const items = [...root, ...rest]
-              const lastIndex = items.length - 1
+              if (items.length === 0) return null
+              const home = items[0]
+              const current = items.length > 1 ? items[items.length - 1] : null
+              const mid = items.slice(1, -1)
+              const hasMid = mid.length > 0
               return (
-                <nav className="flex items-center gap-2 text-sm min-w-0">
-                  {items.map((b, i) => {
-                    const isLast = i === lastIndex
-                    const hiddenOnMobile = !isLast ? 'hidden md:inline' : ''
-                    return (
-                      <React.Fragment key={i}>
-                        {i > 0 && <span className={`text-muted-foreground hidden md:inline`}>/</span>}
-                        {b.href ? (
-                          <Link href={b.href} className={`text-muted-foreground hover:text-foreground ${hiddenOnMobile}`}>
-                            {b.label}
+                <BreadcrumbNav divider="arrow" className="ml-2 lg:ml-3 text-sm">
+                  <BreadcrumbList className="[&_[data-slot=breadcrumb-separator]_svg]:size-4">
+                    <BreadcrumbItem>
+                      {home.href && current ? (
+                        <BreadcrumbLink asChild aria-label={home.label}>
+                          <Link href={home.href}>
+                            <Home className="size-4" aria-hidden="true" />
                           </Link>
-                        ) : (
-                          <span className={`font-medium truncate max-w-[45vw] md:max-w-[60vw]`}>{b.label}</span>
-                        )}
-                      </React.Fragment>
-                    )
-                  })}
-                </nav>
+                        </BreadcrumbLink>
+                      ) : (
+                        <BreadcrumbPage aria-label={home.label}>
+                          <Home className="size-4" aria-hidden="true" />
+                        </BreadcrumbPage>
+                      )}
+                    </BreadcrumbItem>
+                    {current ? (
+                      <>
+                        {hasMid ? (
+                          <>
+                            <BreadcrumbSeparator className="md:hidden" />
+                            <BreadcrumbItem className="md:hidden">
+                              <BreadcrumbEllipsis aria-label={t('appShell.breadcrumb.collapsed', { count: mid.length })} />
+                            </BreadcrumbItem>
+                            {mid.map((b, i) => (
+                              <React.Fragment key={`mid-${i}`}>
+                                <BreadcrumbSeparator className="hidden md:inline-flex" />
+                                <BreadcrumbItem className="hidden md:inline-flex">
+                                  {b.href ? (
+                                    <BreadcrumbLink asChild title={b.label}>
+                                      <Link href={b.href}>{b.label}</Link>
+                                    </BreadcrumbLink>
+                                  ) : (
+                                    <BreadcrumbLink title={b.label} aria-disabled="true" tabIndex={-1}>
+                                      {b.label}
+                                    </BreadcrumbLink>
+                                  )}
+                                </BreadcrumbItem>
+                              </React.Fragment>
+                            ))}
+                          </>
+                        ) : null}
+                        <BreadcrumbSeparator />
+                        <BreadcrumbItem>
+                          <BreadcrumbPage title={current.label}>{current.label}</BreadcrumbPage>
+                        </BreadcrumbItem>
+                      </>
+                    ) : null}
+                  </BreadcrumbList>
+                </BreadcrumbNav>
               )
             })()}
           </div>
-          <div className="flex items-center gap-1 md:gap-2 text-sm shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3 text-sm shrink-0">
             <StatusBadgeInjectionSpot
               spotId={GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID}
               context={injectionContext}
@@ -1284,20 +1405,25 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
             )}
           </div>
         </header>
-        <ProgressTopBar t={t} className="sticky top-0 z-sticky" />
+        <ProgressTopBar t={t} className="sticky top-0 z-sticky" completedAutoHideMs={progressCompletedAutoHideMs} />
         <main className="flex-1 p-4 lg:p-6 mx-auto w-full max-w-screen-2xl">
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
           <PartialIndexBanner />
-          <UpgradeActionBanner />
+          {canManageUpgradeActions ? <UpgradeActionBanner /> : null}
           <LastOperationBanner />
-          <InjectionSpot spotId={BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID} context={injectionContext} />
+          <RecordConflictBanner />
+          <InjectionSpot spotId={BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID} context={recordInjectionContext} />
           <InjectionSpot
             spotId={LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID}
             context={injectionContext}
           />
           <div id="om-top-banners" className="mb-3 space-y-2" />
-          {children}
+          <OrganizationScopeBoundary active={isOnSettingsPath}>
+            <BackendRecordInjectionContextProvider setCurrentRecordInjectionContext={setCurrentRecordInjectionContext}>
+              {children}
+            </BackendRecordInjectionContextProvider>
+          </OrganizationScopeBoundary>
           <InjectionSpot spotId={BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID} context={injectionContext} />
         </main>
         <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
@@ -1320,23 +1446,73 @@ function AppShellBody({ productName, logo, email, groups, rightHeaderSlot, child
       {/* Mobile drawer */}
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-modal">
-          <div className="absolute inset-0 bg-black/20" onClick={() => setMobileOpen(false)} aria-hidden="true" />
-          <aside className="absolute left-0 top-0 flex h-full w-[260px] flex-col bg-background border-r overflow-hidden">
-            <div className="shrink-0 p-3 pb-2 flex items-center justify-between border-b">
-              <Link href="/backend" className="flex items-center gap-2 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
-                <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? resolvedProductName} width={28} height={28} className="rounded" />
-                {resolvedProductName}
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setMobileOpen(false)} aria-hidden="true" />
+          <aside className="absolute left-0 top-0 flex h-full w-[280px] max-w-[85vw] flex-col bg-background border-r shadow-lg overflow-hidden">
+            <div className="shrink-0 flex items-center justify-between gap-2 border-b px-4 py-3">
+              <Link href="/backend" className="flex items-center gap-2 min-w-0 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
+                <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={28} height={28} className="rounded shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+                <span className="truncate">{resolvedBrandName}</span>
               </Link>
-              <IconButton variant="outline" size="sm" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</IconButton>
+              <IconButton variant="ghost" size="sm" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>
+                <X className="size-4" />
+              </IconButton>
             </div>
             {mobileSidebarSlot && (
               <div className="shrink-0 border-b px-3 py-2">
                 {mobileSidebarSlot}
               </div>
             )}
-            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3">
+            {sidebarMode !== 'main' ? (
+              <div className="shrink-0 flex items-center gap-5 border-b px-4 pt-3 pb-0" role="tablist">
+                {([
+                  { id: 'main' as const, label: t('backend.nav.main', 'Main') },
+                  {
+                    id: 'section' as const,
+                    label:
+                      sidebarMode === 'settings'
+                        ? settingsSectionTitle ?? t('backend.nav.settings', 'Settings')
+                        : profileSectionTitle ?? t('backend.nav.profile', 'Profile'),
+                  },
+                ]).map((tab) => {
+                  const isActive =
+                    tab.id === 'main' ? mobileDrawerView === 'main' : mobileDrawerView === 'auto'
+                  const tabId = `mobile-drawer-tab-${tab.id}`
+                  return (
+                    <button
+                      key={tab.id}
+                      id={tabId}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      aria-controls="mobile-drawer-tabpanel"
+                      onClick={() => setMobileDrawerView(tab.id === 'main' ? 'main' : 'auto')}
+                      className="relative inline-flex items-center pb-2 text-sm font-medium leading-5 tracking-tight transition-colors focus:outline-none data-[active=true]:text-foreground data-[active=false]:text-muted-foreground hover:text-foreground"
+                      data-active={isActive}
+                    >
+                      <span>{tab.label}</span>
+                      {isActive ? (
+                        <span
+                          className="absolute -bottom-px left-0 right-0 h-0.5 bg-foreground"
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : null}
+            <div
+              id="mobile-drawer-tabpanel"
+              role={sidebarMode !== 'main' ? 'tabpanel' : undefined}
+              aria-labelledby={
+                sidebarMode !== 'main'
+                  ? `mobile-drawer-tab-${mobileDrawerView === 'main' ? 'main' : 'section'}`
+                  : undefined
+              }
+              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3"
+            >
               {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}
-              {renderSidebar(false, true)}
+              {renderSidebar(false, true, mobileDrawerView === 'main')}
             </div>
           </aside>
         </div>

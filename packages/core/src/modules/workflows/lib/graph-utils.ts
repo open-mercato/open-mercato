@@ -1,4 +1,4 @@
-import { Node, Edge } from '@xyflow/react'
+import type { Node, Edge } from '@xyflow/react'
 import type { WorkflowDefinition } from '../data/entities'
 
 /**
@@ -452,6 +452,7 @@ function mapNodeTypeToStepType(nodeType: string): string {
     automated: 'AUTOMATED',
     decision: 'DECISION',
     waitForSignal: 'WAIT_FOR_SIGNAL',
+    waitForTimer: 'WAIT_FOR_TIMER',
   }
   return mapping[nodeType] || 'AUTOMATED'
 }
@@ -467,6 +468,7 @@ function mapStepTypeToNodeType(stepType: string): string {
     AUTOMATED: 'automated',
     DECISION: 'decision',
     WAIT_FOR_SIGNAL: 'waitForSignal',
+    WAIT_FOR_TIMER: 'waitForTimer',
   }
   return mapping[stepType] || 'automated'
 }
@@ -482,6 +484,7 @@ function getBadgeForNodeType(nodeType: string): string {
     automated: 'Automated',
     decision: 'Decision',
     waitForSignal: 'Wait for Signal',
+    waitForTimer: 'Wait for Timer',
   }
   return badges[nodeType] || 'Task'
 }
@@ -655,4 +658,24 @@ export function generateStepId(prefix: string = 'step'): string {
 export function generateTransitionId(fromStepId: string, toStepId: string): string {
   const id = `e_${fromStepId}_${toStepId}`
   return sanitizeId(id)
+}
+
+/**
+ * Append a new edge to the list, skipping duplicate connections.
+ *
+ * A plain-data replacement for React Flow's `addEdge` so the visual editor
+ * page does not pull the `@xyflow/react` runtime out of its lazy boundary
+ * (#3169). Mirrors `addEdge`'s dedup rule: an edge is dropped when one with
+ * the same source/target endpoints (and handles) already exists.
+ */
+export function appendWorkflowEdge(edges: Edge[], edge: Edge): Edge[] {
+  const isDuplicate = edges.some(
+    (existing) =>
+      existing.source === edge.source &&
+      existing.target === edge.target &&
+      // Match addEdge: empty-string and nullish handles are equivalent.
+      (existing.sourceHandle || null) === (edge.sourceHandle || null) &&
+      (existing.targetHandle || null) === (edge.targetHandle || null),
+  )
+  return isDuplicate ? edges : [...edges, edge]
 }

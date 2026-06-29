@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { BACKEND_MUTATION_ERROR_EVENT } from '@open-mercato/ui/backend/injection/mutationEvents'
+import { registerRecordLockConflictHandler } from '@open-mercato/ui/backend/conflicts'
 import { useSearchParams } from 'next/navigation'
 import { Mail } from 'lucide-react'
 import {
@@ -31,6 +32,8 @@ import {
   type RecordLockUiConflict,
   type RecordLockUiView,
 } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
+import { isUuid, resolveConflictId, runAcceptIncoming } from './conflictResolution'
+import { isOptimisticLockFloorConflict } from '@open-mercato/enterprise/modules/record_locks/lib/optimisticLockFloor'
 
 type CrudInjectionContext = {
   formId?: string
@@ -117,13 +120,6 @@ function readStringOrNull(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
-}
-
-function isUuid(value: string | null | undefined): value is string {
-  if (typeof value !== 'string') return false
-  const trimmed = value.trim()
-  if (!trimmed) return false
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmed)
 }
 
 function extractErrorStatus(error: unknown): number | null {
@@ -298,6 +294,74 @@ function isRecordDeletedError(error: unknown): boolean {
   }
 
   return false
+}
+
+/**
+ * Action the record-lock widget takes when a CrudForm / guarded-mutation save
+ * error event (`om:crud-save-error` / backend-mutation-error) fires. Extracted
+ * as a pure function so the single-conflict-surface (S3) decision is unit-testable
+ * without rendering the widget:
+ *
+ *  - `ignore`          — event is for a different form/record, there is no
+ *                        actionable mounted record, OR the error is a plain OSS
+ *                        `optimistic_lock_conflict` 409 already owned by the OSS
+ *                        conflict bar via `surfaceRecordConflict` (opening the
+ *                        dialog too would render TWO surfaces — #3504/#3505).
+ *  - `record-deleted`  — the record was deleted by another user.
+ *  - `apply-conflict`  — a genuine enterprise `record_lock_conflict` payload;
+ *                        open the field-level merge dialog with it.
+ *  - `fallback-dialog` — an unrecognized 409 (neither record-lock nor OSS
+ *                        optimistic-lock) for the mounted record; open the
+ *                        degraded fallback dialog (legacy behavior).
+ */
+export type RecordLockSaveErrorDecision =
+  | { action: 'ignore' }
+  | { action: 'record-deleted' }
+  | {
+      action: 'apply-conflict'
+      payload: {
+        conflict: RecordLockUiConflict
+        lock?: RecordLockUiView | null
+        latestActionLogId?: string | null
+      }
+    }
+  | { action: 'fallback-dialog' }
+
+export function resolveRecordLockSaveErrorDecision(args: {
+  error: unknown
+  eventContextId: string | null | undefined
+  formId: string
+  currentState: { resourceKind?: string | null; resourceId?: string | null } | null | undefined
+}): RecordLockSaveErrorDecision {
+  const { error, eventContextId, formId, currentState } = args
+  const payload = extractRecordLockConflictPayload(error)
+  const eventTargetsCurrentForm = !eventContextId || eventContextId === formId
+  if (!eventTargetsCurrentForm) {
+    if (!payload || !currentState?.resourceKind || !currentState?.resourceId) return { action: 'ignore' }
+    const payloadResourceKind = payload.conflict.resourceKind?.trim() ?? ''
+    const payloadResourceId = payload.conflict.resourceId?.trim() ?? ''
+    if (!payloadResourceKind || !payloadResourceId) return { action: 'ignore' }
+    if (payloadResourceKind !== currentState.resourceKind || payloadResourceId !== currentState.resourceId) {
+      return { action: 'ignore' }
+    }
+  }
+  if (!payload) {
+    if (!currentState?.resourceKind || !currentState?.resourceId) return { action: 'ignore' }
+    if (isRecordDeletedError(error)) return { action: 'record-deleted' }
+    // A plain OSS `optimistic_lock_conflict` 409 (the shape `makeCrudRoute` /
+    // `CrudForm` returns on a stale write) is already surfaced by the OSS conflict
+    // bar via `surfaceRecordConflict`. Defer to it instead of opening the degraded
+    // fallback merge dialog — otherwise both surfaces render at once (#3504) and the
+    // dialog has no field diff and a no-op "Accept incoming" (#3505). The rich merge
+    // dialog stays reserved for genuine `record_lock_conflict` payloads (handled
+    // above) whose conflict carries field changes + resolution options. Delegates to
+    // the shared `optimisticLockFloor` detector so this arbitration stays identical to
+    // the conflict bar's ownership decision (single source of truth).
+    if (isOptimisticLockFloorConflict(error)) return { action: 'ignore' }
+    if (extractErrorStatus(error) === 409) return { action: 'fallback-dialog' }
+    return { action: 'ignore' }
+  }
+  return { action: 'apply-conflict', payload }
 }
 
 function clearIncomingChangesQueryFlag() {
@@ -1024,38 +1088,33 @@ export default function RecordLockingWidget({
       const detail = (event as CustomEvent<CrudSaveErrorEventDetail>).detail
       if (!detail) return
       const eventContextId = detail.contextId ?? detail.formId
-      let payload = extractRecordLockConflictPayload(detail.error)
       const currentState = getRecordLockFormState(formId)
-      const eventTargetsCurrentForm = !eventContextId || eventContextId === formId
-      if (!eventTargetsCurrentForm) {
-        if (!payload || !currentState?.resourceKind || !currentState?.resourceId) return
-        const payloadResourceKind = payload.conflict.resourceKind?.trim() ?? ''
-        const payloadResourceId = payload.conflict.resourceId?.trim() ?? ''
-        if (!payloadResourceKind || !payloadResourceId) return
-        if (payloadResourceKind !== currentState.resourceKind || payloadResourceId !== currentState.resourceId) return
+      const decision = resolveRecordLockSaveErrorDecision({
+        error: detail.error,
+        eventContextId,
+        formId,
+        currentState,
+      })
+      if (decision.action === 'ignore') return
+      if (decision.action === 'record-deleted') {
+        setIsConflictDialogOpen(true)
+        setRecordLockFormState(formId, {
+          recordDeleted: true,
+          acquired: false,
+          lock: null,
+          conflict: null,
+          pendingConflictId: null,
+          pendingResolution: 'normal',
+          pendingResolutionArmed: false,
+        })
+        return
       }
-        if (!payload) {
-        if (!currentState?.resourceKind || !currentState?.resourceId) return
-        if (isRecordDeletedError(detail.error)) {
-          setIsConflictDialogOpen(true)
-          setRecordLockFormState(formId, {
-            recordDeleted: true,
-            acquired: false,
-            lock: null,
-            conflict: null,
-            pendingConflictId: null,
-            pendingResolution: 'normal',
-            pendingResolutionArmed: false,
-          })
-          return
-        }
-        if (extractErrorStatus(detail.error) === 409) {
-          applyConflictPayload(buildFallbackConflict(currentState))
-        }
+      if (decision.action === 'fallback-dialog') {
+        if (currentState) applyConflictPayload(buildFallbackConflict(currentState))
         return
       }
 
-      applyConflictPayload(payload)
+      applyConflictPayload(decision.payload)
     }
 
     window.addEventListener(BACKEND_MUTATION_ERROR_EVENT, onCrudSaveError)
@@ -1065,6 +1124,33 @@ export default function RecordLockingWidget({
       window.removeEventListener('om:crud-save-error', onCrudSaveError)
     }
   }, [formId, isPrimaryInstance])
+
+  // Single conflict surface (S3): own the surface for record_lock_conflict 409s
+  // routed through `surfaceRecordConflict` (command/raw-write paths that don't
+  // emit the crud-save-error event). Opening the dialog here is idempotent with
+  // the listener above; returning true tells the core helper to suppress the OSS
+  // bar (so we never render both). Decline (false) for a different record so the
+  // bar still renders there — a conflict is never swallowed.
+  React.useEffect(() => {
+    if (!isPrimaryInstance) return
+    if (!resourceKind || !resourceId) return
+    const unregister = registerRecordLockConflictHandler((_conflict, error) => {
+      const payload = extractRecordLockConflictPayload(error)
+      if (!payload) return false
+      const payloadKind = payload.conflict.resourceKind?.trim() ?? ''
+      const payloadId = payload.conflict.resourceId?.trim() ?? ''
+      if (payloadKind && payloadId && (payloadKind !== resourceKind || payloadId !== resourceId)) return false
+      setIsConflictDialogOpen(true)
+      setRecordLockFormState(formId, {
+        conflict: payload.conflict,
+        pendingConflictId: payload.conflict.id,
+        pendingResolution: 'normal',
+        pendingResolutionArmed: false,
+      })
+      return true
+    })
+    return unregister
+  }, [formId, isPrimaryInstance, resourceKind, resourceId])
 
   const handleTakeOver = React.useCallback(async () => {
     keepMineRetryVersionRef.current += 1
@@ -1107,42 +1193,41 @@ export default function RecordLockingWidget({
 
   const handleAcceptIncoming = React.useCallback(async () => {
     keepMineRetryVersionRef.current += 1
-    if (!state?.conflict || !state?.resourceKind || !state?.resourceId) return
-    let conflictId: string | undefined = isUuid(state.conflict.id) ? state.conflict.id : undefined
-    if (!conflictId) {
-      const validation = await validateBeforeSave({}, context)
-      conflictId = isUuid(validation.conflict?.id) ? validation.conflict.id : undefined
-      if (!conflictId) {
-        flash(
-          t(
-            'record_locks.conflict.refresh_required',
-            'Could not confirm conflict details. Save again to refresh conflict data.',
-          ),
-          'error',
-        )
-        return
-      }
-    }
-    await apiCallOrThrow('/api/record_locks/release', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        resourceKind: state.resourceKind,
-        resourceId: state.resourceId,
-        token: state.lock?.token ?? undefined,
-        reason: 'conflict_resolved',
-        conflictId,
-        resolution: 'accept_incoming',
-      }),
+    await runAcceptIncoming({
+      conflict: state?.conflict,
+      resourceKind: state?.resourceKind,
+      resourceId: state?.resourceId,
+      revalidateConflictId: async () => {
+        const validation = await validateBeforeSave({}, context)
+        return resolveConflictId(validation.conflict)
+      },
+      releaseIncoming: async (conflictId) => {
+        await apiCallOrThrow('/api/record_locks/release', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            resourceKind: state?.resourceKind,
+            resourceId: state?.resourceId,
+            token: state?.lock?.token ?? undefined,
+            reason: 'conflict_resolved',
+            conflictId,
+            resolution: 'accept_incoming',
+          }),
+        })
+      },
+      clearConflictState: () => {
+        setRecordLockFormState(formId, {
+          conflict: null,
+          pendingConflictId: null,
+          pendingResolution: 'normal',
+          pendingResolutionArmed: false,
+        })
+      },
+      reload: () => {
+        window.location.reload()
+      },
     })
-    setRecordLockFormState(formId, {
-      conflict: null,
-      pendingConflictId: null,
-      pendingResolution: 'normal',
-      pendingResolutionArmed: false,
-    })
-    window.location.reload()
-  }, [context, formId, state?.conflict, state?.lock?.token, state?.resourceId, state?.resourceKind, t])
+  }, [context, formId, state?.conflict, state?.lock?.token, state?.resourceId, state?.resourceKind])
 
   const handleKeepMine = React.useCallback(() => {
     if (!state?.conflict) return
@@ -1226,7 +1311,7 @@ export default function RecordLockingWidget({
       }
       setIsConflictDialogOpen(false)
     }}>
-      <DialogContent>
+      <DialogContent data-testid="record-lock-conflict-dialog">
         <DialogHeader>
           <DialogTitle>
             {isRecordDeleted

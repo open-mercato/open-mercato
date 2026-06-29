@@ -237,7 +237,7 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
       expect(cursorRulesSource).toContain('sample-store')
 
       const specWritingSkillSource = fs.readFileSync(
-        path.join(appDir, '.ai', 'skills', 'spec-writing', 'SKILL.md'),
+        path.join(appDir, '.ai', 'skills', 'om-spec-writing', 'SKILL.md'),
         'utf8',
       )
       expect(specWritingSkillSource).toContain('sample-store')

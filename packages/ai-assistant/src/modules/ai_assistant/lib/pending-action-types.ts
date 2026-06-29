@@ -65,7 +65,7 @@ export type AiPendingActionRecordDiff = {
   recordId: string
   entityType: string
   label: string
-  fieldDiff: Array<{ field: string; before: unknown; after: unknown }>
+  fieldDiff: AiPendingActionFieldDiff[]
   recordVersion: string | null
   attachmentIds?: string[]
 }
@@ -81,8 +81,11 @@ export type AiPendingActionFailedRecord = {
 
 export type AiPendingActionFieldDiff = {
   field: string
+  fieldLabel?: string
   before: unknown
   after: unknown
+  beforeDisplay?: unknown
+  afterDisplay?: unknown
 }
 
 /**

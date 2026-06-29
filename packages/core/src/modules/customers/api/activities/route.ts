@@ -24,10 +24,12 @@ import {
   mapInteractionRecordToActivitySummary,
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
 } from '../../lib/interactionCompatibility'
+import { withOperationMetadata } from '../../lib/operationMetadata'
 import { resolveCustomerInteractionFeatureFlags } from '../../lib/interactionFeatureFlags'
 import { resolveCustomersRequestContext } from '../../lib/interactionRequestContext'
 import { hydrateCanonicalInteractions } from '../../lib/interactionReadModel'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
+import { buildEmailVisibilityMikroFilter } from '../../lib/visibilityFilter'
 
 const listSchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -72,6 +74,12 @@ const ADAPTER_HEADERS = {
 // canonical bridge) read path. Keeps memory bounded on tenants with large
 // activity history; deep-pagination beyond this window is not supported here —
 // use /api/customers/interactions instead.
+//
+// Audited for the #3386 rollout (P2): this merged path sorts only on
+// non-encrypted system timestamps (createdAt/occurredAt, see
+// resolveActivitySortValue), so the #3278 two-phase *encrypted*-sort migration
+// is intentionally not applied here. Merge-order correctness across the page
+// boundary is covered by __tests__/merged-pagination.test.ts.
 const MERGED_ACTIVITY_FETCH_CAP = 2000
 
 type ActivityItem = {
@@ -185,7 +193,7 @@ function paginateActivityItems(
   }
 }
 
-async function decorateActivityItems(
+export async function decorateActivityItems(
   em: EntityManager,
   items: ActivityItem[],
   decryptionScope?: { tenantId: string; organizationId: string },
@@ -207,12 +215,23 @@ async function decorateActivityItems(
     ),
   )
 
+  if (dealIds.length > 0 && (!decryptionScope?.tenantId || !decryptionScope?.organizationId)) {
+    const { translate } = await resolveTranslations()
+    throw new CrudHttpError(400, {
+      error: translate('customers.errors.tenant_required', 'Tenant context is required'),
+    })
+  }
+
   const [users, deals] = await Promise.all([
     authorIds.length > 0 ? em.find(User, { id: { $in: authorIds } }) : Promise.resolve([]),
-    dealIds.length > 0
-      ? decryptionScope
-        ? findWithDecryption(em, CustomerDeal, { id: { $in: dealIds } }, undefined, decryptionScope)
-        : em.find(CustomerDeal, { id: { $in: dealIds } })
+    dealIds.length > 0 && decryptionScope
+      ? findWithDecryption(
+          em,
+          CustomerDeal,
+          { id: { $in: dealIds }, tenantId: decryptionScope.tenantId, organizationId: decryptionScope.organizationId },
+          undefined,
+          decryptionScope,
+        )
       : Promise.resolve([]),
   ])
 
@@ -279,6 +298,18 @@ async function listCanonicalActivities(
   if (options?.source) {
     where.source = Array.isArray(options.source) ? { $in: options.source } : options.source
   }
+
+  // Per-user email privacy: exclude other users' private email interactions from
+  // the deprecated /activities surface (mirrors the /interactions Layer-1 filter).
+  // v1 strict owner-only — no admin bypass (the filter ignores caller features).
+  const activitiesViewerUserId = auth.keyId ? null : (auth.sub ?? auth.userId ?? null)
+  Object.assign(
+    where,
+    buildEmailVisibilityMikroFilter({
+      currentUserId: activitiesViewerUserId,
+      userFeatures: undefined,
+    }),
+  )
 
   const findOptions = {
     orderBy: buildCanonicalOrderBy(query.sortField, query.sortDir ?? 'desc'),
@@ -489,7 +520,7 @@ export async function POST(request: Request): Promise<Response> {
       return withAdapterHeaders(NextResponse.json(guardResult.body, { status: guardResult.status }))
     }
     const commandBus = container.resolve('commandBus') as CommandBus
-    const { result } = await commandBus.execute('customers.interactions.create', {
+    const { result, logEntry } = await commandBus.execute('customers.interactions.create', {
       input: {
         tenantId: auth.tenantId,
         organizationId: selectedOrganizationId ?? auth.orgId,
@@ -523,23 +554,18 @@ export async function POST(request: Request): Promise<Response> {
       })
     }
 
+    const createdId =
+      result && typeof result === 'object' && 'interactionId' in result && typeof result.interactionId === 'string'
+        ? result.interactionId
+        : result && typeof result === 'object' && 'id' in result && typeof result.id === 'string'
+          ? result.id
+          : null
+
     return withAdapterHeaders(
-      NextResponse.json(
-        {
-          id:
-            result &&
-            typeof result === 'object' &&
-            'interactionId' in result &&
-            typeof result.interactionId === 'string'
-              ? result.interactionId
-              : result &&
-                  typeof result === 'object' &&
-                  'id' in result &&
-                  typeof result.id === 'string'
-                ? result.id
-                : null,
-        },
-        { status: 201 },
+      withOperationMetadata(
+        NextResponse.json({ id: createdId }, { status: 201 }),
+        logEntry,
+        { resourceKind: 'customers.activity', resourceId: createdId },
       ),
     )
   } catch (err) {
@@ -587,7 +613,7 @@ export async function PUT(request: Request): Promise<Response> {
       ? parsed.id
       : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id, auth.tenantId)
 
-    await commandBus.execute('customers.interactions.update', {
+    const { logEntry } = await commandBus.execute('customers.interactions.update', {
       input: {
         id: interactionId,
         interactionType: parsed.activityType,
@@ -618,7 +644,13 @@ export async function PUT(request: Request): Promise<Response> {
       })
     }
 
-    return withAdapterHeaders(NextResponse.json({ ok: true }))
+    return withAdapterHeaders(
+      withOperationMetadata(
+        NextResponse.json({ ok: true }),
+        logEntry,
+        { resourceKind: 'customers.activity', resourceId: parsed.id },
+      ),
+    )
   } catch (err) {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
@@ -663,7 +695,7 @@ export async function DELETE(request: Request): Promise<Response> {
     const interactionId = flags.unified
       ? parsed.id
       : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id, auth.tenantId)
-    await commandBus.execute('customers.interactions.delete', {
+    const { logEntry } = await commandBus.execute('customers.interactions.delete', {
       input: { id: interactionId },
       ctx: commandContext,
     })
@@ -680,7 +712,13 @@ export async function DELETE(request: Request): Promise<Response> {
         metadata: guardResult.metadata ?? null,
       })
     }
-    return withAdapterHeaders(NextResponse.json({ ok: true }))
+    return withAdapterHeaders(
+      withOperationMetadata(
+        NextResponse.json({ ok: true }),
+        logEntry,
+        { resourceKind: 'customers.activity', resourceId: parsed.id },
+      ),
+    )
   } catch (err) {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))

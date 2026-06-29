@@ -2,7 +2,7 @@
 
 **This is the reference CRUD module.** When building new modules, copy patterns from here first.
 
-## MUST Rules
+## Always
 
 1. **MUST use this module as the template** for new CRUD modules — copy file structure and patterns
 2. **MUST include all standard module files** — use the list below as a checklist
@@ -10,6 +10,25 @@
 4. **MUST wire custom field helpers** for create/update/response normalization
 5. **MUST capture custom field snapshots** in command `before`/`after` payloads for undo support
 6. **MUST use `useGuardedMutation` for non-`CrudForm` backend writes** (`POST`/`PUT`/`PATCH`/`DELETE`) and pass `retryLastMutation` in injection context
+
+## Ask First
+
+- Ask before changing this module's reference patterns, standard module-file checklist, or AI mutation policies.
+- Ask before changing customer data model relationships that downstream modules may copy.
+
+## Never
+
+- Never bypass custom field normalization in CRUD create/update/read responses.
+- Never omit undo snapshots for custom field mutations.
+- Never write backend `POST`/`PUT`/`PATCH`/`DELETE` actions outside `CrudForm` without `useGuardedMutation`.
+
+## Validation Commands
+
+```bash
+yarn db:generate
+yarn generate
+yarn workspace @open-mercato/core build
+```
 
 ## Key Reference Files — Copy From Here
 
@@ -44,8 +63,8 @@
 When creating a new entity or CRUD slice, copy the customers module structure first, then align with `packages/core/AGENTS.md` and `packages/cli/AGENTS.md`.
 
 1. Define MikroORM v7 entities in `data/entities.ts` with decorators imported from `@mikro-orm/decorators/legacy`.
-2. Use UUID primary keys, snake_case table/column names, `organization_id`, `tenant_id`, and standard timestamp/soft-delete columns.
-3. Add validators, commands, CRUD route, backend pages, ACL, setup grants, events, search, and translations as applicable.
+2. Use UUID primary keys, snake_case table/column names, `organization_id`, `tenant_id`, and standard timestamp/soft-delete columns. For a **user-editable** entity, include `updated_at` (onCreate+onUpdate) so optimistic locking works, and return `updatedAt` from its CRUD list/detail responses.
+3. Add validators, commands, CRUD route, backend pages, ACL, setup grants, events, search, and translations as applicable. Edit/delete UI: prefer `CrudForm` (auto-derives the optimistic-lock header from `initialValues.updatedAt`); for custom list-row/dialog mutations, wrap with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` and `surfaceRecordConflict(err, t)`.
 4. Generate or author the migration for only this entity change, then update the module's `migrations/.snapshot-open-mercato.json`.
 5. Run `yarn db:generate` again as a no-op check; expected output for the touched module is `no changes`.
 
@@ -68,6 +87,12 @@ Commands (`commands/people.ts`) demonstrate:
 3. Restore via `buildCustomFieldResetMap(before.custom, after.custom)` in undo
 4. Side effects with `emitCrudSideEffects` and `emitCrudUndoSideEffects`
 5. Include `indexer: { entityType, cacheAliases }` in both directions
+6. **Prefer `runCrudCommandWrite` for new commands** that combine entity writes + custom fields + side effects in one logical step. Reference: the migrated `updateDealCommand.execute` in `commands/deals.ts`. See `packages/core/AGENTS.md` → Entity Update Safety for the contract and `packages/shared/AGENTS.md` → `commands/runCrudCommandWrite` for the import.
+
+## Transaction Safety
+
+- Multi-phase scalar + relation mutations (e.g. update commands that also sync tags) use `withAtomicFlush(em, phases, { transaction: true })` from `@open-mercato/shared/lib/commands/flush` — never interleave `em.find`/`em.findOne` between a scalar mutation and `em.flush()`.
+- Side effects (`emitCrudSideEffects`) and cache invalidation fire **after** commit, outside the `withAtomicFlush` block. See `packages/core/AGENTS.md` → "Entity Update Safety — `withAtomicFlush`" and `.ai/specs/2026-06-05-cache-safety-always-consistent.md`.
 
 ## Custom Field Integration
 

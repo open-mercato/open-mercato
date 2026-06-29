@@ -6,7 +6,14 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { PipelineStepper } from '../PipelineStepper'
 
 describe('PipelineStepper', () => {
+  const formatTransitionDate = (value: string) =>
+    new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+
   it('renders achieved stage dates and marks the current stage like the detail mockup', () => {
+    const qualificationDate = formatTransitionDate('2026-03-12T09:00:00.000Z')
+    const proposalDate = formatTransitionDate('2026-03-20T09:00:00.000Z')
+    const currentDate = formatTransitionDate('2026-04-01T09:00:00.000Z')
+
     renderWithProviders(
       <PipelineStepper
         stages={[
@@ -43,9 +50,9 @@ describe('PipelineStepper', () => {
     expect(screen.getAllByText('Qualification').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Proposal').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Negotiation').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Mar 12|12 Mar/)).toBeInTheDocument()
-    expect(screen.getByText(/Mar 20|20 Mar/)).toBeInTheDocument()
-    expect(screen.getAllByText(/Apr 1.*current|1 Apr.*current/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(qualificationDate)).toBeInTheDocument()
+    expect(screen.getByText(proposalDate)).toBeInTheDocument()
+    expect(screen.getAllByText(`${currentDate} · current`).length).toBeGreaterThan(0)
     expect(screen.getByText('Contract')).toBeInTheDocument()
     expect(screen.getByText('—')).toBeInTheDocument()
   })

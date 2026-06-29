@@ -6,6 +6,7 @@ import fs from 'node:fs'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const appDir = path.resolve(here, '..')
 const targets = [
+  path.join(appDir, '.mercato', 'next', 'dev'),
   path.join(appDir, '.next', 'cache', 'turbopack'),
   path.join(appDir, '.next', 'cache', 'webpack'),
 ]
@@ -19,9 +20,9 @@ for (const target of targets) {
 }
 
 if (removed === 0) {
-  console.log('🧹 [dev:reset] nothing to clean — .next/cache subdirectories already absent')
+  console.log('🧹 [dev:reset] nothing to clean — dev build caches already absent')
 }
 
 console.log('')
-console.log('✅ Turbopack/webpack cache cleared.')
-console.log('   Stop any running `yarn dev` and start it again to pick up fresh module output.')
+console.log('✅ Next.js dev cache cleared.')
+console.log('   Start `yarn dev` again to pick up fresh module output.')

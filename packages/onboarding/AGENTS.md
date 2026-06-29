@@ -2,12 +2,30 @@
 
 Use `@open-mercato/onboarding` for setup wizards and guided flows during new tenant provisioning.
 
-## MUST Rules
+## Always
 
 1. **MUST keep wizard steps idempotent** — re-running a step MUST NOT create duplicate data
 2. **MUST persist state per tenant/organization** — use the ORM entities in `data/`
-3. **MUST NOT hard-code user-facing strings** — all wizard copy lives in `i18n/<locale>.json`
-4. **MUST use shared email utilities** from `@open-mercato/shared/lib/email` for welcome/invitation emails
+3. **MUST use shared email utilities** from `@open-mercato/shared/lib/email` for welcome/invitation emails
+4. Keep all wizard copy in `i18n/<locale>.json`.
+
+## Ask First
+
+- Ask before changing tenant-creation ordering, default seeded data, or welcome/invitation email semantics.
+- Ask before adding a wizard step that depends on external credentials or paid services.
+
+## Never
+
+- Never hard-code user-facing wizard or email strings.
+- Never make a step accessible before its predecessor is complete.
+- Never create duplicate tenant data when a step is retried.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/onboarding build
+```
 
 ## Rules for Wizard Steps
 

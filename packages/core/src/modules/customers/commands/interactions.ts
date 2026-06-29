@@ -12,7 +12,7 @@ import {
 import { DefaultDataEngine, type DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CustomerInteraction } from '../data/entities'
+import { CustomerInteraction, CustomerEntity } from '../data/entities'
 import {
   interactionCreateSchema,
   interactionUpdateSchema,
@@ -33,14 +33,17 @@ import {
   resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import {
   loadCustomFieldSnapshot,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceRecordGoneIsConflict, enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { recomputeNextInteraction } from '../lib/interactionProjection'
+import { canChangeEmailVisibility } from '../lib/visibilityFilter'
 
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
 const interactionCrudIndexer: CrudIndexerConfig<CustomerInteraction> = {
@@ -294,6 +297,75 @@ async function emitNextInteractionUpdatedEvent(
 
 // ─── Create ─────────────────────────────────────────────────────────
 
+type InteractionGraphValues = {
+  id?: string
+  organizationId: string
+  tenantId: string
+  entity: CustomerEntity
+  interactionType: string
+  title: string | null
+  body: string | null
+  status: string
+  scheduledAt: Date | null
+  occurredAt: Date | null
+  priority: number | null
+  authorUserId: string | null
+  ownerUserId: string | null
+  dealId: string | null
+  source: string | null
+  appearanceIcon: string | null
+  appearanceColor: string | null
+  durationMinutes: number | null
+  location: string | null
+  allDay: boolean | null
+  recurrenceRule: string | null
+  recurrenceEnd: Date | null
+  participants: InteractionSnapshot['interaction']['participants']
+  reminderMinutes: number | null
+  visibility: string | null
+  linkedEntities: InteractionSnapshot['interaction']['linkedEntities']
+  guestPermissions: InteractionSnapshot['interaction']['guestPermissions']
+}
+
+// Single source of truth for the interaction row mapping, shared by `execute`
+// (values from validated input) and `redo` (values from the after-snapshot,
+// carrying the original id). Keeps create and id-preserving redo from drifting
+// field-by-field. Caller owns the surrounding transaction, persist, projection
+// recompute, and custom-field handling.
+function buildInteractionGraph(em: EntityManager, values: InteractionGraphValues): CustomerInteraction {
+  return em.create(CustomerInteraction, {
+    ...(values.id ? { id: values.id } : {}),
+    organizationId: values.organizationId,
+    tenantId: values.tenantId,
+    entity: values.entity,
+    interactionType: values.interactionType,
+    title: values.title,
+    body: values.body,
+    status: values.status,
+    scheduledAt: values.scheduledAt,
+    occurredAt: values.occurredAt,
+    priority: values.priority,
+    authorUserId: values.authorUserId,
+    ownerUserId: values.ownerUserId,
+    dealId: values.dealId,
+    source: values.source,
+    appearanceIcon: values.appearanceIcon,
+    appearanceColor: values.appearanceColor,
+    durationMinutes: values.durationMinutes,
+    location: values.location,
+    allDay: values.allDay,
+    recurrenceRule: values.recurrenceRule,
+    recurrenceEnd: values.recurrenceEnd,
+    participants: values.participants,
+    reminderMinutes: values.reminderMinutes,
+    visibility: values.visibility,
+    linkedEntities: values.linkedEntities,
+    guestPermissions: values.guestPermissions,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  })
+}
+
 const createInteractionCommand: CommandHandler<InteractionCreateInput, { interactionId: string; entityId: string }> = {
   id: 'customers.interactions.create',
   async execute(rawInput, ctx) {
@@ -301,8 +373,8 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId ?? null, ctx.auth)
-    const { interaction, entityId } = await runInTransaction(em, async (trx) => {
-      const entity = await requireTimelineParentEntity(trx, parsed.entityId)
+    const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
+      const entity = await requireTimelineParentEntity(trx, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId })
       ensureTenantScope(ctx, entity.tenantId)
       ensureOrganizationScope(ctx, entity.organizationId)
 
@@ -310,7 +382,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         await requireDealInScope(trx, parsed.dealId, entity.tenantId, entity.organizationId)
       }
 
-      const interaction = trx.create(CustomerInteraction, {
+      const interaction = buildInteractionGraph(trx, {
         ...(parsed.id ? { id: parsed.id } : {}),
         organizationId: entity.organizationId,
         tenantId: entity.tenantId,
@@ -338,8 +410,6 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         visibility: parsed.visibility ?? null,
         linkedEntities: parsed.linkedEntities ?? null,
         guestPermissions: parsed.guestPermissions ?? null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
       })
       trx.persist(interaction)
       await trx.flush()
@@ -352,14 +422,14 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         custom,
       )
 
+      const projection = await recomputeNextInteraction(trx, entity.id)
+
       return {
         interaction,
         entityId: entity.id,
+        nextInteractionId: projection.nextInteractionId,
       }
     })
-
-    const projection = await recomputeNextInteraction(em, entityId)
-    const nextInteractionId = projection.nextInteractionId
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -416,8 +486,10 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
       const entityId = typeof record.entity === 'string' ? record.entity : record.entity.id
       trx.remove(record)
       await trx.flush()
+      const projection = await recomputeNextInteraction(trx, entityId)
       return {
         entityId,
+        nextInteractionId: projection.nextInteractionId,
         identifiers: {
           id: record.id,
           organizationId: record.organizationId,
@@ -426,11 +498,122 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
       }
     })
     if (!result) return
-    const projection = await recomputeNextInteraction(em, result.entityId)
     await emitNextInteractionUpdatedEvent(ctx, {
       entityId: result.entityId,
-      nextInteractionId: projection.nextInteractionId,
+      nextInteractionId: result.nextInteractionId,
     }, result.identifiers)
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<InteractionSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for interaction create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
+      const entity = await requireTimelineParentEntity(trx, after.interaction.entityId, { tenantId: after.interaction.tenantId, organizationId: after.interaction.organizationId })
+      let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: after.interaction.id })
+      if (!interaction) {
+        interaction = buildInteractionGraph(trx, {
+          id: after.interaction.id,
+          organizationId: after.interaction.organizationId,
+          tenantId: after.interaction.tenantId,
+          entity,
+          interactionType: after.interaction.interactionType,
+          title: after.interaction.title,
+          body: after.interaction.body,
+          status: after.interaction.status,
+          scheduledAt: after.interaction.scheduledAt,
+          occurredAt: after.interaction.occurredAt,
+          priority: after.interaction.priority,
+          authorUserId: after.interaction.authorUserId,
+          ownerUserId: after.interaction.ownerUserId,
+          dealId: after.interaction.dealId,
+          source: after.interaction.source,
+          appearanceIcon: after.interaction.appearanceIcon,
+          appearanceColor: after.interaction.appearanceColor,
+          durationMinutes: after.interaction.durationMinutes,
+          location: after.interaction.location,
+          allDay: after.interaction.allDay,
+          recurrenceRule: after.interaction.recurrenceRule,
+          recurrenceEnd: after.interaction.recurrenceEnd,
+          participants: after.interaction.participants,
+          reminderMinutes: after.interaction.reminderMinutes,
+          visibility: after.interaction.visibility,
+          linkedEntities: after.interaction.linkedEntities,
+          guestPermissions: after.interaction.guestPermissions,
+        })
+        trx.persist(interaction)
+      } else {
+        interaction.deletedAt = null
+        interaction.entity = entity
+        interaction.interactionType = after.interaction.interactionType
+        interaction.title = after.interaction.title
+        interaction.body = after.interaction.body
+        interaction.status = after.interaction.status
+        interaction.scheduledAt = after.interaction.scheduledAt
+        interaction.occurredAt = after.interaction.occurredAt
+        interaction.priority = after.interaction.priority
+        interaction.authorUserId = after.interaction.authorUserId
+        interaction.ownerUserId = after.interaction.ownerUserId
+        interaction.dealId = after.interaction.dealId
+        interaction.source = after.interaction.source
+        interaction.appearanceIcon = after.interaction.appearanceIcon
+        interaction.appearanceColor = after.interaction.appearanceColor
+        interaction.durationMinutes = after.interaction.durationMinutes
+        interaction.location = after.interaction.location
+        interaction.allDay = after.interaction.allDay
+        interaction.recurrenceRule = after.interaction.recurrenceRule
+        interaction.recurrenceEnd = after.interaction.recurrenceEnd
+        interaction.participants = after.interaction.participants
+        interaction.reminderMinutes = after.interaction.reminderMinutes
+        interaction.visibility = after.interaction.visibility
+        interaction.linkedEntities = after.interaction.linkedEntities
+        interaction.guestPermissions = after.interaction.guestPermissions
+      }
+      await trx.flush()
+
+      const projection = await recomputeNextInteraction(trx, after.interaction.entityId)
+
+      const restoreValues = buildCustomFieldResetMap(after.custom, undefined)
+      if (Object.keys(restoreValues).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: createTransactionalDataEngine(ctx, trx),
+          entityId: INTERACTION_ENTITY_ID,
+          recordId: interaction.id,
+          organizationId: interaction.organizationId,
+          tenantId: interaction.tenantId,
+          values: restoreValues,
+          notify: false,
+        })
+      }
+
+      return { interaction, nextInteractionId: projection.nextInteractionId }
+    })
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: interaction,
+      identifiers: {
+        id: interaction.id,
+        organizationId: interaction.organizationId,
+        tenantId: interaction.tenantId,
+      },
+      syncOrigin: ctx.syncOrigin,
+      indexer: interactionCrudIndexer,
+      events: interactionCrudEvents,
+    })
+    await emitNextInteractionUpdatedEvent(ctx, {
+      entityId: after.interaction.entityId,
+      nextInteractionId,
+    }, {
+      id: interaction.id,
+      organizationId: interaction.organizationId,
+      tenantId: interaction.tenantId,
+    })
+
+    return { interactionId: interaction.id, entityId: after.interaction.entityId }
   },
 }
 
@@ -447,11 +630,55 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(interactionUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const { interaction, entityId } = await runInTransaction(em, async (trx) => {
+    const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
-      if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
+      if (!interaction) {
+        enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
+        throw new CrudHttpError(404, { error: 'Interaction not found' })
+      }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
+
+      // Concurrent-edit guard for command-driven callers (e.g. the legacy
+      // /api/customers/todos route, which bypasses the makeCrudRoute lock guard):
+      // when the client opted into optimistic locking, a stale edit fails with the
+      // unified 409 instead of silently overwriting (#2055). Strictly additive —
+      // no-op when no expected-version header is present.
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
+        resourceKind: 'customers.interaction',
+        resourceId: interaction.id,
+        current: interaction.updatedAt,
+        request: ctx.request ?? null,
+      })
+
+      // Email visibility is an access-controlled field: only the interaction's
+      // author may change a
+      // private email's visibility (mirrors the dedicated PATCH .../visibility
+      // route). Enforce it here — the single persistence path — so the generic
+      // update route (PUT /api/interactions) cannot bypass the gate. Evaluated
+      // against the row's pre-mutation author/type. 404 (not 403) keeps the
+      // existence-masking consistent with the dedicated route.
+      if (
+        parsed.visibility !== undefined &&
+        interaction.interactionType === 'email' &&
+        (parsed.visibility ?? null) !== (interaction.visibility ?? null)
+      ) {
+        const actorUserId = (ctx.auth as { sub?: string | null } | null)?.sub ?? null
+        if (
+          !canChangeEmailVisibility({
+            interactionType: interaction.interactionType,
+            currentVisibility: interaction.visibility,
+            nextVisibility: parsed.visibility,
+            authorUserId: interaction.authorUserId,
+            actorUserId,
+            // v1 strict owner-only: only the author may flip visibility; no admin
+            // bypass (canChangeEmailVisibility ignores caller features in v1).
+            userFeatures: undefined,
+          })
+        ) {
+          throw new CrudHttpError(404, { error: 'Email not found' })
+        }
+      }
 
       if (parsed.dealId !== undefined) {
         if (parsed.dealId) {
@@ -493,11 +720,10 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         custom,
       )
 
-      return { interaction, entityId }
-    })
+      const projection = await recomputeNextInteraction(trx, entityId)
 
-    const projection = await recomputeNextInteraction(em, entityId)
-    const nextInteractionId = projection.nextInteractionId
+      return { interaction, entityId, nextInteractionId: projection.nextInteractionId }
+    })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -555,7 +781,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
       let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
-      const entity = await requireTimelineParentEntity(trx, before.interaction.entityId)
+      const entity = await requireTimelineParentEntity(trx, before.interaction.entityId, { tenantId: before.interaction.tenantId, organizationId: before.interaction.organizationId })
 
       if (!interaction) {
         interaction = trx.create(CustomerInteraction, {
@@ -677,22 +903,30 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
   async execute(rawInput, ctx) {
     const parsed = interactionCompleteSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const { interaction, entityId } = await runInTransaction(em, async (trx) => {
+    const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
-      if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
+      if (!interaction) {
+        enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
+        throw new CrudHttpError(404, { error: 'Interaction not found' })
+      }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
+
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
+        resourceKind: 'customers.interaction',
+        resourceId: interaction.id,
+        current: interaction.updatedAt,
+        request: ctx.request ?? null,
+      })
 
       interaction.status = 'done'
       interaction.occurredAt = parsed.occurredAt ?? new Date()
       await trx.flush()
 
       const entityId = typeof interaction.entity === 'string' ? interaction.entity : interaction.entity.id
-      return { interaction, entityId }
+      const projection = await recomputeNextInteraction(trx, entityId)
+      return { interaction, entityId, nextInteractionId: projection.nextInteractionId }
     })
-
-    const projection = await recomputeNextInteraction(em, entityId)
-    const nextInteractionId = projection.nextInteractionId
 
     const identifiers = {
       id: interaction.id,
@@ -809,21 +1043,29 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
   async execute(rawInput, ctx) {
     const parsed = interactionCancelSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const { interaction, entityId } = await runInTransaction(em, async (trx) => {
+    const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
-      if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
+      if (!interaction) {
+        enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
+        throw new CrudHttpError(404, { error: 'Interaction not found' })
+      }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
+
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
+        resourceKind: 'customers.interaction',
+        resourceId: interaction.id,
+        current: interaction.updatedAt,
+        request: ctx.request ?? null,
+      })
 
       interaction.status = 'canceled'
       await trx.flush()
 
       const entityId = typeof interaction.entity === 'string' ? interaction.entity : interaction.entity.id
-      return { interaction, entityId }
+      const projection = await recomputeNextInteraction(trx, entityId)
+      return { interaction, entityId, nextInteractionId: projection.nextInteractionId }
     })
-
-    const projection = await recomputeNextInteraction(em, entityId)
-    const nextInteractionId = projection.nextInteractionId
 
     const identifiers = {
       id: interaction.id,
@@ -939,21 +1181,29 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
     async execute(input, ctx) {
       const id = requireId(input, 'Interaction id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const { interaction, entityId } = await runInTransaction(em, async (trx) => {
+      const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
         const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id, deletedAt: null })
-        if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
+        if (!interaction) {
+          enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: id, request: ctx.request ?? null })
+          throw new CrudHttpError(404, { error: 'Interaction not found' })
+        }
         ensureTenantScope(ctx, interaction.tenantId)
         ensureOrganizationScope(ctx, interaction.organizationId)
+
+        await enforceCommandOptimisticLockWithGuards(ctx.container, {
+          resourceKind: 'customers.interaction',
+          resourceId: interaction.id,
+          current: interaction.updatedAt,
+          request: ctx.request ?? null,
+        })
 
         const entityId = typeof interaction.entity === 'string' ? interaction.entity : interaction.entity.id
         interaction.deletedAt = new Date()
         await trx.flush()
 
-        return { interaction, entityId }
+        const projection = await recomputeNextInteraction(trx, entityId)
+        return { interaction, entityId, nextInteractionId: projection.nextInteractionId }
       })
-
-      const projection = await recomputeNextInteraction(em, entityId)
-      const nextInteractionId = projection.nextInteractionId
 
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudSideEffects({
@@ -1002,7 +1252,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
-        const entity = await requireTimelineParentEntity(trx, before.interaction.entityId)
+        const entity = await requireTimelineParentEntity(trx, before.interaction.entityId, { tenantId: before.interaction.tenantId, organizationId: before.interaction.organizationId })
         let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
         if (!interaction) {
           interaction = trx.create(CustomerInteraction, {
@@ -1122,7 +1372,10 @@ const recomputeNextCommand: CommandHandler<{ entityId: string }, { entityId: str
     const parsed = recomputeNextSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const projection = await recomputeNextInteraction(em, parsed.entityId)
-    const entity = await requireTimelineParentEntity(em, parsed.entityId)
+    const entity = await requireTimelineParentEntity(em, parsed.entityId, {
+      tenantId: ctx.auth?.tenantId ?? '',
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? '',
+    })
     await emitNextInteractionUpdatedEvent(ctx, {
       entityId: parsed.entityId,
       nextInteractionId: projection.nextInteractionId,

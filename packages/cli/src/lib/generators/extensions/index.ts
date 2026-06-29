@@ -16,6 +16,7 @@ import { createNotificationsExtension } from './notifications'
 import { createPageMiddlewareExtension } from './page-middleware'
 import { createSearchExtension } from './search'
 import { createTranslatableFieldsExtension } from './translatable-fields'
+import { createWorkflowsExtension } from './workflows'
 
 export function loadGeneratorExtensions(): GeneratorExtension[] {
   return [
@@ -36,5 +37,6 @@ export function loadGeneratorExtensions(): GeneratorExtension[] {
     createPageMiddlewareExtension(),
     createDashboardWidgetsExtension(),
     createInjectionWidgetsExtension(),
+    createWorkflowsExtension(),
   ]
 }

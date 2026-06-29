@@ -7,6 +7,7 @@ type RoleListResponse = {
 
 type FetchRoleOptionsParams = {
   tenantId?: string | null
+  includeSuperAdmin?: boolean
 }
 
 export async function fetchRoleOptions(query?: string, params?: FetchRoleOptionsParams): Promise<CrudFieldOption[]> {
@@ -28,7 +29,7 @@ export async function fetchRoleOptions(query?: string, params?: FetchRoleOptions
         const id = typeof item?.id === 'string' ? item.id.trim() : ''
         const name = typeof item?.name === 'string' ? item?.name.trim() : ''
         if (!id || !name) return null
-        if (name === 'superadmin') return null
+        if (name === 'superadmin' && !params?.includeSuperAdmin) return null
         return { value: id, label: name }
       })
       .filter((opt): opt is CrudFieldOption => !!opt)

@@ -2,18 +2,38 @@
 
 Use `packages/create-app` to scaffold standalone Open Mercato applications via `npx create-mercato-app my-app`.
 
-## MUST Rules
+## Always
 
 1. **MUST test both environments** — verify changes work in monorepo (`yarn dev` / `yarn dev:verbose` when relevant) AND standalone app (via Verdaccio)
 2. **MUST keep `@types/*` in `dependencies`** (not `devDependencies`) — standalone apps need type declarations at runtime
 3. **MUST follow build order** — `yarn build:packages` → `yarn generate` → `yarn build:packages`
 4. **MUST build before publishing** — generators scan `node_modules/@open-mercato/*/dist/modules/` for `.js` files
-5. **MUST NOT break the standalone app template** — it's the user's first experience with Open Mercato
-6. **MUST sync template equivalents when app shell/layout files change** — when touching `apps/mercato/src/app/**` bootstrap/layout/provider wiring, update matching files in `packages/create-app/template/src/app/**` (and required template components) in the same task
-7. **MUST keep template module registrations and package dependencies aligned** — if `packages/create-app/template/src/modules.ts` enables a package-backed module (for example `@open-mercato/webhooks`), `packages/create-app/template/package.json.template` must install that package in the same change, and the template lockfile must be reviewed when dependency shape changes
-8. **MUST preserve imported ready apps as raw source snapshots** — `--app` / `--app-url` imports may add only bootstrap-safe generated artifacts (for example `.mercato/generated/module-package-sources.css`) and MUST NOT rewrite package versions, source files, or inject agentic setup files
-9. **MUST skip the interactive agentic wizard for imported ready apps** — imported snapshots stay repo-owned; any agentic tooling must be added later via a deliberate manual command inside the generated app
-10. **MUST keep standalone agent guidance aligned with generator behavior** — if `yarn generate` gains post-steps such as structural cache purging, update `packages/create-app/template/AGENTS.md` and `packages/create-app/agentic/shared/AGENTS.md.template` in the same task
+5. **MUST sync template equivalents when app shell/layout files change** — when touching `apps/mercato/src/app/**` bootstrap/layout/provider wiring, update matching files in `packages/create-app/template/src/app/**` (and required template components) in the same task
+6. **MUST keep template module registrations and package dependencies aligned** — if `packages/create-app/template/src/modules.ts` enables a package-backed module (for example `@open-mercato/webhooks`), `packages/create-app/template/package.json.template` must install that package in the same change, and the template lockfile must be reviewed when dependency shape changes
+7. **MUST preserve imported ready apps as raw source snapshots** — `--app` / `--app-url` imports may add only bootstrap-safe generated artifacts (for example `.mercato/generated/module-package-sources.css`)
+8. **MUST keep standalone agent guidance aligned with generator behavior** — if `yarn generate` gains post-steps such as structural cache purging, update `packages/create-app/template/AGENTS.md` and `packages/create-app/agentic/shared/AGENTS.md.template` in the same task
+
+## Ask First
+
+- Ask before changing scaffold modes, ready-app import behavior, agentic setup generation, or template package dependency shape.
+- Ask before publishing canary or registry changes if the task did not explicitly request a release test.
+
+## Never
+
+- Never break the standalone app template — it's the user's first experience with Open Mercato.
+- Never rewrite package versions, source files, or inject agentic setup files into imported ready apps.
+- Never run the interactive agentic wizard for imported ready apps; any agentic tooling must be added later via a deliberate manual command inside the generated app.
+- Never leave app-shell changes unsynced between monorepo and template equivalents.
+
+## Validation Commands
+
+```bash
+yarn build:packages
+yarn generate
+yarn build:packages
+yarn test:create-app
+yarn test:create-app:integration
+```
 
 ## Standalone App vs Monorepo
 

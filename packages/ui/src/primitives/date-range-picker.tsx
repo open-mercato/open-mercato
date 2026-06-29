@@ -1,8 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { format } from 'date-fns'
-import type { Locale } from 'date-fns'
+import type { Locale } from 'date-fns/locale'
 import { CalendarIcon } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -15,6 +14,7 @@ import {
   defaultDateRangePresets,
   type DateRangePresetItem,
 } from './date-picker-helpers'
+import { formatWithPublicDateFormat, resolvePublicDateFormat } from './date-format'
 
 export type { DateRangePresetItem } from './date-picker-helpers'
 
@@ -43,19 +43,9 @@ export type DateRangePickerProps = {
   'aria-describedby'?: string
 }
 
-const DAY_FIRST_LOCALE_CODES = new Set([
-  'pl', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'ru', 'cs', 'sk', 'hu', 'ro',
-])
-
-function deriveDateFormat(locale?: Locale): string {
-  const code = locale?.code?.split('-')[0]?.toLowerCase() ?? ''
-  return code && DAY_FIRST_LOCALE_CODES.has(code) ? 'd MMM yyyy' : 'MMM d, yyyy'
-}
-
 function defaultFormatRange(range: DateRange, locale?: Locale): string {
-  const fmt = deriveDateFormat(locale)
-  const opts = locale ? { locale } : undefined
-  return `${format(range.start, fmt, opts)} – ${format(range.end, fmt, opts)}`
+  const fmt = resolvePublicDateFormat(locale)
+  return `${formatWithPublicDateFormat(range.start, fmt, locale) ?? ''} – ${formatWithPublicDateFormat(range.end, fmt, locale) ?? ''}`
 }
 
 function toRDPRange(range: DateRange | null | undefined): RDPRange | undefined {
@@ -254,7 +244,7 @@ export function DateRangePicker({
               locale={locale}
               disabled={disabledMatcher}
               numberOfMonths={numberOfMonths}
-              initialFocus
+              autoFocus
             />
           </div>
         </div>

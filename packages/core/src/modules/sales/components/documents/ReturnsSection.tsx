@@ -5,20 +5,32 @@ import { Undo2, Plus } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   emitSalesDocumentTotalsRefresh,
   subscribeSalesDocumentTotalsRefresh,
 } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
+import { sumShippedQuantityByLine } from '@open-mercato/core/modules/sales/lib/returnQuantity'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
 import { ReturnDialog, type ReturnOrderLine } from './ReturnDialog'
+import { ReturnEditDialog, type ReturnEditRecord } from './ReturnEditDialog'
+import { handleSectionMutationError, readRowUpdatedAt, rowOptimisticVersion } from './optimisticLock'
 
 type ReturnRow = {
   id: string
   returnNumber: string
   status: string | null
+  reason: string | null
+  notes: string | null
   returnedAt: string | null
+  updatedAt: string | null
   totalNetAmount: number | null
   totalGrossAmount: number | null
 }
@@ -26,6 +38,7 @@ type ReturnRow = {
 type SalesReturnsSectionProps = {
   orderId: string
   currencyCode?: string | null
+  documentUpdatedAt?: string | null
 }
 
 function formatDisplayDate(value: string | null | undefined): string | null {
@@ -35,24 +48,38 @@ function formatDisplayDate(value: string | null | undefined): string | null {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
 }
 
-export function SalesReturnsSection({ orderId, currencyCode }: SalesReturnsSectionProps) {
+export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }: SalesReturnsSectionProps) {
   const t = useT()
+  const { organizationId, tenantId } = useOrganizationScopeDetail()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [returns, setReturns] = React.useState<ReturnRow[]>([])
   const [lines, setLines] = React.useState<ReturnOrderLine[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [editRecord, setEditRecord] = React.useState<ReturnEditRecord | null>(null)
 
   const loadLines = React.useCallback(async () => {
     const params = new URLSearchParams({ page: '1', pageSize: '100', orderId })
-    const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-      `/api/sales/order-lines?${params.toString()}`,
-      undefined,
-      { fallback: { items: [] } },
+    const shipmentParams = new URLSearchParams({ page: '1', pageSize: '200', orderId })
+    const [response, shipmentsResponse] = await Promise.all([
+      apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/order-lines?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      ),
+      apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/shipments?${shipmentParams.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      ),
+    ])
+    const shippedByLine = sumShippedQuantityByLine(
+      Array.isArray(shipmentsResponse.result?.items) ? shipmentsResponse.result?.items : [],
     )
     const items = Array.isArray(response.result?.items) ? response.result?.items ?? [] : []
     const mapped: ReturnOrderLine[] = items
-      .map((item) => {
+      .map((item): ReturnOrderLine | null => {
         const map = item as Record<string, unknown>
         const id = typeof map.id === 'string' ? map.id : null
         if (!id) return null
@@ -95,6 +122,7 @@ export function SalesReturnsSection({ orderId, currencyCode }: SalesReturnsSecti
           lineNumber,
           quantity: Number.isFinite(quantity) ? quantity : 0,
           returnedQuantity: Number.isFinite(returnedQuantity) ? returnedQuantity : 0,
+          shippedQuantity: shippedByLine.get(id) ?? 0,
         }
       })
       .filter((entry): entry is ReturnOrderLine => Boolean(entry?.id))
@@ -141,11 +169,18 @@ export function SalesReturnsSection({ orderId, currencyCode }: SalesReturnsSecti
               : typeof map.totalGrossAmount === 'number'
                 ? (map.totalGrossAmount as number)
                 : null
+          const reason =
+            typeof map.reason === 'string' ? (map.reason as string) : null
+          const notes =
+            typeof map.notes === 'string' ? (map.notes as string) : null
           return {
             id,
             returnNumber,
             status: typeof map.status === 'string' ? (map.status as string) : null,
+            reason,
+            notes,
             returnedAt,
+            updatedAt: readRowUpdatedAt(map),
             totalNetAmount,
             totalGrossAmount,
           }
@@ -189,6 +224,53 @@ export function SalesReturnsSection({ orderId, currencyCode }: SalesReturnsSecti
     })
   }, [returns])
 
+  const handleEdit = React.useCallback((row: ReturnRow) => {
+    setEditRecord({
+      id: row.id,
+      reason: row.reason,
+      notes: row.notes,
+      returnedAt: row.returnedAt,
+      updatedAt: row.updatedAt,
+    })
+  }, [])
+
+  const handleDelete = React.useCallback(
+    async (row: ReturnRow) => {
+      const confirmed = await confirm({
+        title: t('sales.returns.confirmDelete', 'Delete this return?'),
+        description: t(
+          'sales.returns.confirmDelete.description',
+          'This reverses the returned quantities and the related credit adjustments.',
+        ),
+        variant: 'destructive',
+      })
+      if (!confirmed) return
+      try {
+        const result = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(rowOptimisticVersion(row)),
+          () =>
+            deleteCrud('sales/returns', {
+              body: {
+                id: row.id,
+                orderId,
+                ...(organizationId ? { organizationId } : {}),
+                ...(tenantId ? { tenantId } : {}),
+              },
+              errorMessage: t('sales.returns.errors.delete', 'Failed to delete return.'),
+            }),
+        )
+        if (result.ok) {
+          emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
+          await loadReturns()
+        }
+      } catch (err) {
+        if (handleSectionMutationError(err, t, () => void loadReturns())) return
+        flash(t('sales.returns.errors.delete', 'Failed to delete return.'), 'error')
+      }
+    },
+    [confirm, loadReturns, orderId, organizationId, tenantId, t],
+  )
+
   if (loading) return <LoadingMessage label={t('sales.returns.loading', 'Loading returns…')} />
   if (error) return <ErrorMessage label={error} />
 
@@ -208,6 +290,7 @@ export function SalesReturnsSection({ orderId, currencyCode }: SalesReturnsSecti
           open={dialogOpen}
           orderId={orderId}
           lines={lines}
+          documentUpdatedAt={documentUpdatedAt}
           onClose={() => setDialogOpen(false)}
           onSaved={async () => {
             emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
@@ -228,14 +311,15 @@ export function SalesReturnsSection({ orderId, currencyCode }: SalesReturnsSecti
       </div>
 
       <div className="overflow-hidden rounded-md border">
-        <div className="grid grid-cols-[1fr_auto_auto] gap-3 border-b bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground">
+        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 border-b bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground">
           <div>{t('sales.returns.returnNumber', 'Return')}</div>
           <div className="text-right">{t('sales.returns.returnedAt', 'Returned at')}</div>
           <div className="text-right">{t('sales.returns.total', 'Total')}</div>
+          <div className="sr-only">{t('sales.returns.actions', 'Actions')}</div>
         </div>
         <div className="divide-y">
           {rows.map((ret) => (
-            <div key={ret.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 px-4 py-3">
+            <div key={ret.id} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-4 py-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <Undo2 className="h-4 w-4 text-muted-foreground" aria-hidden />
@@ -249,6 +333,23 @@ export function SalesReturnsSection({ orderId, currencyCode }: SalesReturnsSecti
               <div className="whitespace-nowrap text-right text-sm font-medium">
                 {formatMoney(ret.total, currencyCode ?? null)}
               </div>
+              <div className="flex justify-end">
+                <RowActions
+                  items={[
+                    {
+                      id: 'edit',
+                      label: t('ui.actions.edit', 'Edit'),
+                      onSelect: () => handleEdit(ret),
+                    },
+                    {
+                      id: 'delete',
+                      label: t('ui.actions.delete', 'Delete'),
+                      destructive: true,
+                      onSelect: () => void handleDelete(ret),
+                    },
+                  ]}
+                />
+              </div>
             </div>
           ))}
         </div>
@@ -258,12 +359,29 @@ export function SalesReturnsSection({ orderId, currencyCode }: SalesReturnsSecti
         open={dialogOpen}
         orderId={orderId}
         lines={lines}
+        documentUpdatedAt={documentUpdatedAt}
         onClose={() => setDialogOpen(false)}
         onSaved={async () => {
           emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
           await loadReturns()
         }}
       />
+
+      <ReturnEditDialog
+        open={editRecord !== null}
+        returnRecord={editRecord}
+        orderId={orderId}
+        organizationId={organizationId ?? null}
+        tenantId={tenantId ?? null}
+        onClose={() => setEditRecord(null)}
+        onSaved={async () => {
+          setEditRecord(null)
+          emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
+          await loadReturns()
+        }}
+      />
+
+      {ConfirmDialogElement}
     </div>
   )
 }

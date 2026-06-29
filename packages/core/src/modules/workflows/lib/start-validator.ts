@@ -9,6 +9,7 @@
 import { EntityManager } from '@mikro-orm/core'
 import { WorkflowDefinition } from '../data/entities'
 import * as ruleEngine from '../../business_rules/lib/rule-engine'
+import { findWorkflowDefinition } from './find-definition'
 import type { StartPreCondition } from '../data/validators'
 
 // ============================================================================
@@ -258,38 +259,4 @@ function getLocalizedMessage(
   return defaultMessage
 }
 
-/**
- * Find workflow definition by ID and optional version
- */
-async function findWorkflowDefinition(
-  em: EntityManager,
-  options: {
-    workflowId: string
-    version?: number
-    tenantId: string
-    organizationId: string
-  }
-): Promise<WorkflowDefinition | null> {
-  const { workflowId, version, tenantId, organizationId } = options
-
-  const where: any = {
-    workflowId,
-    tenantId,
-    organizationId,
-    deletedAt: null,
-  }
-
-  if (version !== undefined) {
-    where.version = version
-  }
-
-  // If no version specified, get latest enabled version
-  if (version === undefined) {
-    where.enabled = true
-    return em.findOne(WorkflowDefinition, where, {
-      orderBy: { version: 'DESC' },
-    })
-  }
-
-  return em.findOne(WorkflowDefinition, where)
-}
+// findWorkflowDefinition is imported from ./find-definition

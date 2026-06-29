@@ -1,5 +1,6 @@
 import {
   calculateDocumentTotals,
+  rebuildDocumentResult,
   registerSalesTotalsCalculator,
 } from '../calculations'
 import type { SalesAdjustmentDraft, SalesLineSnapshot } from '../types'
@@ -272,5 +273,230 @@ describe('calculateDocumentTotals', () => {
     expect(result.totals.subtotalGrossAmount).toBeCloseTo(12, 4)
     expect(result.totals.grandTotalNetAmount).toBeCloseTo(8, 4)
     expect(result.totals.grandTotalGrossAmount).toBeCloseTo(12, 4)
+  })
+
+  it('normalizes signs for discount/surcharge/shipping/tax so negatives never invert the grand total (issue #1905)', async () => {
+    const lines: SalesLineSnapshot[] = [
+      {
+        kind: 'product',
+        quantity: 1,
+        currencyCode: 'USD',
+        unitPriceNet: 100,
+        taxRate: 0,
+      },
+    ]
+    const negativeAdjustments: SalesAdjustmentDraft[] = [
+      {
+        scope: 'order',
+        kind: 'discount',
+        amountNet: -20,
+        amountGross: -20,
+        currencyCode: 'USD',
+      },
+      {
+        scope: 'order',
+        kind: 'surcharge',
+        amountNet: -5,
+        amountGross: -5,
+        currencyCode: 'USD',
+      },
+      {
+        scope: 'order',
+        kind: 'shipping',
+        amountNet: -10,
+        amountGross: -10,
+        currencyCode: 'USD',
+      },
+      {
+        scope: 'order',
+        kind: 'tax',
+        amountNet: -3,
+        amountGross: -3,
+        currencyCode: 'USD',
+      },
+    ]
+
+    const negativeResult = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines,
+      adjustments: negativeAdjustments,
+      context: { ...baseContext, metadata: {} },
+    })
+
+    const positiveAdjustments: SalesAdjustmentDraft[] = negativeAdjustments.map(
+      (adj) => ({ ...adj, amountNet: Math.abs(adj.amountNet!), amountGross: Math.abs(adj.amountGross!) }),
+    )
+    const positiveResult = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines,
+      adjustments: positiveAdjustments,
+      context: { ...baseContext, metadata: {} },
+    })
+
+    // Negative amounts must not flip the semantic effect of any kind.
+    expect(negativeResult.totals.discountTotalAmount).toBeCloseTo(
+      positiveResult.totals.discountTotalAmount,
+      4,
+    )
+    expect(negativeResult.totals.surchargeTotalAmount).toBeCloseTo(
+      positiveResult.totals.surchargeTotalAmount,
+      4,
+    )
+    expect(negativeResult.totals.shippingNetAmount).toBeCloseTo(
+      positiveResult.totals.shippingNetAmount,
+      4,
+    )
+    expect(negativeResult.totals.shippingGrossAmount).toBeCloseTo(
+      positiveResult.totals.shippingGrossAmount,
+      4,
+    )
+    expect(negativeResult.totals.taxTotalAmount).toBeCloseTo(
+      positiveResult.totals.taxTotalAmount,
+      4,
+    )
+    expect(negativeResult.totals.grandTotalNetAmount).toBeCloseTo(
+      positiveResult.totals.grandTotalNetAmount,
+      4,
+    )
+    expect(negativeResult.totals.grandTotalGrossAmount).toBeCloseTo(
+      positiveResult.totals.grandTotalGrossAmount,
+      4,
+    )
+
+    // Sanity: discount reduces, surcharge/shipping/tax increase.
+    // 100 - 20 (discount) + 5 (surcharge net) + 10 (shipping net) = 95 net.
+    expect(positiveResult.totals.subtotalNetAmount).toBeCloseTo(95, 4)
+    expect(positiveResult.totals.discountTotalAmount).toBeCloseTo(20, 4)
+  })
+
+  it('derives line tax from the net/gross delta when the rate is missing but gross embeds tax (issue #2457)', async () => {
+    const lines: SalesLineSnapshot[] = [
+      {
+        kind: 'product',
+        quantity: 1,
+        currencyCode: 'USD',
+        unitPriceNet: 100,
+        unitPriceGross: 123,
+        totalNetAmount: 100,
+        totalGrossAmount: 123,
+      },
+    ]
+
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines,
+      adjustments: [],
+      context: { ...baseContext, metadata: {} },
+    })
+
+    expect(result.totals.subtotalNetAmount).toBeCloseTo(100, 4)
+    expect(result.totals.subtotalGrossAmount).toBeCloseTo(123, 4)
+    expect(result.totals.taxTotalAmount).toBeCloseTo(23, 4)
+    expect(result.totals.grandTotalGrossAmount).toBeCloseTo(123, 4)
+  })
+
+  it('does not invent tax when gross equals net (issue #2457 guard)', async () => {
+    const lines: SalesLineSnapshot[] = [
+      {
+        kind: 'product',
+        quantity: 1,
+        currencyCode: 'USD',
+        unitPriceNet: 100,
+        unitPriceGross: 100,
+        totalNetAmount: 100,
+        totalGrossAmount: 100,
+      },
+    ]
+
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines,
+      adjustments: [],
+      context: { ...baseContext, metadata: {} },
+    })
+
+    expect(result.totals.taxTotalAmount).toBeCloseTo(0, 4)
+    expect(result.totals.grandTotalGrossAmount).toBeCloseTo(100, 4)
+  })
+
+  it('preserves payment totals when a totals calculator rebuilds the result (issue #2455)', async () => {
+    // Mirrors the provider totals calculator, which rebuilds the document from
+    // lines+adjustments via rebuildDocumentResult and would otherwise reset
+    // paid/refunded/outstanding to a pre-payment snapshot.
+    const unregister = registerSalesTotalsCalculator(({ documentKind, lines, current }) =>
+      rebuildDocumentResult({
+        documentKind,
+        currencyCode: current.currencyCode,
+        lines,
+        adjustments: current.adjustments,
+        metadata: current.metadata,
+      }),
+    )
+
+    try {
+      const result = await calculateDocumentTotals({
+        documentKind: 'order',
+        lines: [
+          {
+            kind: 'product',
+            quantity: 1,
+            currencyCode: 'USD',
+            unitPriceNet: 1000,
+            taxRate: 0,
+          },
+        ],
+        adjustments: [],
+        context: { ...baseContext, metadata: {} },
+        existingTotals: { paidTotalAmount: 1000, refundedTotalAmount: 0 },
+      })
+
+      expect(result.totals.grandTotalGrossAmount).toBeCloseTo(1000, 4)
+      expect(result.totals.paidTotalAmount).toBeCloseTo(1000, 4)
+      expect(result.totals.refundedTotalAmount).toBeCloseTo(0, 4)
+      expect(result.totals.outstandingAmount).toBeCloseTo(0, 4)
+    } finally {
+      unregister()
+    }
+  })
+
+  it('recomputes outstanding against the post-calculation grand total (issue #2455)', async () => {
+    // A totals calculator that adds a surcharge changes the grand total; the
+    // preserved payment totals must produce outstanding against the new total.
+    const unregister = registerSalesTotalsCalculator(({ documentKind, lines, current }) =>
+      rebuildDocumentResult({
+        documentKind,
+        currencyCode: current.currencyCode,
+        lines,
+        adjustments: [
+          ...current.adjustments,
+          { scope: 'order', kind: 'surcharge', amountNet: 100, amountGross: 100, currencyCode: 'USD' },
+        ],
+        metadata: current.metadata,
+      }),
+    )
+
+    try {
+      const result = await calculateDocumentTotals({
+        documentKind: 'order',
+        lines: [
+          {
+            kind: 'product',
+            quantity: 1,
+            currencyCode: 'USD',
+            unitPriceNet: 1000,
+            taxRate: 0,
+          },
+        ],
+        adjustments: [],
+        context: { ...baseContext, metadata: {} },
+        existingTotals: { paidTotalAmount: 1000, refundedTotalAmount: 0 },
+      })
+
+      expect(result.totals.grandTotalGrossAmount).toBeCloseTo(1100, 4)
+      expect(result.totals.paidTotalAmount).toBeCloseTo(1000, 4)
+      expect(result.totals.outstandingAmount).toBeCloseTo(100, 4)
+    } finally {
+      unregister()
+    }
   })
 })

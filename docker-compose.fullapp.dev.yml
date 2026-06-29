@@ -18,36 +18,22 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
       - mercato-network-fullapp
 
-  traefik:
-    image: traefik:v3.2
-    container_name: mercato-traefik-${DEPLOY_ENV:-local}
-    restart: unless-stopped
-    command:
-      - "--configFile=/etc/traefik/traefik.yml"
-    ports:
-      - "${TRAEFIK_HTTP_PORT:-80}:80"
-      - "${TRAEFIK_HTTPS_PORT:-443}:443"
-      - "${TRAEFIK_DASHBOARD_PORT:-8081}:8080"
-    volumes:
-      - ./docker/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - traefik_acme:/letsencrypt
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
-      TRAEFIK_LOG_LEVEL: ${TRAEFIK_LOG_LEVEL:-INFO}
-      # Default to LE staging in dev so we don't burn rate limits while
-      # iterating. Set TRAEFIK_CA_SERVER to the prod URL to flip to real certs.
-      TRAEFIK_CA_SERVER: ${TRAEFIK_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}
-      TRAEFIK_DOCKER_NETWORK: mercato-network-${DEPLOY_ENV:-local}
-    depends_on:
-      - app
-    networks:
-      - mercato-network-fullapp
+  # Traefik (TLS termination, on-demand ACME, custom-domain ForwardAuth gate)
+  # is now an opt-in overlay so this base file works behind an external reverse
+  # proxy (Dokploy, Caddy, nginx, Cloudflare Tunnel, etc.) without conflict.
+  # To run the bundled Traefik in dev, layer the prod-default overlay plus the
+  # dev overlay (the dev overlay flips ACME to LE staging so iteration does
+  # not burn LE production rate limits):
+  #   docker compose -f docker-compose.fullapp.dev.yml \
+  #     -f docker-compose.fullapp.traefik.yml \
+  #     -f docker-compose.fullapp.traefik.dev.yml up --build
 
   app:
     build:
@@ -56,29 +42,7 @@ services:
     image: open-mercato/app:${DEPLOY_ENV:-local}-dev
     user: "0"
     command: ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=mercato-network-${DEPLOY_ENV:-local}"
-      - "traefik.http.routers.platform.rule=Host(`${PLATFORM_PRIMARY_HOST:-openmercato.com}`)"
-      - "traefik.http.routers.platform.priority=100"
-      - "traefik.http.routers.platform.entrypoints=websecure"
-      - "traefik.http.routers.platform.tls=true"
-      - "traefik.http.routers.platform.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.platform.service=app-upstream"
-      - "traefik.http.routers.customer.rule=HostRegexp(`{any:.+}`)"
-      - "traefik.http.routers.customer.priority=1"
-      - "traefik.http.routers.customer.entrypoints=websecure"
-      - "traefik.http.routers.customer.tls=true"
-      - "traefik.http.routers.customer.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.customer.service=app-upstream"
-      - "traefik.http.routers.customer.middlewares=inject-domain-check-secret,domain-check"
-      - "traefik.http.middlewares.inject-domain-check-secret.headers.customrequestheaders.X-Domain-Check-Secret=${DOMAIN_CHECK_SECRET}"
-      - "traefik.http.middlewares.domain-check.forwardauth.address=http://app:3000/api/customer_accounts/domain-check"
-      - "traefik.http.middlewares.domain-check.forwardauth.authrequestheaders=X-Domain-Check-Secret,X-Forwarded-Host,X-Forwarded-Proto,X-Forwarded-Uri"
-      - "traefik.http.middlewares.domain-check.forwardauth.authresponseheaders=X-Open-Mercato-Origin"
-      - "traefik.http.middlewares.domain-check.forwardauth.trustforwardheader=false"
-      - "traefik.http.services.app-upstream.loadbalancer.server.port=3000"
-      - "traefik.http.services.app-upstream.loadbalancer.passhostheader=true"
+    # Traefik labels live in docker-compose.fullapp.traefik.yml — opt-in only.
     volumes:
       - .:/app
       - app_node_modules:/app/node_modules
@@ -113,11 +77,14 @@ services:
       TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
       NODE_ENV: development
+      NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=3072}
       DEPLOY_ENV: ${DEPLOY_ENV:-local}
       PORT: 3000
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
       JWT_SECRET: ${JWT_SECRET:-JWT}
       APP_URL: ${APP_URL:-http://localhost:3000}
+      # Additional trusted app/dev origins for the Open Mercato origin allowlist (resolveAllowedDevOrigins)
+      APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:-}
       CACHE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
       CACHE_STRATEGY: redis
       ENABLE_CRUD_API_CACHE: ${ENABLE_CRUD_API_CACHE:-true}
@@ -128,6 +95,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
       MEILISEARCH_HOST: http://mercato-meilisearch-${DEPLOY_ENV:-local}:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
       NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED: ${NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED:-true}
@@ -143,7 +112,7 @@ services:
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
       SSO_DEV_SEED: ${SSO_DEV_SEED:-true}
-      SSO_DEV_ISSUER: ${SSO_DEV_ISSUER:-http://mercato-keycloak-${DEPLOY_ENV:-local}:8080/realms/open-mercato}
+      SSO_DEV_ISSUER: ${SSO_DEV_ISSUER:-http://mercato-keycloak-local:8080/realms/open-mercato}
       SSO_DEV_CLIENT_ID: ${SSO_DEV_CLIENT_ID:-open-mercato-app}
       SSO_DEV_CLIENT_SECRET: ${SSO_DEV_CLIENT_SECRET:-}
       SSO_DEV_ALLOWED_DOMAINS: ${SSO_DEV_ALLOWED_DOMAINS:-example.com}
@@ -151,8 +120,8 @@ services:
       DOMAIN_CHECK_SECRET: ${DOMAIN_CHECK_SECRET:-}
       DOMAIN_RESOLVE_SECRET: ${DOMAIN_RESOLVE_SECRET:-}
       INTERNAL_APP_ORIGIN: ${INTERNAL_APP_ORIGIN:-http://app:3000}
-      PLATFORM_DOMAINS: ${PLATFORM_DOMAINS:-localhost,${PLATFORM_PRIMARY_HOST:-openmercato.com}}
-      PLATFORM_PORTAL_BASE_URL: ${PLATFORM_PORTAL_BASE_URL:-https://${PLATFORM_PRIMARY_HOST:-openmercato.com}}
+      PLATFORM_DOMAINS: ${PLATFORM_DOMAINS:-localhost,openmercato.com}
+      PLATFORM_PORTAL_BASE_URL: ${PLATFORM_PORTAL_BASE_URL:-https://openmercato.com}
       CUSTOMER_DOMAIN_ORIGIN_HEADER: ${CUSTOMER_DOMAIN_ORIGIN_HEADER:-X-Open-Mercato-Origin}
     depends_on:
       postgres:
@@ -188,7 +157,9 @@ services:
     container_name: mercato-redis-${DEPLOY_ENV:-local}
     # ports not exposed - only accessible within docker network
     volumes:
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
       - redis_data:/data
+    command: redis-server /usr/local/etc/redis/redis.conf --maxmemory ${REDIS_MAXMEMORY:-512mb}
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -235,6 +206,28 @@ services:
     networks:
       - mercato-network-fullapp
 
+  localstack:
+    image: localstack/localstack:latest
+    container_name: mercato-localstack-${DEPLOY_ENV:-local}
+    restart: unless-stopped
+    profiles:
+      - storage-s3
+    ports:
+      - "${LOCALSTACK_PORT:-4566}:4566"
+    environment:
+      SERVICES: s3
+      AWS_DEFAULT_REGION: us-east-1
+      LOCALSTACK_HOST: localhost
+    volumes:
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mercato-network-fullapp
+
 volumes:
   postgres_data:
     name: mercato-postgres-data-${DEPLOY_ENV:-local}
@@ -242,6 +235,8 @@ volumes:
     name: mercato-redis-data-${DEPLOY_ENV:-local}
   meilisearch_data:
     name: mercato-meilisearch-data-${DEPLOY_ENV:-local}
+  localstack_data:
+    name: mercato-localstack-data-${DEPLOY_ENV:-local}
   init_marker:
     name: mercato-init-marker-${DEPLOY_ENV:-local}
   attachments_storage:
@@ -278,8 +273,6 @@ volumes:
     name: mercato-pkg-ai-assistant-dist-${DEPLOY_ENV:-local}
   pkg_create_app_dist:
     name: mercato-pkg-create-app-dist-${DEPLOY_ENV:-local}
-  traefik_acme:
-    name: mercato-traefik-acme-${DEPLOY_ENV:-local}
 
 networks:
   mercato-network-fullapp:

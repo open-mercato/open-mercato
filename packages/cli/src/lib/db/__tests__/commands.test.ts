@@ -13,6 +13,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { ModuleEntry, PackageResolver } from '../../resolver'
+import { normalizeTestPath } from '../../__tests__/path-helpers'
 
 describe('db commands security', () => {
   describe('sanitizeModuleId', () => {
@@ -189,7 +190,7 @@ describe('resolveGeneratedMigrationPath', () => {
       '/repo/src/modules/example/migrations',
     )
 
-    expect(result).toBe('/repo/src/modules/example/migrations/Migration20260506101927.ts')
+    expect(normalizeTestPath(result)).toBe('/repo/src/modules/example/migrations/Migration20260506101927.ts')
   })
 
   it('keeps absolute MikroORM results unchanged', () => {

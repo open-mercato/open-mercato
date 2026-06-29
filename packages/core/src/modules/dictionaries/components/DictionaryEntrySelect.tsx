@@ -70,6 +70,7 @@ export type DictionarySelectLabels = {
 }
 
 export type DictionaryEntrySelectProps = {
+  id?: string
   value?: string
   onChange: (value: string | undefined) => void
   fetchOptions: () => Promise<DictionaryOption[]>
@@ -77,15 +78,25 @@ export type DictionaryEntrySelectProps = {
   labels: DictionarySelectLabels
   manageHref?: string
   selectClassName?: string
+  seedOptions?: DictionaryOption[]
   allowInlineCreate?: boolean
   allowAppearance?: boolean
   appearanceLabels?: AppearanceSelectorLabels
   disabled?: boolean
   showLabelInput?: boolean
   showManage?: boolean
+  sortOptions?: 'label_asc' | 'none'
+  /**
+   * When false, hides the read-only appearance preview (color swatch + icon + hex)
+   * rendered below the trigger for the currently-selected entry. Defaults to true to
+   * preserve existing behavior; set false where the host only wants a plain select
+   * (e.g. a create form that shouldn't surface dictionary styling).
+   */
+  showActiveAppearance?: boolean
 }
 
 export function DictionaryEntrySelect({
+  id,
   value,
   onChange,
   fetchOptions,
@@ -93,12 +104,15 @@ export function DictionaryEntrySelect({
   labels,
   manageHref,
   selectClassName,
+  seedOptions,
   allowInlineCreate = true,
   allowAppearance = false,
   appearanceLabels,
   disabled: disabledProp = false,
   showLabelInput = true,
   showManage = true,
+  sortOptions = 'label_asc',
+  showActiveAppearance = true,
 }: DictionaryEntrySelectProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -115,7 +129,7 @@ export function DictionaryEntrySelect({
     setLoading(true)
     try {
       const items = await fetchOptions()
-      setOptions(items.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })))
+      setOptions(sortOptions === 'none' ? items : items.slice().sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })))
     } catch (err) {
       console.error('DictionaryEntrySelect.fetchOptions failed', err)
       flash(labels.errorLoad, 'error')
@@ -123,7 +137,7 @@ export function DictionaryEntrySelect({
     } finally {
       setLoading(false)
     }
-  }, [fetchOptions, labels.errorLoad])
+  }, [fetchOptions, labels.errorLoad, sortOptions])
 
   React.useEffect(() => {
     loadOptions().catch(() => {})
@@ -142,10 +156,39 @@ export function DictionaryEntrySelect({
     if (!dialogOpen) resetDialogState()
   }, [dialogOpen, resetDialogState])
 
+  const mergedOptions = React.useMemo(() => {
+    if (!Array.isArray(seedOptions) || !seedOptions.length) return options
+    const merged: DictionaryOption[] = []
+    const seen = new Set<string>()
+    for (const option of seedOptions) {
+      if (!option.value || seen.has(option.value)) continue
+      seen.add(option.value)
+      merged.push(option)
+    }
+    for (const option of options) {
+      if (seen.has(option.value)) continue
+      seen.add(option.value)
+      merged.push(option)
+    }
+    return merged
+  }, [options, seedOptions])
+
   const activeOption = React.useMemo(
-    () => options.find((option) => option.value === value) ?? null,
-    [options, value],
+    () => mergedOptions.find((option) => option.value === value) ?? null,
+    [mergedOptions, value],
   )
+  const displayOptions = React.useMemo(() => {
+    if (!value || activeOption) return mergedOptions
+    return [
+      {
+        value,
+        label: value,
+        color: null,
+        icon: null,
+      },
+      ...mergedOptions,
+    ]
+  }, [activeOption, mergedOptions, value])
 
   const handleCreate = React.useCallback(async () => {
     if (!createOption) return
@@ -171,7 +214,10 @@ export function DictionaryEntrySelect({
           color: payload.color ?? null,
           icon: payload.icon ?? null,
         })
-        return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+        const nextOptions = Array.from(map.values())
+        return sortOptions === 'none'
+          ? nextOptions
+          : nextOptions.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
       })
       await loadOptions()
       onChange(payload.value)
@@ -197,6 +243,7 @@ export function DictionaryEntrySelect({
     newLabel,
     newValue,
     onChange,
+    sortOptions,
   ])
 
   const handleDialogKeyDown = React.useCallback(
@@ -237,23 +284,34 @@ export function DictionaryEntrySelect({
     () => buildHrefWithReturnTo(manageLink, returnTo),
     [manageLink, returnTo],
   )
+  const optionsKey = React.useMemo(
+    () => displayOptions.map((option) => `${option.value}:${option.label}`).join('\0'),
+    [displayOptions],
+  )
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <Select
-          value={value || undefined}
-          onValueChange={(next) => onChange(next || undefined)}
+          key={`dictionary-entry:${value ?? ''}:${optionsKey}`}
+          value={value ?? ''}
+          onValueChange={(next) => {
+            if (!next) return
+            onChange(next)
+          }}
           disabled={disabled}
         >
           <SelectTrigger
+            id={id}
             className={selectClassName}
             title={activeOption?.label ?? undefined}
           >
-            <SelectValue placeholder={labels.placeholder} />
+            <SelectValue placeholder={labels.placeholder}>
+              {activeOption?.label}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {options.map((option) => (
+            {displayOptions.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>
@@ -345,7 +403,7 @@ export function DictionaryEntrySelect({
           ) : null}
         </div>
       </div>
-      {activeOption && (activeOption.icon || activeOption.color) ? (
+      {showActiveAppearance && activeOption && (activeOption.icon || activeOption.color) ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-2 rounded border border-dashed px-2 py-1">
             {activeOption.icon ? renderDictionaryIcon(activeOption.icon, 'h-4 w-4') : null}

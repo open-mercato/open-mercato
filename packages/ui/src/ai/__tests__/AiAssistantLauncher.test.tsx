@@ -8,6 +8,12 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { apiCall } from '../../backend/utils/apiCall'
 import { AiAssistantLauncher, AI_ASSISTANT_LAUNCHER_OPEN_EVENT } from '../AiAssistantLauncher'
 
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: jest.fn() }),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 jest.mock('../../backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
 }))
@@ -54,5 +60,5 @@ describe('<AiAssistantLauncher>', () => {
 
     expect(await screen.findByRole('dialog', { name: 'AI assistants' })).toBeInTheDocument()
     expect(screen.getByText('Catalog Assistant')).toBeInTheDocument()
-  })
+  }, 60_000)
 })

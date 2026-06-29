@@ -26,6 +26,10 @@ function buildScope(ctx: CustomersToolContext, tenantId: string) {
 
 const getSettingsInput = z.object({}).passthrough()
 
+const listPipelineStagesInput = z.object({
+  pipelineId: z.string().uuid().optional().describe('Optional pipeline id to restrict returned stages.'),
+}).passthrough()
+
 const getSettingsTool: CustomersAiToolDefinition = {
   name: 'customers.get_settings',
   displayName: 'Get customers module settings',
@@ -116,6 +120,63 @@ const getSettingsTool: CustomersAiToolDefinition = {
   },
 }
 
-export const settingsAiTools: CustomersAiToolDefinition[] = [getSettingsTool]
+const listPipelineStagesTool: CustomersAiToolDefinition = {
+  name: 'customers.list_pipeline_stages',
+  displayName: 'List customer pipeline stages',
+  description:
+    'Return customer deal pipelines and their pipeline stages, including stage ids. Use this before moving a deal to a named pipeline stage.',
+  inputSchema: listPipelineStagesInput,
+  requiredFeatures: ['customers.pipelines.view'],
+  tags: ['read', 'customers', 'pipelines'],
+  isMutation: false,
+  handler: async (rawInput, ctx) => {
+    const { tenantId } = assertTenantScope(ctx)
+    const input = listPipelineStagesInput.parse(rawInput)
+    const em = resolveEm(ctx)
+    const where: Record<string, unknown> = { tenantId }
+    if (ctx.organizationId) where.organizationId = ctx.organizationId
+    const stageWhere: Record<string, unknown> = { ...where }
+    if (input.pipelineId) stageWhere.pipelineId = input.pipelineId
+    const [pipelines, stages] = await Promise.all([
+      findWithDecryption<CustomerPipeline>(
+        em,
+        CustomerPipeline,
+        where as any,
+        { orderBy: { createdAt: 'asc' } as any } as any,
+        buildScope(ctx, tenantId),
+      ),
+      findWithDecryption<CustomerPipelineStage>(
+        em,
+        CustomerPipelineStage,
+        stageWhere as any,
+        { orderBy: { pipelineId: 'asc', order: 'asc' } as any } as any,
+        buildScope(ctx, tenantId),
+      ),
+    ])
+    return {
+      pipelines: pipelines
+        .filter((row) => row.tenantId === tenantId)
+        .map((row) => ({
+          id: row.id,
+          name: row.name,
+          isDefault: !!row.isDefault,
+          organizationId: row.organizationId ?? null,
+          tenantId: row.tenantId ?? null,
+        })),
+      pipelineStages: stages
+        .filter((row) => row.tenantId === tenantId)
+        .map((row) => ({
+          id: row.id,
+          pipelineId: row.pipelineId,
+          label: row.label,
+          order: row.order,
+          organizationId: row.organizationId ?? null,
+          tenantId: row.tenantId ?? null,
+        })),
+    }
+  },
+}
+
+export const settingsAiTools: CustomersAiToolDefinition[] = [getSettingsTool, listPipelineStagesTool]
 
 export default settingsAiTools

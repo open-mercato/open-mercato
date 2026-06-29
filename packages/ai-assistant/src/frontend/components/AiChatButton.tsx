@@ -30,7 +30,7 @@ export function AiChatButton({ onClick, className }: AiChatButtonProps) {
             className={className}
             aria-label="Open AI Assistant"
           >
-            <AiIcon className="h-5 w-5" />
+            <AiIcon className="h-5 w-5 text-foreground" />
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom">

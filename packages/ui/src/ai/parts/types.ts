@@ -19,8 +19,11 @@ export type AiPendingActionCardStatus =
 
 export type AiPendingActionCardFieldDiff = {
   field: string
+  fieldLabel?: string
   before: unknown
   after: unknown
+  beforeDisplay?: unknown
+  afterDisplay?: unknown
 }
 
 export type AiPendingActionCardRecordDiff = {

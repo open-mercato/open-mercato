@@ -2,12 +2,48 @@
 
 Leverage the module system and follow strict naming and coding conventions to keep the system consistent and safe to extend.
 
-## Before Writing Code
+## Always
 
-1. Check the Task Router below — a single task may match multiple rows; read **all** relevant guides.
-2. Check `.ai/specs/` and `.ai/specs/enterprise/` for existing specs on the module you're modifying
-3. Enter plan mode for non-trivial tasks (3+ steps or architectural decisions)
-4. Identify the reference module (customers) if building CRUD features
+- Check the Task Router below before research or coding; a single task may match multiple rows, and all relevant guides apply.
+- Check `.ai/specs/` and `.ai/specs/enterprise/` for existing specs before modifying a module.
+- Enter plan mode for non-trivial tasks with 3+ steps or architectural decisions.
+- Identify the reference module (`customers`) when building CRUD features.
+- Preserve behavior unless the user or a spec explicitly asks for a behavior change.
+- Keep changes minimal, focused, and integrated through real call sites.
+- Use the closest package/module `AGENTS.md` for local architecture, imports, and validation commands.
+- Follow `BACKWARD_COMPATIBILITY.md` before touching any contract surface.
+- Run `yarn generate` after adding or modifying module files that rely on auto-discovery.
+- Support optimistic locking on every NEW user-editable entity and edit/delete form (it is **default ON**): give the entity an `updated_at` column, return `updatedAt` in its list/detail API responses, and let `CrudForm` auto-derive the header from `initialValues.updatedAt` (covers update **and** delete) — or, for custom non-`CrudForm` handlers, wrap the mutating call with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` and surface conflicts via `surfaceRecordConflict(err, t)`. If a form's `onSubmit` mutates OTHER entities, override the parent header per child with that child's own version (avoid false 409s). Two guards enforce this: `optimistic-lock-editable-entities.test.ts` (editable entities expose `updated_at`) and `optimistic-lock-ui-coverage.test.ts` (new raw mutating UI calls send the header or are allowlisted with a reason). See the Task Router row + `apps/docs/docs/framework/data-integrity/concurrency-locking.mdx`.
+
+## Ask First
+
+- Ask before reducing scope, changing architecture, changing public contracts, adding production dependencies, or touching multiple modules in a way not covered by an existing spec.
+- Ask before changing branch/PR automation, pipeline labels, QA flow, release behavior, or external official-module submodule pointers.
+- Ask before applying database migrations locally with `yarn db:migrate`; normal PRs should include migration files and snapshots.
+- Ask before introducing provider-specific preconfiguration outside the provider package.
+
+## Never
+
+- Never expose cross-tenant data or skip tenant/organization scoping.
+- Never edit generated files by hand.
+- Never add code directly under `apps/mercato/src/` except committed, typed `*.generated.ts` registries described below.
+- Never create direct ORM relationships between modules.
+- Never bypass mutation guards, command side effects, encryption helpers, RBAC wildcard matching, or shared UI data-call helpers.
+- Never hard-code user-facing strings or design-system status colors.
+- Never commit credentials, raw tokens, private keys, local-only ops files, or fork-only infrastructure notes into upstream-friendly branches.
+
+## Validation Commands
+
+Choose the smallest relevant set for the change:
+
+```bash
+yarn generate
+yarn build:packages
+yarn typecheck
+yarn lint
+yarn test
+yarn build:app
+```
 
 ## Task Router — Where to Find Detailed Guidance
 
@@ -16,7 +52,8 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Task | Guide |
 |------|-------|
 | **Module Development** | |
-| Creating a new module, scaffolding module files, auto-discovery paths | `packages/core/AGENTS.md` |
+| Creating a new module, scaffolding module files, auto-discovery paths | `packages/core/AGENTS.md` + [`.ai/docs/module-development.md`](.ai/docs/module-development.md). **Standalone apps**: the `om-module-scaffold` skill scaffolds a module end-to-end (routes, pages, DI, ACL, events, search) — great to use here. |
+| Working on official modules via the `external/official-modules` submodule, activating them (`yarn official-modules`, `official-modules.json`), committing to the submodule's git | this file → `external/official-modules/` (git submodule) |
 | Building CRUD API routes, adding OpenAPI specs, using `makeCrudRoute`, query engine integration | `packages/core/AGENTS.md` → API Routes |
 | Adding `setup.ts` for tenant init, declaring role features, syncing new ACL grants to roles, seeding defaults/examples | `packages/core/AGENTS.md` → Module Setup |
 | Declaring typed events with `createModuleEvents`, emitting CRUD/lifecycle events, adding event subscribers | `packages/core/AGENTS.md` → Events |
@@ -32,40 +69,26 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Replacing or wrapping UI components via `widgets/components.ts` (`replace`/`wrapper`/`props`) | `packages/core/AGENTS.md` → Component Replacement + `packages/ui/AGENTS.md` |
 | Adding custom fields/entities, using DSL helpers (`defineLink`, `cf.*`), declaring `ce.ts` | `packages/core/AGENTS.md` → Custom Fields |
 | Adding entity extensions, cross-module data links, `data/extensions.ts` | `packages/core/AGENTS.md` → Extensions |
+| Coupling one module to another (e.g. products-in-deals), choosing the mechanism (events / widget injection + enrichers / FK-id + snapshot / soft-optional `tryResolve`), or depending on an OPTIONAL integration (what happens when it is absent) | `packages/core/AGENTS.md` → Cross-Module Coupling + `module-decoupling` test (`packages/core/src/__tests__/module-decoupling.test.ts`) |
 | Configuring RBAC features in `acl.ts`, declarative guards, permission checks | `packages/core/AGENTS.md` → Access Control |
 | Fixing wildcard ACL handling in feature-gated runtime helpers (menus, notification handlers, mutation guards, command interceptors, AI tools) | `packages/core/AGENTS.md` → Access Control + `packages/shared/AGENTS.md` + `packages/ui/AGENTS.md` + `packages/core/src/modules/auth/AGENTS.md` (portal: `customer_accounts/AGENTS.md`) |
 | Using encrypted queries (`findWithDecryption`), encryption defaults, GDPR fields | `packages/core/AGENTS.md` → Encryption |
 | Adding response enrichers to enrich other modules' API responses | `packages/core/AGENTS.md` → Response Enrichers |
 | Filtering CRUD list APIs by multiple IDs (`?ids=uuid1,uuid2`), including interceptor-driven ID narrowing | `packages/core/AGENTS.md` → API Interceptors + `packages/shared/AGENTS.md` |
+| Preventing silent lost updates on concurrent CRUD edits (optimistic locking via `updated_at`, **default ON** across every `makeCrudRoute` entity, opt out with `OM_OPTIMISTIC_LOCK=off`); structured 409 conflict body and client helpers (`buildOptimisticLockHeader`, `extractOptimisticLockConflict`). For Command-pattern / non-`makeCrudRoute` writes (sales document sub-resources, action endpoints), enforce the same check in the handler with `enforceCommandOptimisticLock` (document-aggregate: guard the parent order/quote) or the DI-overridable `createCommandOptimisticLockGuardService({ resolveExpected? })` (enterprise seam, #2232). Surface the 409 via the unified conflict bar with `surfaceRecordConflict(err, t)` from `@open-mercato/ui/backend/conflicts` (`CrudForm`/`useGuardedMutation` do it automatically) | `apps/docs/docs/framework/data-integrity/concurrency-locking.mdx` (§ Protecting command/action endpoints) + `.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md` + `.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md` + `packages/shared/src/lib/crud/optimistic-lock.ts` + `packages/shared/src/lib/crud/optimistic-lock-command.ts` (command-level + `createCommandOptimisticLockGuardService` seam) + `packages/ui/src/backend/conflicts/` (unified conflict bar) + `packages/shared/src/lib/di/container.ts` (default service) + `packages/core/src/modules/customers/di.ts` (polymorphic-table override) + `packages/core/src/modules/sales/commands/shared.ts` (sales wrapper) |
 | Adding DOM Event Bridge (SSE-based real-time events to browser), `useAppEvent`, `useOperationProgress` | `packages/events/AGENTS.md` → DOM Event Bridge |
-| Building customer portal pages, portal auth, portal nav injection, portal event bridge | `packages/ui/AGENTS.md` → Portal Extension |
+| Building customer portal pages, portal auth, portal nav injection, portal event bridge | `packages/ui/AGENTS.md` → Portal Extension + `om-backend-ui-design` skill |
 | Adding new widget event handlers (`onFieldChange`, `onBeforeNavigate`, transformers) | `packages/ui/AGENTS.md` |
-| Building a typed AI agent for a module (chat or structured-object mode), declaring `ai-agents.ts`, wiring tool packs, requiring user approval for mutations — works in **monorepo** and **standalone** apps | `.ai/skills/create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/agents.mdx` |
-| Registering typed AI tools via `defineAiTool` in `ai-tools.ts`, building tool packs (`search`, `attachments`, `meta`, domain packs) | `.ai/skills/create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/agents.mdx` |
-| Gating AI-mutation writes behind the approval flow (`prepareMutation`, `ai_pending_actions`, approval cards, cleanup worker) | `.ai/skills/create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx` |
-| Overriding AI agent prompts, mutation policies, or model per tenant via the settings UI | `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/settings.mdx` |
-| Wiring agentic-loop controls on an AI agent (`loop.stopWhen` / `loop.prepareStep` / `loop.budget`), per-tenant loop kill switch + budgets, `executionEngine: 'tool-loop-agent'`, and the `<AiChat>` LoopTrace debug panel | `.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md` + `packages/ai-assistant/AGENTS.md` → Loop controls and execution engines + `apps/docs/docs/framework/ai-assistant/agents.mdx` → Agentic loop controls + `apps/docs/docs/framework/ai-assistant/settings.mdx` → Loop policy overrides + `.ai/skills/create-ai-agent/SKILL.md` §4.4 |
-| Replacing or disabling another module's AI agent / AI tool (per-module, modules.ts, or programmatic) | `apps/docs/docs/framework/ai-assistant/overrides.mdx` + `packages/ai-assistant/AGENTS.md` → How to Override + `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` |
-| Replacing/disabling any module contract at the app level (unified `entry.overrides` umbrella — AI today; other domains rolling out) | `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` + `packages/shared/src/modules/overrides.ts` |
-| Configuring AI providers (Anthropic / OpenAI / Google) and per-module model overrides (`OM_AI_<MODULE>_MODEL`) | `packages/ai-assistant/AGENTS.md` → Model Resolution + `apps/docs/docs/framework/ai-assistant/overview.mdx` |
-| Sending file/image/PDF attachments through `<AiChat>` and the chat dispatcher API (`attachmentIds`, base64 inline encoding, the 4 MB ceiling) | `apps/docs/docs/framework/ai-assistant/attachments.mdx` + `packages/ai-assistant/src/modules/ai_assistant/lib/attachment-parts.ts` + `packages/ui/src/ai/upload-adapter.ts` |
+| Building AI agents/tools (`ai-agents.ts`, `ai-tools.ts`, tool packs, mutation approval via `prepareMutation`, attachments, provider/model selection) | `.ai/skills/om-create-ai-agent/SKILL.md` + `packages/ai-assistant/AGENTS.md` + `apps/docs/docs/framework/ai-assistant/*.mdx` |
+| AI agent loop controls + overrides (`loop.stopWhen/prepareStep/budget`, per-tenant settings, replacing/disabling agents/tools, module-level `entry.overrides`) | `packages/ai-assistant/AGENTS.md` → Loop controls + How to Override + `.ai/specs/implemented/2026-04-28-ai-agents-agentic-loop-controls.md` + `.ai/specs/implemented/2026-04-30-ai-overrides-and-module-disable.md` + `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md` |
 | **Specific Modules** | |
-| Managing people/companies/deals/activities, **copying CRUD patterns for new modules** | `packages/core/src/modules/customers/AGENTS.md` |
-| Building orders/quotes/invoices, pricing calculations, document flow (Quote→Order→Invoice), shipments/payments, channel scoping | `packages/core/src/modules/sales/AGENTS.md` |
-| Managing products/categories/variants, pricing resolvers (`selectBestPrice`), offers, channel-scoped pricing, option schemas | `packages/core/src/modules/catalog/AGENTS.md` |
-| Users/roles/RBAC implementation, authentication flow, session management, feature-based access control | `packages/core/src/modules/auth/AGENTS.md` |
-| Customer identity, customer portal auth (login/signup/magic links), customer RBAC, sessions, CRM auto-linking, admin user management | `packages/core/src/modules/customer_accounts/AGENTS.md` |
-| Multi-currency support, exchange rates, dual currency recording, realized gains/losses | `packages/core/src/modules/currencies/AGENTS.md` |
-| Workflow automation, defining step-based workflows, executing instances, user tasks, async activities, event triggers, signals, compensation (saga pattern), visual editor | `packages/core/src/modules/workflows/AGENTS.md` |
-| Integration Marketplace foundation (registry/bundles, credentials, state, health checks, logs, admin UI, integration manifests) | `packages/core/src/modules/integrations/AGENTS.md` |
-| Data Sync hub (adapters, run lifecycle, workers, mapping APIs, scheduled sync, progress linkage, admin UI) | `packages/core/src/modules/data_sync/AGENTS.md` |
-| Building outbound/inbound webhooks, Standard Webhooks signing, delivery queues, webhook admin UI, marketplace webhook settings | `packages/webhooks/AGENTS.md` + `packages/queue/AGENTS.md` + `packages/events/AGENTS.md` + `packages/core/src/modules/integrations/AGENTS.md` + `packages/ui/AGENTS.md` |
-| Building a new integration provider module (adapter, health check, credentials, bundle wiring) | `packages/core/src/modules/integrations/AGENTS.md` + `packages/core/src/modules/data_sync/AGENTS.md` + `.ai/skills/integration-builder/SKILL.md` (specs: SPEC-041, SPEC-045, SPEC-045c; SPEC-044 for payment) |
-| Wiring progress UX for long-running sync operations (top bar polling, job lifecycle, future SSE bridge) | `packages/core/src/modules/data_sync/AGENTS.md` + `packages/events/AGENTS.md` |
+| Module-specific work (customers as reference for new CRUD modules, plus sales, catalog, auth, customer_accounts, currencies, workflows, integrations, data_sync, progress) | `packages/core/src/modules/<module>/AGENTS.md` |
+| Webhooks (outbound/inbound, Standard Webhooks signing, delivery queues, admin UI) | `packages/webhooks/AGENTS.md` (cross-refs `queue`, `events`, `integrations`, `ui`) |
+| Building a new integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `packages/core/src/modules/integrations/AGENTS.md` + `packages/core/src/modules/data_sync/AGENTS.md` |
 | **Packages** | |
 | Adding reusable utilities, encryption helpers, i18n translations (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `packages/shared/AGENTS.md` |
-| Building forms (`CrudForm`), data tables (`DataTable`), loading/error states, flash messages, `FormHeader`/`FormFooter`, dialog UX (`Cmd+Enter`/`Escape`) | `packages/ui/AGENTS.md` |
-| Backend page components, `apiCall` usage, `RowActions` ids, `LoadingMessage`/`ErrorMessage` | `packages/ui/src/backend/AGENTS.md` |
+| Building forms (`CrudForm`), data tables (`DataTable`), loading/error states, flash messages, `FormHeader`/`FormFooter`, dialog UX (`Cmd+Enter`/`Escape`) | `packages/ui/AGENTS.md` + `om-backend-ui-design` skill (+ `om-ds-guardian` skill for DS-token compliance) |
+| Backend page components, `apiCall` usage, `RowActions` ids, `LoadingMessage`/`ErrorMessage` | `packages/ui/src/backend/AGENTS.md` + `om-backend-ui-design` skill |
 | Configuring fulltext/vector/token search, writing `search.ts`, reindexing entities, debugging search, search CLI commands | `packages/search/AGENTS.md` |
 | Adding MCP tools (`registerMcpTool`), modifying OpenCode config, debugging AI chat, session tokens, command palette, two-tier auth | `packages/ai-assistant/AGENTS.md` |
 | Running generators (`yarn generate`), creating database migrations (`yarn db:generate`), scaffolding modules, build order | `packages/cli/AGENTS.md` |
@@ -76,25 +99,16 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Adding onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `packages/onboarding/AGENTS.md` |
 | Adding static content pages (privacy policies, terms, legal pages) | `packages/content/AGENTS.md` |
 | Testing standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `packages/create-app/AGENTS.md` |
+| Deploying a freshly scaffolded Open Mercato app to Railway with `mercato deploy railway` | [`.ai/specs/2026-05-12-railway-one-command-deploy.md`](.ai/specs/2026-05-12-railway-one-command-deploy.md) + [`apps/docs/docs/deployment/railway.mdx`](apps/docs/docs/deployment/railway.mdx) + `packages/cli/AGENTS.md` |
+| **Performance** | |
+| Profiling dev-mode memory (`yarn dev:profile`), ranking memory hogs, evaluating watcher / Vite-vs-Turbopack tradeoffs | `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md` + `scripts/profile-dev-rss.mjs` |
 | **Migration** | |
-| Migrating custom module code from MikroORM v6 to v7 (decorators, persist/flush, Knex→Kysely, type fixes, ORM config, Jest setup) | `.ai/skills/migrate-mikro-orm/SKILL.md` |
+| Migrating custom module code from MikroORM v6 to v7 (decorators, persist/flush, Knex→Kysely, type fixes, ORM config, Jest setup) | `.ai/skills/om-migrate-mikro-orm/SKILL.md` |
 | **Testing** | |
-| Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.ai/skills/integration-tests/SKILL.md` |
-| **Spec Lifecycle** | |
-| Analyzing a spec before implementation: BC impact, risk assessment, gap analysis, readiness report | `.ai/skills/pre-implement-spec/SKILL.md` |
-| Implementing a spec (or specific phases) with coordinated agents, unit tests, docs, progress tracking | `.ai/skills/implement-spec/SKILL.md` |
-| Writing new specs, updating existing specs after implementation, documenting architectural decisions, maintaining changelogs | `.ai/specs/AGENTS.md` |
-| Reviewing code changes for architecture, security, conventions, and quality compliance | `.ai/skills/code-review/SKILL.md` |
-| Migrating hardcoded colors/typography to semantic tokens, analyzing DS violations, scaffolding DS-compliant pages, reviewing DS compliance | `.ai/skills/ds-guardian/SKILL.md` + `.ai/ds-rules.md` |
-| Reviewing a GitHub PR by number (checkout, code-review, submit review, apply label) | `.ai/skills/auto-review-pr/SKILL.md` |
-| Scanning open PRs for merge readiness, listing what can be merged now, triaging blockers | `.ai/skills/merge-buddy/SKILL.md` |
-| Day-start review triage: reviewing all unreviewed PRs (newest first) in one session | `.ai/skills/review-prs/SKILL.md` |
-| Running an arbitrary autonomous task end-to-end and delivering it as a PR against `develop` (dated spec, phased commits, validation gate, normalized pipeline labels). **Default** for one-off bug fixes and small features | `.ai/skills/auto-create-pr/SKILL.md` |
-| Resuming an in-progress PR created by `auto-create-pr`: claims the PR, re-enters an isolated worktree, reads the linked spec's Progress checklist, and continues from the first unchecked step | `.ai/skills/auto-continue-pr/SKILL.md` |
-| Running a long multi-step spec implementation with checkpoint discipline (per-spec run folder, 1:1 step-to-commit, executor-dispatch, in-progress lock). Use when work spans >5 commits and needs resumability | `.ai/skills/auto-create-pr-loop/SKILL.md` |
-| Resuming an in-progress PR created by `auto-create-pr-loop`: same contract, same run-folder discipline, driven by the top-of-file `## Tasks` table in `PLAN.md` as the authoritative step-status source | `.ai/skills/auto-continue-pr-loop/SKILL.md` |
-| Post-merge housekeeping: reconcile recently merged/closed PRs with the GitHub issue tracker (auto-close on `fixes`/`closes`/`resolves` keywords, supersede detection) | `.ai/skills/sync-merged-pr-issues/SKILL.md` |
-| Drafting a CHANGELOG.md release entry (emoji-driven format) for every PR since last release; honors the Supersede Credit Rule for carry-forward PRs | `.ai/skills/auto-update-changelog/SKILL.md` |
+| Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.ai/skills/om-integration-tests/SKILL.md` |
+| **Spec & PR Automation** | |
+| Spec lifecycle (pre-implement → implement → write/update), code review, DS review | Browse `.ai/skills/{om-spec-writing,om-pre-implement-spec,om-implement-spec,om-code-review,om-ds-guardian}/SKILL.md` + `.ai/specs/AGENTS.md` + `.ai/ds-rules.md` |
+| PR/issue automation (one-shot auto-PR, resumable loop variants, review/merge-buddy, post-merge sync, changelog, UI QA verification). **Default for one-off bug fixes / small features:** `om-auto-create-pr` | Browse `.ai/skills/{om-auto-create-pr,om-auto-continue-pr,om-auto-create-pr-loop,om-auto-continue-pr-loop,om-auto-review-pr,om-merge-buddy,om-review-prs,om-sync-merged-pr-issues,om-auto-update-changelog,om-auto-verify-pr-ui}/SKILL.md` |
 
 ## Core Principles
 
@@ -105,9 +119,9 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 ## Workflow Orchestration
 
 1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` and `.ai/specs/enterprise/` before coding; create spec files using scope-appropriate naming (`{date}-{title}.md` for OSS and enterprise, with `date` as `YYYY-MM-DD` and `title` as kebab-case). Skip for small fixes.
-    -   **Detailed Workflow**: Refer to the **`spec-writing` skill** for research, phasing, and architectural review standards (`.ai/skills/spec-writing/SKILL.md`).
-    -   **Pre-implementation analysis**: Before implementing a complex spec, run the **`pre-implement-spec` skill** to audit backward compatibility, identify gaps, and produce a readiness report.
-    -   **Implementation**: Use the **`implement-spec` skill** to execute spec phases with coordinated subagents, unit tests, progress tracking, and code-review compliance gates.
+    -   **Detailed Workflow**: Refer to the **`om-spec-writing` skill** for research, phasing, and architectural review standards (`.ai/skills/om-spec-writing/SKILL.md`).
+    -   **Pre-implementation analysis**: Before implementing a complex spec, run the **`om-pre-implement-spec` skill** to audit backward compatibility, identify gaps, and produce a readiness report.
+    -   **Implementation**: Use the **`om-implement-spec` skill** to execute spec phases with coordinated subagents, unit tests, progress tracking, and code-review compliance gates.
 2.  **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
 3.  **Self-improvement**: After corrections, update `.ai/lessons.md` or relevant AGENTS.md. Write rules that prevent the same mistake.
 4.  **Verification**: Run tests, check build, suggest user verification. Ask: "Would a staff engineer approve this?"
@@ -118,27 +132,26 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 
 - Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`, `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`.
 - Category labels are additive: `bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`.
-- Meta labels are additive: `needs-qa`, `skip-qa`, `in-progress`.
+- Meta labels are additive: `needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`.
 - Priority labels are mutually exclusive within their group (only one at a time): `priority-low`, `priority-medium`, `priority-high`, `priority-extreme`. They are applied to issues and PRs to communicate urgency, are additive with respect to category and meta labels, and default to **unset** (treated as `priority-medium`) when no priority label is present. Use `priority-extreme` for production outages or security incidents that require immediate action; `priority-high` for release-blocking issues; `priority-low` for cosmetic, opportunistic, or follow-up cleanup work.
+- Treat priority as a first-class signal, not an afterthought. Every issue and every non-draft PR SHOULD carry exactly one priority label; `om-auto-*` skills are expected to set or infer it (see the priority-inference rule below) rather than leave it unset. When a PR inherits from an issue, copy the issue's priority forward unless the change in scope clearly warrants a different one.
+- Priority inference (used by auto-skills when no priority label is present): production outage, data loss, or a security incident → `priority-extreme`; security hardening, release-blocking regression, auth/session/tenant-scope/money/event-reliability fixes → `priority-high`; ordinary bug fixes and net-new features → `priority-medium`; cosmetic, docs-only, dependency bumps, opportunistic cleanup, or follow-up chores → `priority-low`. When signals conflict, pick the higher priority and say why in the label comment.
+- Risk labels are mutually exclusive within their group (only one at a time): `risk-low`, `risk-medium`, `risk-high`. They are applied to issues and PRs to communicate the **blast radius of the change** — how likely it is to introduce a regression and how wide the impact would be if it does — and are additive with respect to pipeline, category, meta, and priority labels. They default to **unset** (treated as `risk-medium`) when no risk label is present. Risk is orthogonal to priority: priority is *how urgent the work is*, risk is *how dangerous the change is to ship*. A one-line typo fix for a production outage is `priority-extreme` + `risk-low`; a large auth-layer refactor that can wait is `priority-low` + `risk-high`.
+- Treat risk as a first-class signal alongside priority. Every non-draft PR SHOULD carry exactly one risk label; `om-auto-*` skills are expected to set or infer it (see the risk-inference rule below) rather than leave it unset. When a PR inherits from an issue, copy the issue's risk forward unless the change in scope clearly warrants a different one.
+- Risk inference (used by auto-skills when no risk label is present): changes to auth/session/tenant-scope/money/billing, database migrations or schema, encryption, event reliability, shared contract surfaces (types, signatures, event IDs, widget spot IDs, DI keys, ACL IDs, API routes), or broad cross-module edits → `risk-high`; an ordinary single-module feature or bug fix that ships with tests → `risk-medium`; docs-only, dependency bumps, test-only, comment/typo, or isolated cosmetic cleanup → `risk-low`. When signals conflict, pick the higher risk and say why in the label comment. A `risk-high` PR strengthens the case for `needs-qa` and deeper review even when it would otherwise look routine.
 - A ready non-draft PR should carry `review` unless it is already in another pipeline state.
-- `auto-review-pr` MUST move approved PRs to `qa` when `needs-qa` is present and `skip-qa` is absent; otherwise it MUST move them to `merge-queue`.
+- `auto-review-pr` MUST move approved PRs to `merge-queue`. For a PR that carries `needs-qa` (without `skip-qa`) it keeps `needs-qa` in place, so the QA-approval gate holds the actual merge until a QA reviewer adds `qa-approved`. Auto-skills MUST NOT set the `qa` pipeline label — see the `qa` rule below.
 - `auto-review-pr` MUST move review failures to `changes-requested`.
+- `qa` (pipeline) means **manual QA is in progress**: a QA reviewer has picked the PR up and is actively testing it. It is applied **manually by a QA reviewer**, never by an `om-auto-*` skill. Auto-skills request QA with the `needs-qa` meta label only; they never set, move to, or remove `qa`. A QA reviewer flips a queued `needs-qa` PR from `merge-queue` to `qa` while testing, then records the outcome with `qa-approved` (pass) or `qa-failed` (fail).
 - `needs-qa` is for UI changes, new features, sales or order flows, and other customer-facing behavior that needs manual exercise.
 - `skip-qa` is for docs-only, dependency-only, CI-only, test-only, typo-only, or similarly low-risk non-customer-facing changes.
+- `qa-approved` records that manual QA passed for a `needs-qa` PR. It is the durable proof that gates the merge; the `merge-queue` pipeline label is the routing state, while `qa-approved` is the evidence that QA actually happened. Set both when QA passes.
+- **QA-approval merge gate (hard rule): a PR that carries `needs-qa` MUST NOT be merged unless it also carries `qa-approved`, even when every other check is green.** Moving such a PR to `merge-queue` without `qa-approved` is not sufficient — the QA-approval gate blocks it. This is a **label policy enforced by reviewers and the PR-automation tooling** (`om-merge-buddy` classifies it as not-mergeable; `om-approve-merge-pr` and the auto-review/continue skills refuse to merge it); there is no longer a dedicated `merge-gate` CI workflow, so the maintainer is responsible for upholding it (optionally via a branch-protection rule that requires the `qa-approved` label). `skip-qa` is the explicit opt-out: a PR with `skip-qa` does not require `qa-approved`. Never combine `skip-qa` with `needs-qa`/`qa-approved`.
+- **Self-QA exception:** the manual QA is normally performed by the dedicated QA reviewers. When they have no capacity to test in time, any engineer may self-QA instead — but only by (1) checking the PR out and running it locally, (2) clicking through the affected flow, and (3) attaching proof to the PR: a screenshot showing it working, or a written confirmation describing what was exercised and the observed result. After that, apply BOTH `qa-approved` (so the gate passes) and `qa-self-verified` (so it is auditable that a non-QA engineer signed off via this exception, not the QA team). Do not apply `qa-approved` via the self-QA path without the attached evidence. Refer to QA reviewers by role, never by GitHub handle — assignments change.
+- `qa-failed` is a hard block: a PR carrying it MUST NOT merge until QA re-runs and it is cleared. `do-not-merge` and `blocked` are likewise hard merge blocks. The QA-approval gate (reviewers + PR-automation tooling) treats any of these as not-mergeable.
 - Auto-skills that mutate PRs or issues MUST claim them first with all three signals: assignee, `in-progress` label, and a claim comment. They MUST release the `in-progress` label when finished, even on failure.
 - When an auto-skill adds or changes a PR pipeline/meta label, it MUST also leave a short PR comment explaining why that label was applied.
-- Use `gh` for manual QA transitions:
-
-```bash
-# QA pass
-gh pr edit <number> --remove-label "qa" --add-label "merge-queue"
-
-# QA fail
-gh pr edit <number> --remove-label "qa" --add-label "qa-failed"
-
-# Re-request QA after a fix
-gh pr edit <number> --remove-label "qa-failed" --add-label "qa"
-```
+- The `qa` pipeline label is driven manually by QA reviewers, not by auto-skills. When a QA reviewer starts testing a queued `needs-qa` PR, they move it from `merge-queue` to `qa` (`gh pr edit <number> --remove-label merge-queue --add-label qa`) to signal QA is in progress. When QA passes, move it back and record approval (`gh pr edit <number> --remove-label qa --add-label merge-queue --add-label qa-approved`); via the self-QA exception add `qa-self-verified` as well. When QA fails, route to `qa-failed` (`gh pr edit <number> --remove-label qa --add-label qa-failed`) and do not add `qa-approved`.
 
 ### Documentation and Specifications
 
@@ -181,7 +194,19 @@ All packages use the `@open-mercato/<package>` naming convention:
 - Put shared utilities and types in `packages/shared/src/lib/` or `packages/shared/src/modules/`
 - Put UI components in `packages/ui/src/`
 - Put user/app-specific modules in `apps/mercato/src/modules/<module>/`
-- MUST NOT add code directly in `apps/mercato/src/` — it's a boilerplate for user apps
+- MUST NOT add code directly in `apps/mercato/src/` — it's a boilerplate for user apps. Narrow exception: committed, typed *generated registries* (files matching `*.generated.ts`) consumed by `modules.ts` or other root entry points may live in `apps/mercato/src/` when they must survive `yarn clean-generated` and travel with the repo — see [Generated Files: versioned vs ephemeral](.ai/docs/module-development.md#generated-files-versioned-vs-ephemeral).
+
+### `external/official-modules/` (git submodule)
+
+`external/official-modules/` is a **git submodule** pointing at `open-mercato/official-modules` (a public repo). When present it is real working code — treat it as first-class for search, grep, refactoring, and cross-module reasoning, not as vendored/build output.
+
+- It is **optional and not committed** — `.gitmodules` and the `external/official-modules` checkout are not part of the open-mercato repo. They're created locally by `yarn official-modules add …` (which runs `git submodule add`). A fresh clone has no submodule; `yarn install` and CI are unchanged.
+- **Activation is driven by `official-modules.json`** (committed; `activated` is the team default, `available` is auto-filled once the submodule is present) and `official-modules.local.json` (gitignored personal override). Use `yarn official-modules` to inspect/change activation; the `postinstall` worker (`scripts/official-modules-setup.mjs`) — a no-op until the submodule is registered, then it inits/refreshes it — regenerates `apps/mercato/src/official-modules.generated.ts`, which `apps/mercato/src/modules.ts` spreads into `enabledModules`.
+- **Module-id convention:** package `@open-mercato/<suffix>` ⇒ module id `<suffix>` with dashes converted to underscores (e.g. `@open-mercato/ai-assistant` ⇒ `ai_assistant`).
+- **Edits under `external/official-modules/` commit to the submodule's git, not open-mercato's.** Commit/push from inside `external/official-modules/` on a feature branch; create the changeset there (`yarn changeset`); open the PR against `open-mercato/official-modules`.
+- **Never `git add external/official-modules` (pointer bump) unless explicitly asked** — the pointer may lag intentionally. Always check `git diff --staged` before committing in the host repo. The same applies to `apps/mercato/src/official-modules.generated.ts` / `official-modules.json` `available` churn unless you actually intend to change the activation set.
+- After activating/deactivating official modules: run `yarn mercato configs cache structural --all-tenants` (and `yarn dev:reset` if Turbopack serves a stale chunk).
+- **Cross-cutting changes** (core API + an official module): two coordinated PRs — core in open-mercato first → (prerelease) publish → submodule bumps the peer dep → submodule PR. Explain the merge order to the user. No PR is atomic across the two repos.
 
 ### When You Need an Import
 
@@ -216,67 +241,7 @@ Import strategy:
 
 ## Module Development Quick Reference
 
-All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md` for full details.
-
-### Auto-Discovery Paths
-
-- Frontend pages: `frontend/<path>.tsx` → `/<path>`
-- Backend pages: `backend/<path>.tsx` → `/backend/<path>` (special: `backend/page.tsx` → `/backend/<module>`)
-- API routes: `api/<method>/<path>.ts` → `/api/<path>` (dispatched by method)
-- Subscribers: `subscribers/*.ts` — export default handler + `metadata` with `{ event, persistent?, id? }`
-- Workers: `workers/*.ts` — export default handler + `metadata` with `{ queue, id?, concurrency? }`
-
-### Optional Module Files
-
-| File | Export | Purpose |
-|------|--------|---------|
-| `index.ts` | `metadata` | Module metadata |
-| `cli.ts` | default | CLI commands |
-| `di.ts` | `register(container)` | DI registrar (Awilix) |
-| `acl.ts` | `features` | Feature-based permissions |
-| `setup.ts` | `setup: ModuleSetupConfig` | Tenant initialization, role features, customer role features |
-| `ce.ts` | `entities` | Custom entities / custom field sets |
-| `search.ts` | `searchConfig` | Search indexing configuration |
-| `events.ts` | `eventsConfig` | Typed event declarations |
-| `translations.ts` | `translatableFields` | Translatable field declarations per entity |
-| `notifications.ts` | `notificationTypes` | Notification type definitions |
-| `notifications.client.ts` | — | Client-side notification renderers |
-| `generators.ts` | `generatorPlugins` | Generator plugin declarations for additional aggregated output files |
-| `ai-tools.ts` | `aiTools` | MCP AI tool definitions |
-| `ai-agents.ts` | `aiAgents` | AI agent definitions (chat/object runtimes, tool allowlists, mutation policy) |
-| `api/interceptors.ts` | `interceptors` | API route interception hooks (before/after) |
-| `data/entities.ts` | — | MikroORM entities |
-| `data/validators.ts` | — | Zod validation schemas |
-| `data/extensions.ts` | `extensions` | Entity extensions (module links) |
-| `widgets/injection/` | — | Injected UI widgets |
-| `widgets/injection-table.ts` | — | Widget-to-slot mappings |
-| `widgets/components.ts` | `componentOverrides` | Component replacement/wrapper/props override definitions |
-| `data/enrichers.ts` | `enrichers` | Response enrichers for data federation |
-
-### Key Rules
-
-- API routes MUST export `openApi` for documentation generation
-- CRUD routes: use `makeCrudRoute` with `indexer: { entityType }` for query index coverage
-- Write operations: implement via the Command pattern (see `packages/core/src/modules/customers/commands/*`)
-- Feature naming convention: `<module>.<action>` (e.g., `example.view`, `example.create`).
-- setup.ts: always declare `defaultRoleFeatures` when adding features to `acl.ts`; grant admin and any appropriate default roles automatically, then run `yarn mercato auth sync-role-acls` so existing tenants receive the new ACLs
-- Every module with guarded routes or pages MUST declare features in `acl.ts` — never ship an empty `acl.ts` with `requireRoles` guards
-- Custom fields: use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`
-- Detail/read-model APIs that expose `customFields` MUST normalize response keys to bare field names via `normalizeCustomFieldResponse()` (for example `{ priority: 3 }`). Reserve `cf_` / `cf:` prefixes for request payloads, query-engine selectors, and form wiring.
-- Events: use `createModuleEvents()` with `as const` for typed emit
-- Translations: when adding entities with user-facing text fields (title, name, description, label), create `translations.ts` at module root declaring translatable fields. Run `yarn generate` after adding.
-- Widget injection: declare in `widgets/injection/`, map via `injection-table.ts`
-- API interception: declare interceptors in `api/interceptors.ts`; keep hooks fail-closed and scoped by route + method
-- Interceptors that narrow CRUD list results SHOULD prefer rewriting `query.ids` (comma-separated UUID list) instead of post-filtering response arrays
-- Component replacement: use handle-based IDs (`page:*`, `data-table:*`, `crud-form:*`, `section:*`) for deterministic overrides
-- Generated files: `apps/mercato/.mercato/generated/` — never edit manually
-- Enable modules in your app’s `src/modules.ts` (e.g. `apps/mercato/src/modules.ts`)
-- Run `yarn generate` after adding/modifying module files
-- Agents MUST automatically run `yarn mercato configs cache structural --all-tenants` after enabling/disabling modules in `src/modules.ts`, adding/removing backend or frontend pages, or changing sidebar/navigation injection — stale `nav:*` cache and stale Turbopack module-graph fingerprints can both hide structural changes until they are purged. The structural command purges `nav:*` Redis keys and bumps mtimes on `.mercato/generated/*.generated.{ts,checksum}` so Turbopack re-evaluates the import graph without a dev-server restart. If Turbopack still serves a stale compiled chunk after that, run `yarn dev:reset` to clear `.next/cache/turbopack` and restart `yarn dev`.
-- New integration providers MUST own their env-backed preconfiguration inside the provider package: implement preset reading/application in the provider module, apply it from `setup.ts`, expose a rerunnable provider CLI command when practical, and document the env variables. Do not add provider-specific preconfiguration logic to core modules.
-- AI agents: put definitions in `<module>/ai-agents.ts` and run `yarn generate`. Every agent declares `moduleId`, `label`, `executionMode`, `requiredFeatures`, `allowedTools`, `mutationPolicy`, and `defaultModel` (optional). See `packages/ai-assistant/AGENTS.md` and `/framework/ai-assistant/agents`.
-- AI-driven mutations MUST go through `prepareMutation(...)` + pending-action approval; never write directly inside a mutation tool handler — the runtime fails closed if the approval contract is bypassed.
-- AI provider keys: at least one of `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` must be set. Per-module model overrides use `OM_AI_<MODULE>_MODEL` (uppercased module id).
+> Moved to [`.ai/docs/module-development.md`](.ai/docs/module-development.md) to keep this file lean. Read it when scaffolding or editing a module — it covers auto-discovery paths, the optional-files table, module rules, and the versioned-vs-ephemeral generated-files contract. See `packages/core/AGENTS.md` for full details.
 
 ## Backward Compatibility Contract
 
@@ -286,7 +251,18 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 
 **Deprecation protocol** (summary): (1) never remove in one release, (2) add `@deprecated` JSDoc, (3) provide a bridge (re-export/alias/dual-emit) for ≥1 minor version, (4) document in RELEASE_NOTES.md, (5) reference a spec with "Migration & Backward Compatibility" section.
 
-## Critical Rules
+## Boundary Labels for Agent Rules
+
+Use `Always`, `Ask First`, `Never`, and `Validation Commands` headings when adding or reorganizing agent rules:
+
+- `Always` — required defaults and commands agents should apply without asking.
+- `Ask First` — decisions that need maintainer input before changing behavior, scope, dependencies, branch/deploy flow, or contract surfaces.
+- `Never` — prohibited actions and unsafe shortcuts.
+- `Validation Commands` — short, real commands agents can run to prove the relevant path.
+
+## Architecture, Data, UI, and Code Rules
+
+These are critical project-wide rules. The top-level `Always`, `Ask First`, and `Never` sections summarize their boundaries; this section keeps the detailed requirements.
 
 ### Architecture
 
@@ -319,6 +295,7 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 -   Use `LoadingMessage`/`ErrorMessage` from `@open-mercato/ui/backend/detail`
 -   i18n: `useT()` client-side, `resolveTranslations()` server-side
 -   Never hard-code user-facing strings — use locale files
+-   Prefix purely internal `throw new Error(...)` / `createCrudFormError(...)` / `toast.*(...)` messages with `[internal]` so the i18n hardcoded-string checker treats them as opted out; user-facing variants MUST route through `t('module.errors.<key>')`. Run `yarn i18n:check-hardcoded` (and `yarn i18n:check-values` for non-English coverage) to inspect the surface — both are advisory in Phase 1 of `.ai/specs/2026-05-26-missing-translations-audit-and-remediation.md`. Use `<module>/i18n/.hardcoded-allowlist.json` for module-scoped exceptions (legal copy, framework chrome).
 -   Every dialog: `Cmd/Ctrl+Enter` submit, `Escape` cancel
 -   Keep `pageSize` at or below 100
 
@@ -350,7 +327,7 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 ```bash
 yarn dev                  # Start compact dev runtime; press `d` to toggle raw logs
 yarn dev:verbose          # Start dev runtime with full raw passthrough logs
-yarn dev:reset            # Clear .next/cache/turbopack when Turbopack serves stale chunks
+yarn dev:reset            # Clear .mercato/next/dev plus legacy .next caches when Turbopack serves stale chunks
 yarn dev:app              # Start compact app-only runtime
 yarn dev:app:verbose      # Start app-only runtime with raw passthrough logs
 yarn build                # Build everything

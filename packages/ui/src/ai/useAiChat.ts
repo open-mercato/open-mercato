@@ -4,6 +4,12 @@ import * as React from 'react'
 import { createAiAgentTransport } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-transport'
 import { apiFetch } from '../backend/utils/api'
 import type { LoopTracePanelTrace } from './LoopTracePanel'
+import {
+  createAiServerConversation,
+  importAiLocalConversation,
+  loadAiServerTranscript,
+  serverMessageToChatMessage,
+} from './conversation-store'
 
 /**
  * Chat message shape used by {@link AiChat}. Kept intentionally minimal so the
@@ -12,6 +18,7 @@ import type { LoopTracePanelTrace } from './LoopTracePanel'
  * shape for `messages`.
  */
 export interface AiChatMessageFile {
+  id?: string
   name: string
   type: string
   previewUrl?: string
@@ -20,6 +27,7 @@ export interface AiChatMessageFile {
 export interface AiChatToolCallSnapshot {
   id: string
   toolName: string
+  caption?: string
   state: 'pending' | 'complete' | 'error'
   input?: unknown
   output?: unknown
@@ -34,6 +42,25 @@ export interface AiChatMessageUiPart {
   key: string
 }
 
+/**
+ * Snapshot of a single task in the visible agent task plan
+ * (spec `.ai/specs/implemented/2026-05-13-ai-chat-visible-task-plan.md`). Tasks are
+ * streamed as additive `data-agent-task-plan` / `data-agent-task-update`
+ * SSE chunks and rendered above raw tool-call rows in `<AiChat>`.
+ *
+ * `source: 'runtime'` tasks are derived from tool lifecycle events by the
+ * agent runtime. `source: 'agent'` tasks are emitted through the reserved
+ * `meta.update_task_plan` helper and sanitized before they reach the client.
+ */
+export interface AiAgentTaskSnapshot {
+  id: string
+  label: string
+  state: 'pending' | 'running' | 'done' | 'failed' | 'skipped'
+  detail?: string
+  source: 'runtime' | 'agent'
+  toolCallId?: string
+}
+
 export interface AiChatMessage {
   id: string
   role: 'user' | 'assistant'
@@ -42,6 +69,8 @@ export interface AiChatMessage {
   reasoning?: string
   reasoningStreaming?: boolean
   toolCalls?: AiChatToolCallSnapshot[]
+  /** User ID of the message author. Present for server-loaded messages; null for AI messages and locally-composed messages. */
+  senderUserId?: string | null
   /**
    * UI parts emitted by the agent during this message's lifecycle. Today
    * the only producer is `prepareMutation` (mutation approval flow):
@@ -52,6 +81,12 @@ export interface AiChatMessage {
    * the UI-part registry never surfaces.
    */
   uiParts?: AiChatMessageUiPart[]
+  /**
+   * Client-local visible task plan derived from streamed
+   * `data-agent-task-plan` snapshots and `data-agent-task-update` deltas.
+   * Not persisted in any chat storage payload.
+   */
+  taskPlan?: AiAgentTaskSnapshot[]
 }
 
 export interface UseAiChatInput {
@@ -83,6 +118,15 @@ export interface UseAiChatInput {
    * configured default (no override sent).
    */
   modelOverride?: string | null
+  /**
+   * Called when the server returns 404 for the active `conversationId`.
+   * Used by hosts to remove a stale session entry (e.g. the AI dock
+   * closes the session tab) when a conversation no longer exists for the
+   * current tenant/org scope. A 404 here distinguishes a missing
+   * conversation from a transient transport failure — the hook never
+   * imports local messages onto the new scope when this fires.
+   */
+  onConversationNotFound?: () => void
 }
 
 export interface AiChatErrorEnvelope {
@@ -112,6 +156,11 @@ export interface UseAiChatResult {
    * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
    */
   lastLoopTrace: LoopTracePanelTrace | null
+  /**
+   * Whether the authenticated caller owns the loaded conversation. `true` for owners,
+   * `false` for shared participants (read-only view), `null` while unresolved.
+   */
+  isOwner: boolean | null
   sendMessage: (input: string, files?: AiChatMessageFile[]) => Promise<void>
   cancel: () => void
   reset: () => void
@@ -140,11 +189,19 @@ function makeConversationId(): string {
 }
 
 const SESSION_STORAGE_PREFIX = 'om-ai-chat:'
+const SESSION_IMPORT_MARKER_PREFIX = 'om-ai-chat-imported:'
 const SESSION_STORAGE_VERSION = 1
 const SESSION_UPDATED_EVENT = 'om-ai-chat-session-updated'
 const SESSION_STREAM_STATE_EVENT = 'om-ai-chat-session-stream-state'
 const activeSessionStreams = new Set<string>()
 
+// This slot already implements its own versioned, migratable shape: the inline
+// `v` discriminator is checked on read and the value is discarded on mismatch
+// (see `readPersistedSession`). It is intentionally NOT migrated to the generic
+// `{ v, data }` envelope from `@open-mercato/shared/lib/browser/versionedPreference`
+// — doing so would change the on-disk format and discard users' in-progress
+// sessions, and the write path needs bespoke transient-blob-URL stripping that
+// the generic helper does not express.
 interface PersistedAiChatSession {
   v: number
   conversationId: string
@@ -221,19 +278,20 @@ function writePersistedSession(
   if (typeof window === 'undefined') return
   try {
     // Strip transient blob/object preview URLs before persisting (they would
-    // not survive a reload). Self-contained `data:` URLs are kept so image
-    // previews come back unchanged after the chat is reopened — public
-    // attachment URLs are intentionally not used because the LLM provider
-    // cannot reach a localhost origin and we want a single durable shape
-    // that works for both transport and reload.
+    // not survive a reload). Self-contained `data:` URLs and same-origin
+    // attachment thumbnail URLs are durable enough for local fallback storage.
     const messages = session.messages.map((message) => {
       if (!message.files || message.files.length === 0) return message
-      const safeFiles = message.files.map(({ name, type, previewUrl }) => {
+      const safeFiles = message.files.map(({ id, name, type, previewUrl }) => {
         const durable =
-          typeof previewUrl === 'string' && previewUrl.startsWith('data:')
+          typeof previewUrl === 'string' &&
+          (previewUrl.startsWith('data:') ||
+            previewUrl.startsWith('/api/attachments/image/') ||
+            previewUrl.startsWith('/api/attachments/file/'))
             ? previewUrl
             : undefined
-        return durable ? { name, type, previewUrl: durable } : { name, type }
+        const base = id ? { id, name, type } : { name, type }
+        return durable ? { ...base, previewUrl: durable } : base
       })
       return { ...message, files: safeFiles }
     })
@@ -257,6 +315,28 @@ function clearPersistedSession(agent: string, conversationId?: string | null): v
     window.localStorage.removeItem(getSessionStorageKey(agent, conversationId))
   } catch {
     // ignore
+  }
+}
+
+function getImportMarkerKey(agent: string, conversationId: string): string {
+  return `${SESSION_IMPORT_MARKER_PREFIX}${agent}:${conversationId}`
+}
+
+function hasImportMarker(agent: string, conversationId: string): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return window.localStorage.getItem(getImportMarkerKey(agent, conversationId)) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeImportMarker(agent: string, conversationId: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(getImportMarkerKey(agent, conversationId), '1')
+  } catch {
+    // ignore local marker failures; the server import remains authoritative
   }
 }
 
@@ -294,11 +374,78 @@ interface AssistantBuilderState {
   reasoning: string
   reasoningStreaming: boolean
   toolCalls: AiChatToolCallSnapshot[]
+  toolCallCaptions: Record<string, string>
+  internalToolCallIds: string[]
   uiParts: AiChatMessageUiPart[]
+  taskPlan: AiAgentTaskSnapshot[]
 }
 
 function createBuilder(): AssistantBuilderState {
-  return { text: '', reasoning: '', reasoningStreaming: false, toolCalls: [], uiParts: [] }
+  return {
+    text: '',
+    reasoning: '',
+    reasoningStreaming: false,
+    toolCalls: [],
+    toolCallCaptions: {},
+    internalToolCallIds: [],
+    uiParts: [],
+    taskPlan: [],
+  }
+}
+
+const VALID_TASK_STATES: ReadonlySet<AiAgentTaskSnapshot['state']> = new Set([
+  'pending',
+  'running',
+  'done',
+  'failed',
+  'skipped',
+])
+const VALID_TASK_SOURCES: ReadonlySet<AiAgentTaskSnapshot['source']> = new Set(['runtime', 'agent'])
+
+function coerceTaskSnapshot(raw: unknown): AiAgentTaskSnapshot | null {
+  if (!raw || typeof raw !== 'object') return null
+  const value = raw as Record<string, unknown>
+  const id = typeof value.id === 'string' ? value.id.trim() : ''
+  if (!id) return null
+  const label = typeof value.label === 'string' ? value.label : ''
+  if (!label) return null
+  const state = VALID_TASK_STATES.has(value.state as AiAgentTaskSnapshot['state'])
+    ? (value.state as AiAgentTaskSnapshot['state'])
+    : 'pending'
+  const source = VALID_TASK_SOURCES.has(value.source as AiAgentTaskSnapshot['source'])
+    ? (value.source as AiAgentTaskSnapshot['source'])
+    : 'runtime'
+  const detail = typeof value.detail === 'string' && value.detail.length > 0 ? value.detail : undefined
+  const toolCallId =
+    typeof value.toolCallId === 'string' && value.toolCallId.length > 0 ? value.toolCallId : undefined
+  return { id, label, state, source, detail, toolCallId }
+}
+
+const TERMINAL_TASK_STATES: ReadonlySet<AiAgentTaskSnapshot['state']> = new Set([
+  'done',
+  'failed',
+  'skipped',
+])
+
+function mergeTaskSnapshot(
+  current: AiAgentTaskSnapshot[],
+  incoming: AiAgentTaskSnapshot,
+): AiAgentTaskSnapshot[] {
+  const idx = current.findIndex((task) => task.id === incoming.id)
+  if (idx === -1) return [...current, incoming]
+  const prior = current[idx]
+  // Stream ordering safeguard: once a task reaches a terminal state we keep
+  // it terminal so a late "running" event cannot revert it (spec §Risks —
+  // "Stream ordering bugs cause stale statuses").
+  const nextState = TERMINAL_TASK_STATES.has(prior.state) ? prior.state : incoming.state
+  const merged: AiAgentTaskSnapshot = {
+    ...prior,
+    ...incoming,
+    state: nextState,
+  }
+  const next = current.slice()
+  next[idx] = merged
+  return next
 }
 
 /**
@@ -421,6 +568,7 @@ function updateToolCall(
     const next: AiChatToolCallSnapshot = {
       id,
       toolName: patch.toolName ?? 'tool',
+      caption: patch.caption ?? state.toolCallCaptions[id],
       state: patch.state ?? 'pending',
       input: patch.input,
       output: patch.output,
@@ -432,6 +580,7 @@ function updateToolCall(
   const merged: AiChatToolCallSnapshot = {
     ...current,
     toolName: patch.toolName ?? current.toolName,
+    caption: patch.caption ?? current.caption,
     state: patch.state ?? current.state,
     input: patch.input !== undefined ? patch.input : current.input,
     output: patch.output !== undefined ? patch.output : current.output,
@@ -442,9 +591,38 @@ function updateToolCall(
   return { ...state, toolCalls: nextCalls }
 }
 
+function updateToolCallCaption(
+  state: AssistantBuilderState,
+  toolCallId: string | undefined,
+  caption: string,
+): AssistantBuilderState {
+  if (!toolCallId || !caption) return state
+  const toolCallCaptions = { ...state.toolCallCaptions, [toolCallId]: caption }
+  const idx = state.toolCalls.findIndex((entry) => entry.id === toolCallId)
+  if (idx === -1) return { ...state, toolCallCaptions }
+  const nextCalls = state.toolCalls.slice()
+  nextCalls[idx] = { ...nextCalls[idx], caption }
+  return { ...state, toolCallCaptions, toolCalls: nextCalls }
+}
+
 function displayToolName(toolName: unknown): string | undefined {
   if (typeof toolName !== 'string') return undefined
   return toolName.replace(/__/g, '.')
+}
+
+function isInternalTaskPlanTool(toolName: unknown): boolean {
+  return displayToolName(toolName) === 'meta.update_task_plan'
+}
+
+function markInternalToolCall(state: AssistantBuilderState, toolCallId: unknown): AssistantBuilderState {
+  const id = String(toolCallId ?? '')
+  if (!id || state.internalToolCallIds.includes(id)) return state
+  return { ...state, internalToolCallIds: [...state.internalToolCallIds, id] }
+}
+
+function isInternalToolCallId(state: AssistantBuilderState, toolCallId: unknown): boolean {
+  const id = String(toolCallId ?? '')
+  return id.length > 0 && state.internalToolCallIds.includes(id)
 }
 
 function applyChunk(
@@ -469,11 +647,13 @@ function applyChunk(
     case 'reasoning-end':
       return { ...state, reasoningStreaming: false }
     case 'tool-input-start':
+      if (isInternalTaskPlanTool(chunk.toolName)) return markInternalToolCall(state, chunk.toolCallId)
       return updateToolCall(state, String(chunk.toolCallId ?? ''), {
         toolName: displayToolName(chunk.toolName),
         state: 'pending',
       })
     case 'tool-input-available':
+      if (isInternalTaskPlanTool(chunk.toolName)) return markInternalToolCall(state, chunk.toolCallId)
       return updateToolCall(state, String(chunk.toolCallId ?? ''), {
         toolName: displayToolName(chunk.toolName),
         input: chunk.input,
@@ -481,6 +661,7 @@ function applyChunk(
       })
     case 'tool-output-available': {
       const toolCallId = String(chunk.toolCallId ?? '')
+      if (isInternalToolCallId(state, toolCallId)) return state
       const next = updateToolCall(state, toolCallId, {
         output: chunk.output,
         state: 'complete',
@@ -504,12 +685,14 @@ function applyChunk(
       return { ...next, uiParts: merged }
     }
     case 'tool-output-error':
+      if (isInternalToolCallId(state, chunk.toolCallId)) return state
       return updateToolCall(state, String(chunk.toolCallId ?? ''), {
         state: 'error',
         errorMessage:
           typeof chunk.errorText === 'string' ? chunk.errorText : 'Tool error',
       })
     case 'tool-input-error':
+      if (isInternalTaskPlanTool(chunk.toolName)) return markInternalToolCall(state, chunk.toolCallId)
       return updateToolCall(state, String(chunk.toolCallId ?? ''), {
         toolName: displayToolName(chunk.toolName),
         input: chunk.input,
@@ -517,6 +700,29 @@ function applyChunk(
         errorMessage:
           typeof chunk.errorText === 'string' ? chunk.errorText : 'Tool error',
       })
+    case 'data-agent-task-plan': {
+      // Initial / replacement plan snapshot. The agent runtime emits this
+      // when the first task in a turn becomes visible. Subsequent
+      // `data-agent-task-update` events patch individual tasks.
+      const rawTasks = Array.isArray(chunk.tasks) ? chunk.tasks : []
+      const coerced = rawTasks
+        .map(coerceTaskSnapshot)
+        .filter((task): task is AiAgentTaskSnapshot => task !== null)
+      if (coerced.length === 0) return state
+      return coerced.reduce(
+        (nextState, task) => updateToolCallCaption(nextState, task.toolCallId, task.label),
+        { ...state, taskPlan: coerced },
+      )
+    }
+    case 'data-agent-task-update': {
+      const incoming = coerceTaskSnapshot(chunk.task)
+      if (!incoming) return state
+      return updateToolCallCaption(
+        { ...state, taskPlan: mergeTaskSnapshot(state.taskPlan, incoming) },
+        incoming.toolCallId,
+        incoming.label,
+      )
+    }
     default:
       return state
   }
@@ -533,6 +739,7 @@ function mergeAssistantMessage(
     reasoningStreaming: state.reasoning ? state.reasoningStreaming : undefined,
     toolCalls: state.toolCalls.length > 0 ? state.toolCalls : undefined,
     uiParts: state.uiParts.length > 0 ? state.uiParts : undefined,
+    taskPlan: state.taskPlan.length > 0 ? state.taskPlan : undefined,
   }
 }
 
@@ -588,7 +795,7 @@ async function readErrorEnvelope(response: Response): Promise<AiChatErrorEnvelop
 }
 
 export function useAiChat(input: UseAiChatInput): UseAiChatResult {
-  const { agent, apiPath, pageContext, attachmentIds, debug, initialMessages, onError, conversationId: conversationIdInput, providerOverride, modelOverride } = input
+  const { agent, apiPath, pageContext, attachmentIds, debug, initialMessages, onError, conversationId: conversationIdInput, providerOverride, modelOverride, onConversationNotFound } = input
 
   // Minted once on mount when the caller does not supply a conversationId.
   // The ref keeps the id stable across re-renders and is reused for every
@@ -649,14 +856,19 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   // Without this, closing the dock or switching agents while the assistant
   // is "Thinking" abandons the partial reply (issue #1816).
   const latestMessagesRef = React.useRef<AiChatMessage[]>(messages)
+  const latestStatusRef = React.useRef<'idle' | 'submitting' | 'streaming'>(status)
   const persistKeyRef = React.useRef<string | null>(null)
   const agentRef = React.useRef<string>(agent)
+  const pageContextRef = React.useRef<Record<string, unknown> | undefined>(pageContext)
   const effectiveConversationIdRef = React.useRef<string>(effectiveConversationId)
   const sessionStorageKeyRef = React.useRef<string>(sessionStorageKey)
   const mountedRef = React.useRef(true)
   React.useEffect(() => {
     latestMessagesRef.current = messages
   }, [messages])
+  React.useEffect(() => {
+    latestStatusRef.current = status
+  }, [status])
   React.useEffect(() => {
     persistKeyRef.current =
       typeof conversationIdInput === 'string' && conversationIdInput.length > 0
@@ -666,6 +878,9 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   React.useEffect(() => {
     agentRef.current = agent
   }, [agent])
+  React.useEffect(() => {
+    pageContextRef.current = pageContext
+  }, [pageContext])
   React.useEffect(() => {
     effectiveConversationIdRef.current = effectiveConversationId
   }, [effectiveConversationId])
@@ -721,6 +936,74 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     [persistSnapshot],
   )
 
+  React.useEffect(() => {
+    let cancelled = false
+    const localCandidate = readPersistedSession(agent, persistKey)
+
+    async function hydrateFromServer(): Promise<void> {
+      const transcriptResult = await loadAiServerTranscript(effectiveConversationId, { limit: 100 })
+      if (cancelled || latestStatusRef.current !== 'idle') return
+
+      if (transcriptResult.ok) {
+        const transcript = transcriptResult.data
+        if (typeof transcript.conversation.isOwner === 'boolean') {
+          setIsOwner(transcript.conversation.isOwner)
+        }
+        const serverMessages = transcript.messages
+          .map(serverMessageToChatMessage)
+          .filter((message): message is AiChatMessage => message !== null)
+        if (serverMessages.length > 0 || !localCandidate || localCandidate.messages.length === 0) {
+          updateMessages(serverMessages)
+          if (serverMessages.length > 0) persistSnapshot(serverMessages, true)
+          return
+        }
+      }
+
+      // 404 — the conversation does not exist for the current tenant/org
+      // scope (e.g. the user switched scope and the stale conversationId
+      // came from the previous bucket's localStorage). Self-heal: drop
+      // the local cache, signal the host so it can prune its session
+      // registry, and NEVER fall through to importAiLocalConversation —
+      // that would silently write the previous scope's messages onto the
+      // new scope's server.
+      if (!transcriptResult.ok && transcriptResult.notFound) {
+        updateMessages([])
+        clearPersistedSession(agent, persistKey)
+        onConversationNotFoundRef.current?.()
+        return
+      }
+
+      if (!localCandidate || localCandidate.messages.length === 0) {
+        if (!transcriptResult.ok) {
+          // Transient transport failure (network down, 5xx, …). Mint a
+          // new server-side record optimistically; the next idle hydrate
+          // will reconcile.
+          void createAiServerConversation({
+            agentId: agent,
+            conversationId: effectiveConversationId,
+            pageContext: pageContextRef.current ?? null,
+          })
+        }
+        return
+      }
+
+      if (hasImportMarker(agent, effectiveConversationId)) return
+      const imported = await importAiLocalConversation({
+        agentId: agent,
+        conversationId: effectiveConversationId,
+        pageContext: pageContextRef.current ?? null,
+        messages: localCandidate.messages,
+      })
+      if (cancelled || !imported) return
+      writeImportMarker(agent, effectiveConversationId)
+    }
+
+    void hydrateFromServer()
+    return () => {
+      cancelled = true
+    }
+  }, [agent, effectiveConversationId, persistKey, persistSnapshot, updateMessages])
+
   const setStatus = React.useCallback((next: 'idle' | 'submitting' | 'streaming') => {
     if (mountedRef.current) {
       setStatusInternal(next)
@@ -735,12 +1018,17 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   >(null)
 
   const [lastLoopTrace, setLastLoopTrace] = React.useState<LoopTracePanelTrace | null>(null)
+  const [isOwner, setIsOwner] = React.useState<boolean | null>(null)
 
   const abortRef = React.useRef<AbortController | null>(null)
   const onErrorRef = React.useRef(onError)
   React.useEffect(() => {
     onErrorRef.current = onError
   }, [onError])
+  const onConversationNotFoundRef = React.useRef(onConversationNotFound)
+  React.useEffect(() => {
+    onConversationNotFoundRef.current = onConversationNotFound
+  }, [onConversationNotFound])
 
   const emitError = React.useCallback((envelope: AiChatErrorEnvelope) => {
     if (mountedRef.current) {
@@ -808,8 +1096,11 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
       const url = getTransportEndpoint(agent, apiPath, providerOverride, modelOverride)
       const body = {
         messages: outgoingHistory.map((message) => ({
+          id: message.id,
           role: message.role,
           content: message.content,
+          files: message.files,
+          uiParts: message.uiParts,
         })),
         pageContext,
         attachmentIds,
@@ -1077,6 +1368,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     lastResponseDebug,
     conversationId: effectiveConversationId,
     lastLoopTrace,
+    isOwner,
     sendMessage,
     cancel,
     reset,

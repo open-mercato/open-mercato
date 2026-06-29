@@ -6,8 +6,11 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { RadioGroup } from '@open-mercato/ui/primitives/radio'
 import { RadioField } from '@open-mercato/ui/primitives/radio-field'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+const WIDGET_VISIBILITY_CONTEXT_ID = 'dashboards-widget-visibility:save'
 
 type WidgetCatalogItem = {
   id: string
@@ -32,6 +35,7 @@ type UserResponse = {
 type BaseProps = {
   tenantId?: string | null
   organizationId?: string | null
+  preserveOnTenantChange?: boolean
 }
 
 type RoleProps = BaseProps & {
@@ -92,7 +96,14 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
     (widget: WidgetCatalogItem) => resolveWidgetText(t, widget.id, 'description', widget.description || ''),
     [t],
   )
-  const { kind, targetId, tenantId, organizationId } = props
+  const { kind, targetId, tenantId, organizationId, preserveOnTenantChange = false } = props
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: WIDGET_VISIBILITY_CONTEXT_ID,
+  })
   const [catalog, setCatalog] = React.useState<WidgetCatalogItem[]>([])
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
@@ -136,10 +147,16 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
     setCatalog(mapped)
   }, [])
 
-  const loadRoleData = React.useCallback(async () => {
+  const tenantIdRef = React.useRef(tenantId)
+  React.useEffect(() => { tenantIdRef.current = tenantId }, [tenantId])
+  const organizationIdRef = React.useRef(organizationId)
+  React.useEffect(() => { organizationIdRef.current = organizationId }, [organizationId])
+  const hasMountedRef = React.useRef(false)
+
+  const loadRoleData = React.useCallback(async (forTenantId: string | null | undefined, forOrganizationId: string | null | undefined) => {
     const params = new URLSearchParams({ roleId: targetId })
-    if (tenantId) params.set('tenantId', tenantId)
-    if (organizationId) params.set('organizationId', organizationId)
+    if (forTenantId) params.set('tenantId', forTenantId)
+    if (forOrganizationId) params.set('organizationId', forOrganizationId)
     const data = await readApiResultOrThrow<RoleResponse>(
       `/api/dashboards/roles/widgets?${params.toString()}`,
       undefined,
@@ -151,12 +168,12 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
     setMode('override')
     setOriginalMode('override')
     setEffective(ids)
-  }, [organizationId, targetId, tenantId])
+  }, [targetId])
 
-  const loadUserData = React.useCallback(async () => {
+  const loadUserData = React.useCallback(async (forTenantId: string | null | undefined, forOrganizationId: string | null | undefined) => {
     const params = new URLSearchParams({ userId: targetId })
-    if (tenantId) params.set('tenantId', tenantId)
-    if (organizationId) params.set('organizationId', organizationId)
+    if (forTenantId) params.set('tenantId', forTenantId)
+    if (forOrganizationId) params.set('organizationId', forOrganizationId)
     const data = await readApiResultOrThrow<UserResponse>(
       `/api/dashboards/users/widgets?${params.toString()}`,
       undefined,
@@ -168,7 +185,7 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
     setMode(data.mode || 'inherit')
     setOriginalMode(data.mode || 'inherit')
     setEffective(Array.isArray(data.effectiveWidgetIds) ? data.effectiveWidgetIds : [])
-  }, [organizationId, targetId, tenantId])
+  }, [targetId])
 
   React.useEffect(() => {
     let cancelled = false
@@ -176,21 +193,43 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
       setLoading(true)
       setError(null)
       try {
-        await loadCatalog()
-        if (kind === 'role') await loadRoleData()
-        else await loadUserData()
+        await Promise.all([
+          loadCatalog(),
+          kind === 'role'
+            ? loadRoleData(tenantIdRef.current, organizationIdRef.current)
+            : loadUserData(tenantIdRef.current, organizationIdRef.current),
+        ])
       } catch (err) {
         console.error('Failed to load widget visibility data', err)
         if (!cancelled) {
           setError(tRef.current('dashboards.widgets.error.load', 'Unable to load widget configuration.'))
         }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          hasMountedRef.current = true
+        }
       }
     }
     load()
     return () => { cancelled = true }
   }, [kind, loadCatalog, loadRoleData, loadUserData])
+
+  React.useEffect(() => {
+    if (!hasMountedRef.current) return
+    if (preserveOnTenantChange) return
+    let cancelled = false
+    async function refetch() {
+      try {
+        if (kind === 'role') await loadRoleData(tenantId, organizationId)
+        else await loadUserData(tenantId, organizationId)
+      } catch (err) {
+        console.error('Failed to reload widget visibility data', err)
+      }
+    }
+    refetch()
+    return () => { cancelled = true }
+  }, [tenantId, organizationId, kind, loadRoleData, loadUserData, preserveOnTenantChange])
 
   const toggle = React.useCallback((id: string) => {
     setSelected((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]))
@@ -216,11 +255,21 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
           organizationId: organizationId ?? null,
           widgetIds: selected,
         }
-        await apiCallOrThrow('/api/dashboards/roles/widgets', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        }, { errorMessage: saveError })
+        // optimistic-lock-exempt: per-role widget visibility preference
+        await runMutation({
+          operation: () =>
+            apiCallOrThrow('/api/dashboards/roles/widgets', {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            }, { errorMessage: saveError }),
+          context: {
+            formId: WIDGET_VISIBILITY_CONTEXT_ID,
+            resourceKind: 'dashboards.role_widget_visibility',
+            retryLastMutation,
+          },
+          mutationPayload: payload,
+        })
         setOriginal(selected)
         setOriginalMode('override')
         setEffective(selected)
@@ -232,11 +281,21 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
           mode,
           widgetIds: selected,
         }
-        await apiCallOrThrow('/api/dashboards/users/widgets', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        }, { errorMessage: saveError })
+        // optimistic-lock-exempt: per-user widget visibility preference
+        await runMutation({
+          operation: () =>
+            apiCallOrThrow('/api/dashboards/users/widgets', {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            }, { errorMessage: saveError }),
+          context: {
+            formId: WIDGET_VISIBILITY_CONTEXT_ID,
+            resourceKind: 'dashboards.user_widget_visibility',
+            retryLastMutation,
+          },
+          mutationPayload: payload,
+        })
         setOriginal(selected)
         if (mode === 'inherit') {
           const refreshed = await readApiResultOrThrow<UserResponse>(
@@ -258,7 +317,7 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
     } finally {
       setSaving(false)
     }
-  }, [catalog.length, dirty, error, kind, loading, mode, organizationId, selected, t, targetId, tenantId])
+  }, [catalog.length, dirty, error, kind, loading, mode, organizationId, retryLastMutation, runMutation, selected, t, targetId, tenantId])
 
   React.useImperativeHandle(ref, () => ({ save }), [save])
 

@@ -8,9 +8,9 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import {
-  readJsonFromLocalStorage,
-  writeJsonToLocalStorage,
-} from '@open-mercato/shared/lib/browser/safeLocalStorage'
+  readVersionedIdSet,
+  writeVersionedIdSet,
+} from '@open-mercato/shared/lib/browser/versionedPreference'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
@@ -60,6 +60,7 @@ export type CompanyPeopleSectionProps = {
 }
 
 const COMPANY_PEOPLE_PAGE_SIZE = 20
+const STARRED_PEOPLE_STORAGE_VERSION = 1
 
 function normalizeCompanyPerson(record: Record<string, unknown>): CompanyPersonSummary | null {
   const id = typeof record.id === 'string' ? record.id : null
@@ -206,7 +207,7 @@ export function CompanyPeopleSection({
   const [listTotalCount, setListTotalCount] = React.useState(initialPeople.length)
   const [listLoading, setListLoading] = React.useState(true)
   const [starredIds, setStarredIds] = React.useState<Set<string>>(
-    () => new Set(readJsonFromLocalStorage<string[]>(`om:starred-people:${companyId}`, [])),
+    () => readVersionedIdSet(`om:starred-people:${companyId}`, STARRED_PEOPLE_STORAGE_VERSION),
   )
   const pendingPeopleChangeRef = React.useRef(false)
 
@@ -229,7 +230,7 @@ export function CompanyPeopleSection({
         const next = new Set(prev)
         if (next.has(personId)) next.delete(personId)
         else next.add(personId)
-        writeJsonToLocalStorage(`om:starred-people:${companyId}`, [...next])
+        writeVersionedIdSet(`om:starred-people:${companyId}`, STARRED_PEOPLE_STORAGE_VERSION, next)
         return next
       })
     },
@@ -360,6 +361,7 @@ export function CompanyPeopleSection({
         for (const personId of addedIds) {
           await runWriteMutation(
             () =>
+              // optimistic-lock-exempt: person-company link add/remove
               apiCallOrThrow(
                 `/api/customers/people/${encodeURIComponent(personId)}/companies`,
                 {
@@ -514,6 +516,7 @@ export function CompanyPeopleSection({
       try {
         await runWriteMutation(
           () =>
+            // optimistic-lock-exempt: person-company link add/remove
             apiCallOrThrow(
               `/api/customers/people/${encodeURIComponent(personId)}/companies/${encodeURIComponent(companyId)}`,
               { method: 'DELETE' },

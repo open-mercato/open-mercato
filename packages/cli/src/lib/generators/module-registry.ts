@@ -925,8 +925,12 @@ function toLiteral(value: unknown): string {
     .replace(/\u2029/g, '\\u2029')
 }
 
-const GENERATED_MODULE_SPECIFIER_PREFIXES = ['@/', '@open-mercato/', '../../src/modules/', './'] as const
+const GENERATED_MODULE_RELATIVE_PREFIXES = ['@/', '../../src/modules/', './'] as const
 const GENERATED_MODULE_SPECIFIER_SEGMENT = /^[A-Za-z0-9_.\-[\]()']+$/
+// Lenient npm package name matcher. Accepts legacy uppercase packages and
+// tilde-prefixed names, bans leading "." / "_", and reserves "@" for scope
+// markers so the dispatcher below can split scope-vs-bare unambiguously.
+const NPM_PACKAGE_NAME_SEGMENT = /^[A-Za-z0-9~][A-Za-z0-9_.~-]*$/
 
 function sanitizeGeneratedModuleSpecifierSegment(segment: string, importPath: string): string {
   const match = GENERATED_MODULE_SPECIFIER_SEGMENT.exec(segment)
@@ -936,22 +940,83 @@ function sanitizeGeneratedModuleSpecifierSegment(segment: string, importPath: st
   return match[0]
 }
 
-function sanitizeGeneratedModuleSpecifier(importPath: string): string {
-  const prefix = GENERATED_MODULE_SPECIFIER_PREFIXES.find((candidate) => importPath.startsWith(candidate))
-  if (!prefix) {
-    throw new Error(`Unsafe generated module specifier prefix: ${importPath}`)
+function sanitizeNpmPackageNameSegment(segment: string, importPath: string): void {
+  if (!NPM_PACKAGE_NAME_SEGMENT.test(segment) || segment === '.' || segment === '..') {
+    throw new Error(`Unsafe generated module specifier: ${importPath}`)
   }
+}
 
-  const suffix = importPath.slice(prefix.length)
-  if (!suffix) {
+function sanitizeGeneratedModuleSpecifier(importPath: string): string {
+  if (!importPath) {
     throw new Error(`Unsafe generated module specifier: ${importPath}`)
   }
 
-  const segments = suffix
+  const relativePrefix = GENERATED_MODULE_RELATIVE_PREFIXES.find((candidate) =>
+    importPath.startsWith(candidate),
+  )
+  if (relativePrefix) {
+    const suffix = importPath.slice(relativePrefix.length)
+    if (!suffix) {
+      throw new Error(`Unsafe generated module specifier: ${importPath}`)
+    }
+    const segments = suffix
+      .split('/')
+      .map((segment) => sanitizeGeneratedModuleSpecifierSegment(segment, importPath))
+    return `${relativePrefix}${segments.join('/')}`
+  }
+
+  if (importPath.startsWith('@')) {
+    // Scoped npm package: @scope/name[/subpath]
+    const firstSlash = importPath.indexOf('/')
+    if (firstSlash < 2) {
+      throw new Error(`Unsafe generated module specifier prefix: ${importPath}`)
+    }
+    const scope = importPath.slice(1, firstSlash)
+    sanitizeNpmPackageNameSegment(scope, importPath)
+    const rest = importPath.slice(firstSlash + 1)
+    if (!rest) {
+      throw new Error(`Unsafe generated module specifier: ${importPath}`)
+    }
+    const secondSlash = rest.indexOf('/')
+    const name = secondSlash >= 0 ? rest.slice(0, secondSlash) : rest
+    sanitizeNpmPackageNameSegment(name, importPath)
+    const subpath = secondSlash >= 0 ? rest.slice(secondSlash + 1) : ''
+    if (!subpath) {
+      return `@${scope}/${name}`
+    }
+    const segments = subpath
+      .split('/')
+      .map((segment) => sanitizeGeneratedModuleSpecifierSegment(segment, importPath))
+    return `@${scope}/${name}/${segments.join('/')}`
+  }
+
+  // Bare npm package: name[/subpath]
+  const firstSlash = importPath.indexOf('/')
+  const name = firstSlash >= 0 ? importPath.slice(0, firstSlash) : importPath
+  sanitizeNpmPackageNameSegment(name, importPath)
+  const subpath = firstSlash >= 0 ? importPath.slice(firstSlash + 1) : ''
+  if (!subpath) {
+    return name
+  }
+  const segments = subpath
     .split('/')
     .map((segment) => sanitizeGeneratedModuleSpecifierSegment(segment, importPath))
+  return `${name}/${segments.join('/')}`
+}
 
-  return `${prefix}${segments.join('/')}`
+// Defense in depth: when src/modules.ts registers a module from a third-party
+// npm scope (anything outside @app / @open-mercato/*), verify the resolved
+// pkgBase directory exists. If it doesn't, the package referenced via `from:`
+// is almost certainly not an Open Mercato module (or the id is wrong), and
+// silently emitting an empty module registration would hide the misconfig.
+function verifyThirdPartyModuleShape(entry: { id: string; from?: string }, pkgBase: string): void {
+  const from = entry.from
+  if (!from || from === '@app' || from.startsWith('@open-mercato/')) return
+  if (fs.existsSync(pkgBase)) return
+  throw new Error(
+    `Module '${entry.id}' is registered with from: '${from}' but no Open Mercato module shape was found at '${pkgBase}'. ` +
+      `Ensure the package ships a 'modules/${entry.id}' subtree (either under 'dist/modules/' or 'src/modules/'), or correct the 'from' value in src/modules.ts.`,
+  )
 }
 
 function buildImportStatement(importClause: string, importPath: string): string {
@@ -1313,8 +1378,6 @@ async function processPageFiles(options: {
   importIdRef: { value: number }
 }): Promise<PageRouteGenerationResult> {
   const { files, type, modId, appDir, pkgDir, appImportBase, pkgImportBase, eagerImports, runtimeImports, manifestImports, importIdRef } = options
-  const prefix = type === 'frontend' ? 'C' : 'B'
-  const modPrefix = type === 'frontend' ? 'CM' : 'BM'
   const metaPrefix = type === 'frontend' ? 'M' : 'BM'
   const eagerRoutes: string[] = []
   const runtimeRoutes: string[] = []
@@ -1325,8 +1388,8 @@ async function processPageFiles(options: {
     const segs = relPath.split('/')
     const pageFile = segs.pop()!
     const pageBaseName = stripModuleCodeExtension(pageFile)
-    const importName = `${prefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
-    const pageModName = `${modPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
+    importIdRef.value++
+    importIdRef.value++
     const runtimeMetaName = `${metaPrefix}Runtime${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
     const sub = segs.length ? `${segs.join('/')}/${pageBaseName}` : pageBaseName
     const importPath = sanitizeGeneratedModuleSpecifier(`${fromApp ? appImportBase : pkgImportBase}/${type}/${sub}`)
@@ -1361,10 +1424,14 @@ async function processPageFiles(options: {
       if (manifestMetadata.requiresRuntimeImport) {
         manifestImportStatement = buildImportStatement(`* as ${manifestMetaImportName}`, metaImportPath)
       }
-      eagerImports.push(buildImportStatement(importName, importPath))
     } else {
-      metaExpr = `(${pageModName} as any).metadata`
       runtimeMetaExpr = `(((${runtimeMetaName} as any).metadata) as any)`
+      const staticMetadata = await loadPageMetadataForManifest({
+        sourceFile,
+        runtimeExpr: '(undefined as any)',
+        allowRuntimeFallback: false,
+      })
+      metaExpr = staticMetadata.manifestExpr
       const manifestMetaImportName = `${metaPrefix}Manifest${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
       const manifestMetadata = await loadPageMetadataForManifest({
         sourceFile,
@@ -1375,7 +1442,6 @@ async function processPageFiles(options: {
       if (manifestMetadata.requiresRuntimeImport) {
         manifestImportStatement = buildImportStatement(`* as ${manifestMetaImportName}`, importPath)
       }
-      eagerImports.push(buildImportStatement(`${importName}, * as ${pageModName}`, importPath))
       runtimeImports.push(buildImportStatement(`* as ${runtimeMetaName}`, importPath))
     }
     if (manifestImportStatement) {
@@ -1384,8 +1450,8 @@ async function processPageFiles(options: {
     const baseProps = buildPageRouteProps(metaExpr, routePath)
     const runtimeBaseProps = buildPageRouteProps(runtimeMetaExpr, routePath)
     const manifestBaseProps = buildPageRouteProps(manifestMetaExpr, routePath)
-    eagerRoutes.push(`{ ${baseProps}, Component: ${importName} }`)
-    runtimeRoutes.push(`{ ${runtimeBaseProps}, Component: async (props: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; const Component = (mod.default ?? mod) as any; return createElement(Component, props) } }`)
+    eagerRoutes.push(`{ ${baseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
+    runtimeRoutes.push(`{ ${runtimeBaseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
     manifestRoutes.push(`{ moduleId: ${toLiteral(modId)}, ${manifestBaseProps}, load: async () => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod.default ?? mod) as any } }`)
   }
 
@@ -1395,8 +1461,8 @@ async function processPageFiles(options: {
     const file = segs.pop()!
     const name = stripModuleCodeExtension(file)
     const routeSegs = [...segs, name].filter(Boolean)
-    const importName = `${prefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
-    const pageModName = `${modPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
+    importIdRef.value++
+    importIdRef.value++
     const runtimeMetaName = `${metaPrefix}Runtime${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
     const importPath = sanitizeGeneratedModuleSpecifier(
       `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, name].join('/')}`
@@ -1436,10 +1502,14 @@ async function processPageFiles(options: {
       if (manifestMetadata.requiresRuntimeImport) {
         manifestImportStatement = buildImportStatement(`* as ${manifestMetaImportName}`, metaImportPath)
       }
-      eagerImports.push(buildImportStatement(importName, importPath))
     } else {
-      metaExpr = `(${pageModName} as any).metadata`
       runtimeMetaExpr = `(((${runtimeMetaName} as any).metadata) as any)`
+      const staticMetadata = await loadPageMetadataForManifest({
+        sourceFile,
+        runtimeExpr: '(undefined as any)',
+        allowRuntimeFallback: false,
+      })
+      metaExpr = staticMetadata.manifestExpr
       const manifestMetaImportName = `${metaPrefix}Manifest${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
       const manifestMetadata = await loadPageMetadataForManifest({
         sourceFile,
@@ -1450,7 +1520,6 @@ async function processPageFiles(options: {
       if (manifestMetadata.requiresRuntimeImport) {
         manifestImportStatement = buildImportStatement(`* as ${manifestMetaImportName}`, importPath)
       }
-      eagerImports.push(buildImportStatement(`${importName}, * as ${pageModName}`, importPath))
       runtimeImports.push(buildImportStatement(`* as ${runtimeMetaName}`, importPath))
     }
     if (manifestImportStatement) {
@@ -1459,8 +1528,8 @@ async function processPageFiles(options: {
     const baseProps = buildPageRouteProps(metaExpr, routePath)
     const runtimeBaseProps = buildPageRouteProps(runtimeMetaExpr, routePath)
     const manifestBaseProps = buildPageRouteProps(manifestMetaExpr, routePath)
-    eagerRoutes.push(`{ ${baseProps}, Component: ${importName} }`)
-    runtimeRoutes.push(`{ ${runtimeBaseProps}, Component: async (props: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; const Component = (mod.default ?? mod) as any; return createElement(Component, props) } }`)
+    eagerRoutes.push(`{ ${baseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
+    runtimeRoutes.push(`{ ${runtimeBaseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
     manifestRoutes.push(`{ moduleId: ${toLiteral(modId)}, ${manifestBaseProps}, load: async () => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod.default ?? mod) as any } }`)
   }
 
@@ -2025,6 +2094,10 @@ function renderLegacyCompatibleArray(entries: readonly string[]): string {
 ]`
 }
 
+function buildLazyRouteComponentExpression(importPath: string): string {
+  return `async (props: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; const Component = (mod.default ?? mod) as any; return createElement(Component, props) }`
+}
+
 function renderAstLegacyModuleRegistryOutput(options: {
   fileName: string
   imports: GeneratedImportStatement[]
@@ -2097,6 +2170,10 @@ function buildRuntimeRouteComponent(importPath: string): WriterFunction {
       ])
     }),
   })
+}
+
+function rawExpression(source: string): WriterFunction {
+  return (writer) => writer.write(source)
 }
 
 function buildPageRouteEntries(metaExpr: WriterFunction, routePath: string): GeneratedObjectEntry[] {
@@ -2233,15 +2310,15 @@ async function processPageFilesAst(options: {
       continue
     }
 
-    const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
-    imports.push(buildImportStatement(`* as ${metaImportName}`, importPath))
+    const staticMetadata = await loadPageMetadataForManifest({
+      sourceFile,
+      runtimeExpr: '(undefined as any)',
+      allowRuntimeFallback: false,
+    })
     addRoute({
       importPath,
       routePath,
-      metaExpr: asExpression(
-        propertyAccess(asExpression(identifier(metaImportName), 'any'), 'metadata'),
-        'any',
-      ),
+      metaExpr: rawExpression(staticMetadata.manifestExpr),
     })
   }
 
@@ -2282,15 +2359,15 @@ async function processPageFilesAst(options: {
       continue
     }
 
-    const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
-    imports.push(buildImportStatement(`* as ${metaImportName}`, importPath))
+    const staticMetadata = await loadPageMetadataForManifest({
+      sourceFile,
+      runtimeExpr: '(undefined as any)',
+      allowRuntimeFallback: false,
+    })
     addRoute({
       importPath,
       routePath,
-      metaExpr: asExpression(
-        propertyAccess(asExpression(identifier(metaImportName), 'any'), 'metadata'),
-        'any',
-      ),
+      metaExpr: rawExpression(staticMetadata.manifestExpr),
     })
   }
 
@@ -2502,6 +2579,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const legacySubscribersChecksumFile = path.join(outputDir, 'subscribers.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
+  for (const entry of enabled) {
+    verifyThirdPartyModuleShape(entry, resolver.getModulePaths(entry).pkgBase)
+  }
   const extensions = loadGeneratorExtensions()
 
   // Pre-pass: collect generator plugins from each enabled module's generators.ts
@@ -2541,6 +2621,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const importIdRef = { value: 0 }
   const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
+  let hasRouteComponents = false
 
   // UMES conflict detection: collect file paths during module processing
   const umesConflictSources: Array<{
@@ -2622,6 +2703,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         frontendRoutes.push(...generatedFrontendRoutes.eagerRoutes)
         runtimeFrontendRoutes.push(...generatedFrontendRoutes.runtimeRoutes)
         frontendRouteManifestDecls.push(...generatedFrontendRoutes.manifestRoutes)
+        hasRouteComponents = true
       }
     }
 
@@ -2740,6 +2822,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         backendRoutes.push(...generatedBackendRoutes.eagerRoutes)
         runtimeBackendRoutes.push(...generatedBackendRoutes.runtimeRoutes)
         backendRouteManifestDecls.push(...generatedBackendRoutes.manifestRoutes)
+        hasRouteComponents = true
       }
     }
 
@@ -2963,6 +3046,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     fileName: 'modules.generated.ts',
     imports,
     moduleEntries: moduleDecls,
+    includeCreateElementImport: hasRouteComponents,
   })
   const runtimeOutput = renderAstLegacyModuleRegistryOutput({
     fileName: 'modules.runtime.generated.ts',
@@ -3118,6 +3202,9 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
   const enabledIdsChecksumFile = path.join(outputDir, 'enabled-module-ids.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
+  for (const entry of enabled) {
+    verifyThirdPartyModuleShape(entry, resolver.getModulePaths(entry).pkgBase)
+  }
   const imports: string[] = []
   const moduleDecls: WriterFunction[] = []
   const importIdRef = { value: 0 }
@@ -3449,6 +3536,9 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
   const legacyChecksumFile = path.join(outputDir, 'cli-modules.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
+  for (const entry of enabled) {
+    verifyThirdPartyModuleShape(entry, resolver.getModulePaths(entry).pkgBase)
+  }
   const imports: string[] = []
   const moduleDecls: WriterFunction[] = []
   // Mutable ref so extracted helper functions can increment the shared counter

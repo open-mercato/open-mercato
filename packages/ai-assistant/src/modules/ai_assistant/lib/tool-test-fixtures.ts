@@ -44,6 +44,9 @@ export const toolFixtures: Record<string, ToolFixture> = {
   'meta.describe_agent': f({
     input: { agentId: 'customers.account_assistant' },
   }),
+  'meta.update_task_plan': f({
+    input: { tasks: [{ label: 'Search records', toolName: 'customers.list_people' }] },
+  }),
   'attachments.list_record_attachments': f({
     input: { entityType: 'customers:person', recordId: '00000000-0000-0000-0000-000000000000', limit: 5 },
     note: 'Empty result is a valid response; we only assert shape.',

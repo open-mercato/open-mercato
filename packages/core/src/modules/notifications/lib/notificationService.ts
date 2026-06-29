@@ -1,10 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
+import { CrudHttpError, conflict } from '@open-mercato/shared/lib/crud/errors'
 import { Notification, type NotificationStatus } from '../data/entities'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
 import type { NotificationPollData } from '@open-mercato/shared/modules/notifications/types'
 import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from './events'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   buildNotificationEntity,
   emitNotificationCreated,
@@ -74,6 +75,31 @@ function applyNotificationContent(
   notification.actionTaken = null
   notification.actionResult = null
   notification.createdAt = new Date()
+}
+
+async function findScopedNotificationOrThrow(
+  em: EntityManager,
+  notificationId: string,
+  ctx: NotificationServiceContext,
+): Promise<Notification> {
+  const notification = await findOneWithDecryption(
+    em,
+    Notification,
+    {
+      id: notificationId,
+      recipientUserId: ctx.userId,
+      tenantId: ctx.tenantId,
+    },
+    undefined,
+    {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId ?? null,
+    },
+  )
+  if (!notification) {
+    throw new CrudHttpError(404, { error: 'Notification not found' })
+  }
+  return notification
 }
 
 async function emitNotificationSseEvents(
@@ -286,11 +312,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
     async markAsRead(notificationId, ctx) {
       const em = rootEm.fork()
-      const notification = await em.findOneOrFail(Notification, {
-        id: notificationId,
-        recipientUserId: ctx.userId,
-        tenantId: ctx.tenantId,
-      })
+      const notification = await findScopedNotificationOrThrow(em, notificationId, ctx)
 
       if (notification.status === 'unread') {
         notification.status = 'read'
@@ -370,11 +392,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
     async dismiss(notificationId, ctx) {
       const em = rootEm.fork()
-      const notification = await em.findOneOrFail(Notification, {
-        id: notificationId,
-        recipientUserId: ctx.userId,
-        tenantId: ctx.tenantId,
-      })
+      const notification = await findScopedNotificationOrThrow(em, notificationId, ctx)
 
       notification.status = 'dismissed'
       notification.dismissedAt = new Date()
@@ -391,11 +409,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
     async restoreDismissed(notificationId, status, ctx) {
       const em = rootEm.fork()
-      const notification = await em.findOneOrFail(Notification, {
-        id: notificationId,
-        recipientUserId: ctx.userId,
-        tenantId: ctx.tenantId,
-      })
+      const notification = await findScopedNotificationOrThrow(em, notificationId, ctx)
 
       if (notification.status !== 'dismissed') {
         return notification
@@ -425,17 +439,64 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
     async executeAction(notificationId, input, ctx) {
       const em = rootEm.fork()
-      const notification = await em.findOneOrFail(Notification, {
-        id: notificationId,
-        recipientUserId: ctx.userId,
-        tenantId: ctx.tenantId,
-      })
+      const notification = await findScopedNotificationOrThrow(em, notificationId, ctx)
 
       const actionData = notification.actionData
       const action = actionData?.actions?.find((a) => a.id === input.actionId)
 
       if (!action) {
         throw new Error('Action not found')
+      }
+
+      // Reject an already-actioned notification before dispatching the command,
+      // so a retry or double-click cannot re-run the side effect.
+      if (notification.status === 'actioned') {
+        throw conflict('Notification action already executed')
+      }
+
+      const actionedAt = new Date()
+      const previousStatus = notification.status
+      const previousActionedAt = notification.actionedAt ?? null
+      const previousActionTaken = notification.actionTaken ?? null
+
+      // Atomically claim the notification so only one concurrent request can run
+      // the side-effecting command. The conditional UPDATE matches only while the
+      // notification has not been actioned yet; a losing request updates 0 rows.
+      const claimResult = (await getDb(em)
+        .updateTable('notifications' as any)
+        .set({
+          status: 'actioned',
+          actioned_at: actionedAt,
+          action_taken: input.actionId,
+        } as any)
+        .where('id' as any, '=', notification.id)
+        .where('recipient_user_id' as any, '=', ctx.userId as any)
+        .where('tenant_id' as any, '=', ctx.tenantId)
+        .where('status' as any, '!=', 'actioned')
+        .executeTakeFirst()) as { numUpdatedRows?: bigint | number } | undefined
+
+      if (Number(claimResult?.numUpdatedRows ?? 0) === 0) {
+        throw conflict('Notification action already executed')
+      }
+
+      // The claim is provisional: if the side-effecting command fails, the action
+      // never actually completed, so release the claim to its prior state. This
+      // lets the user retry the action instead of the notification being locked as
+      // `actioned` forever. Only release while we still own the claim
+      // (status = 'actioned'), so a concurrent winner's state is never clobbered.
+      const releaseClaim = async () => {
+        await getDb(em)
+          .updateTable('notifications' as any)
+          .set({
+            status: previousStatus,
+            actioned_at: previousActionedAt,
+            action_taken: previousActionTaken,
+          } as any)
+          .where('id' as any, '=', notification.id)
+          .where('recipient_user_id' as any, '=', ctx.userId as any)
+          .where('tenant_id' as any, '=', ctx.tenantId)
+          .where('status' as any, '=', 'actioned')
+          .executeTakeFirst()
       }
 
       let result: unknown = null
@@ -459,21 +520,33 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           organizationIds: ctx.organizationId ? [ctx.organizationId] : null,
         }
 
-        const commandResult = await commandBus.execute(action.commandId, {
-          input: commandInput,
-          ctx: commandCtx,
-          metadata: {
-            tenantId: ctx.tenantId,
-            organizationId: ctx.organizationId,
-            resourceKind: 'notifications',
-          },
-        })
+        let commandResult: { result: unknown }
+        try {
+          commandResult = await commandBus.execute(action.commandId, {
+            input: commandInput,
+            ctx: commandCtx,
+            metadata: {
+              tenantId: ctx.tenantId,
+              organizationId: ctx.organizationId,
+              resourceKind: 'notifications',
+            },
+          })
+        } catch (err) {
+          // Never let a rollback failure mask the original command error — the
+          // caller needs the real failure to decide whether to retry.
+          try {
+            await releaseClaim()
+          } catch (releaseErr) {
+            debug('failed to release notification action claim', releaseErr)
+          }
+          throw err
+        }
 
         result = commandResult.result
       }
 
       notification.status = 'actioned'
-      notification.actionedAt = new Date()
+      notification.actionedAt = actionedAt
       notification.actionTaken = input.actionId
       notification.actionResult = result as Record<string, unknown>
 

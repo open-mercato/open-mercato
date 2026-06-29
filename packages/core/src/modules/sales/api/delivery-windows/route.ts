@@ -74,6 +74,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  indexer: { entityType: E.sales.sales_delivery_window },
   list: {
     schema: listSchema,
     entityId: E.sales.sales_delivery_window,

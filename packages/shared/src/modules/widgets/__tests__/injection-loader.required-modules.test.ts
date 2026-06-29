@@ -10,12 +10,14 @@
  */
 import { describe, it, expect, beforeEach } from '@jest/globals'
 import type {
+  InjectionDataWidgetModule,
   InjectionWidgetModule,
   ModuleInjectionTable,
 } from '@open-mercato/shared/modules/widgets/injection'
 import type { ModuleInjectionWidgetEntry } from '@open-mercato/shared/modules/registry'
 import {
   invalidateInjectionWidgetCache,
+  loadInjectionDataWidgetById,
   loadInjectionWidgetById,
   loadInjectionWidgetsForSpot,
   registerCoreInjectionTables,
@@ -26,6 +28,7 @@ import {
 const HOST_SPOT_ID = 'data-table:host.list:search-trailing'
 const ALWAYS_AVAILABLE_WIDGET_ID = 'host.injection.always-available'
 const REQUIRES_AI_WIDGET_ID = 'host.injection.requires-ai-assistant'
+const DATA_WIDGET_ID = 'host.injection.data-menu'
 
 const PlaceholderComponent = () => null
 
@@ -52,17 +55,30 @@ const requiresAiAssistantWidget: InjectionWidgetModule<Record<string, unknown>, 
   Widget: PlaceholderComponent,
 }
 
+const dataWidget: InjectionDataWidgetModule = {
+  metadata: {
+    id: DATA_WIDGET_ID,
+    title: 'Data Menu',
+    description: 'Declarative menu widget.',
+    priority: 20,
+    enabled: true,
+  },
+  menuItems: [],
+}
+
 function makeWidgetEntry(
   moduleId: string,
   key: string,
-  loader: () => Promise<InjectionWidgetModule<any, any>>,
+  loader: () => Promise<InjectionWidgetModule<any, any> | InjectionDataWidgetModule>,
+  options: { widgetId?: string } = {},
 ): ModuleInjectionWidgetEntry {
   return {
     moduleId,
     key,
     source: 'package',
+    ...options,
     loader,
-  }
+  } as ModuleInjectionWidgetEntry
 }
 
 function registerHostFixtures(includeAiAssistantModule: boolean) {
@@ -172,5 +188,86 @@ describe('Injection loader — requiredModules gating (#1849)', () => {
     const ids = loaded.map((widget) => widget.metadata.id)
     expect(ids).toContain(ALWAYS_AVAILABLE_WIDGET_ID)
     expect(ids).not.toContain(REQUIRES_AI_WIDGET_ID)
+  })
+
+  it('loads wildcard spot entries without regex pattern execution', async () => {
+    invalidateInjectionWidgetCache()
+    registerCoreInjectionWidgets([
+      makeWidgetEntry('host', 'host/widgets/injection/always-available/widget.ts', async () => alwaysAvailableWidget),
+    ])
+    registerCoreInjectionTables([
+      {
+        moduleId: 'host',
+        table: {
+          'data-table:host.*:search-trailing': [
+            { widgetId: ALWAYS_AVAILABLE_WIDGET_ID, priority: 50 },
+          ],
+        },
+      },
+    ])
+    registerEnabledModuleIds(['host'])
+
+    const loaded = await loadInjectionWidgetsForSpot(HOST_SPOT_ID)
+    expect(loaded.map((widget) => widget.metadata.id)).toEqual([ALWAYS_AVAILABLE_WIDGET_ID])
+  })
+
+  it('uses a generated widgetId hint to avoid loading unrelated component widgets', async () => {
+    invalidateInjectionWidgetCache()
+    const unrelatedLoader = jest.fn(async () => alwaysAvailableWidget)
+    const targetLoader = jest.fn(async () => requiresAiAssistantWidget)
+    registerCoreInjectionWidgets([
+      makeWidgetEntry('host', 'host/widgets/injection/unrelated/widget.ts', unrelatedLoader, {
+        widgetId: ALWAYS_AVAILABLE_WIDGET_ID,
+      }),
+      makeWidgetEntry('host', 'host/widgets/injection/requires-ai/widget.ts', targetLoader, {
+        widgetId: REQUIRES_AI_WIDGET_ID,
+      }),
+    ])
+    registerCoreInjectionTables([])
+    registerEnabledModuleIds(['host', 'ai_assistant'])
+
+    const widget = await loadInjectionWidgetById(REQUIRES_AI_WIDGET_ID)
+
+    expect(widget?.metadata.id).toBe(REQUIRES_AI_WIDGET_ID)
+    expect(targetLoader).toHaveBeenCalledTimes(1)
+    expect(unrelatedLoader).not.toHaveBeenCalled()
+  })
+
+  it('uses a generated widgetId hint to avoid loading unrelated data widgets', async () => {
+    invalidateInjectionWidgetCache()
+    const unrelatedLoader = jest.fn(async () => alwaysAvailableWidget)
+    const targetLoader = jest.fn(async () => dataWidget)
+    registerCoreInjectionWidgets([
+      makeWidgetEntry('host', 'host/widgets/injection/unrelated/widget.ts', unrelatedLoader, {
+        widgetId: ALWAYS_AVAILABLE_WIDGET_ID,
+      }),
+      makeWidgetEntry('host', 'host/widgets/injection/data-menu/widget.ts', targetLoader, {
+        widgetId: DATA_WIDGET_ID,
+      }),
+    ])
+    registerCoreInjectionTables([])
+    registerEnabledModuleIds(['host'])
+
+    const widget = await loadInjectionDataWidgetById(DATA_WIDGET_ID)
+
+    expect(widget?.metadata.id).toBe(DATA_WIDGET_ID)
+    expect(targetLoader).toHaveBeenCalledTimes(1)
+    expect(unrelatedLoader).not.toHaveBeenCalled()
+  })
+
+  it('skips unrelated failing loaders when resolving by id without hints', async () => {
+    invalidateInjectionWidgetCache()
+    registerCoreInjectionWidgets([
+      makeWidgetEntry('host', 'host/widgets/injection/broken/widget.ts', () => {
+        throw new Error('unrelated widget failed to import')
+      }),
+      makeWidgetEntry('host', 'host/widgets/injection/requires-ai/widget.ts', async () => requiresAiAssistantWidget),
+    ])
+    registerCoreInjectionTables([])
+    registerEnabledModuleIds(['host', 'ai_assistant'])
+
+    const widget = await loadInjectionWidgetById(REQUIRES_AI_WIDGET_ID)
+
+    expect(widget?.metadata.id).toBe(REQUIRES_AI_WIDGET_ID)
   })
 })

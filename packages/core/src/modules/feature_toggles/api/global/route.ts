@@ -30,9 +30,11 @@ type FeatureToggleListQuery = z.infer<typeof listQuerySchema>
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['feature_toggles.view'] },
-  POST: { requireAuth: true, requireFeatures: ['feature_toggles.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['feature_toggles.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['feature_toggles.manage'] },
+  // Global feature toggles are platform-wide (no tenant_id); writing them is
+  // restricted to super administrators via the dedicated global feature.
+  POST: { requireAuth: true, requireFeatures: ['feature_toggles.global.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['feature_toggles.global.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['feature_toggles.global.manage'] },
 }
 
 const listFields = [
@@ -46,6 +48,21 @@ const listFields = [
   'created_at',
   'updated_at',
 ]
+
+export const transformFeatureToggleListItem = (item: Record<string, unknown>) => {
+  if (!item) return item
+  return {
+    id: item.id,
+    identifier: item.identifier,
+    name: item.name,
+    description: item.description ?? null,
+    category: item.category ?? null,
+    type: item.type,
+    defaultValue: item.default_value,
+    createdAt: item.created_at,
+    updatedAt: item.updated_at,
+  }
+}
 
 const buildFilters = (query: FeatureToggleListQuery): Record<string, unknown> => {
   const filters: Record<string, unknown> = {}
@@ -89,6 +106,7 @@ const crud = makeCrudRoute({
     tenantField: "tenantId",
     softDeleteField: 'deletedAt'
   },
+  indexer: { entityType: E.feature_toggles.feature_toggle },
   list: {
     schema: listQuerySchema,
     entityId: E.feature_toggles.feature_toggle,
@@ -102,20 +120,7 @@ const crud = makeCrudRoute({
       updatedAt: 'updated_at',
       type: 'type',
     },
-    transformItem: (item: Record<string, unknown>) => {
-      if (!item) return item
-      return {
-        id: item.id,
-        identifier: item.identifier,
-        name: item.name,
-        description: item.description ?? null,
-        category: item.category ?? null,
-        type: item.type,
-        defaultValue: item.default_value,
-        created_at: item.created_at,
-        updated_at: item.updated_at,
-      }
-    },
+    transformItem: transformFeatureToggleListItem,
     buildFilters: async (query) => buildFilters(query),
   },
   actions: {

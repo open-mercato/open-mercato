@@ -130,6 +130,27 @@ The runtime's `composeSystemPromptWithOverride` appends override content to the 
 
 Each section shows the shipped default copy on the left and a toggle on the right. Flipping **Override** opens an editor whose content is appended (never substituted) to the built-in text when the system prompt is composed. The full system prompt rendered at the top of the panel reflects the latest version, including any saved overrides.
 
+## Visible task-plan enablement
+
+The live **Plan** / task checklist shown in `<AiChat>` is not enabled from the Agent Settings page. It is a code-level agent option:
+
+```ts
+taskPlan: { enabled: true }
+```
+
+When enabled, the registry automatically adds the internal read-only `meta.update_task_plan` helper and the runtime injects prompt guidance so the model can publish short operator-facing steps before calling domain tools. Do not add `meta.update_task_plan` manually to `allowedTools`.
+
+CRM/customer agents ship with task plans enabled by default. Other shipped agents stay quiet unless their `AiAgentDefinition` or an `aiAgentExtensions` entry opts in:
+
+```ts
+defineAiAgentExtension({
+  targetAgentId: 'catalog.catalog_assistant',
+  taskPlan: { enabled: true },
+})
+```
+
+Set `taskPlan: { enabled: false }` in an extension to opt an existing agent back out. This differs from **Loop policy** below: loop settings control how many model/tool steps may run, while `taskPlan` controls whether the operator sees a user-visible plan for those tool-using turns.
+
 ## Mutation-policy overrides
 
 The code-declared `mutationPolicy` is the upper bound. The tenant override can **only downgrade** (tighten) the policy. Escalation is rejected at the route layer with 400 + `code: 'escalation_not_allowed'`.
@@ -162,7 +183,7 @@ Unlike prompt overrides, the policy override is a single-value switch per `(tena
 
 ## Loop policy overrides
 
-The **Loop policy** panel on the agent settings page is the operator surface for spec [`2026-04-28-ai-agents-agentic-loop-controls`](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md). It writes to `ai_agent_runtime_overrides.loop_*` columns and is read on every dispatch — no cache flush, no redeploy.
+The **Loop policy** panel on the agent settings page is the operator surface for spec [`2026-04-28-ai-agents-agentic-loop-controls`](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/implemented/2026-04-28-ai-agents-agentic-loop-controls.md). It writes to `ai_agent_runtime_overrides.loop_*` columns and is read on every dispatch — no cache flush, no redeploy.
 
 | Field | What it caps | Notes |
 |-------|--------------|-------|

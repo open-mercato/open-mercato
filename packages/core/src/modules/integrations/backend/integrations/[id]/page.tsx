@@ -24,7 +24,8 @@ import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -35,7 +36,7 @@ import {
   type IntegrationCredentialField,
   type IntegrationDetailBuiltInTab,
 } from '@open-mercato/shared/modules/integrations/types'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { LogList, type LogListEntry } from '@open-mercato/ui/backend/LogList'
 import { Activity, AlertTriangle, Bell, Calendar, CheckCircle2, CreditCard, FileText, FileX, HardDrive, Key, MessageSquare, RefreshCw, Settings, Truck, Webhook, XCircle, Zap } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
@@ -47,6 +48,11 @@ import {
   resolveIntegrationDetailWidgetSpotId,
   resolveRequestedIntegrationDetailTab,
 } from '../detail-page-widgets'
+import {
+  refreshIntegrationDetailPanels,
+  refreshIntegrationRunActivityPanels,
+} from '../detail-page-refresh'
+import { isValidCredentialUrl } from '../../../lib/credentials-field-validation'
 
 type CredentialField = IntegrationCredentialField
 type BuiltInIntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs' | 'data-sync-schedule'
@@ -100,8 +106,10 @@ type IntegrationDetail = {
     lastHealthCheckedAt: string | null
     lastHealthLatencyMs: number | null
     enabledAt: string | null
+    updatedAt: string | null
   }
   hasCredentials: boolean
+  credentialsUpdatedAt?: string | null
   healthStatus: 'healthy' | 'degraded' | 'unhealthy' | 'unconfigured'
   analytics: IntegrationLogAnalytics
 }
@@ -132,11 +140,32 @@ type HealthCheckResponse = {
   latencyMs: number | null
 }
 
+type DataSyncRunDetail = {
+  id: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  progressJobId?: string | null
+  createdCount?: number
+  updatedCount?: number
+  skippedCount?: number
+  failedCount?: number
+  progressJob?: {
+    progressPercent?: number | null
+    processedCount?: number | null
+    totalCount?: number | null
+  } | null
+}
+
+const LOG_LEVEL_STYLES: Record<string, string> = {
+  info: 'bg-status-info-bg text-status-info-text',
+  warn: 'bg-status-warning-bg text-status-warning-text',
+  error: 'bg-status-error-bg text-status-error-text',
+}
+
 const HEALTH_STATUS_STYLES: Record<string, string> = {
-  healthy: 'bg-green-100 text-green-800',
-  degraded: 'bg-yellow-100 text-yellow-800',
-  unhealthy: 'bg-red-100 text-red-800',
-  unconfigured: 'bg-zinc-100 text-zinc-700',
+  healthy: 'bg-status-success-bg text-status-success-text',
+  degraded: 'bg-status-warning-bg text-status-warning-text',
+  unhealthy: 'bg-status-error-bg text-status-error-text',
+  unconfigured: 'bg-status-neutral-bg text-status-neutral-text',
 }
 
 const HEALTH_STATUS_ICONS: Record<string, React.ElementType> = {
@@ -144,6 +173,74 @@ const HEALTH_STATUS_ICONS: Record<string, React.ElementType> = {
   degraded: AlertTriangle,
   unhealthy: XCircle,
   unconfigured: AlertTriangle,
+}
+
+function formatRunStatusLabel(status: DataSyncRunDetail['status'], t: ReturnType<typeof useT>): string {
+  switch (status) {
+    case 'pending':
+      return t('integrations.detail.runActivity.status.pending', 'Pending')
+    case 'running':
+      return t('integrations.detail.runActivity.status.running', 'Running')
+    case 'completed':
+      return t('integrations.detail.runActivity.status.completed', 'Completed')
+    case 'failed':
+      return t('integrations.detail.runActivity.status.failed', 'Failed')
+    case 'cancelled':
+      return t('integrations.detail.runActivity.status.cancelled', 'Cancelled')
+    default:
+      return status
+  }
+}
+
+function RunActivityStrip({
+  run,
+  refreshedAt,
+  isRefreshing,
+  onRefresh,
+  t,
+}: {
+  run: DataSyncRunDetail | null
+  refreshedAt: string | null
+  isRefreshing: boolean
+  onRefresh: () => void
+  t: ReturnType<typeof useT>
+}) {
+  if (!run) return null
+
+  const progress = typeof run.progressJob?.progressPercent === 'number' ? run.progressJob.progressPercent : 0
+  const processed = typeof run.progressJob?.processedCount === 'number' ? run.progressJob.processedCount : 0
+  const total = typeof run.progressJob?.totalCount === 'number' ? run.progressJob.totalCount : null
+  const statusClass = run.status === 'completed'
+    ? 'border-status-success-border bg-status-success-bg text-status-success-text'
+    : run.status === 'failed'
+      ? 'border-status-error-border bg-status-error-bg text-status-error-text'
+      : run.status === 'cancelled'
+        ? 'border-status-neutral-border bg-status-neutral-bg text-status-neutral-text'
+        : 'border-status-info-border bg-status-info-bg text-status-info-text'
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/20 px-4 py-3 text-sm">
+      <Badge variant="outline" className={cn('gap-1.5', statusClass)}>
+        <RefreshCw className={cn('h-3.5 w-3.5', run.status === 'running' ? 'animate-spin' : '')} />
+        {formatRunStatusLabel(run.status, t)}
+      </Badge>
+      <span className="text-muted-foreground">
+        {t('integrations.detail.runActivity.processed', 'Processed')}: <span className="font-medium text-foreground">{processed}{total !== null ? ` / ${total}` : ''}</span>
+      </span>
+      <span className="text-muted-foreground">
+        {t('integrations.detail.runActivity.progress', 'Progress')}: <span className="font-medium text-foreground">{progress}%</span>
+      </span>
+      {refreshedAt ? (
+        <span className="text-muted-foreground">
+          {t('integrations.detail.runActivity.lastRefreshed', 'Last refreshed')}: {new Date(refreshedAt).toLocaleTimeString()}
+        </span>
+      ) : null}
+      <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={onRefresh} disabled={isRefreshing}>
+        {isRefreshing ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+        {t('integrations.detail.runActivity.refresh', 'Refresh')}
+      </Button>
+    </div>
+  )
 }
 
 function DetailLogSparkline({ counts, className }: { counts: number[]; className?: string }) {
@@ -206,6 +303,7 @@ function buildCredentialFields(credFields: CredentialField[]): CrudField[] {
       ) : field.helpText,
       placeholder: field.placeholder,
       required: field.required,
+      visibleWhen: field.visibleWhen,
     }
 
     if (field.type === 'secret') {
@@ -325,8 +423,10 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const [detail, setDetail] = React.useState<IntegrationDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
 
   const [credValues, setCredValues] = React.useState<Record<string, unknown>>({})
+  const [credentialsUpdatedAt, setCredentialsUpdatedAt] = React.useState<string | null>(null)
   const [credentialsFormKey, setCredentialsFormKey] = React.useState(0)
   const [isSavingCredentials, setIsSavingCredentials] = React.useState(false)
 
@@ -337,6 +437,9 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const [isCheckingHealth, setIsCheckingHealth] = React.useState(false)
   const [isTogglingState, setIsTogglingState] = React.useState(false)
   const [latestHealthResult, setLatestHealthResult] = React.useState<HealthCheckResponse | null>(null)
+  const [activeRunDetail, setActiveRunDetail] = React.useState<DataSyncRunDetail | null>(null)
+  const [activeRunRefreshedAt, setActiveRunRefreshedAt] = React.useState<string | null>(null)
+  const [isRefreshingRunActivity, setIsRefreshingRunActivity] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<IntegrationDetailTab>('credentials')
 
   const credentialsFormId = React.useId()
@@ -349,15 +452,17 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     )
   }, [integrationId])
 
-  const loadDetail = React.useCallback(async () => {
+  const loadDetail = React.useCallback(async (options?: { showLoading?: boolean }) => {
+    const showLoading = options?.showLoading ?? true
     const currentIntegrationId = resolveCurrentIntegrationId()
     if (!currentIntegrationId) {
-      setIsLoading(false)
-      setError(t('integrations.detail.loadError', 'Failed to load integration'))
+      if (showLoading) setIsLoading(false)
+      if (showLoading) setError(t('integrations.detail.loadError', 'Failed to load integration'))
       return
     }
-    setError(null)
-    setIsLoading(true)
+    if (showLoading) setError(null)
+    if (showLoading) setIsNotFound(false)
+    if (showLoading) setIsLoading(true)
     try {
       const call = await apiCall<IntegrationDetail>(
         `/api/integrations/${encodeURIComponent(currentIntegrationId)}`,
@@ -365,28 +470,44 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         { fallback: null },
       )
       if (!call.ok || !call.result) {
-        setError(t('integrations.detail.loadError', 'Failed to load integration'))
-        setIsLoading(false)
+        if (call.status === 404) {
+          if (showLoading) setIsNotFound(true)
+        } else {
+          if (showLoading) setError(t('integrations.detail.loadError', 'Failed to load integration'))
+        }
+        if (showLoading) setIsLoading(false)
         return
       }
       setDetail(call.result)
-      setIsLoading(false)
+      setError(null)
+      if (showLoading) setIsLoading(false)
     } catch {
-      setError(t('integrations.detail.loadError', 'Failed to load integration'))
-      setIsLoading(false)
+      if (showLoading) setError(t('integrations.detail.loadError', 'Failed to load integration'))
+      if (showLoading) setIsLoading(false)
     }
   }, [resolveCurrentIntegrationId, t])
 
   const loadCredentials = React.useCallback(async () => {
     const currentIntegrationId = resolveCurrentIntegrationId()
     if (!currentIntegrationId) return
-    const call = await apiCall<{ credentials: Record<string, unknown> }>(
+    const call = await apiCall<{ credentials: Record<string, unknown>; updatedAt?: string | null }>(
       `/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`,
       undefined,
       { fallback: null },
     )
+    if (call.ok && call.result) {
+      setCredentialsUpdatedAt(call.result.updatedAt ?? null)
+    }
     if (call.ok && call.result?.credentials) {
-      setCredValues(call.result.credentials)
+      const next = { ...call.result.credentials }
+      if (currentIntegrationId === 'storage_s3') {
+        const authMode = next.authMode
+        if (authMode !== 'access_keys' && authMode !== 'ambient') {
+          const hasKeys = Boolean(next.accessKeyId || next.secretAccessKey)
+          next.authMode = hasKeys ? 'access_keys' : 'ambient'
+        }
+      }
+      setCredValues(next)
       setCredentialsFormKey((current) => current + 1)
     }
   }, [resolveCurrentIntegrationId])
@@ -421,12 +542,41 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     spotId: detailWidgetSpotId,
   })
   const refreshDetail = React.useCallback(async () => {
-    await loadDetail()
-    await loadCredentials()
+    await refreshIntegrationDetailPanels({ loadDetail, loadCredentials })
   }, [loadCredentials, loadDetail])
   const refreshLogs = React.useCallback(async () => {
     await loadLogs()
   }, [loadLogs])
+  const refreshHealthSnapshot = React.useCallback(async () => {
+    await loadDetail({ showLoading: false })
+  }, [loadDetail])
+  const runIdFromUrl = searchParams?.get('runId') ?? null
+  const refreshRunActivity = React.useCallback(async (options?: { showLoading?: boolean }) => {
+    if (!runIdFromUrl) {
+      setActiveRunDetail(null)
+      setActiveRunRefreshedAt(null)
+      return null
+    }
+    if (options?.showLoading) setIsRefreshingRunActivity(true)
+    try {
+      const [call] = await Promise.all([
+        apiCall<DataSyncRunDetail>(
+          `/api/data_sync/runs/${encodeURIComponent(runIdFromUrl)}`,
+          undefined,
+          { fallback: null },
+        ),
+        refreshIntegrationRunActivityPanels({ loadLogs, loadDetail }),
+      ])
+      if (call.ok && call.result) {
+        setActiveRunDetail(call.result)
+        setActiveRunRefreshedAt(new Date().toISOString())
+        return call.result
+      }
+      return null
+    } finally {
+      if (options?.showLoading) setIsRefreshingRunActivity(false)
+    }
+  }, [loadDetail, loadLogs, runIdFromUrl])
   const injectionContext = React.useMemo(
     () => ({
       formId: mutationContextId,
@@ -443,6 +593,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       setActiveTab,
       refreshDetail,
       refreshLogs,
+      refreshHealthSnapshot,
       retryLastMutation,
     }),
     [
@@ -454,6 +605,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       latestHealthResult,
       mutationContextId,
       refreshDetail,
+      refreshHealthSnapshot,
       refreshLogs,
       retryLastMutation,
     ],
@@ -526,11 +678,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       const call = await runMutationWithContext({
         actionId: 'toggle-state',
         mutationPayload: { integrationId: currentIntegrationId, isEnabled: enabled },
-        operation: () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/state`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ isEnabled: enabled }),
-        }, { fallback: null }),
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(detail?.state.updatedAt),
+          () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/state`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isEnabled: enabled }),
+          }, { fallback: null }),
+        ),
       })
       if (call.ok) {
         setDetail((prev) => prev ? {
@@ -542,6 +697,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           },
         } : prev)
         flash(t('integrations.detail.stateUpdated'), 'success')
+        void refreshDetail()
       } else {
         flash(t('integrations.detail.stateError'), 'error')
       }
@@ -550,28 +706,45 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     } finally {
       setIsTogglingState(false)
     }
-  }, [resolveCurrentIntegrationId, runMutationWithContext, t])
+  }, [detail?.state.updatedAt, refreshDetail, resolveCurrentIntegrationId, runMutationWithContext, t])
 
   const handleSaveCredentials = React.useCallback(async (values: Record<string, unknown>) => {
     const currentIntegrationId = resolveCurrentIntegrationId()
     if (!currentIntegrationId) return
     setIsSavingCredentials(true)
     try {
+      const sanitizedValues = { ...values }
+      if (currentIntegrationId === 'storage_s3') {
+        const authMode = sanitizedValues.authMode
+        if (authMode !== 'access_keys' && authMode !== 'ambient') {
+          const hasKeys = Boolean(sanitizedValues.accessKeyId || sanitizedValues.secretAccessKey)
+          sanitizedValues.authMode = hasKeys ? 'access_keys' : 'ambient'
+        }
+        if (sanitizedValues.authMode === 'ambient') {
+          delete sanitizedValues.accessKeyId
+          delete sanitizedValues.secretAccessKey
+          delete sanitizedValues.sessionToken
+        }
+      }
       const call = await runMutationWithContext({
         actionId: 'save-credentials',
         tabId: 'credentials',
-        mutationPayload: { integrationId: currentIntegrationId, credentials: values },
-        operation: () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ credentials: values }),
-        }, { fallback: null }),
+        mutationPayload: { integrationId: currentIntegrationId, credentials: sanitizedValues },
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(credentialsUpdatedAt),
+          () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credentials: sanitizedValues }),
+          }, { fallback: null }),
+        ),
       })
 
       if (call.ok) {
-        setCredValues(values)
+        setCredValues(sanitizedValues)
         setCredentialsFormKey((current) => current + 1)
         flash(t('integrations.detail.credentials.saved'), 'success')
+        void loadCredentials()
         return
       }
 
@@ -587,7 +760,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     } finally {
       setIsSavingCredentials(false)
     }
-  }, [resolveCurrentIntegrationId, runMutationWithContext, t])
+  }, [credentialsUpdatedAt, loadCredentials, resolveCurrentIntegrationId, runMutationWithContext, t])
 
   const handleVersionChange = React.useCallback(async (version: string) => {
     const currentIntegrationId = resolveCurrentIntegrationId()
@@ -597,22 +770,26 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         actionId: 'change-version',
         tabId: 'version',
         mutationPayload: { integrationId: currentIntegrationId, apiVersion: version },
-        operation: () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/version`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ apiVersion: version }),
-        }, { fallback: null }),
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(detail?.state.updatedAt),
+          () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/version`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiVersion: version }),
+          }, { fallback: null }),
+        ),
       })
       if (call.ok) {
         setDetail((prev) => prev ? { ...prev, state: { ...prev.state, apiVersion: version } } : prev)
         flash(t('integrations.detail.version.saved'), 'success')
+        void refreshDetail()
       } else {
         flash(t('integrations.detail.version.saveError'), 'error')
       }
     } catch {
       flash(t('integrations.detail.version.saveError'), 'error')
     }
-  }, [resolveCurrentIntegrationId, runMutationWithContext, t])
+  }, [detail?.state.updatedAt, refreshDetail, resolveCurrentIntegrationId, runMutationWithContext, t])
 
   const handleHealthCheck = React.useCallback(async () => {
     const currentIntegrationId = resolveCurrentIntegrationId()
@@ -669,6 +846,10 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       const values = rawValues as Record<string, unknown>
 
       editableCredentialFields.forEach((field) => {
+        if (field.visibleWhen) {
+          const targetValue = values[field.visibleWhen.field]
+          if (targetValue !== field.visibleWhen.equals) return
+        }
         const value = values[field.key]
 
         if (field.type === 'boolean') {
@@ -717,6 +898,18 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         }
 
         if (
+          field.type === 'url'
+          && normalizedValue.trim().length > 0
+          && !isValidCredentialUrl(normalizedValue.trim())
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field.key],
+            message: t('integrations.detail.credentials.validation.url', '{field} must be a valid http(s) URL.', { field: field.label }),
+          })
+        }
+
+        if (
           field.type === 'select'
           && normalizedValue
           && field.options
@@ -732,10 +925,21 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     })
   ) as z.ZodType<Record<string, unknown>>, [editableCredentialFields, t])
   const latestHealthLog = React.useMemo(() => logs.find(isHealthLog) ?? null, [logs])
+  const latestOperationalLog = React.useMemo(
+    () => logs.find((log) => (
+      typeof log.payload?.operationalStatus === 'string'
+      || typeof log.payload?.summary === 'string'
+    )) ?? null,
+    [logs],
+  )
   const healthMessage =
     latestHealthResult?.message ??
-    (typeof latestHealthLog?.payload?.message === 'string' ? latestHealthLog.payload.message : null)
-  const healthDetailsSource = latestHealthResult?.details ?? extractHealthDetails(latestHealthLog?.payload)
+    (typeof latestHealthLog?.payload?.message === 'string'
+      ? latestHealthLog.payload.message
+      : typeof latestOperationalLog?.payload?.summary === 'string'
+        ? latestOperationalLog.payload.summary
+        : null)
+  const healthDetailsSource = latestHealthResult?.details ?? extractHealthDetails(latestHealthLog?.payload ?? latestOperationalLog?.payload)
   const healthDetails = latestHealthLog?.code
     ? { ...healthDetailsSource, code: latestHealthLog.code }
     : healthDetailsSource
@@ -796,8 +1000,8 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   ] satisfies IntegrationDetailTab[]
   const StateIcon = resolvedState?.isEnabled ? CheckCircle2 : XCircle
   const stateBadgeClass = resolvedState?.isEnabled
-    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-    : 'border-zinc-500/30 bg-zinc-500/10 text-zinc-300'
+    ? 'border-status-success-border bg-status-success-bg text-status-success-text'
+    : 'border-status-neutral-border bg-status-neutral-bg text-status-neutral-text'
 
   const showCredentialActions = showCredentialsTab && activeTab === 'credentials' && credentialFormFields.length > 0
 
@@ -811,10 +1015,58 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     setActiveTab(nextTab)
     if (!currentIntegrationId) return
     const basePath = `/backend/integrations/${encodeURIComponent(currentIntegrationId)}`
-    router.replace(nextTab === 'credentials' ? basePath : `${basePath}?tab=${encodeURIComponent(nextTab)}`)
-  }, [resolveCurrentIntegrationId, router, visibleTabIds])
+    const params = new URLSearchParams(searchParams?.toString() ?? '')
+    if (nextTab === 'credentials') params.delete('tab')
+    else params.set('tab', nextTab)
+    const query = params.toString()
+    router.replace(query ? `${basePath}?${query}` : basePath)
+  }, [resolveCurrentIntegrationId, router, searchParams, visibleTabIds])
+
+  React.useEffect(() => {
+    if (!runIdFromUrl) {
+      setActiveRunDetail(null)
+      setActiveRunRefreshedAt(null)
+      return
+    }
+    if (activeTab !== 'logs' && activeTab !== 'health') return
+
+    let cancelled = false
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+    const poll = async () => {
+      const detail = await refreshRunActivity()
+      if (cancelled) return
+
+      const status = detail?.status ?? null
+      if (status === 'pending' || status === 'running') {
+        timeoutId = setTimeout(() => {
+          void poll()
+        }, 4_000)
+      }
+    }
+
+    void poll()
+
+    return () => {
+      cancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [activeTab, refreshRunActivity, runIdFromUrl])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.detail.title')} /></PageBody></Page>
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('integrations.detail.notFound', 'Integration not found.')}
+            backHref="/backend/integrations"
+            backLabel={t('integrations.detail.backToList', 'Back to integrations')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
   if (error || !detail || !resolvedIntegration || !resolvedState) {
     return <Page><PageBody><ErrorMessage label={error ?? t('integrations.detail.loadError')} /></PageBody></Page>
   }
@@ -953,7 +1205,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {showCredentialsTab ? (
               <TabsTrigger
                 value="credentials"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <Key className="h-4 w-4" />
@@ -964,7 +1216,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {leadingInjectedTab ? (
               <TabsTrigger
                 value={leadingInjectedTab.id}
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <Settings className="h-4 w-4" />
@@ -975,7 +1227,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {showVersionTab ? (
               <TabsTrigger
                 value="version"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <RefreshCw className="h-4 w-4" />
@@ -986,7 +1238,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {showDataSyncScheduleTab ? (
               <TabsTrigger
                 value="data-sync-schedule"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <Calendar className="h-4 w-4" />
@@ -997,7 +1249,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {showHealthTab ? (
               <TabsTrigger
                 value="health"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <Activity className="h-4 w-4" />
@@ -1008,7 +1260,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {showLogsTab ? (
               <TabsTrigger
                 value="logs"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <FileText className="h-4 w-4" />
@@ -1020,7 +1272,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
               <TabsTrigger
                 key={tab.id}
                 value={tab.id}
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <Settings className="h-4 w-4" />
@@ -1034,7 +1286,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             <TabsContent value="credentials" className="mt-0">
               <section className="space-y-4 rounded-lg border bg-card p-6">
                 {detail.bundle ? (
-                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                  <div className="rounded-lg border border-status-info-border bg-status-info-bg p-3 text-sm text-status-info-text">
                     {t('integrations.detail.credentials.bundleShared', { bundle: detail.bundle.title })}
                   </div>
                 ) : null}
@@ -1110,20 +1362,39 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
           {showHealthTab ? (
             <TabsContent value="health" className="mt-0 space-y-4">
+              <RunActivityStrip
+                run={activeRunDetail}
+                refreshedAt={activeRunRefreshedAt}
+                isRefreshing={isRefreshingRunActivity}
+                onRefresh={() => void refreshRunActivity({ showLoading: true })}
+                t={t}
+              />
               <Card className="gap-4 py-4">
                 <CardHeader className="px-5">
                   <div className="flex items-center justify-between">
                     <CardTitle>{t('integrations.detail.health.title')}</CardTitle>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleHealthCheck()}
-                      disabled={isCheckingHealth}
-                    >
-                      {isCheckingHealth ? <Spinner className="mr-2 h-4 w-4" /> : <Zap className="mr-2 h-4 w-4" />}
-                      {isCheckingHealth ? t('integrations.detail.health.checking') : t('integrations.detail.health.check')}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void refreshRunActivity({ showLoading: true })}
+                        disabled={isRefreshingRunActivity || !runIdFromUrl}
+                      >
+                        {isRefreshingRunActivity ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        {t('integrations.detail.runActivity.refresh', 'Refresh')}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleHealthCheck()}
+                        disabled={isCheckingHealth}
+                      >
+                        {isCheckingHealth ? <Spinner className="mr-2 h-4 w-4" /> : <Zap className="mr-2 h-4 w-4" />}
+                        {isCheckingHealth ? t('integrations.detail.health.checking') : t('integrations.detail.health.check')}
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3 px-5">
@@ -1183,7 +1454,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
           {showLogsTab ? (
             <TabsContent value="logs" className="mt-0 space-y-4">
-            <div className="flex items-center gap-3">
+            <RunActivityStrip
+              run={activeRunDetail}
+              refreshedAt={activeRunRefreshedAt}
+              isRefreshing={isRefreshingRunActivity}
+              onRefresh={() => void refreshRunActivity({ showLoading: true })}
+              t={t}
+            />
+            <div className="flex flex-wrap items-center gap-3">
               <div className="inline-flex">
                 <Select
                   value={logLevel || undefined}
@@ -1199,6 +1477,16 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                   </SelectContent>
                 </Select>
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void refreshRunActivity({ showLoading: true })}
+                disabled={isRefreshingRunActivity || !runIdFromUrl}
+              >
+                {isRefreshingRunActivity ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                {t('integrations.detail.runActivity.refresh', 'Refresh')}
+              </Button>
             </div>
             {isLoadingLogs ? (
               <div className="flex justify-center py-8"><Spinner /></div>

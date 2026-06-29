@@ -6,7 +6,7 @@
  * - `isMutation: true` flag is set (the Step 5.6 runtime wrapper keys off
  *   this flag to intercept the call and emit a `mutation-preview-card`).
  * - `requiredFeatures` matches an existing ACL feature (`customers.deals.manage`).
- * - `loadBeforeRecord` snapshots `{ status, pipelineStage, pipelineStageId }`
+ * - `loadBeforeRecord` snapshots raw status/stage ids plus display labels
  *   with the deal's `updatedAt` as the recordVersion — the Step 5.8 confirm
  *   route uses that version to reject stale writes (`stale_version` 412).
  * - `loadBeforeRecord` returns `null` when the deal is outside the caller's
@@ -155,20 +155,23 @@ describe('customers.update_deal_stage — loadBeforeRecord', () => {
     createRunnerMock.mockClear()
   })
 
-  it('returns the current stage snapshot keyed to updatedAt as recordVersion', async () => {
+  it('returns current and proposed stage snapshots keyed to updatedAt as recordVersion', async () => {
     const updatedAt = new Date('2026-04-18T12:00:00Z')
-    findOneWithDecryptionMock.mockResolvedValue({
-      id: DEAL_ID,
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      status: 'open',
-      pipelineStage: 'Prospect',
-      pipelineStageId: STAGE_ID,
-      updatedAt,
-    })
+    findOneWithDecryptionMock
+      .mockResolvedValueOnce({
+        id: DEAL_ID,
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        status: 'open',
+        pipelineStage: 'Prospect',
+        pipelineStageId: STAGE_ID,
+        updatedAt,
+      })
+      .mockResolvedValueOnce({ id: 'b1b2c3d4-e5f6-4f01-8f02-0123456789ab', label: 'Negotiation' })
+    const targetStageId = 'b1b2c3d4-e5f6-4f01-8f02-0123456789ab'
     const ctx = makeMutationCtx()
     const before = await tool.loadBeforeRecord!(
-      { dealId: DEAL_ID, toStage: 'won' } as any,
+      { dealId: DEAL_ID, toPipelineStageId: targetStageId } as any,
       ctx as any,
     )
     expect(before).toEqual({
@@ -177,8 +180,25 @@ describe('customers.update_deal_stage — loadBeforeRecord', () => {
       recordVersion: updatedAt.toISOString(),
       before: {
         status: 'open',
-        pipelineStage: 'Prospect',
         pipelineStageId: STAGE_ID,
+      },
+      after: {
+        status: 'open',
+        pipelineStageId: targetStageId,
+      },
+      display: {
+        fieldLabels: {
+          status: 'Status',
+          pipelineStageId: 'Pipeline stage',
+        },
+        before: {
+          status: 'Open',
+          pipelineStageId: 'Prospect',
+        },
+        after: {
+          status: 'Open',
+          pipelineStageId: 'Negotiation',
+        },
       },
     })
   })
@@ -284,6 +304,7 @@ describe('customers.update_deal_stage — handler delegates to API runner', () =
         pipelineStageId: null,
         updatedAt: initialUpdatedAt,
       })
+      .mockResolvedValueOnce({ id: STAGE_ID, label: 'Negotiation' })
       .mockResolvedValueOnce({
         id: DEAL_ID,
         tenantId: 'tenant-1',
@@ -293,11 +314,8 @@ describe('customers.update_deal_stage — handler delegates to API runner', () =
         pipelineStageId: STAGE_ID,
         updatedAt: laterUpdatedAt,
       })
-    const em = {
-      findOne: jest.fn().mockResolvedValue({ id: STAGE_ID, label: 'Negotiation' }),
-    }
     runMock.mockResolvedValue({ success: true, statusCode: 200, data: { ok: true } })
-    const ctx = makeMutationCtx({ em })
+    const ctx = makeMutationCtx()
     const result = await tool.handler(
       { dealId: DEAL_ID, toPipelineStageId: STAGE_ID },
       ctx as any,
@@ -371,17 +389,18 @@ describe('customers.update_deal_stage — handler delegates to API runner', () =
   })
 
   it('throws when the pipeline stage id is unknown', async () => {
-    findOneWithDecryptionMock.mockResolvedValue({
-      id: DEAL_ID,
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      status: 'open',
-      pipelineStage: null,
-      pipelineStageId: null,
-      updatedAt: new Date(),
-    })
-    const em = { findOne: jest.fn().mockResolvedValue(null) }
-    const ctx = makeMutationCtx({ em })
+    findOneWithDecryptionMock
+      .mockResolvedValueOnce({
+        id: DEAL_ID,
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        status: 'open',
+        pipelineStage: null,
+        pipelineStageId: null,
+        updatedAt: new Date(),
+      })
+      .mockResolvedValueOnce(null)
+    const ctx = makeMutationCtx()
     await expect(
       tool.handler({ dealId: DEAL_ID, toPipelineStageId: STAGE_ID }, ctx as any),
     ).rejects.toThrow(/Pipeline stage/)

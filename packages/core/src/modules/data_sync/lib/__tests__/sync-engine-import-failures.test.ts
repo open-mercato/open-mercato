@@ -101,6 +101,7 @@ describe('data sync engine import item failures', () => {
         }),
       updateCounts: jest.fn(async () => undefined),
       updateCursor: jest.fn(async () => undefined),
+      commitBatchProgress: jest.fn(async () => undefined),
     } as unknown as SyncRunService
 
     const integrationCredentialsService = {
@@ -123,6 +124,9 @@ describe('data sync engine import item failures', () => {
       syncRunService,
       integrationCredentialsService,
       integrationLogService,
+      integrationStateService: {
+        upsert: jest.fn(async () => undefined),
+      } as any,
       progressService,
     })
 
@@ -132,13 +136,13 @@ describe('data sync engine import item failures', () => {
       userId: 'user-1',
     })
 
-    expect((syncRunService as any).updateCounts).toHaveBeenCalledWith('run-1', expect.objectContaining({
+    expect((syncRunService as any).commitBatchProgress).toHaveBeenCalledWith('run-1', expect.objectContaining({
       failedCount: 1,
       createdCount: 0,
       updatedCount: 0,
       skippedCount: 0,
       batchesCompleted: 1,
-    }), {
+    }), 'cursor-1', {
       organizationId: 'org-1',
       tenantId: 'tenant-1',
       userId: 'user-1',
@@ -147,7 +151,7 @@ describe('data sync engine import item failures', () => {
       integrationId: 'sync_akeneo',
       runId: 'run-1',
       level: 'error',
-      message: expect.stringContaining('Failed to import Akeneo product product-1'),
+      message: expect.stringContaining('Failed to import item product-1'),
       payload: expect.objectContaining({
         errorMessage: 'Akeneo media file missing-image.jpg was not found',
         sourceProductUuid: 'product-1',
@@ -236,6 +240,7 @@ describe('data sync engine import item failures', () => {
         }),
       updateCounts: jest.fn(async () => undefined),
       updateCursor: jest.fn(async () => undefined),
+      commitBatchProgress: jest.fn(async () => undefined),
     } as unknown as SyncRunService
 
     const integrationCredentialsService = {
@@ -258,6 +263,9 @@ describe('data sync engine import item failures', () => {
       syncRunService,
       integrationCredentialsService,
       integrationLogService,
+      integrationStateService: {
+        upsert: jest.fn(async () => undefined),
+      } as any,
       progressService,
     })
 

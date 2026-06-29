@@ -31,6 +31,15 @@ export type WorkflowInstanceStatus =
   | 'COMPENSATING'
   | 'COMPENSATED'
   | 'WAITING_FOR_ACTIVITIES'
+  | 'FORKED'
+
+export type WorkflowBranchInstanceStatus =
+  | 'ACTIVE'
+  | 'PAUSED'
+  | 'WAITING_FOR_ACTIVITIES'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED'
 
 export type StepInstanceStatus =
   | 'PENDING'
@@ -147,13 +156,16 @@ export interface WorkflowInstanceMetadata {
 @Index({ name: 'workflow_definitions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'workflow_definitions_workflow_id_idx', properties: ['workflowId'] })
 export class WorkflowDefinition {
-  [OptionalProps]?: 'enabled' | 'version' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'enabled' | 'version' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'codeWorkflowId'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
   @Property({ name: 'workflow_id', type: 'varchar', length: 100 })
   workflowId!: string
+
+  @Property({ name: 'code_workflow_id', type: 'varchar', length: 100, nullable: true })
+  codeWorkflowId?: string | null
 
   @Property({ name: 'workflow_name', type: 'varchar', length: 255 })
   workflowName!: string
@@ -272,6 +284,11 @@ export class WorkflowInstance {
     timestamp: Date
   } | null
 
+  // When the instance is FORKED, points at the open PARALLEL_FORK step whose
+  // branches are currently executing. Null for single-token instances.
+  @Property({ name: 'active_fork_step_id', type: 'varchar', length: 100, nullable: true })
+  activeForkStepId?: string | null
+
   @Property({ name: 'retry_count', type: 'integer', default: 0 })
   retryCount: number = 0
 
@@ -289,6 +306,88 @@ export class WorkflowInstance {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+}
+
+// ============================================================================
+// Entity: WorkflowBranchInstance
+// ============================================================================
+
+/**
+ * WorkflowBranchInstance entity
+ *
+ * A single parallel branch token created by a PARALLEL_FORK step. Each branch
+ * advances independently (interleaved under the instance lock) with its own
+ * private context namespace, and converges to the paired PARALLEL_JOIN step.
+ * Branches are tenant/org scoped and never cross-tenant.
+ */
+@Entity({ tableName: 'workflow_branch_instances' })
+@Index({ name: 'workflow_branch_instances_instance_status_idx', properties: ['workflowInstanceId', 'status'] })
+@Index({ name: 'workflow_branch_instances_instance_fork_idx', properties: ['workflowInstanceId', 'forkStepId'] })
+@Index({ name: 'workflow_branch_instances_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+export class WorkflowBranchInstance {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'workflow_instance_id', type: 'uuid' })
+  workflowInstanceId!: string
+
+  @Property({ name: 'fork_step_id', type: 'varchar', length: 100 })
+  forkStepId!: string
+
+  @Property({ name: 'join_step_id', type: 'varchar', length: 100 })
+  joinStepId!: string
+
+  // The transitionId of the FORK's outgoing transition that created this branch.
+  @Property({ name: 'branch_key', type: 'varchar', length: 100 })
+  branchKey!: string
+
+  // Reserved for nested-fork support (always null this iteration; validator blocks nesting).
+  @Property({ name: 'parent_branch_id', type: 'uuid', nullable: true })
+  parentBranchId?: string | null
+
+  @Property({ name: 'current_step_id', type: 'varchar', length: 100 })
+  currentStepId!: string
+
+  @Property({ name: 'status', type: 'varchar', length: 30 })
+  status!: WorkflowBranchInstanceStatus
+
+  // The branch's private write scope; merged back into instance.context at JOIN.
+  @Property({ name: 'context_namespace', type: 'jsonb' })
+  contextNamespace!: Record<string, any>
+
+  // Per-branch equivalent of WorkflowInstance.pendingTransition (async activities).
+  @Property({ name: 'pending_transition', type: 'jsonb', nullable: true })
+  pendingTransition?: {
+    toStepId: string
+    activityResults: any[]
+    timestamp: Date
+  } | null
+
+  @Property({ name: 'error_message', type: 'text', nullable: true })
+  errorMessage?: string | null
+
+  @Property({ name: 'error_details', type: 'jsonb', nullable: true })
+  errorDetails?: any | null
+
+  @Property({ name: 'started_at', type: Date, nullable: true })
+  startedAt?: Date | null
+
+  @Property({ name: 'completed_at', type: Date, nullable: true })
+  completedAt?: Date | null
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }
 
 // ============================================================================
@@ -313,6 +412,10 @@ export class StepInstance {
 
   @Property({ name: 'workflow_instance_id', type: 'uuid' })
   workflowInstanceId!: string
+
+  // Set when this step executes inside a parallel branch; null for single-token.
+  @Property({ name: 'branch_instance_id', type: 'uuid', nullable: true })
+  branchInstanceId?: string | null
 
   @Property({ name: 'step_id', type: 'varchar', length: 100 })
   stepId!: string
@@ -386,6 +489,10 @@ export class UserTask {
 
   @Property({ name: 'step_instance_id', type: 'uuid' })
   stepInstanceId!: string
+
+  // Set when this task belongs to a parallel branch; null for single-token instances.
+  @Property({ name: 'branch_instance_id', type: 'uuid', nullable: true })
+  branchInstanceId?: string | null
 
   @Property({ name: 'task_name', type: 'varchar', length: 255 })
   taskName!: string
@@ -468,6 +575,10 @@ export class WorkflowEvent {
 
   @Property({ name: 'step_instance_id', type: 'uuid', nullable: true })
   stepInstanceId?: string | null
+
+  // Set when the event was logged within a parallel branch; null otherwise.
+  @Property({ name: 'branch_instance_id', type: 'uuid', nullable: true })
+  branchInstanceId?: string | null
 
   @Property({ name: 'event_type', type: 'varchar', length: 50 })
   eventType!: string
@@ -557,6 +668,7 @@ export class WorkflowEventTrigger {
 export default [
   WorkflowDefinition,
   WorkflowInstance,
+  WorkflowBranchInstance,
   StepInstance,
   UserTask,
   WorkflowEvent,

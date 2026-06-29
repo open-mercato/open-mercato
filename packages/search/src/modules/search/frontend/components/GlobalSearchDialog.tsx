@@ -334,8 +334,14 @@ export function GlobalSearchDialog({
 
   return (
     <>
-      <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)} className="hidden sm:inline-flex items-center gap-2">
-        <Search className="h-4 w-4" />
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen(true)}
+        className="hidden sm:inline-flex items-center gap-2 text-foreground"
+      >
+        <Search className="h-4 w-4 text-foreground" />
         <span>{t('search.dialog.actions.search')}</span>
         <span className="ml-2 rounded border px-1 text-xs text-muted-foreground">⌘K</span>
       </Button>
@@ -347,7 +353,7 @@ export function GlobalSearchDialog({
         onClick={() => setOpen(true)}
         aria-label={t('search.dialog.actions.openGlobalSearch')}
       >
-        <Search className="h-4 w-4" />
+        <Search className="h-4 w-4 text-foreground" />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-xl p-0" aria-describedby="global-search-description">
@@ -436,7 +442,7 @@ export function GlobalSearchDialog({
                                   className={cn(
                                     'rounded-full border px-2 py-0.5 text-xs',
                                     link.kind === 'primary'
-                                      ? 'border-primary text-primary'
+                                      ? 'border-accent-indigo text-foreground'
                                       : 'border-muted-foreground/40 text-muted-foreground'
                                   )}
                                 >

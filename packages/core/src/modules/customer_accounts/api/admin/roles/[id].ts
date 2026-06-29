@@ -7,6 +7,8 @@ import { RbacService } from '@open-mercato/core/modules/auth/services/rbacServic
 import { CustomerRole, CustomerRoleAcl, CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { updateRoleSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 export const metadata = {}
 
@@ -102,15 +104,30 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ ok: false, error: 'Cannot change name of a system role' }, { status: 400 })
   }
 
-  const updates: Record<string, unknown> = {}
+  // Optimistic lock: refuse a stale overwrite so two admins editing the same role
+  // in parallel cannot silently clobber each other (#2055). Strictly additive.
+  try {
+    await enforceCommandOptimisticLockWithGuards(container, {
+      resourceKind: 'customer_accounts.role',
+      resourceId: role.id,
+      current: role.updatedAt ?? null,
+      request: req,
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
+  }
+
+  // Always bump updated_at so the lock version advances on every save — `nativeUpdate`
+  // bypasses MikroORM's `onUpdate` hook, so set it explicitly.
+  const nextUpdatedAt = new Date()
+  const updates: Record<string, unknown> = { updatedAt: nextUpdatedAt }
   if (parsed.data.name !== undefined) updates.name = parsed.data.name
   if (parsed.data.description !== undefined) updates.description = parsed.data.description
   if (parsed.data.isDefault !== undefined) updates.isDefault = parsed.data.isDefault
   if (parsed.data.customerAssignable !== undefined) updates.customerAssignable = parsed.data.customerAssignable
 
-  if (Object.keys(updates).length > 0) {
-    await em.nativeUpdate(CustomerRole, { id: role.id }, updates)
-  }
+  await em.nativeUpdate(CustomerRole, { id: role.id }, updates)
 
   void emitCustomerAccountsEvent('customer_accounts.role.updated', {
     id: role.id,
@@ -119,7 +136,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     organizationId: auth.orgId,
   }).catch(() => undefined)
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, updatedAt: nextUpdatedAt.toISOString() })
 }
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
@@ -148,6 +165,19 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 
   if (role.isSystem) {
     return NextResponse.json({ ok: false, error: 'Cannot delete a system role' }, { status: 400 })
+  }
+
+  // Optimistic lock: refuse a stale delete. Strictly additive.
+  try {
+    await enforceCommandOptimisticLockWithGuards(container, {
+      resourceKind: 'customer_accounts.role',
+      resourceId: role.id,
+      current: role.updatedAt ?? null,
+      request: req,
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
   }
 
   const assignedUsersCount = await em.count(CustomerUserRole, {

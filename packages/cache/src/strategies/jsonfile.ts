@@ -2,6 +2,7 @@ import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, Cache
 import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_JSON_FILE_CACHE_PATH } from '../defaults'
+import { matchCacheKeyPattern } from '../patterns'
 
 /**
  * JSON file cache strategy with tag support
@@ -45,15 +46,6 @@ export function createJsonFileStrategy(filePath?: string, options?: { defaultTtl
   function isExpired(entry: CacheEntry): boolean {
     if (entry.expiresAt === null) return false
     return Date.now() > entry.expiresAt
-  }
-
-  function matchPattern(key: string, pattern: string): boolean {
-    const regexPattern = pattern
-      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-      .replace(/\*/g, '.*')
-      .replace(/\?/g, '.')
-    const regex = new RegExp(`^${regexPattern}$`)
-    return regex.test(key)
   }
 
   function addToTagIndex(data: StorageData, key: string, tags: string[]): void {
@@ -194,7 +186,7 @@ export function createJsonFileStrategy(filePath?: string, options?: { defaultTtl
 
     if (!pattern) return allKeys
 
-    return allKeys.filter((key) => matchPattern(key, pattern))
+    return allKeys.filter((key) => matchCacheKeyPattern(key, pattern))
   }
 
   const stats = async (): Promise<{ size: number; expired: number }> => {

@@ -6,19 +6,23 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   SquareCheckBig,
+  Mail,
   Briefcase,
   Building2,
   Check,
   History,
   Paperclip,
   Plus,
+  MapPin,
 } from 'lucide-react'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 
 export type PersonTabId =
   | 'activities'
+  | 'emails'
   | 'deals'
   | 'companies'
+  | 'addresses'
   | 'tasks'
   | 'changelog'
   | 'files'
@@ -38,13 +42,14 @@ type PersonDetailTabsProps = {
   activitiesCount?: number
   dealsCount?: number
   companiesCount?: number
+  addressesCount?: number
   tasksCount?: number
   filesCount?: number
   sectionAction?: SectionAction | null
   children: React.ReactNode
 }
 
-const SUPPORTED_TAB_IDS = new Set<PersonTabId>(['activities', 'deals', 'companies', 'tasks', 'changelog', 'files'])
+const SUPPORTED_TAB_IDS = new Set<PersonTabId>(['activities', 'emails', 'deals', 'companies', 'addresses', 'tasks', 'changelog', 'files'])
 
 export function resolveLegacyTab(tab: string | null | undefined): PersonTabId {
   if (!tab) return 'activities'
@@ -75,6 +80,7 @@ export function PersonDetailTabs({
   activitiesCount = 0,
   dealsCount = 0,
   companiesCount = 0,
+  addressesCount = 0,
   tasksCount = 0,
   filesCount = 0,
   sectionAction = null,
@@ -91,6 +97,11 @@ export function PersonDetailTabs({
         badge: <CountBadge count={activitiesCount} />,
       },
       {
+        id: 'emails',
+        label: t('customers.people.detail.tabs.emails', 'Emails'),
+        icon: <Mail className="size-4" />,
+      },
+      {
         id: 'deals',
         label: t('customers.people.detail.tabs.deals', 'Deals'),
         icon: <Briefcase className="size-4" />,
@@ -101,6 +112,12 @@ export function PersonDetailTabs({
         label: t('customers.people.detail.tabs.companies', 'Companies'),
         icon: <Building2 className="size-4" />,
         badge: <CountBadge count={companiesCount} />,
+      },
+      {
+        id: 'addresses',
+        label: t('customers.people.detail.tabs.addresses', 'Addresses'),
+        icon: <MapPin className="size-4" />,
+        badge: <CountBadge count={addressesCount} />,
       },
       {
         id: 'tasks',
@@ -121,7 +138,7 @@ export function PersonDetailTabs({
         badge: <CountBadge count={filesCount} />,
       },
     ],
-    [t, activitiesCount, dealsCount, companiesCount, tasksCount, filesCount],
+    [t, activitiesCount, dealsCount, companiesCount, addressesCount, tasksCount, filesCount],
   )
 
   const allTabs: TabDef[] = React.useMemo(

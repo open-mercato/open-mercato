@@ -121,7 +121,7 @@ The structural cache refresh ensures existing tenants drop any cached agent / na
 
 ## Path B — `modules.ts` inline overrides (per-app, unified `entry.overrides`)
 
-When the override decision lives at the app level — a downstream app that consumes `@open-mercato/core` and wants to disable one shipped agent for the whole installation — declare the overrides directly on the `ModuleEntry` inside `apps/<app>/src/modules.ts` under the unified `overrides` key. AI lives at `overrides.ai.agents` / `overrides.ai.tools`. Other domains (routes, events, workers, widgets, …) reuse the same `entry.overrides` umbrella and ship per the [unified overrides spec](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-05-04-modules-ts-unified-overrides.md).
+When the override decision lives at the app level — a downstream app that consumes `@open-mercato/core` and wants to disable one shipped agent for the whole installation — declare the overrides directly on the `ModuleEntry` inside `apps/<app>/src/modules.ts` under the unified `overrides` key. AI lives at `overrides.ai.agents` / `overrides.ai.tools`. Routes, events, workers, widgets, notifications, interceptors, setup, ACL, DI, encryption, and the other wired domains reuse the same `entry.overrides` umbrella; see [Module overrides](../modules/overrides) for the complete modules.ts surface.
 
 ```ts
 // apps/<app>/src/modules.ts
@@ -163,7 +163,7 @@ export const enabledModules: ModuleEntry[] = [
 ]
 ```
 
-The app's `src/bootstrap.ts` calls `applyModuleOverridesFromEnabledModules(enabledModules)` once at boot — both `apps/mercato` and the `create-mercato-app` template ship that wiring out of the box. The dispatcher routes `overrides.ai` to the AI subsystem; other domains emit a one-shot warning until they are wired.
+The app's `src/bootstrap.ts` calls `applyModuleOverridesFromEnabledModules(enabledModules)` once at boot — both `apps/mercato` and the `create-mercato-app` template ship that wiring out of the box. The dispatcher routes `overrides.ai` to the AI subsystem and routes the rest of the unified domains to their shared registry hooks.
 
 ```ts
 // apps/<app>/src/bootstrap.ts
@@ -220,7 +220,7 @@ Programmatic overrides:
 Highest precedence first:
 
 1. **Programmatic** — `applyAiAgentOverrides` / `applyAiToolOverrides` calls. Last call per id wins.
-2. **`modules.ts` inline** — `aiAgentOverrides` / `aiToolOverrides` on a `ModuleEntry`. Last entry per id wins.
+2. **`modules.ts` inline** — `entry.overrides.ai.agents` / `entry.overrides.ai.tools` on a `ModuleEntry`. Last entry per id wins.
 3. **File-based** — `aiAgentOverrides` / `aiToolOverrides` exports on a module's `ai-agents.ts` / `ai-tools.ts`. Last module in load order wins.
 4. **Base** — `<module>/ai-agents.ts` `aiAgents` / `<module>/ai-tools.ts` `aiTools` registrations.
 
@@ -320,8 +320,8 @@ if (!allowMerchandising) {
 
 ## See also
 
-- Spec — `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md` (AI domain detail)
-- Umbrella spec — `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` (the full `entry.overrides` surface across every module domain — AI is Phase 1)
+- Spec — `.ai/specs/implemented/2026-04-30-ai-overrides-and-module-disable.md` (AI domain detail)
+- Umbrella spec — `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md` (the full `entry.overrides` surface across every module domain — AI is Phase 1)
 - [AI Agents](./agents) — agent contract reference
 - [Architecture](./architecture) — where overrides sit in the request flow
 - [Developer Guide](./developer-guide) — soup-to-nuts walkthrough

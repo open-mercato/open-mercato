@@ -16,7 +16,12 @@ import { getTokenContext } from '@open-mercato/core/modules/core/__integration__
  */
 test.describe('TC-CUR-004: Set Base Currency from UI', () => {
   test('should set a non-base currency as base from the currencies list view', async ({ page, request }) => {
-    test.setTimeout(30_000);
+    // Login + list navigation + three sequential <=10s waits + fixture
+    // setup/teardown does not fit the 30s budget under parallel CI shard load,
+    // so the run was torn down mid-request ("Target page, context or browser
+    // has been closed"). 60s matches the login+navigation convention used by
+    // the other UI integration specs (TC-AI-001, TC-CRM-007, ...).
+    test.setTimeout(60_000);
 
     let token: string | null = null;
     let currencyId: string | null = null;
@@ -49,18 +54,56 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
       await login(page, 'admin');
       await page.goto('/backend/currencies');
 
-      // Wait for the table to load and find our fixture row
-      const row = page.getByRole('row').filter({ hasText: code });
+      // Wait for the table to load and find our fixture row. Match the
+      // code cell exactly — substring matching on the whole row collides
+      // when a random code (e.g. "BRI") appears inside a seeded currency
+      // name (e.g. "British Pound").
+      const row = page.getByRole('row').filter({
+        has: page.getByRole('cell', { name: code, exact: true }),
+      });
       await expect(row).toBeVisible({ timeout: 10_000 });
 
-      // Open row actions menu (focus + Enter, same pattern as TC-ADMIN-002)
+      // Open row actions menu (focus + Enter, same pattern as TC-ADMIN-002).
       const actionsButton = row.getByRole('button', { name: 'Open actions' });
-      await actionsButton.focus();
-      await actionsButton.press('Enter');
+      await expect(actionsButton).toBeEnabled({ timeout: 10_000 });
 
-      // Click the "Set as base" menu item (portalled to document.body)
+      // The "Set as base" menu item is portalled to document.body. The
+      // currencies list re-renders its rows when data settles (optimistic-lock
+      // headers, scope version), which can detach the portalled menu item
+      // mid-click — Playwright then auto-retries the detached element until the
+      // test times out. Re-open the menu and retry the click across a few
+      // attempts (mirrors TC-ADMIN-002's clickDeleteMenuItem) so neither a
+      // swallowed keypress nor a detached element can hang the run.
+      // Bound every click: when the list re-renders (optimistic-lock headers /
+      // scope version) it can detach the portalled menu mid-click, and an
+      // un-bounded Playwright click auto-retries the detaching element until the
+      // whole test times out — defeating the retry loop below. A short per-click
+      // timeout makes a detached-element hang fail fast so the loop re-opens it.
+      const openRowActions = async (): Promise<void> => {
+        await actionsButton.click({ timeout: 5_000 }).catch(async () => {
+          await actionsButton.focus();
+          await actionsButton.press('Enter');
+        });
+      };
+
       const setBaseItem = page.getByRole('menuitem').filter({ hasText: /Set as Base/ }).first();
-      await setBaseItem.click();
+      let setBaseClicked = false;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        // Only (re)open when the item isn't already showing — a blind toggle
+        // click would close a menu left open by a prior detached-click attempt.
+        const alreadyOpen = await setBaseItem.isVisible().catch(() => false);
+        if (!alreadyOpen) await openRowActions();
+        const opened = await setBaseItem
+          .waitFor({ state: 'visible', timeout: 5_000 })
+          .then(() => true)
+          .catch(() => false);
+        if (!opened) continue;
+        if (await setBaseItem.click({ timeout: 5_000 }).then(() => true).catch(() => false)) {
+          setBaseClicked = true;
+          break;
+        }
+      }
+      expect(setBaseClicked, 'Could not click the "Set as Base" menu item').toBe(true);
 
       await expect(page.getByText('Base currency updated successfully').first()).toBeVisible({
         timeout: 10_000,
@@ -82,14 +125,22 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
         )
         .toBe(true);
     } finally {
-      // Restore original base currency if we changed it
+      // Best-effort teardown: if the test body already failed/timed out the
+      // request context may be closing, so swallow teardown errors instead of
+      // masking the real failure with "Target page, context or browser has
+      // been closed".
       if (token && originalBaseId) {
         await apiRequest(request, 'PUT', '/api/currencies/currencies', {
           token,
           data: { id: originalBaseId, isBase: true },
-        });
+        }).catch(() => {});
       }
-      await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/currencies', currencyId);
+      await deleteCurrenciesEntityIfExists(
+        request,
+        token,
+        '/api/currencies/currencies',
+        currencyId,
+      ).catch(() => {});
     }
   });
 });

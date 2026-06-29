@@ -33,12 +33,13 @@ function formatValue(value: unknown): string {
 }
 
 function DiffRow({ entry }: { entry: AiPendingActionCardFieldDiff }) {
-  const before = formatValue(entry.before)
-  const after = formatValue(entry.after)
+  const before = formatValue(entry.beforeDisplay ?? entry.before)
+  const after = formatValue(entry.afterDisplay ?? entry.after)
+  const field = entry.fieldLabel ?? entry.field
   return (
     <tr className="border-b border-border last:border-b-0" data-ai-field-diff-row>
       <td className="py-1.5 pr-4 text-xs font-mono text-muted-foreground align-top">
-        {entry.field}
+        {field}
       </td>
       <td
         className="py-1.5 pr-4 text-sm align-top text-status-warning-text"

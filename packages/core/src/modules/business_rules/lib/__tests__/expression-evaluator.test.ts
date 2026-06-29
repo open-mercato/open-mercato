@@ -579,6 +579,28 @@ describe('RuleExpressionEvaluator', () => {
       })
     })
 
+    test('should evaluate reported nested-quantifier regex payload in bounded time', () => {
+      const condition: SimpleCondition = {
+        field: 'vat',
+        operator: 'MATCHES',
+        value: '^(GB|FR|DE|IT|ES|PL|NL|BE|SE|AT|DK|FI|PT|IE|GR|CZ|RO|HU|SK|BG|HR|SI|LT|LV|EE|LU|MT|CY)?([0-9A-Za-z]+)*$',
+      }
+      const payload = `${'A'.repeat(64)}!`
+      const startedAt = Date.now()
+
+      expect(evaluateExpression(condition, { vat: payload }, {})).toBe(false)
+      expect(Date.now() - startedAt).toBeLessThan(2_000)
+    })
+
+    test('should reject overly long regex inputs', () => {
+      const condition: SimpleCondition = {
+        field: 'text',
+        operator: 'MATCHES',
+        value: '^a+$',
+      }
+      expect(evaluateExpression(condition, { text: 'a'.repeat(10_001) }, {})).toBe(false)
+    })
+
     test('should allow safe regex patterns', () => {
       const condition: SimpleCondition = {
         field: 'email',

@@ -1,12 +1,10 @@
-import {
-  startOfDay,
-  endOfDay,
-  startOfMonth,
-  startOfYear,
-  subDays,
-  subMonths,
-  subYears,
-} from 'date-fns'
+import { endOfDay } from 'date-fns/endOfDay'
+import { startOfDay } from 'date-fns/startOfDay'
+import { startOfMonth } from 'date-fns/startOfMonth'
+import { startOfYear } from 'date-fns/startOfYear'
+import { subDays } from 'date-fns/subDays'
+import { subMonths } from 'date-fns/subMonths'
+import { subYears } from 'date-fns/subYears'
 import type { DateRange } from '../backend/date-range/dateRanges'
 
 export type DateRangePresetItem = {

@@ -572,7 +572,7 @@ describe('ExchangeRateService', () => {
     })
 
     it('throws error for dates far in the future', async () => {
-      const futureDate = new Date('2050-12-31T00:00:00Z')
+      const futureDate = new Date(Date.now() + 25 * 365 * 24 * 60 * 60 * 1000)
 
       await expect(
         service.getRate({

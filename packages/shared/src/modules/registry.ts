@@ -4,6 +4,13 @@ import type { SyncCrudEventResult } from '../lib/crud/sync-event-types'
 import type { DashboardWidgetModule } from './dashboard/widgets'
 import type { InjectionAnyWidgetModule, ModuleInjectionTable } from './widgets/injection'
 import type { IntegrationBundle, IntegrationDefinition } from './integrations/types'
+import {
+  applyApiOverridesToManifests,
+  applyModuleOverridesToModules,
+  applyPageOverridesToManifests,
+  composeApiRouteOverrides,
+  composePageRouteOverrides,
+} from './overrides'
 
 // Context passed to dynamic metadata guards
 export type RouteVisibilityContext = { path?: string; auth?: any }
@@ -207,6 +214,7 @@ export type ModuleInjectionWidgetEntry = {
   moduleId: string
   key: string
   source: 'app' | 'package'
+  widgetId?: string
   loader: () => Promise<InjectionAnyWidgetModule<any, any>>
 }
 
@@ -305,12 +313,10 @@ export function matchRoutePattern(pattern: string, pathname: string): RouteMatch
       const key = mCatchAll[1]
       if (i >= uSegs.length) return undefined
       params[key] = uSegs.slice(i)
-      i = uSegs.length
-      return i === uSegs.length ? params : undefined
+      return params
     } else if (mOptCatch) {
       const key = mOptCatch[1]
       params[key] = i < uSegs.length ? uSegs.slice(i) : []
-      i = uSegs.length
       return params
     } else if (mDyn) {
       if (i >= uSegs.length) return undefined
@@ -396,7 +402,11 @@ export function findApiRouteManifestMatch<T extends { path: string; methods: Htt
 let _backendRouteManifests: BackendRouteManifestEntry[] | null = null
 
 export function registerBackendRouteManifests(routes: BackendRouteManifestEntry[]) {
-  _backendRouteManifests = sortRoutesBySpecificity(routes)
+  const pageOverrides = composePageRouteOverrides()
+  const finalRoutes = Object.keys(pageOverrides).length === 0
+    ? routes
+    : applyPageOverridesToManifests(routes, pageOverrides, 'backend')
+  _backendRouteManifests = sortRoutesBySpecificity(finalRoutes)
 }
 
 export function getBackendRouteManifests(): BackendRouteManifestEntry[] {
@@ -406,7 +416,11 @@ export function getBackendRouteManifests(): BackendRouteManifestEntry[] {
 let _frontendRouteManifests: FrontendRouteManifestEntry[] | null = null
 
 export function registerFrontendRouteManifests(routes: FrontendRouteManifestEntry[]) {
-  _frontendRouteManifests = sortRoutesBySpecificity(routes)
+  const pageOverrides = composePageRouteOverrides()
+  const finalRoutes = Object.keys(pageOverrides).length === 0
+    ? routes
+    : applyPageOverridesToManifests(routes, pageOverrides, 'frontend')
+  _frontendRouteManifests = sortRoutesBySpecificity(finalRoutes)
 }
 
 export function getFrontendRouteManifests(): FrontendRouteManifestEntry[] {
@@ -416,7 +430,15 @@ export function getFrontendRouteManifests(): FrontendRouteManifestEntry[] {
 let _apiRouteManifests: ApiRouteManifestEntry[] | null = null
 
 export function registerApiRouteManifests(routes: ApiRouteManifestEntry[]) {
-  _apiRouteManifests = sortRoutesBySpecificity(routes)
+  // Apply any `entry.overrides.routes.api` overrides registered through the
+  // unified `modules.ts` dispatcher or programmatic API before storing the
+  // manifest. The composer is cheap and returns an empty object when no
+  // overrides exist, so this is a no-op for apps that do not opt in.
+  const routeOverrides = composeApiRouteOverrides()
+  const finalRoutes = Object.keys(routeOverrides).length === 0
+    ? routes
+    : applyApiOverridesToManifests(routes, routeOverrides)
+  _apiRouteManifests = sortRoutesBySpecificity(finalRoutes)
 }
 
 export function getApiRouteManifests(): ApiRouteManifestEntry[] {
@@ -430,7 +452,7 @@ export function registerCliModules(modules: Module[]) {
   if (_cliModules !== null && process.env.NODE_ENV === 'development') {
     console.debug('[Bootstrap] CLI modules re-registered (this may occur during HMR)')
   }
-  _cliModules = modules
+  _cliModules = applyModuleOverridesToModules(modules)
 }
 
 export function getCliModules(): Module[] {

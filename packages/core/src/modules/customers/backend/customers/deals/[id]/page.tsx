@@ -4,11 +4,12 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Building2, UserSearch, Users } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { AttachmentsSection, ErrorMessage, LoadingMessage, NotesSection } from '@open-mercato/ui/backend/detail'
+import { AttachmentsSection, ErrorMessage, LoadingMessage, NotesSection, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { CollapsibleZoneLayout } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -52,10 +53,11 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const pathname = usePathname()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
 
-  const { data, setData, isLoading, error, loadData } = useDealData(id)
+  const { data, setData, isLoading, error, isNotFound, loadData } = useDealData(id)
   const [isDirty, setIsDirty] = React.useState(false)
   const {
     scheduleDialogOpen,
@@ -79,6 +81,20 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     fallbackId: id,
     data,
   })
+
+  // Publish page-load record context with explicit `updatedAt`/`data` to the
+  // AppShell-owned `backend:record:current` mount. The deal path is already in the
+  // widget's allowlist (presence works) but supplied no version/record payload —
+  // this gives the merge dialog its action-log base and field-diff source.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'customers.deal',
+      resourceId: data?.deal.id ?? null,
+      updatedAt: data?.deal.updatedAt ?? null,
+      data: data as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
 
   const notesAdapter = React.useMemo(
     () => createCustomerNotesAdapter(detailTranslator, { runMutation: runMutationWithContext }),
@@ -105,7 +121,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   } = useDealActivities({ dealId: id, runMutationWithContext })
 
   React.useEffect(() => {
-    void Promise.all([loadData(), loadPlannedActivities()])
+    void Promise.all([loadData({ cache: true }), loadPlannedActivities({ cache: true })])
   }, [loadData, loadPlannedActivities])
 
   const activityEntities = React.useMemo(
@@ -171,6 +187,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     data,
     setData,
     runMutationWithContext,
+    onRefresh: () => { void loadData() },
   })
 
   const { isStageSaving, handleStageChange } = useDealPipeline({
@@ -195,6 +212,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     handleLostConfirm,
   } = useDealClosure({
     currentDealId,
+    dealUpdatedAt: data?.deal.updatedAt ?? null,
     runMutationWithContext,
     confirmDiscardIfDirty,
     onClosed: loadData,
@@ -228,6 +246,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     const rawActivity = activity as unknown as Record<string, unknown>
     openScheduleEdit({
       id: activity.id,
+      updatedAt: typeof rawActivity.updatedAt === 'string' ? rawActivity.updatedAt as string : typeof rawActivity.updated_at === 'string' ? rawActivity.updated_at as string : null,
       interactionType: activity.interactionType,
       title: activity.title ?? null,
       body: activity.body ?? null,
@@ -293,6 +312,20 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     })
   }, [closeLostPopup, data, openScheduleEdit, selectedActivityEntity, t])
 
+  const currentPipelineName = data
+    ? data.pipelineName ?? wonStats?.pipelineName ?? lostStats?.pipelineName ?? null
+    : wonStats?.pipelineName ?? lostStats?.pipelineName ?? null
+  const formPipelineOptions = React.useMemo(
+    () => data?.deal.pipelineId
+      ? [{
+          id: data.deal.pipelineId,
+          name: currentPipelineName ?? t('customers.deals.detail.pipeline.defaultName', 'Current pipeline'),
+          isDefault: false,
+        }]
+      : [],
+    [currentPipelineName, data?.deal.pipelineId, t],
+  )
+
   if (isLoading) {
     return (
       <Page>
@@ -303,19 +336,33 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('customers.deals.detail.error.notFound', 'Deal not found.')}
+            backHref="/backend/customers/deals"
+            backLabel={t('customers.deals.detail.actions.backToList', 'Back to deals')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !data) {
     return (
       <Page>
         <PageBody>
           <ErrorMessage
-            label={error || t('customers.deals.detail.error.notFound', 'Deal not found.')}
-            action={(
-              <Button asChild variant="outline">
+            label={error ?? t('customers.deals.detail.error.load', 'Failed to load deal.')}
+            action={
+              <Button asChild variant="outline" size="sm">
                 <Link href="/backend/customers/deals">
                   {t('customers.deals.detail.actions.backToList', 'Back to deals')}
                 </Link>
               </Button>
-            )}
+            }
           />
         </PageBody>
       </Page>
@@ -323,7 +370,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   }
 
   const amountLabel = formatCurrency(data.deal.valueAmount, data.deal.valueCurrency)
-  const currentPipelineName = data.pipelineName ?? wonStats?.pipelineName ?? lostStats?.pipelineName ?? null
   const dealName = data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')
 
   const zone1Content = (
@@ -337,7 +383,11 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         showAssociationsGroup={false}
         showVersionHistory={false}
         showCancelAction={false}
+        injectionSpotId="crud-form:customers.deal"
+        optimisticLockUpdatedAt={data.deal.updatedAt}
         onDirtyChange={setIsDirty}
+        initialPipelineOptions={formPipelineOptions}
+        initialPipelineStageOptions={data.pipelineStages}
         collapsibleGroups={{ pageType: 'deal-detail-v3', chevronPosition: 'right' }}
         sortableGroups={{ pageType: 'deal-detail-v3' }}
         initialValues={{

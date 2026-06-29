@@ -39,9 +39,24 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Skeleton](#skeleton)
 - [Alert](#alert)
 - [Notification](#notification)
+- [Breadcrumb](#breadcrumb)
+- [Sheet](#sheet)
 - [Accordion](#accordion)
 - [LogList](#loglist)
 - [RichEditor](#richeditor)
+- [ScrollArea](#scrollarea)
+- [ButtonGroup](#buttongroup)
+- [SegmentedControl](#segmentedcontrol)
+- [Slider](#slider)
+- [Rating](#rating)
+- [StepIndicator](#stepindicator)
+- [ColorPicker](#colorpicker)
+- [Pagination](#pagination)
+- [Drawer](#drawer)
+- [CommandMenu](#commandmenu)
+- [ActivityFeed](#activityfeed)
+- [NotificationFeed](#notificationfeed)
+- [Progress / CircularProgress](#progress--circularprogress)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -53,6 +68,11 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [TimeInput](#timeinput)
 - [Backend shims (DatePicker / DateTimePicker / TimePicker)](#backend-shims-datepicker--datetimepicker--timepicker)
 - [Common patterns](#common-patterns)
+- [Badge](#badge)
+- [Dialog](#dialog)
+- [Separator](#separator)
+- [Tabs](#tabs)
+- [Table](#table)
 
 ---
 
@@ -1370,6 +1390,19 @@ import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 - `ring-2 ring-background` is built-in — provides border for `AvatarStack` overlap.
 - For unknown users / empty states: render `<Avatar />` (blank muted circle).
 
+### New props in v5
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `status` | `'online' \| 'offline' \| 'away' \| 'busy'` | — | Bottom-right status pip (color via DS status tokens) |
+| `ring` | `boolean \| 'subtle' \| 'strong'` | `false` | Outer ring (use `'subtle'` in dense lists, `'strong'` for highlighted owner) |
+| `badge` | `ReactNode` | — | Slot for an external badge overlay (e.g. `<Badge variant="brand" />` for AI assignees) |
+
+```tsx
+<Avatar label="Anna Kowalska" status="online" ring="strong" />
+<Avatar label="AI Agent" badge={<Badge variant="brand">AI</Badge>} />
+```
+
 ---
 
 ## Kbd / KbdShortcut
@@ -2132,6 +2165,121 @@ Title type scale: `text-sm` for `sm` / `default`, `text-base` for `lg`. Descript
 
 ---
 
+## Empty-state decision guide
+
+The DS standardizes empty/not-found/no-access states (issue #772). Pick the component by **why** the view is empty:
+
+| Situation | Component | Import |
+|---|---|---|
+| List has **no records yet** (no search/filter) | `ListEmptyState` | `@open-mercato/ui/backend/filters/ListEmptyState` |
+| List has **no results after a search** | `SearchEmptyResults` (auto-rendered by `DataTable`) | `@open-mercato/ui/backend/filters/SearchEmptyResults` |
+| List has **no results after filters** | `FilteredEmptyResults` (auto-rendered by `DataTable` via `filterAwareEmptyState`) | `@open-mercato/ui/backend/filters/FilteredEmptyResults` |
+| **Record not found** on a detail/edit page | `RecordNotFoundState` | `@open-mercato/ui/backend/detail` |
+| **No access** (forbidden) | `AccessDeniedMessage` | `@open-mercato/ui/backend/detail` |
+| A **section/tab** is empty but healthy | `TabEmptyState` | `@open-mercato/ui/backend/detail` |
+| Low-level building block for any of the above | `EmptyState` | `@open-mercato/ui/primitives/empty-state` |
+
+`DataTable` resolves its empty branch automatically in this order: **active filters → active search → custom `emptyState` node → standardized default**. So a list only needs to pass `emptyState={<ListEmptyState …/>}` for the zero-records case; search/filter states are handled for you.
+
+## ListEmptyState
+
+```typescript
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+```
+
+Standardized **zero-records** empty state for list views — pass it to a `DataTable`'s `emptyState` prop. Renders a neutral icon, a generated title (`No {entity} yet`), a short description, and a primary "create" action.
+
+```tsx
+<DataTable
+  emptyState={(
+    <ListEmptyState
+      entityName={t('customers.companies.entityPlural', 'companies')}
+      createHref="/backend/customers/companies/create"
+      createLabel={t('customers.companies.list.actions.new')}
+    />
+  )}
+  // …
+/>
+```
+
+### Props
+
+| Prop | Type | Notes |
+|---|---|---|
+| `entityName` | `string` | Plural label; builds the default title `No {entity} yet`. Falls back to a generic word. |
+| `title` / `description` | `string` | Override the generated copy. |
+| `createHref` | `string` | Renders a primary "create" **link** (real `<a>`). |
+| `onCreate` | `() => void` | Renders a primary "create" **button** (for dialog-based create). |
+| `createLabel` | `string` | Label for the create action (defaults to a generic "Create"). |
+| `icon` | `React.ReactNode` | Optional leading icon (defaults to a neutral inbox glyph). |
+
+### MUST rules
+
+- Reuse the list's **existing** create href + label + entity/title i18n keys — do not invent new copy per list.
+- Omit `createHref`/`onCreate` for lists with no create flow (read-only/log/run/embedded sub-tables); `DataTable`'s standardized default already covers them — do NOT force a dead "Create" CTA.
+- Use `onCreate` (not `createHref`) when the list creates via a dialog.
+
+## RecordNotFoundState
+
+```typescript
+import { RecordNotFoundState, type RecordNotFoundStateProps } from '@open-mercato/ui/backend/detail'
+```
+
+The **default not-found state for backend detail/edit pages**. When a record id resolves to nothing,
+render this instead of a `CrudForm`/detail layout. It composes `EmptyState` (`variant='subtle'`) into
+a page-centered, neutral state — a missing record is **not** an error, so it must never be shown
+through the destructive `ErrorMessage`. Keep `ErrorMessage` for genuine load/validation failures.
+
+### Quick usage
+
+```tsx
+if (isNotFound) {
+  return (
+    <Page>
+      <PageBody>
+        <RecordNotFoundState
+          label={t('customers.companies.detail.error.notFound', 'Company not found.')}
+          backHref="/backend/customers/companies"
+          backLabel={t('customers.companies.backToList', 'Back to companies')}
+        />
+      </PageBody>
+    </Page>
+  )
+}
+```
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `label` | `string` | — | Required. The title (e.g. "Company not found."). Pass an already-translated string. |
+| `description` | `string` | — | Optional muted line under the title. |
+| `backHref` | `string` | — | When set, renders a default "back" link (`<Button asChild variant="outline">` wrapping a `next/link`, so it stays a real `<a>` / `role="link"`). |
+| `backLabel` | `string` | `t('ui.recordNotFound.backToList', 'Back to list')` | Label for the default back link. |
+| `action` | `React.ReactNode` | — | Custom recovery action; replaces the default back link entirely. |
+| `icon` | `React.ReactNode` | `<SearchX className="h-6 w-6" />` | Optional leading icon, wrapped in EmptyState's round muted box. |
+| `className` | `string` | — | Applied to the outer centering wrapper (`min-h-[50vh]`). |
+
+### MUST rules
+
+- Use it for the dedicated `notFound` page state on record-backed backend detail/edit pages — keep it
+  separate from a generic `error` state (which still uses `ErrorMessage`).
+- Always pass a `backHref` (or a custom `action`) so the user has a recovery path; do not render a
+  dead-end not-found.
+- Pass `label`/`backLabel` through `useT()` — the component only defaults the back label.
+- Portal / public (frontend) pages have no backend "back to list": use `EmptyState`
+  (`variant='subtle'`, `size='lg'`) directly there instead of this backend component.
+
+### Anti-patterns
+
+- Rendering not-found through `ErrorMessage` (red `role="alert"` box) → use `RecordNotFoundState`.
+- Ad hoc `<div className="text-destructive">…not found…</div>` or `<Alert variant="destructive">` for a
+  missing record → neutral `RecordNotFoundState` / `EmptyState`.
+- `throw new Error('… not found')` inside the loader and folding it into the generic `error` state →
+  set a dedicated `isNotFound` flag and render `RecordNotFoundState`.
+
+---
+
 ## Skeleton
 
 ```typescript
@@ -2434,6 +2582,193 @@ The wrapper has `pointer-events-none` so it does not block clicks on the page un
 - Pass `dismissAriaLabel` and translatable title / description through `useT()` — the primitive has English defaults.
 - For user-driven notifications, pass `avatar={<Avatar label="..." />}` so the leading visual matches the rest of the product's identity treatment.
 - Keep `autoDismissMs` short (3000–6000 ms) for transient confirmations. Omit it entirely for actionable notifications the user must address before dismissing.
+
+### New props in v5
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `autoDismissMs` | `number` | — | Auto-dismiss timer in ms. Omit for sticky notifications |
+| `pauseOnHover` | `boolean` | `true` | Pause the auto-dismiss countdown while the cursor is over the notification |
+
+```tsx
+<Notification title="Saved" autoDismissMs={4000} pauseOnHover />
+```
+
+---
+
+## Breadcrumb
+
+```typescript
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbStatic,
+  BreadcrumbSeparator,
+  BreadcrumbEllipsis,
+  type BreadcrumbDivider,
+} from '@open-mercato/ui/primitives/breadcrumb'
+```
+
+Composable navigation primitive. Matches Figma DS `Breadcrumbs` ([node 447-8760](https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/DS---Open-Mercato?node-id=447-8760)) — three divider styles (`slash` default, `arrow`, `dot`), default/hover/active link states, optional leading icon on links, and an ellipsis affordance for collapsed mid-crumbs. Rendered as a semantic `<nav aria-label="Breadcrumb">` with an inner `<ol>` of `<li>` items so screen readers announce position and order. The active page is always marked with `aria-current="page"`.
+
+### Basic usage
+
+```tsx
+<Breadcrumb>
+  <BreadcrumbList>
+    <BreadcrumbItem>
+      <BreadcrumbLink href="/customers">Customers</BreadcrumbLink>
+    </BreadcrumbItem>
+    <BreadcrumbSeparator />
+    <BreadcrumbItem>
+      <BreadcrumbLink href="/customers/people">People</BreadcrumbLink>
+    </BreadcrumbItem>
+    <BreadcrumbSeparator />
+    <BreadcrumbItem>
+      <BreadcrumbPage>Jan Kowalski</BreadcrumbPage>
+    </BreadcrumbItem>
+  </BreadcrumbList>
+</Breadcrumb>
+```
+
+Default divider is `slash`. Set `divider="arrow"` for a `ChevronRight` glyph or `divider="dot"` for a typographic mid-dot. The divider value is provided to every `BreadcrumbSeparator` through context — individual separators can still override it via their own `divider` prop.
+
+### Linking through Next.js (`asChild`)
+
+`BreadcrumbLink` defaults to rendering an `<a>` styled as a breadcrumb link (`text-muted-foreground` resting → `text-foreground` + underline on hover/focus). To route through the framework router (Next.js `Link`, TanStack `Link`, etc.) use `asChild` and slot the framework component in:
+
+```tsx
+import Link from 'next/link'
+
+<BreadcrumbItem>
+  <BreadcrumbLink asChild>
+    <Link href="/customers">Customers</Link>
+  </BreadcrumbLink>
+</BreadcrumbItem>
+```
+
+The Radix `Slot` merges the breadcrumb classes and `data-slot` attributes onto the slotted element so Next's link inherits the breadcrumb styling without an extra wrapper.
+
+### Icon on a link
+
+Icons render as `children` (20×20, lucide), styled by the primitive's `[&_svg]:size-5` rule. When the icon is the only visible content (icon-only crumb, e.g. the auto-injected Dashboard home in `AppShell`) supply an `aria-label` so screen readers still announce the destination:
+
+```tsx
+import { Home } from 'lucide-react'
+
+<BreadcrumbItem>
+  <BreadcrumbLink asChild aria-label="Dashboard">
+    <Link href="/backend">
+      <Home aria-hidden="true" />
+    </Link>
+  </BreadcrumbLink>
+</BreadcrumbItem>
+```
+
+Pass both icon and label as siblings when both should be visible: `<BreadcrumbLink><Home /> Customers</BreadcrumbLink>`.
+
+### Dividers
+
+| `divider` | Element | When to use |
+|---|---|---|
+| `slash` (default) | `<span aria-hidden>/</span>` | Preserves the existing AppShell contract; default for new pages. |
+| `arrow` | `<ChevronRight aria-hidden>` (lucide) | Use when the breadcrumb sits next to other arrow affordances (wizard steps, paginators) so the visual rhythm stays consistent. |
+| `dot` | `<span aria-hidden>·</span>` | Minimal style for very long trails or low-emphasis chrome. |
+
+### Static (non-link) middle crumbs
+
+Some hierarchies have grouping levels that have no route of their own (e.g. `Customers / Settings / Pipeline Stages` — where `Settings` is a category, not a page). Render those with `BreadcrumbStatic` instead of `BreadcrumbPage`; the static variant uses the same muted color as inactive links, but does **not** set `aria-current="page"` (because the user is not on that "page"), does not respond to hover, and is not focusable.
+
+```tsx
+<BreadcrumbItem>
+  <BreadcrumbStatic>Settings</BreadcrumbStatic>
+</BreadcrumbItem>
+```
+
+Reserve `BreadcrumbPage` for the actual current page (one per breadcrumb), reserve `BreadcrumbLink` for navigable steps, and use `BreadcrumbStatic` for the rest.
+
+### Truncation
+
+`BreadcrumbLink` and `BreadcrumbStatic` default to `max-w-[40vw] md:max-w-[28vw] truncate` so long labels (long product names, multi-word category titles in DE/PL) collapse with an ellipsis instead of pushing the trail off-screen. `BreadcrumbPage` allows more room (`max-w-[45vw] md:max-w-[60vw]`) because the current page is the most important read.
+
+Always pass `title={label}` on truncatable items so hovering reveals the full label as a native tooltip — the primitive forwards `title` via `...props`.
+
+```tsx
+<BreadcrumbLink asChild title={person.fullName}>
+  <Link href={`/backend/customers/people/${person.id}`}>{person.fullName}</Link>
+</BreadcrumbLink>
+```
+
+### Ellipsis (collapsed mid-crumbs)
+
+`BreadcrumbEllipsis` is the "More" affordance used when a breadcrumb is visually collapsed — most commonly at narrow viewports (`< md`) where the trail switches to `Home + … + Current` to save horizontal space. Step 1 ships a non-interactive icon with an accessible label; the popover-driven variant (Figma `447-8760` Block 4) that lists hidden steps will be wired in a follow-up alongside the tenant-level Max-visible setting.
+
+```tsx
+<BreadcrumbItem>
+  <BreadcrumbEllipsis aria-label="Show 3 hidden navigation steps" />
+</BreadcrumbItem>
+```
+
+Always pass an `aria-label` carrying the hidden-step count (e.g. via i18n `t('appShell.breadcrumb.collapsed', { count })`) so assistive tech announces the truncation rather than reading "More" out of context.
+
+```tsx
+<BreadcrumbList>
+  <BreadcrumbItem>
+    <BreadcrumbLink asChild icon={<Home />} aria-label="Dashboard">
+      <Link href="/backend" />
+    </BreadcrumbLink>
+  </BreadcrumbItem>
+  <BreadcrumbSeparator />
+  <BreadcrumbItem>
+    <BreadcrumbEllipsis />
+  </BreadcrumbItem>
+  <BreadcrumbSeparator />
+  <BreadcrumbItem>
+    <BreadcrumbPage>Current</BreadcrumbPage>
+  </BreadcrumbItem>
+</BreadcrumbList>
+```
+
+### Props
+
+`Breadcrumb`:
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `divider` | `'slash' \| 'arrow' \| 'dot'` | `'slash'` | Provided to every `BreadcrumbSeparator` via context. Per-separator override available. |
+| `className` | `string` | — | Merged onto the outer `<nav>`. |
+
+`BreadcrumbLink` (extends `<a>` props):
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `asChild` | `boolean` | `false` | When true, slots the child element (typically Next.js `<Link>`) and merges classes + `data-slot` onto it. |
+
+Icons are passed as `children`. The primitive applies `[&_svg:not([class*='size-'])]:size-5` so lucide glyphs default to 20×20 (canonical DS), but callers can override by passing an explicit `size-*` class on the icon (e.g. `<Home className="size-4" />` for compact contexts like the `AppShell` topbar). Pass `aria-label` when an icon is the only visible child.
+
+`BreadcrumbPage` (extends `<span>` props): always rendered with `aria-current="page"` and the active typography (`text-foreground font-medium`); truncates to `max-w-[45vw] md:max-w-[60vw]` so long labels collapse gracefully.
+
+`BreadcrumbSeparator` (extends `<li>` props):
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `divider` | `'slash' \| 'arrow' \| 'dot'` | inherited from `Breadcrumb` context | Per-separator override; useful when a single separator needs a different glyph (e.g. emphasising a section break inside a long trail). |
+
+`BreadcrumbEllipsis` (extends `<span>` props) renders a `MoreHorizontal` lucide icon plus an `sr-only` "More" label; children replace the default icon when supplied.
+
+### MUST rules
+
+- Always wrap the items in `<BreadcrumbList>`; the outer `<nav aria-label="Breadcrumb">` is rendered by `Breadcrumb` itself — never replicate it manually.
+- The final item in the trail MUST be a `BreadcrumbPage` (not a `BreadcrumbLink`) so it carries `aria-current="page"`.
+- When `BreadcrumbLink` is rendered as icon-only (its only visible child is an icon), MUST pass an explicit `aria-label` to keep the link reachable for assistive tech.
+- Pass `asChild` whenever the destination should be routed through Next.js (or any client router) — never render a raw `<a>` styled as a breadcrumb outside of this primitive.
+- The auto-prepended Dashboard root in `AppShell` is owned by the shell; page-level `breadcrumb` metadata MUST NOT duplicate it. Pages declare `breadcrumb: [{ label: 'Customers', href: '/backend/customers' }, ...]` starting from the next level down.
+- For grouping levels with no route (categories, section headers), use `BreadcrumbStatic` — never `BreadcrumbPage` (it carries `aria-current="page"` which lies about the active page).
+- When rendering a `BreadcrumbEllipsis`, always pass an `aria-label` describing how many steps are collapsed; never ship a bare "More" icon without a labelled accessible name.
+- Always pass `title={label}` on `BreadcrumbLink` / `BreadcrumbStatic` / `BreadcrumbPage` carrying user-visible labels that can be long — the primitive truncates with ellipsis and the native `title` exposes the full text on hover.
 
 ---
 
@@ -2782,6 +3117,1634 @@ Toolbar atoms (`RichEditorIconButton`, `RichEditorTextDropdown`, `RichEditorDrop
 - Custom toolbar built over a raw `contentEditable` `<div>` → use `RichEditor variant='custom'` and compose `<RichEditorToolbar>` + `<RichEditorIconButton>` atoms.
 - Storing raw HTML straight from a third-party editor → always round-trip through `sanitizeHtmlRichText(...)` before persisting; the primitive sanitizes on mount and blur but the DB shouldn't accumulate stale unsafe tags.
 - Switching between markdown and rich text via `SwitchableMarkdownInput` for *new* fields → `SwitchableMarkdownInput` is `@deprecated`; new rich-text fields MUST use `RichEditor`.
+
+---
+
+## ScrollArea
+
+DS-styled scrollable container. Wraps Radix `ScrollArea` with token-driven thumb / track styling so scrollbars stay consistent across macOS / Windows / Linux instead of falling back to native OS chrome.
+
+```typescript
+import {
+  ScrollArea,
+  ScrollAreaRoot,
+  ScrollAreaViewport,
+  ScrollAreaScrollbar,
+  ScrollAreaThumb,
+  ScrollAreaCorner,
+} from '@open-mercato/ui/primitives/scroll-area'
+```
+
+### When to use
+
+Reach for `ScrollArea` whenever you'd otherwise write `<div className="overflow-auto …">`. The DS-styled thumb (`bg-muted-foreground/30`, `rounded-full`, hover state) is the canonical look — bare `overflow-auto` exposes OS-native scrollbars that drift visually across platforms.
+
+### Single-element API (90% case)
+
+```tsx
+<ScrollArea className="h-72">
+  <div className="p-4 space-y-2">
+    {longList.map((item) => <Row key={item.id} item={item} />)}
+  </div>
+</ScrollArea>
+```
+
+### Compound API (for custom layouts)
+
+```tsx
+<ScrollAreaRoot className="h-72">
+  <ScrollAreaViewport>{children}</ScrollAreaViewport>
+  <ScrollAreaScrollbar orientation="vertical">
+    <ScrollAreaThumb />
+  </ScrollAreaScrollbar>
+  <ScrollAreaCorner />
+</ScrollAreaRoot>
+```
+
+### Props (`<ScrollArea>` convenience wrapper)
+
+| Prop | Type | Default | Notes |
+|------|------|---------|-------|
+| `scrollbars` | `'vertical' \| 'horizontal' \| 'both'` | `'vertical'` | Which scrollbars to render. |
+| `className` | `string` | — | Applied to the `Root` element. Pass `h-…` / `w-…` here. |
+| `viewportClassName` | `string` | — | Applied to the inner `Viewport`. Use for padding inside the scroll area. |
+| `scrollbarClassName` | `string` | — | Applied to every `Scrollbar`. |
+| `thumbClassName` | `string` | — | Applied to every `Thumb`. |
+| All Radix `ScrollArea.Root` props | — | — | `dir`, `type`, `scrollHideDelay` etc. |
+
+### MUST rules
+
+- NEVER render `<div className="overflow-auto …">` when DS-styled scrollbars are wanted — use `ScrollArea`.
+- Always set a height (`className="h-72"` or `h-full`) on the `Root`. Without a constrained height the viewport has nothing to scroll.
+- Padding goes on the child inside the viewport, NOT on `Root` — padding on `Root` is clipped by `overflow-hidden`.
+- For horizontal-only carousels: pass `scrollbars="horizontal"` and set `whitespace-nowrap` on the inner row.
+
+### Notes
+
+- No dedicated Figma node — DS Open Mercato library did not ship a `ScrollArea` master component at the time this primitive was authored. Styling is inferred from DS scrollbar token decisions used elsewhere.
+- Built on `@radix-ui/react-scroll-area`. Scrollbar visibility is layout-driven (Radix only mounts the thumb when content overflows). jsdom unit tests cannot exercise scroll behaviour — coverage lives in visual / integration tests instead.
+
+---
+
+## ButtonGroup
+
+Joined / connected buttons sharing a common outer border, per Figma `Button Group [1.1]`. Use for **related actions** on the same row (Save / Save & New / overflow ellipsis) or compact view-mode toggles (List / Grid). For mutually-exclusive *selection* states (only one selected) use `SegmentedControl` instead.
+
+```typescript
+import { ButtonGroup, buttonGroupVariants } from '@open-mercato/ui/primitives/button-group'
+```
+
+### When to use
+
+- **ButtonGroup**: related-but-distinct actions on the same row. Each child does something different.
+- **SegmentedControl** (separate primitive): mutually-exclusive view state. Only one child is "selected" at a time.
+- **Toolbar** (`Page` toolbar / `DataTable` actions row): independent actions that don't share a border. Use plain `Button` siblings with `gap-2`.
+
+### Sizes
+
+| Size | Outer radius | Maps to Figma | Use with child Button size |
+|---|---|---|---|
+| `2xs` | `rounded-sm` (6px) | 2X-Small (24) | `2xs` (h-7) — toolbar-density rows |
+| `sm` | `rounded-md` (8px) | X-Small (32) | `sm` (h-8) — dense compositions |
+| `default` (default) | `rounded-md` (8px) | Small (36) | `default` (h-9) — standard rows |
+
+### Orientation
+
+| Value | Layout | Internal separator |
+|---|---|---|
+| `horizontal` (default) | `flex-row` | `border-r` between siblings |
+| `vertical` | `flex-col` | `border-b` between siblings |
+
+### Usage
+
+```tsx
+// Horizontal — related actions
+<ButtonGroup>
+  <Button variant="outline">Save</Button>
+  <Button variant="outline">Save & New</Button>
+  <IconButton variant="outline" aria-label="More"><MoreHorizontal /></IconButton>
+</ButtonGroup>
+
+// Vertical — stacked stepper actions
+<ButtonGroup orientation="vertical" size="sm">
+  <IconButton variant="outline" aria-label="Move up"><ChevronUp /></IconButton>
+  <IconButton variant="outline" aria-label="Move down"><ChevronDown /></IconButton>
+</ButtonGroup>
+
+// Compact (2xs) — toolbar
+<ButtonGroup size="2xs">
+  <Button variant="ghost" size="2xs">All</Button>
+  <Button variant="ghost" size="2xs">Active</Button>
+  <Button variant="ghost" size="2xs">Archived</Button>
+</ButtonGroup>
+```
+
+### MUST rules
+
+1. **Every child MUST share the same *height* as the group.** Heights differ between `Button` and `IconButton` for the same `size` prop (DS asymmetry — see [packages/ui/AGENTS.md → Same-row size consistency](../packages/ui/AGENTS.md)). The matching pairs are:
+
+   | Group size | Button child size | IconButton child size | Pixel height |
+   |---|---|---|---|
+   | `default` | `default` (h-9) | `lg` (size-9) | 36px |
+   | `sm` | `sm` (h-8) | `default` (size-8) | 32px |
+   | `2xs` | `2xs` (h-7) | `sm` (size-7) | 28px |
+
+   `<ButtonGroup>` + `<IconButton>` without explicit `size="lg"` is the most common mistake — IconButton defaults to `size-8` (32px) while ButtonGroup defaults to 36px (matching Button default), leaving a 4px gap and a visible white strip at the bottom of the IconButton segment.
+
+2. **NEVER mix `variant`s inside one group** unless intentional. Same-row visual coherence requires the same variant on every child (typically `outline` or `ghost`).
+3. **NEVER add `className="rounded-md"` on children** — the wrapper strips child corners on purpose. Adding back rounds re-introduces double corners.
+4. **NEVER use ButtonGroup for selection state.** Use `SegmentedControl` — it carries `value` / `onValueChange` + the iOS-segmented indicator slide.
+5. **Wrap with `aria-label`** when the group's purpose is not obvious from children: `<ButtonGroup aria-label="View mode">`.
+
+### Anti-patterns
+
+```tsx
+// WRONG — mixed sizes break the joined visual
+<ButtonGroup>
+  <Button size="default">A</Button>
+  <Button size="sm">B</Button>
+</ButtonGroup>
+
+// WRONG — IconButton default (size-8 = 32px) inside a default group
+// (36px). 4px white strip at the bottom of the icon segment.
+<ButtonGroup>
+  <Button>Save</Button>
+  <IconButton aria-label="More"><MoreHorizontal /></IconButton>
+</ButtonGroup>
+
+// CORRECT — IconButton size="lg" matches Button default (both h-9 / 36px)
+<ButtonGroup>
+  <Button>Save</Button>
+  <IconButton size="lg" aria-label="More"><MoreHorizontal /></IconButton>
+</ButtonGroup>
+
+// WRONG — using ButtonGroup for view toggle (use SegmentedControl)
+<ButtonGroup>
+  <Button onClick={() => setView('all')}>All</Button>
+  <Button onClick={() => setView('active')}>Active</Button>
+</ButtonGroup>
+
+// WRONG — re-adding child corners
+<ButtonGroup>
+  <Button className="rounded-md">A</Button>
+  <Button>B</Button>
+</ButtonGroup>
+
+// CORRECT — view toggle via SegmentedControl
+<SegmentedControl value={view} onValueChange={setView}>
+  <SegmentedControlItem value="all">All</SegmentedControlItem>
+  <SegmentedControlItem value="active">Active</SegmentedControlItem>
+</SegmentedControl>
+```
+
+### Notes
+
+- Wrapper applies `[&>*]:rounded-none [&>*]:shadow-none [&>*]:border-0` and adds `border-r` / `border-b` between siblings via `[&>*:not(:last-child)]`. Children render normally but lose their own corners/shadow.
+- Wrapper carries the shared `shadow-xs`. Don't add per-child shadows.
+- Figma node: DS Open Mercato `Button Group [1.1]` (`componentKey: 3447dc22e79d714aded761678bcff3d8bd6221f0`). 3 sizes × 5 quantities × `Default | Hover | Active | Disabled` state per item. Item-level states (hover / active / disabled) come from the child `Button` itself — the wrapper does not own them.
+
+---
+
+## SegmentedControl
+
+iOS-style segmented selector for **mutually-exclusive view state** per Figma `Switch / Chart / Cryptocurrency` (DS Open Mercato `componentKey: 4fdcde6e834a674e7db86e3aa60d6b781377abb1`). Pill-shaped track with N items; exactly one selected at a time. Selecting a different item fires `onValueChange`.
+
+```typescript
+import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
+```
+
+### When to use
+
+- **SegmentedControl**: list filters ("All / Active / Archived"), chart period selectors (1D / 1W / 1M), layout toggles (List / Grid). The thing being switched changes the *view*, not the action.
+- **ButtonGroup** (separate primitive): related actions where each child does something different (Save / Save & New / overflow). NOT for selection.
+- **Tabs** (separate primitive): when each option swaps a content panel, not just a state filter. Tabs carry their own ARIA `tabpanel` contract.
+- **RadioGroup + Radio** (separate primitive): when the choice is part of a form (one of several options for a field), not chrome state.
+
+### API
+
+```tsx
+<SegmentedControl
+  value={view}                                  // current selected value
+  onValueChange={(next) => setView(next)}       // fires on selection change
+  size="sm" | "default"                         // optional, default "default"
+  disabled={false}                              // optional
+  aria-label="View filter"                      // recommended
+>
+  <SegmentedControlItem value="all">All</SegmentedControlItem>
+  <SegmentedControlItem value="active">Active</SegmentedControlItem>
+  <SegmentedControlItem value="archived">Archived</SegmentedControlItem>
+</SegmentedControl>
+```
+
+Built on Radix `RadioGroup` — inherits arrow-key navigation, roving tabindex, `role="radiogroup"` + `role="radio"` + `aria-checked` for free.
+
+### Sizes
+
+| Size | Track height | Item height | Item text | Use case |
+|---|---|---|---|---|
+| `default` (default) | `h-8` (32px) | `h-7` (28px) | `text-sm` | Standard toolbar density |
+| `sm` | `h-7` (28px) | `h-6` (24px) | `text-xs` | Tight rows, chart period selectors |
+
+### Usage
+
+```tsx
+// Filter on a list page
+const [status, setStatus] = React.useState('all')
+<SegmentedControl value={status} onValueChange={setStatus} aria-label="Status filter">
+  <SegmentedControlItem value="all">All</SegmentedControlItem>
+  <SegmentedControlItem value="active">Active</SegmentedControlItem>
+  <SegmentedControlItem value="archived">Archived</SegmentedControlItem>
+</SegmentedControl>
+
+// Chart period
+const [period, setPeriod] = React.useState('1M')
+<SegmentedControl value={period} onValueChange={setPeriod} size="sm" aria-label="Chart period">
+  <SegmentedControlItem value="1D">1D</SegmentedControlItem>
+  <SegmentedControlItem value="1W">1W</SegmentedControlItem>
+  <SegmentedControlItem value="1M">1M</SegmentedControlItem>
+  <SegmentedControlItem value="3M">3M</SegmentedControlItem>
+  <SegmentedControlItem value="1Y">1Y</SegmentedControlItem>
+</SegmentedControl>
+```
+
+### MUST rules
+
+1. **Always provide `aria-label`** on the root when the purpose isn't obvious from items (e.g. `1D / 1W / 1M` — no surrounding context tells a screen-reader user that this is a chart period).
+2. **NEVER use SegmentedControl as a tab navigation** that swaps content panels. Use `Tabs` for that — it ships the `tabpanel` contract.
+3. **Every item MUST have a unique `value`.** Duplicate values break Radix's keyboard navigation and selection state.
+4. **NEVER nest `Button` / `IconButton` inside `SegmentedControlItem`.** Radix RadioGroup.Item already provides a `<button>` — nesting another interactive element breaks ARIA.
+5. **`disabled` on the root cascades to every item** via Radix; do not pass `disabled` per-item unless intentionally locking a subset.
+
+### Anti-patterns
+
+```tsx
+// WRONG — selection via ButtonGroup (no selection semantics, no ARIA radio)
+<ButtonGroup>
+  <Button onClick={() => setView('all')}>All</Button>
+  <Button onClick={() => setView('active')}>Active</Button>
+</ButtonGroup>
+
+// WRONG — SegmentedControl swapping content panels (use Tabs)
+<SegmentedControl value={panel} onValueChange={setPanel}>
+  <SegmentedControlItem value="overview">Overview</SegmentedControlItem>
+  <SegmentedControlItem value="settings">Settings</SegmentedControlItem>
+</SegmentedControl>
+{panel === 'overview' && <OverviewPanel />}
+{panel === 'settings' && <SettingsPanel />}
+
+// CORRECT — Tabs for content panels
+<Tabs value={panel} onValueChange={setPanel}>
+  <TabsList>
+    <TabsTrigger value="overview">Overview</TabsTrigger>
+    <TabsTrigger value="settings">Settings</TabsTrigger>
+  </TabsList>
+  <TabsContent value="overview"><OverviewPanel /></TabsContent>
+  <TabsContent value="settings"><SettingsPanel /></TabsContent>
+</Tabs>
+```
+
+### Notes
+
+- Selected item raises with `bg-background` + `shadow-xs` over the muted `bg-muted/40` track — produces the iOS-segmented "slide thumb" effect via simple background swap (no JS animation).
+- Built on `@radix-ui/react-radio-group` (already installed via `Radio` primitive — no new dep).
+- Figma defines 5-item variants (1D / 1W / 1M / 3M / 1Y), but the primitive accepts any number of items. Width grows with content.
+- Underlying ARIA structure: `role="radiogroup"` on root, `role="radio"` + `aria-checked` on each item. Arrow keys move focus + selection between items (Radix default).
+
+---
+
+## Slider
+
+Numeric value selector — single value or two-thumb range. Built on `@radix-ui/react-slider`, which provides the slider ARIA contract (`role="slider"`, `aria-valuemin/max/now`, arrow / home / end keyboard navigation, RTL flip) without effort on our side.
+
+```typescript
+import { Slider } from '@open-mercato/ui/primitives/slider'
+```
+
+### When to use
+
+Use for **continuous numeric selection** — price-range filters, quantity selectors, opacity / brightness sliders, threshold knobs. The thumb count is derived from the length of `value` / `defaultValue`:
+
+- `value={[N]}` → single thumb (one number selected)
+- `value={[A, B]}` → two thumbs (range selected — `A <= B` enforced by Radix)
+
+For discrete categorical selection use `SegmentedControl` (selection) or `RadioGroup` (form field). For incrementing a single quantity by 1 step use `CounterInput` (Phase 3 primitive).
+
+### API
+
+```tsx
+<Slider
+  value={value}                                  // [number] or [number, number]
+  onValueChange={(next) => setValue(next)}       // fires while dragging
+  onValueCommit={(final) => save(final)}         // fires on release / blur (Radix)
+  min?={number}                                  // default 0
+  max?={number}                                  // default 100
+  step?={number}                                 // default 1
+  disabled?={boolean}
+  orientation?={'horizontal' | 'vertical'}       // default 'horizontal'
+  aria-label?={string}                           // recommended
+  // …all Radix Slider.Root props pass through
+/>
+```
+
+### Sizing
+
+The primitive ships a single visual size (Radix-driven track `h-1.5`, thumb `size-4`). Width is controlled by the `className`:
+
+```tsx
+<Slider value={value} onValueChange={setValue} className="w-64" />
+```
+
+For vertical sliders pass `orientation="vertical"` and constrain height via className (`className="h-48"`).
+
+### Usage
+
+```tsx
+// Single — opacity slider
+const [opacity, setOpacity] = React.useState([100])
+<Slider
+  value={opacity}
+  onValueChange={setOpacity}
+  min={0}
+  max={100}
+  step={5}
+  aria-label="Layer opacity"
+/>
+
+// Range — price filter
+const [range, setRange] = React.useState([10, 80])
+<Slider
+  value={range}
+  onValueChange={setRange}
+  min={0}
+  max={500}
+  step={10}
+  aria-label="Price range (USD)"
+/>
+
+// Display the current value next to the slider
+<div className="flex items-center gap-3">
+  <Slider value={[volume]} onValueChange={(next) => setVolume(next[0])} className="w-48" />
+  <span className="tabular-nums text-sm text-muted-foreground">{volume}%</span>
+</div>
+```
+
+### MUST rules
+
+1. **`value` MUST be an array**, even for a single thumb. `<Slider value={[42]}>` — not `<Slider value={42}>`. Radix expects array shape; passing a scalar breaks the thumb-count derivation.
+2. **Always provide `aria-label`** when the slider's purpose isn't obvious from surrounding context. Without it, screen-readers announce only the numeric value.
+3. **NEVER use Slider for discrete categorical selection.** Use `SegmentedControl` (selection state) or `RadioGroup` (form field).
+4. **For "save on release" semantics**, listen on `onValueCommit`, not `onValueChange`. `onValueChange` fires every drag tick — wiring an API call there spams the server.
+5. **Always constrain width via className** on horizontal sliders. The Radix root defaults to `w-full` and consumes the entire row otherwise.
+
+### Anti-patterns
+
+```tsx
+// WRONG — scalar value, Radix expects array
+<Slider value={42} onValueChange={(next) => setV(next)} />
+
+// WRONG — saving via onValueChange (fires hundreds of times during drag)
+<Slider value={[v]} onValueChange={(next) => api.save({ value: next[0] })} />
+
+// CORRECT — local state on drag, persist on release
+<Slider
+  value={[v]}
+  onValueChange={(next) => setV(next[0])}
+  onValueCommit={(final) => api.save({ value: final[0] })}
+/>
+```
+
+### Notes
+
+- Anchored on Figma `Slider [1.1]` (DS Open Mercato componentSet id `2617:1169`). 5-variant component set parameterized by `Percentage` (0% / 25% / 50% / 75% / 100%) and Boolean props for Label / Sublabel / Tooltip. The standalone "Level Slider" entry elsewhere in the file is an emoji icon, not this primitive.
+- Track: `bg-muted` `h-1.5` `rounded-full` (Figma: 6px track height, `#EBEBEB` BG, fully-pill corner-radius 999). Selected range: `bg-accent-indigo` `rounded-full` (Figma: `#6366F1` indigo-500 — the DS OM `--accent-indigo` token, same value Radio uses for the checked state). Thumb: `size-4` (16px, Figma exact) outer ring is pure `bg-background` (NO border — Figma shows `fills: white, no strokes`), separation from the track comes from `shadow-sm` (hover → `shadow-md`). Inner 6×6 indigo dot rendered via `::after` so the entire thumb stays a single DOM node. Focus-visible → `shadow-focus`.
+- Built on `@radix-ui/react-slider` (new direct dep — added in the Slider commit). No transitive availability.
+
+### Labeled use (matches Figma `Label / (Optional) / value` row)
+
+The Figma source pairs the slider with a label row above it (label text + optional sublabel + current value, right-aligned). We compose this at the consumer level rather than baking it into the primitive — the primitive stays minimal so non-labeled use cases (filter rails, range bands) don't pay for unused chrome.
+
+```tsx
+<div className="space-y-1">
+  <div className="flex items-center justify-between text-sm">
+    <span className="text-muted-foreground">
+      Volume{' '}
+      <span className="text-muted-foreground/60">(Optional)</span>
+    </span>
+    <span className="tabular-nums text-muted-foreground">{value[0]}</span>
+  </div>
+  <Slider value={value} onValueChange={setValue} aria-label="Volume" />
+</div>
+```
+
+---
+
+## Rating
+
+1-to-N star / heart / dot rating widget. Two modes — read-only display (no `onChange`) and interactive input (`onChange` present). Anchored on Figma `Rating & Review [1.0]` (DS Open Mercato componentSet `199969:1797`, key `544eab9fbc72c0038c0a28b7ff27a93ab8c3c01a`).
+
+```typescript
+import { Rating } from '@open-mercato/ui/primitives/rating'
+```
+
+### Modes
+
+| Mode | Trigger | Rendered as | ARIA |
+|---|---|---|---|
+| **Read-only display** | No `onChange` prop | `<span role="img">` + N decorative spans | `aria-label` auto-falls back to `"{value} out of {max}"` |
+| **Interactive input** | `onChange` provided | `<span role="radiogroup">` + N `<button role="radio">` | Consumer SHOULD pass `aria-label` (e.g. `"Your rating"`) |
+
+### API
+
+```tsx
+<Rating
+  value={number}                            // 0..max; floats allowed when allowHalf
+  max={5}                                   // default 5
+  onChange={(next: number) => void}         // omit for read-only
+  size="sm" | "default" | "lg"              // default 'default' (size-5 = 20px)
+  icon="star" | "heart" | "circle"          // default 'star'
+  allowHalf={boolean}                       // default false; stars only
+  disabled={boolean}                        // false
+  aria-label={string}                       // required when interactive
+/>
+```
+
+### Sizes (matches Figma 20×20 default)
+
+| Size | Pixel | Use case |
+|---|---|---|
+| `sm` | `size-4` (16px) | Inline mentions, list rows |
+| `default` (default) | `size-5` (20px) | Product cards, feedback summaries (Figma source size) |
+| `lg` | `size-6` (24px) | Detail page header, hero review block |
+
+### Usage
+
+```tsx
+// Read-only — review average
+<Rating value={4.5} max={5} allowHalf />
+<span className="ml-2 text-sm text-muted-foreground">4.5 · 5.2K ratings</span>
+
+// Interactive — submit a rating
+const [v, setV] = React.useState(0)
+<Rating
+  value={v}
+  onChange={setV}
+  aria-label="Your rating for this product"
+  size="lg"
+/>
+
+// Heart variant — favourites strength
+<Rating value={3} max={5} icon="heart" />
+
+// Disabled
+<Rating value={3} max={5} onChange={() => {}} disabled aria-label="Locked rating" />
+```
+
+### MUST rules
+
+1. **Always provide `aria-label`** when `onChange` is supplied. Without it, screen-reader users only hear `"1 of 5", "2 of 5"` per button with no context for what is being rated.
+2. **NEVER use `allowHalf` with `icon="heart"` or `icon="circle"`** — Lucide ships `StarHalf` but no half-precision variants for heart / circle. Half values are silently rendered as full for those icons. Stick to stars when half precision matters.
+3. **For interactive ratings, render with `size="lg"`** when the rating is a primary form field (review submission). The default `size-5` is for read-only summaries; `size-6` matches typical "tap target" expectations on touch screens.
+4. **NEVER use `Rating` as a non-rating selector** (e.g. priority level, intensity). Reach for `SegmentedControl` (1-5 step picker), `Slider` (continuous numeric), or `RadioGroup` (form field). Rating's semantics are tied to "stars / hearts" — repurposing it confuses screen-readers.
+
+### Anti-patterns
+
+```tsx
+// WRONG — interactive Rating without aria-label (screen-reader: "1 of 5" with no context)
+<Rating value={v} onChange={setV} />
+
+// WRONG — half precision on heart (silently rounds up to full hearts)
+<Rating value={2.5} max={5} icon="heart" allowHalf />
+
+// WRONG — using Rating for priority level selection
+<Rating value={priority} onChange={setPriority} icon="circle" max={3} />
+
+// CORRECT — SegmentedControl for categorical
+<SegmentedControl value={priority} onValueChange={setPriority}>
+  <SegmentedControlItem value="low">Low</SegmentedControlItem>
+  <SegmentedControlItem value="medium">Medium</SegmentedControlItem>
+  <SegmentedControlItem value="high">High</SegmentedControlItem>
+</SegmentedControl>
+```
+
+### Notes
+
+- Color: `text-status-warning-icon` (`--status-warning-icon`, `oklch(0.666 0.179 58.318)` ≈ amber-600). Figma source uses `#F6B51E` (amber-400) but our DS token is the closest semantic equivalent and stays consistent with other warning-tier accents (status badges, alerts). Override per-call via `className` if a specific surface needs a custom hue.
+- Empty items: `text-muted-foreground/30` (washed-out grey outline).
+- Hover (interactive): items scale up via `enabled:hover:scale-110` for tactile feedback. No background change — keeps the visual minimal.
+- Keyboard navigation: ArrowRight / ArrowUp = increment, ArrowLeft / ArrowDown = decrement, Home = first position, End = last position. Step is `1` by default, `0.5` when `allowHalf`. Clamped at `0` and `max`.
+- Click precision when `allowHalf`: clicking the left half of an icon commits `index + 0.5`, the right half commits `index + 1` — matches the common review-form pattern.
+
+---
+
+## StepIndicator
+
+Multi-step progress indicator for wizards, onboarding flows, checkout funnels. Discrete steps with labels and visual state per step. Distinct from `Progress` (continuous 0-100%) — StepIndicator is **discrete** ("Step 2 of 5") and carries per-step labels.
+
+```typescript
+import { StepIndicator, type StepIndicatorStep } from '@open-mercato/ui/primitives/step-indicator'
+```
+
+### When to use
+
+- **StepIndicator**: discrete multi-step flow with named stages (onboarding, checkout, multi-page form). Past steps show as complete, current shows as active, future as pending.
+- **Progress** (separate primitive): continuous progress (download %, upload %, job completion). Single number.
+- **Tabs** (separate primitive): user-driven content swap with no progression semantics.
+- **SegmentedControl** (separate primitive): mutually-exclusive view state with no ordering / progression.
+
+### Step model
+
+```typescript
+type StepIndicatorStep = {
+  id: string                                    // stable id, returned by onStepClick
+  label: string                                 // primary label
+  description?: string                          // optional sub-text
+  status: 'pending' | 'current' | 'complete' | 'error'
+}
+```
+
+### API
+
+```tsx
+<StepIndicator
+  steps={steps}                                 // StepIndicatorStep[]
+  orientation="horizontal" | "vertical"         // default 'horizontal'
+  size="sm" | "default"                         // dot size; default 'default' (size-8)
+  onStepClick={(id) => void}                    // optional — flips into interactive
+  clickableStatuses={['complete', 'current']}   // default; widens with prop
+/>
+```
+
+### Visual states
+
+| Status | Dot | Label | Use |
+|---|---|---|---|
+| `pending` | outline circle (`border-muted-foreground/30`, transparent bg, no glyph) | `text-muted-foreground` | Future step |
+| `current` | solid `bg-accent-indigo` (Figma `#6366F1`), no glyph | `text-foreground` + `font-medium` | Active step (carries `aria-current="step"`) |
+| `complete` | solid `bg-status-success-icon` (Figma `#16A34A`) + white Check icon | `text-muted-foreground` | Past step |
+| `error` | solid `bg-status-error-icon` + white X icon | `text-status-error-text` + `font-medium` | Extension beyond Figma — failed sub-step |
+
+### Connectors
+
+| Orientation | Between items | Source |
+|---|---|---|
+| `horizontal` | **ChevronRight icon** (`text-muted-foreground/50`, `size-4`) — matches Figma `arrow-right-s-line` between every pair of items | `Step Indicator Horizontal [1.1]` |
+| `vertical` | **No connector** — each item is its own pill (`rounded-lg` + bg per state). Active item additionally shows a trailing `ChevronRight` as the "you are here" cue. | `Step Indicator Vertical Items [1.1]` |
+
+### Sizes
+
+| Size | Dot | Use case |
+|---|---|---|
+| `default` (default) | `size-5` (20px — Figma source) | Full-page wizards, checkout shells |
+| `sm` | `size-4` (16px) | Side-panel wizards, narrow drawers |
+
+### Usage
+
+```tsx
+const steps: StepIndicatorStep[] = [
+  { id: 'account',  label: 'Account',  status: 'complete', description: 'Email verified' },
+  { id: 'profile',  label: 'Profile',  status: 'current',  description: 'Tell us about you' },
+  { id: 'review',   label: 'Review',   status: 'pending' },
+]
+
+// Read-only horizontal — typical wizard header
+<StepIndicator steps={steps} />
+
+// Vertical — side panel / mobile
+<StepIndicator steps={steps} orientation="vertical" />
+
+// Click-back navigation — only completed / current steps are clickable
+<StepIndicator steps={steps} onStepClick={(id) => router.push(`/wizard/${id}`)} />
+
+// Wider click target — also allow pending (useful for "preview" wizards)
+<StepIndicator
+  steps={steps}
+  onStepClick={(id) => goTo(id)}
+  clickableStatuses={['complete', 'current', 'pending']}
+/>
+
+// Error state — failed sub-step
+const failedSteps: StepIndicatorStep[] = [
+  { id: 'pay', label: 'Payment', status: 'complete' },
+  { id: 'ship', label: 'Shipping', status: 'error', description: 'Address rejected' },
+  { id: 'done', label: 'Done', status: 'pending' },
+]
+<StepIndicator steps={failedSteps} />
+```
+
+### MUST rules
+
+1. **Exactly one step SHOULD carry `status: 'current'`** at a time. Multiple "current" steps confuse the visual hierarchy and the `aria-current="step"` semantic.
+2. **NEVER use StepIndicator for a flat tab navigation.** Use `Tabs` — StepIndicator implies ordering / progression that's not present in tabs.
+3. **`error` status must point to the step that actually failed.** Don't paint *every* downstream step as `error` — leave them `pending` so the user knows recovery is possible.
+4. **For interactive variants, pin `clickableStatuses` to what makes sense.** `['complete']` for "review past steps", `['complete', 'current']` (default) for typical wizards, `['complete', 'current', 'pending']` only when the user can legitimately jump forward.
+5. **Pass meaningful `id`s** — they're returned by `onStepClick` and used as the React key. Don't reuse them across renders if the step's identity changes.
+
+### Notes
+
+- Anchored on Figma DS Open Mercato component sets:
+  - Horizontal — `Step Indicator Horizontal [1.1]` (`3507:28`) + items `Step Indicator Horizontal Items [1.1]` (`3505:3498`)
+  - Vertical — `Step Indicator Vertical [1.1]` (`3507:227`) + items `Step Indicator Vertical Items [1.1]` (`3507:190`)
+- Figma source defines **three** states (Default / Active / Completed). `'error'` is an extension beyond the source — Figma does not model it, but real product surfaces (failed checkout step, rejected workflow step) need one, so the primitive ships it. Renders parallel to `'complete'` (solid status-error fill + white X glyph).
+- Horizontal connector is a `ChevronRight` lucide icon — matches Figma `arrow-right-s-line` between every item pair. NOT a line.
+- Vertical layout: every item is its own pill (`rounded-lg` + bg). Active item flips to `bg-background` + `ring-1 ring-border` (raises above the muted siblings); past + future items sit on `bg-muted/40`. The active item adds a trailing `ChevronRight` cue per Figma's "Active" variant.
+- Active dot color is `bg-accent-indigo` (same `#6366F1` token used by `Slider`, `Radio` checked, etc.) — keeps the "you are here" signal consistent across primitives.
+- Built without Radix — single component, plain `<ol>` / `<li>` markup. Accessibility comes from `aria-current="step"` on the current dot + `aria-orientation` on the list.
+
+---
+
+## ColorPicker
+
+Swatch + hex color selection. Click trigger → popover with grid of recommended colors + optional hex input. Anchored on Figma `Color Picker [1.1]` (DS Open Mercato componentKey `037353153a0ac1898322da4c20ceb88d2cb3d78a`).
+
+```typescript
+import {
+  ColorPicker,
+  COLOR_PICKER_DEFAULT_SWATCHES,
+  normalizeHex,
+} from '@open-mercato/ui/primitives/color-picker'
+```
+
+### Layout (Figma 1:1)
+
+The picker renders a 4-section vertical stack inside the popover, matching the Figma source frame (316×334, `rounded-xl`, white surface, 1px border, dividers between sections):
+
+| # | Section | Contents |
+|---|---|---|
+| 1 | **Choose color** | Section title + current hex (right-aligned, muted) + pill hue slider (full rainbow gradient, draggable white thumb). |
+| 2 | **Hex input + Eyedropper** | Inline color preview + hex text field + standalone eyedropper button (Sip). Hidden when `allowCustom={false}`. |
+| 3 | **Saved colors** | Section title + row of swatch dots (24×24 wrapper, 16×16 dot inside). Selected dot carries the Figma 2px inset white ring. |
+| 4 | **Add new color** *(optional)* | Footer button with `+` icon that fires `onAddSwatch(currentValue)`. Only rendered when consumers pass an `onAddSwatch` callback. |
+
+No 2D HSV spectrum, no opacity slider, no RGB / HSL format dropdown — those belong to a heavier picker layout that isn't this DS source.
+
+### When to use
+
+- **ColorPicker**: tag colors, category branding, brand-color configuration, custom-field color metadata. Any case where the value space is "any color, but here are sensible defaults".
+- Static brand swatches with no picker UI: render a row of `<Tag>` or coloured `<Badge>` — don't lean on ColorPicker for read-only display.
+- Theme switching (light / dark / system): `SegmentedControl` — categorical, NOT free-form hex.
+
+### API
+
+```tsx
+<ColorPicker
+  value="#RRGGBB"                              // controlled value, 6-digit hex (3-digit accepted on input + expanded)
+  onChange={(next: string) => void}            // fires on swatch click + hue drag + valid hex commit
+
+  // Swatches palette — pick ONE of these three modes:
+  swatches={readonly string[]}                 // (1) CONTROLLED — consumer owns the list, primitive never mutates
+  defaultSwatches={readonly string[]}          // (2) UNCONTROLLED initial value; defaults to COLOR_PICKER_DEFAULT_SWATCHES
+  persistKey={string}                          // (3) UNCONTROLLED + auto-persist to localStorage[persistKey]
+                                               //     Buttons appear automatically — no callbacks needed.
+
+  onAddSwatch={(next: string) => void}         // optional notification callback (fires in every mode)
+  onRemoveColor={(current: string) => void}    // optional notification callback (fires in every mode)
+  onEditSavedColors={() => void}               // optional; renders "Edit" link in the saved-colors header
+  showOpacity={boolean}                        // default false; renders "100%" badge inside the hex container
+  allowCustom={boolean}                        // default true; hex input visibility
+  enableEyedropper={boolean}                   // default true; auto-hides when browser lacks EyeDropper API
+  size="sm" | "default"                        // trigger height; default 'default' (h-9)
+  disabled={boolean}
+  aria-label={string}                          // recommended
+
+  // Optional copy overrides:
+  chooseLabel="Choose color"
+  savedLabel="Saved colors"
+  addLabel="Add new color"
+  editLabel="Edit"
+  removeAriaLabel="Remove color"
+/>
+```
+
+### Palette state modes
+
+| Mode | Trigger | Storage | Add / Remove buttons |
+|---|---|---|---|
+| **Static** | no `swatches`, no `persistKey` | in-memory, `defaultSwatches` only | hidden (read-only palette) |
+| **Controlled** | `swatches` prop provided | consumer's `useState` / API | rendered only when consumer wires `onAddSwatch` / `onRemoveColor` |
+| **Persisted** | `persistKey` prop provided | `localStorage[persistKey]` (auto-save) | rendered automatically; callbacks optional |
+
+The persisted mode is the simplest path to a "save / load" UX:
+
+```tsx
+const [color, setColor] = React.useState('#6366F1')
+<ColorPicker
+  value={color}
+  onChange={setColor}
+  persistKey="tag-colors"                        // hydrates + auto-saves
+  defaultSwatches={['#6366F1', '#22C55E', '#EF4343']}  // initial palette if storage is empty
+  showOpacity
+/>
+```
+
+Reload the page — saved colors stay. Switch to **controlled mode** only when you need server persistence, dedup logic, or a shared palette across users.
+
+### Managed-palette UX (Figma full set)
+
+To replicate the full Figma `Color Picker` UX (palette management surface), use either persisted or controlled mode plus `showOpacity` + `onEditSavedColors`:
+
+```tsx
+// Persisted (simplest)
+const [color, setColor] = React.useState('#EE2121')
+<ColorPicker
+  value={color}
+  onChange={setColor}
+  persistKey="tag-colors"
+  defaultSwatches={['#FFFFFF', '#F5F5F5', '#6366F1']}
+  showOpacity
+  onEditSavedColors={() => openManageDialog()}
+/>
+
+// Controlled (when you need server persistence)
+const [palette, setPalette] = React.useState<string[]>(['#FFFFFF', '#F5F5F5', '#6366F1'])
+<ColorPicker
+  value={color}
+  onChange={setColor}
+  swatches={palette}
+  showOpacity
+  onAddSwatch={(next) =>
+    setPalette((prev) =>
+      prev.includes(next.toUpperCase()) ? prev : [...prev, next.toUpperCase()],
+    )
+  }
+  onRemoveColor={(current) =>
+    setPalette((prev) => prev.filter((c) => c.toUpperCase() !== current.toUpperCase()))
+  }
+  onEditSavedColors={() => openManageDialog()}
+/>
+```
+
+Result (matches Figma 1:1):
+
+- **Section 2** — hex container shows `[● bullet] [#EE2121] [100%]`, followed by a separate **trash** button.
+- **Section 3** — `"Saved colors"` label + an **"Edit"** link on the right.
+- **Section 4** — `"+ Add new color"` footer.
+
+### Default palette
+
+`COLOR_PICKER_DEFAULT_SWATCHES` mirrors the Figma `Color Dots [1.1]` component set (DS OM `3365:22464`) 1:1 — 10 brand-curated colors:
+
+```ts
+['#71777C', // Gray
+ '#6366F1', // Blue (= DS OM accent-indigo)
+ '#F59E0B', // Orange
+ '#EF4343', // Red
+ '#22C55E', // Green
+ '#F6B51E', // Yellow (= Rating amber)
+ '#7D52F3', // Purple
+ '#47C2FF', // Sky
+ '#FB4BA3', // Pink
+ '#22D3BB', // Teal
+]
+```
+
+### Swatch states (matches Figma `Color Dots [1.1]` 4-state variant)
+
+| State | Visual | Trigger |
+|---|---|---|
+| **Default** | 16×16 color fill, no inner ring | Idle |
+| **Hover** | Same color, dot shrinks to 14×14 (`scale-[0.875]` transform) | Mouse over (enabled only) |
+| **Selected** | Same color + **2px inset white ring** on the dot (`ring-2 ring-inset ring-background`) | `value` matches the swatch hex |
+| **Disabled** | `opacity-50` on the wrapper button — color stays visible so the user can still see which swatch is locked | `disabled` prop on `<ColorPicker>` |
+
+The Selected state uses a *white inner ring* (inset shadow on the dot) rather than an outer foreground outline — the outer outline drifts on dark themes and clips against the popover border. Inner ring is the canonical Figma look.
+
+### Usage
+
+```tsx
+// Default — 8 Figma swatches + hex input
+const [color, setColor] = React.useState('#6366F1')
+<ColorPicker value={color} onChange={setColor} aria-label="Tag color" />
+
+// Domain-specific palette (e.g. status colors)
+<ColorPicker
+  value={color}
+  onChange={setColor}
+  swatches={['#22C55E', '#F59E0B', '#EF4343']}
+  allowCustom={false}
+/>
+
+// As a CrudForm field
+<FormField label="Brand color">
+  <ColorPicker value={form.brandColor} onChange={(v) => setForm({ ...form, brandColor: v })} />
+</FormField>
+```
+
+### MUST rules
+
+1. **`value` MUST be a `#RRGGBB` hex** (or any string `normalizeHex()` can parse — `#RGB`, `RRGGBB` without prefix). The primitive normalises to upper-case `#RRGGBB` on every commit.
+2. **`onChange` only fires for valid hex.** Invalid hex input renders an inline error and is NOT committed. Consumers don't have to validate.
+3. **Provide `aria-label`** when the field's purpose isn't obvious — the trigger only announces its hex code by default.
+4. **NEVER use `style={{ backgroundColor: value }}`** on a DS surface to render a "color preview" outside ColorPicker — use a small `<span style={{ backgroundColor }}>` inside a `Tag`/`Badge` wrapper. Brand colors on UI chrome are an anti-pattern; the picker is for *data*.
+5. **For locked palettes (no free-form input), set `allowCustom={false}`** — without this, the hex field is shown and a user can drift outside your palette.
+
+### Anti-patterns
+
+```tsx
+// WRONG — value drift; the picker normalises to upper-case
+const [color, setColor] = React.useState('#abcdef')
+useEffect(() => api.save(color), [color])   // stable: ColorPicker normalises to '#ABCDEF' on commit
+
+// WRONG — validating hex outside; ColorPicker already gates onChange
+<ColorPicker value={v} onChange={(next) => {
+  if (!/^#[0-9A-F]{6}$/i.test(next)) return  // dead code — primitive guarantees valid hex
+  setV(next)
+}} />
+
+// CORRECT
+<ColorPicker value={v} onChange={setV} />
+```
+
+### Notes
+
+- Built on `@radix-ui/react-popover` (already installed via Popover primitive — no new dep). The hue slider is a vanilla `<input type="range">` with a CSS gradient track — no external color-picker library.
+- Selected swatch dot carries `aria-checked="true"` + a 2px **inset** white ring on the dot itself (Figma Selected state — NOT an outer outline).
+- Hex input is fully controlled, committed on blur + Enter. Escape reverts the field and closes the popover. Invalid hex shows an inline `text-status-error-text` message — no toast / flash needed.
+- 3-digit hex (`#FAB`) auto-expanded to 6-digit (`#FFAABB`) on commit.
+- Hue slider commits a *pure saturated* color (`hsl(hue, 100%, 50%)`). To pick a desaturated or darker shade, type the hex directly. The full 2D HSV spectrum + opacity slider is intentionally NOT part of this primitive's Figma source — those would belong to a separate "advanced color picker" primitive in a future release.
+- Eyedropper uses the browser's `window.EyeDropper` API (Chromium-based — Chrome, Edge, Opera, Brave). On Firefox / Safari / older browsers the button auto-hides; the rest of the picker keeps working.
+- "Saved colors" semantics: the `swatches` list is read-only from the primitive's perspective. To support a user-editable palette, pair `swatches` with `onAddSwatch(color)` — the consumer owns the storage / persistence and decides whether new entries are appended, deduped, etc.
+
+---
+
+## Pagination
+
+Page navigation primitive per Figma `Pagination Group [1.1]` (DS Open Mercato componentSet `199985:4135`). Layout: `[Page X of Y]  [⏮ ◀ pages ▶ ⏭]  [N / page]`.
+
+```typescript
+import { Pagination, buildPaginationItems } from '@open-mercato/ui/primitives/pagination'
+```
+
+### When to use
+
+- **List views without DataTable** — search result pages, portal lists, ad-hoc list surfaces that need page navigation. The `DataTable` primitive keeps its own internal pager for now; migrating it to use `Pagination` is a follow-up. Reach for `Pagination` directly when you're building a list outside DataTable.
+- **Portal pages** — pair with `DataTable` (which already paginates) only when you need a non-DataTable list. The portal-safe prop subset of DataTable is documented separately in `packages/ui/AGENTS.md`.
+
+### API
+
+```tsx
+<Pagination
+  page={number}                                  // 1-indexed
+  pageSize={number}
+  total={number}                                 // total item count
+  onPageChange={(next: number) => void}
+  onPageSizeChange={(next: number) => void}      // optional; hides the "X / page" select when omitted
+  pageSizeOptions={readonly number[]}            // default [10, 25, 50, 100]
+
+  showInfo={boolean}                             // default true  — "Page X of Y" on the left
+  showPageSize={boolean}                         // default true (when onPageSizeChange is set)
+  showFirstLast={boolean}                        // default true — ⏮ / ⏭ buttons
+  showPrevNext={boolean}                         // default true — ◀ / ▶ buttons
+  siblingCount={number}                          // default 1 — pages on either side of current
+  boundaryCount={number}                         // default 1 — pages pinned at each end
+  disabled={boolean}
+  aria-label={string}                            // default "Pagination"
+
+  // Optional copy overrides:
+  formatPageInfo={(page, totalPages) => string}        // default `"Page ${p} of ${t}"`
+  formatPageSizeLabel={(size) => string}                // default `"${size} / page"`
+/>
+```
+
+### Layout (matches Figma `Pagination Group [1.1]` Basic variant)
+
+| Slot | Position | Content | Toggle |
+|---|---|---|---|
+| Info | left | `"Page X of Y"` | `showInfo` |
+| First | center | `⏮` button | `showFirstLast` |
+| Prev | center | `◀` button | `showPrevNext` |
+| Pages | center | `[1][2][3]…[N-1][N]` cells with ellipsis | always |
+| Next | center | `▶` button | `showPrevNext` |
+| Last | center | `⏭` button | `showFirstLast` |
+| Page size | right | `"N / page"` CompactSelect | `showPageSize` + `onPageSizeChange` |
+
+### Ellipsis algorithm
+
+The page list uses the standard MUI / shadcn pattern: `boundaryCount` pages at each end (default 1), `siblingCount` pages on either side of the current (default 1). When the gap between a boundary and a sibling is:
+
+- **0 or 1 pages** → render the single missing page number (cleaner than `"…"`).
+- **≥2 pages** → render an `"…"` ellipsis placeholder.
+
+Defaults at `siblingCount=1, boundaryCount=1` give 7 visible slots: `1 … 4 5 6 … 10`. Bump `siblingCount=2` for `1 … 3 4 5 6 7 … 10` (9 slots) when the list is wide enough.
+
+```tsx
+import { buildPaginationItems } from '@open-mercato/ui/primitives/pagination'
+
+// Useful for SSR list previews or analytics:
+buildPaginationItems(5, 20, 1, 1)
+// → [1, 'ellipsis-left', 4, 5, 6, 'ellipsis-right', 20]
+```
+
+### Usage
+
+```tsx
+// Basic — full layout
+const [page, setPage] = React.useState(1)
+const [pageSize, setPageSize] = React.useState(25)
+<Pagination
+  page={page}
+  pageSize={pageSize}
+  total={items.length}
+  onPageChange={setPage}
+  onPageSizeChange={setPageSize}
+/>
+
+// Compact — no first/last, no page-size select
+<Pagination
+  page={page}
+  pageSize={20}
+  total={120}
+  onPageChange={setPage}
+  showFirstLast={false}
+  showPageSize={false}
+/>
+
+// Read-only at boundaries — buttons auto-disable on page 1 and last page
+
+// Custom copy for localisation
+<Pagination
+  page={page}
+  pageSize={pageSize}
+  total={500}
+  onPageChange={setPage}
+  formatPageInfo={(p, t) => t('pagination.info', { page: p, total: t })}
+  formatPageSizeLabel={(s) => t('pagination.size', { size: s })}
+/>
+```
+
+### MUST rules
+
+1. **`page` is 1-indexed.** Page 1 is the first, page `Math.ceil(total / pageSize)` is the last. Passing 0 or a value beyond the last page silently clamps to the valid range — the primitive doesn't fire `onPageChange` for a no-op clamp.
+2. **Always pass `total`, not `totalPages`.** The primitive derives total pages from `total / pageSize`. This way a `pageSize` change recomputes correctly even when the caller forgets to compensate.
+3. **Hide `showPageSize` when you don't accept page-size changes.** The select renders only when `onPageSizeChange` is wired AND `showPageSize !== false`. If you set the prop to `true` without the callback, the select still hides — explicit safety.
+4. **NEVER use Pagination as a stepper** (e.g. "Step 2 of 5" in a wizard). Use `StepIndicator` — it carries labels per step and the `aria-current="step"` semantic.
+5. **Provide an `aria-label`** when the page belongs to a specific list (e.g. `"Customers pagination"`) — screen readers announce it as the landmark's name. The default `"Pagination"` is fine for a single-list page.
+
+### Anti-patterns
+
+```tsx
+// WRONG — passing totalPages instead of total
+<Pagination page={1} pageSize={10} total={Math.ceil(items.length / 10)} ... />
+
+// WRONG — using Pagination for a wizard
+<Pagination page={currentStep} pageSize={1} total={5} onPageChange={goToStep} />
+
+// CORRECT — wizard via StepIndicator
+<StepIndicator steps={wizardSteps} onStepClick={goToStepId} />
+```
+
+### Notes
+
+- Anchored on Figma `Pagination Group [1.1]` (componentSet `199985:4135`). Cell 32×32, `rounded-lg`, white default bg, `bg-muted` (`#F7F7F7`) when selected. Nav buttons same 32×32 frame, muted-foreground icon.
+- Built without Radix — single component with semantic `<nav>` + `<ol>` markup. ARIA: `nav[aria-label]` landmark, `button[aria-current="page"]` on the current page cell, `aria-label="First/Previous/Next/Last page"` on the nav buttons.
+- The page-size select uses the existing `CompactSelect` + `CompactSelectTrigger` primitives (size `xs`, h-7) — matches Figma's right-aligned "X / page" dropdown.
+- DataTable currently keeps its internal pager — migrating DataTable to use `Pagination` is a follow-up tracked in `.ai/specs/2026-05-13-ds-foundation-v5.md` § Out of scope. Use `Pagination` directly for any list outside DataTable.
+
+---
+
+## Drawer
+
+Side-sheet that slides in from `right` (default), `left`, `top`, or `bottom`. Built on `@radix-ui/react-dialog` so we inherit Dialog's full ARIA contract (`role="dialog"`, `aria-modal`, focus trap, `Escape` to close, outside-click dismiss) for free.
+
+```typescript
+import {
+  Drawer,
+  DrawerTrigger,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerDescription,
+  DrawerBody,
+  DrawerFooter,
+  DrawerClose,
+} from '@open-mercato/ui/primitives/drawer'
+```
+
+### Drawer vs Dialog
+
+| | `Drawer` | `Dialog` |
+|---|---|---|
+| Feel | Contextual / non-blocking | Modal / focused |
+| Position | Slides from a viewport edge | Centered |
+| Use for | Detail panes, secondary forms, mobile menus, "more details" | Confirmations, critical forms, full-content workflows |
+| Animation | Slide in/out from a side | Fade + scale |
+
+Both share the underlying Radix Dialog, the same `Cmd/Ctrl+Enter` submit + `Escape` cancel keyboard contract, and the same focus-trap semantics. Pick `Drawer` when the user should still see the page chrome behind them.
+
+### Compound API
+
+```tsx
+<Drawer open={open} onOpenChange={setOpen} side="right">
+  <DrawerTrigger asChild>
+    <Button>Edit</Button>
+  </DrawerTrigger>
+  <DrawerContent>                       {/* default side="right" */}
+    <DrawerHeader>
+      <DrawerTitle>Edit person</DrawerTitle>
+      <DrawerDescription>Update the contact info.</DrawerDescription>
+    </DrawerHeader>
+    <DrawerBody>
+      {/* scrollable content */}
+    </DrawerBody>
+    <DrawerFooter>
+      <DrawerClose asChild>
+        <Button variant="ghost">Cancel</Button>
+      </DrawerClose>
+      <Button>Save</Button>
+    </DrawerFooter>
+  </DrawerContent>
+</Drawer>
+```
+
+### Sides
+
+| `side` | Slot | Default size | Use case |
+|---|---|---|---|
+| `right` (default) | `inset-y-0 right-0` | `w-full max-w-md` (~420px) | Detail panes, edit forms — the most common case |
+| `left` | `inset-y-0 left-0` | `w-full max-w-md` | Navigation drawers, mobile menus |
+| `top` | `inset-x-0 top-0` | `max-h-[80vh]` | Notification banners, quick filters |
+| `bottom` | `inset-x-0 bottom-0` | `max-h-[80vh]` | Mobile action sheets, command palette |
+
+### Compound slots
+
+| Slot | Purpose | Notes |
+|---|---|---|
+| `DrawerTrigger` | Opens the drawer. Use `asChild` to wrap any clickable. | Radix passthrough |
+| `DrawerContent` | The panel itself. Accepts `side`, `hideCloseButton`, `closeAriaLabel`. | Auto-renders the top-right close button unless `hideCloseButton` is set. Inner-edge rounded (`rounded-l-2xl` for right, etc.) per Figma. |
+| `DrawerHeader` | Title + Description block. Accepts optional `leading` slot. | Right-padded (`pr-14`) so the close button doesn't overlap the title. No chrome border — per Figma `Drawer Header [1.1]`. |
+| `DrawerBody` | The body. `overflow-y-auto` + `flex-1` so it fills free space and scrolls if content exceeds height. | Content drives its own section dividers — no chrome borders from the Drawer. |
+| `DrawerFooter` | Action row at the bottom. Accepts `layout` (`default` / `equal`) and optional `leading` slot. | No chrome border — per Figma `Drawer Footer [1.1]`. Place primary action LAST per platform convention. |
+| `DrawerTitle` | Wraps Radix's Title for ARIA. | Required for `aria-labelledby` wiring |
+| `DrawerDescription` | Wraps Radix's Description for ARIA. | Required for `aria-describedby` wiring |
+| `DrawerClose` | Dismiss button. Use `asChild` to wrap any clickable. | Radix passthrough |
+
+### Header — `leading` slot
+
+Matches Figma `Drawer Header [1.1]` variants 2 + 4 (icon-prefixed title). Renders the node inside a `size-10 rounded-full border` badge to the left of the title block.
+
+```tsx
+<DrawerHeader leading={<Clock className="size-4" />}>
+  <DrawerTitle>Activity log</DrawerTitle>
+  <DrawerDescription>Last 30 days of customer activity.</DrawerDescription>
+</DrawerHeader>
+```
+
+Pass a `lucide-react` icon at `size-4` for the canonical look. The badge inherits `text-muted-foreground` so the icon color resolves correctly without extra Tailwind classes.
+
+### Footer — layouts
+
+Matches Figma `Drawer Footer [1.1]` variants 1–6.
+
+| `layout` | Visual | When to use |
+|---|---|---|
+| `default` (default) | Right-aligned buttons. Optional `leading` slot anchors left. | The standard pattern — Cancel + Save on the right, optional "Don't show again" / "Remember me" / link button on the left. |
+| `equal` | All children stretched to share the row equally (50/50 for two buttons). | Confirmation-flow shape per Figma variant 1 — full-width Cancel + Continue. Use when both buttons carry equal visual weight. |
+
+```tsx
+// Default — right-aligned, optional leading slot
+<DrawerFooter
+  leading={
+    <CheckboxField checked={dontShow} onCheckedChange={setDontShow}>
+      Don&apos;t show again
+    </CheckboxField>
+  }
+>
+  <DrawerClose asChild><Button variant="outline">Cancel</Button></DrawerClose>
+  <Button>Continue</Button>
+</DrawerFooter>
+
+// Equal — 50/50 stretched
+<DrawerFooter layout="equal">
+  <DrawerClose asChild><Button variant="outline">Cancel</Button></DrawerClose>
+  <Button>Continue</Button>
+</DrawerFooter>
+```
+
+`layout="equal"` is mutually exclusive with `leading` — Figma never combines the two (the 50/50 split is a confirmation-flow shape and the leading slot belongs to the right-aligned variant family).
+
+### MUST rules
+
+1. **Every Drawer MUST include `DrawerTitle`** even when visually hidden — Radix uses it for `aria-labelledby`. Wrap with `sr-only` if you need to hide it.
+2. **`Cmd/Ctrl+Enter` + `Escape` keyboard contract** — Drawer inherits these from Radix Dialog. Don't intercept them on form children without forwarding.
+3. **Place primary action LAST in `DrawerFooter`** — matches platform convention (Save on right, Cancel on left).
+4. **NEVER nest Drawer inside Dialog** (or vice versa). Both compete for focus trap and overlay z-index, leading to broken keyboard nav.
+5. **For long forms in DrawerBody, use `CrudForm`** — it handles validation + scroll behavior + `Cmd+Enter` submit. Don't hand-roll `<form>` markup inside `DrawerBody`.
+
+### Anti-patterns
+
+```tsx
+// WRONG — no DrawerTitle = broken aria-labelledby
+<Drawer open={open} onOpenChange={setOpen}>
+  <DrawerContent>
+    <DrawerBody>{children}</DrawerBody>
+  </DrawerContent>
+</Drawer>
+
+// CORRECT — visually hidden Title for accessibility
+<Drawer open={open} onOpenChange={setOpen}>
+  <DrawerContent>
+    <DrawerHeader>
+      <DrawerTitle className="sr-only">Edit details</DrawerTitle>
+    </DrawerHeader>
+    <DrawerBody>{children}</DrawerBody>
+  </DrawerContent>
+</Drawer>
+
+// WRONG — primary action on the left of the footer
+<DrawerFooter>
+  <Button>Save</Button>
+  <DrawerClose asChild><Button variant="ghost">Cancel</Button></DrawerClose>
+</DrawerFooter>
+
+// CORRECT — primary action LAST
+<DrawerFooter>
+  <DrawerClose asChild><Button variant="ghost">Cancel</Button></DrawerClose>
+  <Button>Save</Button>
+</DrawerFooter>
+```
+
+### Notes
+
+- Figma source: DS Open Mercato `Drawer` page (`486:7366`) — `Drawer Header [1.1]` (`3187:2897`) and `Drawer Footer [1.1]` (`4096:21416`) plus assembled examples (`167124:24738`, `167124:24794`, `167124:24859`, ...).
+- Built on `@radix-ui/react-dialog` (Radix Dialog under the hood). `@radix-ui/react-dialog` was promoted from transitive to a direct dep of `packages/ui` in the v5 A.10 CommandMenu commit.
+- **Overlay:** `bg-foreground/40 backdrop-blur-sm` — page chrome stays visible-but-dimmed behind the drawer.
+- **Content panel:** `bg-background shadow-2xl` + rounded corners on the inner (viewport-facing) edges only. Per Figma there is NO border on the seam — the rounded corners + the shadow do the visual separation work. Resulting classes by side: `rounded-l-2xl` (right), `rounded-r-2xl` (left), `rounded-b-2xl` (top), `rounded-t-2xl` (bottom).
+- **No chrome dividers** between Header / Body / Footer. Section separators inside the body (e.g. "ELIGIBILITY CRITERIA" labels) come from content composition, not from the Drawer primitive.
+- Default `max-w-md` (~420px) for right/left works well for forms; pass `className="max-w-2xl"` on `DrawerContent` for wider detail panes.
+- Auto-rendered top-right close button (`X` icon, `size-8`, muted-foreground, hover bg `muted/40`). Use `hideCloseButton` when the body provides its own dismissal (e.g. a Save/Cancel footer alone).
+
+---
+
+## CommandMenu
+
+Cmd+K spotlight palette — modal launcher hosted in a Radix Dialog overlay with `cmdk` powering auto-filter on input. Use for navigation across the whole app ("Go to Customers", "Open settings"), quick actions (Create deal, Switch organization), or universal search.
+
+### Import
+
+```typescript
+import {
+  CommandMenu,
+  CommandMenuTrigger,
+  CommandMenuContent,
+  CommandMenuInput,
+  CommandMenuList,
+  CommandMenuEmpty,
+  CommandMenuGroup,
+  CommandMenuItem,
+  CommandMenuSeparator,
+  CommandMenuFooter,
+} from '@open-mercato/ui/primitives/command-menu'
+```
+
+### Compound API
+
+| Slot | Role |
+|---|---|
+| `CommandMenu` | Root (Radix Dialog). Controlled via `open` / `onOpenChange`, or uncontrolled via `defaultOpen`. |
+| `CommandMenuTrigger` | Optional anchor button. Most apps open the palette via `⌘K` keyboard shortcut and skip the trigger. |
+| `CommandMenuContent` | Centered overlay card. Renders through Portal, includes overlay, `cmdk` root, and an auto SR-only `DialogTitle` ("Command menu" by default — override via `title`). |
+| `CommandMenuInput` | Leading magnifier + input + trailing `⌘K` kbd. When the user types, the kbd is replaced by a × clear button. |
+| `CommandMenuList` | Scrollable list container (`max-h-[420px]`). |
+| `CommandMenuEmpty` | Fallback when no items match the current query. |
+| `CommandMenuGroup` | Labelled section. Optional trailing "see all" action: pass `actionLabel` + `onAction`. |
+| `CommandMenuItem` | Selectable row. Supports `leading`, `description`, `shortcut` (overrides chevron). |
+| `CommandMenuSeparator` | Visual divider between groups. |
+| `CommandMenuFooter` | Bottom bar with default shortcut hints (↑/↓ Navigate, ↵ Select). Optional `helpSlot` for a right-side link. |
+
+### Usage
+
+```tsx
+const [open, setOpen] = React.useState(false)
+
+React.useEffect(() => {
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      setOpen((o) => !o)
+    }
+  }
+  window.addEventListener('keydown', onKey)
+  return () => window.removeEventListener('keydown', onKey)
+}, [])
+
+<CommandMenu open={open} onOpenChange={setOpen}>
+  <CommandMenuContent>
+    <CommandMenuInput placeholder="Search HR tools or press..." />
+    <CommandMenuList>
+      <CommandMenuEmpty>No results found.</CommandMenuEmpty>
+
+      <CommandMenuGroup heading="Tools & Apps" actionLabel="See all" onAction={() => router.push('/apps')}>
+        <CommandMenuItem
+          value="monday.com"
+          leading={<img src="/logos/monday.svg" className="size-5" />}
+          onSelect={() => open('https://monday.com')}
+        >
+          Monday.com
+        </CommandMenuItem>
+        <CommandMenuItem value="loom" leading={<img src="/logos/loom.svg" className="size-5" />}>
+          Loom
+        </CommandMenuItem>
+      </CommandMenuGroup>
+
+      <CommandMenuSeparator />
+
+      <CommandMenuGroup heading="Employees">
+        <CommandMenuItem
+          value="james brown"
+          leading={<Avatar size="sm" label="James Brown" />}
+          description="Engineer at Aurora"
+        >
+          James Brown
+        </CommandMenuItem>
+      </CommandMenuGroup>
+    </CommandMenuList>
+    <CommandMenuFooter helpSlot={<a href="/help" className="underline">Any problem? Contact</a>} />
+  </CommandMenuContent>
+</CommandMenu>
+```
+
+### Auto-filter behaviour
+
+`cmdk` filters items automatically based on the `value` prop of each `CommandMenuItem` and the current input query. Set `value` to a stable lowercase string that captures what the user might type (e.g. `value="james brown engineer"` for fuzzier matches). Pass `commandProps={{ shouldFilter: false }}` to disable internal filtering when you have your own server-side search wired to `onValueChange`.
+
+### Leading slot patterns
+
+| Visual | What to pass |
+|---|---|
+| Brand logo / app icon | `<img src="/logos/monday.svg" className="size-5 rounded-sm" />` |
+| Country flag | `<img src="/flags/us.svg" className="size-5 rounded-full" />` |
+| User avatar | `<Avatar size="sm" label="James Brown" />` |
+| Generic icon | `<Search className="size-4 text-muted-foreground" />` |
+| Filled-circle icon | `<div className="size-6 rounded-full bg-accent-indigo flex items-center justify-center"><Spotify className="size-3 text-white" /></div>` |
+
+The slot is a `size-6` flex box that centers the leading content — pass any element, the wrapper handles alignment.
+
+### MUST rules
+
+- NEVER hand-roll a `<Dialog>` + `<input>` + `<div>` list for command palettes — use `CommandMenu` so keyboard nav (`↑/↓`, `↵`), focus trap, and ESC dismissal stay consistent across the app.
+- NEVER omit the `value` prop on `CommandMenuItem` — `cmdk` filters on `value`, not `children`. Without it the item won't be selectable by typing.
+- NEVER use `CommandMenuItem` for navigation links rendered via Next.js `<Link>` — pass an `onSelect` handler instead, then call `router.push(...)`. `<Link>` swallows `cmdk`'s keyboard activation.
+- Wire `⌘K` (mac) / `Ctrl+K` (win) at the surface that hosts the palette — the primitive doesn't bind shortcuts globally so multiple palettes can coexist.
+- Keep group headings concise (1–2 words). The trailing "see all" action button overlays the heading row — long headings will collide.
+- For server-side search (`shouldFilter: false`), debounce `onValueChange` on the input and load groups async; render `<CommandMenuEmpty>Loading…</CommandMenuEmpty>` while pending.
+
+### Notes
+
+- Figma source: DS Open Mercato `Command Menu` page (`4152:24764`) — Search Input [1.1] (`4187:559`), Items [1.1] (`4171:15653`), Footer [1.1] (`4172:16590`).
+- Built on `cmdk` (`Command`, `Command.Input`, `Command.List`, `Command.Group`, `Command.Item`, `Command.Separator`, `Command.Empty`) hosted inside `@radix-ui/react-dialog`. Inherits dialog ARIA + focus trap.
+- Item hover/selection background: `data-[selected=true]:bg-muted/40`. Chevron auto-shows on selected items (overrides to `opacity-100`). Pass `shortcut={...}` to swap the chevron for a keyboard hint.
+- Description renders below the label in `text-xs text-muted-foreground`. Both label + description are `truncate`-ed.
+- Footer hints render `↑ ↓ Navigate / ↵ Select` Kbd row by default. Override via `hints` prop. `helpSlot` is right-aligned and suitable for a "Contact" link.
+- Test pattern: jsdom does not implement `Element.scrollIntoView` (used by `cmdk` on selection change). Add `Element.prototype.scrollIntoView = () => {}` once at the top of the test file.
+
+---
+
+## ActivityFeed
+
+Chronological actor-action timeline — one entry per user action with optional inline objects (file chip, status chip) or indented attachment rows (file chip list, comment card, status pill row). Use for detail-pane "Activity" sections, audit trails, customer-interaction logs.
+
+### Import
+
+```typescript
+import {
+  ActivityFeed,
+  ActivityFeedItem,
+  ActivityFeedFileChip,
+  ActivityFeedComment,
+  ActivityFeedStatusChip,
+} from '@open-mercato/ui/primitives/activity-feed'
+```
+
+### Compound API
+
+| Slot | Role |
+|---|---|
+| `ActivityFeed` | Root `<ol>` list. `flex flex-col gap-3` so entries stack with a comfortable vertical rhythm. |
+| `ActivityFeedItem` | Single entry. Slots: `avatar` (left, `size-7` recommended), `title` (ReactNode — actor + verb + inline object), `timestamp` (rendered as muted suffix text, no separator glyph), `actions` (right slot for kebab IconButton), and `children` (indented attachment / comment / status row below the title). |
+| `ActivityFeedFileChip` | Paperclip + filename + size + optional download button. Used either inline in the title or in the indented attachment row. |
+| `ActivityFeedComment` | Comment card with leading speech-bubble icon + body + optional `onReply` link. Renders as a child of `ActivityFeedItem` (indented attachment style). |
+| `ActivityFeedStatusChip` | Semantic status pill (`success` / `warning` / `info` / `error` / `neutral`). Icon color comes from the status token; chip surface stays neutral so the icon carries the visual weight (matches Figma `Task Status Items [1.1]`). |
+
+### Usage — inline status pattern
+
+```tsx
+<ActivityFeed>
+  <ActivityFeedItem
+    avatar={<Avatar label="Juma Omondi" size="sm" />}
+    title={
+      <>
+        Juma Omondi{' '}
+        <span className="text-muted-foreground font-normal">submitted for audit review</span>{' '}
+        <ActivityFeedStatusChip status="info">Pending review</ActivityFeedStatusChip>
+      </>
+    }
+    timestamp="5 days ago"
+    actions={
+      <IconButton variant="ghost" size="sm" aria-label="More">
+        <MoreHorizontal />
+      </IconButton>
+    }
+  />
+</ActivityFeed>
+```
+
+### Usage — indented attachment pattern
+
+```tsx
+<ActivityFeed>
+  <ActivityFeedItem
+    avatar={<Avatar label="Wei Chen" size="sm" />}
+    title={
+      <>
+        Wei Chen{' '}
+        <span className="text-muted-foreground font-normal">uploaded</span>{' '}
+        <strong>Q2 financial report</strong>
+      </>
+    }
+    timestamp="4 min ago"
+    actions={
+      <IconButton variant="ghost" size="sm" aria-label="More"><MoreHorizontal /></IconButton>
+    }
+  >
+    <ActivityFeedFileChip name="apex-report.pdf" size="4mb" onDownload={() => download('apex-report.pdf')} />
+    <ActivityFeedFileChip name="appendix.pdf" size="2mb" onDownload={() => download('appendix.pdf')} />
+  </ActivityFeedItem>
+
+  <ActivityFeedItem
+    avatar={<Avatar label="Laura Perez" size="sm" />}
+    title={
+      <>
+        Laura Perez{' '}
+        <span className="text-muted-foreground font-normal">requested changes</span>{' '}
+        <ActivityFeedStatusChip status="error">Needs revision</ActivityFeedStatusChip>
+      </>
+    }
+    timestamp="6 days ago"
+  >
+    <ActivityFeedComment onReply={() => openReplyComposer(commentId)}>
+      Please revise the risk metrics and review portfolio allocations.
+    </ActivityFeedComment>
+  </ActivityFeedItem>
+</ActivityFeed>
+```
+
+### `ActivityFeedStatusChip` — status tokens
+
+| `status` | Icon | Tone |
+|---|---|---|
+| `success` | `CheckCircle2` | `text-status-success-icon` |
+| `warning` | `AlertTriangle` | `text-status-warning-icon` |
+| `info` (default in DS task pills) | `Clock` | `text-status-info-icon` |
+| `error` | `XCircle` | `text-status-error-icon` |
+| `neutral` (default) | `Clock` | `text-muted-foreground` |
+
+Pass a custom `icon` slot to override the auto status icon (e.g. a brand mark for "approved by integration X" entries).
+
+### MUST rules
+
+- NEVER hand-roll a `<ul>` + `<li>` + avatar + timestamp layout for activity logs — use `ActivityFeed`/`ActivityFeedItem`. Every detail page used to roll its own and they all drifted on padding, timestamp formatting, kebab button size.
+- `title` is a `ReactNode`, not a plain string — that is intentional. Mix bold actor names with `<span className="text-muted-foreground font-normal">verb</span>` and inline chips (`ActivityFeedFileChip` / `ActivityFeedStatusChip`) to match Figma's "Lena Muller added document 📎 financial-report.pdf, 3 days ago" pattern.
+- Place `<MoreHorizontal>` inside `<IconButton variant="ghost" size="sm" aria-label="More">` for the `actions` slot. Mixing `default`/`icon` `IconButton` sizes inside the timeline breaks vertical alignment (root AGENTS.md size-row rule).
+- Format `timestamp` with the project's existing `formatRelativeTime()` helper — don't recompute relative-time strings inline.
+- Use `Avatar size="sm"` (28px) for entry avatars. Larger sizes break the title baseline alignment.
+- For "X and Y others did Z" style aggregation, render a single `ActivityFeedItem` with an inline `AvatarStack` in the title slot — don't render N separate items.
+- For activity logs that need pagination, wrap the list in a parent `<div>` and render `Pagination` after `</ActivityFeed>`. The primitive itself is bare list markup.
+
+### Notes
+
+- Figma source: DS Open Mercato `Activity Feed` page (`164611:26451`) — `Activity Feed [1.1]` (`166035:46833`, 5 entry variants), `Activity Feed File Items [1.1]` (`165967:4028`), `Activity Feed Comment Items [1.1]` (`166017:612`), `Activity Feed Task Status Items [1.1]` (`166035:47290`). Assembled example: `166707:8700` (audit-trail style).
+- The primitive does NOT render the surrounding "Activity" title or the horizontal separator from the Figma assembled example — those are page-chrome decisions. Consumers wrap `<ActivityFeed>` with their own `<h2>` + `<Separator />` where needed.
+- The primitive does NOT include a built-in comment composer. The composer is a separate concern — use `Textarea` + `Button` (or a dedicated comment component once one ships).
+- File / Comment / Status chips are intentionally compact — they fit either inline in the title row OR in the indented row below. The same chip primitive serves both contexts.
+- The Item's `children` slot wraps in `flex-wrap gap-2` so multiple chips (file + file, status + status, ...) line-break naturally on narrow viewports.
+
+---
+
+## NotificationFeed
+
+Bell-icon inbox panel — the dropdown that opens when the user clicks the bell affordance in the app shell. Each entry is a self-contained notification card with an icon badge, headline + body + timestamp, optional inline action buttons (Approve / Deny / file chip / reply preview), and a hover-revealed kebab menu. Distinct from `Notification` (single toast in the top-right stack) and from `ActivityFeed` (chronological audit log scoped to one entity).
+
+### Import
+
+```typescript
+import {
+  NotificationFeed,
+  NotificationFeedHeader,
+  NotificationFeedList,
+  NotificationFeedItem,
+  NotificationFeedFooter,
+  NotificationFeedIconBadge,
+} from '@open-mercato/ui/primitives/notification-feed'
+```
+
+### Compound API
+
+| Slot | Role |
+|---|---|
+| `NotificationFeed` | Root card. `rounded-2xl border border-input bg-background shadow-lg overflow-hidden`. |
+| `NotificationFeedHeader` | Top row. Optional `title` prop + children slot for actions (settings cog, "Mark all as read" link, etc.). Bordered bottom. |
+| `NotificationFeedList` | `<ol>` list with `divide-y divide-input` so items auto-separate without per-item borders. |
+| `NotificationFeedItem` | Single entry. Slots: `icon` (left, typically `NotificationFeedIconBadge`), `title` (bold), `body` (muted), `timestamp` (smaller muted), `actions` (right slot, hover-revealed), `children` (indented content). Booleans: `unread` (renders indigo dot beside the title). Callbacks: `onClick` (makes the whole row a clickable button with hover bg + Enter/Space activation). |
+| `NotificationFeedFooter` | Bottom row. Bordered top. Free-form children — typical content: a full-width Archive All button OR keyboard-hint + settings link. |
+| `NotificationFeedIconBadge` | Helper for the leading icon: `size-10 rounded-full` with semantic tint. `tone="indigo" \| "success" \| "warning" \| "error" \| "info" \| "brand" \| "neutral"`. Default tone `indigo`, default size `default` (size-10). `size="sm"` shrinks to size-8 for denser lists. |
+
+### Usage
+
+```tsx
+<NotificationFeed>
+  <NotificationFeedHeader title="Notifications">
+    <IconButton variant="ghost" size="sm" aria-label="Settings">
+      <Settings />
+    </IconButton>
+  </NotificationFeedHeader>
+
+  <NotificationFeedList>
+    <NotificationFeedItem
+      icon={
+        <NotificationFeedIconBadge tone="indigo">
+          <UserPlus className="size-5" />
+        </NotificationFeedIconBadge>
+      }
+      title="New Lead Generated"
+      body="John Smith submitted web form"
+      timestamp="10 minutes ago"
+      unread
+      onClick={() => router.push('/leads/123')}
+      actions={
+        <IconButton variant="ghost" size="sm" aria-label="More">
+          <MoreHorizontal />
+        </IconButton>
+      }
+    />
+
+    <NotificationFeedItem
+      icon={
+        <NotificationFeedIconBadge tone="warning">
+          <Target className="size-5" />
+        </NotificationFeedIconBadge>
+      }
+      title="Campaign Milestone"
+      body="Black Friday campaign hit 150% target"
+      timestamp="3 days ago"
+      onClick={() => router.push('/campaigns/123')}
+    >
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); deny() }}>
+          Deny
+        </Button>
+        <Button size="sm" onClick={(e) => { e.stopPropagation(); approve() }}>
+          Approve
+        </Button>
+      </div>
+    </NotificationFeedItem>
+  </NotificationFeedList>
+
+  <NotificationFeedFooter>
+    <Button variant="outline" className="w-full" onClick={archiveAll}>
+      Archive all
+    </Button>
+  </NotificationFeedFooter>
+</NotificationFeed>
+```
+
+### Icon badge tones
+
+Matches Figma `Notifications Items [1.1]` assembled examples. Surface is a soft `tone/10` background; icon carries the semantic color directly (no white-on-color or color-on-color).
+
+| `tone` | Background tint | Icon color |
+|---|---|---|
+| `indigo` (default) | `bg-accent-indigo/10` | `text-accent-indigo` |
+| `success` | `bg-status-success-icon/10` | `text-status-success-icon` |
+| `warning` | `bg-status-warning-icon/10` | `text-status-warning-icon` |
+| `error` | `bg-status-error-icon/10` | `text-status-error-icon` |
+| `info` | `bg-status-info-icon/10` | `text-status-info-icon` |
+| `brand` | `bg-brand-violet/10` | `text-brand-violet` |
+| `neutral` | `bg-muted` | `text-muted-foreground` |
+
+### MUST rules
+
+- NEVER hand-roll the bell-dropdown inbox markup — use `NotificationFeed`. The existing `Notification` primitive is for the top-right toast STACK only; this primitive is for the persistent inbox PANEL.
+- For row-level navigation, ALWAYS pass `onClick` instead of wrapping `<NotificationFeedItem>` in a `<Link>` — the primitive auto-wires `role="button"`, `tabIndex`, Enter/Space activation, and a focus-visible affordance. Wrapping in `<Link>` doubles the click area and breaks focus management.
+- When the `actions` slot fires a callback, call `event.stopPropagation()` so the action click doesn't bubble up to the row's `onClick`. The primitive's wrapper already stops propagation at the wrapper level, but if you nest dropdown menus the menu items must also stop propagation explicitly.
+- Use `NotificationFeedIconBadge` for the leading slot. Hand-rolling a `<div className="size-10 rounded-full bg-X/10">...</div>` drift on padding, ring color, and icon centering — the primitive's `inline-flex shrink-0 items-center justify-center` keeps every variant aligned.
+- Format `timestamp` with the project's `formatRelativeTime()` helper.
+- For "Mark all as read" / "Archive all" affordances: header → "Mark all as read" link button; footer → full-width "Archive all" Button. Don't mix the two locations.
+- For tab filters ("All" / "Mentions" / "Unread"): wrap `<NotificationFeed>` in a `<Tabs>` container — the primitive itself ships no tab UI. Figma `Notifications Tab Menu [1.1]` is a separate variant covered by the existing `Tabs` primitive.
+
+### Notes
+
+- Figma source: DS Open Mercato `Notifications` page (`4096:21398`) — `Notifications Items [1.1]` (`4308:731`, 4 designs × 2 states), `Notifications Header [1.1]` (`4308:1004`), `Notifications Footer [1.1]` (`4308:5526`), `Notifications Tab Menu [1.1]` (`4349:46656`). Assembled examples: `166926:7047` (bell dropdown), `166926:7088`, `166926:7114`, `166926:7138`.
+- Item layout per Figma: icon badge (left, size-10) + stacked title/body/timestamp + hover-revealed kebab (right). On hover the row gets `bg-muted/40` and the kebab fades in via `group-hover:opacity-100`.
+- Items separate via `divide-y` on the parent `<ol>` — no per-item border styling.
+- The primitive's footer is intentionally bare. The Figma examples ship two distinct footer designs: full-width "Archive All" button OR a navigation hint row with `↑ ↓ to navigate` Kbd shortcuts + a "Manage Notification" link on the right. Consumers compose whichever fits.
+- Tests: 13 smoke tests cover root card chrome, header title + actions, item slots (title + body + timestamp without separator glyph), unread dot gating, icon + indented children, `onClick` wires Enter/Space/click, action click stops propagation, footer slot, all 7 IconBadge tones, badge default `tone="indigo"` + size, `size="sm"` variant, className forwarding.
+
+---
+
+## Progress / CircularProgress
+
+Determinate progress indicators — `Progress` for linear bars (job percentage, file upload, onboarding), `CircularProgress` for compact ring dials (KPI cards, upload thumbnails, sprint completion).
+
+### Import
+
+```typescript
+import { Progress, CircularProgress } from '@open-mercato/ui/primitives/progress'
+```
+
+### `Progress` — linear bar
+
+Backward-compatible with the original `<Progress value={n} max={100} className="..." />` API. The Phase B rewrite adds optional `size`, `tone`, `label`, `showValue`, `description`, and `fillClassName` props — all additive.
+
+```tsx
+// Bare bar (original API — still works verbatim)
+<Progress value={50} />
+
+// Sizes
+<Progress value={50} size="sm" />   // h-1
+<Progress value={50} />              // h-2 (default)
+<Progress value={50} size="lg" />   // h-3
+
+// Tones per Figma `Progress Bar Line [1.1]`
+<Progress value={42} tone="accent" />       // bg-accent-indigo (default)
+<Progress value={42} tone="success" />      // bg-status-success-icon
+<Progress value={42} tone="warning" />      // bg-status-warning-icon
+<Progress value={42} tone="destructive" />  // bg-status-error-icon
+<Progress value={42} tone="muted" />        // bg-muted-foreground
+
+// Labelled variant per Figma `Progress Bar Label [1.1]`
+<Progress
+  value={80}
+  label="Data Storage"
+  showValue
+  description="Upgrade to unlock unlimited storage."
+/>
+
+// Custom fill via fillClassName (e.g. brand gradient)
+<Progress
+  value={50}
+  fillClassName="bg-gradient-to-r from-brand-violet to-accent-indigo"
+/>
+```
+
+### `CircularProgress` — ring dial
+
+```tsx
+<CircularProgress value={75} />                       // size="default" (48px)
+<CircularProgress value={75} size="xs" />             // 24px — inline use
+<CircularProgress value={75} size="sm" />             // 32px — list-row use
+<CircularProgress value={75} size="lg" />             // 64px — KPI card hero
+
+// Center percentage badge
+<CircularProgress value={75} showValue />
+
+// Custom center content (replaces the percentage)
+<CircularProgress value={3} max={7} showValue>
+  3/7
+</CircularProgress>
+
+// Same tone palette as linear
+<CircularProgress value={42} tone="success" showValue />
+```
+
+### Size + tone tokens
+
+| `size` (Progress) | Track height |
+|---|---|
+| `sm` | `h-1` (4px) |
+| `default` | `h-2` (8px) |
+| `lg` | `h-3` (12px) |
+
+| `size` (CircularProgress) | Box | Stroke |
+|---|---|---|
+| `xs` | 24px | 3px |
+| `sm` | 32px | 3px |
+| `default` | 48px | 4px |
+| `lg` | 64px | 5px |
+
+| `tone` | Fill (Progress) | Stroke (CircularProgress) |
+|---|---|---|
+| `accent` (default) | `bg-accent-indigo` | `stroke-accent-indigo` |
+| `success` | `bg-status-success-icon` | `stroke-status-success-icon` |
+| `warning` | `bg-status-warning-icon` | `stroke-status-warning-icon` |
+| `destructive` | `bg-status-error-icon` | `stroke-status-error-icon` |
+| `muted` | `bg-muted-foreground` | `stroke-muted-foreground` |
+
+Track on both: `bg-input` (Progress) / `stroke-input` (CircularProgress).
+
+### MUST rules
+
+- NEVER hand-roll `<div className="h-2 rounded-full bg-secondary"><div ... style={width}/></div>` for progress — use `Progress` so track + fill tokens stay aligned with the DS as the palette evolves.
+- For job-completion percentages (data sync, upload, queue worker), pass `tone="success"` only when the job has completed and `tone="destructive"` when it failed. While in flight stay at the `accent` default.
+- For "X of Y" counters where the center text is more informative than the percentage (e.g. `3/7 done`), use `CircularProgress` with custom `children` instead of the default `showValue` percentage.
+- The `value` prop is clamped to `[0, max]` — passing 200 / 100 renders 100% (won't overflow). Always pass `max` if the unit is not a percentage (e.g. `<Progress value={completed} max={total} />`).
+- Existing consumers that pass `className="h-2"` or `className="h-3"` keep working — `className` is appended via `cn()`, the default `size` (h-2) is overridden by a `h-N` in the className.
+- `Cmd+Enter` / `Escape` keyboard shortcuts: not applicable; this is a display primitive.
+
+### Notes
+
+- Figma source: DS Open Mercato `Progress Bar` page (`450:17758`) — `Progress Bar [1.1]` (`450:17821`), `Progress Bar Label [1.1]` (`515:3758`), `Progress Bar Line [1.1]` (`450:17810`, 5 tone variants), `Circular Progress Bar [1.1]` (`466:4652`).
+- Both primitives announce as `role="progressbar"` with `aria-valuenow` / `aria-valuemin` / `aria-valuemax`. `CircularProgress` adds `aria-label` defaulting to `${percentage}%`; override via the `ariaLabel` prop for richer labels (e.g. `"Sprint completion"`).
+- Phase B.1 rewrite — original `<Progress value={n} max={100} className="..." />` callable verbatim. The 3 existing call sites (`packages/ui/src/backend/NextStepCallout.tsx`, `packages/core/.../data_sync/.../runs/[id]/page.tsx`, `packages/sync-akeneo/.../akeneo-config/widget.client.tsx`) keep working without changes; the only visible delta is the colour (was `bg-primary` / black, now `bg-accent-indigo` per Figma) and the track tone (was `bg-secondary`, now `bg-input` — both muted greys, no contrast regression).
+- Tests: 18 smoke tests cover percentage clamping, custom `max`, all 3 sizes, all 5 tones, label / showValue / description slots, label-row omission when no slots, `fillClassName` override, `className` forwarding (+ CircularProgress dashoffset math, ariaLabel override, all 4 sizes, all 5 stroke tones, custom center children).
 
 ---
 
@@ -3496,3 +5459,196 @@ The following modules under `packages/ui/src/backend/inputs/` are kept as `@depr
   </Link>
 </IconButton>
 ```
+
+---
+
+## Badge
+
+**Source:** `packages/ui/src/primitives/badge.tsx`
+
+Inline pill for tagging, status, counts. CVA-based. New props in v5: `dot`, `removable`, `brand` variant, `size`.
+
+### Variants
+- `default` — primary fill
+- `secondary` — neutral fill
+- `destructive` — solid red + shadow (**BC-locked** per spec 2026-05-13-ds-foundation-v5.md; for soft error look use `error` instead)
+- `success` / `warning` / `info` / `error` / `neutral` — soft tinted (`status-*-bg`/`-text`)
+- `brand` — brand-violet tinted pill (for AI / saved-view contexts)
+- `outline` — bordered, foreground text
+- `muted` — muted bg + foreground
+
+### Props
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `variant` | one of above | `'default'` | Visual variant |
+| `size` | `'sm' \| 'default'` | `'default'` | Pill size |
+| `dot` | `boolean` | `false` | Leading status pip |
+| `removable` | `boolean` | `false` | Render trailing X-button |
+| `onRemove` | `() => void` | — | Handler for `removable` |
+
+### Usage
+```tsx
+<Badge variant="success" dot>Active</Badge>
+<Badge variant="brand" removable onRemove={() => {}}>Saved view</Badge>
+<Badge variant="destructive">Failed</Badge>
+```
+
+### Accessibility
+- Removable button has an `aria-label` derived from children
+- Status semantic conveyed via `variant`, never colour alone — pair with text or icon
+
+---
+
+## Dialog
+
+**Source:** `packages/ui/src/primitives/dialog.tsx`
+
+Modal dialog (Radix-based). v5 added a mobile bottom-sheet layout that automatically reflows to centred desktop modal above `sm` breakpoint.
+
+### Compound API
+- `Dialog` — root (Radix)
+- `DialogTrigger` — opens it (asChild-ready)
+- `DialogPortal` / `DialogOverlay` — portal + scrim
+- `DialogContent` — main surface
+- `DialogHeader` / `DialogTitle` / `DialogDescription` — header slots
+- `DialogFooter` / `DialogClose` — footer + cancel/close
+
+### Props (`DialogContent`)
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `size` | `'sm' \| 'default' \| 'lg' \| 'xl'` | `'default'` | Desktop max-width on `sm:` breakpoint |
+| `className` | `string` | — | Custom classes |
+
+Mobile (<640px): bottom-sheet (`fixed inset-x-0 bottom-0`, `rounded-t-xl`, `max-h-[90vh]`).
+Desktop (≥640px): centred modal (`sm:left-1/2 sm:top-1/2`, `sm:rounded-xl`, `sm:max-w-{size}`).
+
+### Usage
+```tsx
+<Dialog>
+  <DialogTrigger asChild><Button>Open</Button></DialogTrigger>
+  <DialogPortal>
+    <DialogOverlay />
+    <DialogContent size="lg">
+      <DialogHeader>
+        <DialogTitle>Confirm</DialogTitle>
+        <DialogDescription>Are you sure?</DialogDescription>
+      </DialogHeader>
+      <DialogFooter>
+        <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
+        <Button>Confirm</Button>
+      </DialogFooter>
+    </DialogContent>
+  </DialogPortal>
+</Dialog>
+```
+
+### Accessibility
+- Radix manages focus trap, `Esc`/overlay click to close, scroll lock
+- `DialogTitle` required for screen readers; pair with `DialogDescription` for context
+
+---
+
+## Separator
+
+**Source:** `packages/ui/src/primitives/separator.tsx`
+
+Horizontal or vertical rule between sections. New props in v5: `label` (inline divider text), `section` (semantic eyebrow above rule), `variant`.
+
+### Props
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `orientation` | `'horizontal' \| 'vertical'` | `'horizontal'` | Direction |
+| `variant` | `'default' \| 'subtle' \| 'strong'` | `'default'` | Visual weight |
+| `label` | `ReactNode` | — | Inline text centred in the rule (horizontal only) |
+| `section` | `ReactNode` | — | Eyebrow label above the rule (mono uppercase) |
+| `decorative` | `boolean` | `true` | Pass `false` when the rule conveys meaning (Radix prop) |
+
+### Usage
+```tsx
+<Separator />
+<Separator label="or" />
+<Separator section="Filters" />
+<Separator orientation="vertical" className="h-6" />
+```
+
+### Accessibility
+- Default `decorative` removes from a11y tree
+- For meaningful separators (e.g. between visually distinct landmarks), pass `decorative={false}`
+
+---
+
+## Tabs
+
+**Source:** `packages/ui/src/primitives/tabs.tsx`
+
+Tabbed navigation. v5 added `variant` and `orientation` props.
+
+### Compound API
+- `Tabs` — root (Radix), `value`/`defaultValue`/`onValueChange`
+- `TabsList` — visual list container
+- `TabsTrigger` — individual tab button
+- `TabsContent` — content panel per tab
+
+### Props (`Tabs`)
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `variant` | `'underline' \| 'pill' \| 'enclosed'` | `'underline'` | Visual style |
+| `orientation` | `'horizontal' \| 'vertical'` | `'horizontal'` | Layout direction |
+| `value` / `defaultValue` / `onValueChange` | — | — | Controlled / uncontrolled (Radix) |
+
+### Usage
+```tsx
+<Tabs defaultValue="overview" variant="underline">
+  <TabsList>
+    <TabsTrigger value="overview">Overview</TabsTrigger>
+    <TabsTrigger value="specs">Specs</TabsTrigger>
+  </TabsList>
+  <TabsContent value="overview">…</TabsContent>
+  <TabsContent value="specs">…</TabsContent>
+</Tabs>
+```
+
+### Accessibility
+- Radix handles roving tabindex, arrow-key navigation, `aria-selected`
+- For `orientation="vertical"` ensure trigger labels read top-to-bottom
+
+---
+
+## Table
+
+**Source:** `packages/ui/src/primitives/table.tsx`
+
+Semantic HTML table primitives with DS spacing/typography. Pure presentational — no built-in sorting/pagination.
+
+### Compound API
+- `Table` — root `<table>` wrapped in `<div class="overflow-x-auto">`
+- `TableHeader` (`<thead>`), `TableBody` (`<tbody>`), `TableFooter` (`<tfoot>`)
+- `TableRow` (`<tr>`) — hover bg, focus-within styles
+- `TableHead` (`<th>`) — uppercase mono header cell
+- `TableCell` (`<td>`) — body cell
+- `TableCaption` — `<caption>` for screen readers
+
+### Props
+All accept native HTML attributes. Style only via `className`.
+
+### Usage
+```tsx
+<Table>
+  <TableHeader>
+    <TableRow>
+      <TableHead>Name</TableHead>
+      <TableHead>Status</TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    <TableRow>
+      <TableCell>Acme</TableCell>
+      <TableCell><Badge variant="success" dot>Active</Badge></TableCell>
+    </TableRow>
+  </TableBody>
+</Table>
+```
+
+### Accessibility
+- Use `TableCaption` to describe the table for screen readers
+- For sortable columns, render the sort affordance inside `TableHead` with `aria-sort`

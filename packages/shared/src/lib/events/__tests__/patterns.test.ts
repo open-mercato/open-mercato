@@ -19,6 +19,11 @@ describe('matchEventPattern', () => {
       expect(matchEventPattern('customers.person', 'customers.*')).toBe(true)
       expect(matchEventPattern('customers.person.deleted', 'customers.*')).toBe(false)
     })
+
+    it('treats regex metacharacters as literal pattern characters', () => {
+      expect(matchEventPattern('customers.(person).created', 'customers.(person).*')).toBe(true)
+      expect(matchEventPattern('customers.person.created', 'customers.+.*')).toBe(false)
+    })
   })
 
   describe('prefix mode', () => {

@@ -8,6 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 
 type LossReasonOption = {
   id: string
@@ -39,6 +40,7 @@ export function ConfirmDealLostDialog({
   const [lossReasons, setLossReasons] = React.useState<LossReasonOption[]>([])
   const [reasonListOpen, setReasonListOpen] = React.useState(false)
   const [error, setError] = React.useState('')
+  const [isConfirming, setIsConfirming] = React.useState(false)
 
   React.useEffect(() => {
     if (!open) return
@@ -74,18 +76,21 @@ export function ConfirmDealLostDialog({
       setError(t('customers.deals.detail.lost.reasonRequired', 'Please select a loss reason'))
       return
     }
-    await onConfirm({
-      lossReasonId,
-      lossNotes: lossNotes.trim() || undefined,
-    })
+    setIsConfirming(true)
+    try {
+      await onConfirm({
+        lossReasonId,
+        lossNotes: lossNotes.trim() || undefined,
+      })
+    } finally {
+      setIsConfirming(false)
+    }
   }, [lossNotes, lossReasonId, onConfirm, t])
 
-  const handleKeyDown = React.useCallback((event: React.KeyboardEvent) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-      event.preventDefault()
-      void handleConfirm()
-    }
-  }, [handleConfirm])
+  const handleKeyDown = useDialogKeyHandler({
+    onConfirm: () => void handleConfirm(),
+    disabled: isConfirming,
+  })
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}>
@@ -111,7 +116,6 @@ export function ConfirmDealLostDialog({
 
           <div className="space-y-6 px-7 py-6">
             <Alert variant="warning" className="rounded-md">
-              <AlertTriangle className="size-4" />
               <AlertTitle>
                 {t('customers.deals.detail.lost.warningTitle', 'This action closes the deal')}
               </AlertTitle>

@@ -54,6 +54,8 @@ export interface AiToolLoadBeforeRecord {
   label: string
   recordVersion: string | null
   before: Record<string, unknown>
+  after?: Record<string, unknown>
+  display?: AiToolFieldDiffDisplayHints
 }
 
 /**
@@ -67,6 +69,20 @@ export interface AiToolLoadBeforeSingleRecord {
   entityType: string
   recordVersion: string | null
   before: Record<string, unknown>
+  after?: Record<string, unknown>
+  display?: AiToolFieldDiffDisplayHints
+}
+
+/**
+ * Optional display hints for mutation-preview diffs. Raw `before` / `after`
+ * values remain persisted for execution and stale checks; these labels are
+ * only for operator-facing cards, e.g. showing a pipeline stage name instead
+ * of its UUID.
+ */
+export interface AiToolFieldDiffDisplayHints {
+  fieldLabels?: Record<string, string>
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
 }
 
 /**
@@ -201,6 +217,13 @@ export interface McpServerOptions {
   }
   /** API key secret for authentication (alternative to manual context) */
   apiKeySecret?: string
+  /**
+   * Explicit, loud opt-in for running without authentication as a superadmin
+   * (development/testing only). When false/unset and no `apiKeySecret` or
+   * `context.userId` is supplied, the server fails closed and refuses to start
+   * instead of silently escalating to superadmin. NEVER enable in production.
+   */
+  allowUnauthenticatedSuperadmin?: boolean
 }
 
 /**

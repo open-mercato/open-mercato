@@ -18,6 +18,23 @@ if (typeof globalThis.WritableStream === 'undefined') {
   ;(globalThis as any).WritableStream = WritableStream
 }
 
+// jsdom doesn't implement `window.matchMedia`. Components that read viewport
+// breakpoints (e.g. `useIsMobile`, `CollapsibleZoneLayout`) call it during
+// render via `useSyncExternalStore`, which throws without this shim. Default to
+// "not matching" (desktop) — tests that need a specific breakpoint override it.
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+  ;(window as any).matchMedia = (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })
+}
+
 jest.mock('react-markdown', () => ({
   __esModule: true,
   default: ({ children }: { children?: unknown }) => children ?? null,

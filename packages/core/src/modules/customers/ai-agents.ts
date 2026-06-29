@@ -281,6 +281,7 @@ const agent: AiAgentDefinition = {
   executionMode: 'chat',
   acceptedMediaTypes: ['image', 'pdf', 'file'],
   requiredFeatures: [...REQUIRED_FEATURES],
+  taskPlan: { enabled: true },
   readOnly: false,
   // Default for write-capable agents: every mutation must be confirmed by
   // the operator. Per-tenant override can downgrade to `read-only` to lock
@@ -339,7 +340,7 @@ const DEAL_ANALYZER_PROMPT_SECTIONS: DealAnalyzerPromptSection[] = [
     content: [
       'SCOPE',
       'Stay inside the customers module. Respect tenant and organization isolation.',
-      'ALWAYS call customers.analyze_deals as your FIRST tool call — do not skip this.',
+      'ALWAYS call customers.analyze_deals as your FIRST domain tool — do not skip this.',
       'Reason about stalled deals: any deal with no activity for more than 14 days',
       'is considered stalled. For each stalled deal with a value greater than $5,000',
       'propose a stage move via customers.update_deal_stage.',
@@ -372,8 +373,12 @@ const DEAL_ANALYZER_PROMPT_SECTIONS: DealAnalyzerPromptSection[] = [
       '2. customers.update_deal_stage — propose a stage move for a stalled high-value deal.',
       '   The runtime intercepts this via the pending-action gate; do NOT claim the change',
       '   is saved until the mutation-result-card arrives.',
+      '   When moving to a named pipeline stage, first call customers.list_pipeline_stages',
+      '   and pass the matching UUID as toPipelineStageId. Only use toStage for top-level',
+      '   status slugs such as open, won, or lost.',
       'Secondary read tools (use when you need more detail):',
       '- customers.list_deals, customers.get_deal, customers.list_activities',
+      '- customers.list_pipeline_stages',
       '- search.hybrid_search, meta.describe_agent',
     ].join('\n'),
   },
@@ -414,7 +419,10 @@ const DEAL_ANALYZER_PROMPT_SECTIONS: DealAnalyzerPromptSection[] = [
       'Lead with a one-paragraph summary of the deal portfolio health, then emit one',
       'deal card per at-risk deal (sorted by health score ascending). After the cards,',
       'propose exactly one stage move for the highest-value stalled deal and call',
-      'customers.update_deal_stage. Then finish with a short conclusion naming the',
+      'customers.update_deal_stage. If the recommended stage is a pipeline stage label',
+      'rather than a status slug, resolve it with customers.list_pipeline_stages first;',
+      'do not ask the operator to paste a stage id unless no matching stage exists.',
+      'Then finish with a short conclusion naming the',
       'highest-value stalled deal, the recommended move, and the approval status.',
     ].join('\n'),
   },
@@ -430,6 +438,7 @@ function compileDealAnalyzerPrompt(): string {
 const DEAL_ANALYZER_ALLOWED_TOOLS: readonly string[] = [
   'customers.analyze_deals',
   'customers.update_deal_stage',
+  'customers.list_pipeline_stages',
   'customers.list_deals',
   'customers.get_deal',
   'customers.list_activities',
@@ -443,11 +452,14 @@ function buildDealAnalyzerPrepareStep() {
       return {
         activeTools: [
           'customers.analyze_deals',
+          'customers.update_deal_stage',
           'customers.list_deals',
           'customers.get_deal',
           'customers.list_activities',
+          'customers.list_pipeline_stages',
           'search.hybrid_search',
           'meta.describe_agent',
+          'meta.update_task_plan',
         ],
       }
     }
@@ -466,6 +478,7 @@ const dealAnalyzer: AiAgentDefinition = {
   executionMode: 'chat',
   executionEngine: 'stream-text',
   allowRuntimeOverride: true,
+  taskPlan: { enabled: true },
   readOnly: false,
   mutationPolicy: 'confirm-required',
   requiredFeatures: ['customers.deals.view'],
@@ -477,6 +490,7 @@ const dealAnalyzer: AiAgentDefinition = {
     prepareStep: buildDealAnalyzerPrepareStep() as AiAgentDefinition['loop'] extends undefined
       ? never
       : NonNullable<AiAgentDefinition['loop']>['prepareStep'],
+    stopWhen: [{ kind: 'hasToolCall', toolName: 'customers.update_deal_stage' }],
     budget: {
       maxToolCalls: 12,
       maxWallClockMs: 60_000,

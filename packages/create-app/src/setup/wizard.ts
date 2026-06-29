@@ -26,6 +26,56 @@ const TOOLS = [
 
 const SELECTABLE_TOOLS = TOOLS.filter((t) => t.id !== 'multiple' && t.id !== 'skip')
 
+/** Concrete agent tool ids accepted by the `--agents` CLI flag. */
+export const AGENT_TOOL_IDS: readonly string[] = SELECTABLE_TOOLS.map((t) => t.id)
+
+export interface ParsedAgentsArg {
+  /** True when the value asked to skip agentic setup (`none`/`skip`). */
+  skip: boolean
+  /** Concrete tool ids to set up (empty when `skip`). */
+  tools: string[]
+}
+
+/**
+ * Parse the `--agents` value into a validated selection. Accepts a
+ * comma-separated list of tool ids plus the aliases `all` and `none`/`skip`.
+ * Throws (with the valid set) on unknown ids or contradictory combinations so
+ * the CLI fails fast instead of doing a silent half-setup.
+ */
+export function parseAgentsValue(raw: string): ParsedAgentsArg {
+  const validList = `${AGENT_TOOL_IDS.join(', ')}, all, none`
+  const tokens = raw
+    .split(',')
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean)
+  if (tokens.length === 0) {
+    throw new Error(`--agents requires at least one value (e.g. ${validList})`)
+  }
+
+  const hasSkip = tokens.some((t) => t === 'none' || t === 'skip')
+  const hasAll = tokens.some((t) => t === 'all')
+  const toolTokens = tokens.filter((t) => t !== 'none' && t !== 'skip' && t !== 'all')
+
+  const unknown = toolTokens.filter((t) => !AGENT_TOOL_IDS.includes(t))
+  if (unknown.length > 0) {
+    throw new Error(`Unknown agent ${unknown.map((u) => `"${u}"`).join(', ')}. Valid: ${validList}`)
+  }
+
+  if (hasSkip) {
+    if (hasAll || toolTokens.length > 0) {
+      throw new Error('--agents none cannot be combined with other agents')
+    }
+    return { skip: true, tools: [] }
+  }
+  if (hasAll) {
+    if (toolTokens.length > 0) {
+      throw new Error('--agents all cannot be combined with individual agents')
+    }
+    return { skip: false, tools: [...AGENT_TOOL_IDS] }
+  }
+  return { skip: false, tools: [...new Set(toolTokens)] }
+}
+
 async function promptSelection(ask: AskFn): Promise<string[]> {
   console.log('')
   console.log('🤖  Agentic workflow setup')
@@ -118,12 +168,13 @@ function printSummary(selectedIds: string[]): void {
   if (selectedIds.includes('claude-code')) {
     console.log('')
     console.log('   ⚡ Autonomous skills shipped under .ai/skills/:')
-    console.log('      /auto-create-pr  <task>    — delegate a whole task end-to-end as a PR')
-    console.log('      /auto-continue-pr <PR#>    — resume an in-progress agent PR')
-    console.log('      /auto-review-pr   <PR#>    — automated code review (optional autofix)')
-    console.log('      /auto-fix-github  <issue#> — fix a GitHub issue and open a PR')
-    console.log('      /trim-unused-modules       — slim classic-mode defaults after adding your own module')
-    console.log('      See .ai/skills/auto-create-pr/STANDALONE.md for portability notes')
+    console.log('      /om-auto-create-pr  <task>    — delegate a whole task end-to-end as a PR')
+    console.log('      /om-auto-continue-pr <PR#>    — resume an in-progress agent PR')
+    console.log('      /om-auto-review-pr   <PR#>    — automated code review (optional autofix)')
+    console.log('      /om-auto-fix-github  <issue#> — fix a GitHub issue and open a PR')
+    console.log('      /om-prepare-issue    <idea>   — spec out deferred work + open a tracking issue (no build)')
+    console.log('      /om-trim-unused-modules       — slim classic-mode defaults after adding your own module')
+    console.log('      See .ai/skills/om-auto-create-pr/STANDALONE.md for portability notes')
     console.log('      (base-branch discovery, opt-in pipeline labels, script probing).')
   }
 

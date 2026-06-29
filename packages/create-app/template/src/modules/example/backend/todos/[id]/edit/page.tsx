@@ -3,11 +3,13 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { fetchCrudList, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { pushWithFlash } from '@open-mercato/ui/backend/utils/flash'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import type { TodoListItem } from '../../../../types'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 
 type TodoItem = TodoListItem
 type TodoCustomFieldValues = Record<`cf_${string}`, unknown>
@@ -24,6 +26,7 @@ export default function EditTodoPage({ params }: { params?: { id?: string } }) {
   const [initial, setInitial] = React.useState<TodoFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [err, setErr] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   // Memoize fields to avoid recreating arrays/objects each render (prevents focus loss)
   const baseFields = React.useMemo<CrudField[]>(() => [
     {
@@ -75,29 +78,38 @@ export default function EditTodoPage({ params }: { params?: { id?: string } }) {
       if (!id) return
       setLoading(true)
       setErr(null)
+      setIsNotFound(false)
       try {
-        const data = await fetchCrudList<TodoItem>('example/todos', { id: String(id), pageSize: 1 })
+        const data = await fetchCrudList<TodoItem>('example/todos', { ids: String(id), pageSize: 1 })
         const item = data?.items?.[0]
-        if (!item) throw new Error(t('example.todos.form.error.notFound'))
-        // Map to form initial values
-        const cfInit: Partial<TodoCustomFieldValues> = {}
-        const extended = item as TodoItem & Record<string, unknown>
-        for (const [key, value] of Object.entries(extended)) {
-          if (key.startsWith('cf_')) {
-            cfInit[key as keyof TodoCustomFieldValues] = value
-          }
+        if (!item) {
+          if (!cancelled) setIsNotFound(true)
+          return
         }
+        // Map to form initial values
+        const extended = item as TodoItem & Record<string, unknown>
+        const cfInit = extractCustomFieldEntries(extended) as Partial<TodoCustomFieldValues>
         const init: TodoFormValues = {
           id: item.id,
           title: item.title,
           is_done: Boolean(item.is_done),
           ...(cfInit as TodoCustomFieldValues),
+          cf_priority: extended.cf_priority ?? cfInit.cf_priority,
+          cf_severity: extended.cf_severity ?? cfInit.cf_severity,
+          cf_blocked: extended.cf_blocked ?? cfInit.cf_blocked,
+          cf_labels: extended.cf_labels ?? cfInit.cf_labels,
+          cf_assignee: extended.cf_assignee ?? cfInit.cf_assignee,
+          cf_description: extended.cf_description ?? cfInit.cf_description,
         }
         if (!cancelled) setInitial(init)
       } catch (error: unknown) {
         if (!cancelled) {
-          const message = error instanceof Error && error.message ? error.message : t('example.todos.form.error.load')
-          setErr(message)
+          if ((error as { status?: number }).status === 404) {
+            setIsNotFound(true)
+          } else {
+            const message = error instanceof Error && error.message ? error.message : t('example.todos.form.error.load')
+            setErr(message)
+          }
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -115,11 +127,25 @@ export default function EditTodoPage({ params }: { params?: { id?: string } }) {
 
   if (!id) return null
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('example.todos.form.error.notFound')}
+            backHref="/backend/todos"
+            backLabel={t('example.todos.form.actions.backToList', 'Back to todos')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
         {err ? (
-          <div className="text-red-600">{err}</div>
+          <ErrorMessage label={err} />
         ) : (
           <CrudForm<TodoFormValues>
             title={t('example.todos.form.edit.title')}

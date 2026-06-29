@@ -1,4 +1,5 @@
 import type { ModuleInjectionWidgetEntry } from '../registry'
+import { matchWildcardPattern } from '@open-mercato/shared/lib/patterns/wildcard'
 import type {
   InjectionAnyWidgetModule,
   InjectionDataWidgetModule,
@@ -9,6 +10,10 @@ import type {
   ModuleInjectionTable,
   InjectionWidgetPlacement,
 } from './injection'
+import {
+  applyInjectionWidgetOverridesToEntries,
+  applyInjectionWidgetOverridesToTables,
+} from '../overrides'
 
 type LoadedWidgetModule = InjectionWidgetModule<any, any> & { metadata: InjectionWidgetMetadata }
 type LoadedDataWidgetModule = InjectionDataWidgetModule & { metadata: InjectionWidgetMetadata }
@@ -137,8 +142,9 @@ export function registerCoreInjectionWidgets(entries: ModuleInjectionWidgetEntry
   if (_coreInjectionWidgetEntries !== null && process.env.NODE_ENV === 'development') {
     console.debug('[Bootstrap] Core injection widgets re-registered (this may occur during HMR)')
   }
-  _coreInjectionWidgetEntries = entries
-  writeGlobalInjectionWidgets(entries)
+  const finalEntries = applyInjectionWidgetOverridesToEntries(entries)
+  _coreInjectionWidgetEntries = finalEntries
+  writeGlobalInjectionWidgets(finalEntries)
   notifyInjectionRegistryChanged()
 }
 
@@ -159,8 +165,9 @@ export function registerCoreInjectionTables(tables: Array<{ moduleId: string; ta
   if (_coreInjectionTables !== null && process.env.NODE_ENV === 'development') {
     console.debug('[Bootstrap] Core injection tables re-registered (this may occur during HMR)')
   }
-  _coreInjectionTables = tables
-  writeGlobalInjectionTables(tables)
+  const finalTables = applyInjectionWidgetOverridesToTables(tables)
+  _coreInjectionTables = finalTables
+  writeGlobalInjectionTables(finalTables)
   notifyInjectionRegistryChanged()
 }
 
@@ -196,15 +203,42 @@ export function getInjectionRegistryVersion(): number {
   return _injectionRegistryVersion
 }
 
+const injectionRegistryChangeSubscribers = new Set<() => void>()
+let injectionRegistryDomListenerAttached = false
+
+function dispatchInjectionRegistryChangeToSubscribers() {
+  // Snapshot so a subscriber that unsubscribes during fan-out does not skip others.
+  for (const subscriber of Array.from(injectionRegistryChangeSubscribers)) {
+    subscriber()
+  }
+}
+
+/**
+ * Subscribe to injection-registry version changes.
+ *
+ * All subscribers share a single browser-level DOM listener: the first
+ * subscriber attaches the `window` listener and the last one to unsubscribe
+ * detaches it. Registry-change notifications fan out to every subscriber
+ * through an internal callback set so mounting many widget surfaces does not
+ * register one DOM listener per surface (#3320).
+ */
 export function subscribeToInjectionRegistryChanges(listener: () => void): () => void {
   if (typeof window === 'undefined') {
     return () => {}
   }
 
-  const handler = () => listener()
-  window.addEventListener(INJECTION_REGISTRY_CHANGED_EVENT, handler)
+  injectionRegistryChangeSubscribers.add(listener)
+  if (!injectionRegistryDomListenerAttached) {
+    window.addEventListener(INJECTION_REGISTRY_CHANGED_EVENT, dispatchInjectionRegistryChangeToSubscribers)
+    injectionRegistryDomListenerAttached = true
+  }
+
   return () => {
-    window.removeEventListener(INJECTION_REGISTRY_CHANGED_EVENT, handler)
+    injectionRegistryChangeSubscribers.delete(listener)
+    if (injectionRegistryChangeSubscribers.size === 0 && injectionRegistryDomListenerAttached) {
+      window.removeEventListener(INJECTION_REGISTRY_CHANGED_EVENT, dispatchInjectionRegistryChangeToSubscribers)
+      injectionRegistryDomListenerAttached = false
+    }
   }
 }
 
@@ -233,6 +267,11 @@ type TableEntry = {
     : never
 }
 let injectionTablePromise: Promise<Map<InjectionSpotId, TableEntry[]>> | null = null
+type WidgetLookupIndex = {
+  widgetsById: Map<string, LoadedInjectionWidget>
+  dataWidgetsById: Map<string, LoadedInjectionDataWidget>
+}
+let widgetLookupIndexPromise: { version: number; promise: Promise<WidgetLookupIndex> } | null = null
 
 function isInjectionSlotObject(value: ModuleInjectionSlot): value is InjectionWidgetPlacement & { widgetId: string; priority?: number } {
   return typeof value === 'object' && value !== null && 'widgetId' in value
@@ -245,6 +284,7 @@ function isInjectionSlotObject(value: ModuleInjectionSlot): value is InjectionWi
 export function invalidateInjectionWidgetCache() {
   widgetEntriesPromise = null
   injectionTablePromise = null
+  widgetLookupIndexPromise = null
   widgetCache.clear()
   warnedRequiredModuleSkips.clear()
 }
@@ -380,10 +420,77 @@ function isLoadedInjectionDataWidget(
 
 async function loadEntry(entry: WidgetEntry): Promise<InjectionAnyWidgetModule<any, any> & { metadata: InjectionWidgetMetadata }> {
   if (!widgetCache.has(entry.key)) {
-    const promise = entry.loader().then((mod) => ensureValidInjectionModule(mod, entry.key, entry.moduleId))
+    const promise = Promise.resolve()
+      .then(() => entry.loader())
+      .then((mod) => ensureValidInjectionModule(mod, entry.key, entry.moduleId))
     widgetCache.set(entry.key, promise)
   }
   return widgetCache.get(entry.key)!
+}
+
+async function loadWidgetLookupIndex(): Promise<WidgetLookupIndex> {
+  const version = getInjectionRegistryVersion()
+  if (!widgetLookupIndexPromise || widgetLookupIndexPromise.version !== version) {
+    const promise = Promise.resolve().then(async () => {
+      const widgetEntries = await loadWidgetEntries()
+      const settled = await Promise.allSettled(widgetEntries.map((entry) => loadEntry(entry)))
+      const widgetsById = new Map<string, LoadedInjectionWidget>()
+      const dataWidgetsById = new Map<string, LoadedInjectionDataWidget>()
+
+      settled.forEach((result, index) => {
+        if (result.status !== 'fulfilled') return
+        const entry = widgetEntries[index]
+        const module = result.value
+        if (isLoadedInjectionWidget(module)) {
+          if (!widgetsById.has(module.metadata.id)) {
+            widgetsById.set(module.metadata.id, { ...module, moduleId: entry.moduleId, key: entry.key })
+          }
+          return
+        }
+        if (!dataWidgetsById.has(module.metadata.id)) {
+          dataWidgetsById.set(module.metadata.id, { ...module, moduleId: entry.moduleId, key: entry.key })
+        }
+      })
+
+      return { widgetsById, dataWidgetsById }
+    })
+    widgetLookupIndexPromise = { version, promise }
+  }
+  return widgetLookupIndexPromise.promise
+}
+
+function applyRequiredModuleGate<T extends LoadedInjectionWidget | LoadedInjectionDataWidget>(
+  widget: T,
+  enabledModuleIds: ReadonlySet<string>,
+): T | null {
+  const missing = widgetMissingRequiredModules(widget.metadata, enabledModuleIds)
+  if (missing.length > 0) {
+    warnSkippedWidget(widget.metadata.id, missing)
+    return null
+  }
+  return widget
+}
+
+type HintedLookupResult<T> =
+  | { resolved: true; widget: T | null }
+  | { resolved: false }
+
+async function tryLoadHintedWidgetById<T extends LoadedInjectionWidget | LoadedInjectionDataWidget>(
+  widgetId: string,
+  isExpectedKind: (module: InjectionAnyWidgetModule<any, any> & { metadata: InjectionWidgetMetadata }) => boolean,
+  enabledModuleIds: ReadonlySet<string>,
+): Promise<HintedLookupResult<T>> {
+  const widgetEntries = await loadWidgetEntries()
+  const entry = widgetEntries.find((candidate) => candidate.widgetId === widgetId)
+  if (!entry) return { resolved: false }
+
+  const module = await loadEntry(entry).catch(() => null)
+  if (!module || module.metadata.id !== widgetId || !isExpectedKind(module)) {
+    return { resolved: false }
+  }
+
+  const widget = { ...module, moduleId: entry.moduleId, key: entry.key } as T
+  return { resolved: true, widget: applyRequiredModuleGate(widget, enabledModuleIds) }
 }
 
 function getEnabledModuleIdsForInjection(): ReadonlySet<string> {
@@ -446,8 +553,7 @@ async function getResolvedEntriesForSpot(spotId: InjectionSpotId): Promise<Table
   for (const [candidateSpotId, candidateEntries] of table.entries()) {
     if (candidateSpotId === spotId) continue
     if (!candidateSpotId.includes('*')) continue
-    const pattern = new RegExp(`^${candidateSpotId.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`)
-    if (!pattern.test(spotId)) continue
+    if (!matchWildcardPattern(spotId, candidateSpotId)) continue
     wildcardEntries.push(...candidateEntries)
   }
 
@@ -489,39 +595,23 @@ export async function loadAllInjectionWidgets(): Promise<LoadedInjectionWidget[]
 }
 
 export async function loadInjectionWidgetById(widgetId: string): Promise<LoadedInjectionWidget | null> {
-  const widgetEntries = await loadWidgetEntries()
   const enabledModuleIds = getEnabledModuleIdsForInjection()
-  for (const entry of widgetEntries) {
-    const module = await loadEntry(entry)
-    if (!isLoadedInjectionWidget(module)) continue
-    if (module.metadata.id === widgetId) {
-      const missing = widgetMissingRequiredModules(module.metadata, enabledModuleIds)
-      if (missing.length > 0) {
-        warnSkippedWidget(module.metadata.id, missing)
-        return null
-      }
-      return { ...module, moduleId: entry.moduleId, key: entry.key }
-    }
-  }
-  return null
+  const hinted = await tryLoadHintedWidgetById<LoadedInjectionWidget>(widgetId, isLoadedInjectionWidget, enabledModuleIds)
+  if (hinted.resolved) return hinted.widget
+
+  const index = await loadWidgetLookupIndex()
+  const widget = index.widgetsById.get(widgetId)
+  return widget ? applyRequiredModuleGate(widget, enabledModuleIds) : null
 }
 
 export async function loadInjectionDataWidgetById(widgetId: string): Promise<LoadedInjectionDataWidget | null> {
-  const widgetEntries = await loadWidgetEntries()
   const enabledModuleIds = getEnabledModuleIdsForInjection()
-  for (const entry of widgetEntries) {
-    const module = await loadEntry(entry)
-    if (!isLoadedInjectionDataWidget(module)) continue
-    if (module.metadata.id === widgetId) {
-      const missing = widgetMissingRequiredModules(module.metadata, enabledModuleIds)
-      if (missing.length > 0) {
-        warnSkippedWidget(module.metadata.id, missing)
-        return null
-      }
-      return { ...module, moduleId: entry.moduleId, key: entry.key }
-    }
-  }
-  return null
+  const hinted = await tryLoadHintedWidgetById<LoadedInjectionDataWidget>(widgetId, isLoadedInjectionDataWidget, enabledModuleIds)
+  if (hinted.resolved) return hinted.widget
+
+  const index = await loadWidgetLookupIndex()
+  const widget = index.dataWidgetsById.get(widgetId)
+  return widget ? applyRequiredModuleGate(widget, enabledModuleIds) : null
 }
 
 export async function loadInjectionWidgetsForSpot(spotId: InjectionSpotId): Promise<LoadedInjectionWidget[]> {

@@ -302,11 +302,19 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     return res.rowCount ? res.rows[0].checksum : null
   }
 
-  const purge = async (entityId: string, tenantId: string) => {
+  const purge = async (entityId: string, tenantId: string, organizationId?: string | null) => {
     await ensureReady()
+    const normalizedOrganizationId =
+      typeof organizationId === 'string' && organizationId.trim().length > 0 ? organizationId.trim() : null
+    const conditions = ['driver_id = $1', 'entity_id = $2', 'tenant_id = $3::uuid']
+    const values: any[] = [DRIVER_ID, entityId, tenantId]
+    if (normalizedOrganizationId !== null) {
+      conditions.push('organization_id = $4::uuid')
+      values.push(normalizedOrganizationId)
+    }
     await pool.query(
-      `DELETE FROM ${tableIdent} WHERE driver_id = $1 AND entity_id = $2 AND tenant_id = $3::uuid`,
-      [DRIVER_ID, entityId, tenantId],
+      `DELETE FROM ${tableIdent} WHERE ${conditions.join(' AND ')}`,
+      values,
     )
   }
 
@@ -318,11 +326,23 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       typeof filter.organizationId === 'string' && filter.organizationId.trim().length > 0
         ? filter.organizationId.trim()
         : null
+    const normalizedOrganizationIds = normalizedOrganizationId
+      ? [normalizedOrganizationId]
+      : Array.isArray(filter.organizationIds)
+        ? Array.from(new Set(
+            filter.organizationIds
+              .map((value) => (typeof value === 'string' ? value.trim() : ''))
+              .filter((value) => value.length > 0),
+          ))
+        : null
+    if (normalizedOrganizationIds && normalizedOrganizationIds.length === 0) {
+      return []
+    }
     const params: any[] = [
       vectorLiteral,
       DRIVER_ID,
       filter.tenantId,
-      normalizedOrganizationId,
+      normalizedOrganizationIds,
       Array.isArray(filter.entityIds) && filter.entityIds.length ? filter.entityIds : null,
       input.limit ?? 20,
     ]
@@ -365,7 +385,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
         FROM ${tableIdent}
         WHERE driver_id = $2
           AND tenant_id = $3::uuid
-          AND ($4::uuid IS NULL OR organization_id = $4::uuid)
+          AND ($4::uuid[] IS NULL OR organization_id = ANY($4::uuid[]))
           AND (
             $5::text[] IS NULL OR entity_id = ANY($5::text[])
           )

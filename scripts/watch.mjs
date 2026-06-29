@@ -1,8 +1,10 @@
 import * as esbuild from 'esbuild'
 import { glob } from 'glob'
-import { watch as fsWatch } from 'node:fs'
-import { basename, join } from 'node:path'
+import { existsSync, readFileSync, readdirSync, watch as fsWatch, writeFileSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { createAtomicWritePlugin } from './lib/add-js-extension.mjs'
+
+const TOUCHABLE_GENERATED_PATTERN = /\.generated(?:\.[a-z0-9]+)?(?:\.ts|\.checksum)$/i
 
 function resolvePackageWatchMode() {
   const raw = process.env.OM_PACKAGE_WATCH_MODE ?? process.env.MERCATO_PACKAGE_WATCH_MODE
@@ -22,6 +24,7 @@ function resolvePackageWatchMode() {
 export async function watch(packageDir) {
   const packageName = basename(packageDir)
   const watchMode = resolvePackageWatchMode()
+  const generatedDirs = discoverAppGeneratedDirs(findRepoRoot(packageDir))
 
   // The esbuild context is created with a snapshot of the entry-point list.
   // When new source files are added at runtime (e.g. a new component that
@@ -146,6 +149,7 @@ async function watchWithOneShotBuilds({
         }
         console.log(`[watch] ${packageName}: rebuilding...`)
         await esbuild.build(createBuildOptions(points))
+        touchGeneratedBarrels(generatedDirs)
         console.log(`[watch] ${packageName}: rebuild complete`)
       } catch (error) {
         console.error(`[watch] ${packageName}: rebuild failed:`, error?.message ?? error)
@@ -202,6 +206,7 @@ async function watchWithPersistentContext(getCtx, packageDir, packageName, refre
       if (refreshEntries) await refreshEntries()
       console.log(`[watch] ${packageName}: rebuilding...`)
       await getCtx().rebuild()
+      touchGeneratedBarrels(discoverAppGeneratedDirs(findRepoRoot(packageDir)))
       console.log(`[watch] ${packageName}: rebuild complete`)
     } catch (error) {
       console.error(`[watch] ${packageName}: rebuild failed:`, error.message)
@@ -226,7 +231,70 @@ async function watchWithPersistentContext(getCtx, packageDir, packageName, refre
 
 function isWatchedSourceFile(filename) {
   if (!filename) return false
-  if (!filename.endsWith('.ts') && !filename.endsWith('.tsx')) return false
+  if (!filename.endsWith('.ts') && !filename.endsWith('.tsx') && !filename.endsWith('.json')) return false
   if (filename.includes('__tests__') || filename.includes('.test.')) return false
   return true
+}
+
+function findRepoRoot(startDir) {
+  let current = startDir
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (existsSync(join(current, 'apps')) && existsSync(join(current, 'packages'))) {
+      return current
+    }
+    const parent = dirname(current)
+    if (parent === current) break
+    current = parent
+  }
+  return startDir
+}
+
+function discoverAppGeneratedDirs(root) {
+  const candidates = []
+  const rootGenerated = join(root, '.mercato', 'generated')
+  if (existsSync(rootGenerated)) candidates.push(rootGenerated)
+
+  const appsDir = join(root, 'apps')
+  if (existsSync(appsDir)) {
+    let entries = []
+    try {
+      entries = readdirSync(appsDir, { withFileTypes: true })
+    } catch {
+      entries = []
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      candidates.push(join(appsDir, entry.name, '.mercato', 'generated'))
+    }
+  }
+
+  return candidates.filter((dir) => {
+    try {
+      return existsSync(dir)
+    } catch {
+      return false
+    }
+  })
+}
+
+function touchGeneratedBarrels(generatedDirs) {
+  for (const generatedDir of generatedDirs) {
+    let entries = []
+    try {
+      entries = readdirSync(generatedDir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      if (!entry.isFile()) continue
+      if (!TOUCHABLE_GENERATED_PATTERN.test(entry.name)) continue
+      const filePath = join(generatedDir, entry.name)
+      try {
+        writeFileSync(filePath, readFileSync(filePath))
+      } catch (error) {
+        console.error(`[watch] failed to touch generated barrel ${filePath}:`, error?.message ?? error)
+      }
+    }
+  }
 }

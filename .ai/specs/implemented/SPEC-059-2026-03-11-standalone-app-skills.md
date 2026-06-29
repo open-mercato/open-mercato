@@ -92,7 +92,7 @@ The `generateShared()` function in `packages/create-app/src/setup/tools/shared.t
 
 ### Skill 1: spec-writing
 
-**Adapted from**: `.ai/skills/spec-writing/`
+**Adapted from**: `.ai/skills/om-spec-writing/`
 
 **What's kept**:
 - Skeleton-first workflow with Open Questions gate
@@ -344,7 +344,7 @@ Every item must be answered in the spec or marked N/A with justification.
 
 ### Skill 2: backend-ui-design
 
-**Adapted from**: `.ai/skills/backend-ui-design/`
+**Adapted from**: `.ai/skills/om-backend-ui-design/`
 
 **What's kept**: Everything — the `@open-mercato/ui` package is identical in standalone apps. Same imports, same components, same patterns.
 
@@ -559,13 +559,13 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 
 #### `references/ui-components.md`
 
-This file is copied directly from the monorepo's `.ai/skills/backend-ui-design/references/ui-components.md` with no modifications — the component API is identical in standalone apps.
+This file is copied directly from the monorepo's `.ai/skills/om-backend-ui-design/references/ui-components.md` with no modifications — the component API is identical in standalone apps.
 
 ---
 
 ### Skill 3: code-review
 
-**Adapted from**: `.ai/skills/code-review/`
+**Adapted from**: `.ai/skills/om-code-review/`
 
 **What's kept**:
 - Review workflow structure (scope → context → CI/CD gate → checklist → output)
@@ -851,9 +851,9 @@ Only `SKILL.md` files use `writeTemplate` (for `{{PROJECT_NAME}}`). Reference fi
 Add skills reference to the task-context map:
 
 ```markdown
-| Write a spec | `.ai/skills/spec-writing/SKILL.md`, `.ai/specs/SPEC-000-template.md` |
-| Review code changes | `.ai/skills/code-review/SKILL.md` |
-| Build backend UI | `.ai/skills/backend-ui-design/SKILL.md` |
+| Write a spec | `.ai/skills/om-spec-writing/SKILL.md`, `.ai/specs/SPEC-000-template.md` |
+| Review code changes | `.ai/skills/om-code-review/SKILL.md` |
+| Build backend UI | `.ai/skills/om-backend-ui-design/SKILL.md` |
 ```
 
 ### `packages/cli/src/lib/agentic-setup.ts`
@@ -873,13 +873,13 @@ Add skill content strings and copy operations to the CLI's self-contained genera
 | Skip | 0 | 0 | — |
 
 The 6 new files (all in shared):
-1. `.ai/skills/spec-writing/SKILL.md`
-2. `.ai/skills/spec-writing/references/spec-template.md`
-3. `.ai/skills/spec-writing/references/spec-checklist.md`
-4. `.ai/skills/backend-ui-design/SKILL.md`
-5. `.ai/skills/backend-ui-design/references/ui-components.md`
-6. `.ai/skills/code-review/SKILL.md`
-7. `.ai/skills/code-review/references/review-checklist.md`
+1. `.ai/skills/om-spec-writing/SKILL.md`
+2. `.ai/skills/om-spec-writing/references/spec-template.md`
+3. `.ai/skills/om-spec-writing/references/spec-checklist.md`
+4. `.ai/skills/om-backend-ui-design/SKILL.md`
+5. `.ai/skills/om-backend-ui-design/references/ui-components.md`
+6. `.ai/skills/om-code-review/SKILL.md`
+7. `.ai/skills/om-code-review/references/review-checklist.md`
 
 Correction: **7 new files** (+7 delta, not +6).
 
@@ -943,22 +943,22 @@ await runAgenticSetup('/tmp/test-skills', async () => '1')
 "
 
 # Verify
-ls /tmp/test-skills/.ai/skills/spec-writing/
-ls /tmp/test-skills/.ai/skills/backend-ui-design/
-ls /tmp/test-skills/.ai/skills/code-review/
-cat /tmp/test-skills/.ai/skills/spec-writing/SKILL.md | head -5  # Check {{PROJECT_NAME}} resolved
+ls /tmp/test-skills/.ai/skills/om-spec-writing/
+ls /tmp/test-skills/.ai/skills/om-backend-ui-design/
+ls /tmp/test-skills/.ai/skills/om-code-review/
+cat /tmp/test-skills/.ai/skills/om-spec-writing/SKILL.md | head -5  # Check {{PROJECT_NAME}} resolved
 cat /tmp/test-skills/AGENTS.md | grep "skills/"  # Check task-context references
 ```
 
 ### Verification checklist
 
-- [ ] `.ai/skills/spec-writing/SKILL.md` exists with resolved `{{PROJECT_NAME}}`
-- [ ] `.ai/skills/spec-writing/references/spec-template.md` exists
-- [ ] `.ai/skills/spec-writing/references/spec-checklist.md` exists (6 sections, ~25 items)
-- [ ] `.ai/skills/backend-ui-design/SKILL.md` exists
-- [ ] `.ai/skills/backend-ui-design/references/ui-components.md` exists (40+ components)
-- [ ] `.ai/skills/code-review/SKILL.md` exists with 4-step CI/CD gate
-- [ ] `.ai/skills/code-review/references/review-checklist.md` exists (8 sections, ~40 items)
+- [ ] `.ai/skills/om-spec-writing/SKILL.md` exists with resolved `{{PROJECT_NAME}}`
+- [ ] `.ai/skills/om-spec-writing/references/spec-template.md` exists
+- [ ] `.ai/skills/om-spec-writing/references/spec-checklist.md` exists (6 sections, ~25 items)
+- [ ] `.ai/skills/om-backend-ui-design/SKILL.md` exists
+- [ ] `.ai/skills/om-backend-ui-design/references/ui-components.md` exists (40+ components)
+- [ ] `.ai/skills/om-code-review/SKILL.md` exists with 4-step CI/CD gate
+- [ ] `.ai/skills/om-code-review/references/review-checklist.md` exists (8 sections, ~40 items)
 - [ ] `AGENTS.md` task-context map references all three skills
 - [ ] Zero references to `packages/`, `BACKWARD_COMPATIBILITY.md`, `yarn build:packages`, `yarn template:sync`, `SPEC-ENT-*`, or `.ai/specs/enterprise/` in any skill file
 - [ ] `yarn mercato agentic:init` generates skills alongside existing shared files

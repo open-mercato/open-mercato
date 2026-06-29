@@ -42,11 +42,16 @@ const crud = makeCrudRoute({
     idField: 'id',
     orgField: 'organizationId',
     tenantField: 'tenantId',
+    // CustomerTag has no `deleted_at` column. Without this, the auto-registered
+    // generic optimistic-lock reader would filter on `deletedAt: null` against a
+    // non-existent column, throw, and fail open — silently disabling the lock.
+    softDeleteField: null,
   },
+  indexer: { entityType: E.customers.customer_tag },
   list: {
     schema: listSchema,
     entityId: E.customers.customer_tag,
-    fields: ['id', 'slug', 'label', 'color', 'description', 'organization_id', 'tenant_id'],
+    fields: ['id', 'slug', 'label', 'color', 'description', 'organization_id', 'tenant_id', 'updated_at'],
     buildFilters: async (query: any) => {
       const filters: Record<string, any> = {}
       if (query.search) {
@@ -106,6 +111,7 @@ const tagListItemSchema = z.object({
   description: z.string().nullable().optional(),
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
 })
 
 const tagCreateResponseSchema = z.object({
