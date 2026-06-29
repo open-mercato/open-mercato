@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import {
   createSalesOrderFixture,
   createOrderLineFixture,
+  createShipmentFixture,
 } from '@open-mercato/core/modules/core/__integration__/helpers/salesFixtures'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
@@ -198,6 +199,9 @@ test.describe('TC-LOCK-OSS-025: order adjustments + returns document-aggregate c
         quantity: 2,
       })
       const orderLineId = await fetchAnyOrderLineId(request, token, orderId)
+      // The return guard (issue #3034) requires the line to have been shipped.
+      // Ship before capturing t1 so the fresh header reflects the latest order state.
+      await createShipmentFixture(request, token, orderId, [{ orderLineId, quantity: 2 }])
       const t1 = await readUpdatedAt(request, token, ORDERS_BASE, orderId)
       expect(t1, "adding a line should advance the parent order's updated_at").not.toBe(t0)
 

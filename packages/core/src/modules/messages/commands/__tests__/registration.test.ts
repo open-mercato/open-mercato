@@ -40,7 +40,9 @@ describe('messages command registration', () => {
       path: '../conversation',
       expected: [
         'messages.conversation.archive_for_actor',
+        'messages.conversation.unarchive_for_actor',
         'messages.conversation.mark_unread_for_actor',
+        'messages.conversation.mark_read_for_actor',
         'messages.conversation.delete_for_actor',
       ],
     },

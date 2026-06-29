@@ -17,6 +17,7 @@ import { SalesDocumentAddress, SalesOrder, SalesQuote } from '../data/entities'
 import { ensureOrganizationScope, ensureSameScope, ensureTenantScope, assertFound, extractUndoPayload } from './shared'
 import { loadSalesSettings } from './settings'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
 
 const DOCUMENT_ADDRESS_ENTITY_TYPE = E.sales.sales_document_address
@@ -76,7 +77,7 @@ async function loadDocumentAddressSnapshot(
   em: EntityManager,
   id: string
 ): Promise<DocumentAddressSnapshot | null> {
-  const entity = await em.findOne(SalesDocumentAddress, { id })
+  const entity = await findOneWithDecryption(em, SalesDocumentAddress, { id }, {})
   return entity ? snapshotDocumentAddress(entity) : null
 }
 
@@ -136,7 +137,7 @@ async function requireDocument(
   tenantId: string
 ): Promise<SalesOrder | SalesQuote> {
   const repo = kind === 'order' ? SalesOrder : SalesQuote
-  const doc = await em.findOne(repo, { id, organizationId, tenantId })
+  const doc = await findOneWithDecryption(em, repo, { id, organizationId, tenantId }, {}, { tenantId, organizationId })
   if (!doc) {
     throw new CrudHttpError(404, { error: 'sales.document.not_found' })
   }
@@ -230,7 +231,7 @@ const createDocumentAddress: CommandHandler<DocumentAddressCreateInput, { id: st
     ensureTenantScope(ctx, after.tenantId)
     ensureOrganizationScope(ctx, after.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await em.findOne(SalesDocumentAddress, { id: after.id })
+    const entity = await findOneWithDecryption(em, SalesDocumentAddress, { id: after.id }, {}, { tenantId: after.tenantId, organizationId: after.organizationId })
     if (!entity) return
     await em.remove(entity).flush()
     await emitDocumentAddressIndexSideEffects(ctx, 'deleted', after)
@@ -251,7 +252,7 @@ const updateDocumentAddress: CommandHandler<DocumentAddressUpdateInput, { id: st
     ensureOrganizationScope(ctx, input.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = assertFound(
-      await em.findOne(SalesDocumentAddress, { id: input.id }),
+      await findOneWithDecryption(em, SalesDocumentAddress, { id: input.id }, {}, { tenantId: input.tenantId, organizationId: input.organizationId }),
       'sales.document.address.not_found'
     )
     ensureSameScope(entity, input.organizationId, input.tenantId)
@@ -314,7 +315,7 @@ const updateDocumentAddress: CommandHandler<DocumentAddressUpdateInput, { id: st
     ensureOrganizationScope(ctx, before.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity =
-      (await em.findOne(SalesDocumentAddress, { id: before.id })) ??
+      (await findOneWithDecryption(em, SalesDocumentAddress, { id: before.id }, {}, { tenantId: before.tenantId, organizationId: before.organizationId })) ??
       em.create(SalesDocumentAddress, { id: before.id } as Partial<SalesDocumentAddress>)
     applyDocumentAddressSnapshot(em, entity, before)
     await em.persist(entity).flush()
@@ -339,7 +340,7 @@ const deleteDocumentAddress: CommandHandler<
     ensureOrganizationScope(ctx, input.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = assertFound(
-      await em.findOne(SalesDocumentAddress, { id: input.id }),
+      await findOneWithDecryption(em, SalesDocumentAddress, { id: input.id }, {}, { tenantId: input.tenantId, organizationId: input.organizationId }),
       'sales.document.address.not_found'
     )
     ensureSameScope(entity, input.organizationId, input.tenantId)
@@ -377,7 +378,7 @@ const deleteDocumentAddress: CommandHandler<
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await em.findOne(SalesDocumentAddress, { id: before.id })
+    const existing = await findOneWithDecryption(em, SalesDocumentAddress, { id: before.id }, {}, { tenantId: before.tenantId, organizationId: before.organizationId })
     const entity = existing ?? em.create(SalesDocumentAddress, { id: before.id } as Partial<SalesDocumentAddress>)
     applyDocumentAddressSnapshot(em, entity, before)
     await em.persist(entity).flush()

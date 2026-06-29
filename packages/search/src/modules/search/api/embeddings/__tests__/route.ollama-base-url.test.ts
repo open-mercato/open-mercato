@@ -15,12 +15,14 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 const mockResolveEmbeddingConfig = jest.fn()
+const mockResolveEmbeddingConfigResult = jest.fn()
 const mockSaveEmbeddingConfig = jest.fn()
 const mockGetConfiguredProviders = jest.fn()
 const mockDetectConfigChange = jest.fn()
 const mockGetEffectiveDimension = jest.fn()
 jest.mock('../../../lib/embedding-config', () => ({
   resolveEmbeddingConfig: (...args: unknown[]) => mockResolveEmbeddingConfig(...args),
+  resolveEmbeddingConfigResult: (...args: unknown[]) => mockResolveEmbeddingConfigResult(...args),
   saveEmbeddingConfig: (...args: unknown[]) => mockSaveEmbeddingConfig(...args),
   getConfiguredProviders: (...args: unknown[]) => mockGetConfiguredProviders(...args),
   detectConfigChange: (...args: unknown[]) => mockDetectConfigChange(...args),
@@ -71,6 +73,7 @@ describe('POST /api/search/embeddings — Ollama baseUrl SSRF guard', () => {
     })
 
     mockResolveEmbeddingConfig.mockResolvedValue(null)
+    mockResolveEmbeddingConfigResult.mockResolvedValue({ config: null, source: 'env' })
     mockGetConfiguredProviders.mockReturnValue(['ollama', 'openai'])
     mockGetEffectiveDimension.mockReturnValue(768)
     mockDetectConfigChange.mockImplementation((_existing: unknown, next: unknown) => ({

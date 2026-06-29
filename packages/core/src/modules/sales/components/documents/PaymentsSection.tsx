@@ -7,7 +7,7 @@ import { LoadingMessage, ErrorMessage, TabEmptyState } from '@open-mercato/ui/ba
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { handleSectionMutationError, readRowUpdatedAt, rowOptimisticVersion } from './optimisticLock'
+import { handleSectionMutationError, readRowUpdatedAt } from './optimisticLock'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -41,6 +41,7 @@ type SalesDocumentPaymentsSectionProps = {
   currencyCode: string | null | undefined
   organizationId?: string | null
   tenantId?: string | null
+  documentUpdatedAt?: string | null
   onActionChange?: (action: SectionAction | null) => void
   onTotalsChange?: () => void
   onPaymentsChange?: (payments: PaymentRow[]) => void
@@ -69,6 +70,7 @@ export function SalesDocumentPaymentsSection({
   currencyCode,
   organizationId: orgFromProps,
   tenantId: tenantFromProps,
+  documentUpdatedAt,
   onActionChange,
   onTotalsChange,
   onPaymentsChange,
@@ -216,7 +218,9 @@ export function SalesDocumentPaymentsSection({
     async (row: PaymentRow) => {
       try {
         const result = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(rowOptimisticVersion(row)),
+          // The server guards the PARENT order's aggregate version (Gap A), so
+          // send the order's `updated_at`, not the payment row's.
+          buildOptimisticLockHeader(documentUpdatedAt ?? undefined),
           () =>
             deleteCrud<{ orderTotals?: PaymentTotals | null }>('sales/payments', {
               body: {
@@ -242,7 +246,7 @@ export function SalesDocumentPaymentsSection({
         flash(t('sales.documents.payments.errorDelete', 'Failed to delete payment.'), 'error')
       }
     },
-    [loadPayments, onTotalsChange, orderId, resolvedOrganizationId, resolvedTenantId, t]
+    [documentUpdatedAt, loadPayments, onTotalsChange, orderId, resolvedOrganizationId, resolvedTenantId, t]
   )
 
   React.useEffect(() => {
@@ -369,6 +373,7 @@ export function SalesDocumentPaymentsSection({
         orderId={orderId}
         organizationId={resolvedOrganizationId}
         tenantId={resolvedTenantId}
+        documentUpdatedAt={documentUpdatedAt ?? null}
         onSaved={handlePaymentSaved}
       />
     </div>

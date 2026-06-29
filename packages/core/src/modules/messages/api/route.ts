@@ -131,6 +131,10 @@ async function buildMessageListIdFilter(input: ListMessagesInput, ctx: CrudCtx):
       .on('r.recipient_user_id', '=', userId))
   }
 
+  // Audited for #3386 rollout (P3): the route delegates final sorting and
+  // pagination to makeCrudRoute. This query resolves only the user's visible
+  // message IDs; the CRUD factory then applies ORDER BY/LIMIT/OFFSET and
+  // decrypts only the bounded page.
   switch (input.folder) {
     case 'inbox':
       joinRecipient()

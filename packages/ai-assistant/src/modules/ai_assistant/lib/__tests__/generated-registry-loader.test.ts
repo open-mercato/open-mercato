@@ -73,6 +73,53 @@ describe('rewriteGeneratedAliasImports', () => {
     ].join('\n')
     expect(rewriteGeneratedAliasImports(source, makeTempDir())).toBe(source)
   })
+
+  // Regression for issue #3524: the MCP dev server crashed with
+  //   "ERR_MODULE_NOT_FOUND: Cannot find module '.../src/modules/<id>/ai-tools'"
+  // because the generator emits `../../src/modules/<id>/ai-tools` relative
+  // imports for @app local modules, which the rewriter previously left intact.
+  // esbuild.transform keeps them verbatim, so Node ESM can't resolve the
+  // extensionless `.ts`-only specifier from the compiled `.mjs`.
+
+  it('rewrites a `../../src/...` @app relative import to an absolute file URL', () => {
+    const appRoot = makeTempDir()
+    const out = rewriteGeneratedAliasImports(
+      `import * as AI_TOOLS from "../../src/modules/media_campaigns/ai-tools"`,
+      appRoot,
+    )
+    const expectedUrl = pathToFileURL(
+      path.join(appRoot, 'src', 'modules', 'media_campaigns', 'ai-tools'),
+    ).href
+    expect(out).toBe(`import * as AI_TOOLS from ${safeJsLiteral(expectedUrl)}`)
+    expect(out).not.toContain('../../src/')
+  })
+
+  it('rewrites a dynamic `import("../../src/...")` @app call to an absolute file URL', () => {
+    const appRoot = makeTempDir()
+    const specifier = '"../../src/modules/media_campaigns/ai-tools"'
+    const source = `const load = () => import(${specifier})`
+    const out = rewriteGeneratedAliasImports(source, appRoot)
+    const expectedUrl = pathToFileURL(
+      path.join(appRoot, 'src', 'modules', 'media_campaigns', 'ai-tools'),
+    ).href
+    expect(out).toBe(source.replace(specifier, safeJsLiteral(expectedUrl)))
+    expect(out).not.toContain('../../src/')
+  })
+
+  it('appends `.ts` for a `../../src/...` @app import that exists only as TypeScript', () => {
+    const appRoot = makeTempDir()
+    const moduleDir = path.join(appRoot, 'src', 'modules', 'media_campaigns')
+    fs.mkdirSync(moduleDir, { recursive: true })
+    fs.writeFileSync(path.join(moduleDir, 'ai-tools.ts'), 'export const aiTools = []\n')
+
+    const out = rewriteGeneratedAliasImports(
+      `import * as AI_TOOLS from "../../src/modules/media_campaigns/ai-tools"`,
+      appRoot,
+    )
+
+    const expectedUrl = pathToFileURL(path.join(moduleDir, 'ai-tools.ts')).href
+    expect(out).toBe(`import * as AI_TOOLS from ${safeJsLiteral(expectedUrl)}`)
+  })
 })
 
 describe('escapeUnsafeJsStringChars', () => {

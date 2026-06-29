@@ -4,9 +4,11 @@ import { Notification } from '../data/entities'
 import { listNotificationsSchema, createNotificationSchema } from '../data/validators'
 import { toNotificationDto } from '../lib/notificationMapper'
 import {
+  NOTIFICATION_RESOURCE_KIND,
   notificationCrudErrorResponse,
   notificationValidationErrorResponse,
   resolveNotificationContext,
+  runGuardedNotificationWrite,
 } from '../lib/routeHelpers'
 import {
   buildNotificationsCrudOpenApi,
@@ -74,7 +76,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { service, scope } = await resolveNotificationContext(req)
+  const { service, scope, ctx } = await resolveNotificationContext(req)
 
   const body = await req.json().catch(() => ({}))
   const parsed = createNotificationSchema.safeParse(body)
@@ -83,9 +85,20 @@ export async function POST(req: Request) {
   }
 
   try {
-    const notification = await service.create(parsed.data, scope)
+    const guarded = await runGuardedNotificationWrite(
+      ctx.container,
+      scope,
+      req,
+      {
+        resourceKind: NOTIFICATION_RESOURCE_KIND,
+        operation: 'create',
+        payload: parsed.data as Record<string, unknown>,
+      },
+      () => service.create(parsed.data, scope),
+    )
+    if (!guarded.ok) return guarded.response
 
-    return Response.json({ id: notification.id }, { status: 201 })
+    return Response.json({ id: guarded.result.id }, { status: 201 })
   } catch (error) {
     const errorResponse = notificationCrudErrorResponse(error)
     if (errorResponse) return errorResponse
