@@ -18,6 +18,36 @@ const MAX_WIDTH = 900
 const MIN_HEIGHT = 500
 const MAX_HEIGHT = 900
 
+// Minimum width the main backoffice content needs to stay usable while a side
+// (left/right) dock overlays the viewport. Below this the dense backoffice
+// screens (dashboards, KPI cards, data tables) get clipped, so the side dock
+// falls back to the floating panel instead.
+export const MIN_DOCKED_CONTENT_WIDTH = 640
+
+const SIDE_DOCK_POSITIONS: DockPosition[] = ['left', 'right']
+
+function getViewportWidth(): number {
+  if (typeof window === 'undefined') return Number.POSITIVE_INFINITY
+  return window.innerWidth
+}
+
+/**
+ * Resolve the dock position that is safe for the current viewport. Side
+ * (left/right) docks overlay the main content, so when the leftover content
+ * width would fall below {@link MIN_DOCKED_CONTENT_WIDTH} we fall back to the
+ * floating panel. Floating and bottom docks never reduce content width, so they
+ * are always allowed.
+ */
+export function resolveViewportSafeDockPosition(
+  position: DockPosition,
+  panelWidth: number,
+  viewportWidth: number,
+): DockPosition {
+  if (!SIDE_DOCK_POSITIONS.includes(position)) return position
+  if (viewportWidth - panelWidth >= MIN_DOCKED_CONTENT_WIDTH) return position
+  return 'floating'
+}
+
 export function useDockPosition() {
   const [dockState, setDockState] = useState<DockState>(DEFAULT_DOCK_STATE)
   const [isHydrated, setIsHydrated] = useState(false)
@@ -31,10 +61,12 @@ export function useDockPosition() {
         // Migrate 'modal' to 'floating' for existing users
         const rawPosition = parsed.position as string | undefined
         const migratedPosition = rawPosition === 'modal' ? 'floating' : rawPosition
+        const width = Math.min(Math.max((parsed.width as number) || DEFAULT_DOCK_STATE.width, MIN_WIDTH), MAX_WIDTH)
+        const position = (migratedPosition as DockPosition) || DEFAULT_DOCK_STATE.position
         setDockState({
-          position: (migratedPosition as DockPosition) || DEFAULT_DOCK_STATE.position,
+          position: resolveViewportSafeDockPosition(position, width, getViewportWidth()),
           floatingPosition: (parsed.floatingPosition as FloatingPosition) || DEFAULT_DOCK_STATE.floatingPosition,
-          width: Math.min(Math.max((parsed.width as number) || DEFAULT_DOCK_STATE.width, MIN_WIDTH), MAX_WIDTH),
+          width,
           height: Math.min(Math.max((parsed.height as number) || DEFAULT_DOCK_STATE.height, MIN_HEIGHT), MAX_HEIGHT),
           isMinimized: (parsed.isMinimized as boolean) || false,
         })
@@ -55,8 +87,26 @@ export function useDockPosition() {
     }
   }, [dockState, isHydrated])
 
+  // Auto-undock a side dock to floating when the viewport becomes too narrow,
+  // so the backoffice content area never gets squeezed below a usable width.
+  useEffect(() => {
+    if (!isHydrated || typeof window === 'undefined') return
+    const handleResize = () => {
+      setDockState((prev) => {
+        const safePosition = resolveViewportSafeDockPosition(prev.position, prev.width, window.innerWidth)
+        if (safePosition === prev.position) return prev
+        return { ...prev, position: safePosition }
+      })
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [isHydrated])
+
   const setPosition = useCallback((position: DockPosition) => {
-    setDockState((prev) => ({ ...prev, position }))
+    setDockState((prev) => ({
+      ...prev,
+      position: resolveViewportSafeDockPosition(position, prev.width, getViewportWidth()),
+    }))
   }, [])
 
   const setFloatingPosition = useCallback((floatingPosition: FloatingPosition) => {
@@ -90,7 +140,10 @@ export function useDockPosition() {
       const positions: DockPosition[] = ['floating', 'right', 'left', 'bottom']
       const currentIndex = positions.indexOf(prev.position)
       const nextIndex = (currentIndex + 1) % positions.length
-      return { ...prev, position: positions[nextIndex] }
+      return {
+        ...prev,
+        position: resolveViewportSafeDockPosition(positions[nextIndex], prev.width, getViewportWidth()),
+      }
     })
   }, [])
 
