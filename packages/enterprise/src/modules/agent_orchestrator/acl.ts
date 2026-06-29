@@ -62,6 +62,17 @@ export const features = [
     module: 'agent_orchestrator',
     dependsOn: ['agent_orchestrator.identity.manage'],
   },
+  // Powered "web" capability (harness control map, `[1,0]` researcher preset).
+  // DEFAULT-DENY: NOT granted to any operator/engineer/employee default role in
+  // setup.ts; only superadmin/admin inherit it via the `agent_orchestrator.*`
+  // wildcard. An agent reaches the web ONLY if it declares the `web_fetch` tool AND
+  // the caller holds this feature. See lib/webFetchTool.ts.
+  {
+    id: 'agent_orchestrator.web.access',
+    title: 'Allow agents to read the public web (gated, read-only)',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.agents.run'],
+  },
 ]
 
 export default features
