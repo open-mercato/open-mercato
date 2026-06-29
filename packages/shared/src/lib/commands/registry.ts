@@ -72,34 +72,33 @@ class CommandRegistry {
   }
 
   has(id: string): boolean {
-    return this.handlers.has(id)
+    return this.handlers.has(id) || this.loadersById.has(id)
   }
 
   /**
-   * List all registered command handler IDs.
+   * List all known command IDs, including exact lazy loaders that have not
+   * been imported yet.
    */
   list(): string[] {
-    return Array.from(this.handlers.keys())
+    return Array.from(new Set([...this.handlers.keys(), ...this.loadersById.keys()]))
   }
 
   async load(commandId: string): Promise<CommandHandler | null> {
     const existing = this.get(commandId)
     if (existing) return existing
 
+    const moduleId = commandId.split('.')[0]
     const exact = this.loadersById.get(commandId)
     if (exact) {
       await this.loadOnce(exact.key ?? commandId, exact)
       const loaded = this.get(commandId)
-      if (loaded) return loaded
+      if (loaded) {
+        await this.loadModuleFallbacks(moduleId)
+        return loaded
+      }
     }
 
-    const moduleId = commandId.split('.')[0]
-    const fallbacks = Array.from(this.fallbackLoadersByModule.get(moduleId)?.entries() ?? [])
-    for (const [key, loader] of fallbacks) {
-      await this.loadOnce(key, loader)
-      const loaded = this.get(commandId)
-      if (loaded) return loaded
-    }
+    await this.loadModuleFallbacks(moduleId)
 
     return this.get(commandId)
   }
@@ -137,6 +136,13 @@ class CommandRegistry {
 
     this.loadingLoaderKeys.set(key, promise)
     return promise
+  }
+
+  private async loadModuleFallbacks(moduleId: string): Promise<void> {
+    const fallbacks = Array.from(this.fallbackLoadersByModule.get(moduleId)?.entries() ?? [])
+    for (const [key, loader] of fallbacks) {
+      await this.loadOnce(key, loader)
+    }
   }
 }
 

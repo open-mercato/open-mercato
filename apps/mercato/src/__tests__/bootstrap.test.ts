@@ -41,6 +41,7 @@ describe('app bootstrap', () => {
     jest.doMock('@/.mercato/generated/component-overrides.generated', () => ({ componentOverrideEntries: [] }))
     jest.doMock('@/.mercato/generated/guards.generated', () => ({ guardEntries: [] }))
     jest.doMock('@/.mercato/generated/command-interceptors.generated', () => ({ commandInterceptorEntries: [] }))
+    jest.doMock('@/.mercato/generated/command-loaders.generated', () => ({ commandLoaderEntries: [] }))
     jest.doMock('@/.mercato/generated/notification-handlers.generated', () => ({ notificationHandlerEntries: [] }))
     jest.doMock('@/.mercato/generated/message-types.generated', () => ({ messageTypes: [] }))
     jest.doMock('@/.mercato/generated/message-objects.generated', () => ({ messageObjectTypes: [] }))
