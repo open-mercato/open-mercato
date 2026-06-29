@@ -11,6 +11,7 @@ import { registerApiInterceptors } from '../crud/interceptor-registry'
 import { registerComponentOverrides } from '../../modules/widgets/component-registry'
 import { registerMutationGuards } from '../crud/mutation-guard-store'
 import { registerCommandInterceptors } from '../commands/command-interceptor-store'
+import { registerCommandLoaders } from '../commands/registry'
 import { registerNotificationHandlers } from '../notifications/handler-registry'
 import { clearRegisteredIntegrations, registerBundles, registerIntegrations } from '../../modules/integrations/types'
 import { applyComponentOverridesToEntries } from '../../modules/overrides'
@@ -96,6 +97,11 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
     // === 6f. Command interceptors (for command bus lifecycle) ===
     if (data.commandInterceptorEntries) {
       registerCommandInterceptors(data.commandInterceptorEntries)
+    }
+
+    // === 6f.1. Command loaders (for lazy command handler registration) ===
+    if (data.commandLoaderEntries) {
+      registerCommandLoaders(data.commandLoaderEntries)
     }
 
     // === 6g. Notification handlers (reactive notification side-effects) ===

@@ -1,4 +1,4 @@
-import { commandRegistry, registerCommand } from '@open-mercato/shared/lib/commands'
+import { commandRegistry, registerCommand, registerCommandLoaders } from '@open-mercato/shared/lib/commands'
 
 describe('command registry registration', () => {
   const originalNodeEnv = process.env.NODE_ENV
@@ -43,5 +43,29 @@ describe('command registry registration', () => {
 
     expect(commandRegistry.get('test.command.hmr')?.execute).toBe(secondExecute)
     expect(debugSpy).toHaveBeenCalledWith('[Bootstrap] Commands re-registered (this may occur during HMR)')
+  })
+
+  it('loads a command handler on demand from a registered loader', async () => {
+    const execute = jest.fn(async () => ({ ok: true }))
+    registerCommandLoaders([
+      {
+        moduleId: 'test',
+        id: 'test.command.lazy',
+        key: 'test:commands:lazy',
+        load: async () => {
+          registerCommand({
+            id: 'test.command.lazy',
+            execute,
+          })
+        },
+      },
+    ])
+
+    expect(commandRegistry.get('test.command.lazy')).toBeNull()
+
+    const handler = await commandRegistry.load('test.command.lazy')
+
+    expect(handler?.execute).toBe(execute)
+    expect(commandRegistry.get('test.command.lazy')?.execute).toBe(execute)
   })
 })

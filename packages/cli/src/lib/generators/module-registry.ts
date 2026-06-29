@@ -80,6 +80,13 @@ type DashboardWidgetEntry = {
   importPath: string
 }
 
+type CommandLoaderGenerationEntry = {
+  moduleId: string
+  key: string
+  importPath: string
+  ids: string[]
+}
+
 type RuntimeApiMethodMetadata = {
   requireAuth?: boolean
   requireRoles?: string[]
@@ -1029,6 +1036,148 @@ function buildBareImportStatement(importPath: string): string {
 
 function buildDynamicImportExpression(importPath: string): string {
   return `import(${toLiteral(sanitizeGeneratedModuleSpecifier(importPath))})`
+}
+
+const COMMAND_SCAN_CONFIG = {
+  folder: 'commands',
+  include: (name: string) =>
+    ['.ts', '.js', '.tsx', '.jsx'].some((extension) => name.endsWith(extension)) &&
+    !name.endsWith('.d.ts') &&
+    !/\.(test|spec)\.[jt]sx?$/.test(name) &&
+    stripModuleCodeExtension(name) !== 'index',
+  sort: (a: string, b: string) => a.localeCompare(b),
+}
+
+function getStaticStringExpression(expr: ts.Expression): string | null {
+  const unwrapped = unwrapExpression(expr)
+  if (ts.isStringLiteral(unwrapped) || ts.isNoSubstitutionTemplateLiteral(unwrapped)) return unwrapped.text
+  return null
+}
+
+function getPropertyNameText(name: ts.PropertyName): string | null {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text
+  return null
+}
+
+function getObjectStringProperty(object: ts.ObjectLiteralExpression, propertyName: string): string | null {
+  for (const property of object.properties) {
+    if (!ts.isPropertyAssignment(property)) continue
+    const name = getPropertyNameText(property.name)
+    if (name !== propertyName) continue
+    return getStaticStringExpression(property.initializer)
+  }
+  return null
+}
+
+function collectStringArrayElements(expr: ts.Expression): string[] {
+  const unwrapped = unwrapExpression(expr)
+  if (!ts.isArrayLiteralExpression(unwrapped)) return []
+  const values: string[] = []
+  for (const element of unwrapped.elements) {
+    const value = getStaticStringExpression(element)
+    if (value) values.push(value)
+  }
+  return values
+}
+
+function extractCommandIdsFromSource(sourcePath: string): string[] {
+  const sourceText = fs.readFileSync(sourcePath, 'utf8')
+  const sourceFile = ts.createSourceFile(sourcePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const ids = new Set<string>()
+  const variableCommandIds = new Map<string, string>()
+
+  const collectVariables = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      if (ts.isObjectLiteralExpression(node.initializer)) {
+        const id = getObjectStringProperty(node.initializer, 'id')
+        if (id) variableCommandIds.set(node.name.text, id)
+      } else if (node.name.text === 'commandIds') {
+        for (const id of collectStringArrayElements(node.initializer)) ids.add(id)
+      }
+    }
+    ts.forEachChild(node, collectVariables)
+  }
+
+  const collectRegistrations = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      const callName = node.expression.text
+      const firstArg = node.arguments[0]
+      if (callName === 'registerCommand' && firstArg) {
+        if (ts.isIdentifier(firstArg)) {
+          const id = variableCommandIds.get(firstArg.text)
+          if (id) ids.add(id)
+        } else if (ts.isObjectLiteralExpression(firstArg)) {
+          const id = getObjectStringProperty(firstArg, 'id')
+          if (id) ids.add(id)
+        }
+      }
+      if (callName === 'registerDictionaryEntryCommands' && firstArg && ts.isObjectLiteralExpression(firstArg)) {
+        const prefix = getObjectStringProperty(firstArg, 'commandPrefix')
+        if (prefix) {
+          ids.add(`${prefix}.create`)
+          ids.add(`${prefix}.update`)
+          ids.add(`${prefix}.delete`)
+        }
+      }
+    }
+    ts.forEachChild(node, collectRegistrations)
+  }
+
+  collectVariables(sourceFile)
+  collectRegistrations(sourceFile)
+  return Array.from(ids).sort()
+}
+
+function collectCommandLoaderEntries(
+  roots: ModuleRoots,
+  imps: ModuleImports,
+  modId: string,
+): CommandLoaderGenerationEntry[] {
+  const files = scanModuleDir(roots, COMMAND_SCAN_CONFIG)
+  const entries: CommandLoaderGenerationEntry[] = []
+  for (const file of files) {
+    const relPath = `commands/${file.relPath}`
+    const resolved = resolveModuleFile(roots, imps, relPath)
+    if (!resolved) continue
+    const logicalKey = stripModuleCodeExtension(file.relPath)
+    const basename = path.basename(logicalKey)
+    if (basename === 'shared' || basename === 'factory') continue
+    entries.push({
+      moduleId: modId,
+      key: `${modId}:commands:${logicalKey}`,
+      importPath: resolved.importPath,
+      ids: extractCommandIdsFromSource(resolved.absolutePath),
+    })
+  }
+  return entries
+}
+
+function renderCommandLoadersFile(entries: CommandLoaderGenerationEntry[]): string {
+  const seenCommandIds = new Map<string, string>()
+  const rendered: string[] = []
+
+  for (const entry of entries) {
+    const loadExpr = `() => ${buildDynamicImportExpression(entry.importPath)}`
+    for (const id of entry.ids) {
+      const previous = seenCommandIds.get(id)
+      if (previous && previous !== entry.key) {
+        throw new Error(`[generate] Duplicate command id "${id}" discovered in "${previous}" and "${entry.key}"`)
+      }
+      seenCommandIds.set(id, entry.key)
+      rendered.push(`  { moduleId: ${toLiteral(entry.moduleId)}, id: ${toLiteral(id)}, key: ${toLiteral(entry.key)}, load: ${loadExpr} },`)
+    }
+    rendered.push(`  { moduleId: ${toLiteral(entry.moduleId)}, key: ${toLiteral(entry.key)}, load: ${loadExpr} },`)
+  }
+
+  return `// AUTO-GENERATED by mercato generate command-loaders
+import type { CommandLoader } from '@open-mercato/shared/lib/commands'
+
+export const commandLoaderEntries: CommandLoader[] = [
+${rendered.join('\n')}
+]
+
+export default commandLoaderEntries
+`
 }
 
 function serializeGeneratedImport(statement: GeneratedImportStatement): string {
@@ -2577,6 +2726,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const bootstrapRegsChecksumFile = path.join(outputDir, 'bootstrap-registrations.generated.checksum')
   const legacySubscribersOutFile = path.join(outputDir, 'subscribers.generated.ts')
   const legacySubscribersChecksumFile = path.join(outputDir, 'subscribers.generated.checksum')
+  const commandLoadersOutFile = path.join(outputDir, 'command-loaders.generated.ts')
+  const commandLoadersChecksumFile = path.join(outputDir, 'command-loaders.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
   for (const entry of enabled) {
@@ -2621,6 +2772,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const importIdRef = { value: 0 }
   const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
+  const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
   let hasRouteComponents = false
 
   // UMES conflict detection: collect file paths during module processing
@@ -2641,6 +2793,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const isAppModule = entry.from === '@app'
     const appImportBase = isAppModule ? `../../src/modules/${modId}` : rawImps.appBase
     const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
+    commandLoaderEntries.push(...collectCommandLoaderEntries(roots, imps, modId))
 
     const frontendRoutes: string[] = []
     const backendRoutes: string[] = []
@@ -3124,6 +3277,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   writeGeneratedFile({ outFile: backendRoutesOutFile, checksumFile: backendRoutesChecksumFile, content: backendRoutesOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: apiRoutesOutFile, checksumFile: apiRoutesChecksumFile, content: apiRoutesOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: legacySubscribersOutFile, checksumFile: legacySubscribersChecksumFile, content: legacySubscribersOutput, structureChecksum, result, quiet })
+  const commandLoadersOutput = renderCommandLoadersFile(commandLoaderEntries)
+  writeGeneratedFile({ outFile: commandLoadersOutFile, checksumFile: commandLoadersChecksumFile, content: commandLoadersOutput, structureChecksum, result, quiet })
 
   for (const extension of extensions) {
     const outputs = extension.generateOutput()
@@ -3200,6 +3355,8 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
   const legacyChecksumFile = path.join(outputDir, 'bootstrap-modules.generated.checksum')
   const enabledIdsOutFile = path.join(outputDir, 'enabled-module-ids.generated.ts')
   const enabledIdsChecksumFile = path.join(outputDir, 'enabled-module-ids.generated.checksum')
+  const commandLoadersOutFile = path.join(outputDir, 'command-loaders.generated.ts')
+  const commandLoadersChecksumFile = path.join(outputDir, 'command-loaders.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
   for (const entry of enabled) {
@@ -3210,6 +3367,7 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
   const importIdRef = { value: 0 }
   const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
+  const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
   let hasRouteComponents = false
 
   for (const entry of enabled) {
@@ -3222,6 +3380,7 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
     const isAppModule = entry.from === '@app'
     const appImportBase = isAppModule ? `../../src/modules/${modId}` : rawImps.appBase
     const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
+    commandLoaderEntries.push(...collectCommandLoaderEntries(roots, imps, modId))
 
     const frontendRoutes: WriterFunction[] = []
     const backendRoutes: WriterFunction[] = []
@@ -3514,6 +3673,9 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
   const enabledIdsOutput = renderEnabledModuleIdsFile(enabled.map((entry) => entry.id))
   writeGeneratedFile({ outFile: enabledIdsOutFile, checksumFile: enabledIdsChecksumFile, content: enabledIdsOutput, structureChecksum, result, quiet })
 
+  const commandLoadersOutput = renderCommandLoadersFile(commandLoaderEntries)
+  writeGeneratedFile({ outFile: commandLoadersOutFile, checksumFile: commandLoadersChecksumFile, content: commandLoadersOutput, structureChecksum, result, quiet })
+
   return result
 }
 
@@ -3534,6 +3696,8 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
   const checksumFile = path.join(outputDir, 'modules.cli.generated.checksum')
   const legacyOutFile = path.join(outputDir, 'cli-modules.generated.ts')
   const legacyChecksumFile = path.join(outputDir, 'cli-modules.generated.checksum')
+  const commandLoadersOutFile = path.join(outputDir, 'command-loaders.generated.ts')
+  const commandLoadersChecksumFile = path.join(outputDir, 'command-loaders.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
   for (const entry of enabled) {
@@ -3545,6 +3709,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
   const importIdRef = { value: 0 }
   const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
+  const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
 
   for (const entry of enabled) {
     const modId = entry.id
@@ -3556,6 +3721,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     const isAppModule = entry.from === '@app'
     const appImportBase = isAppModule ? `../../src/modules/${modId}` : rawImps.appBase
     const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
+    commandLoaderEntries.push(...collectCommandLoaderEntries(roots, imps, modId))
 
     let cliImportName: string | null = null
     const translations: GeneratedObjectEntry[] = []
@@ -3848,6 +4014,8 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
   const structureChecksum = calculateStructureChecksum(Array.from(trackedRoots))
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: legacyOutFile, checksumFile: legacyChecksumFile, content: legacyOutput, structureChecksum, result, quiet })
+  const commandLoadersOutput = renderCommandLoadersFile(commandLoaderEntries)
+  writeGeneratedFile({ outFile: commandLoadersOutFile, checksumFile: commandLoadersChecksumFile, content: commandLoadersOutput, structureChecksum, result, quiet })
 
   return result
 }
