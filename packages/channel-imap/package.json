@@ -65,9 +65,9 @@
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "@types/mailparser": "^3.4.5",
-    "@types/nodemailer": "^8.0.0",
-    "imapflow": "^1.4.2",
-    "mailparser": "^3.9.11",
+    "@types/nodemailer": "^8.0.1",
+    "imapflow": "^1.4.3",
+    "mailparser": "^3.9.12",
     "nodemailer": "^9.0.1"
   },
   "peerDependencies": {
