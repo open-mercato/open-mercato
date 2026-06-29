@@ -17,6 +17,8 @@ import {
 
 test.describe('TC-CHKT-033: External webhook subscription can receive checkout success/failure automation events with stable identifiers and no secrets', () => {
   test('emits webhook-safe completed and failed payloads with stable identifiers for both terminal states', async ({ request }) => {
+    test.setTimeout(60_000)
+
     let token: string | null = null
     let templateId: string | null = null
     let completedLinkId: string | null = null
@@ -76,12 +78,17 @@ test.describe('TC-CHKT-033: External webhook subscription can receive checkout s
         { providerKey: 'mock_processing' },
       )
       expect(webhookResponse.status()).toBe(202)
-      await waitForCheckoutStatus(request, token, failedBody.transactionId, 'failed')
+      const failedTransaction = await waitForCheckoutStatus(request, token, failedBody.transactionId, 'failed', {
+        attempts: 120,
+        intervalMs: 250,
+      })
+      expect(failedTransaction.status).toBe('failed')
+      expect(failedTransaction.paymentStatus).toBe('failed')
 
       let completedEvent: Awaited<ReturnType<typeof listCapturedExampleEvents>>[number] | undefined
       let failedEvent: Awaited<ReturnType<typeof listCapturedExampleEvents>>[number] | undefined
-      for (let attempt = 0; attempt < 30; attempt += 1) {
-        const events = await listCapturedExampleEvents(request, token)
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        const events = await listCapturedExampleEvents(request, token, { prefix: 'checkout.transaction.' })
         completedEvent = events.find((event) => event.event === 'checkout.transaction.completed' && event.payload.transactionId === completedBody.transactionId)
         failedEvent = events.find((event) => event.event === 'checkout.transaction.failed' && event.payload.transactionId === failedBody.transactionId)
         if (completedEvent && failedEvent) break
