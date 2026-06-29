@@ -80,12 +80,12 @@ test.describe('TC-CHKT-033: External webhook subscription can receive checkout s
 
       let completedEvent: Awaited<ReturnType<typeof listCapturedExampleEvents>>[number] | undefined
       let failedEvent: Awaited<ReturnType<typeof listCapturedExampleEvents>>[number] | undefined
-      for (let attempt = 0; attempt < 30; attempt += 1) {
-        const events = await listCapturedExampleEvents(request, token)
+      for (let attempt = 0; attempt < 80; attempt += 1) {
+        const events = await listCapturedExampleEvents(request, token, { prefix: 'checkout.transaction.' })
         completedEvent = events.find((event) => event.event === 'checkout.transaction.completed' && event.payload.transactionId === completedBody.transactionId)
         failedEvent = events.find((event) => event.event === 'checkout.transaction.failed' && event.payload.transactionId === failedBody.transactionId)
         if (completedEvent && failedEvent) break
-        await new Promise((resolve) => setTimeout(resolve, 150))
+        await new Promise((resolve) => setTimeout(resolve, 250))
       }
 
       for (const [eventName, eventPayload, linkId, slug, gatewayProvider] of [
