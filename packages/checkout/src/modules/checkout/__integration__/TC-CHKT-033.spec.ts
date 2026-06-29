@@ -12,7 +12,6 @@ import {
   readGatewayTransaction,
   sendMockGatewayWebhook,
   submitPayLink,
-  waitForCapturedExampleEvents,
   waitForCheckoutStatus,
 } from './helpers/fixtures'
 
@@ -79,13 +78,15 @@ test.describe('TC-CHKT-033: External webhook subscription can receive checkout s
       expect(webhookResponse.status()).toBe(202)
       await waitForCheckoutStatus(request, token, failedBody.transactionId, 'failed')
 
-      await waitForCapturedExampleEvents(request, token, [
-        'checkout.transaction.completed',
-        'checkout.transaction.failed',
-      ])
-      const events = await listCapturedExampleEvents(request, token)
-      const completedEvent = events.find((event) => event.event === 'checkout.transaction.completed' && event.payload.transactionId === completedBody.transactionId)
-      const failedEvent = events.find((event) => event.event === 'checkout.transaction.failed' && event.payload.transactionId === failedBody.transactionId)
+      let completedEvent: Awaited<ReturnType<typeof listCapturedExampleEvents>>[number] | undefined
+      let failedEvent: Awaited<ReturnType<typeof listCapturedExampleEvents>>[number] | undefined
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        const events = await listCapturedExampleEvents(request, token)
+        completedEvent = events.find((event) => event.event === 'checkout.transaction.completed' && event.payload.transactionId === completedBody.transactionId)
+        failedEvent = events.find((event) => event.event === 'checkout.transaction.failed' && event.payload.transactionId === failedBody.transactionId)
+        if (completedEvent && failedEvent) break
+        await new Promise((resolve) => setTimeout(resolve, 150))
+      }
 
       for (const [eventName, eventPayload, linkId, slug, gatewayProvider] of [
         ['checkout.transaction.completed', completedEvent?.payload, completedLink.id, completedLink.slug, 'mock'],
