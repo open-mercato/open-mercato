@@ -25,6 +25,7 @@ jest.mock('@open-mercato/ui/backend/forms', () => ({
 function makeDetail(overrides: Partial<MessageDetail> = {}): MessageDetail {
   return {
     id: 'message-1',
+    updatedAt: '2026-06-25T10:00:00.000Z',
     type: 'default',
     isDraft: false,
     canEditDraft: false,
