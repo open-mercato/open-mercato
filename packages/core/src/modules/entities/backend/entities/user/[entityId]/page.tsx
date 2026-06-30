@@ -391,22 +391,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       showInSidebar: z.boolean().optional(),
     }) as z.ZodType<Record<string, unknown>>
 
-  const fields: CrudField[] = [
-    { id: 'label', label: 'Label', type: 'text', required: true },
-    { id: 'description', label: 'Description', type: 'textarea' },
-    {
-      id: 'defaultEditor',
-      label: 'Default Editor (multiline)',
-      type: 'select',
-      options: [
-        { value: '', label: 'Default (Markdown)' },
-        { value: 'markdown', label: 'Markdown (UIW)' },
-        { value: 'simpleMarkdown', label: 'Simple Markdown' },
-        { value: 'htmlRichText', label: 'HTML Rich Text' },
-      ],
-    } as any,
-    ...(entitySource === 'custom' ? [{ id: 'showInSidebar', label: 'Show in sidebar', type: 'checkbox' }] : []),
-  ]
+  const fields: CrudField[] = buildEntitySettingsFields(entitySource)
   const renderFieldDefinitions = React.useCallback(() => (
       <FieldDefinitionsEditor
         definitions={defs}
@@ -464,7 +449,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const definitionsGroup: CrudFormGroup = { id: 'definitions', title: 'Field Definitions', column: 1, component: renderFieldDefinitions }
 
   const groups: CrudFormGroup[] = [
-    { id: 'settings', title: 'Entity Settings', column: 1, fields: entitySource === 'custom' ? ['label','description','defaultEditor','showInSidebar'] : ['label','description','defaultEditor'] },
+    { id: 'settings', title: 'Entity Settings', column: 1, description: getEntitySettingsNotice(entitySource), fields: entitySource === 'custom' ? ['label','description','defaultEditor','showInSidebar'] : ['label','description','defaultEditor'] },
     definitionsGroup,
   ]
 
@@ -609,6 +594,37 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
 
 export function shouldRegisterEntityMetadata(entitySource: 'code' | 'custom'): boolean {
   return entitySource === 'custom'
+}
+
+const SYSTEM_ENTITY_SETTINGS_NOTICE =
+  'This is a system entity defined in code. Its label and description are managed in code and cannot be edited here — only the field definitions below are editable.'
+
+export function buildEntitySettingsFields(entitySource: 'code' | 'custom'): CrudField[] {
+  const metadataEditable = shouldRegisterEntityMetadata(entitySource)
+  const fields: CrudField[] = [
+    { id: 'label', label: 'Label', type: 'text', required: true, disabled: !metadataEditable },
+    { id: 'description', label: 'Description', type: 'textarea', disabled: !metadataEditable },
+    {
+      id: 'defaultEditor',
+      label: 'Default Editor (multiline)',
+      type: 'select',
+      disabled: !metadataEditable,
+      options: [
+        { value: '', label: 'Default (Markdown)' },
+        { value: 'markdown', label: 'Markdown (UIW)' },
+        { value: 'simpleMarkdown', label: 'Simple Markdown' },
+        { value: 'htmlRichText', label: 'HTML Rich Text' },
+      ],
+    } as CrudField,
+  ]
+  if (entitySource === 'custom') {
+    fields.push({ id: 'showInSidebar', label: 'Show in sidebar', type: 'checkbox' })
+  }
+  return fields
+}
+
+export function getEntitySettingsNotice(entitySource: 'code' | 'custom'): string | undefined {
+  return shouldRegisterEntityMetadata(entitySource) ? undefined : SYSTEM_ENTITY_SETTINGS_NOTICE
 }
 
 export function buildEntityMetadataPayload(
