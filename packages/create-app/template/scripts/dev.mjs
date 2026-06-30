@@ -35,6 +35,7 @@ import {
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
+import { parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
@@ -191,6 +192,10 @@ const classic = args.includes('--classic') || isEnabledEnvFlag(process.env.OM_DE
 const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
 const greenfield = isMonorepo && args.includes('--greenfield')
 const appOnly = args.includes('--app-only')
+// Watch-scope CLI flags (e.g. `--watch=auto-optimized`, `--watch-popular`) are
+// translated into env vars and forwarded to the spawned package watcher, which
+// reads `OM_WATCH_SCOPE` / `OM_WATCH_PACKAGES`. CLI flags win over a pre-set env.
+const watchScopeArgs = parseWatchScopeArgs(args)
 const setupMode = !isMonorepo && args.includes('--setup')
 const reinstall = setupMode && args.includes('--reinstall')
 const standaloneLocalRegistryRefresh = !isMonorepo && shouldRefreshStandaloneRegistryPackages()
@@ -1557,14 +1562,29 @@ function resolveWatchPackagesScript() {
   return raw === 'legacy' ? 'watch:packages:legacy' : 'watch:packages'
 }
 
+function buildWatchScopeEnv() {
+  const env = {}
+  if (watchScopeArgs.mode) env.OM_WATCH_SCOPE = watchScopeArgs.mode
+  if (watchScopeArgs.packages?.length) env.OM_WATCH_PACKAGES = watchScopeArgs.packages.join(',')
+  if (watchScopeArgs.popularLimit) env.OM_WATCH_POPULAR_LIMIT = String(watchScopeArgs.popularLimit)
+  return env
+}
+
+function resolveActiveWatchScope(watchScopeEnv = buildWatchScopeEnv()) {
+  return resolveWatchScope({ env: { ...process.env, ...watchScopeEnv }, argv: [] }).mode
+}
+
 function startPackageWatch() {
   const watchScript = resolveWatchPackagesScript()
+  const watchScopeEnv = buildWatchScopeEnv()
+  const activeScope = resolveActiveWatchScope(watchScopeEnv)
 
   if (classic) {
     const child = spawnCommand(yarnCommand, [watchScript], {
       label: watchScript,
       logFile: getDevRunnerLog(),
       mirrorOutput: true,
+      env: watchScopeEnv,
     })
 
     child.on('close', (code, signal) => {
@@ -1586,9 +1606,14 @@ function startPackageWatch() {
   const stageCurrent = greenfield ? 5 : 2
   const stageTotal = greenfield ? 5 : 3
   console.log(`👀 ${formatProgressLine('Watching workspace packages', stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}`)
+  if (activeScope !== 'all') {
+    console.log(`   ↳ watch scope: ${activeScope} (set OM_WATCH_SCOPE=all or pass --watch=all to watch every package)`)
+  }
   updateSplashState({
     phase: 'Watching workspace packages',
-    detail: 'Package watchers are running in the background',
+    detail: activeScope === 'all'
+      ? 'Package watchers are running in the background'
+      : `Package watchers are running (watch scope: ${activeScope})`,
     progressCurrent: stageCurrent,
     progressTotal: stageTotal,
     progressPercent: resolveProgressPercent(stageCurrent, stageTotal),
@@ -1600,6 +1625,7 @@ function startPackageWatch() {
     label: 'Watching workspace packages',
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
+    env: watchScopeEnv,
   })
 
   if (verbose) {
