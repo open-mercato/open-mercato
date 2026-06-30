@@ -81,8 +81,8 @@ function buildPersonDetailCacheKey(params: {
   interactionMode: 'canonical' | 'legacy'
   includeTokens: string[]
 }): string {
-  const include = [...params.includeTokens].sort().join('|') || 'none'
-  const scoped = [...params.scopedOrganizationIds].sort().join('|') || 'null'
+  const include = [...params.includeTokens].sort((a, b) => a.localeCompare(b)).join('|') || 'none'
+  const scoped = [...params.scopedOrganizationIds].sort((a, b) => a.localeCompare(b)).join('|') || 'null'
   return [
     'customers:person-detail',
     params.personId,
