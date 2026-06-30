@@ -700,7 +700,7 @@ function extractTableIds(backendDir: string): string[] {
     }
     sourceFile.forEachChild(visit)
   }
-  tableIds.sort()
+  tableIds.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
   return tableIds
 }
 
@@ -891,7 +891,7 @@ export function buildModuleFactsJsonObject(
   factsByModule: Record<string, ModuleFacts>,
 ): Record<string, ModuleFactsJsonEntry> {
   const result: Record<string, ModuleFactsJsonEntry> = {}
-  for (const moduleId of Object.keys(factsByModule).sort()) {
+  for (const moduleId of Object.keys(factsByModule).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
     result[moduleId] = toModuleFactsJsonEntry(factsByModule[moduleId])
   }
   return result
