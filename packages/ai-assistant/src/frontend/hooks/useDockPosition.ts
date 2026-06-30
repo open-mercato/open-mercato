@@ -48,6 +48,30 @@ export function resolveViewportSafeDockPosition(
   return 'floating'
 }
 
+const DOCK_CYCLE_ORDER: DockPosition[] = ['floating', 'right', 'left', 'bottom']
+
+/**
+ * Resolve the next dock position when cycling. Side docks that the current
+ * viewport cannot fit ({@link resolveViewportSafeDockPosition} collapses them to
+ * floating) are skipped so cycling always advances to a position that is both
+ * viewport-safe and different from the current one. Without this, a squeezed
+ * side dock collapses back to floating and the cycle gets stuck before ever
+ * reaching the bottom dock, which stays valid on narrow viewports.
+ */
+export function resolveNextCyclePosition(
+  current: DockPosition,
+  panelWidth: number,
+  viewportWidth: number,
+): DockPosition {
+  const currentIndex = DOCK_CYCLE_ORDER.indexOf(current)
+  for (let step = 1; step <= DOCK_CYCLE_ORDER.length; step += 1) {
+    const candidate = DOCK_CYCLE_ORDER[(currentIndex + step) % DOCK_CYCLE_ORDER.length]
+    const safePosition = resolveViewportSafeDockPosition(candidate, panelWidth, viewportWidth)
+    if (safePosition !== current) return safePosition
+  }
+  return current
+}
+
 export function useDockPosition() {
   const [dockState, setDockState] = useState<DockState>(DEFAULT_DOCK_STATE)
   const [isHydrated, setIsHydrated] = useState(false)
@@ -136,15 +160,10 @@ export function useDockPosition() {
   }, [])
 
   const cyclePosition = useCallback(() => {
-    setDockState((prev) => {
-      const positions: DockPosition[] = ['floating', 'right', 'left', 'bottom']
-      const currentIndex = positions.indexOf(prev.position)
-      const nextIndex = (currentIndex + 1) % positions.length
-      return {
-        ...prev,
-        position: resolveViewportSafeDockPosition(positions[nextIndex], prev.width, getViewportWidth()),
-      }
-    })
+    setDockState((prev) => ({
+      ...prev,
+      position: resolveNextCyclePosition(prev.position, prev.width, getViewportWidth()),
+    }))
   }, [])
 
   const cycleFloatingPosition = useCallback(() => {
