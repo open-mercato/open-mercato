@@ -2326,10 +2326,19 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const handleFieldsetSelectionChange = React.useCallback(
     (entityId: string, nextCode: string | null) => {
+      // The fieldset selector never renders an empty option, so a user can never
+      // pick "no fieldset". An empty/null value here only comes from Radix's
+      // hidden native <select>, which fires a spurious onChange when the
+      // controlled value is changed programmatically after mount (e.g. when the
+      // persisted customFieldsetCode arrives via async initialValues and the
+      // binding hydrates the selection). Honoring that reset would wipe both the
+      // selection and the bound value, collapsing the form back to the default
+      // fieldset (#2646). Ignore it.
+      if (!nextCode) return
       setCfFieldsetSelections((prev) => ({ ...prev, [entityId]: nextCode }))
       const bindingKey = customFieldsetBindings?.[entityId]?.valueKey
       if (bindingKey) {
-        setValue(bindingKey, nextCode ?? undefined)
+        setValue(bindingKey, nextCode)
       }
     },
     [customFieldsetBindings, setValue],
