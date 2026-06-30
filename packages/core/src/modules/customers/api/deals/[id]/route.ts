@@ -24,6 +24,15 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
+import { runWithCacheTenant } from '@open-mercato/cache'
+import {
+  buildCollectionTags,
+  debugCrudCache,
+  expandResourceAliases,
+  isCrudCacheEnabled,
+  resolveCrudCache,
+} from '@open-mercato/shared/lib/crud/cache'
+import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { isMissingDealStageTransitionTable, warnMissingDealStageTransitionTable } from '../../../lib/dealStageTransitionTable'
 
 export const metadata = {
@@ -324,6 +333,72 @@ async function resolveEffectivePipelineStage(
   return null
 }
 
+const DEAL_DETAIL_CACHE_RESOURCE = 'customers.deal'
+// Every entity the detail payload reads, expressed with the same resourceKind
+// strings the customers commands declare. `expandResourceAliases` canonicalizes
+// them exactly the way `invalidateCrudCache` does on the write side (camelCase is
+// split, `_`/`-` become `.`), so `customers.pipelineStage` resolves to
+// `customers.pipeline.stage` and `customers.dictionary_entry` to
+// `customers.dictionary.entry`. That guarantees the collection tags stored here
+// match the ones the deal/pipeline/stage/dictionary commands flush.
+const DEAL_DETAIL_CACHE_TAG_RESOURCES = [
+  'customers.pipeline',
+  'customers.pipelineStage',
+  'customers.dictionary_entry',
+]
+const DEAL_DETAIL_CACHE_TTL_MS = 60_000
+
+type DealDetailCacheAuth = {
+  isSuperAdmin?: boolean | null
+  orgId?: string | null
+}
+
+// Capture every input `isOrganizationReadAccessAllowed` consults, so two requests
+// that share a signature also share an authorization outcome for the same deal.
+// The lookup runs after the access check, so this is defense in depth plus the
+// per-scope cache partitioning the issue asks for.
+function buildDealDetailScopeSignature(
+  auth: DealDetailCacheAuth,
+  scope: Pick<OrganizationScope, 'allowedIds' | 'filterIds'> | null | undefined,
+): string {
+  if (auth?.isSuperAdmin === true) return 'super'
+  if (scope?.allowedIds === null) return 'all'
+  const filterIds = Array.isArray(scope?.filterIds)
+    ? scope!.filterIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+    : []
+  if (filterIds.length) return `filter:${[...filterIds].sort().join(',')}`
+  return `home:${auth?.orgId ?? 'null'}`
+}
+
+function buildDealDetailCacheKey(params: {
+  tenantId: string | null
+  organizationId: string | null
+  dealId: string
+  scopeSignature: string
+  view: 'full' | 'lite'
+  includeKey: string
+}): string {
+  return [
+    'customers:deal:detail',
+    `tenant=${params.tenantId ?? 'null'}`,
+    `org=${params.organizationId ?? 'null'}`,
+    `deal=${params.dealId}`,
+    `scope=${params.scopeSignature}`,
+    `view=${params.view}`,
+    `include=${params.includeKey}`,
+  ].join(':')
+}
+
+function buildDealDetailCacheTags(tenantId: string | null, organizationId: string | null): string[] {
+  const tags = new Set<string>()
+  for (const key of expandResourceAliases(DEAL_DETAIL_CACHE_RESOURCE, DEAL_DETAIL_CACHE_TAG_RESOURCES)) {
+    for (const tag of buildCollectionTags(key, tenantId, [organizationId])) {
+      tags.add(tag)
+    }
+  }
+  return Array.from(tags)
+}
+
 export async function GET(request: Request, context: { params?: Record<string, unknown> }) {
   const parsedParams = paramsSchema.safeParse(context.params)
   if (!parsedParams.success) {
@@ -385,6 +460,69 @@ export async function GET(request: Request, context: { params?: Record<string, u
   const decryptionScope = {
     tenantId: deal.tenantId ?? auth.tenantId ?? null,
     organizationId: deal.organizationId ?? auth.orgId ?? null,
+  }
+
+  const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
+  const resolveViewer = async (): Promise<{ name: string | null; email: string | null }> => {
+    if (!viewerUserId) {
+      return { name: null, email: auth.email ?? null }
+    }
+    const viewer = await findOneWithDecryption(
+      em,
+      User,
+      { id: viewerUserId, tenantId: auth.tenantId ?? null },
+      {},
+      { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+    )
+    return {
+      name: viewer?.name ?? null,
+      email: viewer?.email ?? auth.email ?? null,
+    }
+  }
+
+  // Opt-in detail cache (ENABLE_CRUD_API_CACHE). The lookup runs after the deal is
+  // resolved and the tenant + organization read-access checks pass, so the cache
+  // only ever memoizes a payload this caller is already authorized to see; it then
+  // skips the heavy association / custom-field / pipeline-stage / dictionary /
+  // audit-fallback sweeps below. The viewer block is request-specific, so it is
+  // excluded from the cached value and always resolved fresh.
+  const cacheTenantId = deal.tenantId ?? auth.tenantId ?? null
+  const cacheOrganizationId = deal.organizationId ?? null
+  const detailCache = isCrudCacheEnabled() ? resolveCrudCache(container) : null
+  const includeKey = includeFlags.size ? Array.from(includeFlags).sort().join(',') : 'none'
+  const detailCacheKey = detailCache
+    ? buildDealDetailCacheKey({
+        tenantId: cacheTenantId,
+        organizationId: cacheOrganizationId,
+        dealId: deal.id,
+        scopeSignature: buildDealDetailScopeSignature(auth, scope),
+        view: viewMode,
+        includeKey,
+      })
+    : null
+
+  if (detailCache && detailCacheKey) {
+    try {
+      const cached = await runWithCacheTenant(cacheTenantId, () => detailCache.get(detailCacheKey))
+      if (cached && typeof cached === 'object') {
+        const viewerInfo = await resolveViewer()
+        return NextResponse.json({
+          ...(cached as Record<string, unknown>),
+          viewer: {
+            userId: viewerUserId,
+            name: viewerInfo.name,
+            email: viewerInfo.email,
+          },
+        })
+      }
+    } catch (err) {
+      // A cache-backend read error must degrade to a fresh DB read, never a 500.
+      debugCrudCache('get', {
+        resource: DEAL_DETAIL_CACHE_RESOURCE,
+        key: detailCacheKey,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   }
   // Issue #3175: the reads below only depend on the already-resolved deal +
   // organization scope + decryption scope, so they are grouped into Promise.all
@@ -535,24 +673,6 @@ export async function GET(request: Request, context: { params?: Record<string, u
     }
   }
 
-  const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
-  const resolveViewer = async (): Promise<{ name: string | null; email: string | null }> => {
-    if (!viewerUserId) {
-      return { name: null, email: auth.email ?? null }
-    }
-    const viewer = await findOneWithDecryption(
-      em,
-      User,
-      { id: viewerUserId, tenantId: auth.tenantId ?? null },
-      {},
-      { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
-    )
-    return {
-      name: viewer?.name ?? null,
-      email: viewer?.email ?? auth.email ?? null,
-    }
-  }
-
   const resolveOwner = async () =>
     deal.ownerUserId
       ? await findOneWithDecryption(
@@ -682,7 +802,15 @@ export async function GET(request: Request, context: { params?: Record<string, u
     fallbackTimestamp: deal.createdAt.toISOString(),
   })
 
-  return NextResponse.json({
+  const viewer = {
+    userId: viewerUserId,
+    name: viewerName,
+    email: viewerEmail,
+  }
+
+  // Everything except the request-specific viewer block is shareable across
+  // authorized callers, so it is what gets cached.
+  const cacheableBody = {
     deal: {
       id: deal.id,
       title: deal.title,
@@ -714,11 +842,6 @@ export async function GET(request: Request, context: { params?: Record<string, u
       companies: linkedCompanyIds.length,
     },
     customFields,
-    viewer: {
-      userId: viewerUserId,
-      name: viewerName,
-      email: viewerEmail,
-    },
     pipelineStages: pipelineStages.map((stage) => {
       const appearance = pipelineStageAppearanceMap.get(stage.label.trim().toLowerCase())
       return {
@@ -732,7 +855,28 @@ export async function GET(request: Request, context: { params?: Record<string, u
     pipelineName: pipeline?.name ?? null,
     stageTransitions: stageTransitionPayload,
     owner: ownerPayload,
-  })
+  }
+
+  if (detailCache && detailCacheKey) {
+    try {
+      await runWithCacheTenant(cacheTenantId, () =>
+        detailCache.set(detailCacheKey, cacheableBody, {
+          ttl: DEAL_DETAIL_CACHE_TTL_MS,
+          tags: buildDealDetailCacheTags(cacheTenantId, cacheOrganizationId),
+        }),
+      )
+    } catch (err) {
+      // A cache write must never break the request; log it for observability
+      // instead of failing the response (matches the CRUD factory).
+      debugCrudCache('store', {
+        resource: DEAL_DETAIL_CACHE_RESOURCE,
+        key: detailCacheKey,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  return NextResponse.json({ ...cacheableBody, viewer })
 }
 
 const dealDetailQuerySchema = z.object({
