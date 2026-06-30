@@ -757,3 +757,180 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     warnings,
   }
 }
+
+export interface ModuleFactsJsonEvent {
+  id: string
+  category: string | null
+  entity: string | null
+}
+
+export interface ModuleFactsJsonEntry {
+  coreVersion: string | null
+  entities: ModuleEntityFact[]
+  events: ModuleFactsJsonEvent[]
+  aclFeatures: string[]
+  apiRoutes: ModuleApiRouteFact[]
+  diTokens: string[]
+  searchEntities: string[]
+  hostTokens: ModuleHostTokens
+  notifications: string[]
+  cli: string[]
+}
+
+const EMPTY_SECTION_MARKER = '_none_'
+
+function renderVersionStamp(coreVersion: string | null): string {
+  const version = coreVersion && coreVersion.length > 0 ? coreVersion : '<unknown>'
+  return `<!-- generated from @open-mercato/core ${version} — R1 staleness stamp -->`
+}
+
+function renderEntitiesSection(entities: ModuleEntityFact[]): string {
+  if (entities.length === 0) return `## Entities\n\n${EMPTY_SECTION_MARKER}`
+  const header = '| Entity ID | Class | Table | Editable | CustomFields |'
+  const divider = '|---|---|---|---|---|'
+  const rows = entities.map(
+    (entity) =>
+      `| ${entity.id} | ${entity.class} | ${entity.table} | ${entity.editable ? 'yes' : 'no'} | ${entity.customFields ? 'yes' : 'no'} |`,
+  )
+  return ['## Entities', '', header, divider, ...rows].join('\n')
+}
+
+function renderEventsSection(events: ModuleEventFact[]): string {
+  const heading = `## Events  (${events.length})`
+  if (events.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
+  const header = '| ID | Category | Entity |'
+  const divider = '|---|---|---|'
+  const rows = events.map((event) => `| ${event.id} | ${event.category ?? '—'} | ${event.entity ?? '—'} |`)
+  return [heading, '', header, divider, ...rows].join('\n')
+}
+
+function renderInlineListSection(heading: string, values: string[]): string {
+  if (values.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
+  return `${heading}\n\n${values.join(' · ')}`
+}
+
+function describeAuthRule(rule: ApiRouteAuthRule | undefined): string {
+  if (!rule) return 'public'
+  if (rule.requireFeatures && rule.requireFeatures.length > 0) return rule.requireFeatures.join(', ')
+  if (rule.requireRoles && rule.requireRoles.length > 0) return rule.requireRoles.join(', ')
+  if (rule.requireAuth) return 'auth'
+  return 'public'
+}
+
+function renderApiRouteAuthCell(route: ModuleApiRouteFact): string {
+  if (route.methods.length === 0) return '—'
+  const groups: Array<{ label: string; methods: string[] }> = []
+  for (const method of route.methods) {
+    const label = describeAuthRule(route.auth[method])
+    const existing = groups.find((group) => group.label === label)
+    if (existing) existing.methods.push(method)
+    else groups.push({ label, methods: [method] })
+  }
+  return groups.map((group) => `${group.methods.join('/')} → ${group.label}`).join(' · ')
+}
+
+function renderApiRoutesSection(routes: ModuleApiRouteFact[]): string {
+  if (routes.length === 0) return `## API routes\n\n${EMPTY_SECTION_MARKER}`
+  const header = '| Path | Methods | Auth (per-method requireFeatures) |'
+  const divider = '|---|---|---|'
+  const rows = routes.map(
+    (route) => `| ${route.path} | ${route.methods.join(' ')} | ${renderApiRouteAuthCell(route)} |`,
+  )
+  return ['## API routes', '', header, divider, ...rows].join('\n')
+}
+
+function renderHostTokensSection(hostTokens: ModuleHostTokens): string {
+  const entityIdsLine = hostTokens.entityIds.length > 0 ? hostTokens.entityIds.join(' · ') : EMPTY_SECTION_MARKER
+  const tableIdsLine = hostTokens.tableIds.length > 0 ? hostTokens.tableIds.join(' · ') : EMPTY_SECTION_MARKER
+  return ['## Host extension points', '', `- Entity IDs: ${entityIdsLine}`, `- Table IDs: ${tableIdsLine}`].join('\n')
+}
+
+export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
+  const sections = [
+    `# ${facts.module} — module facts (generated, do not edit)`,
+    renderVersionStamp(facts.coreVersion),
+    '',
+    renderEntitiesSection(facts.entities),
+    '',
+    renderEventsSection(facts.events),
+    '',
+    renderInlineListSection(`## ACL features  (${facts.aclFeatures.length})`, facts.aclFeatures),
+    '',
+    renderApiRoutesSection(facts.apiRoutes),
+    '',
+    renderInlineListSection('## DI service tokens', facts.diTokens),
+    '',
+    renderInlineListSection('## Search entities', facts.searchEntities),
+    '',
+    renderHostTokensSection(facts.hostTokens),
+    '',
+    renderInlineListSection('## Notifications', facts.notifications),
+    '',
+    renderInlineListSection('## CLI', facts.cli),
+    '',
+  ]
+  return sections.join('\n')
+}
+
+export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry {
+  return {
+    coreVersion: facts.coreVersion,
+    entities: facts.entities,
+    events: facts.events.map((event) => ({ id: event.id, category: event.category, entity: event.entity })),
+    aclFeatures: facts.aclFeatures,
+    apiRoutes: facts.apiRoutes,
+    diTokens: facts.diTokens,
+    searchEntities: facts.searchEntities,
+    hostTokens: facts.hostTokens,
+    notifications: facts.notifications,
+    cli: facts.cli,
+  }
+}
+
+export function buildModuleFactsJsonObject(
+  factsByModule: Record<string, ModuleFacts>,
+): Record<string, ModuleFactsJsonEntry> {
+  const result: Record<string, ModuleFactsJsonEntry> = {}
+  for (const moduleId of Object.keys(factsByModule).sort()) {
+    result[moduleId] = toModuleFactsJsonEntry(factsByModule[moduleId])
+  }
+  return result
+}
+
+export function renderModuleFactsJson(factsByModule: Record<string, ModuleFacts>): string {
+  return `${JSON.stringify(buildModuleFactsJsonObject(factsByModule), null, 2)}\n`
+}
+
+export interface ExtractAllModuleFactsOptions {
+  coreSrcRoot: string
+  registryPath?: string | null
+  registrySource?: string | null
+  coreVersion?: string | null
+  moduleIds?: readonly string[]
+}
+
+export interface ExtractAllModuleFactsResult {
+  factsByModule: Record<string, ModuleFacts>
+  markdownByModule: Record<string, string>
+  warnings: string[]
+}
+
+export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): ExtractAllModuleFactsResult {
+  const moduleIds = options.moduleIds ?? MODULE_FACTS_ALLOWLIST
+  const factsByModule: Record<string, ModuleFacts> = {}
+  const markdownByModule: Record<string, string> = {}
+  const warnings: string[] = []
+  for (const moduleId of moduleIds) {
+    const facts = extractModuleFacts({
+      moduleId,
+      coreSrcRoot: options.coreSrcRoot,
+      coreVersion: options.coreVersion ?? null,
+      registryPath: options.registryPath ?? null,
+      registrySource: options.registrySource ?? null,
+    })
+    factsByModule[moduleId] = facts
+    markdownByModule[moduleId] = renderModuleFactsMarkdown(facts)
+    warnings.push(...facts.warnings)
+  }
+  return { factsByModule, markdownByModule, warnings }
+}
