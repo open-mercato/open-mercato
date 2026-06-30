@@ -391,13 +391,15 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       showInSidebar: z.boolean().optional(),
     }) as z.ZodType<Record<string, unknown>>
 
+  const metadataFieldsReadOnly = entitySource === 'code'
   const fields: CrudField[] = [
-    { id: 'label', label: 'Label', type: 'text', required: true },
-    { id: 'description', label: 'Description', type: 'textarea' },
+    { id: 'label', label: 'Label', type: 'text', required: true, readOnly: metadataFieldsReadOnly },
+    { id: 'description', label: 'Description', type: 'textarea', readOnly: metadataFieldsReadOnly },
     {
       id: 'defaultEditor',
       label: 'Default Editor (multiline)',
       type: 'select',
+      readOnly: metadataFieldsReadOnly,
       options: [
         { value: '', label: 'Default (Markdown)' },
         { value: 'markdown', label: 'Markdown (UIW)' },
