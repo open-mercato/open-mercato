@@ -43,3 +43,9 @@
 - Phase 2 + Phase 3 build-side complete. Full create-app build emits 9 fact-sheets + module-facts.json (122 KB, customers 54 registry-resolved apiRoutes); 61/61 existing create-app unit tests pass; cli module-facts 29 tests still green.
 - Marker-block inject + ts-morph enabledModules parser + redirect-stub path all scratch-verified.
 - PASS. Next: 3.5 T5 + 3.6 T6 (create-app node:test), then Phase 4 (delete 9 guides + RELEASE_NOTES), then final gate + ds-guardian + auto-review-pr.
+
+## 2026-06-30T16:25:00Z — run COMPLETE (all 21 steps) + final gate PASS
+- Phase 3 finished (3.5 T5 build smoke + 3.6 T6 module-guides; 68 create-app tests). Phase 4 done (deleted 9 standalone-guide.md → clean rebuild writes 9 redirect stubs; RELEASE_NOTES deprecation note added).
+- Final gate (feasible scope): build:packages 21/21 ✅; yarn generate ✅ with ZERO drift in the versioned module-facts.generated.json (D4 validated); i18n:check-sync ✅; cli + create-app typecheck ✅; cli module-facts 29 + create-app 68 tests ✅. Self code-review + BC self-review: clean (generated-file contract bridged via stubs + RELEASE_NOTES; all surfaces additive).
+- Deferred to PR CI: build:app + integration suites (N/A per spec §10 — no HTTP/UI) + a formal om-auto-review-pr. ds-guardian N/A (no .tsx diff).
+- PR #3715 marked ready for review; #3685 to be closed once #3715 lands.
