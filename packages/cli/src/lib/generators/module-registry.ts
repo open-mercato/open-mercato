@@ -1125,7 +1125,7 @@ function extractCommandIdsFromSource(sourcePath: string): string[] {
 
   collectVariables(sourceFile)
   collectRegistrations(sourceFile)
-  return Array.from(ids).sort()
+  return Array.from(ids).sort((a, b) => a.localeCompare(b))
 }
 
 function collectCommandLoaderEntries(
