@@ -31,7 +31,7 @@
 | 3 | 3.5 | T5 build.mjs wiring smoke (packages/create-app) | done | 9521b6297 |
 | 3 | 3.6 | T6 agents-md module-guides test (packages/create-app) | done | b40cfc79f |
 | 4 | 4.1 | Delete 9 per-module standalone-guide.md | done | 21036de25 |
-| 4 | 4.2 | RELEASE_NOTES.md deprecation note | todo | — |
+| 4 | 4.2 | RELEASE_NOTES.md deprecation note | done | 9d656c20d |
 
 ## Goal
 
