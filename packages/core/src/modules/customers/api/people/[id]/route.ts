@@ -42,6 +42,8 @@ import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/p
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
 import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
+import { runWithCacheTenant } from '@open-mercato/cache'
+import { buildCollectionTags, isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
@@ -50,6 +52,57 @@ export const metadata = {
 const paramsSchema = z.object({
   id: z.string().uuid(),
 })
+
+// Person detail is one of the heaviest custom GETs (decryption sweeps across
+// addresses, tags, labels, interactions, custom fields, plus per-link query
+// engine enrichment). Mirror the gated get-then-set cache from the roles list
+// (#3143) so a hit skips every sweep below. Writes flow through the customers
+// command bus, which already flushes the matching crud:<resourceKind> collection
+// tags post-commit — these set tags reuse the exact same shapes (see
+// invalidateCrudCache), so no new invalidation wiring is needed (#3663).
+const PERSON_DETAIL_TTL_MS = 60_000
+const PERSON_DETAIL_TAG_RESOURCES = [
+  'customers.person',
+  'customers.address',
+  'customers.tagAssignment',
+  'customers.labelAssignment',
+  'customers.personCompanyLink',
+  'customers.interaction',
+  'customers.activity',
+] as const
+
+function buildPersonDetailCacheKey(params: {
+  personId: string
+  tenantId: string | null
+  organizationId: string | null
+  callerId: string | null
+  selectedOrganizationId: string | null
+  scopedOrganizationIds: string[]
+  interactionMode: 'canonical' | 'legacy'
+  includeTokens: string[]
+}): string {
+  const include = [...params.includeTokens].sort().join('|') || 'none'
+  const scoped = [...params.scopedOrganizationIds].sort().join('|') || 'null'
+  return [
+    'customers:person-detail',
+    params.personId,
+    `tenant=${params.tenantId ?? 'null'}`,
+    `org=${params.organizationId ?? 'null'}`,
+    `caller=${params.callerId ?? 'null'}`,
+    `selOrg=${params.selectedOrganizationId ?? 'null'}`,
+    `scope=${scoped}`,
+    `mode=${params.interactionMode}`,
+    `include=${include}`,
+  ].join(':')
+}
+
+function buildPersonDetailCacheTags(tenantId: string | null, organizationId: string | null): string[] {
+  const tags: string[] = []
+  for (const resource of PERSON_DETAIL_TAG_RESOURCES) {
+    tags.push(...buildCollectionTags(resource, tenantId, [organizationId]))
+  }
+  return tags
+}
 
 function parseIncludeParams(request: Request): Set<string> {
   const url = new URL(request.url)
@@ -485,6 +538,39 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       return forbidden('Access denied')
     }
 
+    // Gated get-then-set cache. Key on the resolved person plus the effective
+    // RBAC scope (caller identity, selected/visible orgs) and the payload-shaping
+    // inputs (interaction mode + include set). The lookup sits before the
+    // expensive sweeps below so a hit returns without touching the DB.
+    const personDetailTenantId = person.tenantId ?? auth.tenantId ?? null
+    const personDetailOrganizationId = person.organizationId ?? null
+    const personDetailCache = isCrudCacheEnabled() ? resolveCrudCache(container) : null
+    const personDetailCacheKey = personDetailCache
+      ? buildPersonDetailCacheKey({
+          personId: person.id,
+          tenantId: personDetailTenantId,
+          organizationId: personDetailOrganizationId,
+          callerId: auth.sub ?? null,
+          selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+          scopedOrganizationIds: Array.isArray(scope?.filterIds) ? scope.filterIds : [],
+          interactionMode,
+          includeTokens: Array.from(includeTokens),
+        })
+      : null
+    const personDetailCacheTags = personDetailCache
+      ? buildPersonDetailCacheTags(personDetailTenantId, personDetailOrganizationId)
+      : []
+
+    if (personDetailCache && personDetailCacheKey) {
+      const cached = await runWithCacheTenant(personDetailTenantId, () => personDetailCache.get(personDetailCacheKey))
+      if (cached) {
+        statusCode = 200
+        profileMeta = { cacheHit: true, include: Array.from(includeTokens), interactionMode }
+        profiler.mark('cache_hit')
+        return NextResponse.json(cached)
+      }
+    }
+
     const [profileResult, personCompanyLinks] = await Promise.all([
       findOneWithDecryption(em, CustomerPersonProfile, { entity: person }, { populate: ['company'] }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null }),
       loadPersonCompanyLinks(em, person),
@@ -801,7 +887,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       companies: companies.length,
     }
 
-    const response = NextResponse.json({
+    const payload = {
       interactionMode,
       person: {
         id: person.id,
@@ -1011,7 +1097,20 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         name: viewerUserIdFinal ? userMap.get(viewerUserIdFinal)?.name ?? null : null,
         email: viewerUserIdFinal ? userMap.get(viewerUserIdFinal)?.email ?? auth.email ?? null : auth.email ?? null,
       },
-    })
+    }
+
+    if (personDetailCache && personDetailCacheKey) {
+      try {
+        await runWithCacheTenant(personDetailTenantId, () =>
+          personDetailCache.set(personDetailCacheKey, payload, {
+            ttl: PERSON_DETAIL_TTL_MS,
+            tags: personDetailCacheTags,
+          }),
+        )
+      } catch {}
+    }
+
+    const response = NextResponse.json(payload)
     statusCode = 200
     profileMeta = {
       include: Array.from(includeTokens),
