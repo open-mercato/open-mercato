@@ -6,6 +6,7 @@ import { registerEntityIds } from '../encryption/entityIds'
 import { registerEntityFields } from '../encryption/entityFields'
 import { registerSearchModuleConfigs } from '../../modules/search'
 import { registerAnalyticsModuleConfigs } from '../../modules/analytics'
+import { registerDataQualityTargetEntries } from '../../modules/data-quality'
 import { registerResponseEnrichers } from '../crud/enricher-registry'
 import { registerApiInterceptors } from '../crud/interceptor-registry'
 import { registerComponentOverrides } from '../../modules/widgets/component-registry'
@@ -64,6 +65,11 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
     // === 5. Search module configs (for search service registration in DI) ===
     if (data.searchModuleConfigs) {
       registerSearchModuleConfigs(data.searchModuleConfigs)
+    }
+
+    // === 5b. Data quality target entries (for scan workers) ===
+    if (data.dataQualityTargetEntries) {
+      registerDataQualityTargetEntries(data.dataQualityTargetEntries)
     }
 
     // === 6. Analytics module configs (for dashboard widgets and analytics API) ===
