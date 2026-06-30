@@ -43,7 +43,7 @@ import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
 import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
 import { runWithCacheTenant } from '@open-mercato/cache'
-import { buildCollectionTags, isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { buildCollectionTags, canonicalizeResourceTag, isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
@@ -60,6 +60,11 @@ const paramsSchema = z.object({
 // command bus, which already flushes the matching crud:<resourceKind> collection
 // tags post-commit — these set tags reuse the exact same shapes (see
 // invalidateCrudCache), so no new invalidation wiring is needed (#3663).
+// The resource ids below are canonicalized with canonicalizeResourceTag (just
+// like invalidateCrudCache does via expandResourceAliases) before building the
+// collection tags, so camelCase ids (tagAssignment, labelAssignment,
+// personCompanyLink) produce the SAME tag the command bus deletes on
+// write/undo/redo — otherwise the cache would never be invalidated for them.
 const PERSON_DETAIL_TTL_MS = 60_000
 const PERSON_DETAIL_TAG_RESOURCES = [
   'customers.person',
@@ -99,7 +104,8 @@ function buildPersonDetailCacheKey(params: {
 function buildPersonDetailCacheTags(tenantId: string | null, organizationId: string | null): string[] {
   const tags: string[] = []
   for (const resource of PERSON_DETAIL_TAG_RESOURCES) {
-    tags.push(...buildCollectionTags(resource, tenantId, [organizationId]))
+    const canonical = canonicalizeResourceTag(resource) ?? resource
+    tags.push(...buildCollectionTags(canonical, tenantId, [organizationId]))
   }
   return tags
 }

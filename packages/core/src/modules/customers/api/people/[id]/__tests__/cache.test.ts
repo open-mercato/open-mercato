@@ -188,12 +188,15 @@ describe('GET /api/customers/people/[id] — caching (issue #3663)', () => {
     expect(setKey).toBe(getKey)
     expect((setValue as { person: { id: string } }).person.id).toBe(PERSON_ID)
     expect(setOpts.ttl).toBe(60_000)
+    // Canonicalized resource tags (camelCase ids are split + lowercased the same
+    // way invalidateCrudCache does) so write/undo/redo invalidation actually
+    // matches these set tags (#3663).
     expect(setOpts.tags).toEqual([
       `crud:customers.person:tenant:${TENANT_ID}:org:${ORG_ID}:collection`,
       `crud:customers.address:tenant:${TENANT_ID}:org:${ORG_ID}:collection`,
-      `crud:customers.tagAssignment:tenant:${TENANT_ID}:org:${ORG_ID}:collection`,
-      `crud:customers.labelAssignment:tenant:${TENANT_ID}:org:${ORG_ID}:collection`,
-      `crud:customers.personCompanyLink:tenant:${TENANT_ID}:org:${ORG_ID}:collection`,
+      `crud:customers.tag.assignment:tenant:${TENANT_ID}:org:${ORG_ID}:collection`,
+      `crud:customers.label.assignment:tenant:${TENANT_ID}:org:${ORG_ID}:collection`,
+      `crud:customers.person.company.link:tenant:${TENANT_ID}:org:${ORG_ID}:collection`,
       `crud:customers.interaction:tenant:${TENANT_ID}:org:${ORG_ID}:collection`,
       `crud:customers.activity:tenant:${TENANT_ID}:org:${ORG_ID}:collection`,
     ])
