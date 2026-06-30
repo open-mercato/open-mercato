@@ -20,7 +20,7 @@
 | 1 | 1.6 | Wire into yarn generate → versioned apps/mercato/src/module-facts.generated.json | done | 2e9740062 |
 | 1 | 1.7 | T1 customers fixture snapshot test | done | b0bbfdca2 |
 | 1 | 1.8 | T2 auth-source test (registry vs api-routes manifest) | done | 7fd887b71 |
-| 1 | 1.9 | T3 BC guard test (facts resolve against live E/events/acl/search) | todo | — |
+| 1 | 1.9 | T3 BC guard test (facts resolve against live E/events/acl/search) | done | 5f377f04a |
 | 1 | 1.10 | T4 malformed-source test (empty section + warning, no throw) | todo | — |
 | 2 | 2.1 | Author conceptual .ai/guides/module-system.md (Layer 1) | todo | — |
 | 2 | 2.2 | Dedup migrated prose from core package guide | todo | — |
