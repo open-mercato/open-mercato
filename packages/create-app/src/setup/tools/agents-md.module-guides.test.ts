@@ -99,3 +99,22 @@ test('injectModuleGuides writes exactly the selected rows, drops the hedge, and 
   const secondPass = fs.readFileSync(agentsPath, 'utf8')
   assert.equal(secondPass, firstPass)
 })
+
+test('injectModuleGuides warns and leaves the file unchanged when the markers are absent (T6)', () => {
+  const targetDir = makeTmpDir()
+  const agentsPath = join(targetDir, 'AGENTS.md')
+  const original = '# AGENTS\n\nThis file has no module-guides markers.\n'
+  fs.writeFileSync(agentsPath, original)
+
+  const warnings: string[] = []
+  const realWarn = console.warn
+  console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(' '))
+  try {
+    injectModuleGuides(agentsPath, ['customers', 'sales'])
+  } finally {
+    console.warn = realWarn
+  }
+
+  assert.equal(fs.readFileSync(agentsPath, 'utf8'), original)
+  assert.ok(warnings.some((warning) => warning.includes('markers') && warning.includes('not found')))
+})

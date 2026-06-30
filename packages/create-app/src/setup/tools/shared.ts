@@ -87,7 +87,12 @@ export function injectModuleGuides(agentsMdPath: string, selected: string[]): vo
   const content = readFileSync(agentsMdPath, 'utf-8')
   const startIndex = content.indexOf(MODULE_GUIDES_START)
   const endIndex = content.indexOf(MODULE_GUIDES_END)
-  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) return
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    console.warn(
+      `[agentic] Module-Specific Guides markers (${MODULE_GUIDES_START} … ${MODULE_GUIDES_END}) not found in ${agentsMdPath}; the per-module guide list was not generated.`,
+    )
+    return
+  }
   const before = content.slice(0, startIndex + MODULE_GUIDES_START.length)
   const after = content.slice(endIndex)
   const next = `${before}\n${renderModuleGuidesBlock(selected)}\n${after}`
