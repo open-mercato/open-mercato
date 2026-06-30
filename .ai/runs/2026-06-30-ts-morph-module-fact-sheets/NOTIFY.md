@@ -16,3 +16,13 @@
 - Generated apps/mercato/src/module-facts.generated.json for all 9 D5 modules; real registry-resolved API auth confirmed.
 - PASS. Known soft gap: tableIds=0 for catalog/integrations/sales (follow-up, non-blocking).
 - Next: T1–T4 tests (steps 1.7–1.10).
+
+## 2026-06-30T15:33:00Z — auto-continue-pr takeover (maintainer-requested)
+- The original autonomous run was found STILL ALIVE (headless `bypassPermissions` session) committing on this branch every few minutes; it had reached checkpoint 1 (HEAD 3da0ba94a, Phase 1 through 1.6).
+- Per maintainer decision (via `om-help` → `auto-continue-pr`), the live run's process tree was stopped, draft PR #3715 was opened against open-mercato:develop and claimed (`in-progress`), and this session took over from Step 1.7. PR #3685 (design-spec only) is superseded and to be closed once #3715 lands.
+- Resume point: Step 1.7 (T1). PR head SHA at takeover: 3da0ba94a.
+
+## 2026-06-30T15:40:00Z — checkpoint 2 (steps 1.7–1.10)
+- Phase 1 COMPLETE. Landed T1–T4 in packages/cli (4 files, 29 tests). cli typecheck exit 0; module-facts suite 4/4 green.
+- T1 anti-drift (real customers facts), T2 registry-as-auth-source, T3 9-module BC resolve guard, T4 malformed-source resilience.
+- PASS. Next: Phase 2 — Step 2.1 conceptual .ai/guides/module-system.md, then 2.2 core-guide dedup.
