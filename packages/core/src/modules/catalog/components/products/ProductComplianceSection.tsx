@@ -64,7 +64,7 @@ export function ProductComplianceSection({
     (code: string, checked: boolean) => {
       const current = Array.isArray(values.gtuCodes) ? values.gtuCodes : [];
       const next = checked
-        ? Array.from(new Set([...current, code])).sort()
+        ? Array.from(new Set([...current, code])).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
         : current.filter((entry) => entry !== code);
       setValue("gtuCodes", next);
     },

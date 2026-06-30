@@ -12,8 +12,8 @@ const ctx = {
   selectedOrganizationId: organizationId,
 }
 
-const validateCrudMutationGuardMock = jest.fn()
-const runCrudMutationGuardAfterSuccessMock = jest.fn()
+const runRouteMutationGuardsMock = jest.fn()
+const runAfterSuccessMock = jest.fn()
 
 const serviceMock = {
   create: jest.fn(),
@@ -27,9 +27,8 @@ const serviceMock = {
   markAllAsRead: jest.fn(),
 }
 
-jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
-  validateCrudMutationGuard: (...args: unknown[]) => validateCrudMutationGuardMock(...args),
-  runCrudMutationGuardAfterSuccess: (...args: unknown[]) => runCrudMutationGuardAfterSuccessMock(...args),
+jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
+  runRouteMutationGuards: (...args: unknown[]) => runRouteMutationGuardsMock(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/api/context', () => ({
@@ -79,20 +78,18 @@ const jsonRequest = (url: string, method: string, body?: unknown) =>
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
 
-const guardArgs = (overrides: Record<string, unknown>) =>
+const guardCall = (input: Record<string, unknown>) =>
   expect.objectContaining({
-    tenantId,
-    organizationId,
-    userId,
-    requestMethod: expect.any(String),
-    ...overrides,
+    container,
+    auth: expect.objectContaining({ tenantId, organizationId, userId }),
+    input: expect.objectContaining(input),
   })
 
-describe('notification write routes run the mutation guard lifecycle', () => {
+describe('notification write routes run the mutation guard registry', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
-    runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
+    runAfterSuccessMock.mockResolvedValue(undefined)
+    runRouteMutationGuardsMock.mockResolvedValue({ ok: true, runAfterSuccess: runAfterSuccessMock })
     serviceMock.create.mockResolvedValue({ id: notificationId })
     serviceMock.createBatch.mockResolvedValue([{ id: notificationId }])
     serviceMock.markAsRead.mockResolvedValue(undefined)
@@ -113,14 +110,10 @@ describe('notification write routes run the mutation guard lifecycle', () => {
 
     expect(response.status).toBe(201)
     expect(serviceMock.create).toHaveBeenCalled()
-    expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
-      container,
-      guardArgs({ resourceKind: 'notifications.notification', resourceId: '', operation: 'create' }),
+    expect(runRouteMutationGuardsMock).toHaveBeenCalledWith(
+      guardCall({ resourceKind: 'notifications.notification', operation: 'create' }),
     )
-    expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalledWith(
-      container,
-      guardArgs({ resourceKind: 'notifications.notification', operation: 'create' }),
-    )
+    expect(runAfterSuccessMock).toHaveBeenCalled()
   })
 
   it('guards bulk create (POST /api/notifications/batch)', async () => {
@@ -134,11 +127,10 @@ describe('notification write routes run the mutation guard lifecycle', () => {
 
     expect(response.status).toBe(201)
     expect(serviceMock.createBatch).toHaveBeenCalled()
-    expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
-      container,
-      guardArgs({ resourceKind: 'notifications.notification', operation: 'create' }),
+    expect(runRouteMutationGuardsMock).toHaveBeenCalledWith(
+      guardCall({ resourceKind: 'notifications.notification', operation: 'create' }),
     )
-    expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalled()
+    expect(runAfterSuccessMock).toHaveBeenCalled()
   })
 
   it('guards single-action update (PUT /api/notifications/[id]/read)', async () => {
@@ -149,11 +141,10 @@ describe('notification write routes run the mutation guard lifecycle', () => {
 
     expect(response.status).toBe(200)
     expect(serviceMock.markAsRead).toHaveBeenCalledWith(notificationId, expect.anything())
-    expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
-      container,
-      guardArgs({ resourceKind: 'notifications.notification', resourceId: notificationId, operation: 'update' }),
+    expect(runRouteMutationGuardsMock).toHaveBeenCalledWith(
+      guardCall({ resourceKind: 'notifications.notification', resourceId: notificationId, operation: 'update' }),
     )
-    expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalled()
+    expect(runAfterSuccessMock).toHaveBeenCalled()
   })
 
   it('guards restore (PUT /api/notifications/[id]/restore)', async () => {
@@ -164,11 +155,10 @@ describe('notification write routes run the mutation guard lifecycle', () => {
 
     expect(response.status).toBe(200)
     expect(serviceMock.restoreDismissed).toHaveBeenCalled()
-    expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
-      container,
-      guardArgs({ resourceKind: 'notifications.notification', resourceId: notificationId, operation: 'update' }),
+    expect(runRouteMutationGuardsMock).toHaveBeenCalledWith(
+      guardCall({ resourceKind: 'notifications.notification', resourceId: notificationId, operation: 'update' }),
     )
-    expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalled()
+    expect(runAfterSuccessMock).toHaveBeenCalled()
   })
 
   it('guards execute action (POST /api/notifications/[id]/action)', async () => {
@@ -179,11 +169,10 @@ describe('notification write routes run the mutation guard lifecycle', () => {
 
     expect(response.status).toBe(200)
     expect(serviceMock.executeAction).toHaveBeenCalled()
-    expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
-      container,
-      guardArgs({ resourceKind: 'notifications.notification', resourceId: notificationId, operation: 'custom' }),
+    expect(runRouteMutationGuardsMock).toHaveBeenCalledWith(
+      guardCall({ resourceKind: 'notifications.notification', resourceId: notificationId, operation: 'custom' }),
     )
-    expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalled()
+    expect(runAfterSuccessMock).toHaveBeenCalled()
   })
 
   it('guards mark-all-read (PUT /api/notifications/mark-all-read)', async () => {
@@ -193,11 +182,10 @@ describe('notification write routes run the mutation guard lifecycle', () => {
 
     expect(response.status).toBe(200)
     expect(serviceMock.markAllAsRead).toHaveBeenCalled()
-    expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
-      container,
-      guardArgs({ resourceKind: 'notifications.notification', operation: 'update' }),
+    expect(runRouteMutationGuardsMock).toHaveBeenCalledWith(
+      guardCall({ resourceKind: 'notifications.notification', operation: 'update' }),
     )
-    expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalled()
+    expect(runAfterSuccessMock).toHaveBeenCalled()
   })
 
   it('guards settings update (POST /api/notifications/settings)', async () => {
@@ -209,15 +197,19 @@ describe('notification write routes run the mutation guard lifecycle', () => {
 
     expect(response.status).toBe(200)
     expect(saveNotificationDeliveryConfigMock).toHaveBeenCalled()
-    expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
-      container,
-      guardArgs({ resourceKind: 'notifications.settings', operation: 'update' }),
+    expect(runRouteMutationGuardsMock).toHaveBeenCalledWith(
+      guardCall({ resourceKind: 'notifications.settings', operation: 'update' }),
     )
-    expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalled()
+    expect(runAfterSuccessMock).toHaveBeenCalled()
   })
 
   it('blocks the write and skips after-success hooks when the guard rejects', async () => {
-    validateCrudMutationGuardMock.mockResolvedValueOnce({ ok: false, status: 409, body: { error: 'conflict' } })
+    runRouteMutationGuardsMock.mockResolvedValueOnce({
+      ok: false,
+      errorStatus: 409,
+      errorBody: { error: 'conflict' },
+      response: Response.json({ error: 'conflict' }, { status: 409 }),
+    })
 
     const response = await markAllNotificationsRead(
       jsonRequest('http://localhost/api/notifications/mark-all-read', 'PUT'),
@@ -226,6 +218,6 @@ describe('notification write routes run the mutation guard lifecycle', () => {
     expect(response.status).toBe(409)
     await expect(response.json()).resolves.toEqual({ error: 'conflict' })
     expect(serviceMock.markAllAsRead).not.toHaveBeenCalled()
-    expect(runCrudMutationGuardAfterSuccessMock).not.toHaveBeenCalled()
+    expect(runAfterSuccessMock).not.toHaveBeenCalled()
   })
 })

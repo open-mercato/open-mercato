@@ -13,7 +13,8 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Plus } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -152,7 +153,7 @@ export default function ExchangeRatesPage() {
         flash(t('exchangeRates.flash.deleted'), 'success')
         setReloadToken((token) => token + 1)
       } catch (error) {
-        if (extractOptimisticLockConflict(error)) return
+        if (surfaceRecordConflict(error, t, { onRefresh: () => setReloadToken((token) => token + 1) })) return
         flash(t('exchangeRates.flash.deleteError'), 'error')
       }
     },

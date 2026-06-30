@@ -276,6 +276,8 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         await invalidateDictionaryEntries(queryClient, dictionaryId)
         flash(t('dictionaries.config.entries.success.delete', 'Dictionary entry deleted.'), 'success')
       } catch (err) {
+        // Route a concurrent-edit 409 through the single conflict surface (matching
+        // the entry save path); fall back to a flash for any other delete failure.
         if (surfaceRecordConflict(err, t)) {
           return
         }

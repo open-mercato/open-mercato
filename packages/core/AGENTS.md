@@ -153,6 +153,23 @@ makeCrudRoute({
 })
 ```
 
+#### Trimming the list projection (`list.fields` function form)
+
+`list.fields` accepts a static array **or** a function `(query, ctx) => string[]` resolved per request on the Query Engine path. Use the function form to drop large detail-only columns (encrypted JSONB snapshots, payload blobs) from grid listings while still selecting them for single-record fetches — those columns are otherwise fetched and decrypted **per row** on every list page even when no grid column renders them.
+
+```typescript
+list: {
+  entityId: E.sales.sales_order,
+  // Detail page reuses this list route with `?id=`, so it needs the full projection;
+  // grid listings (no id) get the trimmed one.
+  fields: (query) => (typeof query.id === 'string' && query.id.length ? allFields : gridFields),
+}
+```
+
+- The array form is unchanged and fully backward compatible — use it whenever the projection is static.
+- Keep response keys stable: dropped columns must still serialize (e.g. `null` via `transformItem`) so the OpenAPI schema (already `nullable().optional()`) is preserved.
+- Only narrow columns the grid never renders; keep any column a list column derives a value from (e.g. `customer_snapshot` for the customer name/email column). Reference: `src/modules/sales/api/documents/factory.ts` (#2233). Full docs: [`apps/docs/docs/framework/api/crud-factory.mdx`](../../apps/docs/docs/framework/api/crud-factory.mdx) → "Per-request projection".
+
 ### Custom Entities CRUD
 
 Follow the customers module API patterns (CRUD factory + query engine):

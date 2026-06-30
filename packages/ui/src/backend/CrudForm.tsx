@@ -73,6 +73,7 @@ import {
 } from 'lucide-react'
 import { loadGeneratedFieldRegistrations } from './fields/registry'
 import type { CustomFieldDefDto, CustomFieldDefinitionsPayload, CustomFieldsetDto } from './utils/customFieldDefs'
+import { isDefVisible } from './utils/customFieldDefs'
 import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } from './utils/customFieldForms'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
@@ -554,7 +555,7 @@ function normalizeDirtySnapshotValue(value: unknown): unknown {
 
   const normalized: Record<string, unknown> = {}
   const record = value as Record<string, unknown>
-  for (const key of Object.keys(record).sort()) {
+  for (const key of Object.keys(record).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
     const nextValue = normalizeDirtySnapshotValue(record[key])
     if (nextValue !== undefined) normalized[key] = nextValue
   }
@@ -1553,7 +1554,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           fieldsetGroupMap.set(group.code, { code: group.code, title: group.title, hint: group.hint })
         })
       }
-      const sortedDefs = [...defList].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
+      const sortedDefs = [...defList]
+        .filter((definition) => isDefVisible(definition, 'form'))
+        .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
       const ensureBucket = (code: string | null, def: CustomFieldDefDto): CustomFieldGroupLayout => {
         const key = code ?? '__default__'
         let bucket = groupsMap.get(key)

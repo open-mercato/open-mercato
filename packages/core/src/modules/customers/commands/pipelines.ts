@@ -12,6 +12,10 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  enforceCommandOptimisticLockWithGuards,
+  enforceRecordGoneIsConflict,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 
 const createPipelineCommand: CommandHandler<PipelineCreateInput, { pipelineId: string }> = {
@@ -56,10 +60,20 @@ const updatePipelineCommand: CommandHandler<PipelineUpdateInput, void> = {
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const pipeline = await em.findOne(CustomerPipeline, { id: parsed.id })
-    if (!pipeline) throw new CrudHttpError(404, { error: 'Pipeline not found' })
+    if (!pipeline) {
+      enforceRecordGoneIsConflict({ resourceKind: 'customers.pipeline', resourceId: parsed.id, request: ctx.request ?? null })
+      throw new CrudHttpError(404, { error: 'Pipeline not found' })
+    }
 
     ensureTenantScope(ctx, pipeline.tenantId)
     ensureOrganizationScope(ctx, pipeline.organizationId)
+
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: 'customers.pipeline',
+      resourceId: pipeline.id,
+      current: pipeline.updatedAt,
+      request: ctx.request ?? null,
+    })
 
     await withAtomicFlush(em, [
       async () => {
@@ -86,10 +100,20 @@ const deletePipelineCommand: CommandHandler<PipelineDeleteInput, void> = {
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const pipeline = await em.findOne(CustomerPipeline, { id: parsed.id })
-    if (!pipeline) throw new CrudHttpError(404, { error: 'Pipeline not found' })
+    if (!pipeline) {
+      enforceRecordGoneIsConflict({ resourceKind: 'customers.pipeline', resourceId: parsed.id, request: ctx.request ?? null })
+      throw new CrudHttpError(404, { error: 'Pipeline not found' })
+    }
 
     ensureTenantScope(ctx, pipeline.tenantId)
     ensureOrganizationScope(ctx, pipeline.organizationId)
+
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: 'customers.pipeline',
+      resourceId: pipeline.id,
+      current: pipeline.updatedAt,
+      request: ctx.request ?? null,
+    })
 
     const activeDealsCount = await em.count(CustomerDeal, {
       pipelineId: parsed.id,

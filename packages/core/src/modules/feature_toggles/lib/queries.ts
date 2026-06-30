@@ -100,6 +100,7 @@ export async function getOverrides(
             name: toggle.name,
             category: toggle.category ?? '',
             isOverride: Boolean(override),
+            updatedAt: override?.updatedAt instanceof Date ? override.updatedAt.toISOString() : null,
         }
     })
 
