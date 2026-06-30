@@ -1,5 +1,5 @@
 import * as esbuild from 'esbuild'
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { join, basename } from 'path'
 
 const shebang = '#!/usr/bin/env node\n'
@@ -37,6 +37,18 @@ if (existsSync('agentic')) {
 const packagesDir = join('..') // packages/create-app/.. = packages/
 const guidesDestDir = join('dist', 'agentic', 'guides')
 mkdirSync(guidesDestDir, { recursive: true })
+
+// Clean stale per-module artifacts before regenerating so an incremental dist never
+// retains a removed module's full guide or fact-sheet — a removed `core.<module>.md`
+// (two-dot, per-module) must come back as a redirect stub, not linger as a full guide.
+// The conceptual `module-system.md` and the single-dot package guides (`core.md`, …) are
+// re-emitted below (or copied from `agentic/`), so they are intentionally left alone here.
+rmSync(join(guidesDestDir, 'modules'), { recursive: true, force: true })
+for (const entry of readdirSync(guidesDestDir)) {
+  if (/^core\..+\.md$/.test(entry)) {
+    rmSync(join(guidesDestDir, entry))
+  }
+}
 
 let guidesFound = 0
 for (const pkg of readdirSync(packagesDir)) {
