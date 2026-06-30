@@ -16,7 +16,7 @@ import { loadGeneratedFieldRegistrations } from '@open-mercato/ui/backend/fields
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { FieldDefinitionsEditor, type FieldDefinition, type FieldDefinitionError } from '@open-mercato/ui/backend/custom-fields/FieldDefinitionsEditor'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import {
   Dialog,
   DialogContent,
@@ -449,7 +449,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const definitionsGroup: CrudFormGroup = { id: 'definitions', title: 'Field Definitions', column: 1, component: renderFieldDefinitions }
 
   const groups: CrudFormGroup[] = [
-    { id: 'settings', title: 'Entity Settings', column: 1, description: getEntitySettingsNotice(entitySource), fields: entitySource === 'custom' ? ['label','description','defaultEditor','showInSidebar'] : ['label','description','defaultEditor'] },
+    { id: 'settings', title: 'Entity Settings', column: 1, description: getEntitySettingsNotice(entitySource, t), fields: entitySource === 'custom' ? ['label','description','defaultEditor','showInSidebar'] : ['label','description','defaultEditor'] },
     definitionsGroup,
   ]
 
@@ -596,7 +596,7 @@ export function shouldRegisterEntityMetadata(entitySource: 'code' | 'custom'): b
   return entitySource === 'custom'
 }
 
-const SYSTEM_ENTITY_SETTINGS_NOTICE =
+const SYSTEM_ENTITY_SETTINGS_NOTICE_FALLBACK =
   'This is a system entity defined in code. Its label and description are managed in code and cannot be edited here — only the field definitions below are editable.'
 
 export function buildEntitySettingsFields(entitySource: 'code' | 'custom'): CrudField[] {
@@ -623,8 +623,10 @@ export function buildEntitySettingsFields(entitySource: 'code' | 'custom'): Crud
   return fields
 }
 
-export function getEntitySettingsNotice(entitySource: 'code' | 'custom'): string | undefined {
-  return shouldRegisterEntityMetadata(entitySource) ? undefined : SYSTEM_ENTITY_SETTINGS_NOTICE
+export function getEntitySettingsNotice(entitySource: 'code' | 'custom', t: TranslateFn): string | undefined {
+  return shouldRegisterEntityMetadata(entitySource)
+    ? undefined
+    : t('entities.userEntities.form.systemEntityNotice', SYSTEM_ENTITY_SETTINGS_NOTICE_FALLBACK)
 }
 
 export function buildEntityMetadataPayload(
