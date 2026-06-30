@@ -15,7 +15,7 @@
 | 1 | 1.1 | Land corrected spec + analysis | done | 0b919ecba |
 | 1 | 1.2 | Extractor skeleton: types, D5 allowlist, entities (E ∩ @Entity AST) | done | 7dac26433 |
 | 1 | 1.3 | Extractor: events + ACL features | done | 78e7259d1 |
-| 1 | 1.4 | Extractor: API-route auth (registry apis[].metadata), DI service tokens, search, host tokens, notifications, CLI | todo | — |
+| 1 | 1.4 | Extractor: API-route auth (registry apis[].metadata), DI service tokens, search, host tokens, notifications, CLI | done | 17917da02 |
 | 1 | 1.5 | Markdown + JSON sidecar emitter (§6 shapes) | todo | — |
 | 1 | 1.6 | Wire into yarn generate → versioned apps/mercato/src/module-facts.generated.json | todo | — |
 | 1 | 1.7 | T1 customers fixture snapshot test | todo | — |
