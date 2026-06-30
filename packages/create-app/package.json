@@ -21,6 +21,7 @@
     "tar": "^7.5.16"
   },
   "devDependencies": {
+    "@open-mercato/cli": "workspace:*",
     "@types/node": "^26.0.0",
     "esbuild": "^0.28.1",
     "tsx": "^4.22.4",

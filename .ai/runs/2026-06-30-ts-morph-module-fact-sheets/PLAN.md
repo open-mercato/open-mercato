@@ -24,7 +24,7 @@
 | 1 | 1.10 | T4 malformed-source test (empty section + warning, no throw) | done | 933bfc587 |
 | 2 | 2.1 | Author conceptual .ai/guides/module-system.md (Layer 1) | done | 7234f44a3 |
 | 2 | 2.2 | Dedup migrated prose from core package guide | done | 2cbfa9415 |
-| 3 | 3.1 | build.mjs extraction step (dist/agentic/guides/modules/*.md + module-facts.json) | todo | — |
+| 3 | 3.1 | build.mjs extraction step (dist/agentic/guides/modules/*.md + module-facts.json) | done | bfa4b092f |
 | 3 | 3.2 | shared.ts filtered per-enabled-module copy (AST-read enabledModules ∩ D5) | todo | — |
 | 3 | 3.3 | AGENTS.md.template D6 marker block + GAP-D6-D intro reword | todo | — |
 | 3 | 3.4 | Legacy core.<module>.md redirect stubs (BC bridge) | todo | — |
