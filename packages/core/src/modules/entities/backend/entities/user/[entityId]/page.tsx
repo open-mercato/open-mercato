@@ -27,6 +27,7 @@ import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entiti
 import { TranslationManager } from '@open-mercato/core/modules/translations/components/TranslationManager'
 
 type Def = FieldDefinition
+export type EntitySource = 'code' | 'custom'
 type EntitiesListResponse = { items?: Array<Record<string, unknown>> }
 type FieldsetGroup = { code: string; title?: string; hint?: string }
 type FieldsetDefinition = { code: string; label: string; icon?: string; description?: string; groups?: FieldsetGroup[] }
@@ -43,7 +44,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const queryClient = useQueryClient()
   const entityId = useMemo(() => decodeURIComponent((params?.entityId as any) || ''), [params])
   const [label, setLabel] = useState('')
-  const [entitySource, setEntitySource] = useState<'code'|'custom'>('custom')
+  const [entitySource, setEntitySource] = useState<EntitySource>('custom')
   const [entityFormLoading, setEntityFormLoading] = useState(true)
   const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string; showInSidebar?: boolean; updatedAt?: string }>({})
   const [defs, setDefs] = useState<Def[]>([])
@@ -391,7 +392,24 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       showInSidebar: z.boolean().optional(),
     }) as z.ZodType<Record<string, unknown>>
 
-  const fields: CrudField[] = buildEntitySettingsFields(entitySource)
+  const metadataFieldsReadOnly = entitySource === 'code'
+  const fields: CrudField[] = [
+    { id: 'label', label: 'Label', type: 'text', required: true, readOnly: metadataFieldsReadOnly },
+    { id: 'description', label: 'Description', type: 'textarea', readOnly: metadataFieldsReadOnly },
+    {
+      id: 'defaultEditor',
+      label: 'Default Editor (multiline)',
+      type: 'select',
+      readOnly: metadataFieldsReadOnly,
+      options: [
+        { value: '', label: 'Default (Markdown)' },
+        { value: 'markdown', label: 'Markdown (UIW)' },
+        { value: 'simpleMarkdown', label: 'Simple Markdown' },
+        { value: 'htmlRichText', label: 'HTML Rich Text' },
+      ],
+    } as CrudField,
+    ...(entitySource === 'custom' ? [{ id: 'showInSidebar', label: 'Show in sidebar', type: 'checkbox' }] : []),
+  ]
   const renderFieldDefinitions = React.useCallback(() => (
       <FieldDefinitionsEditor
         definitions={defs}
@@ -478,17 +496,12 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       }
       try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
     }
-    const defsPayload = {
+    const defsPayload = buildDefinitionsBatchPayload({
       entityId,
-      definitions: defs.filter((d) => !!d.key).map((d) => ({
-        key: d.key,
-        kind: d.kind,
-        configJson: d.configJson,
-        isActive: d.isActive !== false,
-      })),
+      defs,
       fieldsets: buildFieldsetPayload(),
       singleFieldsetPerRecord,
-    }
+    })
     const callDefs = await apiCall('/api/entities/definitions.batch', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -592,45 +605,40 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   )
 }
 
-export function shouldRegisterEntityMetadata(entitySource: 'code' | 'custom'): boolean {
+export function shouldRegisterEntityMetadata(entitySource: EntitySource): boolean {
   return entitySource === 'custom'
 }
 
 const SYSTEM_ENTITY_SETTINGS_NOTICE_FALLBACK =
   'This is a system entity defined in code. Its label and description are managed in code and cannot be edited here — only the field definitions below are editable.'
 
-export function buildEntitySettingsFields(entitySource: 'code' | 'custom'): CrudField[] {
-  const metadataEditable = shouldRegisterEntityMetadata(entitySource)
-  const fields: CrudField[] = [
-    { id: 'label', label: 'Label', type: 'text', required: true, disabled: !metadataEditable },
-    { id: 'description', label: 'Description', type: 'textarea', disabled: !metadataEditable },
-    {
-      id: 'defaultEditor',
-      label: 'Default Editor (multiline)',
-      type: 'select',
-      disabled: !metadataEditable,
-      options: [
-        { value: '', label: 'Default (Markdown)' },
-        { value: 'markdown', label: 'Markdown (UIW)' },
-        { value: 'simpleMarkdown', label: 'Simple Markdown' },
-        { value: 'htmlRichText', label: 'HTML Rich Text' },
-      ],
-    } as CrudField,
-  ]
-  if (entitySource === 'custom') {
-    fields.push({ id: 'showInSidebar', label: 'Show in sidebar', type: 'checkbox' })
-  }
-  return fields
-}
-
-export function getEntitySettingsNotice(entitySource: 'code' | 'custom', t: TranslateFn): string | undefined {
+export function getEntitySettingsNotice(entitySource: EntitySource, t: TranslateFn): string | undefined {
   return shouldRegisterEntityMetadata(entitySource)
     ? undefined
     : t('entities.userEntities.form.systemEntityNotice', SYSTEM_ENTITY_SETTINGS_NOTICE_FALLBACK)
 }
 
+export function buildDefinitionsBatchPayload(options: {
+  entityId: string
+  defs: Array<Pick<Def, 'key' | 'kind' | 'configJson' | 'isActive'>>
+  fieldsets: FieldsetDefinition[]
+  singleFieldsetPerRecord: boolean
+}) {
+  return {
+    entityId: options.entityId,
+    definitions: options.defs.filter((d) => !!d.key).map((d) => ({
+      key: d.key,
+      kind: d.kind,
+      configJson: d.configJson,
+      isActive: d.isActive !== false,
+    })),
+    fieldsets: options.fieldsets,
+    singleFieldsetPerRecord: options.singleFieldsetPerRecord,
+  }
+}
+
 export function buildEntityMetadataPayload(
-  entitySource: 'code' | 'custom',
+  entitySource: EntitySource,
   vals: Record<string, unknown>,
 ): Record<string, unknown> | null {
   const partial = entitySource === 'custom'

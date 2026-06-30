@@ -3,8 +3,8 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
 }))
 
 import {
+  buildDefinitionsBatchPayload,
   buildEntityMetadataPayload,
-  buildEntitySettingsFields,
   getEntitySettingsNotice,
   shouldRegisterEntityMetadata,
 } from '../[entityId]/page'
@@ -16,41 +16,6 @@ describe('shouldRegisterEntityMetadata', () => {
 
   it('does not register metadata for code-declared system entities (#3115)', () => {
     expect(shouldRegisterEntityMetadata('code')).toBe(false)
-  })
-})
-
-describe('buildEntitySettingsFields', () => {
-  const findField = (fields: ReturnType<typeof buildEntitySettingsFields>, id: string) =>
-    fields.find((field) => field.id === id)
-
-  describe('code-sourced (system) entities (#3151)', () => {
-    const fields = buildEntitySettingsFields('code')
-
-    it('disables label, description, and defaultEditor so code-owned metadata cannot be edited', () => {
-      expect(findField(fields, 'label')?.disabled).toBe(true)
-      expect(findField(fields, 'description')?.disabled).toBe(true)
-      expect(findField(fields, 'defaultEditor')?.disabled).toBe(true)
-    })
-
-    it('does not expose the showInSidebar field', () => {
-      expect(findField(fields, 'showInSidebar')).toBeUndefined()
-    })
-  })
-
-  describe('custom entities', () => {
-    const fields = buildEntitySettingsFields('custom')
-
-    it('keeps label, description, and defaultEditor editable', () => {
-      expect(findField(fields, 'label')?.disabled).toBeFalsy()
-      expect(findField(fields, 'description')?.disabled).toBeFalsy()
-      expect(findField(fields, 'defaultEditor')?.disabled).toBeFalsy()
-    })
-
-    it('exposes an editable showInSidebar field', () => {
-      const showInSidebar = findField(fields, 'showInSidebar')
-      expect(showInSidebar).toBeDefined()
-      expect(showInSidebar?.disabled).toBeFalsy()
-    })
   })
 })
 
@@ -146,5 +111,68 @@ describe('buildEntityMetadataPayload', () => {
   it('returns null when label is empty', () => {
     const result = buildEntityMetadataPayload('custom', { label: '' })
     expect(result).toBeNull()
+  })
+})
+
+describe('buildDefinitionsBatchPayload', () => {
+  it('preserves inactive definitions so inherited fields can be hidden', () => {
+    const result = buildDefinitionsBatchPayload({
+      entityId: 'customers:customer_deal',
+      defs: [
+        {
+          key: 'hide_me',
+          kind: 'text',
+          configJson: { label: 'Hide me' },
+          isActive: false,
+        },
+        {
+          key: 'keep_me',
+          kind: 'text',
+          configJson: { label: 'Keep me' },
+          isActive: true,
+        },
+      ],
+      fieldsets: [{ code: 'main', label: 'Main' }],
+      singleFieldsetPerRecord: true,
+    })
+
+    expect(result).toEqual({
+      entityId: 'customers:customer_deal',
+      definitions: [
+        {
+          key: 'hide_me',
+          kind: 'text',
+          configJson: { label: 'Hide me' },
+          isActive: false,
+        },
+        {
+          key: 'keep_me',
+          kind: 'text',
+          configJson: { label: 'Keep me' },
+          isActive: true,
+        },
+      ],
+      fieldsets: [{ code: 'main', label: 'Main' }],
+      singleFieldsetPerRecord: true,
+    })
+  })
+
+  it('omits incomplete definitions without keys', () => {
+    const result = buildDefinitionsBatchPayload({
+      entityId: 'customers:customer_deal',
+      defs: [
+        {
+          key: '',
+          kind: 'text',
+          configJson: {},
+          isActive: true,
+        },
+      ],
+      fieldsets: [],
+      singleFieldsetPerRecord: false,
+    })
+
+    expect(result.definitions).toEqual([])
+    expect(result.singleFieldsetPerRecord).toBe(false)
   })
 })
