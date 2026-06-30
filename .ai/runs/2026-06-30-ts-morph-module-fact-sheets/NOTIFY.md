@@ -32,3 +32,14 @@
 - 2.2 deduped the two migrated sections (Auto-Discovery Paths, Module Files Reference) out of `packages/core/agentic/standalone-guide.md` into a pointer; all other core.md sections retained.
 - Also aligned the T2/T3/T4 test filenames to spec §10 (auth-source/bc-guard/malformed).
 - Next: Phase 3 (build-system surgery) — Step 3.1 build.mjs extraction step. NOTE: extractor not yet exported from @open-mercato/cli `exports`; resolve that first. Phase 3 verification needs full build runs (yarn build:packages + create-app build + yarn test:create-app for T5/T6).
+
+## 2026-06-30T15:58:00Z — decision: @open-mercato/cli as create-app build-time devDep (3.1)
+- The cli `exports` wildcard already maps `@open-mercato/cli/lib/generators/module-facts` → dist; build.mjs imports it. Declared cli as a create-app devDependency (build-time only, never shipped). Resolves via hoisting; lockfile synced (1 edge).
+
+## 2026-06-30T16:02:00Z — decision: ts-morph as create-app RUNTIME dep (3.2, user-approved)
+- shared.ts runs at `npx create-mercato-app` time, where devDeps/@open-mercato/cli are NOT installed. Per user choice, ts-morph added to create-app `dependencies` so the spec's literal "AST-parse enabledModules with ts-morph" works in the scaffolded context. Allowlist is materialized as the bundled fact-sheet set (enabled ∩ available), so no cli import is needed at runtime. Lockfile synced (1 edge).
+
+## 2026-06-30T16:08:00Z — checkpoint 3 (steps 2.1–3.4)
+- Phase 2 + Phase 3 build-side complete. Full create-app build emits 9 fact-sheets + module-facts.json (122 KB, customers 54 registry-resolved apiRoutes); 61/61 existing create-app unit tests pass; cli module-facts 29 tests still green.
+- Marker-block inject + ts-morph enabledModules parser + redirect-stub path all scratch-verified.
+- PASS. Next: 3.5 T5 + 3.6 T6 (create-app node:test), then Phase 4 (delete 9 guides + RELEASE_NOTES), then final gate + ds-guardian + auto-review-pr.
