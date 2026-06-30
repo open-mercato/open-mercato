@@ -12,7 +12,7 @@
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
 | 0 | 0.1 | Land run folder (plan/handoff/notify) | done | 484e0e84d |
-| 1 | 1.1 | Land corrected spec + analysis | todo | — |
+| 1 | 1.1 | Land corrected spec + analysis | done | 0b919ecba |
 | 1 | 1.2 | Extractor skeleton: types, D5 allowlist, entities (E ∩ @Entity AST) | todo | — |
 | 1 | 1.3 | Extractor: events + ACL features | todo | — |
 | 1 | 1.4 | Extractor: API-route auth (registry apis[].metadata), DI service tokens, search, host tokens, notifications, CLI | todo | — |
