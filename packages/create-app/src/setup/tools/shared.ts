@@ -55,6 +55,45 @@ function selectModuleFactSheets(targetDir: string, modulesSubdir: string): strin
   return selected.length > 0 ? selected : available
 }
 
+const MODULE_GUIDES_START = '<!-- om:module-guides:start -->'
+const MODULE_GUIDES_END = '<!-- om:module-guides:end -->'
+
+const MODULE_GUIDE_LABELS: Record<string, string> = {
+  customers: 'Build CRUD modules — reference patterns, commands, custom fields, search',
+  workflows: 'Use workflow automation, triggers, user tasks, signals',
+  catalog: 'Use product catalog, pricing engine, variants, offers',
+  sales: 'Use sales orders, quotes, invoices, shipments, payments',
+  auth: 'Use staff authentication, RBAC, roles, feature guards',
+  currencies: 'Use multi-currency, exchange rates, dual recording',
+  integrations: 'Build integration providers, credentials, health checks',
+  data_sync: 'Build data sync adapters, import/export connectors',
+  customer_accounts: 'Use customer portal auth, customer RBAC, portal pages',
+}
+
+function renderModuleGuidesBlock(selected: string[]): string {
+  if (selected.length === 0) return '_No module fact-sheets are bundled for this app._'
+  const rows = selected.map((moduleId) => {
+    const label = MODULE_GUIDE_LABELS[moduleId] ?? `Use the ${moduleId} module`
+    return `| ${label} | \`.ai/guides/modules/${moduleId}.md\` |`
+  })
+  return ['| Task | Load |', '|---|---|', ...rows].join('\n')
+}
+
+// Regenerate the marker-delimited Module-Specific Guides block in the written
+// AGENTS.md from the selected module set. Replaces strictly between the markers so
+// surrounding prose is untouched and repeat runs are idempotent.
+function injectModuleGuides(agentsMdPath: string, selected: string[]): void {
+  if (!existsSync(agentsMdPath)) return
+  const content = readFileSync(agentsMdPath, 'utf-8')
+  const startIndex = content.indexOf(MODULE_GUIDES_START)
+  const endIndex = content.indexOf(MODULE_GUIDES_END)
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) return
+  const before = content.slice(0, startIndex + MODULE_GUIDES_START.length)
+  const after = content.slice(endIndex)
+  const next = `${before}\n${renderModuleGuidesBlock(selected)}\n${after}`
+  if (next !== content) writeFileSync(agentsMdPath, next)
+}
+
 function ensureDir(filePath: string): void {
   const dir = dirname(filePath)
   if (!existsSync(dir)) {
@@ -78,8 +117,12 @@ function copyFile(srcRelative: string, destPath: string): void {
 export function generateShared(config: AgenticConfig): void {
   const { targetDir } = config
 
+  // Resolve which per-module fact-sheets this app gets (enabled ∩ bundled allowlist).
+  const selectedModules = selectModuleFactSheets(targetDir, join(GUIDES_DIR, 'modules'))
+
   // AGENTS.md (enhanced version replaces the minimal template one)
   writeTemplate('AGENTS.md.template', join(targetDir, 'AGENTS.md'), config)
+  injectModuleGuides(join(targetDir, 'AGENTS.md'), selectedModules)
 
   // .ai/ structure
   writeTemplate('ai/specs/README.md', join(targetDir, '.ai', 'specs', 'README.md'), config)
@@ -275,7 +318,7 @@ export function generateShared(config: AgenticConfig): void {
     }
 
     const modulesSubdir = join(GUIDES_DIR, 'modules')
-    for (const moduleId of selectModuleFactSheets(targetDir, modulesSubdir)) {
+    for (const moduleId of selectedModules) {
       const destPath = join(guidesDestDir, 'modules', `${moduleId}.md`)
       ensureDir(destPath)
       copyFileSync(join(modulesSubdir, `${moduleId}.md`), destPath)
