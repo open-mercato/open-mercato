@@ -106,9 +106,11 @@ function buildCompanyDetailCacheKey(parts: {
   interactionMode: string
   includeTokens: string[]
 }): string {
-  const filterIds = parts.filterIds ? [...parts.filterIds].sort().join(',') : 'all'
-  const allowedIds = parts.allowedIds ? [...parts.allowedIds].sort().join(',') : 'all'
-  const includeTokens = [...parts.includeTokens].sort().join(',')
+  const sortKeys = (values: string[]): string[] =>
+    [...values].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  const filterIds = parts.filterIds ? sortKeys(parts.filterIds).join(',') : 'all'
+  const allowedIds = parts.allowedIds ? sortKeys(parts.allowedIds).join(',') : 'all'
+  const includeTokens = sortKeys(parts.includeTokens).join(',')
   return [
     'customers:companies:detail',
     `tenant:${parts.tenantId ?? 'null'}`,
