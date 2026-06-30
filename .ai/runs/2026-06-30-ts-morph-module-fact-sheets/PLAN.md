@@ -18,7 +18,7 @@
 | 1 | 1.4 | Extractor: API-route auth (registry apis[].metadata), DI service tokens, search, host tokens, notifications, CLI | done | 17917da02 |
 | 1 | 1.5 | Markdown + JSON sidecar emitter (§6 shapes) | done | f7ef5630d |
 | 1 | 1.6 | Wire into yarn generate → versioned apps/mercato/src/module-facts.generated.json | done | 2e9740062 |
-| 1 | 1.7 | T1 customers fixture snapshot test | todo | — |
+| 1 | 1.7 | T1 customers fixture snapshot test | done | b0bbfdca2 |
 | 1 | 1.8 | T2 auth-source test (registry vs api-routes manifest) | todo | — |
 | 1 | 1.9 | T3 BC guard test (facts resolve against live E/events/acl/search) | todo | — |
 | 1 | 1.10 | T4 malformed-source test (empty section + warning, no throw) | todo | — |
