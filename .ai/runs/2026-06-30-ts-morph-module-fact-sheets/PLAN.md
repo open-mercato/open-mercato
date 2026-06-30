@@ -27,7 +27,7 @@
 | 3 | 3.1 | build.mjs extraction step (dist/agentic/guides/modules/*.md + module-facts.json) | done | bfa4b092f |
 | 3 | 3.2 | shared.ts filtered per-enabled-module copy (AST-read enabledModules ∩ D5) | done | 30766b912 |
 | 3 | 3.3 | AGENTS.md.template D6 marker block + GAP-D6-D intro reword | done | 7e3f2a748 |
-| 3 | 3.4 | Legacy core.<module>.md redirect stubs (BC bridge) | todo | — |
+| 3 | 3.4 | Legacy core.<module>.md redirect stubs (BC bridge) | done | 2ec0f0978 |
 | 3 | 3.5 | T5 build.mjs wiring smoke (packages/create-app) | todo | — |
 | 3 | 3.6 | T6 agents-md module-guides test (packages/create-app) | todo | — |
 | 4 | 4.1 | Delete 9 per-module standalone-guide.md | todo | — |

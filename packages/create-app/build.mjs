@@ -94,6 +94,27 @@ if (existsSync(coreSrcRoot)) {
 
   for (const warning of warnings) console.warn(warning)
   console.log(`Generated ${Object.keys(markdownByModule).length} module fact-sheets → dist/agentic/guides/modules/`)
+
+  // BC bridge (spec §7 generated-file contract): for any allowlisted module whose
+  // legacy full guide `core.<module>.md` is no longer bundled (its standalone-guide.md
+  // source was removed), emit a thin redirect stub pointing at the generated fact-sheet.
+  // Fresh scaffolds never link these names; they exist only for apps upgrading in place.
+  let stubsWritten = 0
+  for (const moduleId of Object.keys(markdownByModule)) {
+    const legacyGuidePath = join(guidesDestDir, `core.${moduleId}.md`)
+    if (!existsSync(legacyGuidePath)) {
+      writeFileSync(
+        legacyGuidePath,
+        `# core.${moduleId} — moved\n\n` +
+          `> This guide has moved. See [\`modules/${moduleId}.md\`](modules/${moduleId}.md) for the generated ` +
+          `\`${moduleId}\` fact-sheet, and [\`module-system.md\`](module-system.md) for conceptual module guidance.\n`,
+      )
+      stubsWritten++
+    }
+  }
+  if (stubsWritten > 0) {
+    console.log(`Wrote ${stubsWritten} legacy core.<module>.md redirect stubs → dist/agentic/guides/`)
+  }
 } else {
   console.warn(`[module-facts] core module sources not found at ${coreSrcRoot}; skipping fact-sheet generation`)
 }
