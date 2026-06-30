@@ -49,3 +49,8 @@
 - Final gate (feasible scope): build:packages 21/21 ✅; yarn generate ✅ with ZERO drift in the versioned module-facts.generated.json (D4 validated); i18n:check-sync ✅; cli + create-app typecheck ✅; cli module-facts 29 + create-app 68 tests ✅. Self code-review + BC self-review: clean (generated-file contract bridged via stubs + RELEASE_NOTES; all surfaces additive).
 - Deferred to PR CI: build:app + integration suites (N/A per spec §10 — no HTTP/UI) + a formal om-auto-review-pr. ds-guardian N/A (no .tsx diff).
 - PR #3715 marked ready for review; #3685 to be closed once #3715 lands.
+
+## 2026-06-30T16:45:00Z — review follow-up fixes (self-review Low findings, maintainer-requested)
+- #3685 closed (superseded). Ran a formal self-review (comment-type, since GitHub blocks self-approval) → APPROVED, 0 Critical/High/Medium, 3 Low. Kept `review` (independent reviewer + pending CI test/ephemeral-integration).
+- Fix #1 (`8a0cfb7cb`): build.mjs now cleans stale `modules/` + per-module `core.<module>.md` (two-dot) before regenerating, so incremental dist never retains a removed full guide instead of its stub. Verified: a planted stale full guide is rebuilt as a stub; `module-system.md` + `core.md` preserved.
+- Fix #2 (`b20fbf6dd`): `injectModuleGuides` now `console.warn`s (instead of silent return) when the AGENTS.md markers are absent; added a T6 test for the warn path. create-app tests now 69/69.
