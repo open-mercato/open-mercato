@@ -1048,9 +1048,16 @@ const COMMAND_SCAN_CONFIG = {
   sort: (a: string, b: string) => a.localeCompare(b),
 }
 
-function getStaticStringExpression(expr: ts.Expression): string | null {
+function getStaticStringExpression(
+  expr: ts.Expression,
+  stringConstants: Map<string, string> = new Map(),
+): string | null {
   const unwrapped = unwrapExpression(expr)
   if (ts.isStringLiteral(unwrapped) || ts.isNoSubstitutionTemplateLiteral(unwrapped)) return unwrapped.text
+  if (ts.isIdentifier(unwrapped)) {
+    const direct = stringConstants.get(unwrapped.text)
+    if (direct) return direct
+  }
   return null
 }
 
@@ -1059,22 +1066,26 @@ function getPropertyNameText(name: ts.PropertyName): string | null {
   return null
 }
 
-function getObjectStringProperty(object: ts.ObjectLiteralExpression, propertyName: string): string | null {
+function getObjectStringProperty(
+  object: ts.ObjectLiteralExpression,
+  propertyName: string,
+  stringConstants: Map<string, string> = new Map(),
+): string | null {
   for (const property of object.properties) {
     if (!ts.isPropertyAssignment(property)) continue
     const name = getPropertyNameText(property.name)
     if (name !== propertyName) continue
-    return getStaticStringExpression(property.initializer)
+    return getStaticStringExpression(property.initializer, stringConstants)
   }
   return null
 }
 
-function collectStringArrayElements(expr: ts.Expression): string[] {
+function collectStringArrayElements(expr: ts.Expression, stringConstants: Map<string, string> = new Map()): string[] {
   const unwrapped = unwrapExpression(expr)
   if (!ts.isArrayLiteralExpression(unwrapped)) return []
   const values: string[] = []
   for (const element of unwrapped.elements) {
-    const value = getStaticStringExpression(element)
+    const value = getStaticStringExpression(element, stringConstants)
     if (value) values.push(value)
   }
   return values
@@ -1084,15 +1095,20 @@ function extractCommandIdsFromSource(sourcePath: string): string[] {
   const sourceText = fs.readFileSync(sourcePath, 'utf8')
   const sourceFile = ts.createSourceFile(sourcePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const ids = new Set<string>()
+  const stringConstants = new Map<string, string>()
   const variableCommandIds = new Map<string, string>()
 
   const collectVariables = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const stringValue = getStaticStringExpression(node.initializer, stringConstants)
+      if (stringValue) {
+        stringConstants.set(node.name.text, stringValue)
+      }
       if (ts.isObjectLiteralExpression(node.initializer)) {
-        const id = getObjectStringProperty(node.initializer, 'id')
+        const id = getObjectStringProperty(node.initializer, 'id', stringConstants)
         if (id) variableCommandIds.set(node.name.text, id)
       } else if (node.name.text === 'commandIds') {
-        for (const id of collectStringArrayElements(node.initializer)) ids.add(id)
+        for (const id of collectStringArrayElements(node.initializer, stringConstants)) ids.add(id)
       }
     }
     ts.forEachChild(node, collectVariables)
@@ -1107,12 +1123,12 @@ function extractCommandIdsFromSource(sourcePath: string): string[] {
           const id = variableCommandIds.get(firstArg.text)
           if (id) ids.add(id)
         } else if (ts.isObjectLiteralExpression(firstArg)) {
-          const id = getObjectStringProperty(firstArg, 'id')
+          const id = getObjectStringProperty(firstArg, 'id', stringConstants)
           if (id) ids.add(id)
         }
       }
       if (callName === 'registerDictionaryEntryCommands' && firstArg && ts.isObjectLiteralExpression(firstArg)) {
-        const prefix = getObjectStringProperty(firstArg, 'commandPrefix')
+        const prefix = getObjectStringProperty(firstArg, 'commandPrefix', stringConstants)
         if (prefix) {
           ids.add(`${prefix}.create`)
           ids.add(`${prefix}.update`)
