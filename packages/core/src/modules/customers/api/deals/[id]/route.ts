@@ -366,7 +366,7 @@ function buildDealDetailScopeSignature(
   const filterIds = Array.isArray(scope?.filterIds)
     ? scope!.filterIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
     : []
-  if (filterIds.length) return `filter:${[...filterIds].sort().join(',')}`
+  if (filterIds.length) return `filter:${[...filterIds].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)).join(',')}`
   return `home:${auth?.orgId ?? 'null'}`
 }
 
@@ -489,7 +489,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
   const cacheTenantId = deal.tenantId ?? auth.tenantId ?? null
   const cacheOrganizationId = deal.organizationId ?? null
   const detailCache = isCrudCacheEnabled() ? resolveCrudCache(container) : null
-  const includeKey = includeFlags.size ? Array.from(includeFlags).sort().join(',') : 'none'
+  const includeKey = includeFlags.size ? Array.from(includeFlags).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)).join(',') : 'none'
   const detailCacheKey = detailCache
     ? buildDealDetailCacheKey({
         tenantId: cacheTenantId,
