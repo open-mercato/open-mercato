@@ -25,6 +25,7 @@ export interface ModuleApiRouteFact {
 
 export interface ModuleEventFact {
   id: string
+  label?: string
   category: string | null
   entity: string | null
 }
@@ -200,6 +201,90 @@ function extractEntities(
   return facts
 }
 
+function unwrapArrayLiteral(expression: ts.Expression): ts.ArrayLiteralExpression | null {
+  let current = expression
+  while (ts.isAsExpression(current) || ts.isParenthesizedExpression(current) || ts.isTypeAssertionExpression(current)) {
+    current = current.expression
+  }
+  return ts.isArrayLiteralExpression(current) ? current : null
+}
+
+function findArrayLiteralDeclaration(
+  sourceFile: ts.SourceFile,
+  variableName: string,
+): ts.ArrayLiteralExpression | null {
+  let result: ts.ArrayLiteralExpression | null = null
+  const visit = (node: ts.Node): void => {
+    if (result) return
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === variableName &&
+      node.initializer
+    ) {
+      const arrayLiteral = unwrapArrayLiteral(node.initializer)
+      if (arrayLiteral) {
+        result = arrayLiteral
+        return
+      }
+    }
+    node.forEachChild(visit)
+  }
+  sourceFile.forEachChild(visit)
+  return result
+}
+
+function extractEvents(eventsFilePath: string | null): ModuleEventFact[] {
+  const sourceFile = eventsFilePath ? readSourceFile(eventsFilePath) : null
+  if (!sourceFile) return []
+
+  const eventsArray = findArrayLiteralDeclaration(sourceFile, 'events')
+  if (!eventsArray) return []
+
+  const facts: ModuleEventFact[] = []
+  for (const element of eventsArray.elements) {
+    if (!ts.isObjectLiteralExpression(element)) continue
+    const id = readStringPropertyInitializer(element, 'id')
+    if (!id) continue
+    const label = readStringPropertyInitializer(element, 'label')
+    const category = readStringPropertyInitializer(element, 'category')
+    const entity = readStringPropertyInitializer(element, 'entity')
+    const fact: ModuleEventFact = {
+      id,
+      category: category ?? null,
+      entity: entity ?? null,
+    }
+    if (label !== undefined) fact.label = label
+    facts.push(fact)
+  }
+
+  return facts
+}
+
+function extractAclFeatures(aclFilePath: string | null): string[] {
+  const sourceFile = aclFilePath ? readSourceFile(aclFilePath) : null
+  if (!sourceFile) return []
+
+  const featuresArray = findArrayLiteralDeclaration(sourceFile, 'features')
+  if (!featuresArray) return []
+
+  const featureIds: string[] = []
+  const seen = new Set<string>()
+  for (const element of featuresArray.elements) {
+    let featureId: string | undefined
+    if (ts.isObjectLiteralExpression(element)) {
+      featureId = readStringPropertyInitializer(element, 'id')
+    } else if (ts.isStringLiteralLike(element)) {
+      featureId = element.text
+    }
+    if (!featureId || seen.has(featureId)) continue
+    seen.add(featureId)
+    featureIds.push(featureId)
+  }
+
+  return featureIds
+}
+
 export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFacts {
   const { moduleId, coreSrcRoot, coreVersion = null } = options
   const moduleRoot = path.join(coreSrcRoot, moduleId)
@@ -209,16 +294,20 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     resolveConventionFile(path.join(moduleRoot, 'db'), 'entities') ??
     resolveConventionFile(path.join(moduleRoot, 'data'), 'schema')
   const ceFilePath = resolveConventionFile(moduleRoot, 'ce')
+  const eventsFilePath = resolveConventionFile(moduleRoot, 'events')
+  const aclFilePath = resolveConventionFile(moduleRoot, 'acl')
 
   const customFieldEntityIds = collectCustomFieldEntityIds(ceFilePath)
   const entities = extractEntities(moduleId, entitiesFilePath, customFieldEntityIds)
+  const events = extractEvents(eventsFilePath)
+  const aclFeatures = extractAclFeatures(aclFilePath)
 
   return {
     module: moduleId,
     coreVersion,
     entities,
-    events: [],
-    aclFeatures: [],
+    events,
+    aclFeatures,
     apiRoutes: [],
     diTokens: [],
     searchEntities: [],
