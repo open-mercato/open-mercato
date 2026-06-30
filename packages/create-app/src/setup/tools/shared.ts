@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { Project, SyntaxKind } from 'ts-morph'
 import type { AgenticConfig } from '../wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -11,6 +12,47 @@ const GUIDES_DIR = join(__dirname, 'agentic', 'guides')
 
 function resolvePlaceholders(content: string, config: AgenticConfig): string {
   return content.replace(/\{\{PROJECT_NAME\}\}/g, config.projectName)
+}
+
+// AST-parse the static `enabledModules` array literal in the scaffolded app's
+// src/modules.ts and collect each entry's `id`. Only the static literal is read
+// (conditional .push()/spread entries are intentionally not seen — see spec D6).
+function readEnabledModuleIds(modulesPath: string): string[] {
+  if (!existsSync(modulesPath)) return []
+  try {
+    const project = new Project({ useInMemoryFileSystem: true })
+    const sourceFile = project.createSourceFile('modules.ts', readFileSync(modulesPath, 'utf-8'))
+    const declaration = sourceFile.getVariableDeclaration('enabledModules')
+    const arrayLiteral = declaration?.getInitializerIfKind(SyntaxKind.ArrayLiteralExpression)
+    if (!arrayLiteral) return []
+    const ids: string[] = []
+    for (const element of arrayLiteral.getElements()) {
+      const objectLiteral = element.asKind(SyntaxKind.ObjectLiteralExpression)
+      if (!objectLiteral) continue
+      const idProperty = objectLiteral.getProperty('id')?.asKind(SyntaxKind.PropertyAssignment)
+      const idValue = idProperty?.getInitializerIfKind(SyntaxKind.StringLiteral)?.getLiteralValue()
+      if (idValue) ids.push(idValue)
+    }
+    return ids
+  } catch {
+    return []
+  }
+}
+
+// Resolve which per-module fact-sheets to ship: the intersection of the bundled
+// fact-sheets (the D5 allowlist, materialized by build.mjs) with the app's enabled
+// modules. Falls back to the full bundled set when the enabled set cannot be read
+// (R5 — degraded, never empty).
+function selectModuleFactSheets(targetDir: string, modulesSubdir: string): string[] {
+  const available = existsSync(modulesSubdir)
+    ? readdirSync(modulesSubdir)
+        .filter((file) => file.endsWith('.md'))
+        .map((file) => file.replace(/\.md$/, ''))
+    : []
+  if (available.length === 0) return []
+  const enabled = new Set(readEnabledModuleIds(join(targetDir, 'src', 'modules.ts')))
+  const selected = available.filter((moduleId) => enabled.has(moduleId))
+  return selected.length > 0 ? selected : available
 }
 
 function ensureDir(filePath: string): void {
@@ -212,16 +254,31 @@ export function generateShared(config: AgenticConfig): void {
   // .ai/qa/tests/ — Playwright config for integration tests
   copyFile('ai/qa/tests/playwright.config.ts', join(targetDir, '.ai', 'qa', 'tests', 'playwright.config.ts'))
 
-  // Package guides — auto-discovered from sibling packages during build
+  // Package & conceptual guides are copied wholesale (framework-wide). Per-module
+  // fact-sheets (.ai/guides/modules/<module>.md) are filtered to the app's enabled
+  // module set; the combined module-facts.json sidecar is copied as-is.
   if (existsSync(GUIDES_DIR)) {
     const guidesDestDir = join(targetDir, '.ai', 'guides')
     for (const file of readdirSync(GUIDES_DIR)) {
       if (file.endsWith('.md')) {
-        const srcPath = join(GUIDES_DIR, file)
         const destPath = join(guidesDestDir, file)
         ensureDir(destPath)
-        copyFileSync(srcPath, destPath)
+        copyFileSync(join(GUIDES_DIR, file), destPath)
       }
+    }
+
+    const moduleFactsPath = join(GUIDES_DIR, 'module-facts.json')
+    if (existsSync(moduleFactsPath)) {
+      const destPath = join(guidesDestDir, 'module-facts.json')
+      ensureDir(destPath)
+      copyFileSync(moduleFactsPath, destPath)
+    }
+
+    const modulesSubdir = join(GUIDES_DIR, 'modules')
+    for (const moduleId of selectModuleFactSheets(targetDir, modulesSubdir)) {
+      const destPath = join(guidesDestDir, 'modules', `${moduleId}.md`)
+      ensureDir(destPath)
+      copyFileSync(join(modulesSubdir, `${moduleId}.md`), destPath)
     }
   }
 }
