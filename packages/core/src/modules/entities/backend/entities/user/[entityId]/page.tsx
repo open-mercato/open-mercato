@@ -408,7 +408,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         { value: 'htmlRichText', label: 'HTML Rich Text' },
       ],
     } as CrudField,
-    ...(entitySource === 'custom' ? [{ id: 'showInSidebar', label: 'Show in sidebar', type: 'checkbox' }] : []),
+    ...(entitySource === 'custom' ? [{ id: 'showInSidebar', label: 'Show in sidebar', type: 'checkbox' } as CrudField] : []),
   ]
   const renderFieldDefinitions = React.useCallback(() => (
       <FieldDefinitionsEditor
