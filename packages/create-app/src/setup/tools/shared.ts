@@ -17,7 +17,7 @@ function resolvePlaceholders(content: string, config: AgenticConfig): string {
 // AST-parse the static `enabledModules` array literal in the scaffolded app's
 // src/modules.ts and collect each entry's `id`. Only the static literal is read
 // (conditional .push()/spread entries are intentionally not seen — see spec D6).
-function readEnabledModuleIds(modulesPath: string): string[] {
+export function readEnabledModuleIds(modulesPath: string): string[] {
   if (!existsSync(modulesPath)) return []
   try {
     const project = new Project({ useInMemoryFileSystem: true })
@@ -43,7 +43,7 @@ function readEnabledModuleIds(modulesPath: string): string[] {
 // fact-sheets (the D5 allowlist, materialized by build.mjs) with the app's enabled
 // modules. Falls back to the full bundled set when the enabled set cannot be read
 // (R5 — degraded, never empty).
-function selectModuleFactSheets(targetDir: string, modulesSubdir: string): string[] {
+export function selectModuleFactSheets(targetDir: string, modulesSubdir: string): string[] {
   const available = existsSync(modulesSubdir)
     ? readdirSync(modulesSubdir)
         .filter((file) => file.endsWith('.md'))
@@ -82,7 +82,7 @@ function renderModuleGuidesBlock(selected: string[]): string {
 // Regenerate the marker-delimited Module-Specific Guides block in the written
 // AGENTS.md from the selected module set. Replaces strictly between the markers so
 // surrounding prose is untouched and repeat runs are idempotent.
-function injectModuleGuides(agentsMdPath: string, selected: string[]): void {
+export function injectModuleGuides(agentsMdPath: string, selected: string[]): void {
   if (!existsSync(agentsMdPath)) return
   const content = readFileSync(agentsMdPath, 'utf-8')
   const startIndex = content.indexOf(MODULE_GUIDES_START)
