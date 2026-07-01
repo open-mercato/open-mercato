@@ -700,8 +700,14 @@ export class HybridQueryEngine implements QueryEngine {
 
       const applyJoinFilterOpFn = (target: AnyBuilder, column: string, op: FilterOp, value?: unknown): AnyBuilder => {
         switch (op) {
-          case 'eq': return target.where(column, '=', value as any)
-          case 'ne': return target.where(column, '!=', value as any)
+          case 'eq':
+            return value === null
+              ? target.where(column, 'is', null)
+              : target.where(column, '=', value as any)
+          case 'ne':
+            return value === null
+              ? target.where(column, 'is not', null)
+              : target.where(column, '!=', value as any)
           case 'gt': return target.where(column, '>', value as any)
           case 'gte': return target.where(column, '>=', value as any)
           case 'lt': return target.where(column, '<', value as any)
@@ -1486,8 +1492,8 @@ export class HybridQueryEngine implements QueryEngine {
     value: unknown,
   ): any {
     switch (op) {
-      case 'eq': return eb(column, '=', value)
-      case 'ne': return eb(column, '!=', value)
+      case 'eq': return value === null ? eb(column, 'is', null) : eb(column, '=', value)
+      case 'ne': return value === null ? eb(column, 'is not', null) : eb(column, '!=', value)
       case 'gt': return eb(column, '>', value)
       case 'gte': return eb(column, '>=', value)
       case 'lt': return eb(column, '<', value)
@@ -2157,8 +2163,14 @@ export class HybridQueryEngine implements QueryEngine {
     }
     const col: any = column
     switch (filter.op) {
-      case 'eq': return q.where(col, '=', filter.value as any)
-      case 'ne': return q.where(col, '!=', filter.value as any)
+      case 'eq':
+        return filter.value === null
+          ? q.where(col, 'is', null)
+          : q.where(col, '=', filter.value as any)
+      case 'ne':
+        return filter.value === null
+          ? q.where(col, 'is not', null)
+          : q.where(col, '!=', filter.value as any)
       case 'gt':
       case 'gte':
       case 'lt':

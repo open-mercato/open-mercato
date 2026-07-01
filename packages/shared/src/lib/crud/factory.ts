@@ -221,6 +221,8 @@ export type ListConfig<TList> = {
    * filters/sorts, `search_tokens` fulltext filtering, and vector-search branches are bypassed.
    */
   omitAutomaticTenantOrgScope?: boolean
+  /** When true, skip server-side CRUD GET cache for this list (avoids stale empty payloads after mutations). */
+  disableListCache?: boolean
 }
 
 export type CrudExportColumnConfig = {
@@ -1406,7 +1408,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const exportFullRequested = exportRequested && (exportScope === 'full' || parseBooleanToken((queryParams as any).full) === true)
       profiler.mark('export_configured', { exportRequested, exportFullRequested })
 
-      const cacheEnabled = isCrudCacheEnabled() && !exportRequested
+      const cacheEnabled =
+        isCrudCacheEnabled() && !exportRequested && !opts.list?.disableListCache
       const cacheTimerStart = cacheEnabled && isCrudCacheDebugEnabled()
         ? process.hrtime.bigint()
         : null

@@ -126,6 +126,8 @@ docker/opencode/opencode.jsonc
 
 # MCPs
 .playwright-mcp
+# Local CI / agent investigation logs (not source)
+.ai/reports/
 .ai/qa/ephemeral-env.lock/owner.json
 .ai/qa/ephemeral-env.lock/*
 .ai/qa/ephemeral*
@@ -133,10 +135,14 @@ docker/opencode/opencode.jsonc
 .agents/
 
 apps/mercato/data/
+apps/mercato/data/cache.db
+apps/mercato/data/*.db
+apps/mercato/data/*.db-journal
+apps/mercato/data/*.db-wal
+apps/mercato/data/*.db-shm
 
 # Local security-tooling working dir
 .deepsec/
-apps/mercato/data/cache.db
 
 # Official modules submodule — personal activation override
 official-modules.local.json

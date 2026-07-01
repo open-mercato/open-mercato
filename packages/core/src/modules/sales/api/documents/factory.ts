@@ -356,6 +356,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
     indexer: {
       entityType: binding.entityId,
     },
+    enrichers: binding.kind === 'order' ? { entityId: binding.entityId } : undefined,
     list: {
       schema: listSchema,
       entityId: binding.entityId,
