@@ -1,0 +1,12 @@
+{
+  "platform.map.pageTitle": "Mapa de la plataforma",
+  "platform.map.pageGroup": "Developer",
+  "platform.map.description": "Vista de solo lectura de las superficies de extensión conectadas en esta app.",
+  "platform.map.surface": "Superficie",
+  "platform.map.tier": "Nivel",
+  "platform.map.surfaceMeta": "Nivel {tier} · {count} fila(s)",
+  "platform.map.loading": "Cargando mapa de la plataforma…",
+  "platform.map.error": "No se pudo cargar el mapa de la plataforma",
+  "platform.map.invalidResponse": "Respuesta inesperada del mapa de la plataforma",
+  "platform.map.empty": "No hay filas para esta superficie."
+}

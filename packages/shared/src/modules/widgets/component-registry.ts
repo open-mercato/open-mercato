@@ -84,6 +84,10 @@ export function getComponentEntry(componentId: string): ComponentRegistryEntry |
   return state.components.get(componentId) ?? null
 }
 
+export function getAllComponentOverrides(): ComponentOverride[] {
+  return [...getState().overrides]
+}
+
 export function getComponentOverrides(componentId: string, userFeatures?: readonly string[]): ComponentOverride[] {
   const state = getState()
   const relevant = state.overrides.filter((override) => {
