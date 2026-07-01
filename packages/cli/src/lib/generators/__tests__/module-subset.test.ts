@@ -463,14 +463,22 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(output).toContain('subscriber_event_meta:on-created')
   })
 
-  it('keeps backend route manifests static when icons are non-serializable', async () => {
+  it('keeps runtime metadata fallback for settings/profile route icons that are not serializable yet', async () => {
     touchFile(
-      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'iconic', 'backend', 'dashboard', 'page.tsx'),
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'iconic', 'backend', 'settings', 'page.tsx'),
       'export default function Page() { return null }\n',
     )
     touchFile(
-      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'iconic', 'backend', 'dashboard', 'page.meta.ts'),
-      "import React from 'react'\nconst icon = React.createElement('svg', null)\nexport const metadata = { requireAuth: true, pageTitle: 'Dashboard', icon }\n",
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'iconic', 'backend', 'settings', 'page.meta.ts'),
+      "import React from 'react'\nconst icon = React.createElement('svg', null)\nexport const metadata = { requireAuth: true, pageTitle: 'Settings', pageContext: 'settings', icon }\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'iconic', 'backend', 'profile', 'page.tsx'),
+      'export default function Page() { return null }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'iconic', 'backend', 'profile', 'page.meta.ts'),
+      "import React from 'react'\nconst icon = React.createElement('svg', null)\nexport const metadata = { requireAuth: true, pageTitle: 'Profile', pageContext: 'profile', icon }\n",
     )
 
     const enabled: ModuleEntry[] = [
@@ -481,9 +489,12 @@ describe('generateModuleRegistry with module subsets', () => {
 
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'backend-routes.generated.ts')!
-    expect(output).not.toMatch(/import \* as .* from "@open-mercato\/core\/modules\/iconic\/backend\/dashboard\/page\.meta"/)
-    expect(output).toContain('"pageTitle":"Dashboard"')
-    expect(output).toContain('resolvePageRouteMetadata("/backend/dashboard"')
+    expect(output).toMatch(/import \* as .* from "@open-mercato\/core\/modules\/iconic\/backend\/settings\/page\.meta"/)
+    expect(output).toMatch(/import \* as .* from "@open-mercato\/core\/modules\/iconic\/backend\/profile\/page\.meta"/)
+    expect(output).toContain('resolvePageRouteMetadata("/backend/settings", (((BMManifest')
+    expect(output).toContain('resolvePageRouteMetadata("/backend/profile", (((BMManifest')
+    expect(output).not.toContain('"pageContext":"settings"')
+    expect(output).not.toContain('"pageContext":"profile"')
   })
 
   it('handles module with only widgets — no pages or subscribers', async () => {

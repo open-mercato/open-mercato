@@ -1422,7 +1422,7 @@ async function processPageFiles(options: {
         sourceFile: metaPath,
         metaPath,
         runtimeExpr: `(((${manifestMetaImportName} as any).metadata) as any)`,
-        allowRuntimeFallback: false,
+        allowRuntimeFallback: true,
       })
       manifestMetaExpr = manifestMetadata.manifestExpr
       if (manifestMetadata.requiresRuntimeImport) {
@@ -1440,7 +1440,7 @@ async function processPageFiles(options: {
       const manifestMetadata = await loadPageMetadataForManifest({
         sourceFile,
         runtimeExpr: `(((${manifestMetaImportName} as any).metadata) as any)`,
-        allowRuntimeFallback: false,
+        allowRuntimeFallback: true,
       })
       manifestMetaExpr = manifestMetadata.manifestExpr
       if (manifestMetadata.requiresRuntimeImport) {
