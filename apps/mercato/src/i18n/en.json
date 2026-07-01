@@ -9,6 +9,7 @@
   "api.errors.invalidJson": "Invalid JSON payload.",
   "api.errors.invalidLocale": "Invalid locale",
   "api.errors.invalidPayload": "Invalid payload.",
+  "api.errors.localeForced": "Locale is fixed by configuration",
   "api.errors.notFound": "Not Found",
   "api.errors.rateLimit": "Too many requests. Please try again later.",
   "api.errors.unauthorized": "Unauthorized",
