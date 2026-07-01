@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/telemetry",
-  "version": "0.6.3",
+  "version": "0.6.5",
   "description": "Vendor-neutral telemetry facade (logger, spans, metrics, error reporting) backed by a pluggable OTLP provider. Off by default; the OpenTelemetry SDK is an optional dependency loaded only when enabled.",
   "type": "module",
   "main": "./dist/index.js",
