@@ -1,3 +1,4 @@
+import { initTelemetry } from '@open-mercato/telemetry'
 import { createQueue } from '../factory'
 import type { Queue, JobHandler, AsyncQueueOptions, QueueStrategyType } from '../types'
 
@@ -112,6 +113,12 @@ export async function runWorker<T = unknown>(
     background = false,
     strategy: strategyOption,
   } = options
+
+  // Worker processes don't run Next's instrumentation hook, so initialize
+  // telemetry here — this is the single bootstrap every standalone worker passes
+  // through. Idempotent (a no-op when already initialized, e.g. an in-process
+  // worker in the web server) and a no-op when telemetry is off.
+  await initTelemetry()
 
   // Determine queue strategy from option, env var, or default to 'local'
   const strategy: QueueStrategyType = strategyOption

@@ -1,0 +1,66 @@
+{
+  "name": "@open-mercato/telemetry",
+  "version": "0.6.3",
+  "description": "Vendor-neutral telemetry facade (logger, spans, metrics, error reporting) backed by a pluggable OTLP provider. Off by default; the OpenTelemetry SDK is an optional dependency loaded only when enabled.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node watch.mjs",
+    "test": "jest --config jest.config.cjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./*": {
+      "types": [
+        "./src/*.ts"
+      ],
+      "default": "./dist/*.js"
+    },
+    "./*/*": {
+      "types": [
+        "./src/*/*.ts"
+      ],
+      "default": "./dist/*/*.js"
+    }
+  },
+  "dependencies": {
+    "pino": "^10.3.1"
+  },
+  "optionalDependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/api-logs": "^0.219.0",
+    "@opentelemetry/core": "^2.8.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.219.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.219.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
+    "@opentelemetry/instrumentation": "^0.219.0",
+    "@opentelemetry/instrumentation-pg": "^0.71.0",
+    "@opentelemetry/instrumentation-undici": "^0.29.0",
+    "@opentelemetry/resources": "^2.8.0",
+    "@opentelemetry/sdk-logs": "^0.219.0",
+    "@opentelemetry/sdk-metrics": "^2.8.0",
+    "@opentelemetry/sdk-node": "^0.219.0",
+    "@opentelemetry/sdk-trace-node": "^2.8.0",
+    "@opentelemetry/semantic-conventions": "^1.41.1"
+  },
+  "devDependencies": {
+    "@opentelemetry/sdk-trace-base": "^2.8.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.9.1",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato",
+    "directory": "packages/telemetry"
+  }
+}

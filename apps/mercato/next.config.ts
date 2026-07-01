@@ -49,6 +49,26 @@ const nextConfig: NextConfig = {
     'esbuild',
     '@esbuild/darwin-arm64',
     '@open-mercato/cli',
+    // Telemetry: the OTEL SDK + instrumentations must run as real Node modules,
+    // not be bundled — the auto-instrumentations (pg/undici) monkey-patch the
+    // underlying drivers at runtime. ALL @opentelemetry/* packages imported by
+    // otlp-provider.ts are externalized together; a partial list re-bundles the
+    // patched module and is a known cause of "telemetry silently emits nothing".
+    '@opentelemetry/api',
+    '@opentelemetry/api-logs',
+    '@opentelemetry/core',
+    '@opentelemetry/sdk-node',
+    '@opentelemetry/sdk-trace-node',
+    '@opentelemetry/sdk-logs',
+    '@opentelemetry/sdk-metrics',
+    '@opentelemetry/resources',
+    '@opentelemetry/semantic-conventions',
+    '@opentelemetry/instrumentation',
+    '@opentelemetry/instrumentation-pg',
+    '@opentelemetry/instrumentation-undici',
+    '@opentelemetry/exporter-trace-otlp-http',
+    '@opentelemetry/exporter-logs-otlp-http',
+    '@opentelemetry/exporter-metrics-otlp-http',
   ],
   // Mirror server-only env vars that client components must observe. Keep this
   // list minimal — anything added here is inlined into the client bundle.
