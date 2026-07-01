@@ -909,11 +909,6 @@ const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, R
     const result = await runInTransaction(em, async (trx) => {
       const scope = resolveScope(ctx, input)
       await requireWarehouse(trx, ctx, input.warehouseId, scope)
-      const profile = await loadProfileForVariant(trx, ctx, input.catalogVariantId, scope)
-      enforceInventoryTrackingRequirements(profile, {
-        lotId: input.lotId ?? null,
-        serialNumber: input.serialNumber ?? null,
-      })
       const reservationIdempotencyKey = buildReservationIdempotencyKey({
         sourceType: input.sourceType,
         sourceId: input.sourceId,
