@@ -52,6 +52,65 @@ with the `deployment.environment` resource attribute (filter/scope alerts by it)
 In local dev, stdout logs are pretty-printed (`TELEMETRY_LOG_PRETTY`, default on
 when `NODE_ENV=development`); deployed environments emit single-line JSON.
 
+`TELEMETRY_LOG_LEVEL` gates **both** stdout and the backend export — records below
+the level never ship to the OTLP backend (controls remote volume/cost, not just
+stdout noise).
+
+## Adopting in an existing app
+
+**Freshly scaffolded apps (`create-mercato-app`) need no code** — the template
+already wires everything. Set the env above and restart.
+
+**An app scaffolded before telemetry existed** must add the wiring the scaffold
+now ships. Two parts:
+
+1. **Worker/scheduler telemetry comes with the dependency bump.** `@open-mercato/cli`
+   depends on `@open-mercato/telemetry` and initializes it before the app graph
+   loads, so standalone worker/scheduler processes emit spans once you update
+   `@open-mercato/*` to a release that includes this package and set the env — no
+   code change.
+
+2. **Web-tier wiring is app-owned source, so add it by hand** (mirrors what the
+   template contains):
+
+   ```jsonc
+   // package.json
+   "dependencies":         { "@open-mercato/telemetry": "<version>" },
+   "optionalDependencies": { "bullmq-otel": "^1.3.1" }   // only for BullMQ queue spans
+   ```
+
+   ```ts
+   // src/instrumentation.ts
+   export async function register(): Promise<void> {
+     if (process.env.NEXT_RUNTIME === 'nodejs') {
+       const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')
+       await registerTelemetryForNextjs()
+     }
+   }
+   ```
+
+   ```ts
+   // next.config.ts
+   import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs'
+   // serverExternalPackages: [ ...existing, ...telemetryServerExternalPackages ]
+   ```
+
+   ```ts
+   // src/app/api/[...slug]/route.ts — in the shared dispatcher chokepoint
+   import { reportError } from '@open-mercato/telemetry'
+   import { recordHttpDuration } from '@open-mercato/telemetry/nextjs'
+   // on completion:  recordHttpDuration(method, route.path, status, startedAt)
+   // in the 5xx catch: reportError(error, { attributes: { 'http.route': route.path } })
+   ```
+
+   Then `yarn install` and set the env. Everything is additive — omit
+   `TELEMETRY_BACKEND` and the app behaves exactly as before.
+
+   The `@opentelemetry/*` SDK is a transitive `optionalDependency` of
+   `@open-mercato/telemetry`; you don't list the OTEL packages yourself. The
+   dispatcher wiring is the only non-mechanical merge — the other three files are
+   near-verbatim.
+
 ## Public API
 
 | Export | Description |
@@ -65,18 +124,33 @@ when `NODE_ENV=development`); deployed environments emit single-line JSON.
 | `initTelemetry()` / `shutdownTelemetry()` | one-shot bootstrap + flush |
 | `registerProvider(provider)` | plug a custom backend before init |
 
+### `@open-mercato/telemetry/nextjs` — app-wiring helpers
+
+A thin subpath so a Next.js app wires telemetry from imports instead of copied boilerplate. Import-safe from `next.config.ts` (it never statically pulls in `@opentelemetry/*` or the logger).
+
+| Export | Description |
+| --- | --- |
+| `registerTelemetryForNextjs()` | one-line `instrumentation.ts` bootstrap: init + graceful degrade + `SIGTERM`/`SIGINT` flush; skips the edge runtime |
+| `telemetryServerExternalPackages` | the full `@opentelemetry/*` list to spread into `next.config.ts` `serverExternalPackages` — single source of truth, so a partial copy can't silently disable exporting |
+| `recordHttpDuration(method, route, status, startedAt)` | emit the semconv `http.server.request.duration` histogram (`route` = low-cardinality template, never the resolved path) |
+
 ## Notes & limitations
 
 - **The facade is server-only.** It pulls in `pino` and `node:async_hooks`, so
   importing `@open-mercato/telemetry` from a `'use client'` component breaks the
   build. All call sites are server-side (API routes, services, workers).
-- **Web-process init is wired (Phase 1); worker/cross-boundary propagation is
-  Phase 2.** The web process initializes telemetry from
-  `apps/mercato/instrumentation.ts`. Worker/CLI processes do not run that hook;
-  the active provider is therefore held on a `globalThis` singleton
-  (`provider/registry.ts`) so a future worker-bootstrap init shares one provider
-  across the worker's bundled-vs-source module copies. Until that lands, worker
-  spans run through the no-op provider.
+- **Web + worker init and cross-boundary propagation are wired.** The web process
+  initializes telemetry from `instrumentation.ts` (via
+  `registerTelemetryForNextjs`). Worker/CLI processes do not run that hook, so
+  `@open-mercato/cli` initializes telemetry in its bootstrap **before** the app
+  graph loads (required so the `pg`/`undici` auto-instrumentations patch drivers
+  the job handlers then load). The active provider is held on a `globalThis`
+  singleton (`provider/registry.ts`) so it is shared across a worker's
+  bundled-vs-source module copies. W3C trace context rides the queue job's
+  `metadata._trace` carrier (auto-injected at enqueue, auto-continued at
+  dispatch), which transitively covers persistent event subscribers and queued
+  webhook delivery; the BullMQ (`async`) strategy delegates to `bullmq-otel` when
+  an OTLP backend is active.
 - **Root-per-request via a backup-header propagator.** A load balancer (e.g. GCP's)
   reads the inbound `traceparent`, makes its own span, and **rewrites** the header to
   point at that unexported span — so plain W3C extraction orphans every request under
@@ -117,6 +191,10 @@ All automated tests run in the standard jest suite (`yarn workspace
   root-per-request, log correlation, metrics.
 - **PII config regression** (`pg-pii-config.test.ts`) — locks
   `enhancedDatabaseReporting: false` so SQL parameter values can never leak.
+- **Next.js helpers** (`nextjs.test.ts`) — the externals list covers the full OTEL
+  set (no partial-copy footgun), `recordHttpDuration` emits the semconv histogram
+  (with `error.type` only on 5xx), and `registerTelemetryForNextjs` no-ops when
+  off and skips the edge runtime.
 
 The real OTLP wire format and real `pg` param-stripping are OpenTelemetry's own
 code (tested upstream); verify them manually against a collector rather than

@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { reportError, histogram } from '@open-mercato/telemetry'
+import { reportError } from '@open-mercato/telemetry'
+import { recordHttpDuration } from '@open-mercato/telemetry/nextjs'
 import { apiRoutes } from '@/.mercato/generated/api-routes.generated'
 import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
 import { bootstrap } from '@/bootstrap'
@@ -322,26 +323,6 @@ export async function extractTenantCandidates(req: NextRequest): Promise<unknown
   }
 
   return candidates
-}
-
-/**
- * Emit the OpenTelemetry-standard HTTP server metric
- * `http.server.request.duration` (histogram, seconds) with semconv attributes.
- * `route` is the low-cardinality route TEMPLATE (manifest path), never the
- * resolved pathname (which carries ids). No-op when telemetry is off.
- */
-function recordHttpDuration(method: HttpMethod, route: string, status: number, startedAt: number): void {
-  histogram(
-    'http.server.request.duration',
-    (Date.now() - startedAt) / 1000,
-    {
-      'http.request.method': method,
-      'http.route': route,
-      'http.response.status_code': status,
-      'error.type': status >= 500 ? String(status) : undefined,
-    },
-    's',
-  )
 }
 
 async function handleRequest(

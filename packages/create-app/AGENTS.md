@@ -59,12 +59,11 @@ When changes affect app shell behavior, verify all relevant template files are r
 
 Telemetry / observability wiring (keep at parity when the `@open-mercato/telemetry` integration changes):
 
-9. `apps/mercato/src/instrumentation.ts` ↔ `packages/create-app/template/src/instrumentation.ts`
-10. `apps/mercato/src/instrumentation.node.ts` ↔ `packages/create-app/template/src/instrumentation.node.ts`
-11. `apps/mercato/src/app/api/[...slug]/route.ts` ↔ `packages/create-app/template/src/app/api/[...slug]/route.ts` (kept **byte-identical** — enforced by `packages/create-app/src/lib/template-api-dispatcher-require-roles.test.ts`)
-12. `apps/mercato/next.config.ts` `serverExternalPackages` (`@opentelemetry/*`) ↔ `packages/create-app/template/next.config.ts`
-13. `apps/mercato/.env.example` telemetry block (`TELEMETRY_*` / `OTEL_*`) ↔ `packages/create-app/template/.env.example`
-14. `@open-mercato/telemetry` dep + `bullmq-otel` optionalDep ↔ `packages/create-app/template/package.json.template` (telemetry ships the `@opentelemetry/*` SDK as transitive `optionalDependencies`, so the template only pins `@open-mercato/telemetry`). Because the template pins every `@open-mercato` dep to `{{PACKAGE_VERSION}}`, the telemetry package version MUST stay in monorepo lockstep — `scripts/check-version-alignment.sh` enforces it, and a fresh scaffold's `yarn install` fails otherwise.
+9. `apps/mercato/src/instrumentation.ts` ↔ `packages/create-app/template/src/instrumentation.ts` (both call `registerTelemetryForNextjs` from `@open-mercato/telemetry/nextjs` — the package owns init + graceful degrade + shutdown flush, so there is no `instrumentation.node.ts` to sync)
+10. `apps/mercato/src/app/api/[...slug]/route.ts` ↔ `packages/create-app/template/src/app/api/[...slug]/route.ts` (kept **byte-identical** — enforced by `packages/create-app/src/lib/template-api-dispatcher-require-roles.test.ts`; the HTTP metric helper `recordHttpDuration` is imported from `@open-mercato/telemetry/nextjs`, not defined locally)
+11. `apps/mercato/next.config.ts` ↔ `packages/create-app/template/next.config.ts` — both spread `telemetryServerExternalPackages` from `@open-mercato/telemetry/nextjs` into `serverExternalPackages`. The `@opentelemetry/*` list lives in the package (single source of truth); do **not** re-inline it, and a partial copy is a known "telemetry silently emits nothing" footgun.
+12. `apps/mercato/.env.example` telemetry block (`TELEMETRY_*` / `OTEL_*`) ↔ `packages/create-app/template/.env.example`
+13. `@open-mercato/telemetry` dep + `bullmq-otel` optionalDep ↔ `packages/create-app/template/package.json.template` (telemetry ships the `@opentelemetry/*` SDK as transitive `optionalDependencies`, so the template only pins `@open-mercato/telemetry`). Because the template pins every `@open-mercato` dep to `{{PACKAGE_VERSION}}`, the telemetry package version MUST stay in monorepo lockstep — `scripts/check-version-alignment.sh` enforces it, and a fresh scaffold's `yarn install` fails otherwise.
 
 ## Dev Runtime Expectations
 
