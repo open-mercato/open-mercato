@@ -379,6 +379,7 @@
   "checkout.payPage.validation.priceSelectionRequired": "Elige una opcion de pago para continuar.",
   "checkout.payPage.validation.requiredField": "Completa {field}.",
   "checkout.payPage.validation.thisField": "este campo",
+  "checkout.search.subtitle.linkTemplate": "Plantilla de enlace",
   "checkout.statusPage.backToPayment": "Volver a la pagina de pago",
   "checkout.statusPage.cancel.cancelled": "Pago cancelado",
   "checkout.statusPage.cancel.failed": "Pago fallido",

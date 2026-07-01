@@ -1,8 +1,8 @@
 # Search Presenter i18n
 
-**Status:** draft
+**Status:** ready for implementation
 **Owner:** search / core
-**Date:** 2026-05-20
+**Date:** 2026-05-20 (decisions resolved 2026-06-08)
 **Tracking issue:** [open-mercato/open-mercato#327](https://github.com/open-mercato/open-mercato/issues/327)
 
 ## TLDR
@@ -14,19 +14,21 @@
 **Scope:**
 - `presenter.title`, `presenter.subtitle`, `presenter.badge` and `link.label` across every `search.ts` (10 modules).
 - The runtime gate `needsSearchResultEnrichment` in `packages/search/src/lib/search-result-enrichment.ts` that currently short-circuits enrichment when a stored presenter exists.
+- The entity-type group headings rendered by `formatEntityId()` — duplicated across `GlobalSearchDialog.tsx`, `HybridSearchTable.tsx`, and `TopbarSearchInline.tsx` — translated via a **client-side i18n map** (`search.entityType.<module>.<entity>`) with the humanized string as fallback.
+- **Real `en`/`pl`/`es`/`de` copy** for every new key, landed in this PR (not English-only fallbacks).
 
 **Out of scope:**
 - The vector embedding `text:` source used by `buildSource` — re-embedding on locale switch is unbounded cost; embedding text stays canonical English.
 - `SearchResultPresenter` contract shape changes. Keyed-payload presenters (`{ key, fallback, params }`) are documented as a follow-up; this spec keeps the contract as plain strings.
-- `formatEntityId()` in `GlobalSearchDialog.tsx` (an adjacent untranslated path — handled separately if confirmed).
 
-## Open Questions
+## Resolved Decisions (2026-06-08)
 
-> Remove once resolved.
+The original Open Questions are resolved as follows (block removed per spec convention):
 
-- **Q1**: Confirm vector embedding `text:` labels stay English (the issue body says "translate on display" — `text:` is not on the display path). If yes, the audit's recommendation stands.
-- **Q2**: Is `formatEntityId()` in `GlobalSearchDialog.tsx:143` (humanizes `customers:customer_person_profile` → `"Customers · Customer Person Profile"` un-translated) in scope here or split to a follow-up issue?
-- **Q3**: For the modules that already adopted `resolveTranslations()` (catalog, sales, staff, planner, resources, customer_accounts), do we recompute the presenter for **every** matched result on **every** search request, or only when the stored presenter's locale fingerprint differs from the request locale? See [Design Decisions](#design-decisions).
+- **Q1 → embedding `text:` stays English.** The issue body scopes to display; `text:` is the embedding source, not on the display path. Re-embedding per locale is unbounded cost.
+- **Q2 → `formatEntityId()` is in scope now.** Translated via a client-side i18n map across all three components that render it (not just the dialog). See [Entity-type group headings](#entity-type-group-headings).
+- **Q3 → recompute every matched result on every request.** No locale-fingerprint fast-path in this spec; add it later only if profiling shows request-time recompute is too expensive.
+- **Architectural fork → request-time recompute** (not keyed-payload). Keyed-payload remains a documented follow-up (see [Alternatives Considered](#alternatives-considered)).
 
 ## Problem Statement
 
@@ -100,12 +102,24 @@ Two changes:
 | Keep stored presenter as the last-resort fallback if `formatResult` throws | Avoids regressing back to "result with no title" if a downstream config has a bug. |
 | Module i18n namespace is `<module>.search.{badge,link,fallback}.<id>` | Matches existing convention in `catalog`, `sales`, `staff`, `planner`, `resources`, `customer_accounts`. |
 
+### Entity-type group headings
+
+Search results in the UI are grouped under a heading derived from `entityId` by `formatEntityId()` (e.g. `customers:customer_person_profile` → `"Customers · Customer Person Profile"`). This helper is **duplicated in three components**: `GlobalSearchDialog.tsx:143`, `HybridSearchTable.tsx:171`, and `TopbarSearchInline.tsx:139`. It is purely client-side and untranslated.
+
+Approach: **client-side i18n map**, not server-side presenter enrichment. Entity types are a static taxonomy (not record-derived data), so resolving them in the browser is cheaper and needs no per-result server work or `SearchResultPresenter` contract change.
+
+- Each call site resolves `t(`search.entityType.${module}.${entity}`, formatEntityId(entityId))` — a single clean localized label per entity type (e.g. "Customer", "Order", "Product") that replaces the "Module · Entity" string.
+- The existing `formatEntityId()` humanized output remains the **fallback**, so third-party / unindexed entity types degrade gracefully.
+- `useT()` is added to the two components that don't already have it (`GlobalSearchDialog` already does).
+- Keys live in the **search module's** i18n (`search.entityType.*`) because the taxonomy spans modules. ~45 keys for the currently-indexed entity types (enumerated from the 10 `search.ts` configs); `lucide:link` is excluded (icon-map artifact, not an indexed entity).
+
 ### Alternatives Considered
 
 | Alternative | Why Rejected (for this spec) |
 |-------------|-------------|
 | **Keyed presenter payload** — extend `SearchResultPresenter` to allow `title \| { key, fallback, params }`; resolve in `presenterEnricher` or in the dialog. | Larger contract change (touches the type, indexer serialization, vector store column shape, and the dialog). Migration story across existing indexed data is non-trivial. Reasonable as a follow-up after profiling shows request-time recompute is too expensive. |
-| **Client-side `useT()` in `GlobalSearchDialog`** | Requires the keyed payload above; otherwise the dialog has no key to resolve. |
+| **Client-side `useT()` for presenter strings** (title/subtitle/badge/link.label) | These are record-derived; the dialog has no stable key to resolve without the keyed payload above. (Distinct from the entity-type headings, where the key *is* derivable from `entityId` — that path does use client-side `useT()`; see [Entity-type group headings](#entity-type-group-headings).) |
+| **Server-side `entityLabel` on `SearchResultPresenter`** (resolve headings in the enricher) | Additive contract change + per-result server work for a value that depends only on the static entity-type taxonomy. Client-side resolution is cheaper and needs no contract change. |
 | **Translate `buildSource.text` labels too** | Requires re-embedding on every locale (or one canonical reindex per locale). Not justified by the issue body, which scopes to display. |
 | **Reindex once per supported locale** | Storage and worker cost multiplies by N locales; complicates change detection (`checksumSource` would need locale awareness). |
 
@@ -143,9 +157,11 @@ GlobalSearchDialog                                  /api/search/global
 | Enrichment gate | `packages/search/src/lib/search-result-enrichment.ts` | Accept an optional `entityHasConfig` predicate; return `true` when the entity has a `formatResult`/`buildSource` regardless of stored presenter |
 | Enricher | `packages/search/src/lib/presenter-enricher.ts` | Pass `entityConfigMap` lookup into the gate; ensure per-request `resolveTranslations()` is called once and reused via `SearchBuildContext` (cache on the closure) |
 | Per-module `search.ts` (untranslated) | `customers`, `messages`, `checkout`, `inbox_ops` | Add `resolveTranslations()`, replace literals with `t(key, fallback)` |
-| Per-module `i18n/{en,pl,es,de}.json` | All migrated modules | Add `<module>.search.*` keys |
+| Per-module `i18n/{en,pl,es,de}.json` | All migrated modules | Add `<module>.search.*` keys with real copy |
+| Entity-type heading components | `GlobalSearchDialog.tsx`, `HybridSearchTable.tsx`, `TopbarSearchInline.tsx` | Resolve heading via `t(`search.entityType.${module}.${entity}`, formatEntityId(...))`; add `useT()` where missing |
+| Search module i18n | `packages/search/src/modules/search/i18n/{en,pl,es,de}.json` | Add ~45 `search.entityType.*` keys with real copy |
 
-`SearchService.search()`, the indexer write path, the storage schemas, and `GlobalSearchDialog` are unchanged.
+`SearchService.search()`, the indexer write path, and the storage schemas are unchanged. `GlobalSearchDialog`'s presenter rendering is unchanged; only its entity-type heading is now resolved via `useT()`.
 
 ### Performance considerations
 
@@ -207,7 +223,26 @@ No external API change. `/api/search/global` continues to return `{ results: Sea
 }
 ```
 
-Mirror in `pl.json`, `es.json`, `de.json` for each module (translation values can land empty / English-fallback in this spec; copy work tracked separately).
+Mirror in `pl.json`, `es.json`, `de.json` for each module with **real translated copy** (not empty / English-fallback). The pl/es/de values land in this PR.
+
+### Entity-type headings — `search.entityType.*`
+
+In the search module's i18n (`packages/search/src/modules/search/i18n/{en,pl,es,de}.json`), one key per indexed entity type, keyed `search.entityType.<module>.<entity>`. The full list (~45 keys) is enumerated from the 10 `search.ts` configs; `lucide:link` is excluded. Example:
+
+```jsonc
+// packages/search/src/modules/search/i18n/en.json (excerpt)
+{
+  "search.entityType.customers.customer_person_profile": "Customer",
+  "search.entityType.customers.customer_company_profile": "Company",
+  "search.entityType.customers.customer_deal": "Deal",
+  "search.entityType.sales.sales_order": "Order",
+  "search.entityType.sales.sales_invoice": "Invoice",
+  "search.entityType.catalog.catalog_product": "Product"
+  // … one entry per indexed entity type
+}
+```
+
+`en`/`pl`/`es`/`de` all land with real copy. The client-side fallback to `formatEntityId()` covers any entity type without a key (third-party modules).
 
 ### Existing keys (already in place — no change needed)
 
@@ -215,7 +250,7 @@ Mirror in `pl.json`, `es.json`, `de.json` for each module (translation values ca
 
 ## UI/UX
 
-`GlobalSearchDialog` rendering is unchanged. Visually, badges and link labels switch to the requester's locale across all strategies (today they only switch for token-strategy results).
+`GlobalSearchDialog` presenter rendering is unchanged. Visually, badges and link labels switch to the requester's locale across all strategies (today they only switch for token-strategy results). Additionally, the entity-type group headings (rendered in the dialog, the hybrid table, and the topbar inline results) switch from the humanized English string to a localized label per the requester's locale.
 
 ## Migration & Compatibility
 
@@ -237,7 +272,7 @@ Mirror in `pl.json`, `es.json`, `de.json` for each module (translation values ca
 
 1. `packages/core/src/modules/messages/search.ts`: import `resolveTranslations`, replace `badge: 'Message'` with `t('messages.search.badge.message', 'Message')`.
 2. `packages/checkout/src/modules/checkout/search.ts`: same pattern for `subtitle: 'Link Template'` (two occurrences).
-3. Add `i18n/en.json` keys for each. Mirror empty values in `pl.json`, `es.json`, `de.json`.
+3. Add `i18n/en.json` keys for each, plus real `pl`/`es`/`de` copy.
 
 ### Phase 3: Migrate `inbox_ops`
 
@@ -249,14 +284,21 @@ Mirror in `pl.json`, `es.json`, `de.json` for each module (translation values ca
 
 1. Centralize `t()` calls at the top of each `buildSource`/`formatResult` (one `await resolveTranslations()` per call).
 2. Replace all literals enumerated in [Customers — literal inventory](#customers--literal-inventory) with `t(key, fallback)`.
-3. Add `customers.search.*` i18n entries to all four locale files.
+3. Add `customers.search.*` i18n entries to all four locale files with real copy.
 4. Verify the `pickLabel(presenter.title) ?? 'Open person'` fallback path now uses `t('customers.search.link.openPerson', 'Open person')` instead.
 
-### Phase 5: Verification
+### Phase 5: Entity-type group headings
+
+1. Enumerate the ~45 indexed entity types from the 10 `search.ts` configs (exclude `lucide:link`).
+2. Add `search.entityType.<module>.<entity>` keys to `packages/search/src/modules/search/i18n/{en,pl,es,de}.json` with real copy.
+3. In `GlobalSearchDialog.tsx`, `HybridSearchTable.tsx`, and `TopbarSearchInline.tsx`, resolve the heading via `t(`search.entityType.${module}.${entity}`, formatEntityId(entityId))`. Add `useT()` to the two components missing it. Extract the shared resolution helper rather than duplicating the logic three times.
+
+### Phase 6: Verification
 
 1. Run `yarn test` — unit tests for `presenter-enricher.ts` covering the new gate behavior (stored presenter present, formatResult re-runs, request locale propagated).
-2. Manual smoke: switch operator locale to `pl` / `de`, search via Cmd+K, confirm presenter strings change for customers, messages, checkout, inbox_ops results across fulltext + vector + tokens strategies.
-3. Reindex is not required, but a manual `yarn mercato search reindex --tenant <id>` confirms no regression in stored data.
+2. Run `yarn i18n:check-hardcoded` and `yarn i18n:check-values` to confirm no remaining hardcoded search strings and that pl/es/de keys are populated.
+3. Manual smoke: switch operator locale to `pl` / `de`, search via Cmd+K, confirm presenter strings **and** entity-type group headings change for customers, messages, checkout, inbox_ops results across fulltext + vector + tokens strategies.
+4. Reindex is not required, but a manual `yarn mercato search reindex --tenant <id>` confirms no regression in stored data.
 
 ### File Manifest
 
@@ -266,19 +308,24 @@ Mirror in `pl.json`, `es.json`, `de.json` for each module (translation values ca
 | `packages/search/src/lib/presenter-enricher.ts` | Modify | Pass entity-config map into gate; cache `resolveTranslations()` per request |
 | `packages/search/src/__tests__/presenter-enricher.test.ts` | Modify or create | Unit tests for the new gate |
 | `packages/core/src/modules/customers/search.ts` | Modify | Replace ~15 hard-coded literals with `t(key, fallback)` |
-| `packages/core/src/modules/customers/i18n/{en,pl,es,de}.json` | Modify | Add `customers.search.*` keys |
+| `packages/core/src/modules/customers/i18n/{en,pl,es,de}.json` | Modify | Add `customers.search.*` keys with real copy |
 | `packages/core/src/modules/messages/search.ts` | Modify | Translate `badge: 'Message'` |
-| `packages/core/src/modules/messages/i18n/{en,pl,es,de}.json` | Modify | Add `messages.search.badge.message` |
+| `packages/core/src/modules/messages/i18n/{en,pl,es,de}.json` | Modify | Add `messages.search.badge.message` with real copy |
 | `packages/checkout/src/modules/checkout/search.ts` | Modify | Translate `subtitle: 'Link Template'` |
-| `packages/checkout/src/modules/checkout/i18n/{en,pl,es,de}.json` | Create or modify | Add `checkout.search.subtitle.linkTemplate` |
+| `packages/checkout/src/modules/checkout/i18n/{en,pl,es,de}.json` | Create or modify | Add `checkout.search.subtitle.linkTemplate` with real copy |
 | `packages/core/src/modules/inbox_ops/search.ts` | Modify | Translate title fallback and subtitle template |
-| `packages/core/src/modules/inbox_ops/i18n/{en,pl,es,de}.json` | Create or modify | Add `inbox_ops.search.*` keys |
+| `packages/core/src/modules/inbox_ops/i18n/{en,pl,es,de}.json` | Create or modify | Add `inbox_ops.search.*` keys with real copy |
+| `packages/search/src/modules/search/frontend/components/GlobalSearchDialog.tsx` | Modify | Resolve entity-type heading via `t(search.entityType.*)` |
+| `packages/search/src/modules/search/frontend/components/HybridSearchTable.tsx` | Modify | Same heading resolution; add `useT()` |
+| `packages/search/src/modules/search/frontend/components/TopbarSearchInline.tsx` | Modify | Same heading resolution; add `useT()` |
+| `packages/search/src/modules/search/i18n/{en,pl,es,de}.json` | Create or modify | Add ~45 `search.entityType.*` keys with real copy |
 
 ### Testing Strategy
 
 - **Unit**: `presenter-enricher.test.ts` — verify that results with a stored presenter and a registered `formatResult` are re-enriched; that results without a registered config retain the stored presenter (fallback); that `resolveTranslations()` is called with the request's locale; that `formatResult` throwing does not break the response (stored presenter is returned).
 - **Integration**: `packages/search/src/modules/search/api/__tests__/global-search.routes.test.ts` (new or extended) — submit a search with `Accept-Language: pl-PL`, confirm presenters in the response are translated for fulltext + vector + tokens hits.
-- **Manual smoke** (per `.ai/qa/AGENTS.md`): exercise Cmd+K against seeded customers/sales/catalog data in each supported locale.
+- **Unit (headings)**: cover the shared heading-resolution helper — known entity type resolves to its `search.entityType.*` value; unknown entity type falls back to `formatEntityId()`.
+- **Manual smoke** (per `.ai/qa/AGENTS.md`): exercise Cmd+K against seeded customers/sales/catalog data in each supported locale; confirm both presenter strings and entity-type headings localize across the dialog, hybrid table, and topbar inline.
 
 ## Risks & Impact Review
 
@@ -369,9 +416,16 @@ None.
 
 ### Verdict
 
-- **Fully compliant** — ready for implementation pending Q1-Q3.
+- **Fully compliant** — ready for implementation. Q1–Q3 and the architectural fork resolved 2026-06-08 (see [Resolved Decisions](#resolved-decisions-2026-06-08)).
 
 ## Changelog
+
+### 2026-06-08
+
+- Resolved Open Questions Q1–Q3 and the recompute-vs-keyed-payload fork; removed the Open Questions block per spec convention. Status → ready for implementation.
+- **Q1**: embedding `text:` stays English. **Q3**: recompute every matched result per request (fingerprint fast-path deferred). **Fork**: request-time recompute.
+- **Q2 expanded into scope**: entity-type group headings (`formatEntityId`, duplicated across `GlobalSearchDialog`, `HybridSearchTable`, `TopbarSearchInline`) now translated via a client-side `search.entityType.*` i18n map with humanized fallback. Added [Entity-type group headings](#entity-type-group-headings), a new implementation phase, and manifest entries for the 3 components + the search module i18n files.
+- Copy policy changed: real `en`/`pl`/`es`/`de` values for all new keys land in this PR (previously deferred as empty fallbacks).
 
 ### 2026-05-20
 

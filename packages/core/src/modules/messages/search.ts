@@ -4,6 +4,8 @@ import type {
   SearchIndexSource,
   SearchResultPresenter,
 } from '@open-mercato/shared/modules/search'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 function appendLine(lines: string[], label: string, value: unknown) {
   if (value === null || value === undefined) return
@@ -31,8 +33,8 @@ function snippet(value: unknown, max = 140): string | undefined {
   return `${trimmed.slice(0, max - 3)}...`
 }
 
-function buildMessagePresenter(record: Record<string, unknown>): SearchResultPresenter {
-  const title = pickString(record.subject) ?? 'Message'
+function buildMessagePresenter(translate: TranslateFn, record: Record<string, unknown>): SearchResultPresenter {
+  const title = pickString(record.subject) ?? translate('messages.search.fallback.title', 'Message')
   const body = snippet(record.body)
   const externalName = pickString(record.external_name, record.externalName)
   const subtitle = [externalName, body].filter(Boolean).join(' · ') || undefined
@@ -40,7 +42,7 @@ function buildMessagePresenter(record: Record<string, unknown>): SearchResultPre
     title: String(title),
     subtitle,
     icon: 'mail',
-    badge: 'Message',
+    badge: translate('messages.search.badge.message', 'Message'),
   }
 }
 
@@ -51,6 +53,7 @@ export const searchConfig: SearchModuleConfig = {
       enabled: true,
       priority: 5,
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
+        const { t } = await resolveTranslations()
         const record = ctx.record
         const lines: string[] = []
         appendLine(lines, 'Subject', record.subject)
@@ -59,7 +62,7 @@ export const searchConfig: SearchModuleConfig = {
         if (!lines.length) return null
         return {
           text: lines,
-          presenter: buildMessagePresenter(record),
+          presenter: buildMessagePresenter(t, record),
           checksumSource: {
             record: {
               subject: record.subject,
@@ -70,7 +73,10 @@ export const searchConfig: SearchModuleConfig = {
           },
         }
       },
-      formatResult: async (ctx) => buildMessagePresenter(ctx.record),
+      formatResult: async (ctx) => {
+        const { t } = await resolveTranslations()
+        return buildMessagePresenter(t, ctx.record)
+      },
       resolveUrl: async (ctx) => {
         const id = pickString(ctx.record.id)
         return id ? `/backend/messages/${encodeURIComponent(id)}` : null

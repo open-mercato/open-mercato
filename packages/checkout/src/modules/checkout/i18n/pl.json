@@ -379,6 +379,7 @@
   "checkout.payPage.validation.priceSelectionRequired": "Wybierz opcję płatności, aby kontynuować.",
   "checkout.payPage.validation.requiredField": "Uzupełnij pole {field}.",
   "checkout.payPage.validation.thisField": "to pole",
+  "checkout.search.subtitle.linkTemplate": "Szablon linku",
   "checkout.statusPage.backToPayment": "Wróć do strony płatności",
   "checkout.statusPage.cancel.cancelled": "Płatność anulowana",
   "checkout.statusPage.cancel.failed": "Płatność nieudana",

@@ -6,6 +6,8 @@ import type {
   SearchResultLink,
   SearchIndexSource,
 } from '@open-mercato/shared/modules/search'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CUSTOMER_INTERACTION_TASK_SOURCE, EXAMPLE_TODO_SOURCE } from './lib/interactionCompatibility'
 
 // =============================================================================
@@ -476,6 +478,7 @@ function ensureFallbackLines(lines: string[], record: Record<string, unknown>, o
 // =============================================================================
 
 function resolvePersonPresenter(
+  translate: TranslateFn,
   record: Record<string, unknown>,
   entity: Record<string, unknown> | null,
   customFields: Record<string, unknown>,
@@ -491,7 +494,7 @@ function resolvePersonPresenter(
     (nameParts.length ? nameParts : undefined) ??
     fallbackEntityId ??
     (record.id as string | undefined) ??
-    'Person'
+    translate('customers.search.fallback.person', 'Person')
   const subtitlePieces: string[] = []
   const jobTitle = record.job_title ?? record.jobTitle ?? customFields.job_title ?? customFields.jobTitle
   if (jobTitle) subtitlePieces.push(String(jobTitle))
@@ -511,11 +514,14 @@ function resolvePersonPresenter(
     title: String(title),
     subtitle: subtitlePieces.length ? subtitlePieces.join(' · ') : undefined,
     icon: 'user',
-    badge: pickValue(entity, 'display_name', 'displayName') ? 'Person' : undefined,
+    badge: pickValue(entity, 'display_name', 'displayName')
+      ? translate('customers.search.badge.person', 'Person')
+      : undefined,
   }
 }
 
 function resolveCompanyPresenter(
+  translate: TranslateFn,
   record: Record<string, unknown>,
   entity: Record<string, unknown> | null,
   customFields: Record<string, unknown>,
@@ -533,7 +539,7 @@ function resolveCompanyPresenter(
     (entity?.id && entity?.display_name ? entity.display_name as string : undefined) ??
     fallbackEntityId ??
     (record.id as string | undefined) ??
-    'Company'
+    translate('customers.search.fallback.company', 'Company')
   const subtitlePieces: string[] = []
   const industry = record.industry
   if (industry) subtitlePieces.push(String(industry))
@@ -562,7 +568,9 @@ function resolveCompanyPresenter(
     title: String(title),
     subtitle: subtitlePieces.length ? subtitlePieces.join(' · ') : undefined,
     icon: 'building',
-    badge: pickValue(entity, 'display_name', 'displayName') ? 'Company' : undefined,
+    badge: pickValue(entity, 'display_name', 'displayName')
+      ? translate('customers.search.badge.company', 'Company')
+      : undefined,
   }
 }
 
@@ -599,6 +607,7 @@ export const searchConfig: SearchModuleConfig = {
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const lines: string[] = []
         const record = ctx.record
         appendLine(lines, 'Preferred name', record.preferred_name ?? record.preferredName ?? ctx.customFields.preferred_name)
@@ -635,9 +644,9 @@ export const searchConfig: SearchModuleConfig = {
           })
         }
 
-        const presenter = resolvePersonPresenter(record, entity, ctx.customFields)
+        const presenter = resolvePersonPresenter(t, record, entity, ctx.customFields)
         logMissingPresenterTitle('person', record, entity, presenter)
-        const presenterLabel = pickLabel(presenter.title) ?? 'Open person'
+        const presenterLabel = pickLabel(presenter.title) ?? t('customers.search.link.openPerson', 'Open person')
         const links: SearchResultLink[] = []
         if (entityId) {
           const href = buildCustomerUrl('person', entityId)
@@ -661,8 +670,9 @@ export const searchConfig: SearchModuleConfig = {
 
       formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const entity = await getCustomerEntity(ctx, resolveCustomerEntityId(ctx.record))
-        return resolvePersonPresenter(ctx.record, entity, ctx.customFields)
+        return resolvePersonPresenter(t, ctx.record, entity, ctx.customFields)
       },
 
       resolveUrl: async (ctx: SearchBuildContext): Promise<string | null> => {
@@ -671,11 +681,12 @@ export const searchConfig: SearchModuleConfig = {
       },
 
       resolveLinks: async (ctx: SearchBuildContext): Promise<SearchResultLink[] | null> => {
+        const { t } = await resolveTranslations()
         const entityId = resolveCustomerEntityId(ctx.record)
         if (!entityId) return null
         const href = buildCustomerUrl('person', entityId)
         if (!href) return null
-        return [{ href: `${href}/edit`, label: 'Edit', kind: 'secondary' }]
+        return [{ href: `${href}/edit`, label: t('customers.search.link.edit', 'Edit'), kind: 'secondary' }]
       },
 
       fieldPolicy: {
@@ -706,6 +717,7 @@ export const searchConfig: SearchModuleConfig = {
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const lines: string[] = []
         const record = ctx.record
         appendLine(lines, 'Legal name', record.legal_name ?? record.legalName ?? ctx.customFields.legal_name)
@@ -726,9 +738,9 @@ export const searchConfig: SearchModuleConfig = {
         ensureFallbackLines(lines, record)
         if (!lines.length) return null
 
-        const presenter = resolveCompanyPresenter(record, entity, ctx.customFields)
+        const presenter = resolveCompanyPresenter(t, record, entity, ctx.customFields)
         logMissingPresenterTitle('company', record, entity, presenter)
-        const primaryLabel = pickLabel(presenter.title) ?? 'Open company'
+        const primaryLabel = pickLabel(presenter.title) ?? t('customers.search.link.openCompany', 'Open company')
         const links: SearchResultLink[] = []
         if (entityId) {
           const href = buildCustomerUrl('company', entityId)
@@ -752,8 +764,9 @@ export const searchConfig: SearchModuleConfig = {
 
       formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const entity = await getCustomerEntity(ctx, resolveCustomerEntityId(ctx.record))
-        return resolveCompanyPresenter(ctx.record, entity, ctx.customFields)
+        return resolveCompanyPresenter(t, ctx.record, entity, ctx.customFields)
       },
 
       resolveUrl: async (ctx: SearchBuildContext): Promise<string | null> => {
@@ -762,11 +775,12 @@ export const searchConfig: SearchModuleConfig = {
       },
 
       resolveLinks: async (ctx: SearchBuildContext): Promise<SearchResultLink[] | null> => {
+        const { t } = await resolveTranslations()
         const entityId = resolveCustomerEntityId(ctx.record)
         if (!entityId) return null
         const href = buildCustomerUrl('company', entityId)
         if (!href) return null
-        return [{ href: `${href}/edit`, label: 'Edit', kind: 'secondary' }]
+        return [{ href: `${href}/edit`, label: t('customers.search.link.edit', 'Edit'), kind: 'secondary' }]
       },
 
       fieldPolicy: {
@@ -824,8 +838,9 @@ export const searchConfig: SearchModuleConfig = {
 
       formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id as string ?? ctx.record.entityId as string)
-        const title = (parent?.display_name as string | undefined) ?? 'Customer note'
+        const title = (parent?.display_name as string | undefined) ?? t('customers.search.fallback.customerNote', 'Customer note')
         return {
           title,
           subtitle: snippet(ctx.record.body),
@@ -842,15 +857,16 @@ export const searchConfig: SearchModuleConfig = {
 
       resolveLinks: async (ctx: SearchBuildContext): Promise<SearchResultLink[] | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const links: SearchResultLink[] = []
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id as string ?? ctx.record.entityId as string)
         const parentUrl = buildCustomerUrl(parent?.kind as string ?? null, (parent?.id ?? ctx.record.entity_id ?? ctx.record.entityId) as string)
         if (parentUrl) {
-          links.push({ href: parentUrl, label: (parent?.display_name as string | undefined) ?? 'View customer', kind: 'primary' })
+          links.push({ href: parentUrl, label: (parent?.display_name as string | undefined) ?? t('customers.search.link.viewCustomer', 'View customer'), kind: 'primary' })
         }
         if (ctx.record.deal_id) {
           const dealUrl = `/backend/customers/deals/${encodeURIComponent(ctx.record.deal_id as string)}`
-          links.push({ href: dealUrl, label: 'Open deal', kind: 'secondary' })
+          links.push({ href: dealUrl, label: t('customers.search.link.openDeal', 'Open deal'), kind: 'secondary' })
         }
         return links.length ? links : null
       },
@@ -872,6 +888,7 @@ export const searchConfig: SearchModuleConfig = {
       priority: 8,
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
+        const { t } = await resolveTranslations()
         const lines: string[] = []
         const record = ctx.record
         appendLine(lines, 'Title', record.title)
@@ -890,10 +907,10 @@ export const searchConfig: SearchModuleConfig = {
         return {
           text: lines,
           presenter: {
-            title: String(record.title ?? 'Deal'),
+            title: String(record.title ?? t('customers.search.fallback.deal', 'Deal')),
             subtitle: subtitleParts.join(' · ') || undefined,
             icon: 'briefcase',
-            badge: 'Deal',
+            badge: t('customers.search.badge.deal', 'Deal'),
           },
           checksumSource: {
             title: record.title,
@@ -905,8 +922,9 @@ export const searchConfig: SearchModuleConfig = {
       },
 
       formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
+        const { t } = await resolveTranslations()
         const { record } = ctx
-        const title = pickString(record.title as string, 'Deal')
+        const title = pickString(record.title as string, t('customers.search.fallback.deal', 'Deal'))
         const subtitleParts: string[] = []
         if (record.pipeline_stage) subtitleParts.push(String(record.pipeline_stage))
         if (record.status) subtitleParts.push(String(record.status))
@@ -917,10 +935,10 @@ export const searchConfig: SearchModuleConfig = {
         }
 
         return {
-          title: title ?? 'Deal',
+          title: title ?? t('customers.search.fallback.deal', 'Deal'),
           subtitle: subtitleParts.length ? subtitleParts.join(' · ') : undefined,
           icon: 'briefcase',
-          badge: 'Deal',
+          badge: t('customers.search.badge.deal', 'Deal'),
         }
       },
 
@@ -931,12 +949,13 @@ export const searchConfig: SearchModuleConfig = {
       },
 
       resolveLinks: async (ctx: SearchBuildContext): Promise<SearchResultLink[] | null> => {
+        const { t } = await resolveTranslations()
         const id = ctx.record.id
         if (!id) return null
         return [
           {
             href: `/backend/customers/deals/${encodeURIComponent(String(id))}/edit`,
-            label: 'Edit',
+            label: t('customers.search.link.edit', 'Edit'),
             kind: 'secondary',
           },
         ]
@@ -960,6 +979,7 @@ export const searchConfig: SearchModuleConfig = {
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id as string ?? ctx.record.entityId as string)
         const lines: string[] = []
         if (parent?.display_name) lines.push(`Customer: ${parent.display_name}`)
@@ -968,7 +988,11 @@ export const searchConfig: SearchModuleConfig = {
         if (ctx.record.body) lines.push(`Body: ${ctx.record.body}`)
 
         const presenter: SearchResultPresenter = {
-          title: ctx.record.subject ? String(ctx.record.subject) : `Activity: ${ctx.record.activity_type ?? 'update'}`,
+          title: ctx.record.subject
+            ? String(ctx.record.subject)
+            : t('customers.search.fallback.activity', 'Activity: {{type}}', {
+                type: String(ctx.record.activity_type ?? t('customers.search.fallback.activityUpdate', 'update')),
+              }),
           subtitle: (parent?.display_name as string | undefined) ?? snippet(ctx.record.body),
           icon: 'bolt',
         }
@@ -987,12 +1011,17 @@ export const searchConfig: SearchModuleConfig = {
 
       formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id as string ?? ctx.record.entityId as string)
         return {
-          title: ctx.record.subject ? String(ctx.record.subject) : `Activity: ${ctx.record.activity_type ?? 'update'}`,
+          title: ctx.record.subject
+            ? String(ctx.record.subject)
+            : t('customers.search.fallback.activity', 'Activity: {{type}}', {
+                type: String(ctx.record.activity_type ?? t('customers.search.fallback.activityUpdate', 'update')),
+              }),
           subtitle: (parent?.display_name as string | undefined) ?? snippet(ctx.record.body),
           icon: 'bolt',
-          badge: 'Activity',
+          badge: t('customers.search.badge.activity', 'Activity'),
         }
       },
 
@@ -1004,11 +1033,12 @@ export const searchConfig: SearchModuleConfig = {
       },
 
       resolveLinks: async (ctx: SearchBuildContext): Promise<SearchResultLink[] | null> => {
+        const { t } = await resolveTranslations()
         const links: SearchResultLink[] = []
         if (ctx.record.deal_id) {
           links.push({
             href: `/backend/customers/deals/${encodeURIComponent(ctx.record.deal_id as string)}`,
-            label: 'Open deal',
+            label: t('customers.search.link.openDeal', 'Open deal'),
             kind: 'secondary',
           })
         }
@@ -1056,10 +1086,11 @@ export const searchConfig: SearchModuleConfig = {
 
       formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const todo = await getLinkedTodo(ctx) as Record<string, unknown> | null
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id as string ?? ctx.record.entityId as string)
         return {
-          title: (todo?.title as string | undefined) ?? 'Customer task',
+          title: (todo?.title as string | undefined) ?? t('customers.search.fallback.customerTask', 'Customer task'),
           subtitle: parent?.display_name as string | undefined,
           icon: 'check-square',
         }
@@ -1073,11 +1104,12 @@ export const searchConfig: SearchModuleConfig = {
       },
 
       resolveLinks: async (ctx: SearchBuildContext): Promise<SearchResultLink[] | null> => {
+        const { t } = await resolveTranslations()
         const todoId = ctx.record.todo_id ?? ctx.record.todoId
         if (!todoId) return null
         return [{
           href: `/backend/todos/${encodeURIComponent(todoId as string)}/edit`,
-          label: 'Open todo',
+          label: t('customers.search.link.openTodo', 'Open todo'),
           kind: 'secondary',
         }]
       },
