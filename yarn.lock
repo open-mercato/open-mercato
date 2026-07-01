@@ -7647,6 +7647,7 @@ __metadata:
     "@mikro-orm/postgresql": "npm:^7.1.4"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/telemetry": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     cross-spawn: "npm:^7.0.6"
     jest: "npm:^30.4.2"
