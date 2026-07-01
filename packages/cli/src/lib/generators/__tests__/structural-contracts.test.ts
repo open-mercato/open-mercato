@@ -196,6 +196,8 @@ function scaffoldFixture(): ModuleEntry[] {
   touchFile(pkgModulePath('orders', 'data', 'guards.ts'), `export const guards = [\n  { id: 'orders.prevent-duplicate', entity: 'orders:sales_order', event: 'create', description: 'Prevents duplicate orders', async validate(input: any) { return { ok: true } } },\n]\n`)
   touchFile(pkgModulePath('orders', 'api', 'interceptors.ts'), `export const interceptors = [\n  { id: 'orders.validate-total', targetRoute: 'orders', methods: ['POST', 'PUT'], priority: 100, async before(request: any) { return { ok: true } } },\n]\n`)
   touchFile(pkgModulePath('orders', 'commands', 'interceptors.ts'), `export const interceptors = [\n  { id: 'orders.audit-log', commandId: 'orders.create', phase: 'after', async handler(command: any) { return { ok: true } } },\n]\n`)
+  touchFile(pkgModulePath('orders', 'commands', 'create.ts'), `import { registerCommand } from '@open-mercato/shared/lib/commands'\nexport const ORDERS_CREATE_COMMAND_ID = 'orders.create'\nconst createOrderCommand = {\n  id: ORDERS_CREATE_COMMAND_ID,\n  async execute() { return { id: 'order-1' } },\n}\nregisterCommand(createOrderCommand)\n`)
+  touchFile(pkgModulePath('orders', 'commands', 'archive.ts'), `import { registerCommand } from '@open-mercato/shared/lib/commands'\nconst commandId = 'orders.archive'\nregisterCommand({\n  id: commandId,\n  async execute() { return { ok: true } },\n})\n`)
   touchFile(pkgModulePath('orders', 'acl.ts'), "export const features = ['orders.view', 'orders.create', 'orders.edit', 'orders.delete']\n")
   touchFile(pkgModulePath('orders', 'setup.ts'), "export const setup = { defaultRoleFeatures: ['orders.view'] }\n")
   touchFile(pkgModulePath('orders', 'encryption.ts'), "export const defaultEncryptionMaps = [{ entityId: 'orders:sales_order', fields: [{ field: 'customer_email', hashField: 'customer_email_hash' }] }]\nexport default defaultEncryptionMaps\n")
@@ -1174,6 +1176,27 @@ describe('search.generated.ts', () => {
 
     expectExports(content, ['searchModuleConfigEntries', 'searchModuleConfigs'])
     expect(hasTypeImport(content, 'SearchModuleConfig', '@open-mercato/shared/modules/search')).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// command-loaders.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('command-loaders.generated.ts', () => {
+  it('includes command ids declared through const variables', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    const content = readGenerated('command-loaders.generated.ts')
+
+    expectExports(content, ['commandLoaderEntries'], 'command-loaders.generated.ts')
+    expect(content).toContain('id: "orders.archive"')
+    expect(content).toContain('id: "orders.create"')
+    expect(content).toContain('key: "orders:commands:archive"')
+    expect(content).toContain('key: "orders:commands:create"')
+    expect(content).toContain('@open-mercato/core/modules/orders/commands/archive')
+    expect(content).toContain('@open-mercato/core/modules/orders/commands/create')
   })
 })
 
