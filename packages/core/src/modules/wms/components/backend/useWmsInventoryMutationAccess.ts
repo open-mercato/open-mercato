@@ -74,5 +74,9 @@ export function useWmsInventoryMutationAccess() {
     canMove: hasFeature(granted, 'wms.adjust_inventory'),
     canRelease: hasFeature(granted, 'wms.manage_reservations'),
     canReserve: hasFeature(granted, 'wms.manage_reservations'),
+    canAllocate: hasFeature(granted, 'wms.manage_reservations'),
+    canManageLocations: hasFeature(granted, 'wms.manage_locations'),
+    canManageWarehouses: hasFeature(granted, 'wms.manage_warehouses'),
+    canManageLots: hasFeature(granted, 'wms.manage_inventory'),
   }
 }

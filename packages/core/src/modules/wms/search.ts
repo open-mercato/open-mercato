@@ -176,7 +176,11 @@ export const searchConfig: SearchModuleConfig = {
         const { t } = await resolveTranslations()
         return buildInventoryProfilePresenter(t, ctx.record)
       },
-      resolveUrl: async () => WMS_CONFIG_URL,
+      resolveUrl: async (ctx) => {
+        const variantId = pickString(ctx.record.catalog_variant_id, ctx.record.catalogVariantId)
+        if (variantId) return `${WMS_ROOT_URL}/sku/${variantId}`
+        return WMS_CONFIG_URL
+      },
       resolveLinks: async () => [{ href: WMS_INVENTORY_URL, label: 'Inventory console', kind: 'secondary' }],
       fieldPolicy: {
         searchable: [
@@ -209,7 +213,11 @@ export const searchConfig: SearchModuleConfig = {
         const { t } = await resolveTranslations()
         return buildLotPresenter(t, ctx.record)
       },
-      resolveUrl: async () => WMS_ROOT_URL,
+      resolveUrl: async (ctx) => {
+        const id = pickString(ctx.record.id)
+        if (id) return `${WMS_ROOT_URL}/lot/${id}`
+        return WMS_ROOT_URL
+      },
       resolveLinks: async () => [{ href: WMS_CONFIG_URL, label: 'WMS configuration', kind: 'secondary' }],
       fieldPolicy: {
         searchable: ['lot_number', 'batch_number', 'sku', 'catalog_variant_id', 'status', 'expires_at'],

@@ -67,6 +67,7 @@ type MoveInventoryDialogProps = {
   initialLotId?: string
   initialAvailable?: number | null
   lockSourceContext?: boolean
+  movementType?: 'putaway' | 'transfer'
 }
 
 const EMPTY_FORM: MoveFormValues = {
@@ -97,6 +98,7 @@ export function MoveInventoryDialog({
   initialLotId,
   initialAvailable,
   lockSourceContext = false,
+  movementType = 'transfer',
 }: MoveInventoryDialogProps) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -148,6 +150,8 @@ export function MoveInventoryDialog({
   const [available, setAvailable] = React.useState<number | null>(null)
   const [previewError, setPreviewError] = React.useState<string | null>(null)
   const [loadingPreview, setLoadingPreview] = React.useState(false)
+  const [destAvailable, setDestAvailable] = React.useState<number | null>(null)
+  const [loadingDestPreview, setLoadingDestPreview] = React.useState(false)
   const [optionLabelByValue, setOptionLabelByValue] = React.useState<Record<string, string>>({})
 
   const registerOptionLabels = React.useCallback(
@@ -361,6 +365,47 @@ export function MoveInventoryDialog({
     t,
   ])
 
+  const destPreviewContextReady = Boolean(
+    form.catalogVariantId.trim() &&
+      form.warehouseId.trim() &&
+      form.toLocationId.trim(),
+  )
+
+  React.useEffect(() => {
+    if (!open || !destPreviewContextReady) {
+      setDestAvailable(null)
+      setLoadingDestPreview(false)
+      return
+    }
+    let cancelled = false
+    setLoadingDestPreview(true)
+    void fetchBalanceAvailable({
+      warehouseId: form.warehouseId.trim(),
+      locationId: form.toLocationId.trim(),
+      catalogVariantId: form.catalogVariantId.trim(),
+    })
+      .then((value) => {
+        if (cancelled) return
+        setDestAvailable(value)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setDestAvailable(null)
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDestPreview(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    destPreviewContextReady,
+    form.catalogVariantId,
+    form.toLocationId,
+    form.warehouseId,
+    open,
+  ])
+
   const handleSubmit = React.useCallback(
     async (event?: React.FormEvent) => {
       event?.preventDefault()
@@ -428,6 +473,7 @@ export function MoveInventoryDialog({
           referenceType: 'manual',
           referenceId: buildInventoryMutationReferenceId(),
           performedBy: access.userId,
+          type: movementType,
         }
         if (lotIdRef.current) payload.lotId = lotIdRef.current
         if (notes) payload.metadata = { notes }
@@ -472,6 +518,7 @@ export function MoveInventoryDialog({
       moveFormSchema,
       quantityInput,
       mutationContext,
+      movementType,
       queryClient,
       reasonLabel,
       runMutation,
@@ -506,7 +553,9 @@ export function MoveInventoryDialog({
         <div className="border-b px-6 py-4 pr-12">
           <DialogHeader className="space-y-1 text-left">
             <DialogTitle>
-              {t('wms.backend.inventory.move.dialog.title', 'Move inventory')}
+              {movementType === 'putaway'
+                ? t('wms.backend.inventory.move.dialog.titlePutaway', 'Put away to final bin')
+                : t('wms.backend.inventory.move.dialog.title', 'Move inventory')}
             </DialogTitle>
             <DialogDescription>
               {t(
@@ -726,6 +775,27 @@ export function MoveInventoryDialog({
                     </p>
                   ) : null}
                 </div>
+                {destPreviewContextReady && form.toLocationId !== form.fromLocationId ? (
+                  <div className="mt-2 border-t pt-2">
+                    <p className="text-xs text-muted-foreground mb-1">
+                      {t('wms.backend.inventory.move.preview.destTitle', 'Destination current stock')}
+                    </p>
+                    {loadingDestPreview && destAvailable == null ? (
+                      <p className="text-sm text-muted-foreground">
+                        {t('wms.backend.inventory.move.preview.destLoading', 'Loading destination…')}
+                      </p>
+                    ) : destAvailable != null ? (
+                      <p className="text-sm tabular-nums text-muted-foreground">
+                        {destAvailable}{' '}
+                        {t('wms.backend.inventory.move.preview.destUnit', 'units already here')}
+                      </p>
+                    ) : (
+                      <p className="text-sm tabular-nums text-muted-foreground">
+                        {t('wms.backend.inventory.move.preview.destEmpty', '0 units (empty bin)')}
+                      </p>
+                    )}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>

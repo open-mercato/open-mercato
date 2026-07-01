@@ -5,16 +5,20 @@ import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import {
+  ArrowDown,
   ClipboardList,
   ExternalLink,
+  MapPin,
   Package,
   RefreshCw,
   SlidersHorizontal,
+  Warehouse as WarehouseIcon2,
 } from 'lucide-react'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { BarChart } from '@open-mercato/ui/backend/charts'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
@@ -35,7 +39,10 @@ import type {
   OperationalDashboardPayload,
 } from '../../lib/loadOperationalDashboard'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
+import { ChangeLotStatusDialog } from './ChangeLotStatusDialog'
 import { CycleCountWizardDialog } from './CycleCountWizardDialog'
+import { MoveInventoryDialog } from './MoveInventoryDialog'
+import { ReceiveInventoryDialog } from './ReceiveInventoryDialog'
 import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 
 type WarehouseOption = {
@@ -180,6 +187,9 @@ type ExpiryLotListProps = {
   rows: OperationalDashboardExpiryLotRow[]
   expiryFormatter: Intl.DateTimeFormat
   quantityFormatter: Intl.NumberFormat
+  canAdjust: boolean
+  onChangeStatus: (row: OperationalDashboardExpiryLotRow) => void
+  onMove: (row: OperationalDashboardExpiryLotRow) => void
   t: ReturnType<typeof useT>
 }
 
@@ -191,6 +201,9 @@ function ExpiryLotList({
   rows,
   expiryFormatter,
   quantityFormatter,
+  canAdjust,
+  onChangeStatus,
+  onMove,
   t,
 }: ExpiryLotListProps) {
   return (
@@ -225,14 +238,32 @@ function ExpiryLotList({
                     </span>
                   </div>
                 </div>
-                <Button asChild type="button" variant="ghost" size="icon" className="size-7 shrink-0">
-                  <Link
-                    href={`/backend/wms/lot/${row.id}`}
-                    aria-label={t('wms.backend.dashboard.expiry.openLot', 'Open lot')}
-                  >
-                    <ExternalLink className="size-3.5" />
-                  </Link>
-                </Button>
+                <div className="flex shrink-0 items-center gap-1">
+                  {canAdjust ? (
+                    <RowActions
+                      items={[
+                        {
+                          id: 'change-status',
+                          label: t('wms.backend.lots.actions.changeStatus', 'Change status'),
+                          onSelect: () => onChangeStatus(row),
+                        },
+                        {
+                          id: 'move',
+                          label: t('wms.backend.lots.actions.move', 'Move'),
+                          onSelect: () => onMove(row),
+                        },
+                      ]}
+                    />
+                  ) : null}
+                  <Button asChild type="button" variant="ghost" size="icon" className="size-7 shrink-0">
+                    <Link
+                      href={`/backend/wms/lot/${row.id}`}
+                      aria-label={t('wms.backend.dashboard.expiry.openLot', 'Open lot')}
+                    >
+                      <ExternalLink className="size-3.5" />
+                    </Link>
+                  </Button>
+                </div>
               </li>
             )
           })}
@@ -261,6 +292,20 @@ export default function WmsOperationalDashboardPage() {
   const [warehouseId, setWarehouseId] = React.useState<string>('all')
   const [adjustOpen, setAdjustOpen] = React.useState(false)
   const [cycleOpen, setCycleOpen] = React.useState(false)
+  const [changeStatusOpen, setChangeStatusOpen] = React.useState(false)
+  const [moveOpen, setMoveOpen] = React.useState(false)
+  const [receiveOpen, setReceiveOpen] = React.useState(false)
+  const [activeExpiryLot, setActiveExpiryLot] = React.useState<OperationalDashboardExpiryLotRow | null>(null)
+
+  const openExpiryChangeStatus = React.useCallback((row: OperationalDashboardExpiryLotRow) => {
+    setActiveExpiryLot(row)
+    setChangeStatusOpen(true)
+  }, [])
+
+  const openExpiryMove = React.useCallback((row: OperationalDashboardExpiryLotRow) => {
+    setActiveExpiryLot(row)
+    setMoveOpen(true)
+  }, [])
 
   const activityTimeFormatter = React.useMemo(
     () =>
@@ -337,9 +382,14 @@ export default function WmsOperationalDashboardPage() {
       if (warehouseId !== 'all') params.set('warehouseId', warehouseId)
       return `/backend/wms/lots?${params.toString()}`
     }
-    const inventoryHref = warehouseId === 'all'
-      ? '/backend/wms/inventory'
-      : `/backend/wms/inventory?warehouseId=${encodeURIComponent(warehouseId)}`
+    const buildInventoryHref = (lowStock?: 'belowReorder' | 'belowSafety') => {
+      const params = new URLSearchParams()
+      if (warehouseId !== 'all') params.set('warehouseId', warehouseId)
+      if (lowStock) params.set('lowStock', lowStock)
+      const query = params.toString()
+      return query ? `/backend/wms/inventory?${query}` : '/backend/wms/inventory'
+    }
+    const inventoryHref = buildInventoryHref()
     const reservationsHref = warehouseId === 'all'
       ? '/backend/wms/reservations'
       : `/backend/wms/reservations?warehouseId=${encodeURIComponent(warehouseId)}`
@@ -352,7 +402,7 @@ export default function WmsOperationalDashboardPage() {
         title: t('wms.backend.dashboard.kpis.lowStock.title', 'Low stock'),
         caption: t('wms.backend.dashboard.kpis.lowStock.caption', 'Below reorder point'),
         ctaLabel: t('wms.backend.dashboard.kpis.lowStock.cta', 'View low stock'),
-        href: inventoryHref,
+        href: buildInventoryHref('belowReorder'),
         resolveBadge: (kpi: OperationalDashboardKpi) => ({
           variant: 'warning' as const,
           label: t('wms.backend.dashboard.kpis.lowStock.badgeActive', '{count} active', { count: kpi.count }),
@@ -362,7 +412,7 @@ export default function WmsOperationalDashboardPage() {
         title: t('wms.backend.dashboard.kpis.reorderCritical.title', 'Reorder critical'),
         caption: t('wms.backend.dashboard.kpis.reorderCritical.caption', 'Below safety stock'),
         ctaLabel: t('wms.backend.dashboard.kpis.reorderCritical.cta', 'View critical'),
-        href: inventoryHref,
+        href: buildInventoryHref('belowSafety'),
         resolveBadge: (kpi: OperationalDashboardKpi) => ({
           variant: 'error' as const,
           label: t('wms.backend.dashboard.kpis.reorderCritical.badge', '{count} critical', { count: kpi.count }),
@@ -574,6 +624,45 @@ export default function WmsOperationalDashboardPage() {
           />
         ) : null}
 
+        {!warehousesQuery.isLoading && !warehousesQuery.isError && (warehousesQuery.data ?? []).length === 0 ? (
+          <section className="rounded-lg border-2 border-dashed border-border bg-card p-8 text-center shadow-sm">
+            <div className="mx-auto max-w-sm">
+              <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-muted">
+                <WarehouseIcon2 className="size-7 text-muted-foreground" />
+              </div>
+              <h2 className="text-lg font-semibold">
+                {t('wms.backend.dashboard.firstRun.title', 'Set up your warehouse')}
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {t(
+                  'wms.backend.dashboard.firstRun.description',
+                  'Create a warehouse, add storage locations, then receive your first stock to start tracking inventory.',
+                )}
+              </p>
+              <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+                <LinkButton asChild variant="primary" size="sm">
+                  <Link href="/backend/config/wms">
+                    <WarehouseIcon2 className="size-4" />
+                    {t('wms.backend.dashboard.firstRun.actions.createWarehouse', 'Create warehouse')}
+                  </Link>
+                </LinkButton>
+                <LinkButton asChild variant="gray" size="sm">
+                  <Link href="/backend/config/wms">
+                    <MapPin className="size-4" />
+                    {t('wms.backend.dashboard.firstRun.actions.addLocations', 'Add locations')}
+                  </Link>
+                </LinkButton>
+                {access.canReceive ? (
+                  <Button type="button" variant="outline" size="sm" onClick={() => setReceiveOpen(true)}>
+                    <ArrowDown className="size-4" />
+                    {t('wms.backend.dashboard.firstRun.actions.receiveStock', 'Receive first stock')}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          </section>
+        ) : null}
+
         {dashboardQuery.data ? (
           <>
             <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
@@ -622,6 +711,9 @@ export default function WmsOperationalDashboardPage() {
                   rows={expiryLotsByCategory.expiringSoon}
                   expiryFormatter={expiryDateFormatter}
                   quantityFormatter={quantityFormatter}
+                  canAdjust={access.canAdjust}
+                  onChangeStatus={openExpiryChangeStatus}
+                  onMove={openExpiryMove}
                   t={t}
                 />
                 <ExpiryLotList
@@ -638,6 +730,9 @@ export default function WmsOperationalDashboardPage() {
                   rows={expiryLotsByCategory.pastDue}
                   expiryFormatter={expiryDateFormatter}
                   quantityFormatter={quantityFormatter}
+                  canAdjust={access.canAdjust}
+                  onChangeStatus={openExpiryChangeStatus}
+                  onMove={openExpiryMove}
                   t={t}
                 />
               </div>
@@ -732,11 +827,39 @@ export default function WmsOperationalDashboardPage() {
         ) : null}
       </PageBody>
 
+      {access.canReceive ? (
+        <ReceiveInventoryDialog open={receiveOpen} onOpenChange={setReceiveOpen} access={access} />
+      ) : null}
       {access.canAdjust ? (
         <AdjustInventoryDialog open={adjustOpen} onOpenChange={setAdjustOpen} access={access} />
       ) : null}
       {access.canCycleCount ? (
         <CycleCountWizardDialog open={cycleOpen} onOpenChange={setCycleOpen} access={access} />
+      ) : null}
+      {access.canAdjust && activeExpiryLot ? (
+        <>
+          <ChangeLotStatusDialog
+            open={changeStatusOpen}
+            onOpenChange={setChangeStatusOpen}
+            access={access}
+            lotId={activeExpiryLot.id}
+            currentStatus={activeExpiryLot.status}
+            lotUpdatedAt={activeExpiryLot.updatedAt}
+            onSuccess={() => {
+              void dashboardQuery.refetch()
+            }}
+          />
+          <MoveInventoryDialog
+            open={moveOpen}
+            onOpenChange={setMoveOpen}
+            access={access}
+            initialCatalogVariantId={activeExpiryLot.catalogVariantId}
+            initialWarehouseId={warehouseId === 'all' ? undefined : warehouseId}
+            initialLotId={activeExpiryLot.id}
+            initialAvailable={activeExpiryLot.availableQuantity}
+            lockSourceContext
+          />
+        </>
       ) : null}
     </Page>
   )

@@ -23,6 +23,7 @@
 // reversing counter-action is fully traceable.
 // =============================================================================
 import { LockMode } from '@mikro-orm/core'
+import { randomUUID } from 'crypto'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
@@ -32,6 +33,8 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitWmsEvent } from '../events'
+import { E } from '#generated/entities.ids.generated'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import {
   InventoryBalance,
   InventoryLot,
@@ -65,6 +68,7 @@ import {
   sortBucketsForStrategy,
   type InventoryStrategyBucket,
 } from '../lib/inventoryPolicy'
+import { enforceInventoryTrackingRequirements } from '../lib/inventoryTrackingValidation'
 import {
   buildMovementIdempotencyKey,
   buildReservationIdempotencyKey,
@@ -396,6 +400,62 @@ async function loadProfileForVariant(
   ensureTenantScope(ctx, profile.tenantId)
   ensureOrganizationScope(ctx, profile.organizationId)
   return profile
+}
+
+async function resolveReceiveLotId(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  scope: Scope,
+  input: Pick<InventoryReceiveInput, 'catalogVariantId' | 'lotId' | 'lotNumber'>,
+): Promise<string | undefined> {
+  if (input.lotId?.trim()) return input.lotId.trim()
+  const lotNumber = input.lotNumber?.trim()
+  if (!lotNumber) return undefined
+
+  const existing = await findOneWithDecryption(
+    em,
+    InventoryLot,
+    {
+      catalogVariantId: input.catalogVariantId,
+      lotNumber,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  if (existing) return existing.id
+
+  const queryEngine = ctx.container.resolve<QueryEngine>('queryEngine')
+  const variantResult = await queryEngine.query(E.catalog.catalog_product_variant, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    filters: { id: { $eq: input.catalogVariantId } },
+    fields: ['id', 'sku'],
+    page: { page: 1, pageSize: 1 },
+  })
+  const firstItem: unknown = variantResult.items?.[0]
+  const sku =
+    typeof firstItem === 'object' && firstItem !== null
+      ? String((firstItem as Record<string, unknown>).sku ?? '').trim()
+      : ''
+  if (!sku) {
+    throw new CrudHttpError(422, { error: 'variant_sku_missing' })
+  }
+
+  // Use a client-side UUID so the lot entity can be persisted into the
+  // surrounding transaction without a premature flush (defaultRaw would
+  // otherwise require a DB round-trip to obtain the generated id).
+  const lot = em.create(InventoryLot, {
+    id: randomUUID(),
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    catalogVariantId: input.catalogVariantId,
+    sku,
+    lotNumber,
+    status: 'available',
+  })
+  em.persist(lot)
+  return lot.id
 }
 
 async function listCandidateBalances(
@@ -849,6 +909,11 @@ const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, R
     const result = await runInTransaction(em, async (trx) => {
       const scope = resolveScope(ctx, input)
       await requireWarehouse(trx, ctx, input.warehouseId, scope)
+      const profile = await loadProfileForVariant(trx, ctx, input.catalogVariantId, scope)
+      enforceInventoryTrackingRequirements(profile, {
+        lotId: input.lotId ?? null,
+        serialNumber: input.serialNumber ?? null,
+      })
       const reservationIdempotencyKey = buildReservationIdempotencyKey({
         sourceType: input.sourceType,
         sourceId: input.sourceId,
@@ -1371,11 +1436,17 @@ const receiveInventoryCommand: CommandHandler<InventoryReceiveInput, { movementI
       if (locationWarehouseId !== input.warehouseId) {
         throw new CrudHttpError(422, { error: 'invalid_location' })
       }
+      const profile = await loadProfileForVariant(trx, ctx, input.catalogVariantId, scope)
+      const resolvedLotId = await resolveReceiveLotId(trx, ctx, scope, input)
+      enforceInventoryTrackingRequirements(profile, {
+        lotId: resolvedLotId ?? null,
+        serialNumber: input.serialNumber ?? null,
+      })
       const { balance, created: balanceWasNew } = await upsertBalanceBucket(trx, scope, {
         warehouseId: input.warehouseId,
         locationId: input.locationId,
         catalogVariantId: input.catalogVariantId,
-        lotId: input.lotId,
+        lotId: resolvedLotId,
         serialNumber: input.serialNumber,
       })
       const receivedAt = input.receivedAt ?? input.performedAt ?? new Date()
@@ -1384,7 +1455,7 @@ const receiveInventoryCommand: CommandHandler<InventoryReceiveInput, { movementI
         warehouseId: input.warehouseId,
         locationToId: input.locationId,
         catalogVariantId: input.catalogVariantId,
-        lotId: input.lotId ?? null,
+        lotId: resolvedLotId ?? null,
         serialNumber: input.serialNumber ?? null,
         quantity: input.quantity,
         type: 'receipt',
@@ -1532,7 +1603,7 @@ const moveInventoryCommand: CommandHandler<InventoryMoveInput, { movementId: str
         lotId: input.lotId ?? null,
         serialNumber: input.serialNumber ?? null,
         quantity: input.quantity,
-        type: 'transfer',
+        type: input.type ?? 'transfer',
         referenceType: input.referenceType,
         referenceId: input.referenceId,
         performedBy: input.performedBy,

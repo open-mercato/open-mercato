@@ -8,6 +8,8 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { SalesOrderWarehouseAssignment, Warehouse } from '../data/entities'
 import type { SalesOrderWarehouseAssignInput, SalesOrderWarehouseUnassignInput } from '../data/validators'
+import { z } from 'zod'
+import { reserveInventoryForConfirmedOrder } from '../lib/salesOrderInventoryAutomation'
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
 
 type AssignmentSnapshot = {
@@ -307,3 +309,38 @@ const unassignWarehouseHandler: CommandHandler<
 
 registerCommand(assignWarehouseHandler)
 registerCommand(unassignWarehouseHandler)
+
+export const reRunReservationInputSchema = z.object({
+  salesOrderId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+})
+export type ReRunReservationInput = z.infer<typeof reRunReservationInputSchema>
+
+const reRunReservationHandler: CommandHandler<ReRunReservationInput, { ok: boolean }> = {
+  id: 'wms.sales-order.re-run-reservation',
+  isUndoable: false,
+  async execute(rawInput, ctx) {
+    const input = reRunReservationInputSchema.parse(rawInput)
+    const eventCtx = {
+      resolve: <T>(name: string) => ctx.container.resolve<T>(name),
+    }
+    await reserveInventoryForConfirmedOrder(
+      { orderId: input.salesOrderId, tenantId: input.tenantId, organizationId: input.organizationId },
+      eventCtx,
+    )
+    return { ok: true }
+  },
+  async buildLog({ input, ctx }) {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('wms.audit.salesOrder.reRunReservation', 'Re-run reservation for order'),
+      resourceKind: 'wms.sales_order_reservation',
+      resourceId: input?.salesOrderId ?? null,
+      tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
+      organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
+  },
+}
+
+registerCommand(reRunReservationHandler)

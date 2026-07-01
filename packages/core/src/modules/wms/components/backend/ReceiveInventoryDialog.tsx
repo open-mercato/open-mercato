@@ -33,9 +33,8 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { buildInventoryMutationReferenceId } from '../../lib/inventoryMutationUi'
 import {
-  ensureLotIdForInventoryMutation,
-  InventoryLotMutationError,
   loadCatalogVariantOptions,
+  loadInventoryProfileForVariant,
   loadLocationOptions,
   loadLotNumberOptions,
   loadWarehouseOptions,
@@ -68,6 +67,7 @@ type ReceiveInventoryDialogProps = {
   initialWarehouseId?: string
   initialLocationId?: string
   initialLotId?: string
+  onSuccess?: (ctx: { catalogVariantId: string; warehouseId: string; locationId: string; quantity: number }) => void
 }
 
 const EMPTY_FORM: ReceiveFormValues = {
@@ -89,6 +89,7 @@ export function ReceiveInventoryDialog({
   initialWarehouseId,
   initialLocationId,
   initialLotId,
+  onSuccess,
 }: ReceiveInventoryDialogProps) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -124,6 +125,10 @@ export function ReceiveInventoryDialog({
   const [form, setForm] = React.useState<ReceiveFormValues>(EMPTY_FORM)
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({})
   const [optionLabelByValue, setOptionLabelByValue] = React.useState<Record<string, string>>({})
+  const [trackingProfile, setTrackingProfile] = React.useState<{
+    trackLot: boolean
+    trackSerial: boolean
+  } | null>(null)
 
   const registerOptionLabels = React.useCallback(
     (options: Array<{ value: string; label: string }>) => {
@@ -155,6 +160,7 @@ export function ReceiveInventoryDialog({
     setFieldErrors({})
     setSubmitting(false)
     setOptionLabelByValue({})
+    setTrackingProfile(null)
   }, [])
 
   const closeDialog = React.useCallback(() => {
@@ -228,6 +234,28 @@ export function ReceiveInventoryDialog({
     registerOptionLabels,
   ])
 
+  React.useEffect(() => {
+    if (!open || !form.catalogVariantId.trim()) {
+      setTrackingProfile(null)
+      return
+    }
+    let cancelled = false
+    void loadInventoryProfileForVariant(form.catalogVariantId.trim()).then((profile) => {
+      if (cancelled) return
+      if (!profile) {
+        setTrackingProfile(null)
+        return
+      }
+      setTrackingProfile({
+        trackLot: profile.track_lot === true,
+        trackSerial: profile.track_serial === true,
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [form.catalogVariantId, open])
+
   const referenceTypeLabel = React.useCallback(
     (code: ReceiveReferenceType) => {
       const fallbacks: Record<ReceiveReferenceType, string> = {
@@ -273,28 +301,28 @@ export function ReceiveInventoryDialog({
         return
       }
 
+      const lotNumber = parsed.data.lotNumber?.trim()
+      const serial = parsed.data.serialNumber?.trim()
+      const nextErrors: Record<string, string> = {}
+      if (trackingProfile?.trackLot && !lotNumber) {
+        nextErrors.lotNumber = t(
+          'wms.backend.inventory.receive.errors.lotRequired',
+          'Lot number is required for this variant.',
+        )
+      }
+      if (trackingProfile?.trackSerial && !serial) {
+        nextErrors.serialNumber = t(
+          'wms.backend.inventory.receive.errors.serialRequired',
+          'Serial number is required for this variant.',
+        )
+      }
+      if (Object.keys(nextErrors).length > 0) {
+        setFieldErrors(nextErrors)
+        return
+      }
+
       setSubmitting(true)
       try {
-        const lotNumber = parsed.data.lotNumber?.trim()
-        let lotId: string | undefined
-        if (lotNumber) {
-          try {
-            lotId = await ensureLotIdForInventoryMutation({
-              catalogVariantId: parsed.data.catalogVariantId,
-              lotNumber,
-              organizationId: access.organizationId,
-              tenantId: access.tenantId,
-            })
-          } catch (error: unknown) {
-            const message =
-              error instanceof InventoryLotMutationError
-                ? error.message
-                : t('wms.backend.inventory.receive.errors.lot', 'Failed to resolve inventory lot.')
-            setFieldErrors({ lotNumber: message })
-            return
-          }
-        }
-
         const payload: Record<string, unknown> = {
           organizationId: access.organizationId,
           tenantId: access.tenantId,
@@ -306,8 +334,7 @@ export function ReceiveInventoryDialog({
           referenceId: buildInventoryMutationReferenceId(),
           performedBy: access.userId,
         }
-        if (lotId) payload.lotId = lotId
-        const serial = parsed.data.serialNumber?.trim()
+        if (lotNumber) payload.lotNumber = lotNumber
         if (serial) payload.serialNumber = serial
         const notes = parsed.data.notes?.trim()
         if (notes) payload.reason = notes
@@ -337,6 +364,12 @@ export function ReceiveInventoryDialog({
         flash(t('wms.backend.inventory.receive.flash.success', 'Inventory received'), 'success')
         await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
         await queryClient.invalidateQueries({ queryKey: ['wms-sku-detail'] })
+        onSuccess?.({
+          catalogVariantId: parsed.data.catalogVariantId,
+          warehouseId: parsed.data.warehouseId,
+          locationId: parsed.data.locationId,
+          quantity: parsed.data.quantity,
+        })
         closeDialog()
       } finally {
         setSubmitting(false)
@@ -347,10 +380,12 @@ export function ReceiveInventoryDialog({
       closeDialog,
       form,
       mutationContext,
+      onSuccess,
       queryClient,
       receiveFormSchema,
       runMutation,
       t,
+      trackingProfile,
     ],
   )
 
@@ -498,6 +533,7 @@ export function ReceiveInventoryDialog({
 
             <FormField
               label={t('wms.backend.inventory.receive.form.lot', 'Lot')}
+              required={trackingProfile?.trackLot === true}
               error={fieldErrors.lotNumber}
             >
               <ComboboxInput
@@ -513,8 +549,12 @@ export function ReceiveInventoryDialog({
                 }}
                 resolveLabel={resolveOptionLabel}
                 placeholder={t(
-                  'wms.backend.inventory.receive.form.lotPlaceholder',
-                  'Select or create lot (optional)',
+                  trackingProfile?.trackLot
+                    ? 'wms.backend.inventory.receive.form.lotRequiredPlaceholder'
+                    : 'wms.backend.inventory.receive.form.lotPlaceholder',
+                  trackingProfile?.trackLot
+                    ? 'Enter lot number'
+                    : 'Select or create lot (optional)',
                 )}
                 allowCustomValues
                 disabled={submitting || !form.catalogVariantId}
@@ -590,14 +630,19 @@ export function ReceiveInventoryDialog({
 
             <FormField
               label={t('wms.backend.inventory.receive.form.serial', 'Serial number')}
+              required={trackingProfile?.trackSerial === true}
               error={fieldErrors.serialNumber}
             >
               <Input
                 value={form.serialNumber}
                 onChange={(event) => patchForm({ serialNumber: event.target.value })}
                 placeholder={t(
-                  'wms.backend.inventory.receive.form.serialPlaceholder',
-                  'Optional — for serial-tracked variants',
+                  trackingProfile?.trackSerial
+                    ? 'wms.backend.inventory.receive.form.serialRequiredPlaceholder'
+                    : 'wms.backend.inventory.receive.form.serialPlaceholder',
+                  trackingProfile?.trackSerial
+                    ? 'Enter serial number'
+                    : 'Optional — for serial-tracked variants',
                 )}
                 disabled={submitting}
               />

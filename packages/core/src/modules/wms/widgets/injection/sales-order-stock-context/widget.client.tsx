@@ -3,6 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { RefreshCw, ShieldOff } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   StatusBadge,
@@ -18,6 +19,8 @@ import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/us
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useWmsInventoryMutationAccess } from '../../../components/backend/useWmsInventoryMutationAccess'
 import { loadWarehouseOptions } from '../../../components/backend/wmsLookupLoaders'
+import { resolveCatalogVariantLabel } from '../../../components/backend/inventoryMutationLoaders'
+import { ReleaseReservationDialog } from '../../../components/backend/ReleaseReservationDialog'
 
 type ReservationStatus =
   | 'unreserved'
@@ -76,6 +79,9 @@ export default function SalesOrderStockContextWidget(
   const wms = data?._wms
   const [selectedWarehouseId, setSelectedWarehouseId] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const [rerunning, setRerunning] = React.useState(false)
+  const [variantLabels, setVariantLabels] = React.useState<Map<string, string>>(new Map())
+  const [releaseReservationId, setReleaseReservationId] = React.useState<string | null>(null)
 
   const { runMutation, retryLastMutation } = useGuardedMutation({
     contextId: 'wms-sales-order-warehouse-assignment',
@@ -92,6 +98,27 @@ export default function SalesOrderStockContextWidget(
     }
     setSelectedWarehouseId(null)
   }, [wms?.assignedWarehouseId, wms?.isExplicitlyAssigned])
+
+  const stockSummary = React.useMemo(
+    () => (Array.isArray(wms?.stockSummary) ? wms.stockSummary : []),
+    [wms?.stockSummary],
+  )
+
+  React.useEffect(() => {
+    const variantIds = stockSummary
+      .map((item) => item.catalogVariantId)
+      .filter((id): id is string => !!id)
+    if (variantIds.length === 0) return
+    void (async () => {
+      const entries = await Promise.all(
+        variantIds.map(async (id) => {
+          const label = await resolveCatalogVariantLabel(id)
+          return [id, label ?? id] as const
+        }),
+      )
+      setVariantLabels(new Map(entries))
+    })()
+  }, [stockSummary])
 
   const canManageAssignment = access.canRelease
   const assignedLabel =
@@ -168,16 +195,50 @@ export default function SalesOrderStockContextWidget(
     [mutationContext, orderId, organizationId, router, runMutation, t, tenantId],
   )
 
+  const handleRerunReservation = React.useCallback(async () => {
+    if (!orderId || !organizationId || !tenantId) return
+    setRerunning(true)
+    try {
+      const response = await apiCall<{ ok?: boolean }>(
+        `/api/wms/sales-orders/${orderId}/re-run-reservation`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ organizationId, tenantId }),
+        },
+      )
+      if (!response.ok) await raiseCrudError(response.response)
+      router.refresh()
+      flash(
+        t(
+          'wms.widgets.sales.stockContext.rerunSuccess',
+          'Reservation re-run triggered. Stock context will refresh shortly.',
+        ),
+        'success',
+      )
+    } catch {
+      flash(
+        t(
+          'wms.widgets.sales.stockContext.rerunError',
+          'Could not re-run reservation.',
+        ),
+        'error',
+      )
+    } finally {
+      setRerunning(false)
+    }
+  }, [orderId, organizationId, router, t, tenantId])
+
   if (!wms) return null
 
-  const reservationStatus =
-    wms.reservationSummary?.status ?? 'unreserved'
+  const reservationStatus = wms.reservationSummary?.status ?? 'unreserved'
   const reservationIds = Array.isArray(wms.reservationSummary?.reservationIds)
-    ? wms.reservationSummary?.reservationIds
+    ? (wms.reservationSummary?.reservationIds ?? [])
     : []
-  const stockSummary = Array.isArray(wms.stockSummary)
-    ? wms.stockSummary
-    : []
+
+  const releaseReservation = releaseReservationId
+    ? { id: releaseReservationId }
+    : null
 
   return (
     <div className="rounded-lg border bg-card px-4 py-3 space-y-4">
@@ -262,55 +323,103 @@ export default function SalesOrderStockContextWidget(
         </div>
       </dl>
 
-      <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {stockSummary.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {t(
+              'wms.widgets.sales.stockContext.linesTitle',
+              'Variant availability',
+            )}
+          </p>
+          <div className="space-y-2">
+            {stockSummary.map((item) => {
+              const id = item.catalogVariantId ?? 'unknown'
+              const label = variantLabels.get(id) ?? id
+              return (
+                <div
+                  key={id}
+                  className="rounded-md border border-border/70 bg-background px-3 py-2"
+                >
+                  <p className="text-sm font-medium">{label}</p>
+                  <div className="mt-1 flex flex-wrap gap-4 text-xs text-muted-foreground">
+                    <span>
+                      {t(
+                        'wms.widgets.sales.stockContext.available',
+                        'Available',
+                      )}
+                      {': '}
+                      {formatQuantity(item.available)}
+                    </span>
+                    <span>
+                      {t(
+                        'wms.widgets.sales.stockContext.reserved',
+                        'Reserved',
+                      )}
+                      {': '}
+                      {formatQuantity(item.reserved)}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
           {t(
-            'wms.widgets.sales.stockContext.linesTitle',
-            'Variant availability',
+            'wms.widgets.sales.stockContext.empty',
+            'No WMS stock summary is available for this order yet.',
           )}
         </p>
-        {stockSummary.length > 0 ? (
-          <div className="space-y-2">
-            {stockSummary.map((item) => (
+      )}
+
+      {access.canRelease && reservationIds.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {t(
+              'wms.widgets.sales.stockContext.reservationsTitle',
+              'Active reservations',
+            )}
+          </p>
+          <div className="space-y-1">
+            {reservationIds.map((rid) => (
               <div
-                key={item.catalogVariantId ?? 'unknown'}
-                className="rounded-md border border-border/70 bg-background px-3 py-2"
+                key={rid}
+                className="flex items-center justify-between gap-2 rounded-md border border-border/70 bg-background px-3 py-1.5"
               >
-                <p className="text-sm font-medium break-all">
-                  {item.catalogVariantId}
-                </p>
-                <div className="mt-1 flex flex-wrap gap-4 text-xs text-muted-foreground">
-                  <span>
-                    {t(
-                      'wms.widgets.sales.stockContext.available',
-                      'Available',
-                    )}
-                    {': '}
-                    {formatQuantity(item.available)}
-                  </span>
-                  <span>
-                    {t(
-                      'wms.widgets.sales.stockContext.reserved',
-                      'Reserved',
-                    )}
-                    {': '}
-                    {formatQuantity(item.reserved)}
-                  </span>
-                </div>
+                <span className="font-mono text-xs text-muted-foreground truncate">{rid}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 shrink-0 px-2 text-xs text-status-error-fg hover:text-status-error-fg"
+                  onClick={() => setReleaseReservationId(rid)}
+                >
+                  <ShieldOff className="size-3 mr-1" />
+                  {t('wms.widgets.sales.stockContext.releaseBtn', 'Release')}
+                </Button>
               </div>
             ))}
           </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            {t(
-              'wms.widgets.sales.stockContext.empty',
-              'No WMS stock summary is available for this order yet.',
-            )}
-          </p>
-        )}
-      </div>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
+        {reservationStatus !== 'fully_reserved' && access.canRelease && orderId ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={rerunning}
+            onClick={() => void handleRerunReservation()}
+          >
+            <RefreshCw className={`size-3 mr-1.5 ${rerunning ? 'animate-spin' : ''}`} />
+            {t(
+              'wms.widgets.sales.stockContext.actions.rerunReservation',
+              'Re-run reservation',
+            )}
+          </Button>
+        ) : null}
         <Button asChild variant="outline" size="sm">
           <Link href="/backend/wms/inventory">
             {t(
@@ -328,6 +437,21 @@ export default function SalesOrderStockContextWidget(
           </Link>
         </Button>
       </div>
+
+      {access.canRelease ? (
+        <ReleaseReservationDialog
+          open={releaseReservationId !== null}
+          onOpenChange={(open) => {
+            if (!open) setReleaseReservationId(null)
+          }}
+          access={access}
+          reservation={releaseReservation}
+          onSuccess={() => {
+            setReleaseReservationId(null)
+            router.refresh()
+          }}
+        />
+      ) : null}
     </div>
   )
 }

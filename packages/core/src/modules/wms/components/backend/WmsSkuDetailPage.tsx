@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import {
+  ArrowDown,
   ArrowLeft,
   ArrowLeftRight,
   ClipboardList,
@@ -37,6 +38,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
 import { CycleCountWizardDialog } from './CycleCountWizardDialog'
+import { ReceiveInventoryDialog } from './ReceiveInventoryDialog'
 import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 
 const variantIdSchema = z.string().uuid()
@@ -398,6 +400,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
   const [selectedBalanceIds, setSelectedBalanceIds] = React.useState<Set<string>>(() => new Set())
   const [adjustOpen, setAdjustOpen] = React.useState(false)
   const [adjustPreset, setAdjustPreset] = React.useState<InventoryMutationPreset>({})
+  const [receiveOpen, setReceiveOpen] = React.useState(false)
   const [cycleOpen, setCycleOpen] = React.useState(false)
   const [cyclePreset, setCyclePreset] = React.useState<Pick<InventoryMutationPreset, 'warehouseId' | 'locationId'>>({})
 
@@ -1142,8 +1145,14 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
+                {access.canReceive ? (
+                  <Button type="button" variant="default" onClick={() => setReceiveOpen(true)}>
+                    <ArrowDown className="size-4" />
+                    {t('wms.backend.sku.quickActions.receive', 'Receive stock')}
+                  </Button>
+                ) : null}
                 {access.canAdjust ? (
-                  <Button type="button" variant="default" onClick={() => openAdjustDialog()}>
+                  <Button type="button" variant="outline" onClick={() => openAdjustDialog()}>
                     <SlidersHorizontal className="size-4" />
                     {t('wms.backend.sku.quickActions.adjust', 'Adjust inventory')}
                   </Button>
@@ -1186,6 +1195,14 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
         ) : null}
       </PageBody>
 
+      {access.canReceive && catalogVariantId ? (
+        <ReceiveInventoryDialog
+          open={receiveOpen}
+          onOpenChange={setReceiveOpen}
+          access={access}
+          initialCatalogVariantId={catalogVariantId}
+        />
+      ) : null}
       {access.canAdjust && catalogVariantId ? (
         <AdjustInventoryDialog
           open={adjustOpen}

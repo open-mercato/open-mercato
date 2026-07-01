@@ -11,6 +11,8 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { Boxes, Package, Route, ShieldCheck, Warehouse as WarehouseIcon, X } from 'lucide-react'
@@ -30,6 +32,7 @@ import {
 import { parseInventoryQuantity } from '../../lib/inventoryMutationUi'
 import { InventoryOperationsSection } from './InventoryOperationsSection'
 import { MoveInventoryDialog } from './MoveInventoryDialog'
+import { ReceiveInventoryDialog } from './ReceiveInventoryDialog'
 import { ReleaseReservationDialog } from './ReleaseReservationDialog'
 import {
   useWmsInventoryMutationAccess,
@@ -42,6 +45,10 @@ import {
   resolveCatalogVariantLabel,
   resolveWarehouseLabel,
 } from './inventoryMutationLoaders'
+import {
+  useWmsInventoryScopeFromSearchParams,
+  type WmsLowStockFilter,
+} from './useWmsInventoryScopeFromSearchParams'
 
 type PagedResponse<T> = {
   items: T[]
@@ -198,8 +205,12 @@ function buildInventoryQuery(
   page: number,
   pageSize: number,
   sorting: SortingState,
-  warehouseId: string,
-  variantId: string,
+  scope: {
+    warehouseId: string
+    variantId: string
+    lotId: string
+    lowStock: WmsLowStockFilter | null
+  },
 ) {
   const sortCol = sorting[0]
   const params = new URLSearchParams({
@@ -209,8 +220,10 @@ function buildInventoryQuery(
     sortDir: sortCol ? (sortCol.desc ? 'desc' : 'asc') : 'desc',
   })
   if (search.trim()) params.set('search', search.trim())
-  if (warehouseId.trim()) params.set('warehouseId', warehouseId.trim())
-  if (variantId.trim()) params.set('catalogVariantId', variantId.trim())
+  if (scope.warehouseId.trim()) params.set('warehouseId', scope.warehouseId.trim())
+  if (scope.variantId.trim()) params.set('catalogVariantId', scope.variantId.trim())
+  if (scope.lotId.trim()) params.set('lotId', scope.lotId.trim())
+  if (scope.lowStock) params.set('lowStock', scope.lowStock)
   return params.toString()
 }
 
@@ -236,6 +249,11 @@ type InventoryDataTableSectionProps<T> = {
   rowActions?: (row: T) => React.ReactNode
   warehouseId?: string
   variantId?: string
+  lotId?: string
+  lowStock?: WmsLowStockFilter | null
+  extraParams?: Record<string, string>
+  toolbarActions?: React.ReactNode
+  emptyStateAction?: React.ReactNode
 }
 
 function InventoryDataTableSection<T>({
@@ -260,6 +278,11 @@ function InventoryDataTableSection<T>({
   rowActions,
   warehouseId = '',
   variantId = '',
+  lotId = '',
+  lowStock = null,
+  extraParams,
+  toolbarActions,
+  emptyStateAction,
 }: InventoryDataTableSectionProps<T>) {
   const t = useT()
   const [page, setPage] = React.useState(1)
@@ -271,14 +294,24 @@ function InventoryDataTableSection<T>({
     setPage(1)
   }, [])
 
-  const params = React.useMemo(
-    () => buildInventoryQuery(search, page, 20, sorting, warehouseId, variantId),
-    [page, search, sorting, warehouseId, variantId],
-  )
+  const params = React.useMemo(() => {
+    const base = buildInventoryQuery(search, page, 20, sorting, {
+      warehouseId,
+      variantId,
+      lotId,
+      lowStock,
+    })
+    if (!extraParams || Object.keys(extraParams).length === 0) return base
+    const urlParams = new URLSearchParams(base)
+    for (const [key, value] of Object.entries(extraParams)) {
+      urlParams.set(key, value)
+    }
+    return urlParams.toString()
+  }, [extraParams, lowStock, lotId, page, search, sorting, variantId, warehouseId])
 
   React.useEffect(() => {
     setPage(1)
-  }, [warehouseId, variantId])
+  }, [warehouseId, variantId, lotId, lowStock])
 
   const query = useQuery({
     queryKey: ['wms-inventory-console', sectionQueryKey, params],
@@ -328,8 +361,10 @@ function InventoryDataTableSection<T>({
           <EmptyState
             title={t(emptyTitleKey, emptyTitleFallback)}
             description={t(emptyDescriptionKey, emptyDescriptionFallback)}
+            actions={emptyStateAction}
           />
         }
+        actions={toolbarActions}
       />
     </SectionCard>
   )
@@ -448,15 +483,20 @@ export function InventoryBalancesSection({
   access,
   warehouseId = '',
   variantId = '',
+  lotId = '',
+  lowStock = null,
 }: {
   access: WmsInventoryMutationAccess
   warehouseId?: string
   variantId?: string
+  lotId?: string
+  lowStock?: WmsLowStockFilter | null
 }) {
   const t = useT()
   const { quantityFormatter } = useInventoryDisplayFormatters()
   const [moveOpen, setMoveOpen] = React.useState(false)
   const [movePreset, setMovePreset] = React.useState<InventoryBalanceRow | null>(null)
+  const [receiveOpen, setReceiveOpen] = React.useState(false)
 
   const openMoveDialog = React.useCallback((row: InventoryBalanceRow) => {
     setMovePreset(row)
@@ -467,6 +507,7 @@ export function InventoryBalancesSection({
     () => [
       {
         accessorKey: 'catalog_variant_id',
+        id: 'catalogVariantId',
         header: t('wms.backend.inventory.balances.columns.variant', 'Variant'),
         enableSorting: true,
         cell: ({ row }) => {
@@ -485,6 +526,7 @@ export function InventoryBalancesSection({
       },
       {
         accessorKey: 'warehouse_id',
+        id: 'warehouseId',
         header: t(
           'wms.backend.inventory.balances.columns.warehouse',
           'Warehouse',
@@ -494,6 +536,7 @@ export function InventoryBalancesSection({
       },
       {
         accessorKey: 'location_id',
+        id: 'locationId',
         header: t(
           'wms.backend.inventory.balances.columns.location',
           'Location',
@@ -532,11 +575,12 @@ export function InventoryBalancesSection({
       },
       {
         accessorKey: 'quantity_available',
+        id: 'quantityAvailable',
         header: t(
           'wms.backend.inventory.balances.columns.available',
           'Available',
         ),
-        enableSorting: false,
+        enableSorting: true,
         cell: ({ row }) => (
           <span className="tabular-nums">
             {formatInventoryQuantity(row.original.quantity_available, quantityFormatter)}
@@ -545,6 +589,7 @@ export function InventoryBalancesSection({
       },
       {
         accessorKey: 'quantity_reserved',
+        id: 'quantityReserved',
         header: t(
           'wms.backend.inventory.balances.columns.reserved',
           'Reserved',
@@ -558,6 +603,7 @@ export function InventoryBalancesSection({
       },
       {
         accessorKey: 'quantity_allocated',
+        id: 'quantityAllocated',
         header: t(
           'wms.backend.inventory.balances.columns.allocated',
           'Allocated',
@@ -617,7 +663,23 @@ export function InventoryBalancesSection({
         rowActions={rowActions}
         warehouseId={warehouseId}
         variantId={variantId}
+        lotId={lotId}
+        lowStock={lowStock}
+        emptyStateAction={
+          access.canReceive ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => setReceiveOpen(true)}>
+              {t('wms.backend.inventory.balances.empty.receive', 'Receive stock')}
+            </Button>
+          ) : null
+        }
       />
+      {access.canReceive ? (
+        <ReceiveInventoryDialog
+          open={receiveOpen}
+          onOpenChange={setReceiveOpen}
+          access={access}
+        />
+      ) : null}
       {access.canMove ? (
         <MoveInventoryDialog
           open={moveOpen}
@@ -639,15 +701,56 @@ export function InventoryReservationsSection({
   access,
   warehouseId = '',
   variantId = '',
+  lotId = '',
 }: {
   access: WmsInventoryMutationAccess
   warehouseId?: string
   variantId?: string
+  lotId?: string
 }) {
   const t = useT()
   const { quantityFormatter } = useInventoryDisplayFormatters()
   const [releaseOpen, setReleaseOpen] = React.useState(false)
   const [releasePreset, setReleasePreset] = React.useState<InventoryReservationRow | null>(null)
+  const [activeOnly, setActiveOnly] = React.useState(true)
+
+  const { runMutation: runAllocateMutation, retryLastMutation: retryAllocate } = useGuardedMutation({
+    contextId: 'wms-inventory-allocate',
+  })
+  const allocateMutationContext = React.useMemo(
+    () => ({ retryLastMutation: retryAllocate }),
+    [retryAllocate],
+  )
+
+  const handleAllocate = React.useCallback(
+    async (row: InventoryReservationRow) => {
+      if (!access.organizationId || !access.tenantId || !row.id) return
+      const payload = {
+        organizationId: access.organizationId,
+        tenantId: access.tenantId,
+        reservationId: row.id,
+      }
+      try {
+        await runAllocateMutation({
+          operation: async () => {
+            const call = await apiCall<{ ok?: boolean }>('/api/wms/inventory/allocate', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            })
+            if (!call.ok) await raiseCrudError(call.response, t('wms.backend.inventory.allocate.errors.submit', 'Failed to allocate reservation.'))
+            return call.result ?? {}
+          },
+          context: allocateMutationContext,
+          mutationPayload: payload,
+        })
+        flash(t('wms.backend.inventory.allocate.flash.success', 'Reservation allocated'), 'success')
+      } catch {
+        flash(t('wms.backend.inventory.allocate.errors.submit', 'Failed to allocate reservation.'), 'error')
+      }
+    },
+    [access.organizationId, access.tenantId, allocateMutationContext, runAllocateMutation, t],
+  )
 
   const openReleaseDialog = React.useCallback((row: InventoryReservationRow) => {
     setReleasePreset(row)
@@ -732,22 +835,27 @@ export function InventoryReservationsSection({
 
   const rowActions = React.useCallback(
     (row: InventoryReservationRow) => {
-      if (!access.canRelease) return null
-      if ((row.status ?? '').trim().toLowerCase() !== 'active') return null
-      return (
-        <RowActions
-          items={[
-            {
-              id: 'release',
-              label: t('wms.backend.inventory.reservations.actions.release', 'Release'),
-              destructive: true,
-              onSelect: () => openReleaseDialog(row),
-            },
-          ]}
-        />
-      )
+      const status = (row.status ?? '').trim().toLowerCase()
+      const items = []
+      if (access.canAllocate && status === 'active') {
+        items.push({
+          id: 'allocate',
+          label: t('wms.backend.inventory.reservations.actions.allocate', 'Allocate'),
+          onSelect: () => void handleAllocate(row),
+        })
+      }
+      if (access.canRelease && status === 'active') {
+        items.push({
+          id: 'release',
+          label: t('wms.backend.inventory.reservations.actions.release', 'Release'),
+          destructive: true,
+          onSelect: () => openReleaseDialog(row),
+        })
+      }
+      if (items.length === 0) return null
+      return <RowActions items={items} />
     },
-    [access.canRelease, openReleaseDialog, t],
+    [access.canAllocate, access.canRelease, handleAllocate, openReleaseDialog, t],
   )
 
   return (
@@ -774,6 +882,20 @@ export function InventoryReservationsSection({
         rowActions={rowActions}
         warehouseId={warehouseId}
         variantId={variantId}
+        lotId={lotId}
+        extraParams={activeOnly ? { status: 'active' } : undefined}
+        toolbarActions={
+          <Button
+            type="button"
+            variant={activeOnly ? 'outline' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveOnly((prev) => !prev)}
+          >
+            {activeOnly
+              ? t('wms.backend.inventory.reservations.filter.showAll', 'Show all')
+              : t('wms.backend.inventory.reservations.filter.activeOnly', 'Active only')}
+          </Button>
+        }
       />
       {access.canRelease ? (
         <ReleaseReservationDialog
@@ -790,9 +912,11 @@ export function InventoryReservationsSection({
 export function InventoryMovementsSection({
   warehouseId = '',
   variantId = '',
+  lotId = '',
 }: {
   warehouseId?: string
   variantId?: string
+  lotId?: string
 }) {
   const t = useT()
   const { quantityFormatter, dateTimeFormatter } = useInventoryDisplayFormatters()
@@ -919,14 +1043,37 @@ export function InventoryMovementsSection({
       columns={columns}
       warehouseId={warehouseId}
       variantId={variantId}
+      lotId={lotId}
     />
   )
 }
 
 export default function WmsInventoryConsolePage() {
   const access = useWmsInventoryMutationAccess()
-  const [warehouseId, setWarehouseId] = React.useState('')
-  const [variantId, setVariantId] = React.useState('')
+  const scopeFromUrl = useWmsInventoryScopeFromSearchParams()
+  const [warehouseId, setWarehouseId] = React.useState(scopeFromUrl.warehouseId)
+  const [variantId, setVariantId] = React.useState(scopeFromUrl.catalogVariantId)
+  const [lotId, setLotId] = React.useState(scopeFromUrl.lotId)
+  const [lowStock, setLowStock] = React.useState(scopeFromUrl.lowStock)
+
+  React.useEffect(() => {
+    setWarehouseId(scopeFromUrl.warehouseId)
+    setVariantId(scopeFromUrl.catalogVariantId)
+    setLotId(scopeFromUrl.lotId)
+    setLowStock(scopeFromUrl.lowStock)
+  }, [scopeFromUrl.catalogVariantId, scopeFromUrl.warehouseId, scopeFromUrl.lotId, scopeFromUrl.lowStock])
+
+  const handleWarehouseChange = React.useCallback((next: string) => {
+    setWarehouseId(next)
+    setLotId('')
+    setLowStock(null)
+  }, [])
+
+  const handleVariantChange = React.useCallback((next: string) => {
+    setVariantId(next)
+    setLotId('')
+    setLowStock(null)
+  }, [])
 
   return (
     <Page>
@@ -936,12 +1083,27 @@ export default function WmsInventoryConsolePage() {
           <InventoryScopeBar
             warehouseId={warehouseId}
             variantId={variantId}
-            onWarehouseChange={setWarehouseId}
-            onVariantChange={setVariantId}
+            onWarehouseChange={handleWarehouseChange}
+            onVariantChange={handleVariantChange}
           />
-          <InventoryBalancesSection access={access} warehouseId={warehouseId} variantId={variantId} />
-          <InventoryReservationsSection access={access} warehouseId={warehouseId} variantId={variantId} />
-          <InventoryMovementsSection warehouseId={warehouseId} variantId={variantId} />
+          <InventoryBalancesSection
+            access={access}
+            warehouseId={warehouseId}
+            variantId={variantId}
+            lotId={lotId}
+            lowStock={lowStock}
+          />
+          <InventoryReservationsSection
+            access={access}
+            warehouseId={warehouseId}
+            variantId={variantId}
+            lotId={lotId}
+          />
+          <InventoryMovementsSection
+            warehouseId={warehouseId}
+            variantId={variantId}
+            lotId={lotId}
+          />
         </div>
       </PageBody>
     </Page>

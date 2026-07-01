@@ -32,11 +32,14 @@ describe('inventoryImportCsv', () => {
     ])
   })
 
-  it('builds a header-only inventory import template', () => {
+  it('builds an inventory import template with headers, sample row, and doc comments', () => {
     const csv = buildInventoryImportTemplateCsv()
-    expect(csv).toBe('warehouse_code,location_code,sku,quantity,lot_number,serial_number\n')
+    expect(csv).toContain('warehouse_code,location_code,sku,quantity,lot_number,serial_number')
+    expect(csv).toContain('WH-MAIN,BIN-A01,SKU-001,10,,')
+    expect(csv).toContain('# warehouse_code')
     const rows = parseInventoryImportCsv(csv)
-    expect(rows).toEqual([])
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ warehouseCode: 'WH-MAIN', locationCode: 'BIN-A01', sku: 'SKU-001', quantity: '10' })
   })
 
   it('parses end-to-end inventory import CSV with data rows', () => {

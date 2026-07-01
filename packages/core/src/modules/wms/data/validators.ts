@@ -171,6 +171,8 @@ export const inventoryLotUpdateSchema = z
   .merge(inventoryLotBaseSchema.partial())
   .superRefine(enforceLotDateOrdering)
 
+const inventoryLowStockFilterSchema = z.enum(['belowReorder', 'belowSafety'])
+
 export const inventoryBalanceListQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(25),
@@ -179,6 +181,7 @@ export const inventoryBalanceListQuerySchema = z.object({
   catalogVariantId: uuid().optional(),
   lotId: uuid().optional(),
   serialNumber: z.string().trim().max(120).optional(),
+  lowStock: inventoryLowStockFilterSchema.optional(),
   search: z.string().optional(),
 }).passthrough()
 
@@ -200,6 +203,7 @@ export const inventoryReservationListQuerySchema = z.object({
   pageSize: z.coerce.number().min(1).max(100).default(25),
   warehouseId: uuid().optional(),
   catalogVariantId: uuid().optional(),
+  lotId: uuid().optional(),
   sourceType: inventoryReservationSourceTypeSchema.optional(),
   sourceId: uuid().optional(),
   status: inventoryReservationStatusSchema.optional(),
@@ -211,6 +215,7 @@ export const inventoryReceiveSchema = scopedSchema.extend({
   locationId: uuid(),
   catalogVariantId: uuid(),
   lotId: uuid().optional(),
+  lotNumber: z.string().trim().max(120).optional(),
   serialNumber: z.string().trim().max(120).optional(),
   quantity: positiveQuantity,
   referenceType: inventoryMovementReferenceTypeSchema,
@@ -273,6 +278,7 @@ export const inventoryMoveSchema = scopedSchema.extend({
   lotId: uuid().optional(),
   serialNumber: z.string().trim().max(120).optional(),
   quantity: positiveQuantity,
+  type: inventoryMovementTypeSchema.optional(),
   reason: z.string().trim().min(1).max(500),
   reasonCode: z.string().trim().max(80).optional(),
   referenceType: inventoryMovementReferenceTypeSchema.default('manual'),

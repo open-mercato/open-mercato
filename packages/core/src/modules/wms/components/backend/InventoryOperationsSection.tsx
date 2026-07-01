@@ -46,6 +46,22 @@ export function InventoryOperationsSection({
   const [moveOpen, setMoveOpen] = React.useState(false)
   const [cycleOpen, setCycleOpen] = React.useState(false)
   const [importOpen, setImportOpen] = React.useState(false)
+  const [putawayContext, setPutawayContext] = React.useState<{
+    catalogVariantId: string
+    warehouseId: string
+    locationId: string
+    quantity: number
+  } | null>(null)
+
+  const handleReceiveSuccess = React.useCallback(
+    (ctx: { catalogVariantId: string; warehouseId: string; locationId: string; quantity: number }) => {
+      if (access.canMove) {
+        setPutawayContext(ctx)
+        setMoveOpen(true)
+      }
+    },
+    [access.canMove],
+  )
 
   if (!access.scopeReady) return null
   if (
@@ -110,13 +126,30 @@ export function InventoryOperationsSection({
         <AdjustInventoryDialog open={adjustOpen} onOpenChange={setAdjustOpen} access={access} />
       ) : null}
       {access.canReceive ? (
-        <ReceiveInventoryDialog open={receiveOpen} onOpenChange={setReceiveOpen} access={access} />
+        <ReceiveInventoryDialog
+          open={receiveOpen}
+          onOpenChange={setReceiveOpen}
+          access={access}
+          onSuccess={handleReceiveSuccess}
+        />
       ) : null}
       {access.canReserve ? (
         <ReserveInventoryDialog open={reserveOpen} onOpenChange={setReserveOpen} access={access} />
       ) : null}
       {access.canMove ? (
-        <MoveInventoryDialog open={moveOpen} onOpenChange={setMoveOpen} access={access} />
+        <MoveInventoryDialog
+          open={moveOpen}
+          onOpenChange={(next) => {
+            setMoveOpen(next)
+            if (!next) setPutawayContext(null)
+          }}
+          access={access}
+          initialCatalogVariantId={putawayContext?.catalogVariantId}
+          initialWarehouseId={putawayContext?.warehouseId}
+          initialFromLocationId={putawayContext?.locationId}
+          movementType={putawayContext ? 'putaway' : 'transfer'}
+          lockSourceContext={Boolean(putawayContext)}
+        />
       ) : null}
       {access.canCycleCount ? (
         <CycleCountWizardDialog open={cycleOpen} onOpenChange={setCycleOpen} access={access} />

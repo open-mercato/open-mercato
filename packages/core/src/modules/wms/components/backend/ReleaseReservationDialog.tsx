@@ -57,6 +57,7 @@ type ReleaseReservationDialogProps = {
   onOpenChange: (open: boolean) => void
   access: WmsInventoryMutationAccess
   reservation: ReservationSummary | null
+  onSuccess?: () => void
 }
 
 function formatVariantLabel(
@@ -87,6 +88,7 @@ export function ReleaseReservationDialog({
   onOpenChange,
   access,
   reservation,
+  onSuccess,
 }: ReleaseReservationDialogProps) {
   const t = useT()
   const locale = useLocale()
@@ -237,6 +239,7 @@ export function ReleaseReservationDialog({
         await queryClient.invalidateQueries({ queryKey: ['wms-location-detail'] })
         await queryClient.invalidateQueries({ queryKey: ['wms-lot-detail'] })
         closeDialog()
+        onSuccess?.()
       } finally {
         setSubmitting(false)
       }
@@ -246,6 +249,7 @@ export function ReleaseReservationDialog({
       closeDialog,
       mutationContext,
       notes,
+      onSuccess,
       queryClient,
       reasonCode,
       reasonLabel,

@@ -9,6 +9,7 @@ import { Layers } from 'lucide-react'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -16,6 +17,11 @@ import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { E } from '#generated/entities.ids.generated'
 import type { ExpiryWindow } from '../../lib/expiry'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { ChangeLotStatusDialog } from './ChangeLotStatusDialog'
+import { MoveInventoryDialog } from './MoveInventoryDialog'
+import { ReceiveInventoryDialog } from './ReceiveInventoryDialog'
+import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 
 type InventoryLotRow = {
   id: string
@@ -25,6 +31,7 @@ type InventoryLotRow = {
   catalog_variant_id?: string | null
   expires_at?: string | null
   status?: string | null
+  updated_at?: string | null
 }
 
 type PagedResponse<T> = {
@@ -55,12 +62,17 @@ function resolveLotStatusVariant(
 export default function WmsLotsListPage() {
   const t = useT()
   const locale = useLocale()
+  const access = useWmsInventoryMutationAccess()
   const searchParams = useSearchParams()
   const expiryWindow = parseExpiryWindow(searchParams.get('expiryWindow'))
   const warehouseId = searchParams.get('warehouseId')?.trim() || null
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'expiresAt', desc: false }])
+  const [changeStatusOpen, setChangeStatusOpen] = React.useState(false)
+  const [moveOpen, setMoveOpen] = React.useState(false)
+  const [activeLot, setActiveLot] = React.useState<InventoryLotRow | null>(null)
+  const [receiveOpen, setReceiveOpen] = React.useState(false)
 
   const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
     setSorting(nextSorting)
@@ -105,6 +117,16 @@ export default function WmsLotsListPage() {
 
   const nowMs = Date.now()
 
+  const openChangeStatus = React.useCallback((row: InventoryLotRow) => {
+    setActiveLot(row)
+    setChangeStatusOpen(true)
+  }, [])
+
+  const openMove = React.useCallback((row: InventoryLotRow) => {
+    setActiveLot(row)
+    setMoveOpen(true)
+  }, [])
+
   const columns = React.useMemo<ColumnDef<InventoryLotRow>[]>(
     () => [
       {
@@ -127,7 +149,9 @@ export default function WmsLotsListPage() {
       },
       {
         accessorKey: 'sku',
+        id: 'sku',
         header: t('wms.backend.lots.columns.sku', 'SKU'),
+        enableSorting: true,
         cell: ({ row }) => row.original.sku?.trim() || '—',
       },
       {
@@ -148,7 +172,9 @@ export default function WmsLotsListPage() {
       },
       {
         accessorKey: 'status',
+        id: 'status',
         header: t('wms.backend.lots.columns.status', 'Status'),
+        enableSorting: true,
         cell: ({ row }) => {
           const status = row.original.status?.trim()
           if (!status) return '—'
@@ -162,6 +188,27 @@ export default function WmsLotsListPage() {
       },
     ],
     [expiryFormatter, nowMs, t],
+  )
+
+  const rowActions = React.useCallback(
+    (row: InventoryLotRow) => {
+      const items = []
+      if (access.canAdjust) {
+        items.push({
+          id: 'change-status',
+          label: t('wms.backend.lots.actions.changeStatus', 'Change status'),
+          onSelect: () => openChangeStatus(row),
+        })
+        items.push({
+          id: 'move',
+          label: t('wms.backend.lots.actions.move', 'Move'),
+          onSelect: () => openMove(row),
+        })
+      }
+      if (items.length === 0) return null
+      return <RowActions items={items} />
+    },
+    [access.canAdjust, openChangeStatus, openMove, t],
   )
 
   const title = expiryWindow === 'pastDue'
@@ -219,8 +266,11 @@ export default function WmsLotsListPage() {
                 setPage(1)
               }}
               searchPlaceholder={t('wms.backend.lots.search', 'Search lots')}
+              sortable
+              manualSorting
               sorting={sorting}
               onSortingChange={handleSortingChange}
+              rowActions={rowActions}
               pagination={{
                 page,
                 pageSize: 25,
@@ -236,12 +286,55 @@ export default function WmsLotsListPage() {
                     'wms.backend.lots.empty.description',
                     'Adjust filters or create lots through inventory operations.',
                   )}
+                  actions={
+                    access.canReceive ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setReceiveOpen(true)}
+                      >
+                        {t('wms.backend.lots.empty.receive', 'Receive stock')}
+                      </Button>
+                    ) : null
+                  }
                 />
               }
             />
           </section>
         ) : null}
       </PageBody>
+
+      {access.canReceive ? (
+        <ReceiveInventoryDialog
+          open={receiveOpen}
+          onOpenChange={setReceiveOpen}
+          access={access}
+        />
+      ) : null}
+      {access.canAdjust && activeLot ? (
+        <>
+          <ChangeLotStatusDialog
+            open={changeStatusOpen}
+            onOpenChange={setChangeStatusOpen}
+            access={access}
+            lotId={activeLot.id}
+            currentStatus={activeLot.status}
+            lotUpdatedAt={activeLot.updated_at}
+            onSuccess={() => {
+              void lotsQuery.refetch()
+            }}
+          />
+          <MoveInventoryDialog
+            open={moveOpen}
+            onOpenChange={setMoveOpen}
+            access={access}
+            initialCatalogVariantId={activeLot.catalog_variant_id ?? undefined}
+            initialWarehouseId={warehouseId ?? undefined}
+            initialLotId={activeLot.id}
+          />
+        </>
+      ) : null}
     </Page>
   )
 }
