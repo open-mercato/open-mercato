@@ -54,6 +54,7 @@
     "@open-mercato/scheduler": "{{PACKAGE_VERSION}}",
     "@open-mercato/search": "{{PACKAGE_VERSION}}",
     "@open-mercato/shared": "{{PACKAGE_VERSION}}",
+    "@open-mercato/telemetry": "{{PACKAGE_VERSION}}",
     "@open-mercato/ui": "{{PACKAGE_VERSION}}",
     "@open-mercato/webhooks": "{{PACKAGE_VERSION}}",
     "@radix-ui/react-popover": "^1.1.6",
@@ -137,6 +138,7 @@
   "optionalDependencies": {
     "better-sqlite3": "^12.9.0",
     "bullmq": "^5.75.2",
+    "bullmq-otel": "^1.3.1",
     "ioredis": "^5.10.1"
   },
   "resolutions": {
