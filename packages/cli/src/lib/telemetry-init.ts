@@ -226,6 +226,14 @@ async function patchNextConfig(appDir: string, options: TelemetryInitOptions): P
   }
 
   let text = readFileSync(path, 'utf8')
+  // Splice the array first, using the AST node's byte offsets (formatting-agnostic:
+  // handles both single-line and multi-line arrays). Do this before the import
+  // insert, which shifts earlier offsets.
+  if (!hasSpread) {
+    const start = arrayInit.getStart()
+    const end = arrayInit.getEnd()
+    text = text.slice(0, start) + insertSpread(text.slice(start, end)) + text.slice(end)
+  }
   if (!hasImport) {
     const importRegex = /^import[^\n]*$/gm
     let lastImport: RegExpExecArray | null = null
@@ -237,19 +245,22 @@ async function patchNextConfig(appDir: string, options: TelemetryInitOptions): P
       `\nimport { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs'` +
       text.slice(insertAt)
   }
-  if (!hasSpread) {
-    text = text.replace(
-      /(serverExternalPackages:\s*\[)([\s\S]*?)(\n[ \t]*)\]/,
-      (_full, open: string, body: string, beforeClose: string) => {
-        const indent = body.match(/\n([ \t]+)\S/)?.[1] ?? `${beforeClose.replace(/\n/, '')}  `
-        const trimmed = body.replace(/\s*$/, '')
-        const sep = trimmed === '' || trimmed.endsWith(',') ? '' : ','
-        return `${open}${trimmed}${sep}\n${indent}...telemetryServerExternalPackages,${beforeClose}]`
-      },
-    )
-  }
   if (!options.dryRun) writeFileSync(path, text)
   return { file, status: 'patched', detail: 'spread telemetryServerExternalPackages into serverExternalPackages' }
+}
+
+/** Add `...telemetryServerExternalPackages` as the last element of an array literal, preserving its style. */
+function insertSpread(arrayText: string): string {
+  const inner = arrayText.slice(1, -1)
+  if (inner.includes('\n')) {
+    const elementIndent = inner.match(/\n([ \t]+)\S/)?.[1] ?? '  '
+    const closeIndent = arrayText.match(/\n([ \t]*)\]$/)?.[1] ?? ''
+    const trimmed = inner.replace(/\s*$/, '')
+    const separator = trimmed === '' || trimmed.endsWith(',') ? '' : ','
+    return `[${trimmed}${separator}\n${elementIndent}...telemetryServerExternalPackages,\n${closeIndent}]`
+  }
+  const flat = inner.trim()
+  return flat === '' ? '[...telemetryServerExternalPackages]' : `[${flat}, ...telemetryServerExternalPackages]`
 }
 
 function nextConfigSnippet(): string {
