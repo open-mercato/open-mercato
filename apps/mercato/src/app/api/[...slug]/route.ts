@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { reportError, histogram } from '@open-mercato/telemetry'
 import { apiRoutes } from '@/.mercato/generated/api-routes.generated'
 import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
 import { bootstrap } from '@/bootstrap'
@@ -323,6 +324,26 @@ export async function extractTenantCandidates(req: NextRequest): Promise<unknown
   return candidates
 }
 
+/**
+ * Emit the OpenTelemetry-standard HTTP server metric
+ * `http.server.request.duration` (histogram, seconds) with semconv attributes.
+ * `route` is the low-cardinality route TEMPLATE (manifest path), never the
+ * resolved pathname (which carries ids). No-op when telemetry is off.
+ */
+function recordHttpDuration(method: HttpMethod, route: string, status: number, startedAt: number): void {
+  histogram(
+    'http.server.request.duration',
+    (Date.now() - startedAt) / 1000,
+    {
+      'http.request.method': method,
+      'http.route': route,
+      'http.response.status_code': status,
+      'error.type': status >= 500 ? String(status) : undefined,
+    },
+    's',
+  )
+}
+
 async function handleRequest(
   method: HttpMethod,
   req: NextRequest,
@@ -440,8 +461,16 @@ async function handleRequest(
       tenantId: auth?.tenantId ?? null,
       durationMs: Date.now() - startedAt,
     })
+    recordHttpDuration(method, match.route.path, finalResponse.status, startedAt)
     return finalResponse
   } catch (error) {
+    // Unhandled throws become 500s (Next renders the error). This is the 5xx
+    // error funnel: record the exception (correlated to the active trace) and
+    // the request-duration metric, then re-throw unchanged.
+    reportError(error, {
+      attributes: { 'http.request.method': method, 'http.route': match.route.path, 'http.response.status_code': 500 },
+    })
+    recordHttpDuration(method, match.route.path, 500, startedAt)
     await emitLifecycleEvent(applicationLifecycleEvents.requestFailed, {
       ...receivedPayload,
       userId: auth?.sub ?? null,

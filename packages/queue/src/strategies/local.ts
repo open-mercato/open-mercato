@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult, EnqueueOptions } from '../types'
+import { attachTraceMetadata, runJobInTrace } from '../tracing'
 
 type LocalState = {
   lastProcessedId?: string
@@ -178,11 +179,13 @@ export function createLocalQueue<T = unknown>(
     const availableAt = options?.delayMs && options.delayMs > 0
       ? new Date(Date.now() + options.delayMs).toISOString()
       : undefined
+    const metadata = attachTraceMetadata(undefined)
     const job: StoredJob<T> = {
       id: generateId(),
       payload: data,
       createdAt: new Date().toISOString(),
       ...(availableAt ? { availableAt } : {}),
+      ...(metadata ? { metadata } : {}),
     }
     await withFileLock(async () => {
       const jobs = await readQueue()
@@ -223,12 +226,14 @@ export function createLocalQueue<T = unknown>(
     for (const job of jobsToProcess) {
       const attemptNumber = (job.attemptCount ?? 0) + 1
       try {
-        await Promise.resolve(
-          handler(job, {
-            jobId: job.id,
-            attemptNumber,
-            queueName: name,
-          })
+        await runJobInTrace(name, job.metadata, () =>
+          Promise.resolve(
+            handler(job, {
+              jobId: job.id,
+              attemptNumber,
+              queueName: name,
+            })
+          )
         )
         processed++
         lastJobId = job.id

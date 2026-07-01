@@ -1,8 +1,5 @@
 /** @type {import('jest').Config} */
-const base = require('../../jest.config.base.cjs')
-
 module.exports = {
-  ...base,
   testEnvironment: 'node',
   watchman: false,
   rootDir: '.',
@@ -24,8 +21,4 @@ module.exports = {
   ],
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
   passWithNoTests: true,
-  moduleNameMapper: {
-    '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
-    '^@open-mercato/telemetry$': '<rootDir>/../telemetry/src/index.ts',
-  },
 }
