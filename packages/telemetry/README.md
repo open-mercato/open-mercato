@@ -61,8 +61,21 @@ stdout noise).
 **Freshly scaffolded apps (`create-mercato-app`) need no code** — the template
 already wires everything. Set the env above and restart.
 
-**An app scaffolded before telemetry existed** must add the wiring the scaffold
-now ships. Two parts:
+**An app scaffolded before telemetry existed** can wire everything with one
+command:
+
+```bash
+yarn mercato telemetry init          # add --dry-run to preview
+```
+
+It patches `package.json`, `.env.example` (+ `.env` if present),
+`src/instrumentation.ts`, `next.config.ts`, and the API dispatcher — idempotent
+and safe to re-run. If your dispatcher has been customized beyond recognition it
+prints the exact snippet to paste instead of editing code it doesn't understand.
+Then run `yarn install`, set `TELEMETRY_BACKEND` + the OTLP env, and rebuild.
+
+The rest of this section documents what that command does (and how to do it by
+hand). Two parts:
 
 1. **Worker/scheduler telemetry comes with the dependency bump.** `@open-mercato/cli`
    depends on `@open-mercato/telemetry` and initializes it before the app graph
