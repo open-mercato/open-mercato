@@ -8,7 +8,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { raiseCrudError, readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -163,6 +163,15 @@ export function ReserveInventoryDialog({
               },
             )
             if (!call.ok) {
+              const errorBody = await readJsonSafe<{ error?: string }>(call.response.clone(), null)
+              if (errorBody?.error === 'insufficient_stock') {
+                throw new Error(
+                  t(
+                    'wms.backend.inventory.reserve.errors.insufficientStock',
+                    'Not enough available stock to fulfil this reservation.',
+                  ),
+                )
+              }
               await raiseCrudError(
                 call.response,
                 t('wms.backend.inventory.reserve.errors.failed', 'Failed to reserve inventory.'),
@@ -227,128 +236,22 @@ export function ReserveInventoryDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 py-2">
-          <FormField
-            label={t('wms.backend.inventory.reserve.fields.warehouse', 'Warehouse')}
-            required
-            error={fieldErrors.warehouseId}
-          >
-            <ComboboxInput
-              value={warehouseId}
-              onChange={(next) => {
-                setWarehouseId(next.trim())
-                setFieldErrors((e) => ({ ...e, warehouseId: '' }))
-              }}
-              loadSuggestions={async (query) => {
-                const options = await loadWarehouseOptions(query)
-                setWarehouseLabelCache((c) => {
-                  const updated = { ...c }
-                  for (const o of options) updated[o.value] = o.label
-                  return updated
-                })
-                return options
-              }}
-              resolveLabel={async (value) => {
-                if (warehouseLabelCache[value]) return warehouseLabelCache[value]
-                const label = await resolveWarehouseLabel(value)
-                if (label) setWarehouseLabelCache((c) => ({ ...c, [value]: label }))
-                return label ?? value
-              }}
-              placeholder={t(
-                'wms.backend.inventory.reserve.fields.warehousePlaceholder',
-                'Select warehouse…',
-              )}
-              allowCustomValues={false}
-            />
-          </FormField>
-
-          <FormField
-            label={t('wms.backend.inventory.reserve.fields.variant', 'Variant / SKU')}
-            required
-            error={fieldErrors.catalogVariantId}
-          >
-            <ComboboxInput
-              value={catalogVariantId}
-              onChange={(next) => {
-                setCatalogVariantId(next.trim())
-                setLotId('')
-                setFieldErrors((e) => ({ ...e, catalogVariantId: '' }))
-              }}
-              loadSuggestions={async (query) => {
-                const options = await loadCatalogVariantOptions(query)
-                setVariantLabelCache((c) => {
-                  const updated = { ...c }
-                  for (const o of options) updated[o.value] = o.label
-                  return updated
-                })
-                return options
-              }}
-              resolveLabel={async (value) => {
-                if (variantLabelCache[value]) return variantLabelCache[value]
-                const label = await resolveCatalogVariantLabel(value)
-                if (label) setVariantLabelCache((c) => ({ ...c, [value]: label }))
-                return label ?? value
-              }}
-              placeholder={t(
-                'wms.backend.inventory.reserve.fields.variantPlaceholder',
-                'Search SKU or name…',
-              )}
-              allowCustomValues={false}
-            />
-          </FormField>
-
-          <FormField
-            label={t('wms.backend.inventory.reserve.fields.quantity', 'Quantity')}
-            required
-            error={fieldErrors.quantity}
-          >
-            <Input
-              type="number"
-              min="0.001"
-              step="any"
-              value={quantity}
-              onChange={(e) => {
-                setQuantity(e.target.value)
-                setFieldErrors((err) => ({ ...err, quantity: '' }))
-              }}
-              placeholder="1"
-            />
-          </FormField>
-
-          <FormField
-            label={t('wms.backend.inventory.reserve.fields.sourceType', 'Reservation type')}
-          >
-            <Select
-              value={sourceType}
-              onValueChange={(v) => setSourceType(v as ReserveSourceType)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="manual">
-                  {t('wms.backend.inventory.reserve.sourceType.manual', 'Manual hold')}
-                </SelectItem>
-                <SelectItem value="order">
-                  {t('wms.backend.inventory.reserve.sourceType.order', 'Order')}
-                </SelectItem>
-                <SelectItem value="transfer">
-                  {t('wms.backend.inventory.reserve.sourceType.transfer', 'Transfer')}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </FormField>
-
-          {catalogVariantId.trim() ? (
+        <form onSubmit={handleSubmit}>
+          <div className="grid gap-4 py-2">
             <FormField
-              label={t('wms.backend.inventory.reserve.fields.lot', 'Lot (optional)')}
+              label={t('wms.backend.inventory.reserve.fields.warehouse', 'Warehouse')}
+              required
+              error={fieldErrors.warehouseId}
             >
               <ComboboxInput
-                value={lotId}
-                onChange={(next) => setLotId(next.trim())}
+                value={warehouseId}
+                onChange={(next) => {
+                  setWarehouseId(next.trim())
+                  setFieldErrors((e) => ({ ...e, warehouseId: '' }))
+                }}
                 loadSuggestions={async (query) => {
-                  const options = await loadLotNumberOptions(catalogVariantId.trim(), query)
-                  setLotLabelCache((c) => {
+                  const options = await loadWarehouseOptions(query)
+                  setWarehouseLabelCache((c) => {
                     const updated = { ...c }
                     for (const o of options) updated[o.value] = o.label
                     return updated
@@ -356,41 +259,156 @@ export function ReserveInventoryDialog({
                   return options
                 }}
                 resolveLabel={async (value) => {
-                  if (lotLabelCache[value]) return lotLabelCache[value]
-                  const label = await resolveLotNumberFromId(value)
-                  if (label) setLotLabelCache((c) => ({ ...c, [value]: label }))
+                  if (warehouseLabelCache[value]) return warehouseLabelCache[value]
+                  const label = await resolveWarehouseLabel(value)
+                  if (label) setWarehouseLabelCache((c) => ({ ...c, [value]: label }))
                   return label ?? value
                 }}
                 placeholder={t(
-                  'wms.backend.inventory.reserve.fields.lotPlaceholder',
-                  'Any lot (system selects)…',
+                  'wms.backend.inventory.reserve.fields.warehousePlaceholder',
+                  'Select warehouse…',
                 )}
                 allowCustomValues={false}
-                clearable
+                disabled={isMutating}
               />
             </FormField>
-          ) : null}
-        </div>
 
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={closeDialog}
-            disabled={isMutating}
-          >
-            {t('wms.backend.inventory.reserve.cancel', 'Cancel')}
-          </Button>
-          <Button
-            type="button"
-            onClick={() => void handleSubmit()}
-            disabled={isMutating}
-          >
-            <ShieldCheck className="size-4" />
-            {t('wms.backend.inventory.reserve.submit', 'Reserve')}
-            <KbdShortcut keys={['⌘', '↵']} />
-          </Button>
-        </DialogFooter>
+            <FormField
+              label={t('wms.backend.inventory.reserve.fields.variant', 'Variant / SKU')}
+              required
+              error={fieldErrors.catalogVariantId}
+            >
+              <ComboboxInput
+                value={catalogVariantId}
+                onChange={(next) => {
+                  setCatalogVariantId(next.trim())
+                  setLotId('')
+                  setFieldErrors((e) => ({ ...e, catalogVariantId: '' }))
+                }}
+                loadSuggestions={async (query) => {
+                  const options = await loadCatalogVariantOptions(query)
+                  setVariantLabelCache((c) => {
+                    const updated = { ...c }
+                    for (const o of options) updated[o.value] = o.label
+                    return updated
+                  })
+                  return options
+                }}
+                resolveLabel={async (value) => {
+                  if (variantLabelCache[value]) return variantLabelCache[value]
+                  const label = await resolveCatalogVariantLabel(value)
+                  if (label) setVariantLabelCache((c) => ({ ...c, [value]: label }))
+                  return label ?? value
+                }}
+                placeholder={t(
+                  'wms.backend.inventory.reserve.fields.variantPlaceholder',
+                  'Search SKU or name…',
+                )}
+                allowCustomValues={false}
+                disabled={isMutating}
+              />
+            </FormField>
+
+            <FormField
+              label={t('wms.backend.inventory.reserve.fields.quantity', 'Quantity')}
+              required
+              error={fieldErrors.quantity}
+            >
+              <Input
+                type="number"
+                min="0.001"
+                step="any"
+                value={quantity}
+                onChange={(e) => {
+                  setQuantity(e.target.value)
+                  setFieldErrors((err) => ({ ...err, quantity: '' }))
+                }}
+                placeholder="1"
+                disabled={isMutating}
+              />
+            </FormField>
+
+            <FormField
+              label={t('wms.backend.inventory.reserve.fields.sourceType', 'Reservation type')}
+            >
+              <Select
+                value={sourceType}
+                onValueChange={(v) => setSourceType(v as ReserveSourceType)}
+                disabled={isMutating}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">
+                    {t('wms.backend.inventory.reserve.sourceType.manual', 'Manual hold')}
+                  </SelectItem>
+                  <SelectItem value="order">
+                    {t('wms.backend.inventory.reserve.sourceType.order', 'Order')}
+                  </SelectItem>
+                  <SelectItem value="transfer">
+                    {t('wms.backend.inventory.reserve.sourceType.transfer', 'Transfer')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+
+            {catalogVariantId.trim() ? (
+              <FormField
+                label={t('wms.backend.inventory.reserve.fields.lot', 'Lot (optional)')}
+              >
+                <ComboboxInput
+                  value={lotId}
+                  onChange={(next) => setLotId(next.trim())}
+                  loadSuggestions={async (query) => {
+                    const options = await loadLotNumberOptions(catalogVariantId.trim(), query)
+                    setLotLabelCache((c) => {
+                      const updated = { ...c }
+                      for (const o of options) updated[o.value] = o.label
+                      return updated
+                    })
+                    return options
+                  }}
+                  resolveLabel={async (value) => {
+                    if (lotLabelCache[value]) return lotLabelCache[value]
+                    const label = await resolveLotNumberFromId(value)
+                    if (label) setLotLabelCache((c) => ({ ...c, [value]: label }))
+                    return label ?? value
+                  }}
+                  placeholder={t(
+                    'wms.backend.inventory.reserve.fields.lotPlaceholder',
+                    'Any lot (system selects)…',
+                  )}
+                  allowCustomValues={false}
+                  clearable
+                  disabled={isMutating}
+                />
+              </FormField>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={closeDialog}
+              disabled={isMutating}
+            >
+              {t('wms.backend.inventory.reserve.cancel', 'Cancel')}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleSubmit()}
+              disabled={isMutating}
+            >
+              <ShieldCheck className="size-4" />
+              {isMutating
+                ? t('wms.backend.inventory.reserve.submitting', 'Reserving…')
+                : t('wms.backend.inventory.reserve.submit', 'Reserve')}
+              {!isMutating && <KbdShortcut keys={['⌘', '↵']} />}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   )

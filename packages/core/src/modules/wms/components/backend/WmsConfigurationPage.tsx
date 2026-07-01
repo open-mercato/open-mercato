@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { z } from 'zod'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -286,13 +286,25 @@ export function WarehouseSection() {
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-warehouses' })
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'updatedAt', desc: true }])
   const [submitting, setSubmitting] = React.useState(false)
   const [dialog, setDialog] = React.useState<DialogMode<WarehouseRow> | null>(null)
 
-  const params = React.useMemo(
-    () => buildQuery({ page, pageSize: 10, search: search.trim() || undefined, sortField: 'updatedAt', sortDir: 'desc' }),
-    [page, search],
-  )
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
+    setPage(1)
+  }, [])
+
+  const params = React.useMemo(() => {
+    const sortCol = sorting[0]
+    return buildQuery({
+      page,
+      pageSize: 10,
+      search: search.trim() || undefined,
+      sortField: sortCol ? sortCol.id : 'updatedAt',
+      sortDir: sortCol ? (sortCol.desc ? 'desc' : 'asc') : 'desc',
+    })
+  }, [page, search, sorting])
 
   const query = useQuery({
     queryKey: ['wms-config', 'warehouses', params],
@@ -321,9 +333,10 @@ export function WarehouseSection() {
     {
       accessorKey: 'name',
       header: t('wms.backend.config.warehouses.columns.name', 'Warehouse'),
+      enableSorting: true,
       cell: ({ row }) => row.original.name || row.original.code || row.original.id,
     },
-    { accessorKey: 'code', header: t('wms.backend.config.warehouses.columns.code', 'Code') },
+    { accessorKey: 'code', header: t('wms.backend.config.warehouses.columns.code', 'Code'), enableSorting: true },
     { accessorKey: 'city', header: t('wms.backend.config.warehouses.columns.city', 'City'), cell: ({ row }) => row.original.city || '—' },
     { accessorKey: 'country', header: t('wms.backend.config.warehouses.columns.country', 'Country'), cell: ({ row }) => row.original.country || '—' },
     {
@@ -485,6 +498,8 @@ export function WarehouseSection() {
             setPage(1)
           }}
           searchPlaceholder={t('wms.backend.config.warehouses.search', 'Search warehouses')}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
           actions={(
             <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
               {t('wms.backend.config.actions.addWarehouse', 'Add warehouse')}
@@ -550,13 +565,25 @@ export function ZoneSection() {
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-zones' })
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'priority', desc: false }])
   const [submitting, setSubmitting] = React.useState(false)
   const [dialog, setDialog] = React.useState<DialogMode<ZoneRow> | null>(null)
 
-  const params = React.useMemo(
-    () => buildQuery({ page, pageSize: 10, search: search.trim() || undefined, sortField: 'priority', sortDir: 'asc' }),
-    [page, search],
-  )
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
+    setPage(1)
+  }, [])
+
+  const params = React.useMemo(() => {
+    const sortCol = sorting[0]
+    return buildQuery({
+      page,
+      pageSize: 10,
+      search: search.trim() || undefined,
+      sortField: sortCol ? sortCol.id : 'priority',
+      sortDir: sortCol ? (sortCol.desc ? 'desc' : 'asc') : 'asc',
+    })
+  }, [page, search, sorting])
 
   const query = useQuery({
     queryKey: ['wms-config', 'zones', params],
@@ -589,12 +616,14 @@ export function ZoneSection() {
     {
       accessorKey: 'name',
       header: t('wms.backend.config.zones.columns.name', 'Zone'),
+      enableSorting: true,
       cell: ({ row }) => row.original.name || row.original.code || row.original.id,
     },
-    { accessorKey: 'code', header: t('wms.backend.config.zones.columns.code', 'Code') },
+    { accessorKey: 'code', header: t('wms.backend.config.zones.columns.code', 'Code'), enableSorting: true },
     {
       accessorKey: 'warehouse_name',
       header: t('wms.backend.config.zones.columns.warehouse', 'Warehouse'),
+      enableSorting: false,
       cell: ({ row }) =>
         row.original.warehouse_name
         || row.original.warehouse_code
@@ -604,6 +633,7 @@ export function ZoneSection() {
     {
       accessorKey: 'priority',
       header: t('wms.backend.config.zones.columns.priority', 'Priority'),
+      enableSorting: true,
       cell: ({ row }) => (row.original.priority == null ? '—' : String(row.original.priority)),
     },
   ], [t])
@@ -725,6 +755,8 @@ export function ZoneSection() {
             setPage(1)
           }}
           searchPlaceholder={t('wms.backend.config.zones.search', 'Search zones')}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
           actions={(
             <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
               {t('wms.backend.config.actions.addZone', 'Add zone')}
@@ -790,13 +822,25 @@ export function LocationSection() {
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-locations' })
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'updatedAt', desc: true }])
   const [submitting, setSubmitting] = React.useState(false)
   const [dialog, setDialog] = React.useState<DialogMode<LocationRow> | null>(null)
 
-  const params = React.useMemo(
-    () => buildQuery({ page, pageSize: 10, search: search.trim() || undefined, sortField: 'updatedAt', sortDir: 'desc' }),
-    [page, search],
-  )
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
+    setPage(1)
+  }, [])
+
+  const params = React.useMemo(() => {
+    const sortCol = sorting[0]
+    return buildQuery({
+      page,
+      pageSize: 10,
+      search: search.trim() || undefined,
+      sortField: sortCol ? sortCol.id : 'updatedAt',
+      sortDir: sortCol ? (sortCol.desc ? 'desc' : 'asc') : 'desc',
+    })
+  }, [page, search, sorting])
 
   const query = useQuery({
     queryKey: ['wms-config', 'locations', params],
@@ -843,6 +887,7 @@ export function LocationSection() {
     {
       accessorKey: 'code',
       header: t('wms.backend.config.locations.columns.code', 'Location'),
+      enableSorting: true,
       cell: ({ row }) => {
         const locationId = row.original.id?.trim()
         const code = row.original.code || '—'
@@ -857,10 +902,11 @@ export function LocationSection() {
         )
       },
     },
-    { accessorKey: 'type', header: t('wms.backend.config.locations.columns.type', 'Type'), cell: ({ row }) => row.original.type || '—' },
+    { accessorKey: 'type', header: t('wms.backend.config.locations.columns.type', 'Type'), enableSorting: true, cell: ({ row }) => row.original.type || '—' },
     {
       accessorKey: 'warehouse_name',
       header: t('wms.backend.config.locations.columns.warehouse', 'Warehouse'),
+      enableSorting: false,
       cell: ({ row }) =>
         row.original.warehouse_name
         || row.original.warehouse_code
@@ -993,6 +1039,8 @@ export function LocationSection() {
             setPage(1)
           }}
           searchPlaceholder={t('wms.backend.config.locations.search', 'Search locations')}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
           actions={(
             <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
               {t('wms.backend.config.actions.addLocation', 'Add location')}
@@ -1058,6 +1106,7 @@ export function InventoryProfilesSection() {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-profiles' })
   const [page, setPage] = React.useState(1)
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'updatedAt', desc: true }])
   const [submitting, setSubmitting] = React.useState(false)
   const [dialog, setDialog] = React.useState<DialogMode<InventoryProfileRow> | null>(null)
   const inventoryProfileFormSchema = React.useMemo(
@@ -1065,10 +1114,20 @@ export function InventoryProfilesSection() {
     [t],
   )
 
-  const params = React.useMemo(
-    () => buildQuery({ page, pageSize: 10, sortField: 'updatedAt', sortDir: 'desc' }),
-    [page],
-  )
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
+    setPage(1)
+  }, [])
+
+  const params = React.useMemo(() => {
+    const sortCol = sorting[0]
+    return buildQuery({
+      page,
+      pageSize: 10,
+      sortField: sortCol ? sortCol.id : 'updatedAt',
+      sortDir: sortCol ? (sortCol.desc ? 'desc' : 'asc') : 'desc',
+    })
+  }, [page, sorting])
 
   const query = useQuery({
     queryKey: ['wms-config', 'inventory-profiles', params],
@@ -1136,7 +1195,9 @@ export function InventoryProfilesSection() {
     { accessorKey: 'default_uom', header: t('wms.backend.config.profiles.columns.uom', 'UOM'), cell: ({ row }) => row.original.default_uom || '—' },
     {
       accessorKey: 'default_strategy',
+      id: 'defaultStrategy',
       header: t('wms.backend.config.profiles.columns.strategy', 'Strategy'),
+      enableSorting: true,
       cell: ({ row }) => {
         const strategy = row.original.default_strategy?.trim()
         if (!strategy) return '—'
@@ -1280,6 +1341,8 @@ export function InventoryProfilesSection() {
           isLoading={query.isLoading}
           error={query.isError ? t('wms.backend.config.profiles.errors.load', 'Failed to load inventory profiles.') : null}
           entityId={E.wms.product_inventory_profile}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
           actions={(
             <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
               {t('wms.backend.config.actions.addProfile', 'Add profile')}

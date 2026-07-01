@@ -1113,8 +1113,8 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
                 badgeLabel={t(qualityStatus.labelKey, qualityStatus.labelFallback)}
                 badgeVariant={qualityStatus.variant}
                 ctaLabel={t('wms.backend.lot.kpis.qualityStatus.cta', 'Change status')}
-                onCtaClick={access.canAdjust ? () => setChangeStatusOpen(true) : undefined}
-                ctaHref={!access.canAdjust ? '/backend/config/wms' : undefined}
+                onCtaClick={access.canManage ? () => setChangeStatusOpen(true) : undefined}
+                ctaHref={!access.canManage ? '/backend/config/wms' : undefined}
               />
             </section>
 

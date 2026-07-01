@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
 import { Layers } from 'lucide-react'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
@@ -60,6 +60,12 @@ export default function WmsLotsListPage() {
   const warehouseId = searchParams.get('warehouseId')?.trim() || null
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'expiresAt', desc: false }])
+
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
+    setPage(1)
+  }, [])
 
   const expiryFormatter = React.useMemo(
     () =>
@@ -72,18 +78,19 @@ export default function WmsLotsListPage() {
   )
 
   const queryKey = React.useMemo(
-    () => ['wms-lots-list', expiryWindow, warehouseId, page, search],
-    [expiryWindow, warehouseId, page, search],
+    () => ['wms-lots-list', expiryWindow, warehouseId, page, search, sorting],
+    [expiryWindow, warehouseId, page, search, sorting],
   )
 
   const lotsQuery = useQuery({
     queryKey,
     queryFn: async () => {
+      const sortCol = sorting[0]
       const params = new URLSearchParams({
         page: String(page),
         pageSize: '25',
-        sortField: 'expiresAt',
-        sortDir: 'asc',
+        sortField: sortCol ? sortCol.id : 'expiresAt',
+        sortDir: sortCol ? (sortCol.desc ? 'desc' : 'asc') : 'asc',
       })
       if (search.trim()) params.set('search', search.trim())
       if (expiryWindow) params.set('expiryWindow', expiryWindow)
@@ -102,7 +109,9 @@ export default function WmsLotsListPage() {
     () => [
       {
         accessorKey: 'lot_number',
+        id: 'lotNumber',
         header: t('wms.backend.lots.columns.lotNumber', 'Lot number'),
+        enableSorting: true,
         cell: ({ row }) => {
           const lotId = row.original.id
           const label = row.original.lot_number?.trim() || lotId
@@ -123,7 +132,9 @@ export default function WmsLotsListPage() {
       },
       {
         accessorKey: 'expires_at',
+        id: 'expiresAt',
         header: t('wms.backend.lots.columns.expiresAt', 'Expires'),
+        enableSorting: true,
         cell: ({ row }) => {
           const expiresAt = row.original.expires_at
           if (!expiresAt) return '—'
@@ -208,6 +219,8 @@ export default function WmsLotsListPage() {
                 setPage(1)
               }}
               searchPlaceholder={t('wms.backend.lots.search', 'Search lots')}
+              sorting={sorting}
+              onSortingChange={handleSortingChange}
               pagination={{
                 page,
                 pageSize: 25,

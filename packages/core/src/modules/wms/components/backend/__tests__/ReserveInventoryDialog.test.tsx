@@ -29,6 +29,7 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 
 jest.mock('@open-mercato/ui/backend/utils/serverErrors', () => ({
   raiseCrudError: jest.fn(),
+  readJsonSafe: jest.fn(async () => null),
 }))
 
 jest.mock('@tanstack/react-query', () => ({
@@ -262,6 +263,6 @@ describe('ReserveInventoryDialog', () => {
   it('shows Reservation type select with manual option selected by default', () => {
     render(<ReserveInventoryDialog open onOpenChange={jest.fn()} access={buildAccess()} />)
     expect(screen.getByText('Reservation type')).toBeTruthy()
-    expect(screen.getByText('Manual hold')).toBeTruthy()
+    expect(screen.getAllByText('Manual hold').length).toBeGreaterThan(0)
   })
 })

@@ -536,7 +536,7 @@ export function InventoryBalancesSection({
           'wms.backend.inventory.balances.columns.available',
           'Available',
         ),
-        enableSorting: true,
+        enableSorting: false,
         cell: ({ row }) => (
           <span className="tabular-nums">
             {formatInventoryQuantity(row.original.quantity_available, quantityFormatter)}
