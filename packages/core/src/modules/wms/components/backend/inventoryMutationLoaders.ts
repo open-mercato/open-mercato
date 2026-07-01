@@ -120,6 +120,24 @@ export async function resolveCatalogVariantSku(catalogVariantId: string): Promis
   return sku || null
 }
 
+type InventoryProfileListRow = {
+  track_lot?: boolean | null
+  track_serial?: boolean | null
+}
+
+export async function loadInventoryProfileForVariant(
+  catalogVariantId: string,
+): Promise<InventoryProfileListRow | null> {
+  const variantId = catalogVariantId.trim()
+  if (!variantId) return null
+  const params = buildQuery({ page: 1, pageSize: 1, catalogVariantId: variantId })
+  const call = await apiCall<PagedResponse<InventoryProfileListRow>>(
+    `/api/wms/inventory-profiles?${params}`,
+  )
+  if (!call.ok) return null
+  return call.result?.items?.[0] ?? null
+}
+
 export async function findLotIdByNumber(
   catalogVariantId: string,
   lotNumber: string,

@@ -18,23 +18,39 @@ export function WmsReservationShortfallRenderer({
 }: NotificationRendererProps) {
   const t = useT()
   const router = useRouter()
-  const [executing, setExecuting] = React.useState(false)
+  const [executing, setExecuting] = React.useState<string | null>(null)
   const isUnread = notification.status === 'unread'
   const orderNumber = notification.bodyVariables?.orderNumber
   const shortfallCount = notification.bodyVariables?.shortfallCount
+  const shortfallSku = notification.bodyVariables?.shortfallSku
+  const shortfallQuantity = notification.bodyVariables?.shortfallQuantity
+  const shortfallVariantId = notification.bodyVariables?.shortfallVariantId
 
-  const viewAction = actions.find((action) => action.id === 'view') ?? actions[0] ?? null
+  const orderAction = actions.find((action) => action.id === 'view-order') ?? actions[0] ?? null
+  const inventoryAction =
+    actions.find((action) => action.id === 'view-inventory') ?? actions[1] ?? null
 
-  const handleView = async () => {
-    if (!viewAction) {
-      if (notification.linkHref) router.push(notification.linkHref)
+  const inventoryHref = shortfallVariantId
+    ? `/backend/wms/inventory?catalogVariantId=${encodeURIComponent(shortfallVariantId)}`
+    : '/backend/wms/inventory'
+
+  const handleAction = async (actionId: string, fallbackHref?: string) => {
+    const action =
+      actionId === 'view-order'
+        ? orderAction
+        : actionId === 'view-inventory'
+          ? inventoryAction
+          : null
+    if (!action && fallbackHref) {
+      router.push(fallbackHref)
       return
     }
-    setExecuting(true)
+    if (!action) return
+    setExecuting(actionId)
     try {
-      await onAction(viewAction.id)
+      await onAction(action.id)
     } finally {
-      setExecuting(false)
+      setExecuting(null)
     }
   }
 
@@ -46,11 +62,11 @@ export function WmsReservationShortfallRenderer({
         'group relative flex gap-4 items-start rounded-xl p-3 transition-colors hover:bg-muted/40 cursor-pointer',
         isUnread && 'bg-muted/20',
       )}
-      onClick={handleView}
+      onClick={() => void handleAction('view-order', notification.linkHref ?? undefined)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
-          handleView()
+          void handleAction('view-order', notification.linkHref ?? undefined)
         }
       }}
       role="button"
@@ -83,30 +99,65 @@ export function WmsReservationShortfallRenderer({
               {t('wms.notifications.reservationShortfall.renderer.order', 'Order')}: {orderNumber}
             </span>
           ) : null}
-          {shortfallCount !== undefined ? (
+          {shortfallSku ? (
+            <>
+              <span aria-hidden="true" className="mx-1 text-text-disabled">·</span>
+              <span className="whitespace-nowrap">
+                {t('wms.notifications.reservationShortfall.renderer.sku', 'SKU')}: {shortfallSku}
+              </span>
+            </>
+          ) : null}
+          {shortfallQuantity !== undefined ? (
             <>
               <span aria-hidden="true" className="mx-1 text-text-disabled">·</span>
               <span className="whitespace-nowrap font-medium text-foreground">
+                {t(
+                  'wms.notifications.reservationShortfall.renderer.shortQty',
+                  'Short {quantity}',
+                  { quantity: shortfallQuantity },
+                )}
+              </span>
+            </>
+          ) : null}
+          {shortfallCount !== undefined ? (
+            <>
+              <span aria-hidden="true" className="mx-1 text-text-disabled">·</span>
+              <span className="whitespace-nowrap">
                 {t('wms.notifications.reservationShortfall.renderer.lines', 'Lines with shortfall')}: {shortfallCount}
               </span>
             </>
           ) : null}
         </div>
 
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <Button
             type="button"
             size="sm"
             className="h-8 rounded-md px-2.5 bg-accent-indigo text-accent-indigo-foreground hover:bg-accent-indigo/90"
             onClick={(event) => {
               event.stopPropagation()
-              handleView()
+              void handleAction('view-order', notification.linkHref ?? undefined)
             }}
-            disabled={executing || (!viewAction && !notification.linkHref)}
+            disabled={executing !== null}
           >
             <ExternalLink className="size-3.5" aria-hidden="true" />
-            {t('wms.notifications.reservationShortfall.renderer.viewReservations', 'View Reservations')}
-            {executing ? <Loader2 className="ml-1 size-3 animate-spin" /> : null}
+            {t('wms.notifications.reservationShortfall.renderer.viewOrder', 'View order')}
+            {executing === 'view-order' ? <Loader2 className="ml-1 size-3 animate-spin" /> : null}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-md px-2.5"
+            onClick={(event) => {
+              event.stopPropagation()
+              void handleAction('view-inventory', inventoryHref)
+            }}
+            disabled={executing !== null}
+          >
+            <ExternalLink className="size-3.5" aria-hidden="true" />
+            {t('wms.notifications.reservationShortfall.renderer.viewInventory', 'View inventory')}
+            {executing === 'view-inventory' ? <Loader2 className="ml-1 size-3 animate-spin" /> : null}
           </Button>
           <Button
             type="button"

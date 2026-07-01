@@ -64,6 +64,8 @@ const crud = makeCrudRoute({
     ],
     sortFieldMap: {
       lotNumber: 'lot_number',
+      sku: 'sku',
+      status: 'status',
       expiresAt: 'expires_at',
       createdAt: 'created_at',
       updatedAt: 'updated_at',

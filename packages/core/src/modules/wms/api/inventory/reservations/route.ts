@@ -47,6 +47,11 @@ const crud = makeCrudRoute({
       'updated_at',
     ],
     sortFieldMap: {
+      catalogVariantId: 'catalog_variant_id',
+      warehouseId: 'warehouse_id',
+      quantity: 'quantity',
+      sourceType: 'source_type',
+      status: 'status',
       expiresAt: 'expires_at',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
@@ -55,6 +60,7 @@ const crud = makeCrudRoute({
       const filters: Record<string, unknown> = {}
       if (query.warehouseId) filters.warehouse_id = { $eq: query.warehouseId }
       if (query.catalogVariantId) filters.catalog_variant_id = { $eq: query.catalogVariantId }
+      if (query.lotId) filters.lot_id = { $eq: query.lotId }
       if (query.sourceType) filters.source_type = { $eq: query.sourceType }
       if (query.sourceId) filters.source_id = { $eq: query.sourceId }
       if (query.status) filters.status = { $eq: query.status }

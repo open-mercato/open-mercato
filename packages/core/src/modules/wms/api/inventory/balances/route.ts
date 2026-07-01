@@ -1,10 +1,15 @@
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { E } from '#generated/entities.ids.generated'
 import { InventoryBalance } from '../../../data/entities'
 import { inventoryBalanceListQuerySchema } from '../../../data/validators'
+import {
+  formatLowStockVariantIdsForFilter,
+  resolveLowStockVariantIds,
+} from '../../../lib/lowStockBalanceFilter'
 import { createPagedListResponseSchema } from '../../openapi'
 import {
   attachLocationLabelsToListItems,
@@ -46,6 +51,13 @@ const crud = makeCrudRoute({
       'updated_at',
     ],
     sortFieldMap: {
+      catalogVariantId: 'catalog_variant_id',
+      warehouseId: 'warehouse_id',
+      locationId: 'location_id',
+      quantityOnHand: 'quantity_on_hand',
+      quantityReserved: 'quantity_reserved',
+      quantityAllocated: 'quantity_allocated',
+      quantityAvailable: 'quantity_on_hand',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
@@ -58,13 +70,43 @@ const crud = makeCrudRoute({
         quantity_available: onHand - reserved - allocated,
       }
     },
-    buildFilters: async (query) => {
+    buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
       if (query.warehouseId) filters.warehouse_id = { $eq: query.warehouseId }
       if (query.locationId) filters.location_id = { $eq: query.locationId }
-      if (query.catalogVariantId) filters.catalog_variant_id = { $eq: query.catalogVariantId }
       if (query.lotId) filters.lot_id = { $eq: query.lotId }
       if (query.serialNumber) filters.serial_number = { $eq: query.serialNumber }
+
+      let lowStockVariantIds: string[] | null = null
+      if (query.lowStock === 'belowReorder' || query.lowStock === 'belowSafety') {
+        const organizationId = ctx.selectedOrganizationId
+        const tenantId = ctx.auth?.tenantId
+        if (organizationId && tenantId) {
+          const em = ctx.container.resolve('em') as EntityManager
+          lowStockVariantIds = await resolveLowStockVariantIds(
+            em,
+            {
+              organizationId,
+              tenantId,
+              warehouseId: query.warehouseId ?? null,
+            },
+            query.lowStock,
+          )
+        }
+      }
+
+      if (query.catalogVariantId) {
+        if (lowStockVariantIds && !lowStockVariantIds.includes(query.catalogVariantId)) {
+          filters.catalog_variant_id = { $in: ['00000000-0000-4000-8000-000000000000'] }
+        } else {
+          filters.catalog_variant_id = { $eq: query.catalogVariantId }
+        }
+      } else if (lowStockVariantIds) {
+        filters.catalog_variant_id = {
+          $in: formatLowStockVariantIdsForFilter(lowStockVariantIds),
+        }
+      }
+
       const term = query.search?.trim()
       if (term) {
         const like = `%${escapeLikePattern(term)}%`

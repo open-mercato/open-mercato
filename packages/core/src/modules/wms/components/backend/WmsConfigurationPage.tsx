@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Boxes, Layers, MapPinned, Warehouse } from 'lucide-react'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 import {
   buildQuery,
   loadCatalogVariantOptions,
@@ -500,6 +500,8 @@ export function WarehouseSection() {
           searchPlaceholder={t('wms.backend.config.warehouses.search', 'Search warehouses')}
           sorting={sorting}
           onSortingChange={handleSortingChange}
+          sortable
+          manualSorting
           actions={(
             <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
               {t('wms.backend.config.actions.addWarehouse', 'Add warehouse')}
@@ -757,6 +759,8 @@ export function ZoneSection() {
           searchPlaceholder={t('wms.backend.config.zones.search', 'Search zones')}
           sorting={sorting}
           onSortingChange={handleSortingChange}
+          sortable
+          manualSorting
           actions={(
             <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
               {t('wms.backend.config.actions.addZone', 'Add zone')}
@@ -1041,6 +1045,8 @@ export function LocationSection() {
           searchPlaceholder={t('wms.backend.config.locations.search', 'Search locations')}
           sorting={sorting}
           onSortingChange={handleSortingChange}
+          sortable
+          manualSorting
           actions={(
             <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
               {t('wms.backend.config.actions.addLocation', 'Add location')}
@@ -1206,7 +1212,9 @@ export function InventoryProfilesSection() {
     },
     {
       accessorKey: 'reorder_point',
+      id: 'reorderPoint',
       header: t('wms.backend.config.profiles.columns.reorderPoint', 'Reorder point'),
+      enableSorting: true,
       cell: ({ row }) => (
         <span className="tabular-nums">
           {formatInventoryQuantity(row.original.reorder_point, quantityFormatter)}
@@ -1215,7 +1223,9 @@ export function InventoryProfilesSection() {
     },
     {
       accessorKey: 'safety_stock',
+      id: 'safetyStock',
       header: t('wms.backend.config.profiles.columns.safetyStock', 'Safety stock'),
+      enableSorting: true,
       cell: ({ row }) => (
         <span className="tabular-nums">
           {formatInventoryQuantity(row.original.safety_stock, quantityFormatter)}
@@ -1343,6 +1353,8 @@ export function InventoryProfilesSection() {
           entityId={E.wms.product_inventory_profile}
           sorting={sorting}
           onSortingChange={handleSortingChange}
+          sortable
+          manualSorting
           actions={(
             <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
               {t('wms.backend.config.actions.addProfile', 'Add profile')}

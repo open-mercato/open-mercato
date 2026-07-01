@@ -61,8 +61,11 @@ export type OperationalDashboardExpiryLotRow = {
   id: string
   lotNumber: string
   sku: string
+  catalogVariantId: string
   expiresAt: string
   availableQuantity: number
+  status: string
+  updatedAt: string | null
   category: 'expiringSoon' | 'pastDue'
 }
 
@@ -180,8 +183,11 @@ export function buildExpiryLotRows(
       id: lot.id,
       lotNumber: lot.lotNumber,
       sku: lot.sku,
+      catalogVariantId: lot.catalogVariantId,
       expiresAt: lot.expiresAt!.toISOString(),
       availableQuantity,
+      status: lot.status,
+      updatedAt: lot.updatedAt?.toISOString() ?? null,
       category: 'expiringSoon' as const,
     }))
 
@@ -201,8 +207,11 @@ export function buildExpiryLotRows(
       id: lot.id,
       lotNumber: lot.lotNumber,
       sku: lot.sku,
+      catalogVariantId: lot.catalogVariantId,
       expiresAt: lot.expiresAt!.toISOString(),
       availableQuantity,
+      status: lot.status,
+      updatedAt: lot.updatedAt?.toISOString() ?? null,
       category: 'pastDue' as const,
     }))
 

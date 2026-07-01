@@ -502,6 +502,7 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
   const [changeStatusOpen, setChangeStatusOpen] = React.useState(false)
 
   const distributionPageSize = 20
+  const lotsHref = '/backend/wms/lots'
   const inventoryHref = '/backend/wms/inventory'
 
   const activityTimeFormatter = React.useMemo(
@@ -988,7 +989,7 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
           <ErrorMessage
             label={t('wms.backend.lot.errors.invalidId', 'Invalid lot identifier.')}
             action={(
-              <Button type="button" variant="outline" size="sm" onClick={() => router.push(inventoryHref)}>
+              <Button type="button" variant="outline" size="sm" onClick={() => router.push(lotsHref)}>
                 {t('wms.backend.lot.actions.backToLots', 'Back to lots')}
               </Button>
             )}
@@ -1002,7 +1003,7 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
     <Page>
       <PageBody className="space-y-6">
         <LinkButton asChild variant="gray" size="sm" className="w-fit px-0 text-muted-foreground hover:text-foreground">
-          <Link href={inventoryHref}>
+          <Link href={lotsHref}>
             <ArrowLeft className="size-4" />
             {t('wms.backend.lot.actions.backToLots', 'Back to lots')}
           </Link>
@@ -1274,7 +1275,7 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
         {!isLoading && !hasError && !lotQuery.data ? (
           <RecordNotFoundState
             label={t('wms.backend.lot.errors.notFound', 'Lot not found.')}
-            backHref={inventoryHref}
+            backHref={lotsHref}
             backLabel={t('wms.backend.lot.actions.backToLots', 'Back to lots')}
           />
         ) : null}

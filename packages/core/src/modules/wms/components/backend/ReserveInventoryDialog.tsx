@@ -32,6 +32,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { buildInventoryMutationReferenceId } from '../../lib/inventoryMutationUi'
 import {
   loadCatalogVariantOptions,
+  loadInventoryProfileForVariant,
   loadLotNumberOptions,
   loadWarehouseOptions,
   resolveCatalogVariantLabel,
@@ -85,19 +86,26 @@ export function ReserveInventoryDialog({
   const [variantLabelCache, setVariantLabelCache] = React.useState<Record<string, string>>({})
   const [lotId, setLotId] = React.useState('')
   const [lotLabelCache, setLotLabelCache] = React.useState<Record<string, string>>({})
+  const [serialNumber, setSerialNumber] = React.useState('')
   const [quantity, setQuantity] = React.useState<string>('1')
   const [sourceType, setSourceType] = React.useState<ReserveSourceType>('manual')
   const [submitting, setSubmitting] = React.useState(false)
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({})
+  const [trackingProfile, setTrackingProfile] = React.useState<{
+    trackLot: boolean
+    trackSerial: boolean
+  } | null>(null)
 
   const resetDialog = React.useCallback(() => {
     setWarehouseId(initialWarehouseId)
     setCatalogVariantId(initialCatalogVariantId)
     setLotId('')
+    setSerialNumber('')
     setQuantity('1')
     setSourceType('manual')
     setSubmitting(false)
     setFieldErrors({})
+    setTrackingProfile(null)
   }, [initialWarehouseId, initialCatalogVariantId])
 
   const closeDialog = React.useCallback(() => {
@@ -108,6 +116,28 @@ export function ReserveInventoryDialog({
   React.useEffect(() => {
     if (open) resetDialog()
   }, [open, resetDialog])
+
+  React.useEffect(() => {
+    if (!open || !catalogVariantId.trim()) {
+      setTrackingProfile(null)
+      return
+    }
+    let cancelled = false
+    void loadInventoryProfileForVariant(catalogVariantId.trim()).then((profile) => {
+      if (cancelled) return
+      if (!profile) {
+        setTrackingProfile(null)
+        return
+      }
+      setTrackingProfile({
+        trackLot: profile.track_lot === true,
+        trackSerial: profile.track_serial === true,
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [catalogVariantId, open])
 
   const handleSubmit = React.useCallback(
     async (event?: React.FormEvent) => {
@@ -134,6 +164,18 @@ export function ReserveInventoryDialog({
           'Enter a positive quantity.',
         )
       }
+      if (trackingProfile?.trackLot && !lotId.trim()) {
+        nextErrors.lotId = t(
+          'wms.backend.inventory.reserve.errors.lotRequired',
+          'Select a lot for this variant.',
+        )
+      }
+      if (trackingProfile?.trackSerial && !serialNumber.trim()) {
+        nextErrors.serialNumber = t(
+          'wms.backend.inventory.reserve.errors.serialRequired',
+          'Enter a serial number for this variant.',
+        )
+      }
       if (Object.keys(nextErrors).length > 0) {
         setFieldErrors(nextErrors)
         return
@@ -151,6 +193,8 @@ export function ReserveInventoryDialog({
           sourceId: buildInventoryMutationReferenceId(),
         }
         if (lotId.trim()) body.lotId = lotId.trim()
+        const serial = serialNumber.trim()
+        if (serial) body.serialNumber = serial
 
         await runMutation({
           operation: async () => {
@@ -203,8 +247,10 @@ export function ReserveInventoryDialog({
       quantity,
       queryClient,
       runMutation,
+      serialNumber,
       sourceType,
       t,
+      trackingProfile,
       warehouseId,
     ],
   )
@@ -283,6 +329,7 @@ export function ReserveInventoryDialog({
                 onChange={(next) => {
                   setCatalogVariantId(next.trim())
                   setLotId('')
+                  setSerialNumber('')
                   setFieldErrors((e) => ({ ...e, catalogVariantId: '' }))
                 }}
                 loadSuggestions={async (query) => {
@@ -355,11 +402,19 @@ export function ReserveInventoryDialog({
 
             {catalogVariantId.trim() ? (
               <FormField
-                label={t('wms.backend.inventory.reserve.fields.lot', 'Lot (optional)')}
+                label={t(
+                  'wms.backend.inventory.reserve.fields.lot',
+                  trackingProfile?.trackLot ? 'Lot' : 'Lot (optional)',
+                )}
+                required={trackingProfile?.trackLot === true}
+                error={fieldErrors.lotId}
               >
                 <ComboboxInput
                   value={lotId}
-                  onChange={(next) => setLotId(next.trim())}
+                  onChange={(next) => {
+                    setLotId(next.trim())
+                    setFieldErrors((e) => ({ ...e, lotId: '' }))
+                  }}
                   loadSuggestions={async (query) => {
                     const options = await loadLotNumberOptions(catalogVariantId.trim(), query)
                     setLotLabelCache((c) => {
@@ -376,11 +431,36 @@ export function ReserveInventoryDialog({
                     return label ?? value
                   }}
                   placeholder={t(
-                    'wms.backend.inventory.reserve.fields.lotPlaceholder',
-                    'Any lot (system selects)…',
+                    trackingProfile?.trackLot
+                      ? 'wms.backend.inventory.reserve.fields.lotRequiredPlaceholder'
+                      : 'wms.backend.inventory.reserve.fields.lotPlaceholder',
+                    trackingProfile?.trackLot
+                      ? 'Select lot…'
+                      : 'Any lot (system selects)…',
                   )}
                   allowCustomValues={false}
-                  clearable
+                  clearable={!trackingProfile?.trackLot}
+                  disabled={isMutating}
+                />
+              </FormField>
+            ) : null}
+
+            {catalogVariantId.trim() && trackingProfile?.trackSerial ? (
+              <FormField
+                label={t('wms.backend.inventory.reserve.fields.serial', 'Serial number')}
+                required
+                error={fieldErrors.serialNumber}
+              >
+                <Input
+                  value={serialNumber}
+                  onChange={(e) => {
+                    setSerialNumber(e.target.value)
+                    setFieldErrors((err) => ({ ...err, serialNumber: '' }))
+                  }}
+                  placeholder={t(
+                    'wms.backend.inventory.reserve.fields.serialPlaceholder',
+                    'Enter serial number…',
+                  )}
                   disabled={isMutating}
                 />
               </FormField>

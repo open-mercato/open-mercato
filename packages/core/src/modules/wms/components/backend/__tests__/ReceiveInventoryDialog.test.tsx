@@ -44,9 +44,8 @@ jest.mock('../../../lib/inventoryMutationUi', () => ({
 }))
 
 jest.mock('../inventoryMutationLoaders', () => ({
-  ensureLotIdForInventoryMutation: jest.fn(),
-  InventoryLotMutationError: class extends Error {},
   loadCatalogVariantOptions: jest.fn(async () => []),
+  loadInventoryProfileForVariant: jest.fn(async () => null),
   loadLocationOptions: jest.fn(async () => []),
   loadLotNumberOptions: jest.fn(async () => []),
   loadWarehouseOptions: jest.fn(async () => []),

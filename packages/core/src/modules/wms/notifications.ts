@@ -29,14 +29,21 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     severity: 'warning',
     actions: [
       {
-        id: 'view',
-        labelKey: 'wms.notifications.reservationShortfall.renderer.viewReservations',
+        id: 'view-order',
+        labelKey: 'wms.notifications.reservationShortfall.renderer.viewOrder',
         variant: 'outline',
-        href: '/backend/wms/reservations',
+        href: '/backend/sales/orders/{sourceEntityId}',
+        icon: 'external-link',
+      },
+      {
+        id: 'view-inventory',
+        labelKey: 'wms.notifications.reservationShortfall.renderer.viewInventory',
+        variant: 'outline',
+        href: '/backend/wms/inventory',
         icon: 'external-link',
       },
     ],
-    linkHref: '/backend/wms/reservations',
+    linkHref: '/backend/sales/orders/{sourceEntityId}',
     expiresAfterHours: 72,
   },
 ]

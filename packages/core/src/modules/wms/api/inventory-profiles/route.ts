@@ -70,6 +70,8 @@ const crud = makeCrudRoute({
       createdAt: 'created_at',
       updatedAt: 'updated_at',
       defaultStrategy: 'default_strategy',
+      reorderPoint: 'reorder_point',
+      safetyStock: 'safety_stock',
     },
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
