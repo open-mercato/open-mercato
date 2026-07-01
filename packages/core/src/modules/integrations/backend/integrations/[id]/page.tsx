@@ -27,7 +27,7 @@ import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import {
@@ -748,14 +748,13 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         return
       }
 
-      const result = call.result as {
-        error?: string
-        details?: { fieldErrors?: Record<string, string>; formErrors?: string[] }
-      } | null
-      throw createCrudFormError(
-        result?.error ?? t('integrations.detail.credentials.saveError', 'Failed to save credentials'),
-        result?.details?.fieldErrors,
-        { details: result?.details },
+      // Re-raise with status + response body (not a bare message) so the host CrudForm
+      // recognizes optimistic-lock 409s and surfaces them on the unified conflict bar
+      // with a localized message instead of toasting the raw `record_modified` code.
+      // apiCall reads the body via response.clone(), so call.response is still readable.
+      await raiseCrudError(
+        call.response,
+        t('integrations.detail.credentials.saveError', 'Failed to save credentials'),
       )
     } finally {
       setIsSavingCredentials(false)
