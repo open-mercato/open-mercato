@@ -99,9 +99,9 @@ export function createAsyncQueue<T = unknown>(
   let bullWorker: BullWorkerInterface | null = null
   let bullmqModule: BullMQModule | null = null
   // Resolved once: a BullMQOtel instance (delegate async tracing to BullMQ) or
-  // null (use our own metadata._trace carrier instead).
-  let telemetryResolved = false
-  let telemetryInstance: object | null = null
+  // undefined (use our own metadata._trace carrier instead). Memoized as the
+  // in-flight promise so concurrent first-time callers share one resolution.
+  let telemetryPromise: Promise<object | undefined> | null = null
 
   // -------------------------------------------------------------------------
   // Lazy BullMQ initialization
@@ -129,17 +129,19 @@ export function createAsyncQueue<T = unknown>(
    * cannot instrument it.)
    */
   async function getQueueTelemetry(): Promise<object | undefined> {
-    if (telemetryResolved) return telemetryInstance ?? undefined
-    telemetryResolved = true
-    if (!isOtelSdkBackend()) return undefined
-    try {
-      const mod = (await import('bullmq-otel')) as unknown as BullMQOtelModule
-      telemetryInstance = new mod.BullMQOtel('open-mercato')
-    } catch {
-      console.warn(`[queue:${name}] bullmq-otel not available; using built-in trace carrier`)
-      telemetryInstance = null
+    if (!telemetryPromise) {
+      telemetryPromise = (async () => {
+        if (!isOtelSdkBackend()) return undefined
+        try {
+          const mod = (await import('bullmq-otel')) as unknown as BullMQOtelModule
+          return new mod.BullMQOtel('open-mercato')
+        } catch {
+          console.warn(`[queue:${name}] bullmq-otel not available; using built-in trace carrier`)
+          return undefined
+        }
+      })()
     }
-    return telemetryInstance ?? undefined
+    return telemetryPromise
   }
 
   async function getQueue(): Promise<BullQueueInterface<QueuedJob<T>>> {

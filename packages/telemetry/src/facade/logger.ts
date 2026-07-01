@@ -52,7 +52,9 @@ export function writeRecord(record: LogRecord): void {
   if (record.error) obj.err = record.error
   if (env.logPretty) writePretty(record.level, record.message, obj)
   else base[record.level](obj, record.message)
-  provider.emitLog(record)
+  // Gate the backend export by the same configured level as stdout, so
+  // TELEMETRY_LOG_LEVEL controls remote volume/cost too — not just stdout.
+  if (LEVEL_ORDER.indexOf(record.level) >= MIN_LEVEL_IDX) provider.emitLog(record)
 }
 
 function makeLogger(bindings: Attributes): Logger {
