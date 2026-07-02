@@ -171,6 +171,7 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
     expect(mockEm.create).not.toHaveBeenCalled()
     expect(result.invitation).toBe(existing)
     expect(result.rawToken).toBe('raw-token')
+    expect(result.reused).toBe(true)
     expect(existing.email).toBe('new@example.com')
     expect(existing.token).toBe('hashed-token')
     expect(existing.roleIdsJson).toEqual(roleIds)
@@ -216,5 +217,19 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
     })
     expect(mockEm.persist).toHaveBeenCalled()
     expect(result.rawToken).toBe('raw-token')
+    expect(result.reused).toBe(false)
+  })
+})
+
+describe('CustomerInvitationService.removeInvitation — rollback', () => {
+  it('hard-deletes the invitation via removeAndFlush', async () => {
+    const removeAndFlush = jest.fn(async () => undefined)
+    const mockEm = { removeAndFlush } as unknown as EntityManager
+    const service = new CustomerInvitationService(mockEm)
+    const invitation = { id: 'inv-roll' } as unknown as CustomerUserInvitation
+
+    await service.removeInvitation(invitation)
+
+    expect(removeAndFlush).toHaveBeenCalledWith(invitation)
   })
 })
