@@ -1,9 +1,9 @@
 /**
- * Regression for the CLI `.env` load-order bug (PR #25 review): the CLI binary
- * statically imports this package (evaluating the logger) BEFORE dotenv loads
- * the app's `.env`. The old module-scope `readTelemetryEnv()` in the logger
- * stamped the env cache at import time, so `TELEMETRY_BACKEND` set only in
- * `.env` silently resolved to `noop` for worker/scheduler processes.
+ * Regression for the CLI `.env` load-order bug: the CLI binary statically
+ * imports this package (evaluating the logger) BEFORE dotenv loads the app's
+ * `.env`. The old module-scope `readTelemetryEnv()` in the logger stamped the
+ * env cache at import time, so `TELEMETRY_BACKEND` set only in `.env` silently
+ * resolved to `noop` for worker/scheduler processes.
  *
  * These tests reproduce the exact sequence — import the facade, THEN set env
  * (simulating the dotenv load), then init — and assert the late env wins.

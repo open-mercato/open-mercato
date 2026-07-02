@@ -4,9 +4,9 @@ import os from 'node:os'
 import { loadAppEnv } from '../load-env'
 
 /**
- * Regression for PR #25 review: bin.ts must load the app's `.env` before
- * initTelemetry(), so TELEMETRY_BACKEND set only in `.env` reaches worker and
- * scheduler processes (ensureEnvLoaded in run() happens after init — too late).
+ * Regression: bin.ts must load the app's `.env` before initTelemetry(), so
+ * TELEMETRY_BACKEND set only in `.env` reaches worker and scheduler processes
+ * (ensureEnvLoaded in run() happens after init — too late).
  */
 
 describe('loadAppEnv', () => {

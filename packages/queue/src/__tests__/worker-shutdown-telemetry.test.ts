@@ -3,8 +3,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 
 /**
- * Regression for PR #25 review: the worker's graceful shutdown closed the queues
- * and called process.exit() without flushing telemetry. A worker never returns
+ * Regression: the worker's graceful shutdown used to close the queues
+ * and call process.exit() without flushing telemetry. A worker never returns
  * from run(), so the CLI's post-run shutdownTelemetry() is unreachable — the
  * BatchSpanProcessor's buffered tail (~5s of spans/logs) was dropped on every
  * restart/redeploy. The shutdown handler must flush BEFORE exiting.
