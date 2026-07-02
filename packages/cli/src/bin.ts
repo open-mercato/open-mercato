@@ -88,6 +88,14 @@ async function main(): Promise<void> {
   const requiresBootstrap = needsBootstrap(process.argv)
 
   if (requiresBootstrap) {
+    // Load the app's `.env` BEFORE initTelemetry(): `run()` only dotenv-loads it
+    // later (ensureEnvLoaded), which is too late — TELEMETRY_BACKEND set only in
+    // `.env` would silently resolve to `noop` for worker/scheduler processes.
+    // The loader touches only the resolver + dotenv (no `pg`), preserving the
+    // instrumentation load-order guarantee below.
+    const { loadAppEnv } = await import('./lib/load-env.js')
+    await loadAppEnv()
+
     // Initialize telemetry BEFORE bootstrapping the app graph. Bootstrap and the
     // per-command handlers load MikroORM's Postgres driver → `pg`, and the
     // OpenTelemetry pg/undici auto-instrumentation only records spans for a

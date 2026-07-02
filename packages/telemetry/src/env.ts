@@ -88,7 +88,11 @@ export function readTelemetryEnv(): TelemetryEnv {
   return cached
 }
 
-/** Test-only: reset the memoized env (jest). */
+/**
+ * Reset the memoized env snapshot. Called by `initTelemetry()` so init always
+ * resolves from the fully-loaded environment (a host may import this package
+ * before its `.env` is loaded — the CLI binary does), and by jest between tests.
+ */
 export function resetTelemetryEnvCache(): void {
   cached = undefined
 }

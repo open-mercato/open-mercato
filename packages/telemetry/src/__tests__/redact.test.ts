@@ -19,8 +19,9 @@ describe('redactPii', () => {
     )
   })
 
-  it('masks a standalone Bearer/Basic token in text', () => {
+  it('masks a standalone Bearer/Basic/ApiKey token in text', () => {
     expect(redactPii('used Basic dXNlcjpwYXNz to auth')).toBe('used Basic [redacted] to auth')
+    expect(redactPii('sent ApiKey sk_live_abc123 upstream')).toBe('sent ApiKey [redacted] upstream')
   })
 
   it('masks a cookie header dump but keeps surrounding structure', () => {
