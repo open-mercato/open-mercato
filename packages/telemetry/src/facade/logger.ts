@@ -3,6 +3,7 @@ import pino from 'pino'
 import type { Attributes, Logger, LogLevel, LogRecord } from '../types'
 import { readTelemetryEnv } from '../env'
 import { getActiveProvider } from '../provider/registry'
+import { redactAttributes } from './redact'
 
 const env = readTelemetryEnv()
 
@@ -41,6 +42,11 @@ function writePretty(level: LogLevel, message: string, obj: Record<string, unkno
 /** Low-level: write one record to stdout + the active backend. Single log path. */
 export function writeRecord(record: LogRecord): void {
   const provider = getActiveProvider()
+  // Redaction backstop: scrub secret-keyed values (Authorization/Cookie/…) and
+  // inline emails/tokens from attributes before they reach stdout OR the backend.
+  // Applied at this single chokepoint so it covers reportError AND every logger.*
+  // call, mirroring how serializeError already runs error text through redactPii.
+  if (record.attributes) record = { ...record, attributes: redactAttributes(record.attributes) }
   const obj: Record<string, unknown> = { ...(record.attributes ?? {}) }
   // Correlate the stdout line with its trace (the OTLP log path correlates
   // automatically from active context; stdout needs the ids spelled out).
