@@ -1,6 +1,10 @@
-import { GET, PATCH } from '@open-mercato/core/modules/messages/api/[id]/route'
+import { GET, PATCH, DELETE } from '@open-mercato/core/modules/messages/api/[id]/route'
 import { Message, MessageObject, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import {
+  OPTIMISTIC_LOCK_CONFLICT_CODE,
+  OPTIMISTIC_LOCK_HEADER_NAME,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 const resolveMessageContextMock = jest.fn()
 const hasOrganizationAccessMock = jest.fn(() => true)
@@ -38,6 +42,7 @@ describe('messages /api/messages/[id] GET', () => {
       organizationId,
       tenantId,
       deletedAt: null,
+      updatedAt: new Date('2026-06-18T00:00:00.000Z'),
       isDraft: false,
       type: 'system',
       visibility: 'internal',
@@ -224,6 +229,7 @@ describe('messages /api/messages/[id] GET', () => {
       organizationId,
       tenantId,
       deletedAt: null,
+      updatedAt: new Date('2026-06-18T00:00:00.000Z'),
       isDraft: false,
       type: 'system',
       visibility: 'internal',
@@ -311,6 +317,7 @@ describe('messages /api/messages/[id] GET', () => {
       organizationId,
       tenantId,
       deletedAt: null,
+      updatedAt: new Date('2026-06-18T00:00:00.000Z'),
       isDraft: false,
       type: 'system',
       visibility: 'internal',
@@ -465,5 +472,74 @@ describe('messages /api/messages/[id] PATCH', () => {
       organizationId,
       userId,
     }))
+  })
+})
+
+describe('messages /api/messages/[id] DELETE', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('blocks stale draft deletes before executing the delete command', async () => {
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const messageId = '22222222-2222-4222-8222-222222222222'
+    const staleUpdatedAt = '2026-06-18T00:00:00.000Z'
+    const currentUpdatedAt = '2026-06-19T00:00:00.000Z'
+
+    const draftMessage = {
+      id: messageId,
+      tenantId,
+      organizationId,
+      senderUserId: userId,
+      isDraft: true,
+      updatedAt: new Date(currentUpdatedAt),
+      deletedAt: null,
+    }
+
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn(async (entity: unknown) => {
+        if (entity === Message) return draftMessage
+        return null
+      }),
+    }
+    const commandBus = {
+      execute: jest.fn().mockResolvedValue({ result: { ok: true }, logEntry: null }),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        return null
+      },
+    }
+
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: {
+        container,
+        auth: { features: ['messages.view'] },
+      },
+      scope: { tenantId, organizationId, userId },
+    })
+
+    const request = new Request(`https://example.test/api/messages/${messageId}`, {
+      method: 'DELETE',
+      headers: {
+        [OPTIMISTIC_LOCK_HEADER_NAME]: staleUpdatedAt,
+      },
+    })
+
+    const response = await DELETE(request, { params: { id: messageId } })
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({
+      error: 'record_modified',
+      code: OPTIMISTIC_LOCK_CONFLICT_CODE,
+      currentUpdatedAt,
+      expectedUpdatedAt: staleUpdatedAt,
+    })
+    expect(commandBus.execute).not.toHaveBeenCalled()
   })
 })

@@ -1,5 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  enforceCommandOptimisticLockWithGuards,
+  enforceRecordGoneIsConflict,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '../../../auth/data/entities'
@@ -31,6 +36,31 @@ type MessageObjectPreviewPayload = {
   statusColor?: string
   metadata?: Record<string, string>
 } | null
+
+function responseFromCrudHttpError(error: unknown): Response | null {
+  if (!isCrudHttpError(error)) return null
+  return Response.json(error.body, { status: error.status })
+}
+
+async function enforceMessageOptimisticLock(
+  container: Parameters<typeof enforceCommandOptimisticLockWithGuards>[0],
+  req: Request,
+  message: Message,
+): Promise<Response | null> {
+  try {
+    await enforceCommandOptimisticLockWithGuards(container, {
+      resourceKind: 'messages.message',
+      resourceId: message.id,
+      current: message.updatedAt,
+      request: req,
+    })
+  } catch (error) {
+    const response = responseFromCrudHttpError(error)
+    if (response) return response
+    throw error
+  }
+  return null
+}
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const { ctx, scope } = await resolveMessageContext(req)
@@ -189,6 +219,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   return Response.json({
     id: message.id,
+    updatedAt: message.updatedAt.toISOString(),
     type: message.type,
     isDraft: message.isDraft,
     canEditDraft: message.isDraft && message.senderUserId === scope.userId,
@@ -278,6 +309,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   })
 
   if (!message) {
+    try {
+      enforceRecordGoneIsConflict({
+        resourceKind: 'messages.message',
+        resourceId: params.id,
+        request: req,
+      })
+    } catch (error) {
+      const response = responseFromCrudHttpError(error)
+      if (response) return response
+      throw error
+    }
     return Response.json({ error: 'Message not found' }, { status: 404 })
   }
 
@@ -292,6 +334,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!message.isDraft) {
     return Response.json({ error: 'Only draft messages can be edited' }, { status: 409 })
   }
+
+  const optimisticLockResponse = await enforceMessageOptimisticLock(ctx.container, req, message)
+  if (optimisticLockResponse) return optimisticLockResponse
 
   const guardResult = await runMessageMutationGuards(
     ctx.container,
@@ -351,6 +396,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     })
     return response
   } catch (error) {
+    const response = responseFromCrudHttpError(error)
+    if (response) return response
     if (error instanceof Error) {
       if (error.message === 'Message type cannot be created by users') {
         return Response.json({ error: error.message }, { status: 400 })
@@ -379,12 +426,26 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   })
 
   if (!message) {
+    try {
+      enforceRecordGoneIsConflict({
+        resourceKind: 'messages.message',
+        resourceId: params.id,
+        request: req,
+      })
+    } catch (error) {
+      const response = responseFromCrudHttpError(error)
+      if (response) return response
+      throw error
+    }
     return Response.json({ error: 'Message not found' }, { status: 404 })
   }
 
   if (!hasOrganizationAccess(scope.organizationId, message.organizationId)) {
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
+
+  const optimisticLockResponse = await enforceMessageOptimisticLock(ctx.container, req, message)
+  if (optimisticLockResponse) return optimisticLockResponse
 
   const guardResult = await runMessageMutationGuards(
     ctx.container,
@@ -443,6 +504,8 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     })
     return response
   } catch (error) {
+    const response = responseFromCrudHttpError(error)
+    if (response) return response
     if (error instanceof Error && error.message === 'Access denied') {
       return Response.json({ error: 'Access denied' }, { status: 403 })
     }
@@ -477,7 +540,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
         { status: 404, description: 'Message not found', schema: errorResponseSchema },
-        { status: 409, description: 'Only drafts can be edited', schema: errorResponseSchema },
+        { status: 409, description: 'Only drafts can be edited or the draft changed concurrently', schema: errorResponseSchema },
       ],
     },
     DELETE: {
@@ -488,6 +551,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
         { status: 404, description: 'Message not found', schema: errorResponseSchema },
+        { status: 409, description: 'Message changed concurrently', schema: errorResponseSchema },
       ],
     },
   },

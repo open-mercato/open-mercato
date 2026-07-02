@@ -6,7 +6,11 @@ import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { MessageActionsProps, MessageContentProps } from '@open-mercato/shared/modules/messages/types'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import {
+  buildOptimisticLockHeader,
+  extractOptimisticLockConflict,
+} from '@open-mercato/ui/backend/utils/optimisticLock'
 import type {
   ActionResult,
   MessageAction,
@@ -81,10 +85,22 @@ export function useMessageDetailsActions({
   const [pendingActionConfirmation, setPendingActionConfirmation] = React.useState<PendingActionConfirmation | null>(null)
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = React.useState(false)
   const [activeConversationAction, setActiveConversationAction] = React.useState<ConversationActionKind | null>(null)
+  const deleteOptimisticLockUpdatedAtRef = React.useRef<string | null>(null)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<MessageDetailMutationContext>({
     contextId: 'messages-detail-actions',
   })
+
+  React.useEffect(() => {
+    deleteOptimisticLockUpdatedAtRef.current = null
+  }, [id])
+
+  React.useEffect(() => {
+    if (deleteOptimisticLockUpdatedAtRef.current) return
+    if (typeof detail?.updatedAt === 'string' && detail.updatedAt.trim().length > 0) {
+      deleteOptimisticLockUpdatedAtRef.current = detail.updatedAt
+    }
+  }, [detail?.updatedAt])
 
   const requestAndRefresh = React.useCallback(async (
     url: string,
@@ -129,12 +145,14 @@ export function useMessageDetailsActions({
     try {
       await runMutation({
         operation: async () => {
-          const call = await apiCall<{ ok?: boolean }>(`/api/messages/${encodeURIComponent(id)}`, {
-            method: 'DELETE',
-          })
-          if (!call.ok) {
-            throw new Error(toErrorMessage(call.result) ?? t('messages.errors.deleteFailed', 'Failed to delete message.'))
-          }
+          await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(deleteOptimisticLockUpdatedAtRef.current ?? detail?.updatedAt),
+            () => apiCallOrThrow<{ ok?: boolean }>(
+              `/api/messages/${encodeURIComponent(id)}`,
+              { method: 'DELETE' },
+              { errorMessage: t('messages.errors.deleteFailed', 'Failed to delete message.') },
+            ),
+          )
         },
         context: { resourceKind: 'message', messageId: id, action: 'delete', retryLastMutation },
         mutationPayload: { messageId: id, action: 'delete' },
@@ -142,6 +160,10 @@ export function useMessageDetailsActions({
       flash(t('messages.flash.deleted', 'Message deleted.'), 'success')
       onDeleted()
     } catch (err) {
+      if (extractOptimisticLockConflict(err)) {
+        setDeleteConfirmationOpen(false)
+        return
+      }
       flash(
         err instanceof Error
           ? err.message
@@ -151,7 +173,7 @@ export function useMessageDetailsActions({
     } finally {
       setUpdatingState(false)
     }
-  }, [id, onDeleted, retryLastMutation, runMutation, t])
+  }, [detail?.updatedAt, id, onDeleted, retryLastMutation, runMutation, t])
 
   const runConversationAction = React.useCallback(async (
     action: ConversationActionKind,

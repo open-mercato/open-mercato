@@ -4,7 +4,12 @@
 
 import { act, renderHook } from '@testing-library/react'
 import type { UseQueryResult } from '@tanstack/react-query'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import {
+  apiCall,
+  apiCallOrThrow,
+  withScopedApiRequestHeaders,
+} from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useMessageDetailsActions } from '../useMessageDetailsActions'
@@ -12,6 +17,8 @@ import type { MessageAction, MessageDetail } from '../../types'
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
+  apiCallOrThrow: jest.fn(),
+  withScopedApiRequestHeaders: jest.fn(async (_headers: Record<string, string>, run: () => Promise<unknown>) => run()),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
@@ -29,6 +36,8 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 }))
 
 const mockApiCall = apiCall as jest.MockedFunction<typeof apiCall>
+const mockApiCallOrThrow = apiCallOrThrow as jest.MockedFunction<typeof apiCallOrThrow>
+const mockWithScopedApiRequestHeaders = withScopedApiRequestHeaders as jest.MockedFunction<typeof withScopedApiRequestHeaders>
 const mockFlash = flash as jest.MockedFunction<typeof flash>
 const mockUseGuardedMutation = useGuardedMutation as jest.MockedFunction<typeof useGuardedMutation>
 
@@ -47,6 +56,7 @@ function setup(detailOverrides: Partial<MessageDetail> = {}) {
   const detailQuery = { refetch } as unknown as UseQueryResult<MessageDetail | null, Error>
   const detail = {
     id: 'message-1',
+    updatedAt: '2026-06-18T00:00:00.000Z',
     isRead: false,
     actionTaken: null,
     ...detailOverrides,
@@ -71,6 +81,8 @@ function setup(detailOverrides: Partial<MessageDetail> = {}) {
 describe('useMessageDetailsActions guarded writes (#3258)', () => {
   beforeEach(() => {
     mockApiCall.mockReset()
+    mockApiCallOrThrow.mockReset()
+    mockWithScopedApiRequestHeaders.mockClear()
     mockFlash.mockReset()
     mockRunMutation.mockReset()
     mockRetryLastMutation.mockReset()
@@ -79,6 +91,7 @@ describe('useMessageDetailsActions guarded writes (#3258)', () => {
     // the underlying apiCall/refetch/success behavior is preserved.
     mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
     mockApiCall.mockResolvedValue(okResult({ ok: true }))
+    mockApiCallOrThrow.mockResolvedValue(okResult({ ok: true }))
   })
 
   it('routes message read toggle through runMutation and refetches', async () => {
@@ -122,9 +135,59 @@ describe('useMessageDetailsActions guarded writes (#3258)', () => {
     expect(mockRunMutation).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({ resourceKind: 'message', action: 'delete' }),
     }))
-    expect(mockApiCall).toHaveBeenCalledWith('/api/messages/message-1', { method: 'DELETE' })
+    expect(mockWithScopedApiRequestHeaders).toHaveBeenCalledWith(
+      { [OPTIMISTIC_LOCK_HEADER_NAME]: '2026-06-18T00:00:00.000Z' },
+      expect.any(Function),
+    )
+    expect(mockApiCallOrThrow).toHaveBeenCalledWith(
+      '/api/messages/message-1',
+      { method: 'DELETE' },
+      { errorMessage: 'Failed to delete message.' },
+    )
     expect(onDeleted).toHaveBeenCalledTimes(1)
     expect(mockFlash).toHaveBeenCalledWith('Message deleted.', 'success')
+  })
+
+  it('keeps the page-load message version for delete when detail data refetches in the background', async () => {
+    const refetch = jest.fn().mockResolvedValue(null)
+    const detailQuery = { refetch } as unknown as UseQueryResult<MessageDetail | null, Error>
+    const onDeleted = jest.fn()
+    const onMarkedUnread = jest.fn()
+    const refreshDetailWithoutAutoMarkRead = jest.fn().mockResolvedValue(null)
+    const suppressAutoMarkRead = jest.fn()
+
+    const view = renderHook(
+      ({ updatedAt }: { updatedAt: string }) => useMessageDetailsActions({
+        id: 'message-1',
+        t: translate,
+        detail: {
+          id: 'message-1',
+          updatedAt,
+          isRead: false,
+          actionTaken: null,
+        } as MessageDetail,
+        detailQuery,
+        attachments: [],
+        isArchived: false,
+        onDeleted,
+        onMarkedUnread,
+        refreshDetailWithoutAutoMarkRead,
+        suppressAutoMarkRead,
+      }),
+      { initialProps: { updatedAt: '2026-06-18T00:00:00.000Z' } },
+    )
+
+    view.rerender({ updatedAt: '2026-06-19T00:00:00.000Z' })
+
+    await act(async () => {
+      await view.result.current.handleDelete()
+    })
+
+    expect(mockWithScopedApiRequestHeaders).toHaveBeenCalledWith(
+      { [OPTIMISTIC_LOCK_HEADER_NAME]: '2026-06-18T00:00:00.000Z' },
+      expect.any(Function),
+    )
+    expect(onDeleted).toHaveBeenCalledTimes(1)
   })
 
   it('routes conversation archive through runMutation with a conversation resource kind', async () => {
@@ -174,30 +237,31 @@ describe('useMessageDetailsActions guarded writes (#3258)', () => {
   })
 
   it('surfaces failures through the guarded path (conflict / error)', async () => {
-    mockApiCall.mockResolvedValue({
-      ok: false,
+    const conflict = Object.assign(new Error('record_modified'), {
       status: 409,
-      result: {
-        code: 'optimistic_lock_conflict',
-        error: 'record_modified',
-        currentUpdatedAt: '2026-06-19T00:00:00.000Z',
-        expectedUpdatedAt: '2026-06-18T00:00:00.000Z',
-      },
-      response: {} as Response,
-      cacheStatus: null,
+      code: 'optimistic_lock_conflict',
+      error: 'record_modified',
+      currentUpdatedAt: '2026-06-19T00:00:00.000Z',
+      expectedUpdatedAt: '2026-06-18T00:00:00.000Z',
     })
+    mockApiCallOrThrow.mockRejectedValue(conflict)
 
     const { result, onDeleted } = setup()
+
+    act(() => {
+      result.current.setDeleteConfirmationOpen(true)
+    })
 
     await act(async () => {
       await result.current.handleDelete()
     })
 
     // The mutation still flows through the guard (which owns conflict
-    // surfacing), and the failure is reported via flash rather than navigation.
+    // surfacing), and the dialog is closed so the stale delete cannot be retried.
     expect(mockRunMutation).toHaveBeenCalledTimes(1)
     expect(onDeleted).not.toHaveBeenCalled()
-    expect(mockFlash).toHaveBeenCalledWith(expect.any(String), 'error')
+    expect(result.current.deleteConfirmationOpen).toBe(false)
+    expect(mockFlash).not.toHaveBeenCalled()
   })
 
   it('maps sender archive failures to a domain-specific flash message', async () => {
@@ -225,12 +289,15 @@ describe('useMessageDetailsActions guarded writes (#3258)', () => {
 describe('useMessageDetailsActions mark-unread redirect (#3576)', () => {
   beforeEach(() => {
     mockApiCall.mockReset()
+    mockApiCallOrThrow.mockReset()
+    mockWithScopedApiRequestHeaders.mockClear()
     mockFlash.mockReset()
     mockRunMutation.mockReset()
     mockRetryLastMutation.mockReset()
     mockUseGuardedMutation.mockClear()
     mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
     mockApiCall.mockResolvedValue(okResult({ ok: true }))
+    mockApiCallOrThrow.mockResolvedValue(okResult({ ok: true }))
   })
 
   it('navigates back to the inbox after marking a read message unread', async () => {
