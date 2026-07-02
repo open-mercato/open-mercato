@@ -16,7 +16,7 @@ import { loadGeneratedFieldRegistrations } from '@open-mercato/ui/backend/fields
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { FieldDefinitionsEditor, type FieldDefinition, type FieldDefinitionError } from '@open-mercato/ui/backend/custom-fields/FieldDefinitionsEditor'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import {
   Dialog,
   DialogContent,
@@ -407,8 +407,8 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         { value: 'simpleMarkdown', label: 'Simple Markdown' },
         { value: 'htmlRichText', label: 'HTML Rich Text' },
       ],
-    } as any,
-    ...(entitySource === 'custom' ? [{ id: 'showInSidebar', label: 'Show in sidebar', type: 'checkbox' }] : []),
+    } as CrudField,
+    ...(entitySource === 'custom' ? [{ id: 'showInSidebar', label: 'Show in sidebar', type: 'checkbox' } as CrudField] : []),
   ]
   const renderFieldDefinitions = React.useCallback(() => (
       <FieldDefinitionsEditor
@@ -467,7 +467,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const definitionsGroup: CrudFormGroup = { id: 'definitions', title: 'Field Definitions', column: 1, component: renderFieldDefinitions }
 
   const groups: CrudFormGroup[] = [
-    { id: 'settings', title: 'Entity Settings', column: 1, fields: entitySource === 'custom' ? ['label','description','defaultEditor','showInSidebar'] : ['label','description','defaultEditor'] },
+    { id: 'settings', title: 'Entity Settings', column: 1, description: getEntitySettingsNotice(entitySource, t), fields: entitySource === 'custom' ? ['label','description','defaultEditor','showInSidebar'] : ['label','description','defaultEditor'] },
     definitionsGroup,
   ]
 
@@ -607,6 +607,15 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
 
 export function shouldRegisterEntityMetadata(entitySource: EntitySource): boolean {
   return entitySource === 'custom'
+}
+
+const SYSTEM_ENTITY_SETTINGS_NOTICE_FALLBACK =
+  'This is a system entity defined in code. Its label and description are managed in code and cannot be edited here — only the field definitions below are editable.'
+
+export function getEntitySettingsNotice(entitySource: EntitySource, t: TranslateFn): string | undefined {
+  return shouldRegisterEntityMetadata(entitySource)
+    ? undefined
+    : t('entities.userEntities.form.systemEntityNotice', SYSTEM_ENTITY_SETTINGS_NOTICE_FALLBACK)
 }
 
 export function buildDefinitionsBatchPayload(options: {
