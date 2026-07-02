@@ -91,9 +91,7 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
       const memberId = selfRes.member?.id ?? null
       setStaffMemberId(memberId)
 
-      const today = new Date().toISOString().slice(0, 10)
-
-      // Project details depend on the assignment ids and active entries depend on the staff
+      // Project details depend on the assignment ids and the active timer depends on the staff
       // member id, but the two requests are independent of each other — fetch them together.
       const [projectsRes, entriesRes] = await Promise.all([
         projectIds.length > 0
@@ -105,7 +103,7 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
           : Promise.resolve<{ items?: Array<Record<string, unknown>> }>({ items: [] }),
         memberId
           ? readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-              `/api/staff/timesheets/time-entries?staffMemberId=${memberId}&from=${today}&to=${today}&pageSize=100`,
+              `/api/staff/timesheets/time-entries?staffMemberId=${memberId}&running=true&pageSize=100`,
               undefined,
               { errorMessage: '', fallback: { items: [] } },
             )
