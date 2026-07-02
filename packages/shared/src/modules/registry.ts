@@ -56,6 +56,8 @@ export type PageMetadata = {
   // Ordering and visuals
   order?: number
   pageOrder?: number
+  priority?: number
+  pagePriority?: number
   icon?: ReactNode
   navHidden?: boolean
   // Dynamic flags
@@ -122,6 +124,8 @@ export type ModuleRoute = {
   }
   Component: (props: any) => ReactNode | Promise<ReactNode>
 }
+
+export type ModuleRouteMetadata = Omit<ModuleRoute, 'Component'>
 
 export type ModuleApiLegacy = {
   method: HttpMethod
@@ -396,6 +400,31 @@ export function findApiRouteManifestMatch<T extends { path: string; methods: Htt
     if (params) {
       return { route, params }
     }
+  }
+}
+
+export function resolvePageRouteMetadata(pattern: string, metadata: PageMetadata | null | undefined): ModuleRouteMetadata {
+  return {
+    pattern: pattern || '/',
+    requireAuth: metadata?.requireAuth,
+    requireRoles: metadata?.requireRoles ? [...metadata.requireRoles] : undefined,
+    requireFeatures: metadata?.requireFeatures ? [...metadata.requireFeatures] : undefined,
+    requireCustomerAuth: metadata?.requireCustomerAuth,
+    requireCustomerFeatures: metadata?.requireCustomerFeatures ? [...metadata.requireCustomerFeatures] : undefined,
+    nav: metadata?.nav,
+    title: metadata?.pageTitle ?? metadata?.title,
+    titleKey: metadata?.pageTitleKey ?? metadata?.titleKey,
+    group: metadata?.pageGroup ?? metadata?.group,
+    groupKey: metadata?.pageGroupKey ?? metadata?.groupKey,
+    icon: metadata?.icon,
+    order: metadata?.pageOrder ?? metadata?.order,
+    priority: metadata?.pagePriority ?? metadata?.priority,
+    navHidden: metadata?.navHidden,
+    visible: metadata?.visible,
+    enabled: metadata?.enabled,
+    breadcrumb: metadata?.breadcrumb,
+    pageContext: metadata?.pageContext,
+    placement: metadata?.placement,
   }
 }
 
