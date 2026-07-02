@@ -1,50 +1,65 @@
-import { Resend } from 'resend'
 import React from 'react'
-import { parseBooleanWithDefault } from '../boolean'
-import { resolveDefaultEmailFromAddress } from './config'
+import {
+  isEmailDeliveryDisabled,
+  resolveDefaultEmailFromAddress,
+} from './config'
+import { getRegisteredEmailTransport } from './transport'
+
+export type EmailAttachment = {
+  filename: string
+  content: string
+  contentType?: string
+}
 
 export type SendEmailOptions = {
   to: string
   subject: string
-  react: React.ReactElement
+  react?: React.ReactElement
+  html?: string
+  text?: string
   from?: string
   replyTo?: string
-  attachments?: Array<{
-    filename: string
-    content: string
-    contentType?: string
-  }>
+  attachments?: EmailAttachment[]
+  tenantId?: string
+  organizationId?: string | null
 }
 
-export async function sendEmail({ to, subject, react, from, replyTo, attachments }: SendEmailOptions) {
-  const emailDisabled =
-    parseBooleanWithDefault(process.env.OM_DISABLE_EMAIL_DELIVERY, false) ||
-    parseBooleanWithDefault(process.env.OM_TEST_MODE, false)
-  if (emailDisabled) return
+export type ResolvedEmailPayload = {
+  to: string
+  subject: string
+  react?: React.ReactElement
+  html?: string
+  text?: string
+  from: string
+  replyTo?: string
+  attachments?: EmailAttachment[]
+  tenantId?: string
+  organizationId?: string | null
+}
 
-  const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) throw new Error('RESEND_API_KEY is not set')
-  const resend = new Resend(apiKey)
-  const fromAddr = from || resolveDefaultEmailFromAddress()
+export async function sendEmail(options: SendEmailOptions): Promise<void> {
+  if (isEmailDeliveryDisabled()) return
+
+  const fromAddr = options.from || resolveDefaultEmailFromAddress()
   if (!fromAddr) {
     throw new Error('EMAIL_FROM_NOT_CONFIGURED: set NOTIFICATIONS_EMAIL_FROM, EMAIL_FROM, or ADMIN_EMAIL')
   }
-  const payload = {
-    to,
-    subject,
+
+  const transport = getRegisteredEmailTransport()
+  if (!transport) {
+    throw new Error('EMAIL_TRANSPORT_NOT_CONFIGURED: enable an outbound email provider module')
+  }
+
+  await transport.send({
+    to: options.to,
+    subject: options.subject,
+    react: options.react,
+    html: options.html,
+    text: options.text,
     from: fromAddr,
-    react,
-    ...(replyTo ? { reply_to: replyTo } : {}),
-    ...(attachments?.length ? { attachments } : {}),
-  }
-  const result = await resend.emails.send(payload)
-  const errorMessage =
-    typeof (result as any)?.error === 'string'
-      ? (result as any).error
-      : typeof (result as any)?.error?.message === 'string'
-        ? (result as any).error.message
-        : null
-  if (errorMessage) {
-    throw new Error(`RESEND_SEND_FAILED: ${errorMessage}`)
-  }
+    replyTo: options.replyTo,
+    attachments: options.attachments,
+    tenantId: options.tenantId,
+    organizationId: options.organizationId,
+  })
 }

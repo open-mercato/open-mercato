@@ -44,6 +44,8 @@
     "@open-mercato/cache": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-gmail": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-imap": "{{PACKAGE_VERSION}}",
+    "@open-mercato/channel-resend": "{{PACKAGE_VERSION}}",
+    "@open-mercato/channel-ses": "{{PACKAGE_VERSION}}",
     "@open-mercato/checkout": "{{PACKAGE_VERSION}}",
     "@open-mercato/cli": "{{PACKAGE_VERSION}}",
     "@open-mercato/content": "{{PACKAGE_VERSION}}",

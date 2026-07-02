@@ -179,6 +179,8 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
           subject,
           from: deliveryConfig.strategies.email.from,
           replyTo: deliveryConfig.strategies.email.replyTo,
+          tenantId: payload.tenantId,
+          organizationId: payload.organizationId ?? null,
           react: NotificationEmail({
             title,
             body,

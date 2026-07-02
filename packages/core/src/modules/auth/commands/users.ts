@@ -479,7 +479,13 @@ async function sendInviteToUser(
 
   let emailSent = true
   try {
-    await sendEmail({ to: user.email, subject, react: InviteUserEmail({ inviteUrl, copy }) })
+    await sendEmail({
+      to: user.email,
+      subject,
+      react: InviteUserEmail({ inviteUrl, copy }),
+      tenantId: user.tenantId ? String(user.tenantId) : undefined,
+      organizationId: user.organizationId ? String(user.organizationId) : null,
+    })
   } catch (err) {
     console.error('[auth.users.invite] Failed to send invitation email:', err)
     emailSent = false

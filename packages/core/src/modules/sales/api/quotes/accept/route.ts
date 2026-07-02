@@ -158,6 +158,8 @@ export async function POST(req: Request) {
             orderNumber,
           }),
           react: QuoteAcceptedAdminEmail({ orderUrl, copy }),
+          tenantId: quote.tenantId,
+          organizationId: quote.organizationId,
         })
       } catch (err) {
         console.error('sales.quotes.accept.adminEmail failed', err)
