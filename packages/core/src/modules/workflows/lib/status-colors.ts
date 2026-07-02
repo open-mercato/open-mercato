@@ -1,4 +1,10 @@
-export type WorkflowStatus = 'completed' | 'in_progress' | 'pending' | 'not_started'
+export type WorkflowStatus =
+  | 'completed'
+  | 'in_progress'
+  | 'pending'
+  | 'failed'
+  | 'paused'
+  | 'not_started'
 
 export const STATUS_COLORS = {
   completed: {
@@ -22,6 +28,20 @@ export const STATUS_COLORS = {
     icon: 'text-yellow-600',
     hex: '#eab308',
   },
+  failed: {
+    bg: 'bg-status-error-bg',
+    border: 'border-status-error-border',
+    text: 'text-status-error-text',
+    icon: 'text-status-error-icon',
+    hex: '#ef4444',
+  },
+  paused: {
+    bg: 'bg-status-warning-bg',
+    border: 'border-status-warning-border',
+    text: 'text-status-warning-text',
+    icon: 'text-status-warning-icon',
+    hex: '#eab308',
+  },
   not_started: {
     bg: 'bg-muted',
     border: 'border-border',
@@ -30,6 +50,21 @@ export const STATUS_COLORS = {
     hex: '#6b7280',
   },
 } as const
+
+/**
+ * Normalize a raw execution/step status (any of the vocabularies used across the
+ * instance viewer, events, and definition graph) into a `WorkflowStatus` for
+ * node/minimap coloring. Keep this the single source of truth so every node
+ * type colors failed (red) and paused (yellow) steps consistently.
+ */
+export function toWorkflowStatus(status?: string): WorkflowStatus {
+  if (!status || status === 'pending') return 'not_started'
+  if (status === 'running' || status === 'in_progress' || status === 'active') return 'in_progress'
+  if (status === 'completed') return 'completed'
+  if (status === 'failed' || status === 'error') return 'failed'
+  if (status === 'paused' || status === 'waiting' || status === 'waiting_for_activities') return 'paused'
+  return 'not_started'
+}
 
 export type EdgeState = 'completed' | 'pending'
 

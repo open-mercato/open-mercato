@@ -331,6 +331,15 @@ export async function sendSignal(
     return
   }
 
+  // Resume from the paused wait: flip to RUNNING before executing the transition
+  // and re-entering executeWorkflow. Without this the executor's defense-in-depth
+  // PAUSED check stops the run after the first traversed step, so an intermediate
+  // AUTOMATED step (e.g. an emit-event "flag") between the waiting step and END
+  // leaves the instance permanently parked — and any parent sub-workflow waiting on
+  // its completion never resumes. The no-transition branches above already do this.
+  instance.status = 'RUNNING'
+  await em.flush()
+
   // Execute transition to next step
   const transitionResult = await transitionHandler.executeTransition(
     em,

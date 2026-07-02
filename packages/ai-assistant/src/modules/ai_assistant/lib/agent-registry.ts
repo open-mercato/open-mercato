@@ -40,7 +40,10 @@ async function importGeneratedAiAgentsModule(): Promise<Record<string, unknown> 
   } catch {
     const tsPath = findGeneratedFile('ai-agents.generated.ts')
     if (!tsPath) return null
-    return compileAndImportGenerated(tsPath)
+    // App-source modules (apps/<app>/src/modules/*/ai-agents.ts) are .ts that
+    // node cannot import directly — bundle their sources so one app-source agent
+    // does not abort the whole registry.
+    return compileAndImportGenerated(tsPath, { bundleLocalModules: true })
   }
 }
 
