@@ -4,7 +4,9 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { invalidateCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { upsertCustomEntitySchema, upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
 import { z } from 'zod'
@@ -31,7 +33,12 @@ export type EntitySource = 'code' | 'custom'
 type EntitiesListResponse = { items?: Array<Record<string, unknown>> }
 type FieldsetGroup = { code: string; title?: string; hint?: string }
 type FieldsetDefinition = { code: string; label: string; icon?: string; description?: string; groups?: FieldsetGroup[] }
-type DefinitionsManageResponse = { items?: any[]; deletedKeys?: string[]; fieldsets?: FieldsetDefinition[]; settings?: { singleFieldsetPerRecord?: boolean } }
+type DefinitionsManageResponse = { items?: any[]; deletedKeys?: string[]; fieldsets?: FieldsetDefinition[]; settings?: { singleFieldsetPerRecord?: boolean }; version?: string | null }
+type DefinitionsBatchResponse = { ok?: boolean; version?: string | null }
+
+function readVersionToken(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
 
 type DefErrors = FieldDefinitionError
 
@@ -48,6 +55,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const [entityFormLoading, setEntityFormLoading] = useState(true)
   const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string; showInSidebar?: boolean; updatedAt?: string }>({})
   const [defs, setDefs] = useState<Def[]>([])
+  const [defsVersion, setDefsVersion] = useState<string | null>(null)
   const [orderDirty, setOrderDirty] = useState(false)
   const [orderSaving, setOrderSaving] = useState(false)
   const listRef = React.useRef<HTMLDivElement | null>(null)
@@ -197,6 +205,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             (a, b) => Number(a.configJson?.priority ?? 0) - Number(b.configJson?.priority ?? 0)
           )
           setDefs(loaded)
+          setDefsVersion(readVersionToken(json.version))
           setDefErrors({})
           setDeletedKeys(Array.isArray(json.deletedKeys) ? json.deletedKeys : [])
           const loadedFieldsets = Array.isArray(json.fieldsets) ? json.fieldsets : []
@@ -253,6 +262,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         (a, b) => Number(a.configJson?.priority ?? 0) - Number(b.configJson?.priority ?? 0)
       )
       setDefs(loaded)
+      setDefsVersion(readVersionToken(j2.version))
       setDeletedKeys(Array.isArray(j2.deletedKeys) ? j2.deletedKeys : [])
       flash(`Restored ${key}`, 'success')
       await invalidateCustomFieldDefs(queryClient, entityId)
@@ -278,14 +288,19 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           isActive: d.isActive !== false,
         })),
       }
-      const call = await apiCall('/api/entities/definitions.batch', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(defsVersion),
+        () => apiCall<DefinitionsBatchResponse>('/api/entities/definitions.batch', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        }),
+      )
       if (!call.ok) {
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
         await raiseCrudError(call.response, 'Failed to save definitions')
       }
+      setDefsVersion(readVersionToken(call.result?.version))
       await invalidateCustomFieldDefs(queryClient, entityId)
       router.push(`/backend/entities/user?flash=Definitions%20saved&type=success`)
     } catch (e: any) {
@@ -300,7 +315,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     if (!def) return
     if (def.key) {
       try {
-        const call = await apiCall('/api/entities/definitions', {
+        const call = await apiCall<DefinitionsBatchResponse>('/api/entities/definitions', {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ entityId, key: def.key }),
@@ -308,6 +323,9 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         if (!call.ok) {
           await raiseCrudError(call.response, 'Failed to delete field')
         }
+        // Keep the optimistic-lock token in sync after an out-of-band delete so a
+        // later Save does not falsely 409 against our own change (issue #3152).
+        setDefsVersion(readVersionToken(call.result?.version))
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to delete field'
         flash(message, 'error')
@@ -364,12 +382,23 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           isActive: d.isActive !== false,
         })),
       }
-      const call = await apiCall('/api/entities/definitions.batch', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload)
-      })
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(defsVersion),
+        () => apiCall<DefinitionsBatchResponse>('/api/entities/definitions.batch', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
+        }),
+      )
       if (!call.ok) {
+        // A stale reorder auto-save (another tab changed the schema first) returns a
+        // 409; surface the shared conflict bar and stop the retry loop instead of a
+        // generic flash (issue #3152).
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) {
+          setOrderDirty(false)
+          return
+        }
         await raiseCrudError(call.response, 'Failed to save order')
       }
+      setDefsVersion(readVersionToken(call.result?.version))
       setOrderDirty(false)
       flash('Order saved', 'success')
       await invalidateCustomFieldDefs(queryClient, entityId)
@@ -502,18 +531,25 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       fieldsets: buildFieldsetPayload(),
       singleFieldsetPerRecord,
     })
-    const callDefs = await apiCall('/api/entities/definitions.batch', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(defsPayload),
-    })
+    // Send the aggregate schema version so a concurrent edit is rejected with a 409
+    // instead of silently overwriting the other tab (issue #3152). CrudForm's submit
+    // catch detects the optimistic-lock conflict and shows the shared conflict bar.
+    const callDefs = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(defsVersion),
+      () => apiCall<DefinitionsBatchResponse>('/api/entities/definitions.batch', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(defsPayload),
+      }),
+    )
     if (!callDefs.ok) {
       await raiseCrudError(callDefs.response, 'Failed to save definitions')
     }
+    setDefsVersion(readVersionToken(callDefs.result?.version))
     try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
     await invalidateCustomFieldDefs(queryClient, entityId)
     flash('Definitions saved', 'success')
-  }, [buildFieldsetPayload, defs, entityId, entitySource, queryClient, singleFieldsetPerRecord, validateAll])
+  }, [buildFieldsetPayload, defs, defsVersion, entityId, entitySource, queryClient, singleFieldsetPerRecord, validateAll])
 
   if (!entityId) {
     return (
