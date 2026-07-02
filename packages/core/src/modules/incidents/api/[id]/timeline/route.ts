@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { CommandBus, CommandRuntimeContext, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands'
@@ -17,6 +18,7 @@ import {
 } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 import { getAllMutationGuardInstances } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Incident, IncidentTimelineEntry } from '../../../data/entities'
 import {
@@ -226,6 +228,8 @@ async function parseTimelineListInput(
     id,
     page: url.searchParams.get('page') ?? undefined,
     pageSize: url.searchParams.get('pageSize') ?? undefined,
+    kinds: url.searchParams.get('kinds') ?? undefined,
+    visibility: url.searchParams.get('visibility') ?? undefined,
   }, ctx, translate)
   return timelineListSchema.parse(payload)
 }
@@ -246,11 +250,18 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     )
     if (!incident) throw new CrudHttpError(404, { error: '[internal] incident not found' })
 
+    const timelineWhere = {
+      incidentId: input.id,
+      ...scope,
+      ...(input.kinds && input.kinds.length > 0 ? { kind: { $in: input.kinds } } : {}),
+      ...(input.visibility ? { visibility: input.visibility } : {}),
+    } satisfies FilterQuery<IncidentTimelineEntry>
+
     const [entries, total] = await Promise.all([
       findWithDecryption(
         em,
         IncidentTimelineEntry,
-        { incidentId: input.id, ...scope },
+        timelineWhere,
         {
           orderBy: { createdAt: 'desc' },
           limit: input.pageSize,
@@ -258,7 +269,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         },
         scope,
       ),
-      em.count(IncidentTimelineEntry, { incidentId: input.id, ...scope }),
+      em.count(IncidentTimelineEntry, timelineWhere),
     ])
     return NextResponse.json({
       items: entries.map(serializeTimelineEntry),
@@ -284,7 +295,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const { id } = pathParamsSchema.parse(params)
     const { ctx } = await resolveRequestContext(req)
     const { translate } = await resolveTranslations()
-    const payload = asRecord(await req.json().catch(() => ({})))
+    const payload = asRecord(await readJsonSafe(req))
     const scoped = withScopedPayload({ ...payload, id }, ctx, translate)
     const initialInput = timelineAddSchema.parse(scoped)
     const guardInput = {

@@ -28,6 +28,7 @@ type TriageRequest = z.infer<typeof triageRequestSchema>
 const triageSuggestionSchema = z.object({
   severityKey: z.string(),
   typeKey: z.string(),
+  priorityKey: z.string().optional(),
   rationale: z.string(),
   possibleDuplicateIds: z.array(z.string()),
 })
@@ -144,10 +145,13 @@ function buildTriagePrompt(
     'Type catalog:',
     JSON.stringify(catalogs.types, null, 2),
     '',
+    'Priority catalog:',
+    JSON.stringify(catalogs.priorities, null, 2),
+    '',
     'Similar incidents:',
     JSON.stringify(similar, null, 2),
     '',
-    'Return only keys from the provided catalogs. The rationale must be one sentence.',
+    'Return only keys from the provided catalogs. Include priorityKey only when a priority match is clear. The rationale must be one sentence.',
   ].join('\n')
 }
 
@@ -158,9 +162,8 @@ function responseForRunResult(
   if (result.ok) {
     return NextResponse.json({ suggestion: result.data, similar })
   }
-  if (result.reason === 'unavailable') {
-    return NextResponse.json({ suggestion: null, similar })
-  }
+  console.error('[incidents.ai.triage] failed', { incidentId: 'triage' }, result.error)
+  if (result.reason === 'unavailable') return jsonError(503, result.code ?? 'ai_unavailable')
   return jsonError(500, 'ai_failed')
 }
 
@@ -186,7 +189,7 @@ export async function POST(req: Request) {
     })
     return responseForRunResult(result, similar)
   } catch (error) {
-    console.error('[incidents.ai.triage] failed', error)
+    console.error('[incidents.ai.triage] failed', { incidentId: 'triage' }, error)
     return jsonError(500, 'ai_failed')
   }
 }
@@ -207,6 +210,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid payload', schema: errorResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
         { status: 403, description: 'Forbidden', schema: errorResponseSchema },
+        { status: 500, description: 'AI failed', schema: errorResponseSchema },
+        { status: 503, description: 'AI unavailable', schema: errorResponseSchema },
       ],
     },
   },

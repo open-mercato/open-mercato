@@ -47,6 +47,12 @@ type RecordsResponse = {
 
 type RecordOption = RecordSelectPickedRecord
 
+type SelectedLabelState = {
+  targetType: RecordSelectTargetType
+  id: string
+  label: string
+}
+
 export const recordSelectSources: Readonly<Record<RecordSelectTargetType, RecordSearchSource>> = {
   customer_person: {
     path: '/api/customers/people',
@@ -132,7 +138,7 @@ function firstNameLabel(record: Record<string, unknown>): string | null {
   return parts.length ? parts.join(' ') : null
 }
 
-function normalizeRecordOption(source: RecordSearchSource, raw: unknown): RecordOption | null {
+function normalizeRecordOptionFromSource(source: RecordSearchSource, raw: unknown): RecordOption | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const record = raw as Record<string, unknown>
   const id = recordId(record)
@@ -146,6 +152,10 @@ function normalizeRecordOption(source: RecordSearchSource, raw: unknown): Record
   }
 }
 
+export function normalizeRecordOption(targetType: RecordSelectTargetType, raw: unknown): RecordOption | null {
+  return normalizeRecordOptionFromSource(recordSelectSources[targetType], raw)
+}
+
 async function searchRecords(targetType: RecordSelectTargetType, query: string): Promise<RecordOption[] | 'fallback'> {
   const source = recordSelectSources[targetType]
   const params = new URLSearchParams()
@@ -156,10 +166,26 @@ async function searchRecords(targetType: RecordSelectTargetType, query: string):
     const call = await apiCall<RecordsResponse>(`${source.path}?${params.toString()}`)
     if (call.status === 403 || call.status === 404 || !call.ok || !call.result) return 'fallback'
     return (call.result.items ?? [])
-      .map((item) => normalizeRecordOption(source, item))
+      .map((item) => normalizeRecordOptionFromSource(source, item))
       .filter((option): option is RecordOption => option !== null)
   } catch {
     return 'fallback'
+  }
+}
+
+async function hydrateRecord(targetType: RecordSelectTargetType, id: string): Promise<RecordOption | null> {
+  const source = recordSelectSources[targetType]
+  const params = new URLSearchParams()
+  params.set('ids', id)
+  params.set('pageSize', '1')
+  try {
+    const call = await apiCall<RecordsResponse>(`${source.path}?${params.toString()}`)
+    if (!call.ok || !call.result) return null
+    return (call.result.items ?? [])
+      .map((item) => normalizeRecordOptionFromSource(source, item))
+      .find((option): option is RecordOption => option?.id === id) ?? null
+  } catch {
+    return null
   }
 }
 
@@ -177,7 +203,7 @@ export function RecordSelect({
   const inputRef = React.useRef<HTMLInputElement>(null)
   const blurTimerRef = React.useRef<number | null>(null)
   const [query, setQuery] = React.useState('')
-  const [selectedLabel, setSelectedLabel] = React.useState<string | null>(null)
+  const [selectedLabelState, setSelectedLabelState] = React.useState<SelectedLabelState | null>(null)
   const [open, setOpen] = React.useState(false)
   const [options, setOptions] = React.useState<RecordOption[]>([])
   const [loading, setLoading] = React.useState(false)
@@ -189,9 +215,29 @@ export function RecordSelect({
     if (blurTimerRef.current !== null) window.clearTimeout(blurTimerRef.current)
   }, [])
 
+  const selectedLabel = selectedLabelState?.targetType === targetType && selectedLabelState.id === normalizedValue
+    ? selectedLabelState.label
+    : null
+
   React.useEffect(() => {
-    if (!normalizedValue) setSelectedLabel(null)
+    if (!normalizedValue) setSelectedLabelState(null)
   }, [normalizedValue])
+
+  React.useEffect(() => {
+    if (!normalizedValue || selectedLabel) return
+    let cancelled = false
+    hydrateRecord(targetType, normalizedValue).then((option) => {
+      if (cancelled || !option) return
+      setSelectedLabelState({
+        targetType,
+        id: option.id,
+        label: option.label,
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [normalizedValue, selectedLabel, targetType])
 
   React.useEffect(() => {
     if (!open || disabled || fallbackMode) return
@@ -230,16 +276,16 @@ export function RecordSelect({
   const selectOption = React.useCallback((option: RecordOption) => {
     onChange(option.id)
     onPicked?.(option)
-    setSelectedLabel(option.label)
+    setSelectedLabelState({ targetType, id: option.id, label: option.label })
     setQuery('')
     setOpen(false)
     setHighlightedIndex(-1)
-  }, [onChange, onPicked])
+  }, [onChange, onPicked, targetType])
 
   const handleClear = React.useCallback(() => {
     if (disabled) return
     onChange(null)
-    setSelectedLabel(null)
+    setSelectedLabelState(null)
     setQuery('')
     setOpen(false)
     setHighlightedIndex(-1)

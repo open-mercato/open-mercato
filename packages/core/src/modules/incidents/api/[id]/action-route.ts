@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type {
@@ -199,7 +200,7 @@ export async function handleIncidentActionPost<TInput extends IncidentActionInpu
   try {
     const { ctx } = await resolveRequestContext(req)
     const { translate } = await resolveTranslations()
-    const payload = asRecord(await req.json().catch(() => ({})))
+    const payload = asRecord(await readJsonSafe(req))
     const scoped = withScopedPayload({ ...payload, id: params.id }, ctx, translate)
     const initialInput = config.schema.parse(scoped)
     const guardInput = {

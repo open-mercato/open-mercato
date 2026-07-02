@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -136,7 +137,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   try {
     const { id } = mergePathParamsSchema.parse(params)
     const { ctx } = await resolveRequestContext(req)
-    const payload = asRecord(await req.json().catch(() => ({})))
+    const payload = asRecord(await readJsonSafe(req))
     const scoped = withScopedPayload({ ...payload, id }, ctx, (key, fallback) => fallback ?? key)
     const initialInput = incidentMergeSchema.parse(scoped)
     const guardInput = {

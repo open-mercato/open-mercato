@@ -34,7 +34,10 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   RecordSelect,
   isRecordSelectTargetType,
+  normalizeRecordOption,
+  recordSelectSources,
   type RecordSelectPickedRecord,
+  type RecordSelectTargetType,
 } from '../components/RecordSelect'
 
 type ImpactTargetType =
@@ -91,6 +94,12 @@ type ImpactListResponse = {
   error?: string
 }
 
+type RecordListResponse = {
+  items?: unknown[]
+}
+
+type ResolvedImpactLabelCache = Record<string, string | null>
+
 type ImpactMutationResponse = {
   ok?: boolean
   impactId?: string | null
@@ -126,10 +135,20 @@ type AddImpactFormState = {
   revenueCurrency: string
 }
 
-const targetTypeOptions: readonly ImpactTargetType[] = [
+const allTargetTypeOptions: readonly ImpactTargetType[] = [
   'customer_person',
   'customer_company',
   'customer_account',
+  'sales_order',
+  'sales_quote',
+  'sales_invoice',
+  'sales_credit_memo',
+  'component',
+]
+
+const offeredTargetTypeOptions: readonly ImpactTargetType[] = [
+  'customer_person',
+  'customer_company',
   'sales_order',
   'sales_quote',
   'sales_invoice',
@@ -154,7 +173,7 @@ const initialAddForm: AddImpactFormState = {
 }
 
 function isImpactTargetType(value: string): value is ImpactTargetType {
-  return targetTypeOptions.includes(value as ImpactTargetType)
+  return allTargetTypeOptions.includes(value as ImpactTargetType)
 }
 
 function isImpactStatus(value: string): value is ImpactStatus {
@@ -235,10 +254,33 @@ function shortenId(value: string | null | undefined, fallback: string): string {
   return `${value.slice(0, 8)}...${value.slice(-4)}`
 }
 
-function impactDisplayLabel(impact: ImpactItem, t: ReturnType<typeof useT>): string {
+function impactDisplayLabel(
+  impact: ImpactItem,
+  t: ReturnType<typeof useT>,
+  resolvedLabel?: string | null,
+): string {
   return snapshotLabel(impact.snapshot) ??
     impact.componentLabel ??
+    resolvedLabel ??
     shortenId(impact.targetId, targetTypeLabel(t, impact.targetType))
+}
+
+function impactLabelCacheKey(targetType: RecordSelectTargetType, targetId: string): string {
+  return `${targetType}:${targetId}`
+}
+
+function unresolvedImpactLabelTarget(impact: ImpactItem): {
+  key: string
+  targetType: RecordSelectTargetType
+  targetId: string
+} | null {
+  if (snapshotLabel(impact.snapshot) || impact.componentLabel || !impact.targetId) return null
+  if (!isRecordSelectTargetType(impact.targetType)) return null
+  return {
+    key: impactLabelCacheKey(impact.targetType, impact.targetId),
+    targetType: impact.targetType,
+    targetId: impact.targetId,
+  }
 }
 
 function impactIcon(targetType: string): React.ReactElement {
@@ -282,6 +324,8 @@ export function ImpactPanel({
   const [pendingAction, setPendingAction] = React.useState<string | null>(null)
   const [addDialogOpen, setAddDialogOpen] = React.useState(false)
   const [addForm, setAddForm] = React.useState<AddImpactFormState>(initialAddForm)
+  const [resolvedImpactLabels, setResolvedImpactLabels] = React.useState<ResolvedImpactLabelCache>({})
+  const componentLabelListId = React.useId()
   const parentUpdatedAtRef = React.useRef<string | null>(updatedAt ?? null)
   const contextId = React.useMemo(() => `incident-impacts:${incidentId}`, [incidentId])
   const { runMutation, retryLastMutation } = useGuardedMutation<ImpactMutationContext>({
@@ -331,6 +375,64 @@ export function ImpactPanel({
     }
   }, [loadItems, t])
 
+  React.useEffect(() => {
+    const groups = new Map<RecordSelectTargetType, Set<string>>()
+    for (const impact of items) {
+      const target = unresolvedImpactLabelTarget(impact)
+      if (!target || Object.prototype.hasOwnProperty.call(resolvedImpactLabels, target.key)) continue
+      const group = groups.get(target.targetType) ?? new Set<string>()
+      group.add(target.targetId)
+      groups.set(target.targetType, group)
+    }
+    if (groups.size === 0) return
+
+    let active = true
+    void Promise.all(Array.from(groups.entries()).map(async ([targetType, targetIds]) => {
+      const ids = Array.from(targetIds).slice(0, 100)
+      const params = new URLSearchParams()
+      params.set('ids', ids.join(','))
+      params.set('pageSize', String(ids.length))
+      try {
+        const call = await apiCall<RecordListResponse>(
+          `${recordSelectSources[targetType].path}?${params.toString()}`,
+        )
+        const labels = new Map<string, string>()
+        if (call.ok && call.result) {
+          for (const item of call.result.items ?? []) {
+            const option = normalizeRecordOption(targetType, item)
+            if (option && ids.includes(option.id)) labels.set(option.id, option.label)
+          }
+        }
+        return ids.map((id) => ({
+          key: impactLabelCacheKey(targetType, id),
+          label: labels.get(id) ?? null,
+        }))
+      } catch {
+        return ids.map((id) => ({
+          key: impactLabelCacheKey(targetType, id),
+          label: null,
+        }))
+      }
+    })).then((groupsResult) => {
+      if (!active) return
+      const entries = groupsResult.flat()
+      setResolvedImpactLabels((prev) => {
+        let changed = false
+        const next: ResolvedImpactLabelCache = { ...prev }
+        for (const entry of entries) {
+          if (next[entry.key] === entry.label) continue
+          next[entry.key] = entry.label
+          changed = true
+        }
+        return changed ? next : prev
+      })
+    })
+
+    return () => {
+      active = false
+    }
+  }, [items, resolvedImpactLabels])
+
   const refreshAfterConflict = React.useCallback(() => {
     void loadItems()
     void onChanged()
@@ -362,6 +464,15 @@ export function ImpactPanel({
     () => formatMinorCurrency(revenueAtRiskMinor ?? null, revenueAtRiskCurrency ?? 'USD'),
     [revenueAtRiskCurrency, revenueAtRiskMinor],
   )
+
+  const componentLabelOptions = React.useMemo(() => {
+    const labels = new Set<string>()
+    for (const item of items) {
+      const label = item.componentLabel?.trim()
+      if (label) labels.add(label)
+    }
+    return Array.from(labels).sort((left, right) => left.localeCompare(right))
+  }, [items])
 
   const isAddFormValid = React.useMemo(() => {
     const hasTarget = addForm.targetType === 'component'
@@ -639,6 +750,12 @@ export function ImpactPanel({
               impact.revenueAmountMinor,
               impact.revenueCurrency ?? revenueAtRiskCurrency ?? 'USD',
             )
+            const unresolvedTarget = unresolvedImpactLabelTarget(impact)
+            const displayLabel = impactDisplayLabel(
+              impact,
+              t,
+              unresolvedTarget ? resolvedImpactLabels[unresolvedTarget.key] : null,
+            )
             return (
               <li key={impact.id} className="rounded-md border border-border bg-background p-3">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center">
@@ -648,8 +765,8 @@ export function ImpactPanel({
                     </div>
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-sm font-medium text-foreground" title={impactDisplayLabel(impact, t)}>
-                          {impactDisplayLabel(impact, t)}
+                        <p className="truncate text-sm font-medium text-foreground" title={displayLabel}>
+                          {displayLabel}
                         </p>
                         <StatusBadge variant={impactStatusVariant(impact.impactStatus)} dot>
                           {impactStatusLabel(t, impact.impactStatus)}
@@ -686,7 +803,7 @@ export function ImpactPanel({
                         size="sm"
                         onClick={() => void handleRemove(impact)}
                         disabled={isPending}
-                        aria-label={t('incidents.incident.detail.impact.removeAriaLabel', { id: impactDisplayLabel(impact, t) })}
+                        aria-label={t('incidents.incident.detail.impact.removeAriaLabel', { id: displayLabel })}
                         className="whitespace-nowrap"
                       >
                         <Trash2 className="size-4" aria-hidden="true" />
@@ -733,7 +850,9 @@ export function ImpactPanel({
                         ...prev,
                         targetType: value,
                         targetId: value === 'component' ? '' : prev.targetId,
-                        label: value === 'customer_person' ? '' : prev.label,
+                        label: value === 'customer_person' || value === 'component' || prev.targetType === 'component'
+                          ? ''
+                          : prev.label,
                       }))
                     }
                   }}
@@ -743,7 +862,7 @@ export function ImpactPanel({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {targetTypeOptions.map((targetType) => (
+                    {offeredTargetTypeOptions.map((targetType) => (
                       <SelectItem key={targetType} value={targetType}>
                         {targetTypeLabel(t, targetType)}
                       </SelectItem>
@@ -775,41 +894,67 @@ export function ImpactPanel({
                 </Select>
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="incident-impact-target-id">
-                {t('incidents.incident.detail.impact.targetId')}
-              </Label>
-              {isRecordSelectTargetType(addForm.targetType) ? (
-                <RecordSelect
-                  id="incident-impact-target-id"
-                  targetType={addForm.targetType}
-                  value={addForm.targetId}
-                  onChange={(next) => setAddForm((prev) => ({ ...prev, targetId: next ?? '' }))}
-                  onPicked={handlePickedRecord}
+            {addForm.targetType === 'component' ? (
+              <div className="space-y-2">
+                <Label htmlFor="incident-impact-component-name">
+                  {t('incidents.incident.detail.impact.componentName', 'Component name')}
+                </Label>
+                <Input
+                  id="incident-impact-component-name"
+                  value={addForm.label}
+                  onChange={(event) => setAddForm((prev) => ({ ...prev, label: event.currentTarget.value }))}
+                  placeholder={t('incidents.incident.detail.impact.componentNamePlaceholder', 'Enter component name')}
+                  disabled={isPending}
+                  list={componentLabelOptions.length > 0 ? componentLabelListId : undefined}
+                  required
+                />
+                {componentLabelOptions.length > 0 ? (
+                  <datalist id={componentLabelListId}>
+                    {componentLabelOptions.map((label) => (
+                      <option key={label} value={label} />
+                    ))}
+                  </datalist>
+                ) : null}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="incident-impact-target-id">
+                  {t('incidents.incident.detail.impact.targetId')}
+                </Label>
+                {isRecordSelectTargetType(addForm.targetType) ? (
+                  <RecordSelect
+                    id="incident-impact-target-id"
+                    targetType={addForm.targetType}
+                    value={addForm.targetId}
+                    onChange={(next) => setAddForm((prev) => ({ ...prev, targetId: next ?? '' }))}
+                    onPicked={handlePickedRecord}
+                    disabled={isPending}
+                  />
+                ) : (
+                  <Input
+                    id="incident-impact-target-id"
+                    value={addForm.targetId}
+                    onChange={(event) => setAddForm((prev) => ({ ...prev, targetId: event.currentTarget.value }))}
+                    placeholder={t('incidents.incident.detail.impact.targetIdPlaceholder')}
+                    disabled={isPending}
+                  />
+                )}
+              </div>
+            )}
+            {addForm.targetType !== 'component' && addForm.targetType !== 'customer_person' ? (
+              <div className="space-y-2">
+                <Label htmlFor="incident-impact-label">
+                  {t('incidents.incident.detail.impact.label')}
+                </Label>
+                <Input
+                  id="incident-impact-label"
+                  value={addForm.label}
+                  onChange={(event) => setAddForm((prev) => ({ ...prev, label: event.currentTarget.value }))}
+                  placeholder={t('incidents.incident.detail.impact.labelPlaceholder')}
                   disabled={isPending}
                 />
-              ) : (
-                <Input
-                  id="incident-impact-target-id"
-                  value={addForm.targetId}
-                  onChange={(event) => setAddForm((prev) => ({ ...prev, targetId: event.currentTarget.value }))}
-                  placeholder={t('incidents.incident.detail.impact.targetIdPlaceholder')}
-                  disabled={isPending || addForm.targetType === 'component'}
-                />
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="incident-impact-label">
-                {t('incidents.incident.detail.impact.label')}
-              </Label>
-              <Input
-                id="incident-impact-label"
-                value={addForm.label}
-                onChange={(event) => setAddForm((prev) => ({ ...prev, label: event.currentTarget.value }))}
-                placeholder={t('incidents.incident.detail.impact.labelPlaceholder')}
-                disabled={isPending}
-              />
-            </div>
+              </div>
+            ) : null}
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="incident-impact-revenue">

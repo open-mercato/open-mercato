@@ -223,10 +223,15 @@ async function enforceIncidentOptimisticLock(
   ctx: CommandRuntimeContext,
   incident: Incident,
 ): Promise<void> {
+  const expectedUpdatedAt = (ctx as CommandRuntimeContext & {
+    incidentOptimisticLockExpectedUpdatedAtById?: Record<string, string | null | undefined>
+  }).incidentOptimisticLockExpectedUpdatedAtById?.[incident.id]
+
   await enforceCommandOptimisticLockWithGuards(ctx.container, {
     resourceKind: 'incidents.incident',
     resourceId: incident.id,
     current: incident.updatedAt,
+    expected: expectedUpdatedAt,
     request: ctx.request ?? null,
   })
 }
@@ -322,7 +327,12 @@ async function resolvePortalRecipientGroups(
       if (recipientUserIds.length > 0) groups.push(recipientUserIds)
     }
     return groups
-  } catch {
+  } catch (error) {
+    console.warn('[incidents] portal recipient resolution failed', {
+      incidentId: incident.id,
+      targetCount: accountTargetIds.length,
+      error,
+    })
     return []
   }
 }

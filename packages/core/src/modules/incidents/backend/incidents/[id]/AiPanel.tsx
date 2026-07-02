@@ -20,10 +20,9 @@ import {
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
-
-type AiAvailabilityResponse = {
-  available?: boolean
-}
+import { extractIncidentAiFailure, resolveIncidentAiErrorMessage } from '../../../lib/aiErrors'
+import { AiUnavailableNotice } from '../components/AiUnavailableNotice'
+import { useIncidentAiAvailability } from '../components/useAiAvailability'
 
 type SummaryResponse = {
   summary?: string
@@ -65,7 +64,7 @@ export function AiPanel({
   onChanged,
 }: AiPanelProps) {
   const t = useT()
-  const [available, setAvailable] = React.useState(false)
+  const { available, reason } = useIncidentAiAvailability()
   const [summary, setSummary] = React.useState<SummaryResponse | null>(null)
   const [loadingSummary, setLoadingSummary] = React.useState(false)
   const [posting, setPosting] = React.useState(false)
@@ -87,32 +86,26 @@ export function AiPanel({
     setCurrentUpdatedAt(updatedAt ?? null)
   }, [updatedAt])
 
-  React.useEffect(() => {
-    let cancelled = false
-    apiCall<AiAvailabilityResponse>('/api/incidents/ai/availability')
-      .then((call) => {
-        if (!cancelled) setAvailable(call.ok && call.result?.available === true)
-      })
-      .catch(() => {
-        if (!cancelled) setAvailable(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
   const handleSummarize = React.useCallback(async () => {
     setLoadingSummary(true)
     try {
-      const call = await apiCallOrThrow<SummaryResponse>(
+      const call = await apiCall<SummaryResponse>(
         `/api/incidents/${encodeURIComponent(incidentId)}/ai/summary`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: '{}',
         },
-        { errorMessage: t('incidents.ai.summary.error', 'Failed to summarize this incident.') },
       )
+      if (!call.ok) {
+        flash(resolveIncidentAiErrorMessage(
+          extractIncidentAiFailure(call.status, call.result),
+          t,
+          'incidents.ai.summary.error',
+          'Failed to summarize this incident.',
+        ), 'error')
+        return
+      }
       setSummary(call.result ?? null)
     } catch {
       flash(t('incidents.ai.summary.error', 'Failed to summarize this incident.'), 'error')
@@ -160,7 +153,21 @@ export function AiPanel({
     }
   }, [canManage, currentUpdatedAt, incidentId, mutationContext, onChanged, posting, runMutation, summary, t])
 
-  if (!available) return null
+  if (available !== true) {
+    if (available === false && reason) {
+      return (
+        <section className="rounded-lg border border-border bg-card p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <SectionHeader title={t('incidents.ai.panel.title', 'AI')} />
+            <div className="sm:max-w-md">
+              <AiUnavailableNotice reason={reason} />
+            </div>
+          </div>
+        </section>
+      )
+    }
+    return null
+  }
 
   const note = summary ? summaryNote(summary) : ''
 

@@ -280,7 +280,7 @@ async function loadSeveritySnapshot(
   id: string,
   scope: IncidentScope,
 ): Promise<SeveritySnapshot | null> {
-  const record = await em.findOne(IncidentSeverity, { id, ...scope })
+  const record = await em.findOne(IncidentSeverity, { id, organizationId: scope.organizationId, tenantId: scope.tenantId })
   if (!record) return null
   return {
     id: record.id,
@@ -334,7 +334,7 @@ async function loadTypeSnapshot(
   id: string,
   scope: IncidentScope,
 ): Promise<TypeSnapshot | null> {
-  const record = await em.findOne(IncidentType, { id, ...scope })
+  const record = await em.findOne(IncidentType, { id, organizationId: scope.organizationId, tenantId: scope.tenantId })
   if (!record) return null
   return {
     id: record.id,

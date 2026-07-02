@@ -136,9 +136,10 @@ function buildCustomerUpdatePrompt(
   ].join('\n')
 }
 
-function responseForRunResult(result: IncidentsAiRunResult<CustomerUpdateResponse>): NextResponse {
+function responseForRunResult(result: IncidentsAiRunResult<CustomerUpdateResponse>, incidentId: string): NextResponse {
   if (result.ok) return NextResponse.json(result.data)
-  if (result.reason === 'unavailable') return jsonError(503, 'ai_unavailable')
+  console.error('[incidents.ai.customer_update] failed', { incidentId }, result.error)
+  if (result.reason === 'unavailable') return jsonError(503, result.code ?? 'ai_unavailable')
   return jsonError(500, 'ai_failed')
 }
 
@@ -164,9 +165,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       authContext: context.authContext,
       input: buildCustomerUpdatePrompt(parsedBody.data, incidentContext),
     })
-    return responseForRunResult(result)
+    return responseForRunResult(result, parsedParams.data.id)
   } catch (error) {
-    console.error('[incidents.ai.customer_update] failed', error)
+    console.error('[incidents.ai.customer_update] failed', { incidentId: params.id }, error)
     return jsonError(500, 'ai_failed')
   }
 }

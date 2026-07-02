@@ -19,6 +19,9 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extractIncidentAiFailure, resolveIncidentAiErrorMessage } from '../../../lib/aiErrors'
+import { AiUnavailableNotice } from '../components/AiUnavailableNotice'
+import { useIncidentAiAvailability } from '../components/useAiAvailability'
 
 type PostmortemStatus = 'draft' | 'published'
 type PostmortemField = 'summary' | 'rootCause' | 'impact' | 'contributingFactors' | 'lessons'
@@ -52,10 +55,6 @@ type ActionItemMutationResponse = {
   ok?: boolean
   actionItemId?: string | null
   updatedAt?: string | null
-}
-
-type AiAvailabilityResponse = {
-  available?: boolean
 }
 
 type PostmortemDraftActionItem = {
@@ -186,7 +185,7 @@ export function PostmortemPanel({ incidentId, updatedAt, canManage, onChanged }:
   const [error, setError] = React.useState<string | null>(null)
   const [currentUpdatedAt, setCurrentUpdatedAt] = React.useState<string | null>(updatedAt ?? null)
   const [pendingAction, setPendingAction] = React.useState<'save' | 'publish' | 'start' | 'draft' | null>(null)
-  const [aiAvailable, setAiAvailable] = React.useState(false)
+  const { available: aiAvailable, reason: aiUnavailableReason } = useIncidentAiAvailability()
   const [suggestions, setSuggestions] = React.useState<SuggestedActionItem[]>([])
   const [pendingSuggestionId, setPendingSuggestionId] = React.useState<string | null>(null)
   const contextId = React.useMemo(() => `incident-postmortem:${incidentId}`, [incidentId])
@@ -204,20 +203,6 @@ export function PostmortemPanel({ incidentId, updatedAt, canManage, onChanged }:
   React.useEffect(() => {
     setCurrentUpdatedAt(updatedAt ?? null)
   }, [updatedAt])
-
-  React.useEffect(() => {
-    let cancelled = false
-    apiCall<AiAvailabilityResponse>('/api/incidents/ai/availability')
-      .then((call) => {
-        if (!cancelled) setAiAvailable(call.ok && call.result?.available === true)
-      })
-      .catch(() => {
-        if (!cancelled) setAiAvailable(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   const loadItem = React.useCallback(async () => {
     setIsLoading(true)
@@ -288,15 +273,23 @@ export function PostmortemPanel({ incidentId, updatedAt, canManage, onChanged }:
     if (!canManage || pendingAction || !aiAvailable) return
     setPendingAction('draft')
     try {
-      const call = await apiCallOrThrow<PostmortemDraftResponse>(
+      const call = await apiCall<PostmortemDraftResponse>(
         `/api/incidents/${encodeURIComponent(incidentId)}/ai/postmortem-draft`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: '{}',
         },
-        { errorMessage: t('incidents.ai.postmortem.error', 'Failed to draft the postmortem.') },
       )
+      if (!call.ok) {
+        flash(resolveIncidentAiErrorMessage(
+          extractIncidentAiFailure(call.status, call.result),
+          t,
+          'incidents.ai.postmortem.error',
+          'Failed to draft the postmortem.',
+        ), 'error')
+        return
+      }
       const draft = call.result ?? {}
       const nextForm = draftToForm(draft)
       setForm(nextForm)
@@ -534,6 +527,10 @@ export function PostmortemPanel({ incidentId, updatedAt, canManage, onChanged }:
                 ? t('incidents.ai.postmortem.drafting', 'Drafting')
                 : t('incidents.ai.postmortem.action', 'Draft from timeline')}
             </Button>
+          ) : canManage && aiAvailable === false && aiUnavailableReason ? (
+            <div className="sm:max-w-md">
+              <AiUnavailableNotice reason={aiUnavailableReason} />
+            </div>
           ) : null}
         </div>
         <div className="mt-4">
@@ -584,6 +581,10 @@ export function PostmortemPanel({ incidentId, updatedAt, canManage, onChanged }:
                 ? t('incidents.ai.postmortem.drafting', 'Drafting')
                 : t('incidents.ai.postmortem.action', 'Draft from timeline')}
             </Button>
+          ) : canManage && !isPublished && aiAvailable === false && aiUnavailableReason ? (
+            <div className="w-full sm:w-auto sm:max-w-md">
+              <AiUnavailableNotice reason={aiUnavailableReason} />
+            </div>
           ) : null}
           {isPublished ? (
             <StatusBadge variant="success" dot>

@@ -115,7 +115,11 @@ type IncidentMutationContext = Record<string, unknown> & {
   formId: string
   resourceKind: 'incidents.incident'
   resourceId: string
-  data: IncidentRow | { action: IncidentBulkAction; ids: string[] }
+  data: IncidentRow | {
+    action: IncidentBulkAction
+    ids: string[]
+    expectedUpdatedAtById: Record<string, string | null>
+  }
   retryLastMutation: () => Promise<boolean>
 }
 
@@ -549,6 +553,11 @@ export default function IncidentsPage() {
   ): Promise<IncidentBulkResponse | false> => {
     const ids = selectedRows.map((row) => row.id).filter((id) => id.length > 0)
     if (ids.length === 0) return false
+    const expectedUpdatedAtById = Object.fromEntries(
+      selectedRows
+        .filter((row) => row.id.length > 0)
+        .map((row) => [row.id, row.updatedAt ?? null]),
+    )
     if (ids.length > 100) {
       flash(t('incidents.incident.list.bulk.tooMany', 'Select at most 100 incidents per bulk operation.'), 'error')
       return false
@@ -569,7 +578,7 @@ export default function IncidentsPage() {
       formId: 'incidents:list:bulk',
       resourceKind: 'incidents.incident',
       resourceId: 'bulk',
-      data: { action, ids },
+      data: { action, ids, expectedUpdatedAtById },
       retryLastMutation,
     }
 
@@ -579,7 +588,7 @@ export default function IncidentsPage() {
           const result = await apiCall<IncidentBulkResponse>('/api/incidents/bulk', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action, ids }),
+            body: JSON.stringify({ action, ids, expectedUpdatedAtById }),
           })
           if (!result.ok) {
             throw new Error(result.result?.message ?? t('incidents.incident.list.bulk.error', 'Failed to start bulk incident operation.'))
@@ -587,7 +596,7 @@ export default function IncidentsPage() {
           return result
         },
         context,
-        mutationPayload: { action, ids, operation: 'bulkIncidentOperation' },
+        mutationPayload: { action, ids, expectedUpdatedAtById, operation: 'bulkIncidentOperation' },
       })
 
       const payload = call.result

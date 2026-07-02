@@ -10,9 +10,15 @@ import { probeAiAvailability } from '../../../lib/aiRuntime'
 
 const REQUIRED_FEATURES = ['incidents.incident.view', 'incidents.ai.use'] as const
 
-const availabilityResponseSchema = z.object({
-  available: z.boolean(),
-})
+const availabilityReasonSchema = z.enum(['no_provider', 'runtime_missing'])
+
+const availabilityResponseSchema = z.union([
+  z.object({ available: z.literal(true) }),
+  z.object({
+    available: z.literal(false),
+    reason: availabilityReasonSchema,
+  }),
+])
 
 const errorResponseSchema = z.object({
   error: z.string(),
@@ -83,8 +89,8 @@ export async function GET(req: Request) {
   try {
     const context = await resolveAiRequestContext(req)
     if (context instanceof NextResponse) return context
-    const available = await probeAiAvailability(context.container, context.authContext)
-    return NextResponse.json({ available })
+    const availability = await probeAiAvailability(context.container, context.authContext)
+    return NextResponse.json(availability)
   } catch (error) {
     console.error('[incidents.ai.availability] failed', error)
     return jsonError(500, 'ai_probe_failed')

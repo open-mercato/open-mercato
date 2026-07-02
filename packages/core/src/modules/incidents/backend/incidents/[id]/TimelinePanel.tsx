@@ -16,11 +16,38 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { cn } from '@open-mercato/shared/lib/utils'
+import { extractIncidentAiFailure, resolveIncidentAiErrorMessage } from '../../../lib/aiErrors'
+import { AiUnavailableNotice } from '../components/AiUnavailableNotice'
+import { useIncidentAiAvailability } from '../components/useAiAvailability'
 import { useUserLabels } from '../components/useUserLabels'
 
 type IncidentStatus = 'open' | 'investigating' | 'identified' | 'mitigated' | 'resolved' | 'closed'
 type TimelineVisibility = 'internal' | 'customer_facing'
 type TimelineComposerKind = 'note' | 'update'
+type TimelineKind =
+  | 'note'
+  | 'update'
+  | 'ack'
+  | 'status_change'
+  | 'severity_change'
+  | 'assignment'
+  | 'escalation'
+  | 'system'
+  | 'merged_into'
+  | 'merged_from'
+  | 'reopened'
+  | 'linked'
+  | 'unlinked'
+  | 'postmortem_published'
+  | 'postmortem_updated'
+type TimelineFilterId = 'all' | 'updates_notes' | 'status' | 'escalations' | 'system'
+type TimelineFilterPreset = {
+  id: TimelineFilterId
+  labelKey: string
+  fallback: string
+  kinds: readonly TimelineKind[] | null
+}
 
 const statusVariant: Record<IncidentStatus, StatusBadgeVariant> = {
   open: 'error',
@@ -50,14 +77,45 @@ type TimelineListResponse = {
 
 const TIMELINE_PAGE_SIZE = 20
 
+const ALL_TIMELINE_FILTER_PRESET = {
+  id: 'all',
+  labelKey: 'incidents.incident.detail.timeline.filters.all',
+  fallback: 'All',
+  kinds: null,
+} as const satisfies TimelineFilterPreset
+
+const TIMELINE_FILTER_PRESETS = [
+  ALL_TIMELINE_FILTER_PRESET,
+  {
+    id: 'updates_notes',
+    labelKey: 'incidents.incident.detail.timeline.filters.updatesNotes',
+    fallback: 'Updates & notes',
+    kinds: ['note', 'update'],
+  },
+  {
+    id: 'status',
+    labelKey: 'incidents.incident.detail.timeline.filters.status',
+    fallback: 'Status',
+    kinds: ['status_change', 'severity_change', 'assignment', 'ack', 'reopened'],
+  },
+  {
+    id: 'escalations',
+    labelKey: 'incidents.incident.detail.timeline.filters.escalations',
+    fallback: 'Escalations',
+    kinds: ['escalation'],
+  },
+  {
+    id: 'system',
+    labelKey: 'incidents.incident.detail.timeline.filters.system',
+    fallback: 'System',
+    kinds: ['system', 'merged_into', 'merged_from', 'linked', 'unlinked', 'postmortem_published', 'postmortem_updated'],
+  },
+] as const satisfies readonly TimelineFilterPreset[]
+
 type TimelineMutationResponse = {
   entryId?: string | null
   incidentId?: string | null
   updatedAt?: string | null
-}
-
-type AiAvailabilityResponse = {
-  available?: boolean
 }
 
 type CustomerUpdateDraftResponse = {
@@ -129,14 +187,21 @@ function formatRelativeAge(value: string | null | undefined, t: ReturnType<typeo
 }
 
 function kindLabel(t: ReturnType<typeof useT>, kind: string): string {
-  if (kind === 'note') return t('incidents.incident.detail.timeline.kind.note')
-  if (kind === 'update') return t('incidents.incident.detail.timeline.kind.update')
-  if (kind === 'ack') return t('incidents.incident.detail.timeline.kind.ack')
-  if (kind === 'status_change') return t('incidents.incident.detail.timeline.kind.statusChange')
-  if (kind === 'severity_change') return t('incidents.incident.detail.timeline.kind.severityChange')
-  if (kind === 'assignment') return t('incidents.incident.detail.timeline.kind.assignment')
-  if (kind === 'escalation') return t('incidents.incident.detail.timeline.kind.escalation')
-  if (kind === 'system') return t('incidents.incident.detail.timeline.kind.system')
+  if (kind === 'note') return t('incidents.incident.detail.timeline.kind.note', 'Note')
+  if (kind === 'update') return t('incidents.incident.detail.timeline.kind.update', 'Update')
+  if (kind === 'ack') return t('incidents.incident.detail.timeline.kind.ack', 'Acknowledgement')
+  if (kind === 'status_change') return t('incidents.incident.detail.timeline.kind.statusChange', 'Status change')
+  if (kind === 'severity_change') return t('incidents.incident.detail.timeline.kind.severityChange', 'Severity change')
+  if (kind === 'assignment') return t('incidents.incident.detail.timeline.kind.assignment', 'Assignment')
+  if (kind === 'escalation') return t('incidents.incident.detail.timeline.kind.escalation', 'Escalation')
+  if (kind === 'system') return t('incidents.incident.detail.timeline.kind.system', 'System')
+  if (kind === 'merged_into') return t('incidents.incident.detail.timeline.kind.mergedInto', 'Merged into')
+  if (kind === 'merged_from') return t('incidents.incident.detail.timeline.kind.mergedFrom', 'Merged from')
+  if (kind === 'reopened') return t('incidents.incident.detail.timeline.kind.reopened', 'Reopened')
+  if (kind === 'linked') return t('incidents.incident.detail.timeline.kind.linked', 'Linked')
+  if (kind === 'unlinked') return t('incidents.incident.detail.timeline.kind.unlinked', 'Unlinked')
+  if (kind === 'postmortem_published') return t('incidents.incident.detail.timeline.kind.postmortemPublished', 'Postmortem published')
+  if (kind === 'postmortem_updated') return t('incidents.incident.detail.timeline.kind.postmortemUpdated', 'Postmortem updated')
   return kind
 }
 
@@ -184,6 +249,91 @@ function errorMessage(result: TimelineListResponse | null, fallback: string): st
   return typeof result?.error === 'string' && result.error.trim().length > 0 ? result.error : fallback
 }
 
+function getTimelineFilterPreset(id: TimelineFilterId): TimelineFilterPreset {
+  return TIMELINE_FILTER_PRESETS.find((preset) => preset.id === id) ?? ALL_TIMELINE_FILTER_PRESET
+}
+
+function buildTimelineUrl(incidentId: string, page: number, filterId: TimelineFilterId): string {
+  const params = new URLSearchParams({
+    page: String(page),
+    pageSize: String(TIMELINE_PAGE_SIZE),
+  })
+  const preset = getTimelineFilterPreset(filterId)
+  if (preset.kinds && preset.kinds.length > 0) {
+    params.set('kinds', preset.kinds.join(','))
+  }
+  return `/api/incidents/${encodeURIComponent(incidentId)}/timeline?${params.toString()}`
+}
+
+function timelineTime(value: string): number {
+  const time = Date.parse(value)
+  return Number.isNaN(time) ? 0 : time
+}
+
+function compareTimelineEntriesDesc(a: TimelineEntry, b: TimelineEntry): number {
+  const diff = timelineTime(b.createdAt) - timelineTime(a.createdAt)
+  return diff !== 0 ? diff : b.id.localeCompare(a.id)
+}
+
+function compareTimelineEntriesAsc(a: TimelineEntry, b: TimelineEntry): number {
+  const diff = timelineTime(a.createdAt) - timelineTime(b.createdAt)
+  return diff !== 0 ? diff : a.id.localeCompare(b.id)
+}
+
+function mergeTimelineEntries(current: TimelineEntry[], incoming: TimelineEntry[]): TimelineEntry[] {
+  const byId = new Map<string, TimelineEntry>()
+  current.forEach((entry) => byId.set(entry.id, entry))
+  incoming.forEach((entry) => byId.set(entry.id, entry))
+  return Array.from(byId.values()).sort(compareTimelineEntriesDesc)
+}
+
+function localDayKey(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+function formatTimelineDayLabel(day: Date, t: ReturnType<typeof useT>): string {
+  const today = startOfLocalDay(new Date())
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+  if (day.getTime() === today.getTime()) return t('incidents.incident.detail.timeline.day.today', 'Today')
+  if (day.getTime() === yesterday.getTime()) return t('incidents.incident.detail.timeline.day.yesterday', 'Yesterday')
+  return day.toLocaleDateString()
+}
+
+type TimelineDayGroup = {
+  key: string
+  label: string
+  entries: TimelineEntry[]
+}
+
+function groupTimelineEntriesByDay(entries: TimelineEntry[], t: ReturnType<typeof useT>): TimelineDayGroup[] {
+  const groups: TimelineDayGroup[] = []
+  const indexes = new Map<string, number>()
+  entries.forEach((entry) => {
+    const entryDate = new Date(entry.createdAt)
+    const day = Number.isNaN(entryDate.getTime()) ? null : startOfLocalDay(entryDate)
+    const key = day ? localDayKey(day) : 'unknown'
+    const existingIndex = indexes.get(key)
+    if (existingIndex === undefined) {
+      indexes.set(key, groups.length)
+      groups.push({
+        key,
+        label: day ? formatTimelineDayLabel(day, t) : t('incidents.common.notSet', 'Not set'),
+        entries: [entry],
+      })
+      return
+    }
+    groups[existingIndex]?.entries.push(entry)
+  })
+  return groups
+}
+
 export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: TimelinePanelProps) {
   const t = useT()
   const [items, setItems] = React.useState<TimelineEntry[]>([])
@@ -196,8 +346,11 @@ export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: T
   const [visibility, setVisibility] = React.useState<TimelineVisibility>('internal')
   const [currentUpdatedAt, setCurrentUpdatedAt] = React.useState<string | null>(updatedAt ?? null)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
-  const [aiAvailable, setAiAvailable] = React.useState(false)
   const [isDrafting, setIsDrafting] = React.useState(false)
+  const [activeFilter, setActiveFilter] = React.useState<TimelineFilterId>('all')
+  const hasLoadedOnceRef = React.useRef(false)
+  const aiAvailability = useIncidentAiAvailability()
+  const aiAvailable = aiAvailability.available === true
   const contextId = React.useMemo(() => `incident-timeline:${incidentId}`, [incidentId])
   const { runMutation, retryLastMutation } = useGuardedMutation<TimelineMutationContext>({
     contextId,
@@ -214,73 +367,71 @@ export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: T
     setCurrentUpdatedAt(updatedAt ?? null)
   }, [updatedAt])
 
-  React.useEffect(() => {
-    let cancelled = false
-    apiCall<AiAvailabilityResponse>('/api/incidents/ai/availability')
-      .then((call) => {
-        if (!cancelled) setAiAvailable(call.ok && call.result?.available === true)
-      })
-      .catch(() => {
-        if (!cancelled) setAiAvailable(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const loadItems = React.useCallback(async () => {
-    setIsLoading(true)
+  const loadItems = React.useCallback(async (filterId: TimelineFilterId = activeFilter) => {
+    if (!hasLoadedOnceRef.current) setIsLoading(true)
     setError(null)
     const result = await apiCall<TimelineListResponse>(
-      `/api/incidents/${encodeURIComponent(incidentId)}/timeline?page=1&pageSize=${TIMELINE_PAGE_SIZE}`,
+      buildTimelineUrl(incidentId, 1, filterId),
     )
     if (!result.ok) {
-      throw new Error(errorMessage(result.result, t('incidents.incident.detail.timeline.error.load')))
+      throw new Error(errorMessage(result.result, t('incidents.incident.detail.timeline.error.load', 'Failed to load timeline entries.')))
     }
-    setItems(Array.isArray(result.result?.items) ? result.result.items : [])
+    const nextItems = Array.isArray(result.result?.items) ? result.result.items : []
+    setItems([...nextItems].sort(compareTimelineEntriesDesc))
     setTotal(typeof result.result?.total === 'number' ? result.result.total : 0)
     setLoadedPages(1)
+    hasLoadedOnceRef.current = true
     setIsLoading(false)
-  }, [incidentId, t])
+  }, [activeFilter, incidentId, t])
 
   const loadOlder = React.useCallback(async () => {
     setIsLoadingMore(true)
     try {
       const nextPage = loadedPages + 1
       const result = await apiCall<TimelineListResponse>(
-        `/api/incidents/${encodeURIComponent(incidentId)}/timeline?page=${nextPage}&pageSize=${TIMELINE_PAGE_SIZE}`,
+        buildTimelineUrl(incidentId, nextPage, activeFilter),
       )
       if (!result.ok) return
       const older = Array.isArray(result.result?.items) ? result.result.items : []
       setItems((prev) => {
         const seen = new Set(prev.map((entry) => entry.id))
-        return [...prev, ...older.filter((entry) => !seen.has(entry.id))]
+        return [...prev, ...older.filter((entry) => !seen.has(entry.id))].sort(compareTimelineEntriesDesc)
       })
       if (typeof result.result?.total === 'number') setTotal(result.result.total)
       setLoadedPages(nextPage)
     } finally {
       setIsLoadingMore(false)
     }
-  }, [incidentId, loadedPages])
+  }, [activeFilter, incidentId, loadedPages])
+
+  const mergeLatestItems = React.useCallback(async () => {
+    const result = await apiCall<TimelineListResponse>(
+      buildTimelineUrl(incidentId, 1, activeFilter),
+    )
+    if (!result.ok) return
+    const latest = Array.isArray(result.result?.items) ? result.result.items : []
+    setItems((prev) => mergeTimelineEntries(prev, latest))
+    if (typeof result.result?.total === 'number') setTotal(result.result.total)
+  }, [activeFilter, incidentId])
 
   React.useEffect(() => {
     let active = true
-    loadItems().catch((err) => {
+    loadItems(activeFilter).catch((err) => {
       if (!active) return
-      setError(err instanceof Error ? err.message : t('incidents.incident.detail.timeline.error.load'))
+      setError(err instanceof Error ? err.message : t('incidents.incident.detail.timeline.error.load', 'Failed to load timeline entries.'))
       setIsLoading(false)
     })
     return () => {
       active = false
     }
-  }, [loadItems, t])
+  }, [activeFilter, loadItems, t])
 
   useAppEvent('incidents.timeline_entry.added', (event) => {
     const eventIncidentId = readString(event.payload, 'incidentId')
     if (!eventIncidentId || eventIncidentId === incidentId) {
-      void loadItems()
+      void mergeLatestItems()
     }
-  }, [incidentId, loadItems])
+  }, [incidentId, mergeLatestItems])
 
   const handleSubmit = React.useCallback(async () => {
     const nextBody = body.trim()
@@ -332,19 +483,32 @@ export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: T
     if (!canManage || !aiAvailable || visibility !== 'customer_facing' || isDrafting) return
     setIsDrafting(true)
     try {
-      const call = await apiCallOrThrow<CustomerUpdateDraftResponse>(
+      const call = await apiCall<CustomerUpdateDraftResponse>(
         `/api/incidents/${encodeURIComponent(incidentId)}/ai/customer-update`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tone: 'neutral' }),
         },
-        { errorMessage: t('incidents.ai.customerUpdate.error', 'Failed to draft a customer update.') },
       )
+      if (!call.ok) {
+        flash(resolveIncidentAiErrorMessage(
+          extractIncidentAiFailure(call.status, call.result),
+          t,
+          'incidents.ai.customerUpdate.error',
+          'Failed to draft a customer update.',
+        ), 'error')
+        return
+      }
       const draft = call.result?.draft?.trim()
       if (draft) setBody(draft)
     } catch {
-      flash(t('incidents.ai.customerUpdate.error', 'Failed to draft a customer update.'), 'error')
+      flash(resolveIncidentAiErrorMessage(
+        extractIncidentAiFailure(null, null),
+        t,
+        'incidents.ai.customerUpdate.error',
+        'Failed to draft a customer update.',
+      ), 'error')
     } finally {
       setIsDrafting(false)
     }
@@ -357,7 +521,8 @@ export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: T
     }
   }, [handleSubmit])
 
-  const chronologicalItems = React.useMemo(() => [...items].reverse(), [items])
+  const chronologicalItems = React.useMemo(() => [...items].sort(compareTimelineEntriesAsc), [items])
+  const dayGroups = React.useMemo(() => groupTimelineEntriesByDay(chronologicalItems, t), [chronologicalItems, t])
   const actorUserIds = React.useMemo(
     () =>
       Array.from(
@@ -388,6 +553,37 @@ export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: T
 
   return (
     <div className="space-y-4">
+      <div className="border-b border-border" role="tablist" aria-label={t('incidents.incident.detail.timeline.filters.label', 'Timeline filters')}>
+        <nav className="-mb-px flex gap-1 overflow-x-auto px-1" role="presentation">
+          {TIMELINE_FILTER_PRESETS.map((preset) => {
+            const isActive = activeFilter === preset.id
+            return (
+              <Button
+                key={preset.id}
+                type="button"
+                variant="ghost"
+                size="sm"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setActiveFilter(preset.id)}
+                className={cn(
+                  'h-auto shrink-0 rounded-none border-b-2 px-3 py-2 hover:bg-transparent',
+                  isActive
+                    ? 'border-accent-indigo text-foreground font-semibold'
+                    : 'border-transparent text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t(preset.labelKey, preset.fallback)}
+                {isActive ? (
+                  <span className="ml-2 rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+                    {total}
+                  </span>
+                ) : null}
+              </Button>
+            )
+          })}
+        </nav>
+      </div>
       {remainingOlder > 0 ? (
         <div className="flex justify-center">
           <Button
@@ -407,37 +603,46 @@ export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: T
         </div>
       ) : null}
       {chronologicalItems.length > 0 ? (
-        <ol className="space-y-3">
-          {chronologicalItems.map((entry) => {
-            const customerFacing = entry.visibility === 'customer_facing'
-            const line = entryLine(t, entry)
-            return (
-              <li
-                key={entry.id}
-                className={customerFacing
-                  ? 'rounded-md border border-status-info-border bg-status-info-bg p-3'
-                  : 'rounded-md border border-border bg-background p-3'}
-              >
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="font-medium text-foreground">
-                    {entry.actorUserId
-                      ? userLabels[entry.actorUserId] ?? entry.actorUserId
-                      : t('incidents.incident.detail.timeline.systemActor')}
-                  </span>
-                  <span className="text-muted-foreground">{formatRelativeAge(entry.createdAt, t)}</span>
-                  <StatusBadge variant={kindVariant(entry)} dot>
-                    {kindLabel(t, entry.kind)}
-                  </StatusBadge>
-                </div>
-                <p className={entry.body?.trim()
-                  ? 'mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground'
-                  : 'mt-2 text-sm text-muted-foreground'}
-                >
-                  {line}
-                </p>
-              </li>
-            )
-          })}
+        <ol className="space-y-4">
+          {dayGroups.map((group) => (
+            <li key={group.key} className="space-y-3">
+              <h3 className="text-overline font-semibold uppercase tracking-widest text-muted-foreground">
+                {group.label}
+              </h3>
+              <ol className="space-y-3">
+                {group.entries.map((entry) => {
+                  const customerFacing = entry.visibility === 'customer_facing'
+                  const line = entryLine(t, entry)
+                  return (
+                    <li
+                      key={entry.id}
+                      className={customerFacing
+                        ? 'rounded-md border border-status-info-border bg-status-info-bg p-3'
+                        : 'rounded-md border border-border bg-background p-3'}
+                    >
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="font-medium text-foreground">
+                          {entry.actorUserId
+                            ? userLabels[entry.actorUserId] ?? entry.actorUserId
+                            : t('incidents.incident.detail.timeline.systemActor')}
+                        </span>
+                        <span className="text-muted-foreground">{formatRelativeAge(entry.createdAt, t)}</span>
+                        <StatusBadge variant={kindVariant(entry)} dot>
+                          {kindLabel(t, entry.kind)}
+                        </StatusBadge>
+                      </div>
+                      <p className={entry.body?.trim()
+                        ? 'mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground'
+                        : 'mt-2 text-sm text-muted-foreground'}
+                      >
+                        {line}
+                      </p>
+                    </li>
+                  )
+                })}
+              </ol>
+            </li>
+          ))}
         </ol>
       ) : (
         <EmptyState
@@ -501,6 +706,9 @@ export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: T
                     ? t('incidents.ai.customerUpdate.drafting', 'Drafting')
                     : t('incidents.ai.customerUpdate.action', 'Draft with AI')}
                 </Button>
+              ) : null}
+              {aiAvailability.available === false && aiAvailability.reason && visibility === 'customer_facing' ? (
+                <AiUnavailableNotice reason={aiAvailability.reason} />
               ) : null}
             </div>
             <Button

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import type { SectionAction } from '@open-mercato/ui/backend/detail'
+import type { SectionAction } from './NotesSection'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Plus } from 'lucide-react'

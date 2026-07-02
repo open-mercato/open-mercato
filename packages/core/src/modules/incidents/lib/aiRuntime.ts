@@ -5,6 +5,7 @@ import type {
   RunAiAgentObjectInput,
   RunAiAgentObjectResult,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime'
+import type { AiModelFactoryErrorCode } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
 import type { SearchOptions, SearchResult } from '@open-mercato/shared/modules/search'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
@@ -19,7 +20,15 @@ import {
 
 export type IncidentsAiRunResult<T> =
   | { ok: true; data: T }
-  | { ok: false; reason: 'unavailable' | 'failed' }
+  | { ok: false; reason: 'unavailable'; code?: IncidentAiUnavailableCode; error?: unknown }
+  | { ok: false; reason: 'failed'; error?: unknown }
+
+export type IncidentAiUnavailableReason = 'no_provider' | 'runtime_missing'
+export type IncidentAiUnavailableCode = Extract<AiModelFactoryErrorCode, 'no_provider_configured' | 'api_key_missing'>
+
+export type IncidentAiAvailabilityResult =
+  | { available: true }
+  | { available: false; reason: IncidentAiUnavailableReason }
 
 export interface RunIncidentsObjectAgentInput {
   agentId: string
@@ -52,6 +61,7 @@ export interface IncidentCatalogEntry {
 export interface IncidentAiCatalogs {
   severities: IncidentCatalogEntry[]
   types: IncidentCatalogEntry[]
+  priorities: IncidentCatalogEntry[]
 }
 
 export interface IncidentAiRecord {
@@ -145,6 +155,13 @@ type SearchServiceLike = {
   search: (query: string, options: SearchOptions) => Promise<SearchResult[]>
 }
 
+const INCIDENT_PRIORITY_CATALOG: IncidentCatalogEntry[] = [
+  { id: 'low', key: 'low', label: 'Low', rank: 10 },
+  { id: 'medium', key: 'medium', label: 'Medium', rank: 20, isDefault: true },
+  { id: 'high', key: 'high', label: 'High', rank: 30 },
+  { id: 'critical', key: 'critical', label: 'Critical', rank: 40 },
+]
+
 function toRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   return value as Record<string, unknown>
@@ -153,6 +170,12 @@ function toRecord(value: unknown): Record<string, unknown> | null {
 function hasCode(value: unknown, code: string): boolean {
   const record = toRecord(value)
   return record?.code === code
+}
+
+function getFactoryUnavailableCode(error: unknown): IncidentAiUnavailableCode | null {
+  if (hasCode(error, 'no_provider_configured')) return 'no_provider_configured'
+  if (hasCode(error, 'api_key_missing')) return 'api_key_missing'
+  return null
 }
 
 function isRuntimeMissingError(error: unknown): boolean {
@@ -164,8 +187,14 @@ function isRuntimeMissingError(error: unknown): boolean {
 }
 
 function isUnavailableError(error: unknown): boolean {
-  if (hasCode(error, 'no_provider_configured')) return true
+  if (getFactoryUnavailableCode(error)) return true
   return isRuntimeMissingError(error)
+}
+
+function getUnavailableReason(error: unknown): IncidentAiUnavailableReason | null {
+  if (getFactoryUnavailableCode(error)) return 'no_provider'
+  if (isRuntimeMissingError(error)) return 'runtime_missing'
+  return null
 }
 
 async function loadAiAssistantRuntime(): Promise<AiAssistantRuntimeModule> {
@@ -198,25 +227,28 @@ export async function runIncidentsObjectAgent<T>(
     const result = await runtime.runAiAgentObject<T>(runtimeInput)
     return { ok: true, data: await unwrapObjectResult(result) }
   } catch (error) {
-    if (isUnavailableError(error)) return { ok: false, reason: 'unavailable' }
-    console.error('[incidents.ai] object agent failed', error)
-    return { ok: false, reason: 'failed' }
+    if (isUnavailableError(error)) {
+      const code = getFactoryUnavailableCode(error) ?? undefined
+      return { ok: false, reason: 'unavailable', code, error }
+    }
+    return { ok: false, reason: 'failed', error }
   }
 }
 
 export async function probeAiAvailability(
   container: AwilixContainer,
   authContext: AiChatRequestContext,
-): Promise<boolean> {
+): Promise<IncidentAiAvailabilityResult> {
   void authContext
   try {
     const runtime = await loadAiAssistantRuntime()
     runtime.createModelFactory(container).resolveModel({ moduleId: 'incidents' })
-    return true
+    return { available: true }
   } catch (error) {
-    if (isUnavailableError(error)) return false
+    const reason = getUnavailableReason(error)
+    if (reason) return { available: false, reason }
     console.warn('[incidents.ai] availability probe failed', error)
-    return false
+    throw error
   }
 }
 
@@ -412,6 +444,7 @@ export async function loadIncidentCatalogs(
       label: type.label,
       isDefault: type.isDefault,
     })),
+    priorities: INCIDENT_PRIORITY_CATALOG,
   }
 }
 

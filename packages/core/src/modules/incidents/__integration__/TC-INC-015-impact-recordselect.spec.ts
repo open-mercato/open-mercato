@@ -136,6 +136,7 @@ test.describe('TC-INC-015: Incident impact RecordSelect', () => {
       await login(page, 'admin')
       await page.goto(`/backend/incidents/${encodeURIComponent(incidentId)}`, { waitUntil: 'domcontentloaded' })
 
+      await page.getByRole('tab', { name: /^Impacts$/ }).click()
       await expect(page.getByText('Customer impact').first(), 'war room impact panel should render').toBeVisible()
       await page.getByRole('button', { name: /^Add impact$/ }).click()
       const dialog = page.getByRole('dialog', { name: /^Add impact$/ })

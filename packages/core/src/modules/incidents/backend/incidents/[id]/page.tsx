@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { ArrowRightLeft, CheckCircle2, Clock3, RotateCcw, UserRound } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow, type ApiCallResult } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -24,7 +24,13 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
-import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
+import {
+  DetailTabsLayout,
+  LoadingMessage,
+  ErrorMessage,
+  RecordNotFoundState,
+  type DetailTabDefinition,
+} from '@open-mercato/ui/backend/detail'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
@@ -42,6 +48,7 @@ import { PostmortemPanel } from './PostmortemPanel'
 import { ActionItemsPanel } from './ActionItemsPanel'
 import { SimilarIncidentsCard } from './SimilarIncidentsCard'
 import { IncidentLinksPanel, MergeLinkHeaderActions } from './MergeLinkControls'
+import { DetailsFields } from './DetailsFields'
 import { UserSelect } from '../components/UserSelect'
 import { useUserLabels } from '../components/useUserLabels'
 
@@ -161,6 +168,7 @@ type FeatureCheckResponse = {
 }
 
 type IncidentActionKey = 'acknowledge' | 'transition' | 'escalate' | 'snooze' | 'assign'
+type IncidentDetailTab = 'timeline' | 'impacts' | 'actions' | 'postmortem'
 
 type ResolveDialogState = {
   status: IncidentStatus
@@ -287,14 +295,6 @@ function severityLabel(t: ReturnType<typeof useT>, key: IncidentSeverityKey | nu
   return t('incidents.incident.severity.unknown')
 }
 
-function priorityLabel(t: ReturnType<typeof useT>, priority: string | null | undefined): string {
-  if (priority === 'low') return t('incidents.incident.priority.low')
-  if (priority === 'medium') return t('incidents.incident.priority.medium')
-  if (priority === 'high') return t('incidents.incident.priority.high')
-  if (priority === 'critical') return t('incidents.incident.priority.critical')
-  return priority ?? t('incidents.common.notSet')
-}
-
 function formatRelativeAge(value: string | null | undefined, t: ReturnType<typeof useT>): string {
   if (!value) return t('incidents.common.notSet')
   const date = new Date(value)
@@ -408,6 +408,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
   const [assignDialogOpen, setAssignDialogOpen] = React.useState(false)
   const [assignOwnerUserId, setAssignOwnerUserId] = React.useState<string | null>(null)
   const [clockNow, setClockNow] = React.useState(() => Date.now())
+  const [activeTab, setActiveTab] = React.useState<IncidentDetailTab>('timeline')
 
   const mutationContextId = React.useMemo(() => `incident:${id ?? 'pending'}`, [id])
   const { runMutation, retryLastMutation } = useGuardedMutation<IncidentInjectionContext>({
@@ -416,6 +417,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
   })
 
   const hasLoadedOnceRef = React.useRef(false)
+  const latestUpdatedAtRef = React.useRef<string | null>(null)
 
   const loadData = React.useCallback(async () => {
     if (!id) {
@@ -458,6 +460,10 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
       setIsLoading(false)
     })
   }, [loadData, t])
+
+  React.useEffect(() => {
+    latestUpdatedAtRef.current = data?.updated_at ?? null
+  }, [data?.updated_at])
 
   React.useEffect(() => {
     const interval = window.setInterval(() => setClockNow(Date.now()), 30_000)
@@ -599,6 +605,21 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
     () => hasFeature(grantedFeatures, 'incidents.postmortem.manage'),
     [grantedFeatures],
   )
+  const detailTabs = React.useMemo<DetailTabDefinition<IncidentDetailTab>[]>(() => {
+    const tabs: DetailTabDefinition<IncidentDetailTab>[] = [
+      { id: 'timeline', label: t('incidents.incident.detail.tabs.timeline', 'Timeline') },
+      { id: 'impacts', label: t('incidents.incident.detail.tabs.impacts', 'Impacts') },
+      { id: 'actions', label: t('incidents.incident.detail.tabs.actions', 'Action items') },
+    ]
+    if (canViewPostmortem) {
+      tabs.push({ id: 'postmortem', label: t('incidents.incident.detail.tabs.postmortem', 'Postmortem') })
+    }
+    return tabs
+  }, [canViewPostmortem, t])
+  const handleNoopSectionAction = React.useCallback(() => {}, [])
+  React.useEffect(() => {
+    if (activeTab === 'postmortem' && !canViewPostmortem) setActiveTab('timeline')
+  }, [activeTab, canViewPostmortem])
   const requiredResolveFields = React.useMemo(() => {
     const incidentType = data?.incident_type_id ? typeById.get(data.incident_type_id) : null
     return normalizeResolveFields(incidentType?.required_fields_on_resolve)
@@ -804,6 +825,137 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
     }
   }, [handleAssignDialogSubmit])
 
+  const buildInlineHeaders = React.useCallback(() => ({
+    'Content-Type': 'application/json',
+    ...buildOptimisticLockHeader(latestUpdatedAtRef.current),
+  }), [])
+
+  const runInlineDetailMutation = React.useCallback(async (
+    field: string,
+    mutationPayload: Record<string, unknown>,
+    operation: () => Promise<ApiCallResult<IncidentActionResponse>>,
+    errorMessage: string,
+  ): Promise<void> => {
+    if (!id || !data) return
+    try {
+      const call = await runMutation({
+        operation,
+        context: injectionContext,
+        mutationPayload: { incidentId: id, field, ...mutationPayload },
+      })
+      const updatedAt = call.result?.updatedAt
+      if (typeof updatedAt === 'string' && updatedAt.length > 0) {
+        latestUpdatedAtRef.current = updatedAt
+        setData((prev) => (prev?.id === id ? { ...prev, updated_at: updatedAt } : prev))
+      }
+      await loadData()
+    } catch (err) {
+      if (!surfaceRecordConflict(err, t, { onRefresh: () => void loadData() })) {
+        flash(errorMessage, 'error')
+      }
+    }
+  }, [data, id, injectionContext, loadData, runMutation, t])
+
+  const handleSaveSeverity = React.useCallback(async (value: string | null): Promise<void> => {
+    const severityId = value?.trim() || null
+    if (!id || !severityId || severityId === (data?.severity_id ?? null)) return
+    const errorMessage = t('incidents.incident.detail.inline.severityError', 'Failed to update incident severity.')
+    await runInlineDetailMutation(
+      'severity',
+      { severityId },
+      () => apiCallOrThrow<IncidentActionResponse>(
+        `/api/incidents/${encodeURIComponent(id)}/severity`,
+        {
+          method: 'POST',
+          headers: buildInlineHeaders(),
+          body: JSON.stringify({ severityId }),
+        },
+        { errorMessage },
+      ),
+      errorMessage,
+    )
+  }, [buildInlineHeaders, data?.severity_id, id, runInlineDetailMutation, t])
+
+  const handleSavePriority = React.useCallback(async (value: string | null): Promise<void> => {
+    const priority = value?.trim() || null
+    if (!id || priority === (data?.priority ?? null)) return
+    const errorMessage = t('incidents.incident.detail.inline.priorityError', 'Failed to update incident priority.')
+    await runInlineDetailMutation(
+      'priority',
+      { priority },
+      () => apiCallOrThrow<IncidentActionResponse>(
+        '/api/incidents',
+        {
+          method: 'PUT',
+          headers: buildInlineHeaders(),
+          body: JSON.stringify({ id, priority }),
+        },
+        { errorMessage },
+      ),
+      errorMessage,
+    )
+  }, [buildInlineHeaders, data?.priority, id, runInlineDetailMutation, t])
+
+  const handleSaveType = React.useCallback(async (value: string | null): Promise<void> => {
+    const incidentTypeId = value?.trim() || null
+    if (!id || incidentTypeId === (data?.incident_type_id ?? null)) return
+    const errorMessage = t('incidents.incident.detail.inline.typeError', 'Failed to update incident type.')
+    await runInlineDetailMutation(
+      'type',
+      { incidentTypeId },
+      () => apiCallOrThrow<IncidentActionResponse>(
+        '/api/incidents',
+        {
+          method: 'PUT',
+          headers: buildInlineHeaders(),
+          body: JSON.stringify({ id, incidentTypeId }),
+        },
+        { errorMessage },
+      ),
+      errorMessage,
+    )
+  }, [buildInlineHeaders, data?.incident_type_id, id, runInlineDetailMutation, t])
+
+  const handleSaveOwner = React.useCallback(async (value: string | null): Promise<void> => {
+    const ownerUserId = value?.trim() || null
+    if (!id || ownerUserId === (data?.owner_user_id ?? null)) return
+    const errorMessage = t('incidents.incident.detail.inline.ownerError', 'Failed to update incident owner.')
+    await runInlineDetailMutation(
+      'owner',
+      { ownerUserId },
+      () => apiCallOrThrow<IncidentActionResponse>(
+        `/api/incidents/${encodeURIComponent(id)}/assign`,
+        {
+          method: 'POST',
+          headers: buildInlineHeaders(),
+          body: JSON.stringify({ ownerUserId }),
+        },
+        { errorMessage },
+      ),
+      errorMessage,
+    )
+  }, [buildInlineHeaders, data?.owner_user_id, id, runInlineDetailMutation, t])
+
+  const handleSaveTeam = React.useCallback(async (value: string | null): Promise<void> => {
+    const owningTeamId = value?.trim() || null
+    if (!id || owningTeamId === (data?.owning_team_id ?? null)) return
+    const errorMessage = t('incidents.incident.detail.inline.teamError', 'Failed to update incident team.')
+    await runInlineDetailMutation(
+      'team',
+      { owningTeamId },
+      () => apiCallOrThrow<IncidentActionResponse>(
+        `/api/incidents/${encodeURIComponent(id)}/assign`,
+        {
+          method: 'POST',
+          headers: buildInlineHeaders(),
+          body: JSON.stringify({ owningTeamId }),
+        },
+        { errorMessage },
+      ),
+      errorMessage,
+    )
+  }, [buildInlineHeaders, data?.owning_team_id, id, runInlineDetailMutation, t])
+
   if (isLoading) {
     return (
       <Page>
@@ -848,7 +1000,6 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
 
   const severity = data.severity_id ? severityById.get(data.severity_id) : null
   const severityKey = normalizeSeverityKey(severity)
-  const incidentType = data.incident_type_id ? typeById.get(data.incident_type_id) : null
   const customEntries = Object.entries(data.customValues ?? {}).filter(([, value]) => value !== null && value !== undefined)
   const title = data.title?.trim() || t('incidents.incident.detail.untitled')
   const number = data.number?.trim() || t('incidents.incident.list.unnumbered')
@@ -861,6 +1012,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
   const canReopen = canManage && !isMerged && (data.status === 'resolved' || data.status === 'closed')
   const isAcknowledged = Boolean(data.acknowledged_at)
   const isTerminalStatus = data.status === 'resolved' || data.status === 'closed'
+  const canEditManagedDetails = canMutateIncident && data.status !== 'closed'
   const mergedTargetNumber = mergedTarget?.number?.trim() || mergedIntoIncidentId || t('incidents.incident.list.unnumbered')
   const mergedTargetTitle = mergedTarget?.title?.trim()
   const ownerLabel = data.owner_user_id
@@ -1012,122 +1164,104 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
 
           <div className="grid gap-6 lg:grid-cols-3">
             <main className="space-y-6 lg:col-span-2">
-              <AiPanel
-                incidentId={data.id}
-                number={number}
-                title={title}
-                updatedAt={data.updated_at}
-                canManage={canMutateIncident}
-                onChanged={() => void loadData()}
-              />
+              <DetailTabsLayout
+                tabs={detailTabs}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                sectionAction={null}
+                onSectionAction={handleNoopSectionAction}
+                navAriaLabel={t('incidents.incident.detail.tabs.ariaLabel', 'Incident detail sections')}
+              >
+                <InjectionSpot spotId="detail:incidents.incident:tabs" context={injectionContext} data={data} />
 
-              <section className="rounded-lg border border-border bg-card p-4">
-                <SectionHeader title={t('incidents.incident.detail.sections.timeline')} />
-                <div className="mt-4">
-                  <TimelinePanel
+                {activeTab === 'timeline' ? (
+                  <div className="space-y-6">
+                    <section className="rounded-lg border border-border bg-card p-4">
+                      <SectionHeader title={t('incidents.incident.detail.sections.description', 'Description')} />
+                      <div className="mt-4">
+                        {data.description?.trim() ? (
+                          <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">{data.description}</p>
+                        ) : (
+                          <EmptyState
+                            variant="subtle"
+                            title={t('incidents.incident.detail.description.empty.title', 'No description yet')}
+                            description={t('incidents.incident.detail.description.empty.description', 'Add context so responders can understand what happened.')}
+                          />
+                        )}
+                      </div>
+                    </section>
+
+                    <section className="rounded-lg border border-border bg-card p-4">
+                      <SectionHeader title={t('incidents.incident.detail.sections.timeline', 'Timeline')} />
+                      <div className="mt-4">
+                        <TimelinePanel
+                          incidentId={data.id}
+                          updatedAt={data.updated_at}
+                          canManage={canMutateIncident}
+                          onChanged={() => void loadData()}
+                        />
+                      </div>
+                    </section>
+                  </div>
+                ) : null}
+
+                {activeTab === 'impacts' ? (
+                  <div className="space-y-6">
+                    {data.customer_impact_summary?.trim() ? (
+                      <section className="rounded-lg border border-border bg-card p-4">
+                        <SectionHeader title={t('incidents.incident.detail.sections.customerImpact', 'Customer impact')} />
+                        <div className="mt-4">
+                          <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">{data.customer_impact_summary}</p>
+                        </div>
+                      </section>
+                    ) : null}
+
+                    <ImpactPanel
+                      incidentId={data.id}
+                      updatedAt={data.updated_at}
+                      revenueAtRiskMinor={data.revenue_at_risk_minor ?? null}
+                      revenueAtRiskCurrency={data.revenue_at_risk_currency ?? null}
+                      canManage={canMutateIncident}
+                      onChanged={() => void loadData()}
+                    />
+                  </div>
+                ) : null}
+
+                {activeTab === 'actions' ? (
+                  <ActionItemsPanel
                     incidentId={data.id}
                     updatedAt={data.updated_at}
                     canManage={canMutateIncident}
                     onChanged={() => void loadData()}
                   />
-                </div>
-              </section>
+                ) : null}
 
-              <InjectionSpot spotId="detail:incidents.incident:tabs" context={injectionContext} data={data} />
-
-              <section className="rounded-lg border border-border bg-card p-4">
-                <SectionHeader title={t('incidents.incident.detail.sections.description')} />
-                <div className="mt-4">
-                  {data.description?.trim() ? (
-                    <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">{data.description}</p>
-                  ) : (
-                    <EmptyState
-                      variant="subtle"
-                      title={t('incidents.incident.detail.description.empty.title')}
-                      description={t('incidents.incident.detail.description.empty.description')}
-                    />
-                  )}
-                </div>
-              </section>
-
-              {data.customer_impact_summary?.trim() ? (
-                <section className="rounded-lg border border-border bg-card p-4">
-                  <SectionHeader title={t('incidents.incident.detail.sections.customerImpact')} />
-                  <div className="mt-4">
-                    <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">{data.customer_impact_summary}</p>
-                  </div>
-                </section>
-              ) : null}
-
-              <ImpactPanel
-                incidentId={data.id}
-                updatedAt={data.updated_at}
-                revenueAtRiskMinor={data.revenue_at_risk_minor ?? null}
-                revenueAtRiskCurrency={data.revenue_at_risk_currency ?? null}
-                canManage={canMutateIncident}
-                onChanged={() => void loadData()}
-              />
-
-              <ActionItemsPanel
-                incidentId={data.id}
-                updatedAt={data.updated_at}
-                canManage={canMutateIncident}
-                onChanged={() => void loadData()}
-              />
-
-              {canViewPostmortem ? (
-                <PostmortemPanel
-                  incidentId={data.id}
-                  updatedAt={data.updated_at}
-                  canManage={canMutatePostmortem}
-                  onChanged={() => void loadData()}
-                />
-              ) : null}
+                {activeTab === 'postmortem' && canViewPostmortem ? (
+                  <PostmortemPanel
+                    incidentId={data.id}
+                    updatedAt={data.updated_at}
+                    canManage={canMutatePostmortem}
+                    onChanged={() => void loadData()}
+                  />
+                ) : null}
+              </DetailTabsLayout>
             </main>
 
             <aside className="space-y-6">
-              <SimilarIncidentsCard title={title} currentIncidentId={data.id} />
-
               <section className="rounded-lg border border-border bg-card p-4">
-                <SectionHeader title={t('incidents.incident.detail.sections.details')} />
-                <dl className="mt-4 space-y-3 text-sm">
-                  <div>
-                    <dt className="text-muted-foreground">{t('incidents.incident.detail.fields.severity')}</dt>
-                    <dd className="mt-1">
-                      <StatusBadge variant={severityKey ? severityVariant[severityKey] : 'neutral'} dot>
-                        {severityLabel(t, severityKey, severity)}
-                      </StatusBadge>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">{t('incidents.incident.detail.fields.priority')}</dt>
-                    <dd className="mt-1 text-foreground">{priorityLabel(t, data.priority)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">{t('incidents.incident.detail.fields.type')}</dt>
-                    <dd className="mt-1 text-foreground">{incidentType ? resolveCatalogLabel(t, 'type', incidentType.key, incidentType.label ?? incidentType.id) : t('incidents.common.notSet')}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">{t('incidents.incident.detail.fields.owner')}</dt>
-                    <dd className="mt-1 break-words text-foreground">{ownerLabel}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">{t('incidents.incident.detail.fields.team')}</dt>
-                    <dd className="mt-1 break-all text-foreground">{data.owning_team_id ?? t('incidents.common.notSet')}</dd>
-                  </div>
-                </dl>
-              </section>
-
-              <section className="rounded-lg border border-border bg-card p-4">
-                <SectionHeader title={t('incidents.incident.detail.sections.participants')} />
-                <div className="mt-4">
-                  <ParticipantsPanel
-                    incidentId={data.id}
-                    updatedAt={data.updated_at}
-                    canManage={canMutateIncident}
-                    onChanged={() => void loadData()}
-                  />
-                </div>
+                <SectionHeader title={t('incidents.incident.detail.sections.details', 'Details')} />
+                <DetailsFields
+                  incident={data}
+                  severities={severities}
+                  types={types}
+                  canManage={canEditManagedDetails}
+                  canAssign={canAssignIncident}
+                  onSaveSeverity={handleSaveSeverity}
+                  onSavePriority={handleSavePriority}
+                  onSaveType={handleSaveType}
+                  onSaveOwner={handleSaveOwner}
+                  onSaveTeam={handleSaveTeam}
+                />
               </section>
 
               <EscalationPanel
@@ -1144,6 +1278,18 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                 onChanged={() => void loadData()}
               />
 
+              <section className="rounded-lg border border-border bg-card p-4">
+                <SectionHeader title={t('incidents.incident.detail.sections.participants', 'Participants')} />
+                <div className="mt-4">
+                  <ParticipantsPanel
+                    incidentId={data.id}
+                    updatedAt={data.updated_at}
+                    canManage={canMutateIncident}
+                    onChanged={() => void loadData()}
+                  />
+                </div>
+              </section>
+
               <IncidentLinksPanel
                 incidentId={data.id}
                 updatedAt={data.updated_at}
@@ -1152,7 +1298,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
               />
 
               <section className="rounded-lg border border-border bg-card p-4">
-                <SectionHeader title={t('incidents.incident.detail.sections.customFields')} />
+                <SectionHeader title={t('incidents.incident.detail.sections.customFields', 'Custom fields')} />
                 <div className="mt-4">
                   {customEntries.length ? (
                     <dl className="space-y-3 text-sm">
@@ -1166,14 +1312,25 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                   ) : (
                     <EmptyState
                       variant="subtle"
-                      title={t('incidents.incident.detail.customFields.empty.title')}
-                      description={t('incidents.incident.detail.customFields.empty.description')}
+                      title={t('incidents.incident.detail.customFields.empty.title', 'No custom fields')}
+                      description={t('incidents.incident.detail.customFields.empty.description', 'Custom field values will appear here.')}
                     />
                   )}
                 </div>
               </section>
 
               <InjectionSpot spotId="detail:incidents.incident:sidebar" context={injectionContext} data={data} />
+
+              <AiPanel
+                incidentId={data.id}
+                number={number}
+                title={title}
+                updatedAt={data.updated_at}
+                canManage={canMutateIncident}
+                onChanged={() => void loadData()}
+              />
+
+              <SimilarIncidentsCard title={title} currentIncidentId={data.id} />
             </aside>
           </div>
 

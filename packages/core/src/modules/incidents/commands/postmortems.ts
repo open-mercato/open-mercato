@@ -119,7 +119,7 @@ async function loadPostmortemSnapshot(
   const postmortem = await findOneWithDecryption(
     em,
     IncidentPostmortem,
-    { incidentId, ...scope, deletedAt: null },
+    { incidentId, organizationId: scope.organizationId, tenantId: scope.tenantId, deletedAt: null },
     undefined,
     scope,
   )

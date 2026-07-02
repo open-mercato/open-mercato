@@ -5,25 +5,20 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import type { AwilixContainer } from 'awilix'
-import {
-  bridgeLegacyGuard,
-  runMutationGuards,
-  type MutationGuard,
-  type MutationGuardInput,
-} from '@open-mercato/shared/lib/crud/mutation-guard-registry'
-import { getAllMutationGuardInstances } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ProgressService } from '../../../progress/lib/progressService'
 import {
   INCIDENT_BULK_OPS_QUEUE,
   getIncidentBulkOpsQueue,
+  runIncidentBulkGuards,
+  serializeIncidentBulkRequestHeaders,
   type IncidentBulkAction,
 } from '../../lib/bulkOps'
 
 const requestSchema = z.object({
   action: z.enum(['acknowledge', 'close']),
   ids: z.array(z.string().uuid()).min(1).max(100),
+  expectedUpdatedAtById: z.record(z.string().uuid(), z.string().nullable()).optional(),
 })
 
 const responseSchema = z.object({
@@ -44,53 +39,6 @@ function resolveUserFeatures(auth: unknown): string[] {
   const features = (auth as { features?: unknown } | null)?.features
   if (!Array.isArray(features)) return []
   return features.filter((value): value is string => typeof value === 'string')
-}
-
-async function runBulkGuards(
-  container: AwilixContainer,
-  input: MutationGuardInput,
-  userFeatures: string[],
-): Promise<{
-  ok: boolean
-  errorBody?: Record<string, unknown>
-  errorStatus?: number
-  modifiedPayload?: Record<string, unknown>
-  afterSuccessCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>
-}> {
-  const guards: MutationGuard[] = [...getAllMutationGuardInstances()]
-  const legacyGuard = bridgeLegacyGuard(container)
-  if (legacyGuard) guards.push(legacyGuard)
-  if (guards.length === 0) {
-    return { ok: true, afterSuccessCallbacks: [] }
-  }
-
-  return runMutationGuards(guards, input, { userFeatures })
-}
-
-async function runGuardAfterSuccessCallbacks(
-  callbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>,
-  input: {
-    tenantId: string
-    organizationId: string | null
-    userId: string
-    resourceKind: string
-    resourceId: string
-    operation: 'create' | 'update' | 'delete'
-    requestMethod: string
-    requestHeaders: Headers
-  },
-): Promise<void> {
-  for (const callback of callbacks) {
-    if (!callback.guard.afterSuccess) continue
-    try {
-      await callback.guard.afterSuccess({
-        ...input,
-        metadata: callback.metadata ?? null,
-      })
-    } catch (error) {
-      console.error(`[incidents.bulk] afterSuccess failed for guard ${callback.guard.id}`, error)
-    }
-  }
 }
 
 function jobName(action: IncidentBulkAction): string {
@@ -129,8 +77,12 @@ export async function POST(req: Request) {
 
   const ids = Array.from(new Set(parsed.data.ids))
   const action = parsed.data.action
+  const userFeatures = resolveUserFeatures(auth)
+  const expectedUpdatedAtById = Object.fromEntries(
+    ids.map((id) => [id, parsed.data.expectedUpdatedAtById?.[id] ?? null]),
+  )
   const isSuperAdmin = (auth as { isSuperAdmin?: boolean }).isSuperAdmin === true
-  if (action === 'close' && !isSuperAdmin && !hasFeature(resolveUserFeatures(auth), 'incidents.incident.close')) {
+  if (action === 'close' && !isSuperAdmin && !hasFeature(userFeatures, 'incidents.incident.close')) {
     return NextResponse.json(responseSchema.parse({
       ok: false,
       progressJobId: null,
@@ -146,9 +98,9 @@ export async function POST(req: Request) {
     operation: 'update' as const,
     requestMethod: req.method,
     requestHeaders: req.headers,
-    mutationPayload: { action, ids },
+    mutationPayload: { action, ids, expectedUpdatedAtById },
   }
-  const guardResult = await runBulkGuards(container, guardInput, resolveUserFeatures(auth))
+  const guardResult = await runIncidentBulkGuards(container, guardInput, userFeatures)
   if (!guardResult.ok) {
     return NextResponse.json(
       guardResult.errorBody ?? { error: 'Operation blocked by guard' },
@@ -181,27 +133,16 @@ export async function POST(req: Request) {
     progressJobId: progressJob.id,
     action,
     ids,
+    expectedUpdatedAtById,
+    requestHeaders: serializeIncidentBulkRequestHeaders(req.headers),
     scope: {
       organizationId,
       tenantId: auth.tenantId,
       userId: auth.sub,
-      userFeatures: resolveUserFeatures(auth),
+      userFeatures,
       isSuperAdmin: (auth as { isSuperAdmin?: unknown }).isSuperAdmin === true,
     },
   })
-
-  if (guardResult.afterSuccessCallbacks.length) {
-    await runGuardAfterSuccessCallbacks(guardResult.afterSuccessCallbacks, {
-      tenantId: auth.tenantId,
-      organizationId,
-      userId: auth.sub,
-      resourceKind: 'incidents.incident',
-      resourceId: 'bulk',
-      operation: 'update',
-      requestMethod: req.method,
-      requestHeaders: req.headers,
-    })
-  }
 
   return NextResponse.json(responseSchema.parse({
     ok: true,

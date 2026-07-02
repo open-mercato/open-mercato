@@ -150,7 +150,7 @@ async function loadEscalationPolicySnapshot(
   id: string,
   scope: IncidentScope,
 ): Promise<EscalationPolicySnapshot | null> {
-  const record = await em.findOne(IncidentEscalationPolicy, { id, ...scope })
+  const record = await em.findOne(IncidentEscalationPolicy, { id, organizationId: scope.organizationId, tenantId: scope.tenantId })
   if (!record) return null
   return {
     id: record.id,

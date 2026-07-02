@@ -29,6 +29,8 @@ export default async function handle(
       progressJobId: job.payload.progressJobId,
       action: job.payload.action,
       ids: job.payload.ids,
+      expectedUpdatedAtById: job.payload.expectedUpdatedAtById,
+      requestHeaders: job.payload.requestHeaders,
       scope: job.payload.scope,
     })
   } catch (error) {

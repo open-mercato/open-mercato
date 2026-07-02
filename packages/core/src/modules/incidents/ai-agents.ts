@@ -40,6 +40,7 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-
 export const incidentsTriageOutputSchema = z.object({
   severityKey: z.string(),
   typeKey: z.string(),
+  priorityKey: z.string().optional(),
   rationale: z.string(),
   possibleDuplicateIds: z.array(z.string()),
 })
@@ -202,11 +203,11 @@ const triageAgent = defineAiAgent({
   id: 'incidents.triage',
   moduleId: MODULE_ID,
   label: 'Incident Triage',
-  description: 'Suggests incident severity and type from a title, description, catalogs, and similar incidents.',
+  description: 'Suggests incident severity, priority, and type from a title, description, catalogs, and similar incidents.',
   systemPrompt: [
     'You are an incident triage classifier for Open Mercato.',
-    'Given a title, optional description, the provided severity and type catalogs, and similar-incident summaries, return the best severityKey and typeKey.',
-    'Use only keys present in the provided catalogs. Include a one-sentence rationale. Include possibleDuplicateIds only when similar incidents are strong matches.',
+    'Given a title, optional description, the provided severity, type, and priority catalogs, and similar-incident summaries, return the best severityKey, typeKey, and optional priorityKey.',
+    'Use only keys present in the provided catalogs. Omit priorityKey when no provided priority clearly fits. Include a one-sentence rationale. Include possibleDuplicateIds only when similar incidents are strong matches.',
   ].join('\n'),
   allowedTools: [],
   executionMode: 'object',
@@ -217,7 +218,7 @@ const triageAgent = defineAiAgent({
   requiredFeatures: [...REQUIRED_FEATURES],
   readOnly: true,
   mutationPolicy: 'read-only',
-  keywords: ['incidents', 'triage', 'severity', 'type'],
+  keywords: ['incidents', 'triage', 'severity', 'priority', 'type'],
   domain: MODULE_ID,
   dataCapabilities: {
     entities: ['incidents.incident'],

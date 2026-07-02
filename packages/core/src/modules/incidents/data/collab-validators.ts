@@ -19,6 +19,30 @@ const scopedIncidentSchema = z.object({
   tenantId: uuid(),
 })
 
+const timelineKindSchema = z.enum([
+  'note',
+  'update',
+  'ack',
+  'status_change',
+  'severity_change',
+  'assignment',
+  'escalation',
+  'system',
+  'merged_into',
+  'merged_from',
+  'reopened',
+  'linked',
+  'unlinked',
+  'postmortem_published',
+  'postmortem_updated',
+])
+
+const timelineKindsCsvSchema = z.preprocess((value) => {
+  if (value == null || value === '') return undefined
+  if (typeof value !== 'string') return value
+  return value.split(',').map((kind) => kind.trim()).filter((kind) => kind.length > 0)
+}, z.array(timelineKindSchema).min(1).optional())
+
 export const timelineAddSchema = scopedIncidentSchema.extend({
   kind: z.enum(['note', 'update']).optional(),
   body: optionalText(8000),
@@ -30,6 +54,8 @@ export type TimelineAddInput = z.infer<typeof timelineAddSchema>
 export const timelineListSchema = scopedIncidentSchema.extend({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
+  kinds: timelineKindsCsvSchema,
+  visibility: z.enum(['internal', 'customer_facing']).optional(),
 })
 
 export type TimelineListInput = z.infer<typeof timelineListSchema>

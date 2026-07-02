@@ -969,3 +969,8 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Use `node:crypto` helpers (`randomInt`, `randomUUID`, or `randomBytes`) for any generated value that may touch auth, security checks, identifiers, request headers, or authenticated API calls. Reserve `Math.random()` only for explicitly non-security demo data, and prefer deterministic fixtures when uniqueness is not required.
 
 **Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.
+
+- 2026-07-02 · dev-runtime: Turbopack `yarn dev`/`dev:app` pages can silently never hydrate (no errors, no fetches, fibers never attach) on Node 24.14 while the SAME commit works via `build:app` + `yarn start` → verify UI flows against a production build; suspect the Node toolchain before bisecting feature code.
+- 2026-07-02 · apps/mercato: app-wide `tsc --noEmit` OOMs Node 24's default 4GB heap (exit 129 masked by turbo) → run app typecheck with `NODE_OPTIONS=--max-old-space-size=8192`.
+- 2026-07-02 · incidents: spreading a command-result object as an ORM where-scope queried a nonexistent property under MikroORM v7 strictness (every postmortem save 400'd) → destructure `organizationId`/`tenantId` explicitly at snapshot-loader boundaries, never `...scope` a structurally-typed object into a where clause.
+- 2026-07-02 · incidents: the i18n locale-coverage guard only sees `t('key')`/`translate('key')` literals — keys passed as ARGUMENTS (e.g. a `fallbackKey` param) slip through untranslated → grep new `'module.…'` string literals too when adding locale keys.

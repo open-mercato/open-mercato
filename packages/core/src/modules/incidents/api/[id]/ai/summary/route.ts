@@ -124,9 +124,10 @@ function buildSummaryPrompt(context: IncidentAiContext): string {
   ].join('\n')
 }
 
-function responseForRunResult(result: IncidentsAiRunResult<SummaryResponse>): NextResponse {
+function responseForRunResult(result: IncidentsAiRunResult<SummaryResponse>, incidentId: string): NextResponse {
   if (result.ok) return NextResponse.json(result.data)
-  if (result.reason === 'unavailable') return jsonError(503, 'ai_unavailable')
+  console.error('[incidents.ai.summary] failed', { incidentId }, result.error)
+  if (result.reason === 'unavailable') return jsonError(503, result.code ?? 'ai_unavailable')
   return jsonError(500, 'ai_failed')
 }
 
@@ -151,9 +152,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       authContext: context.authContext,
       input: buildSummaryPrompt(incidentContext),
     })
-    return responseForRunResult(result)
+    return responseForRunResult(result, parsedParams.data.id)
   } catch (error) {
-    console.error('[incidents.ai.summary] failed', error)
+    console.error('[incidents.ai.summary] failed', { incidentId: params.id }, error)
     return jsonError(500, 'ai_failed')
   }
 }

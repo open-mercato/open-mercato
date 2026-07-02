@@ -40,6 +40,24 @@ const DEFAULT_MODELS: readonly LlmModelInfo[] = [
   },
 ] as const
 
+export function normalizeAnthropicBaseUrl(raw: string): string {
+  try {
+    const url = new URL(raw)
+    if (url.pathname === '' || url.pathname === '/') {
+      return `${url.origin}/v1`
+    }
+  } catch {
+    return raw
+  }
+
+  return raw
+}
+
+function resolveOptionalBaseUrl(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed && trimmed.length > 0 ? trimmed : undefined
+}
+
 /**
  * Factory returning a fresh `AnthropicAdapter` instance. The adapter is
  * stateless — caller is free to reuse the returned object.
@@ -91,9 +109,20 @@ export function createAnthropicAdapter(): LlmProvider {
     },
 
     createModel(options: LlmCreateModelOptions): unknown {
+      const rawBaseUrl =
+        resolveOptionalBaseUrl(options.baseURL) ??
+        resolveOptionalBaseUrl(process.env.ANTHROPIC_BASE_URL)
+      const baseURL = rawBaseUrl
+        ? normalizeAnthropicBaseUrl(rawBaseUrl)
+        : undefined
+      if (rawBaseUrl && baseURL !== rawBaseUrl) {
+        console.warn(
+          `[ai-assistant] Anthropic base URL was normalized from ${rawBaseUrl} to ${baseURL}`,
+        )
+      }
       const anthropic = createAnthropic({
         apiKey: options.apiKey,
-        ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+        ...(baseURL ? { baseURL } : {}),
       })
       return anthropic(options.modelId)
     },

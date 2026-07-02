@@ -1,6 +1,6 @@
 import { Migration } from '@mikro-orm/migrations';
 
-export class Migration20260702120000_incidents_v3 extends Migration {
+export class Migration20260702120000_incidents extends Migration {
 
   override up(): void | Promise<void> {
     this.addSql(`create table "incident_triggers" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "event_id" text not null, "is_enabled" boolean not null default true, "severity_key" text null, "type_key" text null, "escalation_policy_id" uuid null, "conditions" jsonb null, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, primary key ("id"));`);

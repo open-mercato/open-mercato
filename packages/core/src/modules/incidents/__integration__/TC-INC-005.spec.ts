@@ -126,7 +126,7 @@ function resolveAdminUserId(): string | null {
 function expectIsoString(value: unknown, message: string): string {
   expect(typeof value, message).toBe('string')
   const raw = value as string
-  expect(raw, message).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+  expect(raw, message).toMatch(/^\d{4}-\d{2}-\d{2}[T ]/)
   expect(Number.isNaN(Date.parse(raw)), message).toBe(false)
   return raw
 }

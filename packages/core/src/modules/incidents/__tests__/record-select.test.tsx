@@ -44,6 +44,22 @@ const successfulResult = (item: Record<string, unknown>): ApiCallResult => ({
   result: { items: [item] },
 })
 
+type Deferred<T> = {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (reason: unknown) => void
+}
+
+function createDeferred<T>(): Deferred<T> {
+  let resolve: Deferred<T>['resolve'] = () => undefined
+  let reject: Deferred<T>['reject'] = () => undefined
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+  return { promise, resolve, reject }
+}
+
 describe('RecordSelect', () => {
   beforeEach(() => {
     jest.useFakeTimers()
@@ -90,6 +106,106 @@ describe('RecordSelect', () => {
       expect(url).toContain('search=needle')
     },
   )
+
+  it('hydrates the selected label for an initial value', async () => {
+    mockApiCall.mockResolvedValue(successfulResult({
+      id: 'person-1',
+      displayName: 'Ada Lovelace',
+    }))
+
+    render(
+      <RecordSelect
+        targetType="customer_person"
+        value="person-1"
+        onChange={jest.fn()}
+      />,
+    )
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalled())
+    const url = mockApiCall.mock.calls[0]?.[0]
+    expect(typeof url).toBe('string')
+    expect(url).toContain('/api/customers/people')
+    expect(url).toContain('ids=person-1')
+    expect(url).toContain('pageSize=1')
+
+    await waitFor(() => {
+      const input = screen.getByRole('combobox') as HTMLInputElement
+      expect(input.value).toBe('Ada Lovelace')
+    })
+  })
+
+  it('does not let stale hydration responses overwrite newer values', async () => {
+    const first = createDeferred<ApiCallResult>()
+    const second = createDeferred<ApiCallResult>()
+    const onChange = jest.fn()
+    mockApiCall
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+
+    const { rerender } = render(
+      <RecordSelect
+        targetType="customer_person"
+        value="person-1"
+        onChange={onChange}
+      />,
+    )
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(1))
+
+    rerender(
+      <RecordSelect
+        targetType="customer_person"
+        value="person-2"
+        onChange={onChange}
+      />,
+    )
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(2))
+
+    await act(async () => {
+      second.resolve(successfulResult({
+        id: 'person-2',
+        displayName: 'Grace Hopper',
+      }))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      const input = screen.getByRole('combobox') as HTMLInputElement
+      expect(input.value).toBe('Grace Hopper')
+    })
+
+    await act(async () => {
+      first.resolve(successfulResult({
+        id: 'person-1',
+        displayName: 'Ada Lovelace',
+      }))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      const input = screen.getByRole('combobox') as HTMLInputElement
+      expect(input.value).toBe('Grace Hopper')
+    })
+  })
+
+  it('keeps the raw id without fallback mode when hydration fails', async () => {
+    mockApiCall.mockResolvedValue({ ok: false, status: 500, result: null })
+
+    render(
+      <RecordSelect
+        targetType="customer_person"
+        value="person-1"
+        onChange={jest.fn()}
+      />,
+    )
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalled())
+
+    const input = screen.getByRole('combobox') as HTMLInputElement
+    expect(input.value).toBe('person-1')
+    expect(screen.queryByPlaceholderText('Record ID')).toBeNull()
+  })
 
   it('degrades to a plain id input when search is unavailable', async () => {
     const onChange = jest.fn()

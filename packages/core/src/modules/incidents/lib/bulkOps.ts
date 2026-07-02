@@ -1,6 +1,13 @@
 import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  bridgeLegacyGuard,
+  runMutationGuards,
+  type MutationGuard,
+  type MutationGuardInput,
+} from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+import { getAllMutationGuardInstances } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
 import type { IncidentAcknowledgeInput, IncidentTransitionInput } from '../data/action-validators'
@@ -24,6 +31,8 @@ export type IncidentBulkOpsJobPayload = {
   progressJobId: string
   action: IncidentBulkAction
   ids: string[]
+  expectedUpdatedAtById?: Record<string, string | null>
+  requestHeaders?: Record<string, string>
   scope: IncidentBulkOpsScope
 }
 
@@ -40,6 +49,83 @@ export type IncidentBulkOpsSummary = {
   failures: IncidentBulkOpsFailure[]
 }
 
+type IncidentBulkCommandContext = CommandRuntimeContext & {
+  incidentOptimisticLockExpectedUpdatedAtById?: Record<string, string | null>
+}
+
+type GuardAfterSuccessCallback = {
+  guard: MutationGuard
+  metadata: Record<string, unknown> | null
+}
+
+const BULK_REQUEST_HEADER_ALLOWLIST = ['content-type', 'accept-language', 'user-agent'] as const
+
+export function serializeIncidentBulkRequestHeaders(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const [key, value] of headers.entries()) {
+    const normalized = key.toLowerCase()
+    if (normalized.startsWith('x-om-') || (BULK_REQUEST_HEADER_ALLOWLIST as readonly string[]).includes(normalized)) {
+      result[normalized] = value
+    }
+  }
+  return result
+}
+
+function deserializeRequestHeaders(headers: Record<string, string> | undefined): Headers {
+  const result = new Headers()
+  for (const [key, value] of Object.entries(headers ?? {})) {
+    result.set(key, value)
+  }
+  return result
+}
+
+export async function runIncidentBulkGuards(
+  container: AwilixContainer,
+  input: MutationGuardInput,
+  userFeatures: string[],
+): Promise<{
+  ok: boolean
+  errorBody?: Record<string, unknown>
+  errorStatus?: number
+  modifiedPayload?: Record<string, unknown>
+  afterSuccessCallbacks: GuardAfterSuccessCallback[]
+}> {
+  const guards: MutationGuard[] = [...getAllMutationGuardInstances()]
+  const legacyGuard = bridgeLegacyGuard(container)
+  if (legacyGuard) guards.push(legacyGuard)
+  if (guards.length === 0) {
+    return { ok: true, afterSuccessCallbacks: [] }
+  }
+
+  return runMutationGuards(guards, input, { userFeatures })
+}
+
+async function runIncidentBulkGuardAfterSuccessCallbacks(
+  callbacks: GuardAfterSuccessCallback[],
+  input: {
+    tenantId: string
+    organizationId: string | null
+    userId: string
+    resourceKind: string
+    resourceId: string
+    operation: 'create' | 'update' | 'delete'
+    requestMethod: string
+    requestHeaders: Headers
+  },
+): Promise<void> {
+  for (const callback of callbacks) {
+    if (!callback.guard.afterSuccess) continue
+    try {
+      await callback.guard.afterSuccess({
+        ...input,
+        metadata: callback.metadata ?? null,
+      })
+    } catch (error) {
+      console.error(`[incidents.bulk] afterSuccess failed for guard ${callback.guard.id}`, error)
+    }
+  }
+}
+
 export function getIncidentBulkOpsQueue(queueName = INCIDENT_BULK_OPS_QUEUE): Queue<Record<string, unknown>> {
   const existing = queues.get(queueName)
   if (existing) return existing
@@ -54,7 +140,8 @@ export function getIncidentBulkOpsQueue(queueName = INCIDENT_BULK_OPS_QUEUE): Qu
 function buildCommandContext(
   scope: IncidentBulkOpsScope,
   container: AwilixContainer,
-): CommandRuntimeContext {
+  expectedUpdatedAtById?: Record<string, string | null>,
+): IncidentBulkCommandContext {
   return {
     container,
     auth: {
@@ -73,6 +160,7 @@ function buildCommandContext(
     },
     selectedOrganizationId: scope.organizationId,
     organizationIds: [scope.organizationId],
+    incidentOptimisticLockExpectedUpdatedAtById: expectedUpdatedAtById,
   }
 }
 
@@ -121,6 +209,8 @@ export async function executeIncidentBulkOpsWithProgress(params: {
   progressJobId: string
   action: IncidentBulkAction
   ids: string[]
+  expectedUpdatedAtById?: Record<string, string | null>
+  requestHeaders?: Record<string, string>
   scope: IncidentBulkOpsScope
 }): Promise<IncidentBulkOpsSummary> {
   const { container, progressJobId, action, ids, scope } = params
@@ -143,13 +233,53 @@ export async function executeIncidentBulkOpsWithProgress(params: {
     progressContext,
   )
 
-  const commandContext = buildCommandContext(scope, container)
+  const commandContext = buildCommandContext(scope, container, params.expectedUpdatedAtById)
+  const requestHeaders = deserializeRequestHeaders(params.requestHeaders)
   const failures: IncidentBulkOpsFailure[] = []
   let affectedCount = 0
 
   for (const [index, id] of ids.entries()) {
     try {
-      await executeSingleIncidentAction({ action, commandBus, commandContext, id, scope })
+      const expectedUpdatedAt = params.expectedUpdatedAtById?.[id] ?? null
+      const guardResult = await runIncidentBulkGuards(
+        container,
+        {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          userId: scope.userId ?? '',
+          resourceKind: 'incidents.incident',
+          resourceId: id,
+          operation: 'update',
+          requestMethod: 'POST',
+          requestHeaders,
+          mutationPayload: { action, id, expectedUpdatedAt },
+        },
+        scope.userFeatures ?? [],
+      )
+      if (!guardResult.ok) {
+        throw new CrudHttpError(
+          guardResult.errorStatus ?? 422,
+          guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+        )
+      }
+
+      await executeSingleIncidentAction({
+        action,
+        commandBus,
+        commandContext,
+        id,
+        scope,
+      })
+      await runIncidentBulkGuardAfterSuccessCallbacks(guardResult.afterSuccessCallbacks, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        userId: scope.userId ?? '',
+        resourceKind: 'incidents.incident',
+        resourceId: id,
+        operation: 'update',
+        requestMethod: 'POST',
+        requestHeaders,
+      })
       affectedCount += 1
     } catch (error) {
       failures.push({ id, message: errorMessage(error) })
