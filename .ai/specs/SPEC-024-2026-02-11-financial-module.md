@@ -38,26 +38,28 @@ The Financial Management module serves as the backbone of the ERP system, centra
 
 ## Table of Contents
 1. [Overview](#overview)
-2. [Three-Layer Architecture](#three-layer-architecture)
-3. [Layer 1: Core Engine](#layer-1-core-engine)
-4. [Layer 2: Localization Type Contracts](#layer-2-localization-type-contracts)
-5. [Layer 3: Country Plugins](#layer-3-country-plugins)
-6. [Core Financial Modules](#core-financial-modules)
-7. [Advanced Financial Modules](#advanced-financial-modules)
-8. [Financial Reporting & Analytics](#financial-reporting--analytics)
-9. [Integration Points](#integration-points)
-10. [Plugin Development Guide](#plugin-development-guide)
-11. [Implementation Priority](#implementation-priority)
-12. [Correctness Properties & Invariants](#correctness-properties--invariants) *(from Gregory)*
-13. [Technical Considerations](#technical-considerations)
-14. [Open Questions & Technical Risks](#open-questions--technical-risks) *(expanded from Gregory)*
-15. [User Stories](#user-stories) *(from original scope)*
-16. [Non-Functional Requirements](#non-functional-requirements) *(from original scope)*
-17. [Database Schema](#database-schema-mvp) *(from original scope)*
-18. [API Design](#api-design) *(from original scope)*
-19. [Use Case Examples](#use-case-examples) *(from original scope)*
-20. [Success Criteria](#success-criteria) *(from original scope)*
-21. [Out of Scope](#out-of-scope-future-iterations) *(from original scope)*
+2. [Market Reference](#market-reference) *(merged 2026-06)*
+3. [Open Mercato Platform Alignment](#open-mercato-platform-alignment) *(merged 2026-06)*
+4. [Three-Layer Architecture](#three-layer-architecture)
+5. [Layer 1: Core Engine](#layer-1-core-engine)
+6. [Layer 2: Localization Type Contracts](#layer-2-localization-type-contracts)
+7. [Layer 3: Country Plugins](#layer-3-country-plugins)
+8. [Core Financial Modules](#core-financial-modules)
+9. [Advanced Financial Modules](#advanced-financial-modules)
+10. [Financial Reporting & Analytics](#financial-reporting--analytics)
+11. [Integration Points](#integration-points)
+12. [Plugin Development Guide](#plugin-development-guide)
+13. [Implementation Priority](#implementation-priority)
+14. [Correctness Properties & Invariants](#correctness-properties--invariants) *(from Gregory; INV-9/INV-10 merged 2026-06)*
+15. [Technical Considerations](#technical-considerations)
+16. [Open Questions & Technical Risks](#open-questions--technical-risks) *(expanded from Gregory)*
+17. [User Stories](#user-stories) *(from original scope)*
+18. [Non-Functional Requirements](#non-functional-requirements) *(from original scope)*
+19. [Database Schema](#database-schema-mvp) *(from original scope)*
+20. [API Design](#api-design) *(from original scope)*
+21. [Use Case Examples](#use-case-examples) *(from original scope)*
+22. [Success Criteria](#success-criteria) *(from original scope)*
+23. [Out of Scope](#out-of-scope-future-iterations) *(from original scope)*
 
 ---
 
@@ -97,6 +99,88 @@ Organizations can configure their preferred method at the entity level. The syst
 | **Local GAAP** | Country-specific (Polish GAAP, HGB, etc.) | Via country plugins |
 
 **Note:** The module provides the *foundation* for compliance. Actual compliance depends on how the organization configures accounts, processes, and internal controls.
+
+---
+
+## Market Reference
+
+> **📋 Merged from 2026-06 accounting draft:** Competitive research challenging the requirements against open-source market leaders (based on an Odoo `account` deep scan).
+
+| System | Ledger model | What we take / reject |
+|---|---|---|
+| **Odoo `account`** | One polymorphic `account.move` (+`account.move.line`) for invoices/bills/payments/entries; fat models; `_inherit` extension. | **Take:** double-entry rigor, journals, reconciliation graph (partial→full), tax repartition concept, lock dates, hash-chain audit, configurable report engine, chart-template loader. **Reject:** the single-model polymorphism and fat-model active-record — it forces cross-domain coupling incompatible with module isolation. |
+| **Xero / QuickBooks** | Double-entry hidden behind invoices/bills; opinionated CoA with templates; strong bank reconciliation; period lock. | **Take:** hide GL complexity behind document workflows for the common user; CoA seed templates; period-locking UX. **Reject:** closed CoA flexibility limits — CoA stays fully configurable. |
+| **Medusa / Saleor** | No GL — stop at orders/payments. | Confirms the gap and the differentiation; nothing to take. |
+| **Ledger libraries** (append-only double-entry ledgers) | Append-only immutable entries, hash chaining. | **Take:** append-only immutability and hash chaining as first-class statutory controls, not bolt-on. |
+
+**Architectural confirmation:** the research independently validates this spec's existing stance — commercial/sub-ledger documents (AP/AR invoices, payments) stay separate from GL postings, connected by FK ids and events (see [Integration Points](#integration-points)). Odoo's polymorphic monolith is the explicit anti-pattern.
+
+---
+
+## Open Mercato Platform Alignment
+
+> **📋 Merged from 2026-06 accounting draft:** This spec was originally written platform-agnostic (the Open Questions even ask "TypeScript vs PHP/Symfony?"). This section grounds it in the Open Mercato monorepo without changing the architecture: on every conflict the original spec wins; this section adds only what was missing.
+
+### Module Placement
+
+- **Core Engine + Localization Contracts (Layers 1–2):** module `financial` under `packages/core/src/modules/financial/`, following the standard module layout (`data/entities.ts`, `data/validators.ts`, `commands/`, `api/`, `backend/`, `events.ts`, `acl.ts`, `setup.ts`, `encryption.ts`, `ce.ts`).
+- **Country Plugins (Layer 3):** dedicated workspace packages per Open Mercato's provider-package rule — `packages/financial-pl`, `packages/financial-us`, … — never inside `packages/core/src/modules/`. Plugin registry resolves via DI (Awilix) + module auto-discovery; env-backed preconfiguration lives inside each provider package.
+- **External accounting-system sync** (Odoo/Xero/SAP push): provider packages using `integrations` (credentials/health) + `data_sync` (streaming import/export) infrastructure.
+
+### Current State — Reuse, Do Not Rebuild
+
+Existing platform capabilities the financial module consumes (FK ids + events only — no cross-module ORM relations):
+
+| Existing capability | Module / entity | How the financial module uses it |
+|---|---|---|
+| Orders, totals, payment status | `sales` → `SalesOrder` | Source document; FK from journal-entry source-document fields. |
+| Commercial invoice + lines | `sales` → `SalesInvoice`, `SalesInvoiceLine` | Source document for AR posting. |
+| Credit memo | `sales` → `SalesCreditMemo` | Source document for reversal/credit-note posting. |
+| Payments / allocations / methods | `sales` → `SalesPayment`, `SalesPaymentAllocation`, `SalesPaymentMethod` | Source document for cash/bank postings + reconciliation anchor. |
+| Gateway transactions / refunds / webhooks | `payment_gateways` → `GatewayTransaction` | Untouched; payments still flow here. |
+| Tax rate config + line tax calc | `sales` → `SalesTaxRate`, `services/taxCalculationService` | Reused for tax amounts; `ITaxEngine` plugins supersede determination per country. |
+| Currencies + exchange rates + fetch | `currencies` → `Currency`, `ExchangeRate`, `CurrencyFetchConfig` | Multi-currency amounts + FX conversion + revaluation; country `IExchangeRateProvider` plugins feed it. |
+| Product tax rate | `catalog` → `CatalogProduct.taxRate*` | Reused; tax plugins map to tax classes. |
+| Customers (person/company/address) | `customers` | AR master data; extended (extension entity, not ORM relation) with VAT/tax-id/credit-terms — no such fields today. |
+| Credential/provider/health/log infra | `integrations` | External accounting-system connectors. |
+| Streaming import/export + cursors | `data_sync` | External sync + SAF-T/JPK bulk export plumbing. |
+
+> **Divergence to confirm at implementation:** existing Open Mercato modules store money as `numeric(18,4)` strings (rates `numeric(18,8)`, percents `numeric(7,4)`); this spec's schema uses `DECIMAL(19,4)` (NFR-14). The original spec's precision is retained for financial tables; reconcile the convention before the first migration.
+
+### Platform Convention Deltas (MUST add at implementation)
+
+The original schema/API sections predate platform conventions. Implementation MUST additionally provide:
+
+| Concern | Requirement |
+|---|---|
+| Tenancy | `organization_id` **and** `tenant_id` on every scoped table (the MVP schema lists only `tenant_id`); every query filtered by both; `deleted_at` soft delete on common tables. |
+| ORM & migrations | MikroORM v7 entities in `data/entities.ts`; migrations via `yarn db:generate` + module snapshot review; never hand-run `yarn db:migrate` to quiet the generator. |
+| Validation | zod schemas in `data/validators.ts`, types via `z.infer` (already consistent with the FP stack's zod entry); no `any`. |
+| Writes | Command pattern (`registerCommand`, `withAtomicFlush`, CRUD side-effect helpers); see the Undo Contract in [Statutory Controls](#15-statutory-controls). |
+| API | `makeCrudRoute` + exported `openApi` per route; auto-discovery paths (`api/<method>/<path>.ts` → `/api/financial/...`) — the REST table in [API Design](#api-design) remains the logical contract, concrete paths follow auto-discovery. Domain actions (post/reverse/close) are dedicated POST action routes delegating to commands. Pagination `pageSize ≤ 100`. |
+| Events | `createModuleEvents` with `as const`; IDs `module.entity.action`, singular entity, past tense (e.g. `financial.journal_entry.posted`) — the [Webhook Events](#webhook-events) list maps onto this convention. |
+| ACL & setup | `acl.ts` features (`financial.<entity>.<action>`); `setup.ts` `defaultRoleFeatures` (admin + proposed `accountant` role) + `yarn mercato auth sync-role-acls`. Never ship guarded routes with an empty `acl.ts`. |
+| Encryption | `encryption.ts` `defaultEncryptionMaps` for PII/sensitive free-text and financial identifiers (journal entry descriptions/line labels, vendor/customer `tax_id`, `bank_account_number`/`iban`); reads via `findWithDecryption`/`findOneWithDecryption`. No hand-rolled crypto. |
+| Backend UI | DS-compliant pages (`CrudForm`, `DataTable`, `apiCall`/`useGuardedMutation`, semantic status tokens for entry states, `LoadingMessage`/`EmptyState`, dialog `Cmd/Ctrl+Enter`+`Escape`). |
+| Testing | Self-contained integration tests per `.ai/qa/AGENTS.md` covering all API paths and key UI paths (fixtures created via API, cleaned up in teardown), in addition to the property-based invariant suite. |
+| Backward compatibility | All additions are additive-only (new module, events, ACL features, tables, routes) — no existing contract surface changes; `sales`/`payment_gateways`/`currencies`/`customers`/`catalog` untouched. |
+
+### Event-Driven Posting (verified event reality)
+
+The "Automated entries — system-generated from sub-ledgers" GL feature is implemented through the platform event bus, never direct cross-module imports:
+
+- **Posting rule** = tenant-configurable mapping from a source-document event to a balanced set of journal lines (`posting_rules` table: trigger event, journal, typed debit/credit-leg template reading source amounts).
+- **Verified event reality:** `sales` emits CRUD events only — `sales.invoice.created`/`.updated`, `sales.payment.created`/`.updated`, `sales.credit_memo.*`; there is **no** `posted`/`captured` lifecycle event today. Built-in rules therefore bind to the CRUD events **gated on the source record's status** read from the event payload (invoice finalized / payment captured), with **idempotency** keyed on `(source_document_type, source_document_id)` so re-fired update events never double-post. A dedicated lifecycle event can supersede the status-gated binding later — the posting engine is event-id-agnostic, so that is config, not rework.
+- **Flow:** source module emits a typed event → a persistent `financial` subscriber resolves the posting rule → builds a draft journal entry via the create command → posts via the post command. The financial module reads only the event payload (amounts, ids, currency) and stores FK ids.
+
+### Merge Notes — conflicts resolved in favor of this spec
+
+The 2026-06 draft proposed alternatives that were **not** adopted (recorded here so the divergence is explicit):
+
+1. **Phasing:** the draft proposed "Phase 1 = ledger core only" with AR/tax/AP as later separate modules. This spec's existing 4-phase roadmap (GL+AP+AR+Bank+Multi-currency in months 1–3, plugins from month 4) is retained.
+2. **Module granularity:** the draft proposed eight platform modules (`accounting`, `receivables`, `tax`, `tax_filing`, `accounting_reports`, `payables`, `fx_revaluation`, `accounting_sync`). Retained: one `financial` core module + country-plugin packages, matching the three-layer architecture.
+3. **Schema:** the draft's entity set (`ledger_accounts`, `journal_entries`, …) overlaps this spec's MVP schema (`gl_account`, `gl_journal_entry`, …); the original schema is retained, enriched only by the statutory-control columns (hash chain, lock dates) it lacked.
+4. **FP stack:** fp-ts/io-ts/effect retained (zod already present for boundary validation, which matches the platform mandate).
 
 ---
 
@@ -2004,6 +2088,20 @@ export const createPayrollModule = (config: PolandPluginConfig): PayrollCalculat
 | IP/session tracking | Record access details | Core | Medium |
 | **Audit file export** | Generate audit files (via `IAuditFileFormat`) | Plugin | High |
 
+#### 1.5 Statutory Controls
+
+> **📋 Merged from 2026-06 accounting draft:** statutory-grade controls the audit-trail section implied but did not specify — required for tax-authority defensibility (JPK/SAF-T/GoBD class regimes), designed in from day one rather than bolted on.
+
+| Control | Description | Layer | Priority |
+|---------|-------------|-------|----------|
+| Gap-free numbering at post | `entry_number` is drawn **atomically inside the posting transaction**, never at draft creation — posted numbers form a contiguous, gap-free sequence per numbering scope (journal/year/month per country rules). Sequence state lives in a dedicated sequence table; concurrent posts must not produce gaps or duplicates. | Core | High |
+| Lock dates | Per-tenant lock dates by kind (`general`, `tax`): posting or modifying an entry dated `<= locked_through` is rejected. Complements period soft/hard close — lock dates are date-based cut-offs independent of period rows. | Core | High |
+| Hash-chain audit | At post time: `entry_hash = SHA-256(canonical(previous_entry_hash, entry_number, dates, journal, ordered lines))`, with `previous_entry_hash` taken from the sequence's last posted entry. Tampering with any posted entry breaks the chain. | Core | High |
+| Integrity report | Verification endpoint/report walks the chain per sequence and reports the first gap or broken link (auditor-facing). | Core | High |
+| **Undo Contract for `post`** | Posting is **not** undoable by deletion — that would break gap-free numbering and the hash chain. The canonical business inverse of a posted entry is a **reversal entry** (debit/credit swapped, linked via `reverses_entry_id`/`reversed_by_entry_id`, already in the schema). The command framework's undo for the post command **rejects**; draft create/update/delete remain normally undoable. | Core | High |
+
+New schema columns this adds to `gl_journal_entry`: `entry_hash`, `previous_entry_hash` (both nullable until posted). New tables: a numbering-sequence table (per journal/scope: prefix, padding, next number, reset policy) and a lock-date table (per tenant+org per lock kind). Canonicalization of the hashed payload is specified at implementation time and versioned.
+
 ---
 
 ### 2. Accounts Payable (AP)
@@ -2577,6 +2675,8 @@ export const createPayrollModule = (config: PolandPluginConfig): PayrollCalculat
 | Returns and credits | Credit note processing | High |
 | Shipping | Revenue recognition on delivery | High |
 | Commissions | Sales commission accruals | Medium |
+
+> **📋 Merged from 2026-06 accounting draft:** in Open Mercato this data flow is implemented via the event bus with status-gated, idempotent posting rules bound to the existing `sales.*` CRUD events — see [Event-Driven Posting](#event-driven-posting-verified-event-reality) for the verified event inventory and idempotency contract.
 
 #### Purchasing Module → Finance
 
@@ -3307,6 +3407,44 @@ const correctEntry = (
 
 ---
 
+#### INV-9: Gap-Free Numbering Invariant
+
+> **📋 Merged from 2026-06 accounting draft.**
+
+```
+∀ numbering_scope: posted entry_numbers form a contiguous sequence (no gaps, no duplicates)
+∀ entry: entry_number IS NOT NULL ⟺ status ∈ ['posted', 'reversed']
+```
+
+**Implementation:** numbers are drawn atomically inside the posting transaction from the sequence table; a failed post never consumes a number. Property test: posting N entries concurrently yields exactly N consecutive numbers.
+
+---
+
+#### INV-10: Hash-Chain Integrity Invariant
+
+> **📋 Merged from 2026-06 accounting draft.**
+
+```
+∀ posted entry eᵢ in sequence: eᵢ.entry_hash = H(eᵢ₋₁.entry_hash, canonical(eᵢ))
+∀ sequence: chain verification from the first posted entry reproduces every stored hash
+```
+
+**Implementation:**
+```typescript
+const computeEntryHash = (
+  previousHash: Option<Hash>,
+  entry: PostedEntry
+): Hash => sha256(canonicalize({ previousHash, entry }))
+
+// Property: any mutation of a posted entry breaks verification
+const prop_chain_detects_tampering = fc.property(
+  arbitraryPostedChain, arbitraryMutation,
+  (chain, mutate) => !verifyChain(applyMutation(chain, mutate)).valid
+)
+```
+
+---
+
 ### Property-Based Test Suite
 
 ```typescript
@@ -3815,6 +3953,7 @@ type BusinessErrorCode =
 | 2.1 | 2025-01-23 | - | Converted to functional programming paradigm |
 | 2.2 | 2025-01-27 | Gregory (reviewed) | Integrated Gregory's spec: concurrency risks, correctness properties, journal entry types, period states, compound taxes, AR write-offs, currency rounding, SOX compliance |
 | 2.3 | 2025-01-28 | - | Added missing sections from original scope: User Stories, NFRs, Use Cases, Success Criteria, Database Schema, API Design |
+| 2.4 | 2026-06-05 | Bernard (merge) | Merged platform-grounded additions from an internal accounting analysis (Odoo `account` deep scan): Market Reference, Open Mercato Platform Alignment (module placement, reuse table, convention deltas, event-driven posting), Statutory Controls (gap-free numbering, lock dates, hash-chain audit, post Undo Contract), INV-9/INV-10. Original architecture, scope, schema, and phasing retained on all conflicts. |
 
 ### Gregory Spec Integration Summary
 
@@ -3839,6 +3978,23 @@ The following items from Gregory's specification were incorporated (marked with 
 - Basic Chart of Accounts (already present)
 - Basic AP/AR lifecycle (already present)
 - Basic bank reconciliation (already present)
+
+### 2026-06 Accounting Draft Integration Summary
+
+The following items from an internal accounting analysis (Odoo `account` deep scan, 2026-06) were incorporated (marked with "📋 Merged from 2026-06 accounting draft"):
+
+**Added:**
+- Market Reference section (Odoo `account` deep scan, Xero/QuickBooks, Medusa/Saleor; explicit rejection of polymorphic `account.move`)
+- Open Mercato Platform Alignment section (module placement, current-state reuse table, platform convention deltas, money-precision divergence note)
+- Event-driven posting rules with verified `sales.*` event reality, status gating, and `(source_document_type, source_document_id)` idempotency
+- Statutory Controls subsection 1.5 (gap-free numbering at post, lock dates, hash-chain audit + integrity report, explicit Undo Contract for `post`)
+- Correctness invariants INV-9 (gap-free numbering) and INV-10 (hash-chain integrity)
+
+**Not incorporated (conflicts — this spec wins):**
+- "Phase 1 = ledger core only" sequencing (kept the 4-phase roadmap)
+- Eight-module platform decomposition (`accounting`, `receivables`, `tax`, …) — kept one `financial` core module + country-plugin packages
+- Alternative entity/table naming (`ledger_accounts`, `journal_entries`, …) — kept the MVP schema, enriched with hash-chain columns and sequence/lock-date tables only
+- `numeric(18,4)`-string money convention — kept `DECIMAL(19,4)` with a divergence note to reconcile at implementation
 
 ---
 
