@@ -88,7 +88,7 @@ export async function POST(req: Request) {
           { lockMode: LockMode.PESSIMISTIC_WRITE },
           tenantScope,
         )
-      const quote = (await findQuoteByToken(hashedToken)) ?? (await findQuoteByToken(token))
+      const quote = await findQuoteByToken(hashedToken)
       if (!quote) {
         throw new CrudHttpError(404, { error: translate('sales.quotes.accept.notFound', 'Quote not found.') })
       }
