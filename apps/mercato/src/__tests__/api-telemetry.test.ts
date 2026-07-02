@@ -2,10 +2,16 @@ import { NextRequest } from 'next/server'
 import type { ApiRouteManifestEntry, HttpMethod } from '@open-mercato/shared/modules/registry'
 
 // Telemetry is mocked so we can assert the dispatcher's wiring (reportError on
-// 5xx + the http.server.request.duration metric) without a real backend.
+// 5xx + recordHttpDuration on every completed request) without a real backend.
+// The semconv histogram shape recordHttpDuration emits is covered by the
+// telemetry package's own nextjs tests; here we only verify the dispatcher
+// calls it with the right method/route/status.
 jest.mock('@open-mercato/telemetry', () => ({
   reportError: jest.fn(),
-  histogram: jest.fn(),
+}))
+
+jest.mock('@open-mercato/telemetry/nextjs', () => ({
+  recordHttpDuration: jest.fn(),
 }))
 
 jest.mock('@/bootstrap', () => ({
@@ -56,23 +62,20 @@ jest.mock('@open-mercato/shared/modules/registry', () => {
 import { registerModules } from '@open-mercato/shared/lib/i18n/server'
 registerModules([{ id: 'tele' }] as never)
 
-import { reportError, histogram } from '@open-mercato/telemetry'
+import { reportError } from '@open-mercato/telemetry'
+import { recordHttpDuration } from '@open-mercato/telemetry/nextjs'
 import { GET } from '@/app/api/[...slug]/route'
 
 const reportErrorMock = reportError as jest.MockedFunction<typeof reportError>
-const histogramMock = histogram as jest.MockedFunction<typeof histogram>
+const recordHttpDurationMock = recordHttpDuration as jest.MockedFunction<typeof recordHttpDuration>
 
 function request(path: string): NextRequest {
   return new NextRequest(`http://localhost/api${path}`, { method: 'GET' })
 }
 
-function durationCalls() {
-  return histogramMock.mock.calls.filter((call) => call[0] === 'http.server.request.duration')
-}
-
 beforeEach(() => {
   reportErrorMock.mockClear()
-  histogramMock.mockClear()
+  recordHttpDurationMock.mockClear()
 })
 
 describe('API dispatcher telemetry wiring', () => {
@@ -88,16 +91,12 @@ describe('API dispatcher telemetry wiring', () => {
       'http.response.status_code': 500,
     })
 
-    const [name, value, attrs, unit] = durationCalls()[0]
-    expect(name).toBe('http.server.request.duration')
-    expect(typeof value).toBe('number')
-    expect(attrs).toMatchObject({
-      'http.request.method': 'GET',
-      'http.route': '/tele/boom',
-      'http.response.status_code': 500,
-      'error.type': '500',
-    })
-    expect(unit).toBe('s')
+    expect(recordHttpDurationMock).toHaveBeenCalledTimes(1)
+    const [method, route, status, startedAt] = recordHttpDurationMock.mock.calls[0]
+    expect(method).toBe('GET')
+    expect(route).toBe('/tele/boom')
+    expect(status).toBe(500)
+    expect(typeof startedAt).toBe('number')
   })
 
   it('does NOT report on a successful response, and emits the response status', async () => {
@@ -105,10 +104,8 @@ describe('API dispatcher telemetry wiring', () => {
     expect(res.status).toBe(200)
     expect(reportErrorMock).not.toHaveBeenCalled()
 
-    const attrs = durationCalls()[0]?.[2]
-    expect(attrs).toMatchObject({ 'http.route': '/tele/ok', 'http.response.status_code': 200 })
-    // A 2xx must not be labeled with error.type (semconv).
-    expect(attrs?.['error.type']).toBeUndefined()
+    expect(recordHttpDurationMock).toHaveBeenCalledTimes(1)
+    expect(recordHttpDurationMock).toHaveBeenCalledWith('GET', '/tele/ok', 200, expect.any(Number))
   })
 
   it('does NOT report a returned 4xx (only unhandled throws are 5xx)', async () => {
@@ -116,8 +113,7 @@ describe('API dispatcher telemetry wiring', () => {
     expect(res.status).toBe(400)
     expect(reportErrorMock).not.toHaveBeenCalled()
 
-    const attrs = durationCalls()[0]?.[2]
-    expect(attrs).toMatchObject({ 'http.route': '/tele/bad', 'http.response.status_code': 400 })
-    expect(attrs?.['error.type']).toBeUndefined()
+    expect(recordHttpDurationMock).toHaveBeenCalledTimes(1)
+    expect(recordHttpDurationMock).toHaveBeenCalledWith('GET', '/tele/bad', 400, expect.any(Number))
   })
 })
