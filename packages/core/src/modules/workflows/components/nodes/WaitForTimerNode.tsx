@@ -2,7 +2,7 @@
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
-import { WorkflowStatus } from '../../lib/status-colors'
+import { toWorkflowStatus } from '../../lib/status-colors'
 
 export interface WaitForTimerNodeData {
   label: string
@@ -25,15 +25,7 @@ export interface WaitForTimerNodeData {
 export function WaitForTimerNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as WaitForTimerNodeData
 
-  const mapStatus = (status?: string): WorkflowStatus => {
-    if (!status || status === 'pending') return 'not_started'
-    if (status === 'running' || status === 'in_progress') return 'in_progress'
-    if (status === 'completed') return 'completed'
-    if (status === 'error') return 'not_started'
-    return 'not_started'
-  }
-
-  const workflowStatus = mapStatus(nodeData.status)
+  const workflowStatus = toWorkflowStatus(nodeData.status)
 
   const duration = nodeData.duration || nodeData.config?.duration
   const until = nodeData.until || nodeData.config?.until

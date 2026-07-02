@@ -268,7 +268,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
     const { nodes, edges } = definitionToGraph(workflowDefinition.definition, { autoLayout: true })
 
     // Determine step statuses from events
-    const stepStatuses = new Map<string, 'completed' | 'active' | 'pending' | 'failed' | 'skipped'>()
+    const stepStatuses = new Map<string, 'completed' | 'active' | 'pending' | 'failed' | 'skipped' | 'paused'>()
     const stepTimings = new Map<string, { startedAt?: Date; completedAt?: Date }>()
 
     // Process events to determine status
@@ -290,11 +290,21 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
       }
     }
 
-    // Mark current step as active
-    if (instance?.currentStepId && !stepStatuses.has(instance.currentStepId)) {
-      stepStatuses.set(instance.currentStepId, 'active')
-    } else if (instance?.currentStepId && stepStatuses.get(instance.currentStepId) !== 'completed') {
-      stepStatuses.set(instance.currentStepId, 'active')
+    // Paint the current step to reflect the live instance state: a failed
+    // instance shows its parked step red, a paused/waiting one yellow, and an
+    // otherwise-running one blue (active). Never override a step that already
+    // reached a terminal status from its own events.
+    if (instance?.currentStepId) {
+      const existing = stepStatuses.get(instance.currentStepId)
+      if (existing !== 'completed' && existing !== 'failed') {
+        const liveStatus =
+          instance.status === 'FAILED'
+            ? 'failed'
+            : instance.status === 'PAUSED' || instance.status === 'WAITING_FOR_ACTIVITIES'
+            ? 'paused'
+            : 'active'
+        stepStatuses.set(instance.currentStepId, liveStatus)
+      }
     }
 
     // Mark all other steps as pending, with special handling for START/END
@@ -378,6 +388,15 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
             backgroundColor: '#EF4444', // red-500
             color: 'white',
             borderColor: '#B91C1C', // red-700
+            borderWidth: '3px',
+            borderRadius: '16px',
+          }
+          break
+        case 'paused':
+          style = {
+            backgroundColor: '#FEF9C3', // yellow-100
+            color: '#713F12', // yellow-900
+            borderColor: '#EAB308', // yellow-500
             borderWidth: '3px',
             borderRadius: '16px',
           }

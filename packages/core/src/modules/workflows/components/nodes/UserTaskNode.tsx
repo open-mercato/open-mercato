@@ -2,7 +2,7 @@
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
-import { WorkflowStatus } from '../../lib/status-colors'
+import { toWorkflowStatus } from '../../lib/status-colors'
 
 export interface UserTaskNodeData {
   label: string
@@ -24,16 +24,7 @@ export interface UserTaskNodeData {
 export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as UserTaskNodeData
 
-  // Map old status values to new WorkflowStatus types
-  const mapStatus = (status?: string): WorkflowStatus => {
-    if (!status || status === 'pending') return 'not_started'
-    if (status === 'running' || status === 'in_progress') return 'in_progress'
-    if (status === 'completed') return 'completed'
-    if (status === 'error') return 'not_started'
-    return 'not_started'
-  }
-
-  const workflowStatus = mapStatus(nodeData.status)
+  const workflowStatus = toWorkflowStatus(nodeData.status)
 
   return (
     <div className="user-task-node" title={nodeData.tooltip}>

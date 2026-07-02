@@ -215,6 +215,10 @@ const loadSkillTool: AiToolDefinition = {
     if (!agentId) {
       return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this session' }
     }
+    // Populate the file-agent skill registry before resolving — on a fresh
+    // process this tool can be the first agent_orchestrator call, so the
+    // registry would otherwise be empty and reject a valid skill.
+    await ensureAgentsLoaded()
     const skill = getAgentSkill(agentId, skillId)
     if (!skill) {
       return {
@@ -276,6 +280,10 @@ const runSkillScriptTool: AiToolDefinition = {
     if (!agentId) {
       return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this session' }
     }
+    // Populate the file-agent skill registry before resolving — on a fresh
+    // process this tool can be the first agent_orchestrator call, so the
+    // registry would otherwise be empty and reject a valid skill/script.
+    await ensureAgentsLoaded()
     if (!getAgentSkill(agentId, skillId)) {
       return {
         ok: false as const,
