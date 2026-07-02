@@ -9,6 +9,7 @@
   "api.errors.invalidJson": "Carga JSON no válida.",
   "api.errors.invalidLocale": "Idioma no válido",
   "api.errors.invalidPayload": "Carga no válida.",
+  "api.errors.localeForced": "El idioma está fijado por configuración",
   "api.errors.notFound": "No encontrado",
   "api.errors.rateLimit": "Demasiadas solicitudes. Inténtelo de nuevo más tarde.",
   "api.errors.unauthorized": "No autorizado",
