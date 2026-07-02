@@ -40,15 +40,17 @@ export function UppercaseBadge({ style, className, children }: { style?: React.C
 
 // Mockup tint colors are illustrative; runtime pills derive from the
 // dictionary entry color using the appearanceColor hex-alpha tint technique
-// (see EventBlock.softTintStyle) with a darkened text shade of the same hue.
+// (see EventBlock.softTintStyle) with a text shade of the same hue pulled
+// toward the theme foreground — mixing toward literal black/white breaks
+// contrast in dark mode (#3552), so both mixes use the theme tokens.
 export function categoryPillStyle(color: string | null | undefined): React.CSSProperties {
   if (typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color)) {
-    return { backgroundColor: `${color}59`, color: `color-mix(in srgb, ${color} 55%, black)` }
+    return { backgroundColor: `${color}59`, color: `color-mix(in srgb, ${color} 55%, var(--foreground))` }
   }
   if (typeof color === 'string' && color.length > 0) {
     return {
-      backgroundColor: `color-mix(in srgb, ${color} 35%, white)`,
-      color: `color-mix(in srgb, ${color} 55%, black)`,
+      backgroundColor: `color-mix(in srgb, ${color} 35%, var(--background))`,
+      color: `color-mix(in srgb, ${color} 55%, var(--foreground))`,
     }
   }
   return {}
