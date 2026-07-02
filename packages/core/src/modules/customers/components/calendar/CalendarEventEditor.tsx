@@ -197,7 +197,7 @@ function EditorBody({
     // the left, CONTEXT (related record, category, location) on the right;
     // people/resources and the task fields pair up below; title, description
     // and the type switcher span both columns.
-    <div className="grid w-full grid-cols-1 items-start gap-5 lg:grid-cols-2 lg:gap-x-6">
+    <div className="grid w-full grid-cols-1 items-start gap-4 lg:grid-cols-2 lg:gap-x-6">
       {conflict ? (
         <Alert variant="warning" className="rounded-lg lg:col-span-2">
           <AlertTitle>{t('customers.calendar.editor.conflictTitle', 'Calendar conflict')}</AlertTitle>
@@ -223,7 +223,7 @@ function EditorBody({
           size="lg"
         />
       </Field>
-      <div className="flex w-full flex-col gap-5">
+      <div className="flex w-full flex-col gap-4">
       <ScheduleSection
         dateLabel={config.dateLabel}
         hasAllDay={config.hasAllDay}
@@ -271,7 +271,7 @@ function EditorBody({
         />
       ) : null}
       </div>
-      <div className="flex w-full flex-col gap-5">
+      <div className="flex w-full flex-col gap-4">
       <Field label={t('customers.calendar.editor.relatedTo', 'Related to')} error={errors.relatedTo}>
         <RelatedToField
           label={t('customers.calendar.editor.relatedTo', 'Related to')}
@@ -360,7 +360,7 @@ function EditorBody({
           onChange={(event) => update({ description: event.target.value })}
           placeholder={t('customers.calendar.editor.descriptionPlaceholder', 'Add details…')}
           aria-label={t('customers.calendar.editor.description', 'Description')}
-          className="h-24 resize-none"
+          className="h-20 resize-none"
         />
       </Field>
     </div>
@@ -511,7 +511,7 @@ export function CalendarEventEditor({
         onKeyDown={handleKeyDown}
         aria-describedby={undefined}
         dismissible={false}
-        className="flex h-dvh max-h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 bg-background p-0 shadow-xl sm:h-auto sm:max-h-screen sm:w-full sm:max-w-lg sm:rounded-2xl sm:border-0 lg:max-w-3xl"
+        className="flex h-dvh max-h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 bg-background p-0 shadow-xl sm:h-auto sm:max-h-[calc(100dvh-4rem)] sm:w-full sm:max-w-lg sm:rounded-2xl sm:border-0 lg:max-w-3xl"
       >
         <VisuallyHidden>
           <DialogTitle>{dialogTitle}</DialogTitle>
@@ -530,7 +530,7 @@ export function CalendarEventEditor({
           </IconButton>
         </div>
         <div className="flex-1 overflow-y-auto">
-          <div className="px-4 py-5 sm:px-6 sm:py-6">
+          <div className="px-4 py-4 sm:px-6 sm:py-5">
             <CrudForm<Record<string, unknown>>
               key={formKey}
               formId={FORM_ID}

@@ -5,7 +5,22 @@ import { ChevronDown } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { categoryPillStyle, CONTROL_BORDER, DROPDOWN_PANEL_CLASS, UppercaseBadge } from './inputs'
+import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS } from './inputs'
+
+// Category rows render as a small color dot + plain label (no uppercase pills)
+// so the picker stays readable in both themes and long lists scan easily.
+function CategoryRow({ label, color }: { label: string; color: string | null }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-2 text-sm text-foreground">
+      <span
+        aria-hidden
+        className="h-2.5 w-2.5 shrink-0 rounded-full border border-border"
+        style={color ? { backgroundColor: color, borderColor: color } : undefined}
+      />
+      <span className="truncate">{label}</span>
+    </span>
+  )
+}
 
 export function CategoryField({
   label,
@@ -39,11 +54,11 @@ export function CategoryField({
         aria-label={label}
         onClick={() => setOpen((previous) => !previous)}
         className={cn(
-          'h-9 w-full justify-between bg-background px-3 shadow-none',
+          'h-9 w-full justify-between bg-background px-3 font-normal shadow-none',
           CONTROL_BORDER,
         )}
       >
-        <UppercaseBadge style={categoryPillStyle(colors[selected.value] ?? null)}>{selected.label}</UppercaseBadge>
+        <CategoryRow label={selected.label} color={colors[selected.value] ?? null} />
         <span className="flex shrink-0 items-center">
           <span aria-hidden className="h-px w-2" />
           <ChevronDown aria-hidden className="size-4 opacity-60" />
@@ -67,9 +82,12 @@ export function CategoryField({
                 onChange(option.value)
                 setOpen(false)
               }}
-              className="h-auto w-full justify-start px-2 py-1.5 text-left"
+              className={cn(
+                'h-auto w-full justify-start px-2 py-1.5 text-left font-normal',
+                option.value === value && 'bg-muted',
+              )}
             >
-              <UppercaseBadge style={categoryPillStyle(colors[option.value] ?? null)}>{option.label}</UppercaseBadge>
+              <CategoryRow label={option.label} color={colors[option.value] ?? null} />
             </Button>
           ))}
         </div>

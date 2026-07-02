@@ -77,7 +77,7 @@ export function PeopleField({
       <div
         className={cn(
           'flex w-full flex-wrap content-center items-center gap-2 rounded-md bg-background px-2.5 py-2',
-          mode === 'multi' ? 'min-h-24' : 'min-h-14',
+          'min-h-14',
           CONTROL_BORDER,
         )}
       >
