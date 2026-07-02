@@ -34,6 +34,7 @@
   "messages.bulk.flash.markReadSuccess": "{count} Nachrichten als gelesen markiert.",
   "messages.bulk.flash.markUnreadSuccess": "{count} Nachrichten als ungelesen markiert.",
   "messages.bulk.flash.partial": "{succeeded} von {total} Nachrichten verarbeitet; {failed} fehlgeschlagen.",
+  "messages.bulk.flash.unarchiveSuccess": "{count} Nachrichten in den Posteingang verschoben.",
   "messages.compose": "Nachricht verfassen",
   "messages.composeHint": "Erstelle eine Nachricht, hänge Objekte an und sende sie an ausgewählte Empfänger.",
   "messages.composer.attachmentPicker.confirm": "Auswahl anhängen",
