@@ -178,7 +178,7 @@ export default function IncidentPostmortemsPage() {
       accessorKey: 'incidentNumber',
       header: t('incidents.postmortem.list.columns.incident', 'Incident'),
       cell: ({ row }) => (
-        <Link href={buildIncidentHref(row.original)} className="font-medium hover:underline">
+        <Link href={buildIncidentHref(row.original)} className="font-medium hover:underline" title={row.original.incidentNumber}>
           {row.original.incidentNumber}
         </Link>
       ),
@@ -187,8 +187,8 @@ export default function IncidentPostmortemsPage() {
     {
       accessorKey: 'incidentTitle',
       header: t('incidents.postmortem.list.columns.title', 'Title'),
-      cell: ({ row }) => row.original.incidentTitle,
-      meta: { alwaysVisible: true, truncate: true, maxWidth: 320 },
+      cell: ({ row }) => <span title={row.original.incidentTitle}>{row.original.incidentTitle}</span>,
+      meta: { alwaysVisible: true, truncate: true, maxWidth: 380 },
     },
     {
       accessorKey: 'status',
@@ -207,14 +207,20 @@ export default function IncidentPostmortemsPage() {
     {
       accessorKey: 'publishedAt',
       header: t('incidents.postmortem.list.columns.publishedAt', 'Published'),
-      cell: ({ row }) => formatDate(row.original.publishedAt, t('incidents.postmortem.list.unpublished', 'Unpublished')),
+      cell: ({ row }) => {
+        const publishedAt = formatDate(row.original.publishedAt, t('incidents.postmortem.list.unpublished', 'Unpublished'))
+        return <span title={publishedAt}>{publishedAt}</span>
+      },
       meta: { truncate: true, maxWidth: 180 },
     },
     {
       accessorKey: 'summary',
       header: t('incidents.postmortem.list.columns.summary', 'Summary'),
-      cell: ({ row }) => row.original.summary ?? t('incidents.postmortem.list.summary.empty', 'No summary'),
-      meta: { truncate: true, maxWidth: 420 },
+      cell: ({ row }) => {
+        const summary = row.original.summary ?? t('incidents.postmortem.list.summary.empty', 'No summary')
+        return <span title={summary}>{summary}</span>
+      },
+      meta: { truncate: true, maxWidth: 480 },
     },
   ], [t])
 

@@ -2,15 +2,27 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
+import { Sparkles, X } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm, type CrudField, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
+import {
+  CrudForm,
+  type CrudCustomFieldRenderProps,
+  type CrudField,
+  type CrudFieldOption,
+} from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { resolveCatalogLabel } from '../../../lib/catalogLabels'
 import { E } from '#generated/entities.ids.generated'
 import { UserSelect } from '../components/UserSelect'
+import { SimilarIncidentsCard, type SimilarIncident } from '../[id]/SimilarIncidentsCard'
 
 type IncidentPriority = 'low' | 'medium' | 'high' | 'critical'
 
@@ -18,6 +30,7 @@ const INCIDENT_PRIORITIES: IncidentPriority[] = ['low', 'medium', 'high', 'criti
 
 type CatalogItem = {
   id: string
+  key?: string | null
   label?: string | null
   is_active?: boolean | null
 }
@@ -54,6 +67,22 @@ type CreateIncidentResponse = {
   id?: string | null
 }
 
+type AiAvailabilityResponse = {
+  available?: boolean
+}
+
+type TriageSuggestion = {
+  severityKey?: string | null
+  typeKey?: string | null
+  rationale?: string | null
+  possibleDuplicateIds?: string[]
+}
+
+type TriageResponse = {
+  suggestion?: TriageSuggestion | null
+  similar?: SimilarIncident[]
+}
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const emptyCatalogResponse = (): PagedResponse<CatalogItem> => ({
@@ -69,16 +98,25 @@ function normalizeOptionalText(value: string | undefined): string | null {
   return trimmed.length ? trimmed : null
 }
 
-async function loadCatalogOptions(path: string): Promise<CrudFieldOption[]> {
+async function loadCatalogOptions(
+  path: string,
+  kind: 'severity' | 'type',
+  t: ReturnType<typeof useT>,
+): Promise<CrudFieldOption[]> {
+  const items = await loadCatalogItems(path)
+  return items
+    .filter((item) => item.id)
+    .map((item) => ({ value: item.id, label: resolveCatalogLabel(t, kind, item.key, item.label ?? item.id) }))
+}
+
+async function loadCatalogItems(path: string): Promise<CatalogItem[]> {
   const result = await apiCall<PagedResponse<CatalogItem>>(
     `${path}?page=1&pageSize=100&isActive=true`,
     undefined,
     { fallback: emptyCatalogResponse() },
   )
   if (!result.ok || !result.result) return []
-  return result.result.items
-    .filter((item) => item.id)
-    .map((item) => ({ value: item.id, label: item.label ?? item.id }))
+  return result.result.items.filter((item) => item.id)
 }
 
 function priorityLabel(t: ReturnType<typeof useT>, priority: IncidentPriority): string {
@@ -118,6 +156,134 @@ function buildPayload(values: IncidentCreateFormValues, t: ReturnType<typeof use
   }
 }
 
+function formText(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function catalogIdForKey(items: readonly CatalogItem[], key: string | null | undefined): string | null {
+  const normalized = key?.trim()
+  if (!normalized) return null
+  return items.find((item) => item.key === normalized)?.id ?? null
+}
+
+function IncidentTitleAiField({
+  id,
+  value,
+  setValue,
+  values,
+  setFormValue,
+  disabled,
+}: CrudCustomFieldRenderProps) {
+  const t = useT()
+  const title = formText(value)
+  const description = formText(values?.description)
+  const [aiAvailable, setAiAvailable] = React.useState(false)
+  const [pending, setPending] = React.useState(false)
+  const [rationale, setRationale] = React.useState<string | null>(null)
+  const [similar, setSimilar] = React.useState<SimilarIncident[]>([])
+
+  React.useEffect(() => {
+    let cancelled = false
+    apiCall<AiAvailabilityResponse>('/api/incidents/ai/availability')
+      .then((call) => {
+        if (!cancelled) setAiAvailable(call.ok && call.result?.available === true)
+      })
+      .catch(() => {
+        if (!cancelled) setAiAvailable(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleSuggest = React.useCallback(async () => {
+    const nextTitle = title.trim()
+    if (!nextTitle || pending) return
+    setPending(true)
+    try {
+      const [severities, types, call] = await Promise.all([
+        loadCatalogItems('/api/incidents/severities'),
+        loadCatalogItems('/api/incidents/types'),
+        apiCallOrThrow<TriageResponse>(
+          '/api/incidents/ai/triage',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title: nextTitle,
+              description: description.trim() || undefined,
+            }),
+          },
+          { errorMessage: t('incidents.ai.triage.error', 'Failed to suggest severity and type.') },
+        ),
+      ])
+      const suggestion = call.result?.suggestion ?? null
+      const severityId = catalogIdForKey(severities, suggestion?.severityKey)
+      const typeId = catalogIdForKey(types, suggestion?.typeKey)
+      if (severityId) setFormValue?.('severityId', severityId)
+      if (typeId) setFormValue?.('incidentTypeId', typeId)
+      setRationale(
+        suggestion?.rationale?.trim() ??
+          t('incidents.ai.triage.unavailable', 'AI did not return a suggestion. Review possible duplicates before creating the incident.'),
+      )
+      setSimilar(Array.isArray(call.result?.similar) ? call.result.similar : [])
+    } catch {
+      flash(t('incidents.ai.triage.error', 'Failed to suggest severity and type.'), 'error')
+    } finally {
+      setPending(false)
+    }
+  }, [description, pending, setFormValue, t, title])
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input
+          id={id}
+          value={title}
+          onChange={(event) => setValue(event.currentTarget.value)}
+          disabled={disabled}
+          maxLength={200}
+          className="min-w-0 flex-1"
+        />
+        {aiAvailable ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void handleSuggest()}
+            disabled={disabled || pending || title.trim().length === 0}
+            className="whitespace-nowrap"
+          >
+            {pending ? <Spinner size="sm" /> : <Sparkles className="size-4" aria-hidden="true" />}
+            {pending
+              ? t('incidents.ai.triage.suggesting', 'Suggesting')
+              : t('incidents.ai.triage.action', 'Suggest severity & type')}
+          </Button>
+        ) : null}
+      </div>
+      {rationale ? (
+        <div className="flex gap-3 rounded-md border border-status-info-border bg-status-info-bg p-3 text-sm text-status-info-text">
+          <p className="min-w-0 flex-1">{rationale}</p>
+          <IconButton
+            type="button"
+            variant="ghost"
+            size="xs"
+            aria-label={t('incidents.ai.triage.dismiss', 'Dismiss suggestion')}
+            onClick={() => setRationale(null)}
+            className="shrink-0"
+          >
+            <X className="size-3" aria-hidden="true" />
+          </IconButton>
+        </div>
+      ) : null}
+      <SimilarIncidentsCard
+        title={title}
+        providedIncidents={similar.length > 0 ? similar : undefined}
+        compact
+      />
+    </div>
+  )
+}
+
 export default function CreateIncidentPage() {
   const t = useT()
   const router = useRouter()
@@ -125,25 +291,25 @@ export default function CreateIncidentPage() {
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'title',
-      type: 'text',
+      type: 'custom',
       label: t('incidents.incident.form.fields.title'),
       required: true,
       layout: 'full',
-      maxLength: 200,
+      component: (props) => <IncidentTitleAiField {...props} />,
     },
     {
       id: 'severityId',
       type: 'select',
       label: t('incidents.incident.form.fields.severity'),
       required: true,
-      loadOptions: () => loadCatalogOptions('/api/incidents/severities'),
+      loadOptions: () => loadCatalogOptions('/api/incidents/severities', 'severity', t),
       layout: 'half',
     },
     {
       id: 'incidentTypeId',
       type: 'select',
       label: t('incidents.incident.form.fields.type'),
-      loadOptions: () => loadCatalogOptions('/api/incidents/types'),
+      loadOptions: () => loadCatalogOptions('/api/incidents/types', 'type', t),
       layout: 'half',
     },
     {

@@ -53,6 +53,17 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     linkHref: '/backend/incidents/{sourceEntityId}',
     expiresAfterHours: 48,
   },
+  {
+    type: 'incidents.update_overdue',
+    module: 'incidents',
+    titleKey: 'incidents.notifications.update_overdue.title',
+    bodyKey: 'incidents.notifications.update_overdue.body',
+    icon: 'clock',
+    severity: 'warning',
+    actions: [],
+    linkHref: '/backend/incidents/{sourceEntityId}',
+    expiresAfterHours: 72,
+  },
 ]
 
 export default notificationTypes

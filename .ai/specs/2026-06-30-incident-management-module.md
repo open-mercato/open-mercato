@@ -1,5 +1,7 @@
 # Incident Management Module (OSS core)
 
+> **v3 delta:** [2026-07-02-incidents-best-in-class-v3.md](2026-07-02-incidents-best-in-class-v3.md) (implemented on `feat/incidents-v3`) supersedes the auto-incident trigger mechanism (JSONB → `incident_trigger` entity + wildcard dispatch), completes the settings UX (SLA matrix, cadence, team targets, path preview), and adds the AI layer + i18n completeness.
+
 > **Implementation status (2026-07-02):** Phases 1–6 + the v2 Elevation are implemented on `feat/incidents` (v1 P1–P2 + v2 escalation policies/runtime/sweep committed as `incidents init`; the v2 completion — settings/policy-manager UI, postmortems, action items, merge/link/reopen, portal view, bulk ops, auto-incident subscribers, impact-refresh, dashboards, user pickers, TC-INC-007–009 + unit suites — staged on top). Deviations and test-coverage deltas: see Changelog 2026-07-02. The v2 section remains the authoritative design for escalation and CRM/sales impact.
 
 ## TLDR

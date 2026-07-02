@@ -456,6 +456,9 @@ const addImpactCommand: CommandHandler<IncidentImpactAddInput, ImpactCommandResu
     assertIncidentNotMerged(incident)
     assertIncidentMutable(incident)
     assertSnapshotLabelIsNonPii(parsed.snapshot)
+    const snapshot = parsed.targetType === 'customer_person' && parsed.snapshot
+      ? { ...parsed.snapshot, label: undefined }
+      : parsed.snapshot
 
     const target = normalizeTarget(parsed)
     await assertNoDuplicateTarget(em, incident.id, scope, parsed.targetType, target.targetId, target.componentLabel)
@@ -478,7 +481,7 @@ const addImpactCommand: CommandHandler<IncidentImpactAddInput, ImpactCommandResu
             targetId: target.targetId,
             componentLabel: target.componentLabel,
             impactStatus: parsed.impactStatus,
-            snapshot: parsed.snapshot ?? null,
+            snapshot: snapshot ?? null,
             revenueAmountMinor: parsed.revenueAmountMinor ?? null,
             revenueCurrency,
             revenueRefreshedAt,

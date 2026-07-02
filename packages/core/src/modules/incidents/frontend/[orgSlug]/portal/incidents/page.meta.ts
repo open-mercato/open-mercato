@@ -11,6 +11,7 @@ export const metadata: PageMetadata = {
     group: 'main',
     order: 40,
   },
+  breadcrumb: [{ label: 'Incidents', labelKey: 'incidents.portal.nav.title' }],
 }
 
 export default metadata

@@ -13,6 +13,7 @@ import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmpty
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { usePortalAppEvent } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { resolveCatalogLabel } from '../../../../lib/catalogLabels'
 
 type Props = { params: { orgSlug: string } }
 
@@ -93,6 +94,11 @@ function statusLabel(t: ReturnType<typeof useT>, status: string): string {
   return status || t('incidents.portal.status.unknown', 'Unknown')
 }
 
+function severityLabel(t: ReturnType<typeof useT>, severity: PortalSeverity | null): string {
+  if (!severity) return t('incidents.portal.severity.none', 'Unspecified')
+  return resolveCatalogLabel(t, 'severity', severity.key, severity.label)
+}
+
 function formatPortalDate(t: ReturnType<typeof useT>, value: string | null): string {
   if (!value) return t('incidents.portal.date.none', 'Not set')
   const date = new Date(value)
@@ -129,7 +135,7 @@ function UpdatesFeed({
         type="button"
         variant="ghost"
         size="sm"
-        className="w-fit rounded-lg text-sm"
+        className="w-fit whitespace-nowrap rounded-lg text-sm"
         onClick={(event) => {
           event.stopPropagation()
           onToggle(incident.id)
@@ -241,7 +247,7 @@ export default function PortalIncidentsPage({ params }: Props) {
       accessorKey: 'number',
       header: t('incidents.portal.columns.number', 'Number'),
       cell: ({ row }) => (
-        <span className="font-medium">
+        <span className="font-medium" title={row.original.number || t('incidents.portal.unnumbered', 'Unnumbered')}>
           {row.original.number || t('incidents.portal.unnumbered', 'Unnumbered')}
         </span>
       ),
@@ -252,7 +258,9 @@ export default function PortalIncidentsPage({ params }: Props) {
       header: t('incidents.portal.columns.title', 'Title'),
       cell: ({ row }) => (
         <div className="flex min-w-0 flex-col gap-2">
-          <span className="font-medium">{row.original.title || t('incidents.portal.untitled', 'Untitled incident')}</span>
+          <span className="font-medium" title={row.original.title || t('incidents.portal.untitled', 'Untitled incident')}>
+            {row.original.title || t('incidents.portal.untitled', 'Untitled incident')}
+          </span>
           <span className="text-sm text-muted-foreground">
             {t('incidents.portal.openedAt', 'Opened {date}', {
               date: formatPortalDate(t, row.original.createdAt),
@@ -260,7 +268,7 @@ export default function PortalIncidentsPage({ params }: Props) {
           </span>
         </div>
       ),
-      meta: { alwaysVisible: true, truncate: true, maxWidth: 360 },
+      meta: { alwaysVisible: true, truncate: true, maxWidth: 420 },
     },
     {
       accessorKey: 'status',
@@ -278,7 +286,7 @@ export default function PortalIncidentsPage({ params }: Props) {
         const severity = row.original.severity
         return (
           <StatusBadge variant={severityVariant(severity?.colorToken)} dot>
-            {severity?.label || t('incidents.portal.severity.none', 'Unspecified')}
+            {severityLabel(t, severity)}
           </StatusBadge>
         )
       },

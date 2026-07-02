@@ -43,6 +43,8 @@ export interface EventSelectProps {
   categories?: Array<'crud' | 'lifecycle' | 'system' | 'custom'>
   /** Filter events by module */
   modules?: string[]
+  /** Exclude events by module, falling back to the first event id segment when module is absent */
+  excludeModules?: string[]
   /** Whether to exclude events marked as excludeFromTriggers (default: true) */
   excludeTriggerExcluded?: boolean
   /** Trigger size — defaults to `'default'` (DS row-height contract). */
@@ -62,6 +64,7 @@ export function EventSelect({
   disabled,
   categories,
   modules,
+  excludeModules,
   excludeTriggerExcluded = true,
   size = 'default',
 }: EventSelectProps) {
@@ -93,9 +96,13 @@ export function EventSelect({
     if (modules?.length) {
       events = events.filter(e => e.module && modules.includes(e.module))
     }
+    if (excludeModules?.length) {
+      const excludedModules = new Set(excludeModules)
+      events = events.filter(e => !excludedModules.has(e.module || e.id.split('.')[0]))
+    }
 
     return events
-  }, [allEvents, categories, modules])
+  }, [allEvents, categories, modules, excludeModules])
 
   // Group events by module for better UX
   const eventsByModule = useMemo(() => {

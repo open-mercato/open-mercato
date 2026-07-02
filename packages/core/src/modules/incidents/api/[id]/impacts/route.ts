@@ -250,7 +250,7 @@ function serializeImpact(impact: IncidentImpact): z.infer<typeof impactItemSchem
     component_label: impact.componentLabel ?? null,
     impact_status: impact.impactStatus,
     snapshot: impact.snapshot ?? null,
-    revenue_amount_minor: impact.revenueAmountMinor ?? null,
+    revenue_amount_minor: impact.revenueAmountMinor == null ? null : String(impact.revenueAmountMinor),
     revenue_currency: impact.revenueCurrency ?? null,
     revenue_refreshed_at: impact.revenueRefreshedAt instanceof Date ? impact.revenueRefreshedAt.toISOString() : null,
     created_at: impact.createdAt.toISOString(),
@@ -328,7 +328,7 @@ export async function handleImpactCommand<TInput extends ImpactCommandInput>(
       impactId: result.impactId,
       incidentId: result.incidentId,
       updatedAt: normalizeImpactUpdatedAt(result.updatedAt),
-      revenueAtRiskMinor: result.revenueAtRiskMinor ?? null,
+      revenueAtRiskMinor: result.revenueAtRiskMinor == null ? null : String(result.revenueAtRiskMinor),
       revenueAtRiskCurrency: result.revenueAtRiskCurrency ?? null,
     })
     setOperationHeader(jsonResponse, logEntry as CommandUndoLogEntry | null, result)

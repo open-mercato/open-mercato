@@ -45,6 +45,13 @@ type ActiveUnacknowledgedWhere = {
 
 type AdvanceEscalationResult = Awaited<ReturnType<typeof advanceEscalation>>
 
+type UpdateOverdueClaimRow = {
+  id: string
+  number: string
+  tenant_id: string
+  organization_id: string
+}
+
 export const metadata: WorkerMeta = {
   queue: 'incidents-escalation-sweep',
   id: 'incidents:escalation-sweep',
@@ -279,6 +286,30 @@ async function runSlaPass(
   }
 }
 
+async function runUpdateOverduePass(
+  em: EntityManager,
+  scope: IncidentScope,
+): Promise<void> {
+  const rows = await em.getConnection().execute<UpdateOverdueClaimRow[]>(
+    `update "incidents" set "update_overdue_notified_at" = now() where "organization_id" = ? and "tenant_id" = ? and "next_update_due_at" <= now() and ("update_overdue_notified_at" is null or "update_overdue_notified_at" < "next_update_due_at") and "status" not in ('resolved','closed') and "deleted_at" is null returning "id", "number", "tenant_id", "organization_id"`,
+    [scope.organizationId, scope.tenantId],
+  )
+
+  for (const row of rows) {
+    await emitIncidentsEvent(
+      'incidents.incident.update_overdue',
+      {
+        id: row.id,
+        incidentId: row.id,
+        number: row.number,
+        tenantId: row.tenant_id,
+        organizationId: row.organization_id,
+      },
+      { persistent: true },
+    )
+  }
+}
+
 export default async function handle(
   job: QueuedJob<EscalationSweepPayload>,
   ctx: HandlerContext,
@@ -292,4 +323,5 @@ export default async function handle(
   await runSnoozeExpiryPass(em, scope, now)
   await runEscalationAdvancePass(em, scope, now)
   await runSlaPass(em, scope, now)
+  await runUpdateOverduePass(em, scope)
 }

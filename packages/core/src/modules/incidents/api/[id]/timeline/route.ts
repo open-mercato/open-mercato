@@ -52,6 +52,9 @@ const timelineItemSchema = z.object({
 
 const timelineListResponseSchema = z.object({
   items: z.array(timelineItemSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
 })
 
 const timelineAddResponseSchema = z.object({
@@ -243,18 +246,26 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     )
     if (!incident) throw new CrudHttpError(404, { error: '[internal] incident not found' })
 
-    const entries = await findWithDecryption(
-      em,
-      IncidentTimelineEntry,
-      { incidentId: input.id, ...scope },
-      {
-        orderBy: { createdAt: 'desc' },
-        limit: input.pageSize,
-        offset: (input.page - 1) * input.pageSize,
-      },
-      scope,
-    )
-    return NextResponse.json({ items: entries.map(serializeTimelineEntry) })
+    const [entries, total] = await Promise.all([
+      findWithDecryption(
+        em,
+        IncidentTimelineEntry,
+        { incidentId: input.id, ...scope },
+        {
+          orderBy: { createdAt: 'desc' },
+          limit: input.pageSize,
+          offset: (input.page - 1) * input.pageSize,
+        },
+        scope,
+      ),
+      em.count(IncidentTimelineEntry, { incidentId: input.id, ...scope }),
+    ])
+    return NextResponse.json({
+      items: entries.map(serializeTimelineEntry),
+      total,
+      page: input.page,
+      pageSize: input.pageSize,
+    })
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })

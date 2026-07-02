@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { MessageSquare, Send } from 'lucide-react'
+import { MessageSquare, Send, Sparkles } from 'lucide-react'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -16,6 +16,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useUserLabels } from '../components/useUserLabels'
 
 type IncidentStatus = 'open' | 'investigating' | 'identified' | 'mitigated' | 'resolved' | 'closed'
 type TimelineVisibility = 'internal' | 'customer_facing'
@@ -43,13 +44,24 @@ type TimelineEntry = {
 
 type TimelineListResponse = {
   items?: TimelineEntry[]
+  total?: number
   error?: string
 }
+
+const TIMELINE_PAGE_SIZE = 20
 
 type TimelineMutationResponse = {
   entryId?: string | null
   incidentId?: string | null
   updatedAt?: string | null
+}
+
+type AiAvailabilityResponse = {
+  available?: boolean
+}
+
+type CustomerUpdateDraftResponse = {
+  draft?: string
 }
 
 type TimelineMutationContext = Record<string, unknown> & {
@@ -154,9 +166,9 @@ function entryLine(t: ReturnType<typeof useT>, entry: TimelineEntry): string {
   }
   if (entry.kind === 'assignment') return t('incidents.incident.detail.timeline.system.assignment')
   if (entry.kind === 'escalation') {
-    const level = readNumber(metadata, 'level')
+    const level = readNumber(metadata, 'toLevel') ?? readNumber(metadata, 'level')
     return t('incidents.incident.detail.timeline.system.escalation', {
-      level: level == null ? t('incidents.common.notSet') : String(level),
+      level: level == null ? t('incidents.common.notSet') : String(level + 1),
     })
   }
   if (entry.kind === 'system') {
@@ -175,12 +187,17 @@ function errorMessage(result: TimelineListResponse | null, fallback: string): st
 export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: TimelinePanelProps) {
   const t = useT()
   const [items, setItems] = React.useState<TimelineEntry[]>([])
+  const [total, setTotal] = React.useState(0)
+  const [loadedPages, setLoadedPages] = React.useState(1)
+  const [isLoadingMore, setIsLoadingMore] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [body, setBody] = React.useState('')
   const [visibility, setVisibility] = React.useState<TimelineVisibility>('internal')
   const [currentUpdatedAt, setCurrentUpdatedAt] = React.useState<string | null>(updatedAt ?? null)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [aiAvailable, setAiAvailable] = React.useState(false)
+  const [isDrafting, setIsDrafting] = React.useState(false)
   const contextId = React.useMemo(() => `incident-timeline:${incidentId}`, [incidentId])
   const { runMutation, retryLastMutation } = useGuardedMutation<TimelineMutationContext>({
     contextId,
@@ -197,18 +214,54 @@ export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: T
     setCurrentUpdatedAt(updatedAt ?? null)
   }, [updatedAt])
 
+  React.useEffect(() => {
+    let cancelled = false
+    apiCall<AiAvailabilityResponse>('/api/incidents/ai/availability')
+      .then((call) => {
+        if (!cancelled) setAiAvailable(call.ok && call.result?.available === true)
+      })
+      .catch(() => {
+        if (!cancelled) setAiAvailable(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const loadItems = React.useCallback(async () => {
     setIsLoading(true)
     setError(null)
     const result = await apiCall<TimelineListResponse>(
-      `/api/incidents/${encodeURIComponent(incidentId)}/timeline?page=1&pageSize=50`,
+      `/api/incidents/${encodeURIComponent(incidentId)}/timeline?page=1&pageSize=${TIMELINE_PAGE_SIZE}`,
     )
     if (!result.ok) {
       throw new Error(errorMessage(result.result, t('incidents.incident.detail.timeline.error.load')))
     }
     setItems(Array.isArray(result.result?.items) ? result.result.items : [])
+    setTotal(typeof result.result?.total === 'number' ? result.result.total : 0)
+    setLoadedPages(1)
     setIsLoading(false)
   }, [incidentId, t])
+
+  const loadOlder = React.useCallback(async () => {
+    setIsLoadingMore(true)
+    try {
+      const nextPage = loadedPages + 1
+      const result = await apiCall<TimelineListResponse>(
+        `/api/incidents/${encodeURIComponent(incidentId)}/timeline?page=${nextPage}&pageSize=${TIMELINE_PAGE_SIZE}`,
+      )
+      if (!result.ok) return
+      const older = Array.isArray(result.result?.items) ? result.result.items : []
+      setItems((prev) => {
+        const seen = new Set(prev.map((entry) => entry.id))
+        return [...prev, ...older.filter((entry) => !seen.has(entry.id))]
+      })
+      if (typeof result.result?.total === 'number') setTotal(result.result.total)
+      setLoadedPages(nextPage)
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }, [incidentId, loadedPages])
 
   React.useEffect(() => {
     let active = true
@@ -275,6 +328,28 @@ export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: T
     }
   }, [body, canManage, currentUpdatedAt, incidentId, loadItems, mutationContext, onChanged, runMutation, t, visibility])
 
+  const handleDraftCustomerUpdate = React.useCallback(async () => {
+    if (!canManage || !aiAvailable || visibility !== 'customer_facing' || isDrafting) return
+    setIsDrafting(true)
+    try {
+      const call = await apiCallOrThrow<CustomerUpdateDraftResponse>(
+        `/api/incidents/${encodeURIComponent(incidentId)}/ai/customer-update`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tone: 'neutral' }),
+        },
+        { errorMessage: t('incidents.ai.customerUpdate.error', 'Failed to draft a customer update.') },
+      )
+      const draft = call.result?.draft?.trim()
+      if (draft) setBody(draft)
+    } catch {
+      flash(t('incidents.ai.customerUpdate.error', 'Failed to draft a customer update.'), 'error')
+    } finally {
+      setIsDrafting(false)
+    }
+  }, [aiAvailable, canManage, incidentId, isDrafting, t, visibility])
+
   const handleComposerKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       event.preventDefault()
@@ -283,6 +358,18 @@ export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: T
   }, [handleSubmit])
 
   const chronologicalItems = React.useMemo(() => [...items].reverse(), [items])
+  const actorUserIds = React.useMemo(
+    () =>
+      Array.from(
+        new Set(
+          items
+            .map((entry) => entry.actorUserId)
+            .filter((id): id is string => typeof id === 'string' && id.trim().length > 0),
+        ),
+      ),
+    [items],
+  )
+  const userLabels = useUserLabels(actorUserIds)
 
   if (isLoading) {
     return (
@@ -297,8 +384,28 @@ export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: T
     return <ErrorMessage label={error} />
   }
 
+  const remainingOlder = Math.max(0, total - items.length)
+
   return (
     <div className="space-y-4">
+      {remainingOlder > 0 ? (
+        <div className="flex justify-center">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void loadOlder()}
+            disabled={isLoadingMore}
+            className="whitespace-nowrap"
+          >
+            {isLoadingMore ? (
+              <Spinner size="sm" />
+            ) : (
+              t('incidents.incident.detail.timeline.loadOlder', { count: remainingOlder })
+            )}
+          </Button>
+        </div>
+      ) : null}
       {chronologicalItems.length > 0 ? (
         <ol className="space-y-3">
           {chronologicalItems.map((entry) => {
@@ -313,7 +420,9 @@ export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: T
               >
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                   <span className="font-medium text-foreground">
-                    {entry.actorUserId ?? t('incidents.incident.detail.timeline.systemActor')}
+                    {entry.actorUserId
+                      ? userLabels[entry.actorUserId] ?? entry.actorUserId
+                      : t('incidents.incident.detail.timeline.systemActor')}
                   </span>
                   <span className="text-muted-foreground">{formatRelativeAge(entry.createdAt, t)}</span>
                   <StatusBadge variant={kindVariant(entry)} dot>
@@ -363,6 +472,7 @@ export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: T
                 aria-pressed={visibility === 'internal'}
                 onClick={() => setVisibility('internal')}
                 disabled={!canManage || isSubmitting}
+                className="whitespace-nowrap"
               >
                 {t('incidents.incident.detail.timeline.composer.internal')}
               </Button>
@@ -373,14 +483,31 @@ export function TimelinePanel({ incidentId, updatedAt, canManage, onChanged }: T
                 aria-pressed={visibility === 'customer_facing'}
                 onClick={() => setVisibility('customer_facing')}
                 disabled={!canManage || isSubmitting}
+                className="whitespace-nowrap"
               >
                 {t('incidents.incident.detail.timeline.composer.customer')}
               </Button>
+              {aiAvailable && visibility === 'customer_facing' ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleDraftCustomerUpdate()}
+                  disabled={!canManage || isSubmitting || isDrafting}
+                  className="whitespace-nowrap"
+                >
+                  {isDrafting ? <Spinner size="sm" /> : <Sparkles className="size-4" aria-hidden="true" />}
+                  {isDrafting
+                    ? t('incidents.ai.customerUpdate.drafting', 'Drafting')
+                    : t('incidents.ai.customerUpdate.action', 'Draft with AI')}
+                </Button>
+              ) : null}
             </div>
             <Button
               type="button"
               onClick={() => void handleSubmit()}
               disabled={!canManage || isSubmitting || body.trim().length === 0}
+              className="whitespace-nowrap"
             >
               <Send aria-hidden="true" />
               {isSubmitting

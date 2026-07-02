@@ -31,6 +31,11 @@ import {
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  RecordSelect,
+  isRecordSelectTargetType,
+  type RecordSelectPickedRecord,
+} from '../components/RecordSelect'
 
 type ImpactTargetType =
   | 'customer_person'
@@ -472,6 +477,16 @@ export function ImpactPanel({
     t,
   ])
 
+  const handlePickedRecord = React.useCallback((record: RecordSelectPickedRecord) => {
+    setAddForm((prev) => ({
+      ...prev,
+      targetId: record.id,
+      label: prev.targetType === 'customer_person' ? '' : record.label,
+      revenueAmountMinor: record.amountMinor ?? prev.revenueAmountMinor,
+      revenueCurrency: record.currency ?? prev.revenueCurrency,
+    }))
+  }, [])
+
   const handleStatusChange = React.useCallback(async (impact: ImpactItem, status: string) => {
     if (!canManage || pendingAction || !isImpactStatus(status) || status === impact.impactStatus) return
     setPendingAction(`status:${impact.id}`)
@@ -590,6 +605,7 @@ export function ImpactPanel({
             size="sm"
             onClick={() => void handleRefresh()}
             disabled={!canManage || isPending}
+            className="whitespace-nowrap"
           >
             <RefreshCw className={pendingAction === 'refresh' ? 'size-4 animate-spin' : 'size-4'} aria-hidden="true" />
             {t('incidents.incident.detail.impact.refresh')}
@@ -600,6 +616,7 @@ export function ImpactPanel({
               size="sm"
               onClick={() => setAddDialogOpen(true)}
               disabled={isPending}
+              className="whitespace-nowrap"
             >
               <Plus className="size-4" aria-hidden="true" />
               {t('incidents.incident.detail.impact.addImpact')}
@@ -631,7 +648,7 @@ export function ImpactPanel({
                     </div>
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-sm font-medium text-foreground">
+                        <p className="truncate text-sm font-medium text-foreground" title={impactDisplayLabel(impact, t)}>
                           {impactDisplayLabel(impact, t)}
                         </p>
                         <StatusBadge variant={impactStatusVariant(impact.impactStatus)} dot>
@@ -639,8 +656,8 @@ export function ImpactPanel({
                         </StatusBadge>
                       </div>
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span>{targetTypeLabel(t, impact.targetType)}</span>
-                        {revenueLabel ? <span>{revenueLabel}</span> : null}
+                        <span title={targetTypeLabel(t, impact.targetType)}>{targetTypeLabel(t, impact.targetType)}</span>
+                        {revenueLabel ? <span title={revenueLabel}>{revenueLabel}</span> : null}
                       </div>
                     </div>
                   </div>
@@ -670,6 +687,7 @@ export function ImpactPanel({
                         onClick={() => void handleRemove(impact)}
                         disabled={isPending}
                         aria-label={t('incidents.incident.detail.impact.removeAriaLabel', { id: impactDisplayLabel(impact, t) })}
+                        className="whitespace-nowrap"
                       >
                         <Trash2 className="size-4" aria-hidden="true" />
                         {t('incidents.incident.detail.impact.remove')}
@@ -711,7 +729,12 @@ export function ImpactPanel({
                   value={addForm.targetType}
                   onValueChange={(value) => {
                     if (isImpactTargetType(value)) {
-                      setAddForm((prev) => ({ ...prev, targetType: value, targetId: value === 'component' ? '' : prev.targetId }))
+                      setAddForm((prev) => ({
+                        ...prev,
+                        targetType: value,
+                        targetId: value === 'component' ? '' : prev.targetId,
+                        label: value === 'customer_person' ? '' : prev.label,
+                      }))
                     }
                   }}
                   disabled={isPending}
@@ -756,13 +779,24 @@ export function ImpactPanel({
               <Label htmlFor="incident-impact-target-id">
                 {t('incidents.incident.detail.impact.targetId')}
               </Label>
-              <Input
-                id="incident-impact-target-id"
-                value={addForm.targetId}
-                onChange={(event) => setAddForm((prev) => ({ ...prev, targetId: event.currentTarget.value }))}
-                placeholder={t('incidents.incident.detail.impact.targetIdPlaceholder')}
-                disabled={isPending || addForm.targetType === 'component'}
-              />
+              {isRecordSelectTargetType(addForm.targetType) ? (
+                <RecordSelect
+                  id="incident-impact-target-id"
+                  targetType={addForm.targetType}
+                  value={addForm.targetId}
+                  onChange={(next) => setAddForm((prev) => ({ ...prev, targetId: next ?? '' }))}
+                  onPicked={handlePickedRecord}
+                  disabled={isPending}
+                />
+              ) : (
+                <Input
+                  id="incident-impact-target-id"
+                  value={addForm.targetId}
+                  onChange={(event) => setAddForm((prev) => ({ ...prev, targetId: event.currentTarget.value }))}
+                  placeholder={t('incidents.incident.detail.impact.targetIdPlaceholder')}
+                  disabled={isPending || addForm.targetType === 'component'}
+                />
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="incident-impact-label">
@@ -813,10 +847,11 @@ export function ImpactPanel({
                 variant="outline"
                 onClick={() => setAddDialogOpen(false)}
                 disabled={isPending}
+                className="whitespace-nowrap"
               >
                 {t('incidents.common.cancel')}
               </Button>
-              <Button type="submit" disabled={isPending || !isAddFormValid}>
+              <Button type="submit" disabled={isPending || !isAddFormValid} className="whitespace-nowrap">
                 <Plus className="size-4" aria-hidden="true" />
                 {t('incidents.incident.detail.impact.addImpact')}
               </Button>

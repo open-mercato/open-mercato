@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { FileText, Save, Send } from 'lucide-react'
+import { CheckCircle2, FileText, Plus, Save, Send, Sparkles } from 'lucide-react'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -13,6 +13,7 @@ import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
@@ -47,6 +48,25 @@ type PostmortemMutationResponse = {
   updatedAt?: string | null
 }
 
+type ActionItemMutationResponse = {
+  ok?: boolean
+  actionItemId?: string | null
+  updatedAt?: string | null
+}
+
+type AiAvailabilityResponse = {
+  available?: boolean
+}
+
+type PostmortemDraftActionItem = {
+  title?: string | null
+  description?: string | null
+}
+
+type PostmortemDraftResponse = Partial<Record<PostmortemField, string | null>> & {
+  actionItems?: PostmortemDraftActionItem[]
+}
+
 type PostmortemMutationContext = Record<string, unknown> & {
   formId: string
   resourceKind: 'incidents.incident'
@@ -62,6 +82,14 @@ type PostmortemPanelProps = {
 }
 
 type PostmortemFormState = Record<PostmortemField, string>
+
+type SuggestedActionItem = {
+  id: string
+  title: string
+  description: string
+  selected: boolean
+  added: boolean
+}
 
 const postmortemFields: Array<{ key: PostmortemField; labelKey: string; fallback: string }> = [
   { key: 'summary', labelKey: 'incidents.postmortem.fields.summary', fallback: 'Summary' },
@@ -90,6 +118,48 @@ function itemToForm(item: PostmortemItem | null): PostmortemFormState {
   }
 }
 
+function draftToForm(draft: PostmortemDraftResponse): PostmortemFormState {
+  return {
+    summary: draft.summary?.trim() ?? '',
+    rootCause: draft.rootCause?.trim() ?? '',
+    impact: draft.impact?.trim() ?? '',
+    contributingFactors: draft.contributingFactors?.trim() ?? '',
+    lessons: draft.lessons?.trim() ?? '',
+  }
+}
+
+function draftToItem(incidentId: string, draft: PostmortemDraftResponse, updatedAt: string | null): PostmortemItem {
+  const form = draftToForm(draft)
+  return {
+    id: 'draft',
+    incidentId,
+    summary: form.summary,
+    rootCause: form.rootCause,
+    impact: form.impact,
+    contributingFactors: form.contributingFactors,
+    lessons: form.lessons,
+    status: 'draft',
+    publishedAt: null,
+    updatedAt: updatedAt ?? '',
+  }
+}
+
+function draftActionItemsToSuggestions(items: readonly PostmortemDraftActionItem[] | null | undefined): SuggestedActionItem[] {
+  return (items ?? [])
+    .map((item, index) => {
+      const title = item.title?.trim() ?? ''
+      if (!title) return null
+      return {
+        id: `suggested-action-${index}`,
+        title,
+        description: item.description?.trim() ?? '',
+        selected: true,
+        added: false,
+      }
+    })
+    .filter((item): item is SuggestedActionItem => item !== null)
+}
+
 function formatDate(value: string | null | undefined, t: ReturnType<typeof useT>): string {
   if (!value) return t('incidents.common.notSet')
   const date = new Date(value)
@@ -115,7 +185,10 @@ export function PostmortemPanel({ incidentId, updatedAt, canManage, onChanged }:
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [currentUpdatedAt, setCurrentUpdatedAt] = React.useState<string | null>(updatedAt ?? null)
-  const [pendingAction, setPendingAction] = React.useState<'save' | 'publish' | 'start' | null>(null)
+  const [pendingAction, setPendingAction] = React.useState<'save' | 'publish' | 'start' | 'draft' | null>(null)
+  const [aiAvailable, setAiAvailable] = React.useState(false)
+  const [suggestions, setSuggestions] = React.useState<SuggestedActionItem[]>([])
+  const [pendingSuggestionId, setPendingSuggestionId] = React.useState<string | null>(null)
   const contextId = React.useMemo(() => `incident-postmortem:${incidentId}`, [incidentId])
   const { runMutation, retryLastMutation } = useGuardedMutation<PostmortemMutationContext>({
     contextId,
@@ -132,6 +205,20 @@ export function PostmortemPanel({ incidentId, updatedAt, canManage, onChanged }:
     setCurrentUpdatedAt(updatedAt ?? null)
   }, [updatedAt])
 
+  React.useEffect(() => {
+    let cancelled = false
+    apiCall<AiAvailabilityResponse>('/api/incidents/ai/availability')
+      .then((call) => {
+        if (!cancelled) setAiAvailable(call.ok && call.result?.available === true)
+      })
+      .catch(() => {
+        if (!cancelled) setAiAvailable(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const loadItem = React.useCallback(async () => {
     setIsLoading(true)
     setError(null)
@@ -144,6 +231,7 @@ export function PostmortemPanel({ incidentId, updatedAt, canManage, onChanged }:
     const nextItem = result.result?.item ?? null
     setItem(nextItem)
     setForm(itemToForm(nextItem))
+    setSuggestions([])
     setIsLoading(false)
   }, [incidentId, t])
 
@@ -195,6 +283,124 @@ export function PostmortemPanel({ incidentId, updatedAt, canManage, onChanged }:
       flash(fallback, 'error')
     }
   }, [refreshAfterConflict, t])
+
+  const handleDraftFromTimeline = React.useCallback(async () => {
+    if (!canManage || pendingAction || !aiAvailable) return
+    setPendingAction('draft')
+    try {
+      const call = await apiCallOrThrow<PostmortemDraftResponse>(
+        `/api/incidents/${encodeURIComponent(incidentId)}/ai/postmortem-draft`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        },
+        { errorMessage: t('incidents.ai.postmortem.error', 'Failed to draft the postmortem.') },
+      )
+      const draft = call.result ?? {}
+      const nextForm = draftToForm(draft)
+      setForm(nextForm)
+      setItem((prev) => prev ?? draftToItem(incidentId, draft, currentUpdatedAt))
+      setSuggestions(draftActionItemsToSuggestions(draft.actionItems))
+      flash(t('incidents.ai.postmortem.success', 'Postmortem draft ready for review.'), 'success')
+    } catch {
+      flash(t('incidents.ai.postmortem.error', 'Failed to draft the postmortem.'), 'error')
+    } finally {
+      setPendingAction(null)
+    }
+  }, [aiAvailable, canManage, currentUpdatedAt, incidentId, pendingAction, t])
+
+  const createSuggestedActionItem = React.useCallback(async (
+    suggestion: SuggestedActionItem,
+    expectedUpdatedAt: string | null,
+  ): Promise<string | null> => {
+    const payload: { title: string; description?: string } = { title: suggestion.title }
+    if (suggestion.description) payload.description = suggestion.description
+    const call = await runMutation({
+      operation: async () => apiCallOrThrow<ActionItemMutationResponse>(
+        `/api/incidents/${encodeURIComponent(incidentId)}/action-items`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...buildOptimisticLockHeader(expectedUpdatedAt),
+          },
+          body: JSON.stringify(payload),
+        },
+        { errorMessage: t('incidents.ai.postmortem.actionItems.error', 'Failed to add the suggested action item.') },
+      ),
+      context: mutationContext,
+      mutationPayload: { incidentId, ...payload },
+    })
+    const freshUpdatedAt = call.result?.updatedAt
+    return typeof freshUpdatedAt === 'string' && freshUpdatedAt.length > 0 ? freshUpdatedAt : expectedUpdatedAt
+  }, [incidentId, mutationContext, runMutation, t])
+
+  const handleSuggestionToggle = React.useCallback((id: string, checked: boolean) => {
+    setSuggestions((prev) => prev.map((suggestion) => (
+      suggestion.id === id && !suggestion.added ? { ...suggestion, selected: checked } : suggestion
+    )))
+  }, [])
+
+  const handleAddSuggestion = React.useCallback(async (suggestion: SuggestedActionItem) => {
+    if (!canManage || pendingSuggestionId || suggestion.added) return
+    setPendingSuggestionId(suggestion.id)
+    try {
+      const nextUpdatedAt = await createSuggestedActionItem(suggestion, currentUpdatedAt)
+      setCurrentUpdatedAt(nextUpdatedAt)
+      setSuggestions((prev) => prev.map((item) => (
+        item.id === suggestion.id ? { ...item, added: true, selected: false } : item
+      )))
+      flash(t('incidents.ai.postmortem.actionItems.added', 'Suggested action item added.'), 'success')
+      await onChanged()
+    } catch (err) {
+      handleMutationError(err, t('incidents.ai.postmortem.actionItems.error', 'Failed to add the suggested action item.'))
+    } finally {
+      setPendingSuggestionId(null)
+    }
+  }, [
+    canManage,
+    createSuggestedActionItem,
+    currentUpdatedAt,
+    handleMutationError,
+    onChanged,
+    pendingSuggestionId,
+    t,
+  ])
+
+  const handleAddSuggestions = React.useCallback(async (selectedOnly: boolean) => {
+    if (!canManage || pendingSuggestionId) return
+    const pendingSuggestions = suggestions.filter((suggestion) => (
+      !suggestion.added && (!selectedOnly || suggestion.selected)
+    ))
+    if (!pendingSuggestions.length) return
+    setPendingSuggestionId(selectedOnly ? 'selected' : 'all')
+    let lockValue = currentUpdatedAt
+    try {
+      for (const suggestion of pendingSuggestions) {
+        lockValue = await createSuggestedActionItem(suggestion, lockValue)
+        setCurrentUpdatedAt(lockValue)
+        setSuggestions((prev) => prev.map((item) => (
+          item.id === suggestion.id ? { ...item, added: true, selected: false } : item
+        )))
+      }
+      flash(t('incidents.ai.postmortem.actionItems.addedAll', 'Suggested action items added.'), 'success')
+      await onChanged()
+    } catch (err) {
+      handleMutationError(err, t('incidents.ai.postmortem.actionItems.error', 'Failed to add the suggested action item.'))
+    } finally {
+      setPendingSuggestionId(null)
+    }
+  }, [
+    canManage,
+    createSuggestedActionItem,
+    currentUpdatedAt,
+    handleMutationError,
+    onChanged,
+    pendingSuggestionId,
+    suggestions,
+    t,
+  ])
 
   const saveDraft = React.useCallback(async (payload: Partial<PostmortemFormState>, action: 'save' | 'start') => {
     if (!canManage || pendingAction) return
@@ -312,7 +518,24 @@ export function PostmortemPanel({ incidentId, updatedAt, canManage, onChanged }:
   if (!item) {
     return (
       <section className="rounded-lg border border-border bg-card p-4">
-        <SectionHeader title={t('incidents.postmortem.title', 'Postmortem')} />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <SectionHeader title={t('incidents.postmortem.title', 'Postmortem')} />
+          {canManage && aiAvailable ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleDraftFromTimeline()}
+              disabled={pendingAction !== null}
+              className="whitespace-nowrap"
+            >
+              {pendingAction === 'draft' ? <Spinner size="sm" /> : <Sparkles className="size-4" aria-hidden="true" />}
+              {pendingAction === 'draft'
+                ? t('incidents.ai.postmortem.drafting', 'Drafting')
+                : t('incidents.ai.postmortem.action', 'Draft from timeline')}
+            </Button>
+          ) : null}
+        </div>
         <div className="mt-4">
           <EmptyState
             variant="subtle"
@@ -325,6 +548,7 @@ export function PostmortemPanel({ incidentId, updatedAt, canManage, onChanged }:
                 variant="outline"
                 onClick={() => void saveDraft({}, 'start')}
                 disabled={pendingAction !== null}
+                className="whitespace-nowrap"
               >
                 <FileText className="size-4" aria-hidden="true" />
                 {t('incidents.postmortem.actions.startDraft', 'Start draft')}
@@ -338,22 +562,41 @@ export function PostmortemPanel({ incidentId, updatedAt, canManage, onChanged }:
   }
 
   const isPublished = item.status === 'published'
+  const selectedSuggestionCount = suggestions.filter((suggestion) => suggestion.selected && !suggestion.added).length
+  const remainingSuggestionCount = suggestions.filter((suggestion) => !suggestion.added).length
 
   return (
     <section className="rounded-lg border border-border bg-card p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <SectionHeader title={t('incidents.postmortem.title', 'Postmortem')} />
-        {isPublished ? (
-          <StatusBadge variant="success" dot>
-            {t('incidents.postmortem.publishedBadge', 'Published {date}', {
-              date: formatDate(item.publishedAt, t),
-            })}
-          </StatusBadge>
-        ) : (
-          <StatusBadge variant="neutral" dot>
-            {t('incidents.postmortem.status.draft', 'Draft')}
-          </StatusBadge>
-        )}
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          {canManage && !isPublished && aiAvailable ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleDraftFromTimeline()}
+              disabled={pendingAction !== null}
+              className="whitespace-nowrap"
+            >
+              {pendingAction === 'draft' ? <Spinner size="sm" /> : <Sparkles className="size-4" aria-hidden="true" />}
+              {pendingAction === 'draft'
+                ? t('incidents.ai.postmortem.drafting', 'Drafting')
+                : t('incidents.ai.postmortem.action', 'Draft from timeline')}
+            </Button>
+          ) : null}
+          {isPublished ? (
+            <StatusBadge variant="success" dot>
+              {t('incidents.postmortem.publishedBadge', 'Published {date}', {
+                date: formatDate(item.publishedAt, t),
+              })}
+            </StatusBadge>
+          ) : (
+            <StatusBadge variant="neutral" dot>
+              {t('incidents.postmortem.status.draft', 'Draft')}
+            </StatusBadge>
+          )}
+        </div>
       </div>
 
       {isPublished ? (
@@ -390,6 +633,90 @@ export function PostmortemPanel({ incidentId, updatedAt, canManage, onChanged }:
               </div>
             )
           })}
+          {canManage && suggestions.length > 0 ? (
+            <div className="space-y-3 rounded-md border border-border bg-background p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">
+                    {t('incidents.ai.postmortem.actionItems.title', 'Suggested action items')}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {t('incidents.ai.postmortem.actionItems.description', 'Review suggestions before adding them to the incident.')}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleAddSuggestions(true)}
+                    disabled={pendingSuggestionId !== null || selectedSuggestionCount === 0}
+                    className="whitespace-nowrap"
+                  >
+                    {pendingSuggestionId === 'selected' ? <Spinner size="sm" /> : <Plus className="size-4" aria-hidden="true" />}
+                    {t('incidents.ai.postmortem.actionItems.addSelected', 'Add selected')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleAddSuggestions(false)}
+                    disabled={pendingSuggestionId !== null || remainingSuggestionCount === 0}
+                    className="whitespace-nowrap"
+                  >
+                    {pendingSuggestionId === 'all' ? <Spinner size="sm" /> : <Plus className="size-4" aria-hidden="true" />}
+                    {t('incidents.ai.postmortem.actionItems.addAll', 'Add all')}
+                  </Button>
+                </div>
+              </div>
+              <ul className="space-y-2">
+                {suggestions.map((suggestion) => (
+                  <li key={suggestion.id} className="rounded-md border border-border bg-card p-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="flex min-w-0 flex-1 gap-3">
+                        <Checkbox
+                          checked={suggestion.selected}
+                          onCheckedChange={(checked) => handleSuggestionToggle(suggestion.id, checked === true)}
+                          disabled={suggestion.added || pendingSuggestionId !== null}
+                          aria-label={t('incidents.ai.postmortem.actionItems.select', 'Select suggested action item')}
+                          className="mt-1"
+                        />
+                        <div className="min-w-0 space-y-1">
+                          <p className="truncate text-sm font-medium text-foreground" title={suggestion.title}>
+                            {suggestion.title}
+                          </p>
+                          {suggestion.description ? (
+                            <p className="line-clamp-2 text-xs text-muted-foreground" title={suggestion.description}>
+                              {suggestion.description}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                      {suggestion.added ? (
+                        <StatusBadge variant="success" dot>
+                          {t('incidents.ai.postmortem.actionItems.addedBadge', 'Added')}
+                        </StatusBadge>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleAddSuggestion(suggestion)}
+                          disabled={pendingSuggestionId !== null}
+                          className="whitespace-nowrap"
+                        >
+                          {pendingSuggestionId === suggestion.id
+                            ? <Spinner size="sm" />
+                            : <CheckCircle2 className="size-4" aria-hidden="true" />}
+                          {t('incidents.ai.postmortem.actionItems.addOne', 'Add')}
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {canManage ? (
             <div className="flex flex-wrap justify-end gap-2">
               <Button
@@ -397,6 +724,7 @@ export function PostmortemPanel({ incidentId, updatedAt, canManage, onChanged }:
                 variant="outline"
                 onClick={() => void saveDraft(form, 'save')}
                 disabled={pendingAction !== null}
+                className="whitespace-nowrap"
               >
                 <Save className="size-4" aria-hidden="true" />
                 {t('incidents.postmortem.actions.save', 'Save')}
@@ -405,6 +733,7 @@ export function PostmortemPanel({ incidentId, updatedAt, canManage, onChanged }:
                 type="button"
                 onClick={() => void handlePublish()}
                 disabled={pendingAction !== null}
+                className="whitespace-nowrap"
               >
                 <Send className="size-4" aria-hidden="true" />
                 {t('incidents.postmortem.actions.publish', 'Publish')}

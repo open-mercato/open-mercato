@@ -111,7 +111,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     return NextResponse.json({
       ok: true,
-      revenueAtRiskMinor: incident.revenueAtRiskMinor ?? null,
+      revenueAtRiskMinor: incident.revenueAtRiskMinor == null ? null : String(incident.revenueAtRiskMinor),
       revenueAtRiskCurrency: incident.revenueAtRiskCurrency ?? null,
       refreshedAt: refreshedAt.toISOString(),
     })

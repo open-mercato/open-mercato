@@ -12,7 +12,6 @@ import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import {
   Select,
@@ -26,6 +25,7 @@ import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitive
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { UserSelect } from '../components/UserSelect'
 import { useUserLabels } from '../components/useUserLabels'
+import { RoleSelect, useRoleLabel } from '../components/RoleSelect'
 
 type ParticipantKind = 'responder' | 'subscriber'
 
@@ -108,6 +108,7 @@ export function ParticipantsPanel({ incidentId, updatedAt, canManage, onChanged 
   }), [contextId, incidentId, retryLastMutation])
   const participantUserIds = React.useMemo(() => items.map((item) => item.userId), [items])
   const userLabels = useUserLabels(participantUserIds)
+  const roleLabel = useRoleLabel()
 
   React.useEffect(() => {
     setCurrentUpdatedAt(updatedAt ?? null)
@@ -289,7 +290,7 @@ export function ParticipantsPanel({ incidentId, updatedAt, canManage, onChanged 
                       {kindLabel(t, participant.kind)}
                     </StatusBadge>
                     <span className="text-xs text-muted-foreground">
-                      {participant.roleId ?? t('incidents.incident.detail.participants.noRole')}
+                      {roleLabel(participant.roleId) ?? t('incidents.incident.detail.participants.noRole')}
                     </span>
                   </div>
                 </div>
@@ -358,11 +359,10 @@ export function ParticipantsPanel({ incidentId, updatedAt, canManage, onChanged 
                 <Label htmlFor="incident-participant-role">
                   {t('incidents.incident.detail.participants.fields.roleId')}
                 </Label>
-                <Input
+                <RoleSelect
                   id="incident-participant-role"
                   value={roleId}
-                  onChange={(event) => setRoleId(event.currentTarget.value)}
-                  placeholder={t('incidents.incident.detail.participants.placeholders.roleId')}
+                  onChange={(next) => setRoleId(next ?? '')}
                   disabled={pending}
                 />
               </div>

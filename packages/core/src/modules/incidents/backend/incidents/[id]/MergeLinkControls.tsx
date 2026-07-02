@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { GitMerge, Link2, Search, Trash2 } from 'lucide-react'
+import { GitMerge, Link2, MoreHorizontal, Search, Trash2 } from 'lucide-react'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -27,6 +27,11 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@open-mercato/ui/primitives/popover'
 import {
   Select,
   SelectContent,
@@ -255,6 +260,7 @@ export function MergeLinkHeaderActions({
   const t = useT()
   const router = useRouter()
   const [currentUpdatedAt, setCurrentUpdatedAt] = React.useState<string | null>(updatedAt ?? null)
+  const [moreOpen, setMoreOpen] = React.useState(false)
   const [linkDialogOpen, setLinkDialogOpen] = React.useState(false)
   const [mergeDialogOpen, setMergeDialogOpen] = React.useState(false)
   const [selectedLinkIncident, setSelectedLinkIncident] = React.useState<IncidentOption | null>(null)
@@ -410,31 +416,50 @@ export function MergeLinkHeaderActions({
 
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        onClick={() => {
-          setSelectedLinkIncident(null)
-          setLinkKind('related')
-          setLinkDialogOpen(true)
-        }}
-        disabled={pendingAction !== null}
-      >
-        <Link2 className="size-4" aria-hidden="true" />
-        {t('incidents.links.actions.link', 'Link incident')}
-      </Button>
-      <Button
-        type="button"
-        variant="destructive-outline"
-        onClick={() => {
-          setSelectedMergeIncident(null)
-          setMergeDialogOpen(true)
-        }}
-        disabled={pendingAction !== null}
-      >
-        <GitMerge className="size-4" aria-hidden="true" />
-        {t('incidents.merge.actions.open', 'Merge into...')}
-      </Button>
+      <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={pendingAction !== null}
+            className="whitespace-nowrap"
+          >
+            <MoreHorizontal className="size-4" aria-hidden="true" />
+            {t('incidents.incident.detail.actions.more', 'More')}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-64 p-1">
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full justify-start whitespace-nowrap"
+            disabled={pendingAction !== null}
+            onClick={() => {
+              setMoreOpen(false)
+              setSelectedLinkIncident(null)
+              setLinkKind('related')
+              setLinkDialogOpen(true)
+            }}
+          >
+            <Link2 className="size-4" aria-hidden="true" />
+            {t('incidents.links.actions.link', 'Link incident')}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full justify-start whitespace-nowrap text-status-error-text"
+            disabled={pendingAction !== null}
+            onClick={() => {
+              setMoreOpen(false)
+              setSelectedMergeIncident(null)
+              setMergeDialogOpen(true)
+            }}
+          >
+            <GitMerge className="size-4" aria-hidden="true" />
+            {t('incidents.merge.actions.open', 'Merge into another...')}
+          </Button>
+        </PopoverContent>
+      </Popover>
 
       <Dialog open={linkDialogOpen} onOpenChange={(open) => {
         if (!open && pendingAction !== 'link') setLinkDialogOpen(false)

@@ -1,4 +1,4 @@
-import { Collection, OptionalProps } from '@mikro-orm/core'
+import { BigIntType, Collection, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 export type IncidentEscalationTarget = {
@@ -27,13 +27,16 @@ export type IncidentSlaTarget = {
 
 export type IncidentSlaTargets = Record<string, IncidentSlaTarget>
 
-export type IncidentAutoIncidentTrigger = {
-  enabled: boolean
-  severity_key: string
-  type_key: string
+export type IncidentUpdateCadenceEntry = {
+  updateMinutes: number
 }
 
-export type IncidentAutoIncidentTriggers = Record<string, IncidentAutoIncidentTrigger>
+export type IncidentUpdateCadence = Record<string, IncidentUpdateCadenceEntry>
+
+export type IncidentTriggerCondition = {
+  path: string
+  equals: string | number | boolean
+}
 
 @Entity({ tableName: 'incidents' })
 @Index({ name: 'incidents_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
@@ -56,6 +59,8 @@ export class Incident {
     | 'closedAt'
     | 'escalationLevel'
     | 'nextEscalationAt'
+    | 'nextUpdateDueAt'
+    | 'updateOverdueNotifiedAt'
     | 'snoozedUntil'
     | 'escalationPolicyId'
     | 'escalationStatus'
@@ -143,6 +148,12 @@ export class Incident {
   @Property({ name: 'next_escalation_at', type: Date, nullable: true })
   nextEscalationAt?: Date | null
 
+  @Property({ name: 'next_update_due_at', type: Date, nullable: true })
+  nextUpdateDueAt?: Date | null
+
+  @Property({ name: 'update_overdue_notified_at', type: Date, nullable: true })
+  updateOverdueNotifiedAt?: Date | null
+
   @Property({ name: 'snoozed_until', type: Date, nullable: true })
   snoozedUntil?: Date | null
 
@@ -179,7 +190,7 @@ export class Incident {
   @Property({ name: 'customer_impact_summary', type: 'text', nullable: true })
   customerImpactSummary?: string | null
 
-  @Property({ name: 'revenue_at_risk_minor', type: 'bigint', nullable: true })
+  @Property({ name: 'revenue_at_risk_minor', type: new BigIntType('string'), nullable: true })
   revenueAtRiskMinor?: string | null
 
   @Property({ name: 'revenue_at_risk_currency', type: 'text', nullable: true })
@@ -313,7 +324,7 @@ export class IncidentImpact {
   @Property({ name: 'snapshot', type: 'jsonb', nullable: true })
   snapshot?: Record<string, unknown> | null
 
-  @Property({ name: 'revenue_amount_minor', type: 'bigint', nullable: true })
+  @Property({ name: 'revenue_amount_minor', type: new BigIntType('string'), nullable: true })
   revenueAmountMinor?: string | null
 
   @Property({ name: 'revenue_currency', type: 'text', nullable: true })
@@ -566,6 +577,57 @@ export class IncidentEscalationPolicy {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'incident_triggers' })
+@Index({ name: 'incident_triggers_org_tenant_event_enabled_idx', expression: `create index "incident_triggers_org_tenant_event_enabled_idx" on "incident_triggers" ("organization_id", "tenant_id", "event_id", "is_enabled") where "deleted_at" is null` })
+@Index({ name: 'incident_triggers_org_tenant_event_unique', expression: `create unique index "incident_triggers_org_tenant_event_unique" on "incident_triggers" ("organization_id", "tenant_id", "event_id") where "deleted_at" is null` })
+export class IncidentTrigger {
+  [OptionalProps]?:
+    | 'isEnabled'
+    | 'severityKey'
+    | 'typeKey'
+    | 'escalationPolicyId'
+    | 'conditions'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'event_id', type: 'text' })
+  eventId!: string
+
+  @Property({ name: 'is_enabled', type: 'boolean', default: true })
+  isEnabled: boolean = true
+
+  @Property({ name: 'severity_key', type: 'text', nullable: true })
+  severityKey?: string | null
+
+  @Property({ name: 'type_key', type: 'text', nullable: true })
+  typeKey?: string | null
+
+  @Property({ name: 'escalation_policy_id', type: 'uuid', nullable: true })
+  escalationPolicyId?: string | null
+
+  @Property({ name: 'conditions', type: 'jsonb', nullable: true })
+  conditions?: IncidentTriggerCondition[] | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'incident_types' })
 @Index({ name: 'incident_types_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'incident_types_org_tenant_key_unique', expression: `create unique index "incident_types_org_tenant_key_unique" on "incident_types" ("organization_id", "tenant_id", "key") where "deleted_at" is null` })
@@ -666,7 +728,7 @@ export class IncidentSettings {
     | 'escalationTimeoutMinutes'
     | 'defaultEscalationPolicyId'
     | 'slaTargets'
-    | 'autoIncidentTriggers'
+    | 'updateCadence'
     | 'createdAt'
     | 'updatedAt'
     | 'deletedAt'
@@ -695,8 +757,8 @@ export class IncidentSettings {
   @Property({ name: 'sla_targets', type: 'jsonb', nullable: true })
   slaTargets?: IncidentSlaTargets | null
 
-  @Property({ name: 'auto_incident_triggers', type: 'jsonb', nullable: true })
-  autoIncidentTriggers?: IncidentAutoIncidentTriggers | null
+  @Property({ name: 'update_cadence', type: 'jsonb', nullable: true })
+  updateCadence?: IncidentUpdateCadence | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -745,5 +807,6 @@ export const incidentsEntities = [
   IncidentType,
   IncidentRole,
   IncidentSettings,
+  IncidentTrigger,
   IncidentNumberSequence,
 ] as const

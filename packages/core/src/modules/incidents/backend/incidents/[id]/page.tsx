@@ -31,13 +31,16 @@ import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { resolveCatalogLabel } from '../../../lib/catalogLabels'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { TimelinePanel } from './TimelinePanel'
+import { AiPanel } from './AiPanel'
 import { ParticipantsPanel } from './ParticipantsPanel'
 import { EscalationPanel } from './EscalationPanel'
 import { ImpactPanel } from './ImpactPanel'
 import { PostmortemPanel } from './PostmortemPanel'
 import { ActionItemsPanel } from './ActionItemsPanel'
+import { SimilarIncidentsCard } from './SimilarIncidentsCard'
 import { IncidentLinksPanel, MergeLinkHeaderActions } from './MergeLinkControls'
 import { UserSelect } from '../components/UserSelect'
 import { useUserLabels } from '../components/useUserLabels'
@@ -109,6 +112,8 @@ type IncidentDetailRecord = {
     resolvedAt?: string
   } | null
   next_escalation_at?: string | null
+  next_update_due_at?: string | null
+  nextUpdateDueAt?: string | null
   snoozed_until?: string | null
   created_at?: string | null
   updated_at?: string | null
@@ -274,7 +279,7 @@ function fieldErrorLabel(t: ReturnType<typeof useT>, value: string | null | unde
 }
 
 function severityLabel(t: ReturnType<typeof useT>, key: IncidentSeverityKey | null, item: CatalogItem | null | undefined): string {
-  if (item?.label) return item.label
+  if (item?.label) return resolveCatalogLabel(t, 'severity', item.key, item.label)
   if (key === 'critical') return t('incidents.incident.severity.critical')
   if (key === 'high') return t('incidents.incident.severity.high')
   if (key === 'medium') return t('incidents.incident.severity.medium')
@@ -309,6 +314,47 @@ function formatDate(value: string | null | undefined, t: ReturnType<typeof useT>
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return t('incidents.common.notSet')
   return date.toLocaleString()
+}
+
+function formatUpdateDue(
+  value: string | null | undefined,
+  t: ReturnType<typeof useT>,
+  now: number,
+): { label: string; variant: StatusBadgeVariant } | null {
+  if (!value) return null
+  const due = new Date(value)
+  if (Number.isNaN(due.getTime())) return null
+  const diffMs = due.getTime() - now
+  if (diffMs > 0) {
+    const minutes = Math.ceil(diffMs / 60_000)
+    if (minutes < 60) {
+      return {
+        label: t('incidents.updateDue.nextMinutes', 'Next customer update due in {count}m', { count: minutes }),
+        variant: 'neutral',
+      }
+    }
+    return {
+      label: t('incidents.updateDue.nextHours', 'Next customer update due in {count}h', { count: Math.ceil(minutes / 60) }),
+      variant: 'neutral',
+    }
+  }
+  const overdueMinutes = Math.floor(Math.abs(diffMs) / 60_000)
+  if (overdueMinutes < 1) {
+    return {
+      label: t('incidents.updateDue.now', 'Customer update due now'),
+      variant: 'warning',
+    }
+  }
+  if (overdueMinutes < 60) {
+    return {
+      label: t('incidents.updateDue.overdueMinutes', 'Customer update overdue by {count}m', { count: overdueMinutes }),
+      variant: 'warning',
+    }
+  }
+  return {
+    label: t('incidents.updateDue.overdueHours', 'Customer update overdue by {count}h', { count: Math.floor(overdueMinutes / 60) }),
+    variant: 'warning',
+  }
 }
 
 function errorStatus(error: unknown): number | null {
@@ -361,6 +407,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
   const [resolveDialog, setResolveDialog] = React.useState<ResolveDialogState | null>(null)
   const [assignDialogOpen, setAssignDialogOpen] = React.useState(false)
   const [assignOwnerUserId, setAssignOwnerUserId] = React.useState<string | null>(null)
+  const [clockNow, setClockNow] = React.useState(() => Date.now())
 
   const mutationContextId = React.useMemo(() => `incident:${id ?? 'pending'}`, [id])
   const { runMutation, retryLastMutation } = useGuardedMutation<IncidentInjectionContext>({
@@ -368,13 +415,15 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
 
+  const hasLoadedOnceRef = React.useRef(false)
+
   const loadData = React.useCallback(async () => {
     if (!id) {
       setIsNotFound(true)
       setIsLoading(false)
       return
     }
-    setIsLoading(true)
+    if (!hasLoadedOnceRef.current) setIsLoading(true)
     setError(null)
     setIsNotFound(false)
     try {
@@ -390,6 +439,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
         return
       }
       setData(record)
+      hasLoadedOnceRef.current = true
     } catch (err) {
       if (errorStatus(err) === 404) {
         setData(null)
@@ -408,6 +458,11 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
       setIsLoading(false)
     })
   }, [loadData, t])
+
+  React.useEffect(() => {
+    const interval = window.setInterval(() => setClockNow(Date.now()), 30_000)
+    return () => window.clearInterval(interval)
+  }, [])
 
   React.useEffect(() => {
     const targetId = data?.merged_into_incident_id ?? null
@@ -781,7 +836,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
           <ErrorMessage
             label={error ?? t('incidents.incident.detail.error.load')}
             action={(
-              <Button asChild variant="outline">
+              <Button asChild variant="outline" className="whitespace-nowrap">
                 <Link href="/backend/incidents">{t('incidents.incident.detail.actions.backToList')}</Link>
               </Button>
             )}
@@ -805,11 +860,14 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
   const availableTransitions = nextStatusesFor(data.status, canClose).filter((status) => status !== 'open')
   const canReopen = canManage && !isMerged && (data.status === 'resolved' || data.status === 'closed')
   const isAcknowledged = Boolean(data.acknowledged_at)
+  const isTerminalStatus = data.status === 'resolved' || data.status === 'closed'
   const mergedTargetNumber = mergedTarget?.number?.trim() || mergedIntoIncidentId || t('incidents.incident.list.unnumbered')
   const mergedTargetTitle = mergedTarget?.title?.trim()
   const ownerLabel = data.owner_user_id
     ? userLabels[data.owner_user_id] ?? data.owner_user_id
     : t('incidents.incident.owner.unassigned')
+  const nextUpdateDueAt = data.nextUpdateDueAt ?? data.next_update_due_at ?? null
+  const updateDue = formatUpdateDue(nextUpdateDueAt, t, clockNow)
 
   return (
     <Page>
@@ -845,11 +903,16 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                   <StatusBadge variant={statusBadgeVariant(data.status)} dot>
                     {statusLabel(t, data.status)}
                   </StatusBadge>
+                  {updateDue ? (
+                    <StatusBadge variant={updateDue.variant} dot>
+                      {updateDue.label}
+                    </StatusBadge>
+                  ) : null}
                 </div>
                 <dl className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
                   <div>
                     <dt className="font-medium text-foreground">{t('incidents.incident.detail.fields.owner')}</dt>
-                    <dd className="truncate">{ownerLabel}</dd>
+                    <dd className="truncate" title={ownerLabel}>{ownerLabel}</dd>
                   </div>
                   <div>
                     <dt className="font-medium text-foreground">{t('incidents.incident.detail.fields.age')}</dt>
@@ -862,11 +925,12 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                 </dl>
               </div>
               <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                {!isAcknowledged && !isMerged ? (
+                {!isAcknowledged && !isMerged && !isTerminalStatus ? (
                   <Button
                     type="button"
                     onClick={handleAcknowledge}
                     disabled={!canMutateIncident || pendingAction !== null}
+                    className="whitespace-nowrap"
                   >
                     <CheckCircle2 aria-hidden="true" />
                     {t('incidents.incident.detail.actions.acknowledge')}
@@ -877,7 +941,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                   onValueChange={handleTransitionSelect}
                   disabled={!canMutateIncident || pendingAction !== null || availableTransitions.length === 0}
                 >
-                  <SelectTrigger className="w-auto min-w-44" aria-label={t('incidents.incident.detail.actions.changeStatus')}>
+                  <SelectTrigger className="w-auto min-w-36" aria-label={t('incidents.incident.detail.actions.changeStatus')}>
                     <SelectTriggerLeading>
                       <ArrowRightLeft aria-hidden="true" />
                     </SelectTriggerLeading>
@@ -896,7 +960,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                   onValueChange={handleSnoozeSelect}
                   disabled={!canMutateIncident || pendingAction !== null}
                 >
-                  <SelectTrigger className="w-auto min-w-36" aria-label={t('incidents.incident.detail.actions.snooze')}>
+                  <SelectTrigger className="w-auto min-w-28" aria-label={t('incidents.incident.detail.actions.snooze')}>
                     <SelectTriggerLeading>
                       <Clock3 aria-hidden="true" />
                     </SelectTriggerLeading>
@@ -914,6 +978,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                     variant="outline"
                     onClick={() => void handleReopen()}
                     disabled={pendingAction !== null}
+                    className="whitespace-nowrap"
                   >
                     <RotateCcw aria-hidden="true" />
                     {t('incidents.incident.detail.actions.reopen', 'Reopen')}
@@ -925,6 +990,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                     variant="outline"
                     onClick={handleOpenAssignDialog}
                     disabled={pendingAction !== null}
+                    className="whitespace-nowrap"
                   >
                     <UserRound aria-hidden="true" />
                     {t('incidents.incident.detail.assign.action', 'Assign')}
@@ -946,6 +1012,15 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
 
           <div className="grid gap-6 lg:grid-cols-3">
             <main className="space-y-6 lg:col-span-2">
+              <AiPanel
+                incidentId={data.id}
+                number={number}
+                title={title}
+                updatedAt={data.updated_at}
+                canManage={canMutateIncident}
+                onChanged={() => void loadData()}
+              />
+
               <section className="rounded-lg border border-border bg-card p-4">
                 <SectionHeader title={t('incidents.incident.detail.sections.timeline')} />
                 <div className="mt-4">
@@ -1011,6 +1086,8 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
             </main>
 
             <aside className="space-y-6">
+              <SimilarIncidentsCard title={title} currentIncidentId={data.id} />
+
               <section className="rounded-lg border border-border bg-card p-4">
                 <SectionHeader title={t('incidents.incident.detail.sections.details')} />
                 <dl className="mt-4 space-y-3 text-sm">
@@ -1028,7 +1105,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                   </div>
                   <div>
                     <dt className="text-muted-foreground">{t('incidents.incident.detail.fields.type')}</dt>
-                    <dd className="mt-1 text-foreground">{incidentType?.label ?? t('incidents.common.notSet')}</dd>
+                    <dd className="mt-1 text-foreground">{incidentType ? resolveCatalogLabel(t, 'type', incidentType.key, incidentType.label ?? incidentType.id) : t('incidents.common.notSet')}</dd>
                   </div>
                   <div>
                     <dt className="text-muted-foreground">{t('incidents.incident.detail.fields.owner')}</dt>
@@ -1056,12 +1133,14 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
               <EscalationPanel
                 incidentId={data.id}
                 updatedAt={data.updated_at}
+                escalationPolicyId={data.escalation_policy_id ?? null}
                 escalationStatus={data.escalation_status ?? null}
                 escalationLevel={data.escalation_level ?? null}
                 escalationRepeatsDone={data.escalation_repeats_done ?? null}
                 nextEscalationAt={data.next_escalation_at ?? null}
                 escalationLastTargets={data.escalation_last_targets ?? null}
                 canManage={canMutateIncident}
+                canEscalate={canMutateIncident && !isTerminalStatus}
                 onChanged={() => void loadData()}
               />
 
@@ -1145,6 +1224,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                 variant="outline"
                 onClick={() => setResolveDialog(null)}
                 disabled={pendingAction === 'transition'}
+                className="whitespace-nowrap"
               >
                 {t('incidents.common.cancel')}
               </Button>
@@ -1152,6 +1232,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                 type="button"
                 onClick={() => void handleResolveDialogSubmit()}
                 disabled={pendingAction === 'transition'}
+                className="whitespace-nowrap"
               >
                 {t('incidents.incident.detail.resolveDialog.submit')}
               </Button>
@@ -1185,6 +1266,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                 variant="outline"
                 onClick={() => setAssignDialogOpen(false)}
                 disabled={pendingAction === 'assign'}
+                className="whitespace-nowrap"
               >
                 {t('incidents.incident.detail.assign.cancel', 'Cancel')}
               </Button>
@@ -1192,6 +1274,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                 type="button"
                 onClick={() => void handleAssignDialogSubmit()}
                 disabled={pendingAction === 'assign'}
+                className="whitespace-nowrap"
               >
                 {t('incidents.incident.detail.assign.submit', 'Save owner')}
               </Button>

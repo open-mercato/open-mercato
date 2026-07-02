@@ -12,6 +12,7 @@ import { E } from '#generated/entities.ids.generated'
 import { Incident, IncidentTimelineEntry } from '../data/entities'
 import { timelineAddSchema, type TimelineAddInput } from '../data/collab-validators'
 import { emitIncidentsEvent } from '../events'
+import { applyIncidentUpdateCadence } from '../lib/updateCadence'
 import {
   emitIncidentSideEffects,
   resolveActorUserId,
@@ -144,6 +145,11 @@ const addTimelineEntryCommand: CommandHandler<TimelineAddInput, TimelineAddResul
         em.persist(entry)
         incident.updatedAt = now
         em.persist(incident)
+      },
+      async () => {
+        if (entry.visibility === 'customer_facing') {
+          await applyIncidentUpdateCadence(em, scope, incident, now)
+        }
       },
     ], { transaction: true })
 

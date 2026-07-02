@@ -1,8 +1,9 @@
 "use client"
 
 import * as React from 'react'
-import { ChevronDown, ChevronUp, Pencil, Plus, Save, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronUp, Pencil, Plus, Save, Trash2, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { EventSelect, useAvailableEvents, type EventDefinition } from '@open-mercato/ui/backend/inputs/EventSelect'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -36,10 +37,13 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { Switch } from '@open-mercato/ui/primitives/switch'
+import { resolveCatalogLabel } from '../../../lib/catalogLabels'
+import { EscalationPathPreview } from '../components/EscalationPathPreview'
+import { TeamSelect, useTeamLabels } from '../components/TeamSelect'
 import { UserSelect } from '../components/UserSelect'
 import { useUserLabels } from '../components/useUserLabels'
 
-type AutoIncidentTriggerKey = 'data_sync.run.failed' | 'integrations.state.updated'
 type EscalationTargetType = 'user' | 'team' | 'role'
 
 type PagedResponse<TRecord> = {
@@ -69,13 +73,19 @@ type CatalogOption = {
   updatedAt: string | null
 }
 
-type IncidentAutoIncidentTrigger = {
-  enabled: boolean
-  severity_key: string
-  type_key: string
+type SlaTarget = {
+  response_minutes: number
+  resolution_minutes: number
+  at_risk_pct: number
 }
 
-type IncidentAutoIncidentTriggers = Record<string, IncidentAutoIncidentTrigger>
+type SlaTargets = Record<string, SlaTarget>
+
+type UpdateCadenceEntry = {
+  updateMinutes: number
+}
+
+type UpdateCadence = Record<string, UpdateCadenceEntry>
 
 type IncidentSettingsApiRecord = {
   id?: string | null
@@ -89,10 +99,55 @@ type IncidentSettingsApiRecord = {
   default_escalation_policy_id?: string | null
   slaTargets?: unknown
   sla_targets?: unknown
-  autoIncidentTriggers?: unknown
-  auto_incident_triggers?: unknown
+  updateCadence?: unknown
+  update_cadence?: unknown
   updatedAt?: string | null
   updated_at?: string | null
+}
+
+type IncidentTriggerCondition = {
+  path: string
+  equals: string | number | boolean
+}
+
+type IncidentTriggerApiRecord = {
+  id?: string | null
+  eventId?: string | null
+  event_id?: string | null
+  isEnabled?: boolean | null
+  is_enabled?: boolean | null
+  severityKey?: string | null
+  severity_key?: string | null
+  typeKey?: string | null
+  type_key?: string | null
+  escalationPolicyId?: string | null
+  escalation_policy_id?: string | null
+  conditions?: unknown
+  updatedAt?: string | null
+  updated_at?: string | null
+}
+
+type IncidentTrigger = {
+  id: string
+  eventId: string
+  isEnabled: boolean
+  severityKey: string | null
+  typeKey: string | null
+  escalationPolicyId: string | null
+  conditions: IncidentTriggerCondition[]
+  updatedAt: string | null
+}
+
+type TriggerEditorState = {
+  mode: 'create' | 'edit'
+  id: string | null
+  eventId: string
+  isEnabled: boolean
+  severityKey: string
+  typeKey: string
+  escalationPolicyId: string | null
+  conditions: IncidentTriggerCondition[]
+  updatedAt: string | null
 }
 
 type EscalationTarget = {
@@ -171,7 +226,8 @@ type SettingsFormState = {
   ackTimeoutMinutes: number
   escalationTimeoutMinutes: number
   defaultEscalationPolicyId: string | null
-  autoIncidentTriggers: IncidentAutoIncidentTriggers
+  slaTargets: SlaTargets
+  updateCadence: UpdateCadence
   updatedAt: string | null
 }
 
@@ -202,10 +258,9 @@ type SettingsMutationContext = Record<string, unknown> & {
 
 const NONE_VALUE = '__none__'
 const DEFAULT_NUMBER_FORMAT = 'INC-{yyyy}{mm}{dd}-{seq:4}'
-const AUTO_TRIGGER_KEYS: readonly AutoIncidentTriggerKey[] = [
-  'data_sync.run.failed',
-  'integrations.state.updated',
-]
+const DEFAULT_SLA_RESPONSE_MINUTES = 15
+const DEFAULT_SLA_RESOLUTION_MINUTES = 240
+const DEFAULT_SLA_AT_RISK_PCT = 80
 
 const emptyPagedResponse = <TRecord,>(): PagedResponse<TRecord> => ({
   items: [],
@@ -244,47 +299,91 @@ function normalizeCatalogOption(record: CatalogApiRecord): CatalogOption | null 
   }
 }
 
-function isAutoIncidentTriggers(value: unknown): value is IncidentAutoIncidentTriggers {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-  return Object.values(value).every((entry) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false
-    const record = entry as Record<string, unknown>
-    return typeof record.enabled === 'boolean' &&
-      typeof record.severity_key === 'string' &&
-      typeof record.type_key === 'string'
-  })
+function positiveInteger(value: unknown, fallback: number): number {
+  const parsed = numericValue(value, fallback)
+  return Math.max(1, Math.trunc(parsed))
 }
 
-function normalizeAutoIncidentTriggers(
-  value: unknown,
-  severityFallback: string,
-  typeFallback: string,
-): IncidentAutoIncidentTriggers {
-  const triggers: IncidentAutoIncidentTriggers = isAutoIncidentTriggers(value) ? { ...value } : {}
-  for (const triggerKey of AUTO_TRIGGER_KEYS) {
-    const existing = triggers[triggerKey]
-    triggers[triggerKey] = {
-      enabled: existing?.enabled ?? false,
-      severity_key: existing?.severity_key || severityFallback,
-      type_key: existing?.type_key || typeFallback,
+function percentInteger(value: unknown, fallback: number): number {
+  return Math.min(100, positiveInteger(value, fallback))
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function normalizeSlaTargets(value: unknown): SlaTargets {
+  const record = readRecord(value)
+  if (!record) return {}
+  const normalized: SlaTargets = {}
+  for (const [key, targetValue] of Object.entries(record)) {
+    const targetRecord = readRecord(targetValue)
+    if (!targetRecord) continue
+    normalized[key] = {
+      response_minutes: positiveInteger(targetRecord.response_minutes, DEFAULT_SLA_RESPONSE_MINUTES),
+      resolution_minutes: positiveInteger(targetRecord.resolution_minutes, DEFAULT_SLA_RESOLUTION_MINUTES),
+      at_risk_pct: percentInteger(targetRecord.at_risk_pct, DEFAULT_SLA_AT_RISK_PCT),
     }
   }
-  return triggers
+  return normalized
 }
 
-function normalizeSettings(
-  record: IncidentSettingsApiRecord | null,
-  severityFallback: string,
-  typeFallback: string,
-): SettingsFormState {
-  const autoTriggers = record?.autoIncidentTriggers ?? record?.auto_incident_triggers
+function normalizeUpdateCadence(value: unknown): UpdateCadence {
+  const record = readRecord(value)
+  if (!record) return {}
+  const normalized: UpdateCadence = {}
+  for (const [key, cadenceValue] of Object.entries(record)) {
+    const cadenceRecord = readRecord(cadenceValue)
+    if (!cadenceRecord) continue
+    const parsed = Number(cadenceRecord.updateMinutes ?? cadenceRecord.update_minutes)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      normalized[key] = { updateMinutes: Math.trunc(parsed) }
+    }
+  }
+  return normalized
+}
+
+function normalizeCondition(value: unknown): IncidentTriggerCondition | null {
+  const record = readRecord(value)
+  if (!record) return null
+  const path = stringValue(record.path)
+  const equals = record.equals
+  if (!path || !['string', 'number', 'boolean'].includes(typeof equals)) return null
+  return { path, equals: equals as string | number | boolean }
+}
+
+function normalizeConditions(value: unknown): IncidentTriggerCondition[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(normalizeCondition)
+    .filter((condition): condition is IncidentTriggerCondition => condition !== null)
+}
+
+function normalizeTrigger(record: IncidentTriggerApiRecord): IncidentTrigger | null {
+  const id = stringValue(record.id)
+  const eventId = stringValue(record.eventId) ?? stringValue(record.event_id)
+  if (!id || !eventId) return null
+  return {
+    id,
+    eventId,
+    isEnabled: record.isEnabled ?? record.is_enabled ?? true,
+    severityKey: stringValue(record.severityKey) ?? stringValue(record.severity_key),
+    typeKey: stringValue(record.typeKey) ?? stringValue(record.type_key),
+    escalationPolicyId: stringValue(record.escalationPolicyId) ?? stringValue(record.escalation_policy_id),
+    conditions: normalizeConditions(record.conditions),
+    updatedAt: stringValue(record.updatedAt) ?? stringValue(record.updated_at),
+  }
+}
+
+function normalizeSettings(record: IncidentSettingsApiRecord | null): SettingsFormState {
   return {
     id: stringValue(record?.id),
     numberFormat: stringValue(record?.numberFormat) ?? stringValue(record?.number_format) ?? DEFAULT_NUMBER_FORMAT,
     ackTimeoutMinutes: nonNegativeInteger(numericValue(record?.ackTimeoutMinutes ?? record?.ack_timeout_minutes, 15)),
     escalationTimeoutMinutes: nonNegativeInteger(numericValue(record?.escalationTimeoutMinutes ?? record?.escalation_timeout_minutes, 30)),
     defaultEscalationPolicyId: stringValue(record?.defaultEscalationPolicyId) ?? stringValue(record?.default_escalation_policy_id),
-    autoIncidentTriggers: normalizeAutoIncidentTriggers(autoTriggers, severityFallback, typeFallback),
+    slaTargets: normalizeSlaTargets(record?.slaTargets ?? record?.sla_targets),
+    updateCadence: normalizeUpdateCadence(record?.updateCadence ?? record?.update_cadence),
     updatedAt: stringValue(record?.updatedAt) ?? stringValue(record?.updated_at),
   }
 }
@@ -398,6 +497,80 @@ function editPolicyEditor(
   }
 }
 
+function createTriggerEditor(
+  severities: readonly CatalogOption[],
+  incidentTypes: readonly IncidentType[],
+): TriggerEditorState {
+  return {
+    mode: 'create',
+    id: null,
+    eventId: '',
+    isEnabled: true,
+    severityKey: severities[0]?.key ?? '',
+    typeKey: incidentTypes[0]?.key ?? '',
+    escalationPolicyId: null,
+    conditions: [],
+    updatedAt: null,
+  }
+}
+
+function editTriggerEditor(
+  trigger: IncidentTrigger,
+  severities: readonly CatalogOption[],
+  incidentTypes: readonly IncidentType[],
+): TriggerEditorState {
+  return {
+    mode: 'edit',
+    id: trigger.id,
+    eventId: trigger.eventId,
+    isEnabled: trigger.isEnabled,
+    severityKey: trigger.severityKey ?? severities[0]?.key ?? '',
+    typeKey: trigger.typeKey ?? incidentTypes[0]?.key ?? '',
+    escalationPolicyId: trigger.escalationPolicyId,
+    conditions: trigger.conditions,
+    updatedAt: trigger.updatedAt,
+  }
+}
+
+function coerceConditionEquals(value: string): string | number | boolean {
+  const trimmed = value.trim()
+  if (trimmed === 'true') return true
+  if (trimmed === 'false') return false
+  if (trimmed.length > 0) {
+    const numeric = Number(trimmed)
+    if (Number.isFinite(numeric)) return numeric
+  }
+  return trimmed
+}
+
+function conditionInputValue(value: string | number | boolean): string {
+  return String(value)
+}
+
+function triggerIsValid(editor: TriggerEditorState | null): boolean {
+  if (!editor) return false
+  if (!editor.eventId.trim()) return false
+  return editor.conditions.every((condition) => condition.path.trim().length > 0)
+}
+
+function triggerPayload(editor: TriggerEditorState): Record<string, unknown> {
+  const conditions = editor.conditions
+    .filter((condition) => condition.path.trim().length > 0)
+    .map((condition) => ({
+      path: condition.path.trim(),
+      equals: condition.equals,
+    }))
+  return {
+    ...(editor.id ? { id: editor.id } : {}),
+    eventId: editor.eventId.trim(),
+    isEnabled: editor.isEnabled,
+    severityKey: editor.severityKey.trim() || null,
+    typeKey: editor.typeKey.trim() || null,
+    escalationPolicyId: editor.escalationPolicyId,
+    conditions: conditions.length > 0 ? conditions : null,
+  }
+}
+
 function policyIsValid(editor: PolicyEditorState | null): boolean {
   if (!editor) return false
   if (!editor.key.trim() || !editor.name.trim()) return false
@@ -441,11 +614,40 @@ function typePolicyPayload(incidentType: IncidentType, policyId: string | null):
   }
 }
 
-function triggerLabel(translate: ReturnType<typeof useT>, triggerKey: AutoIncidentTriggerKey): string {
-  if (triggerKey === 'data_sync.run.failed') {
-    return translate('incidents.settings.triggers.dataSyncRunFailed', 'Data sync run failed')
+function settingsPayload(
+  settings: SettingsFormState,
+  activeSeverities: readonly CatalogOption[],
+): Record<string, unknown> {
+  const slaTargets: SlaTargets = {}
+  const updateCadence: UpdateCadence = {}
+
+  activeSeverities.forEach((severity) => {
+    const target = settings.slaTargets[severity.key] ?? {
+      response_minutes: DEFAULT_SLA_RESPONSE_MINUTES,
+      resolution_minutes: DEFAULT_SLA_RESOLUTION_MINUTES,
+      at_risk_pct: DEFAULT_SLA_AT_RISK_PCT,
+    }
+    slaTargets[severity.key] = {
+      response_minutes: positiveInteger(target.response_minutes, DEFAULT_SLA_RESPONSE_MINUTES),
+      resolution_minutes: positiveInteger(target.resolution_minutes, DEFAULT_SLA_RESOLUTION_MINUTES),
+      at_risk_pct: percentInteger(target.at_risk_pct, DEFAULT_SLA_AT_RISK_PCT),
+    }
+
+    const cadence = settings.updateCadence[severity.key]
+    if (cadence && Number.isInteger(cadence.updateMinutes) && cadence.updateMinutes > 0) {
+      updateCadence[severity.key] = { updateMinutes: cadence.updateMinutes }
+    }
+  })
+
+  return {
+    ...(settings.id ? { id: settings.id } : {}),
+    numberFormat: settings.numberFormat.trim(),
+    ackTimeoutMinutes: nonNegativeInteger(settings.ackTimeoutMinutes),
+    escalationTimeoutMinutes: nonNegativeInteger(settings.escalationTimeoutMinutes),
+    defaultEscalationPolicyId: settings.defaultEscalationPolicyId,
+    slaTargets,
+    updateCadence: Object.keys(updateCadence).length > 0 ? updateCadence : null,
   }
-  return translate('incidents.settings.triggers.integrationStateUpdated', 'Integration state updated')
 }
 
 function targetTypeLabel(translate: ReturnType<typeof useT>, targetType: EscalationTargetType): string {
@@ -462,17 +664,31 @@ function optionLabel(option: CatalogOption): string {
   return option.label || option.key || option.id
 }
 
+function severityOptionLabel(translate: ReturnType<typeof useT>, option: CatalogOption): string {
+  return resolveCatalogLabel(translate, 'severity', option.key, optionLabel(option))
+}
+
+function roleOptionLabel(translate: ReturnType<typeof useT>, option: CatalogOption): string {
+  return resolveCatalogLabel(translate, 'role', option.key, optionLabel(option))
+}
+
+function incidentTypeLabel(translate: ReturnType<typeof useT>, incidentType: IncidentType): string {
+  return resolveCatalogLabel(translate, 'type', incidentType.key, incidentType.label)
+}
+
 function targetLabel(
   target: EscalationTarget,
   rolesById: ReadonlyMap<string, CatalogOption>,
   translate: ReturnType<typeof useT>,
   userLabels: Record<string, string>,
+  teamLabels: Record<string, string>,
 ): string {
   if (target.type === 'role') {
-    return rolesById.get(target.id)?.label ?? target.id
+    const role = rolesById.get(target.id)
+    return role ? roleOptionLabel(translate, role) : target.id
   }
   if (target.type === 'team') {
-    return `${targetTypeLabel(translate, 'team')}: ${target.id}`
+    return teamLabels[target.id] ?? target.id
   }
   return userLabels[target.id] ?? target.id
 }
@@ -480,16 +696,20 @@ function targetLabel(
 export default function IncidentSettingsPage() {
   const translate = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { events: availableEvents } = useAvailableEvents({ excludeTriggerExcluded: true })
   const [settings, setSettings] = React.useState<SettingsFormState | null>(null)
   const [policies, setPolicies] = React.useState<EscalationPolicy[]>([])
   const [incidentTypes, setIncidentTypes] = React.useState<IncidentType[]>([])
+  const [triggers, setTriggers] = React.useState<IncidentTrigger[]>([])
   const [severities, setSeverities] = React.useState<CatalogOption[]>([])
   const [roles, setRoles] = React.useState<CatalogOption[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [settingsPending, setSettingsPending] = React.useState(false)
+  const [triggerPending, setTriggerPending] = React.useState(false)
   const [policyPending, setPolicyPending] = React.useState(false)
   const [typePendingId, setTypePendingId] = React.useState<string | null>(null)
+  const [triggerEditor, setTriggerEditor] = React.useState<TriggerEditorState | null>(null)
   const [policyEditor, setPolicyEditor] = React.useState<PolicyEditorState | null>(null)
 
   const contextId = 'incidents-settings'
@@ -522,6 +742,7 @@ export default function IncidentSettingsPage() {
     setIsLoading(true)
     setError(null)
     const settingsFallback = emptyPagedResponse<IncidentSettingsApiRecord>()
+    const triggerFallback = emptyPagedResponse<IncidentTriggerApiRecord>()
     const policyFallback = emptyPagedResponse<EscalationPolicyApiRecord>()
     const typeFallback = emptyPagedResponse<IncidentTypeApiRecord>()
 
@@ -531,6 +752,7 @@ export default function IncidentSettingsPage() {
         rolesResult,
         policiesResult,
         typesResult,
+        triggersResult,
         settingsResult,
       ] = await Promise.all([
         loadCatalog('/api/incidents/severities'),
@@ -545,6 +767,11 @@ export default function IncidentSettingsPage() {
           undefined,
           { fallback: typeFallback, parse: (apiResponse) => readJsonSafe<PagedResponse<IncidentTypeApiRecord>>(apiResponse, typeFallback) },
         ),
+        apiCall<PagedResponse<IncidentTriggerApiRecord>>(
+          '/api/incidents/triggers?page=1&pageSize=100',
+          undefined,
+          { fallback: triggerFallback, parse: (apiResponse) => readJsonSafe<PagedResponse<IncidentTriggerApiRecord>>(apiResponse, triggerFallback) },
+        ),
         apiCall<PagedResponse<IncidentSettingsApiRecord>>(
           '/api/incidents/settings?page=1&pageSize=1',
           undefined,
@@ -552,7 +779,7 @@ export default function IncidentSettingsPage() {
         ),
       ])
 
-      if (!policiesResult.ok || !typesResult.ok || !settingsResult.ok) {
+      if (!policiesResult.ok || !typesResult.ok || !triggersResult.ok || !settingsResult.ok) {
         throw new Error(translate('incidents.settings.errors.load', 'Could not load incident settings.'))
       }
 
@@ -562,14 +789,16 @@ export default function IncidentSettingsPage() {
       const normalizedTypes = (typesResult.result?.items ?? [])
         .map(normalizeIncidentType)
         .filter((incidentType): incidentType is IncidentType => Boolean(incidentType))
-      const severityFallback = severitiesResult.find((option) => option.key)?.key ?? ''
-      const typeFallbackKey = normalizedTypes.find((incidentType) => incidentType.key)?.key ?? ''
+      const normalizedTriggers = (triggersResult.result?.items ?? [])
+        .map(normalizeTrigger)
+        .filter((trigger): trigger is IncidentTrigger => Boolean(trigger))
 
       setSeverities(severitiesResult)
       setRoles(rolesResult)
       setPolicies(normalizedPolicies)
       setIncidentTypes(normalizedTypes)
-      setSettings(normalizeSettings(settingsResult.result?.items?.[0] ?? null, severityFallback, typeFallbackKey))
+      setTriggers(normalizedTriggers)
+      setSettings(normalizeSettings(settingsResult.result?.items?.[0] ?? null))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : translate('incidents.settings.errors.load', 'Could not load incident settings.'))
     } finally {
@@ -598,10 +827,49 @@ export default function IncidentSettingsPage() {
     return ids
   }, [policies, policyEditor?.steps])
   const userLabels = useUserLabels(userTargetIds)
+  const teamTargetIds = React.useMemo(() => {
+    const ids: string[] = []
+    const collectTargets = (targets: readonly EscalationTarget[]) => {
+      targets.forEach((target) => {
+        if (target.type === 'team') ids.push(target.id)
+      })
+    }
+    policies.forEach((policy) => policy.steps.forEach((step) => collectTargets(step.targets)))
+    policyEditor?.steps.forEach((step) => collectTargets(step.targets))
+    return ids
+  }, [policies, policyEditor?.steps])
+  const teamLabels = useTeamLabels(teamTargetIds)
 
   const severityKeyOptions = React.useMemo(() => severities.filter((severity) => severity.key), [severities])
   const typeKeyOptions = React.useMemo(() => incidentTypes.filter((incidentType) => incidentType.key), [incidentTypes])
   const policySelectOptions = React.useMemo(() => policies.filter((policy) => policy.isActive), [policies])
+  const eventsById = React.useMemo(() => {
+    const map = new Map<string, EventDefinition>()
+    availableEvents.forEach((event) => map.set(event.id, event))
+    return map
+  }, [availableEvents])
+  const severitiesByKey = React.useMemo(() => {
+    const map = new Map<string, CatalogOption>()
+    severityKeyOptions.forEach((severity) => map.set(severity.key, severity))
+    return map
+  }, [severityKeyOptions])
+  const incidentTypesByKey = React.useMemo(() => {
+    const map = new Map<string, IncidentType>()
+    typeKeyOptions.forEach((incidentType) => map.set(incidentType.key, incidentType))
+    return map
+  }, [typeKeyOptions])
+  const policiesById = React.useMemo(() => {
+    const map = new Map<string, EscalationPolicy>()
+    policies.forEach((policy) => map.set(policy.id, policy))
+    return map
+  }, [policies])
+  const roleLabels = React.useMemo(() => {
+    const labels: Record<string, string> = {}
+    roles.forEach((role) => {
+      labels[role.id] = roleOptionLabel(translate, role)
+    })
+    return labels
+  }, [roles, translate])
 
   const handleSettingsFieldChange = React.useCallback(<TValue extends keyof SettingsFormState>(
     field: TValue,
@@ -610,38 +878,51 @@ export default function IncidentSettingsPage() {
     setSettings((current) => current ? { ...current, [field]: value } : current)
   }, [])
 
-  const handleTriggerChange = React.useCallback((
-    triggerKey: AutoIncidentTriggerKey,
-    changes: Partial<IncidentAutoIncidentTrigger>,
+  const updateSlaTarget = React.useCallback((
+    severityKey: string,
+    field: keyof SlaTarget,
+    value: number,
   ) => {
     setSettings((current) => {
       if (!current) return current
-      const existing = current.autoIncidentTriggers[triggerKey] ?? {
-        enabled: false,
-        severity_key: severityKeyOptions[0]?.key ?? '',
-        type_key: typeKeyOptions[0]?.key ?? '',
+      const existing = current.slaTargets[severityKey] ?? {
+        response_minutes: DEFAULT_SLA_RESPONSE_MINUTES,
+        resolution_minutes: DEFAULT_SLA_RESOLUTION_MINUTES,
+        at_risk_pct: DEFAULT_SLA_AT_RISK_PCT,
       }
       return {
         ...current,
-        autoIncidentTriggers: {
-          ...current.autoIncidentTriggers,
-          [triggerKey]: { ...existing, ...changes },
+        slaTargets: {
+          ...current.slaTargets,
+          [severityKey]: {
+            ...existing,
+            [field]: field === 'at_risk_pct'
+              ? percentInteger(value, DEFAULT_SLA_AT_RISK_PCT)
+              : positiveInteger(value, field === 'response_minutes' ? DEFAULT_SLA_RESPONSE_MINUTES : DEFAULT_SLA_RESOLUTION_MINUTES),
+          },
         },
       }
     })
-  }, [severityKeyOptions, typeKeyOptions])
+  }, [])
+
+  const updateCadence = React.useCallback((severityKey: string, value: string) => {
+    setSettings((current) => {
+      if (!current) return current
+      const nextCadence = { ...current.updateCadence }
+      const trimmed = value.trim()
+      if (!trimmed) {
+        delete nextCadence[severityKey]
+      } else {
+        nextCadence[severityKey] = { updateMinutes: positiveInteger(Number(trimmed), 1) }
+      }
+      return { ...current, updateCadence: nextCadence }
+    })
+  }, [])
 
   const handleSaveSettings = React.useCallback(async () => {
     if (!settings || settingsPending || !settings.numberFormat.trim()) return
     setSettingsPending(true)
-    const payload = {
-      ...(settings.id ? { id: settings.id } : {}),
-      numberFormat: settings.numberFormat.trim(),
-      ackTimeoutMinutes: nonNegativeInteger(settings.ackTimeoutMinutes),
-      escalationTimeoutMinutes: nonNegativeInteger(settings.escalationTimeoutMinutes),
-      defaultEscalationPolicyId: settings.defaultEscalationPolicyId,
-      autoIncidentTriggers: settings.autoIncidentTriggers,
-    }
+    const payload = settingsPayload(settings, severityKeyOptions)
     try {
       const response = await runMutation({
         operation: async () => apiCallOrThrow<MutationResponse>(
@@ -669,7 +950,173 @@ export default function IncidentSettingsPage() {
     } finally {
       setSettingsPending(false)
     }
-  }, [loadData, mutationContext, runMutation, settings, settingsPending, translate])
+  }, [loadData, mutationContext, runMutation, settings, settingsPending, severityKeyOptions, translate])
+
+  const openCreateTriggerDialog = React.useCallback(() => {
+    setTriggerEditor(createTriggerEditor(severityKeyOptions, typeKeyOptions))
+  }, [severityKeyOptions, typeKeyOptions])
+
+  const openEditTriggerDialog = React.useCallback((trigger: IncidentTrigger) => {
+    setTriggerEditor(editTriggerEditor(trigger, severityKeyOptions, typeKeyOptions))
+  }, [severityKeyOptions, typeKeyOptions])
+
+  const updateTriggerEditor = React.useCallback((changes: Partial<TriggerEditorState>) => {
+    setTriggerEditor((current) => current ? { ...current, ...changes } : current)
+  }, [])
+
+  const updateTriggerCondition = React.useCallback((
+    conditionIndex: number,
+    changes: Partial<IncidentTriggerCondition>,
+  ) => {
+    setTriggerEditor((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        conditions: current.conditions.map((condition, index) => (
+          index === conditionIndex ? { ...condition, ...changes } : condition
+        )),
+      }
+    })
+  }, [])
+
+  const addTriggerCondition = React.useCallback(() => {
+    setTriggerEditor((current) => current ? {
+      ...current,
+      conditions: [...current.conditions, { path: '', equals: '' }],
+    } : current)
+  }, [])
+
+  const removeTriggerCondition = React.useCallback((conditionIndex: number) => {
+    setTriggerEditor((current) => current ? {
+      ...current,
+      conditions: current.conditions.filter((_, index) => index !== conditionIndex),
+    } : current)
+  }, [])
+
+  const handleSaveTrigger = React.useCallback(async () => {
+    if (!triggerEditor || triggerPending) return
+    if (!triggerIsValid(triggerEditor)) {
+      flash(translate('incidents.settings.triggers.validation', 'Choose an event and complete every condition path before saving.'), 'error')
+      return
+    }
+
+    setTriggerPending(true)
+    const payload = triggerPayload(triggerEditor)
+    const isEdit = triggerEditor.mode === 'edit'
+    try {
+      await runMutation({
+        operation: async () => apiCallOrThrow<MutationResponse>(
+          '/api/incidents/triggers',
+          {
+            method: isEdit ? 'PUT' : 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...buildOptimisticLockHeader(triggerEditor.updatedAt),
+            },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: translate('incidents.settings.triggers.errors.save', 'Could not save incident trigger.') },
+        ),
+        context: mutationContext('incidents.incident_trigger', triggerEditor.id ?? 'new'),
+        mutationPayload: payload,
+      })
+      flash(translate('incidents.settings.triggers.saved', 'Incident trigger saved.'), 'success')
+      setTriggerEditor(null)
+      await loadData()
+    } catch (saveError) {
+      if (!surfaceRecordConflict(saveError, translate, { onRefresh: () => { void loadData() } })) {
+        flash(translate('incidents.settings.triggers.errors.save', 'Could not save incident trigger.'), 'error')
+      }
+    } finally {
+      setTriggerPending(false)
+    }
+  }, [loadData, mutationContext, runMutation, translate, triggerEditor, triggerPending])
+
+  const handleDeleteTrigger = React.useCallback(async (trigger: IncidentTrigger) => {
+    if (triggerPending) return
+    const approved = await confirm({
+      title: translate('incidents.settings.triggers.delete.title', 'Delete incident trigger'),
+      description: translate('incidents.settings.triggers.delete.description', 'This stops automatic incident creation for this event.'),
+      confirmText: translate('incidents.settings.triggers.delete.confirm', 'Delete trigger'),
+      cancelText: translate('incidents.settings.common.cancel', 'Cancel'),
+      variant: 'destructive',
+    })
+    if (!approved) return
+
+    setTriggerPending(true)
+    const payload = { id: trigger.id }
+    try {
+      await runMutation({
+        operation: async () => apiCallOrThrow<MutationResponse>(
+          '/api/incidents/triggers',
+          {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+              ...buildOptimisticLockHeader(trigger.updatedAt),
+            },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: translate('incidents.settings.triggers.errors.delete', 'Could not delete incident trigger.') },
+        ),
+        context: mutationContext('incidents.incident_trigger', trigger.id),
+        mutationPayload: payload,
+      })
+      flash(translate('incidents.settings.triggers.deleted', 'Incident trigger deleted.'), 'success')
+      await loadData()
+    } catch (deleteError) {
+      if (!surfaceRecordConflict(deleteError, translate, { onRefresh: () => { void loadData() } })) {
+        flash(translate('incidents.settings.triggers.errors.delete', 'Could not delete incident trigger.'), 'error')
+      }
+    } finally {
+      setTriggerPending(false)
+    }
+  }, [confirm, loadData, mutationContext, runMutation, translate, triggerPending])
+
+  const handleToggleTrigger = React.useCallback(async (trigger: IncidentTrigger, isEnabled: boolean) => {
+    if (triggerPending) return
+    setTriggerPending(true)
+    const payload = triggerPayload({
+      mode: 'edit',
+      id: trigger.id,
+      eventId: trigger.eventId,
+      isEnabled,
+      severityKey: trigger.severityKey ?? '',
+      typeKey: trigger.typeKey ?? '',
+      escalationPolicyId: trigger.escalationPolicyId,
+      conditions: trigger.conditions,
+      updatedAt: trigger.updatedAt,
+    })
+    try {
+      const response = await runMutation({
+        operation: async () => apiCallOrThrow<MutationResponse>(
+          '/api/incidents/triggers',
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              ...buildOptimisticLockHeader(trigger.updatedAt),
+            },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: translate('incidents.settings.triggers.errors.save', 'Could not save incident trigger.') },
+        ),
+        context: mutationContext('incidents.incident_trigger', trigger.id),
+        mutationPayload: payload,
+      })
+      setTriggers((current) => current.map((item) => (
+        item.id === trigger.id
+          ? { ...item, isEnabled, updatedAt: response.result?.updatedAt ?? item.updatedAt }
+          : item
+      )))
+    } catch (saveError) {
+      if (!surfaceRecordConflict(saveError, translate, { onRefresh: () => { void loadData() } })) {
+        flash(translate('incidents.settings.triggers.errors.save', 'Could not save incident trigger.'), 'error')
+      }
+    } finally {
+      setTriggerPending(false)
+    }
+  }, [loadData, mutationContext, runMutation, translate, triggerPending])
 
   const openCreatePolicyDialog = React.useCallback(() => {
     setPolicyEditor(createPolicyEditor(settings?.escalationTimeoutMinutes ?? 0, roles))
@@ -909,6 +1356,16 @@ export default function IncidentSettingsPage() {
     }
   }, [handleSavePolicy, policyPending])
 
+  const handleTriggerDialogKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      event.preventDefault()
+      void handleSaveTrigger()
+    }
+    if (event.key === 'Escape' && !triggerPending) {
+      setTriggerEditor(null)
+    }
+  }, [handleSaveTrigger, triggerPending])
+
   if (isLoading) {
     return (
       <Page>
@@ -948,6 +1405,7 @@ export default function IncidentSettingsPage() {
               <Button
                 type="button"
                 size="sm"
+                className="whitespace-nowrap"
                 onClick={() => void handleSaveSettings()}
                 disabled={settingsPending || !settings.numberFormat.trim()}
               >
@@ -1023,76 +1481,252 @@ export default function IncidentSettingsPage() {
               </div>
             </div>
 
-            <div className="space-y-3">
-              <SectionHeader title={translate('incidents.settings.triggers.title', 'Automatic incident triggers')} />
-              <div className="space-y-2">
-                {AUTO_TRIGGER_KEYS.map((triggerKey) => {
-                  const trigger = settings.autoIncidentTriggers[triggerKey]
-                  return (
-                    <div key={triggerKey} className="rounded-md border border-border bg-background p-3">
-                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(10rem,14rem)_minmax(10rem,14rem)] lg:items-end">
-                        <div className="flex items-start gap-3">
-                          <Checkbox
-                            id={`incident-trigger-${triggerKey}`}
-                            checked={trigger.enabled}
-                            onCheckedChange={(checked) => handleTriggerChange(triggerKey, { enabled: checked === true })}
-                            disabled={settingsPending}
-                          />
-                          <div className="min-w-0 space-y-1">
-                            <Label htmlFor={`incident-trigger-${triggerKey}`}>
-                              {triggerLabel(translate, triggerKey)}
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <SectionHeader title={translate('incidents.settings.sla.title', 'SLA targets')} />
+                <p className="text-sm text-muted-foreground">
+                  {translate('incidents.settings.sla.description', 'Set response, resolution, and at-risk thresholds for each active severity.')}
+                </p>
+              </div>
+              {severityKeyOptions.length > 0 ? (
+                <div className="space-y-3">
+                  {severityKeyOptions.map((severity) => {
+                    const target = settings.slaTargets[severity.key] ?? {
+                      response_minutes: DEFAULT_SLA_RESPONSE_MINUTES,
+                      resolution_minutes: DEFAULT_SLA_RESOLUTION_MINUTES,
+                      at_risk_pct: DEFAULT_SLA_AT_RISK_PCT,
+                    }
+                    const severityLabel = severityOptionLabel(translate, severity)
+                    return (
+                      <div key={severity.id} className="rounded-md border border-border bg-background p-3">
+                        <div className="grid gap-3 lg:grid-cols-4 lg:items-end">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground" title={severityLabel}>{severityLabel}</p>
+                            <p className="truncate text-xs text-muted-foreground" title={severity.key}>{severity.key}</p>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor={`incident-sla-response-${severity.key}`}>
+                              {translate('incidents.settings.sla.responseMinutes', 'Response minutes')}
                             </Label>
-                            <p className="break-all text-xs text-muted-foreground">{triggerKey}</p>
+                            <Input
+                              id={`incident-sla-response-${severity.key}`}
+                              type="number"
+                              min={1}
+                              value={String(target.response_minutes)}
+                              onChange={(event) => updateSlaTarget(severity.key, 'response_minutes', Number(event.currentTarget.value))}
+                              disabled={settingsPending}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor={`incident-sla-resolution-${severity.key}`}>
+                              {translate('incidents.settings.sla.resolutionMinutes', 'Resolution minutes')}
+                            </Label>
+                            <Input
+                              id={`incident-sla-resolution-${severity.key}`}
+                              type="number"
+                              min={1}
+                              value={String(target.resolution_minutes)}
+                              onChange={(event) => updateSlaTarget(severity.key, 'resolution_minutes', Number(event.currentTarget.value))}
+                              disabled={settingsPending}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor={`incident-sla-at-risk-${severity.key}`}>
+                              {translate('incidents.settings.sla.atRiskPct', 'At-risk percent')}
+                            </Label>
+                            <Input
+                              id={`incident-sla-at-risk-${severity.key}`}
+                              type="number"
+                              min={1}
+                              max={100}
+                              value={String(target.at_risk_pct)}
+                              onChange={(event) => updateSlaTarget(severity.key, 'at_risk_pct', Number(event.currentTarget.value))}
+                              disabled={settingsPending}
+                            />
                           </div>
                         </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`incident-trigger-severity-${triggerKey}`}>
-                            {translate('incidents.settings.triggers.severityKey', 'Severity key')}
-                          </Label>
-                          <Select
-                            value={trigger.severity_key}
-                            onValueChange={(value) => handleTriggerChange(triggerKey, { severity_key: value })}
-                            disabled={settingsPending || severityKeyOptions.length === 0}
-                          >
-                            <SelectTrigger id={`incident-trigger-severity-${triggerKey}`}>
-                              <SelectValue placeholder={translate('incidents.settings.triggers.selectSeverity', 'Select severity')} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {severityKeyOptions.map((severity) => (
-                                <SelectItem key={severity.id} value={severity.key}>
-                                  {optionLabel(severity)}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`incident-trigger-type-${triggerKey}`}>
-                            {translate('incidents.settings.triggers.typeKey', 'Type key')}
-                          </Label>
-                          <Select
-                            value={trigger.type_key}
-                            onValueChange={(value) => handleTriggerChange(triggerKey, { type_key: value })}
-                            disabled={settingsPending || typeKeyOptions.length === 0}
-                          >
-                            <SelectTrigger id={`incident-trigger-type-${triggerKey}`}>
-                              <SelectValue placeholder={translate('incidents.settings.triggers.selectType', 'Select type')} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {typeKeyOptions.map((incidentType) => (
-                                <SelectItem key={incidentType.id} value={incidentType.key}>
-                                  {incidentType.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <EmptyState
+                  variant="subtle"
+                  title={translate('incidents.settings.sla.empty.title', 'No active severities')}
+                  description={translate('incidents.settings.sla.empty.description', 'Create active severities before configuring SLA targets.')}
+                />
+              )}
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <SectionHeader title={translate('incidents.settings.cadence.title', 'Customer update cadence')} />
+                <p className="text-sm text-muted-foreground">
+                  {translate('incidents.settings.cadence.description', 'Optionally set how often customers should receive updates for each severity.')}
+                </p>
+              </div>
+              {severityKeyOptions.length > 0 ? (
+                <div className="space-y-3">
+                  {severityKeyOptions.map((severity) => {
+                    const severityLabel = severityOptionLabel(translate, severity)
+                    const cadence = settings.updateCadence[severity.key]?.updateMinutes
+                    return (
+                      <div key={severity.id} className="rounded-md border border-border bg-background p-3">
+                        <div className="grid gap-3 md:grid-cols-2 md:items-end">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground" title={severityLabel}>{severityLabel}</p>
+                            <p className="truncate text-xs text-muted-foreground" title={severity.key}>{severity.key}</p>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor={`incident-cadence-${severity.key}`}>
+                              {translate('incidents.settings.cadence.updateMinutes', 'Update every minutes')}
+                            </Label>
+                            <Input
+                              id={`incident-cadence-${severity.key}`}
+                              type="number"
+                              min={1}
+                              value={cadence ? String(cadence) : ''}
+                              onChange={(event) => updateCadence(severity.key, event.currentTarget.value)}
+                              placeholder={translate('incidents.settings.cadence.offPlaceholder', 'Off')}
+                              disabled={settingsPending}
+                            />
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <EmptyState
+                  variant="subtle"
+                  title={translate('incidents.settings.cadence.empty.title', 'No active severities')}
+                  description={translate('incidents.settings.cadence.empty.description', 'Create active severities before configuring update cadence.')}
+                />
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-border bg-card p-4 space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-1">
+                <SectionHeader title={translate('incidents.settings.triggers.title', 'Automatic incident triggers')} />
+                <p className="text-sm text-muted-foreground">
+                  {translate('incidents.settings.triggers.description', 'Create incidents from selected platform events and optional payload conditions.')}
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="whitespace-nowrap"
+                onClick={openCreateTriggerDialog}
+                disabled={triggerPending}
+              >
+                <Plus aria-hidden="true" />
+                {translate('incidents.settings.triggers.create', 'Add trigger')}
+              </Button>
+            </div>
+
+            {triggers.length > 0 ? (
+              <ul className="space-y-3">
+                {triggers.map((trigger) => {
+                  const event = eventsById.get(trigger.eventId)
+                  const eventLabel = event?.label ?? trigger.eventId
+                  const severity = trigger.severityKey ? severitiesByKey.get(trigger.severityKey) : null
+                  const incidentType = trigger.typeKey ? incidentTypesByKey.get(trigger.typeKey) : null
+                  const policy = trigger.escalationPolicyId ? policiesById.get(trigger.escalationPolicyId) : null
+                  const severityLabel = severity
+                    ? severityOptionLabel(translate, severity)
+                    : trigger.severityKey ?? translate('incidents.settings.common.none', 'None')
+                  const typeLabel = incidentType
+                    ? incidentTypeLabel(translate, incidentType)
+                    : trigger.typeKey ?? translate('incidents.settings.common.none', 'None')
+                  const policyLabel = trigger.escalationPolicyId
+                    ? policyName(policy, trigger.escalationPolicyId)
+                    : translate('incidents.settings.common.none', 'None')
+                  return (
+                    <li key={trigger.id} className="rounded-md border border-border bg-background p-3">
+                      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                        <div className="min-w-0 flex-1 space-y-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate text-sm font-semibold text-foreground" title={eventLabel}>{eventLabel}</p>
+                            {!event ? (
+                              <StatusBadge variant="warning" dot>
+                                <AlertTriangle className="size-3" aria-hidden="true" />
+                                {translate('incidents.settings.triggers.unknownEvent', 'Unknown event')}
+                              </StatusBadge>
+                            ) : null}
+                          </div>
+                          <p className="truncate text-xs text-muted-foreground" title={trigger.eventId}>{trigger.eventId}</p>
+                          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-muted-foreground">{translate('incidents.settings.triggers.severityKey', 'Severity')}</p>
+                              <p className="truncate text-sm text-foreground" title={severityLabel}>{severityLabel}</p>
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-muted-foreground">{translate('incidents.settings.triggers.typeKey', 'Type')}</p>
+                              <p className="truncate text-sm text-foreground" title={typeLabel}>{typeLabel}</p>
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-muted-foreground">{translate('incidents.settings.triggers.policy', 'Policy')}</p>
+                              <p className="truncate text-sm text-foreground" title={policyLabel}>{policyLabel}</p>
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-muted-foreground">{translate('incidents.settings.triggers.conditions', 'Conditions')}</p>
+                              <p className="truncate text-sm text-foreground" title={String(trigger.conditions.length)}>
+                                {trigger.conditions.length > 0
+                                  ? translate('incidents.settings.triggers.conditionCount', '{count} conditions', { count: trigger.conditions.length })
+                                  : translate('incidents.settings.triggers.noConditions', 'Always fires')}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                          <div className="flex items-center gap-2 rounded-md border border-border px-3 py-2">
+                            <Switch
+                              id={`incident-trigger-enabled-${trigger.id}`}
+                              checked={trigger.isEnabled}
+                              onCheckedChange={(checked) => void handleToggleTrigger(trigger, checked === true)}
+                              disabled={triggerPending}
+                            />
+                            <Label htmlFor={`incident-trigger-enabled-${trigger.id}`}>
+                              {translate('incidents.settings.triggers.enabled', 'Enabled')}
+                            </Label>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="whitespace-nowrap"
+                            onClick={() => openEditTriggerDialog(trigger)}
+                            disabled={triggerPending}
+                          >
+                            <Pencil aria-hidden="true" />
+                            {translate('incidents.settings.common.edit', 'Edit')}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="whitespace-nowrap"
+                            onClick={() => void handleDeleteTrigger(trigger)}
+                            disabled={triggerPending}
+                          >
+                            <Trash2 aria-hidden="true" />
+                            {translate('incidents.settings.common.delete', 'Delete')}
+                          </Button>
+                        </div>
+                      </div>
+                    </li>
                   )
                 })}
-              </div>
-            </div>
+              </ul>
+            ) : (
+              <EmptyState
+                variant="subtle"
+                title={translate('incidents.settings.triggers.empty.title', 'No automatic triggers')}
+                description={translate('incidents.settings.triggers.empty.description', 'Add a trigger to create incidents from platform events.')}
+              />
+            )}
           </section>
 
           <section className="rounded-lg border border-border bg-card p-4 space-y-4">
@@ -1103,7 +1737,7 @@ export default function IncidentSettingsPage() {
                   {translate('incidents.settings.policies.description', 'Create ordered escalation steps with explicit delays and targets.')}
                 </p>
               </div>
-              <Button type="button" size="sm" onClick={openCreatePolicyDialog} disabled={policyPending}>
+              <Button type="button" size="sm" className="whitespace-nowrap" onClick={openCreatePolicyDialog} disabled={policyPending}>
                 <Plus aria-hidden="true" />
                 {translate('incidents.settings.policies.create', 'Create policy')}
               </Button>
@@ -1116,7 +1750,7 @@ export default function IncidentSettingsPage() {
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0 space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="truncate text-sm font-semibold text-foreground">{policy.name}</h3>
+                          <h3 className="truncate text-sm font-semibold text-foreground" title={policy.name}>{policy.name}</h3>
                           {policy.isDefault ? (
                             <StatusBadge variant="info" dot>
                               {translate('incidents.settings.policies.defaultBadge', 'Default')}
@@ -1128,7 +1762,7 @@ export default function IncidentSettingsPage() {
                               : translate('incidents.settings.policies.inactiveBadge', 'Inactive')}
                           </StatusBadge>
                         </div>
-                        <p className="text-xs text-muted-foreground">{policy.key}</p>
+                        <p className="truncate text-xs text-muted-foreground" title={policy.key}>{policy.key}</p>
                         <div className="space-y-1">
                           {policy.steps.map((step, stepIndex) => (
                             <p key={`${policy.id}:step:${stepIndex}`} className="text-sm text-muted-foreground">
@@ -1138,7 +1772,7 @@ export default function IncidentSettingsPage() {
                               {' '}
                               {translate('incidents.settings.policies.stepSummary', '{delay} min -> {targets}', {
                                 delay: step.delayMinutes,
-                                targets: step.targets.map((target) => targetLabel(target, rolesById, translate, userLabels)).join(', '),
+                                targets: step.targets.map((target) => targetLabel(target, rolesById, translate, userLabels, teamLabels)).join(', '),
                               })}
                             </p>
                           ))}
@@ -1150,11 +1784,11 @@ export default function IncidentSettingsPage() {
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                        <Button type="button" variant="outline" size="sm" onClick={() => openEditPolicyDialog(policy)} disabled={policyPending}>
+                        <Button type="button" variant="outline" size="sm" className="whitespace-nowrap" onClick={() => openEditPolicyDialog(policy)} disabled={policyPending}>
                           <Pencil aria-hidden="true" />
                           {translate('incidents.settings.common.edit', 'Edit')}
                         </Button>
-                        <Button type="button" variant="destructive" size="sm" onClick={() => void handleDeletePolicy(policy)} disabled={policyPending}>
+                        <Button type="button" variant="destructive" size="sm" className="whitespace-nowrap" onClick={() => void handleDeletePolicy(policy)} disabled={policyPending}>
                           <Trash2 aria-hidden="true" />
                           {translate('incidents.settings.common.delete', 'Delete')}
                         </Button>
@@ -1182,38 +1816,41 @@ export default function IncidentSettingsPage() {
 
             {incidentTypes.length > 0 ? (
               <ul className="space-y-2">
-                {incidentTypes.map((incidentType) => (
-                  <li key={incidentType.id} className="rounded-md border border-border bg-background p-3">
-                    <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(14rem,20rem)] md:items-center">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-foreground">{incidentType.label}</p>
-                        <p className="break-all text-xs text-muted-foreground">{incidentType.key}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Select
-                          value={incidentType.defaultEscalationPolicyId ?? NONE_VALUE}
-                          onValueChange={(value) => void handleTypePolicyChange(incidentType, value)}
-                          disabled={typePendingId !== null}
-                        >
-                          <SelectTrigger aria-label={translate('incidents.settings.types.policySelectLabel', 'Default escalation policy for {type}', { type: incidentType.label })}>
-                            <SelectValue placeholder={translate('incidents.settings.common.none', 'None')} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={NONE_VALUE}>
-                              {translate('incidents.settings.common.none', 'None')}
-                            </SelectItem>
-                            {policySelectOptions.map((policy) => (
-                              <SelectItem key={policy.id} value={policy.id}>
-                                {policyName(policy, policy.id)}
+                {incidentTypes.map((incidentType) => {
+                  const label = incidentTypeLabel(translate, incidentType)
+                  return (
+                    <li key={incidentType.id} className="rounded-md border border-border bg-background p-3">
+                      <div className="grid gap-3 md:grid-cols-2 md:items-center">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-foreground" title={label}>{label}</p>
+                          <p className="truncate text-xs text-muted-foreground" title={incidentType.key}>{incidentType.key}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value={incidentType.defaultEscalationPolicyId ?? NONE_VALUE}
+                            onValueChange={(value) => void handleTypePolicyChange(incidentType, value)}
+                            disabled={typePendingId !== null}
+                          >
+                            <SelectTrigger aria-label={translate('incidents.settings.types.policySelectLabel', 'Default escalation policy for {type}', { type: label })}>
+                              <SelectValue placeholder={translate('incidents.settings.common.none', 'None')} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={NONE_VALUE}>
+                                {translate('incidents.settings.common.none', 'None')}
                               </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {typePendingId === incidentType.id ? <Spinner size="sm" /> : null}
+                              {policySelectOptions.map((policy) => (
+                                <SelectItem key={policy.id} value={policy.id}>
+                                  {policyName(policy, policy.id)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {typePendingId === incidentType.id ? <Spinner size="sm" /> : null}
+                        </div>
                       </div>
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  )
+                })}
               </ul>
             ) : (
               <EmptyState
@@ -1225,6 +1862,209 @@ export default function IncidentSettingsPage() {
           </section>
         </div>
       </PageBody>
+
+      <Dialog open={triggerEditor !== null} onOpenChange={(open) => {
+        if (!open && !triggerPending) setTriggerEditor(null)
+      }}>
+        <DialogContent className="sm:max-w-3xl" onKeyDown={handleTriggerDialogKeyDown}>
+          <DialogHeader>
+            <DialogTitle>
+              {triggerEditor?.mode === 'edit'
+                ? translate('incidents.settings.triggers.dialog.editTitle', 'Edit incident trigger')
+                : translate('incidents.settings.triggers.dialog.createTitle', 'Create incident trigger')}
+            </DialogTitle>
+            <DialogDescription>
+              {translate('incidents.settings.triggers.dialog.description', 'Choose the source event and optional payload conditions that should open an incident.')}
+            </DialogDescription>
+          </DialogHeader>
+
+          {triggerEditor ? (
+            <form
+              className="space-y-5"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void handleSaveTrigger()
+              }}
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2 md:col-span-2">
+                  <Label>{translate('incidents.settings.triggers.fields.eventId', 'Event')}</Label>
+                  <EventSelect
+                    value={triggerEditor.eventId}
+                    onChange={(eventId) => updateTriggerEditor({ eventId })}
+                    excludeModules={['incidents']}
+                    excludeTriggerExcluded
+                    placeholder={translate('incidents.settings.triggers.fields.eventPlaceholder', 'Select event')}
+                    disabled={triggerPending}
+                  />
+                  {triggerEditor.eventId && !eventsById.has(triggerEditor.eventId) ? (
+                    <p className="flex items-center gap-2 text-xs text-status-warning-text">
+                      <AlertTriangle className="size-3" aria-hidden="true" />
+                      {translate('incidents.settings.triggers.fields.unknownEventHelp', 'This event is not in the current event catalog, but the trigger can stay configured.')}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="incident-trigger-severity">
+                    {translate('incidents.settings.triggers.severityKey', 'Severity')}
+                  </Label>
+                  <Select
+                    value={triggerEditor.severityKey || undefined}
+                    onValueChange={(value) => updateTriggerEditor({ severityKey: value })}
+                    disabled={triggerPending || severityKeyOptions.length === 0}
+                  >
+                    <SelectTrigger id="incident-trigger-severity">
+                      <SelectValue placeholder={translate('incidents.settings.triggers.selectSeverity', 'Select severity')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {severityKeyOptions.map((severity) => (
+                        <SelectItem key={severity.id} value={severity.key}>
+                          {severityOptionLabel(translate, severity)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="incident-trigger-type">
+                    {translate('incidents.settings.triggers.typeKey', 'Type')}
+                  </Label>
+                  <Select
+                    value={triggerEditor.typeKey || undefined}
+                    onValueChange={(value) => updateTriggerEditor({ typeKey: value })}
+                    disabled={triggerPending || typeKeyOptions.length === 0}
+                  >
+                    <SelectTrigger id="incident-trigger-type">
+                      <SelectValue placeholder={translate('incidents.settings.triggers.selectType', 'Select type')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {typeKeyOptions.map((incidentType) => (
+                        <SelectItem key={incidentType.id} value={incidentType.key}>
+                          {incidentTypeLabel(translate, incidentType)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="incident-trigger-policy">
+                    {translate('incidents.settings.triggers.policy', 'Policy')}
+                  </Label>
+                  <Select
+                    value={triggerEditor.escalationPolicyId ?? NONE_VALUE}
+                    onValueChange={(value) => updateTriggerEditor({ escalationPolicyId: value === NONE_VALUE ? null : value })}
+                    disabled={triggerPending}
+                  >
+                    <SelectTrigger id="incident-trigger-policy">
+                      <SelectValue placeholder={translate('incidents.settings.common.none', 'None')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NONE_VALUE}>
+                        {translate('incidents.settings.common.none', 'None')}
+                      </SelectItem>
+                      {policies.map((policy) => (
+                        <SelectItem key={policy.id} value={policy.id}>
+                          {policyName(policy, policy.id)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-3 rounded-md border border-border px-3 py-2 md:self-end">
+                  <Switch
+                    id="incident-trigger-enabled"
+                    checked={triggerEditor.isEnabled}
+                    onCheckedChange={(checked) => updateTriggerEditor({ isEnabled: checked === true })}
+                    disabled={triggerPending}
+                  />
+                  <Label htmlFor="incident-trigger-enabled">
+                    {translate('incidents.settings.triggers.enabled', 'Enabled')}
+                  </Label>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="space-y-1">
+                    <SectionHeader title={translate('incidents.settings.triggers.conditions.title', 'Conditions')} />
+                    <p className="text-sm text-muted-foreground">
+                      {translate('incidents.settings.triggers.conditions.description', 'All conditions must match the event payload before a trigger fires.')}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="whitespace-nowrap"
+                    onClick={addTriggerCondition}
+                    disabled={triggerPending}
+                  >
+                    <Plus aria-hidden="true" />
+                    {translate('incidents.settings.triggers.conditions.add', 'Add condition')}
+                  </Button>
+                </div>
+
+                {triggerEditor.conditions.length > 0 ? (
+                  <div className="space-y-2">
+                    {triggerEditor.conditions.map((condition, conditionIndex) => (
+                      <div key={`trigger-condition-${conditionIndex}`} className="grid gap-2 md:grid-cols-3 md:items-end">
+                        <div className="space-y-2">
+                          <Label htmlFor={`incident-trigger-condition-path-${conditionIndex}`}>
+                            {translate('incidents.settings.triggers.conditions.path', 'Payload path')}
+                          </Label>
+                          <Input
+                            id={`incident-trigger-condition-path-${conditionIndex}`}
+                            value={condition.path}
+                            onChange={(event) => updateTriggerCondition(conditionIndex, { path: event.currentTarget.value })}
+                            placeholder={translate('incidents.settings.triggers.conditions.pathPlaceholder', 'payload.path')}
+                            disabled={triggerPending}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`incident-trigger-condition-value-${conditionIndex}`}>
+                            {translate('incidents.settings.triggers.conditions.value', 'Value')}
+                          </Label>
+                          <Input
+                            id={`incident-trigger-condition-value-${conditionIndex}`}
+                            value={conditionInputValue(condition.equals)}
+                            onChange={(event) => updateTriggerCondition(conditionIndex, { equals: coerceConditionEquals(event.currentTarget.value) })}
+                            placeholder={translate('incidents.settings.triggers.conditions.valuePlaceholder', 'true, false, 10, or text')}
+                            disabled={triggerPending}
+                          />
+                        </div>
+                        <IconButton
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-label={translate('incidents.settings.triggers.conditions.remove', 'Remove condition')}
+                          onClick={() => removeTriggerCondition(conditionIndex)}
+                          disabled={triggerPending}
+                        >
+                          <X aria-hidden="true" />
+                        </IconButton>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {translate('incidents.settings.triggers.conditions.empty', 'No conditions. This trigger fires for every matching event.')}
+                  </p>
+                )}
+              </div>
+            </form>
+          ) : null}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" className="whitespace-nowrap" onClick={() => setTriggerEditor(null)} disabled={triggerPending}>
+              {translate('incidents.settings.common.cancel', 'Cancel')}
+            </Button>
+            <Button type="button" className="whitespace-nowrap" onClick={() => void handleSaveTrigger()} disabled={triggerPending || !triggerIsValid(triggerEditor)}>
+              {triggerPending ? <Spinner size="sm" /> : <Save aria-hidden="true" />}
+              {translate('incidents.settings.common.save', 'Save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={policyEditor !== null} onOpenChange={(open) => {
         if (!open && !policyPending) setPolicyEditor(null)
@@ -1314,7 +2154,7 @@ export default function IncidentSettingsPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <SectionHeader title={translate('incidents.settings.policies.steps.title', 'Policy steps')} />
-                  <Button type="button" variant="outline" size="sm" onClick={addPolicyStep} disabled={policyPending}>
+                  <Button type="button" variant="outline" size="sm" className="whitespace-nowrap" onClick={addPolicyStep} disabled={policyPending}>
                     <Plus aria-hidden="true" />
                     {translate('incidents.settings.policies.steps.add', 'Add step')}
                   </Button>
@@ -1378,50 +2218,45 @@ export default function IncidentSettingsPage() {
                       <div className="space-y-2">
                         <div className="flex items-center justify-between gap-3">
                           <Label>{translate('incidents.settings.policies.steps.targets', 'Targets')}</Label>
-                          <Button type="button" variant="outline" size="sm" onClick={() => addPolicyTarget(stepIndex)} disabled={policyPending}>
+                          <Button type="button" variant="outline" size="sm" className="whitespace-nowrap" onClick={() => addPolicyTarget(stepIndex)} disabled={policyPending}>
                             <Plus aria-hidden="true" />
                             {translate('incidents.settings.policies.targets.add', 'Add target')}
                           </Button>
                         </div>
                         <div className="space-y-2">
                           {step.targets.map((target, targetIndex) => (
-                            <div key={`editor-target-${stepIndex}-${targetIndex}`} className="grid gap-2 md:grid-cols-[12rem_minmax(0,1fr)_auto] md:items-end">
+                            <div key={`editor-target-${stepIndex}-${targetIndex}`} className="grid gap-2 md:grid-cols-3 md:items-end">
                               <div className="space-y-2">
                                 <Label htmlFor={`incident-policy-target-type-${stepIndex}-${targetIndex}`}>
                                   {translate('incidents.settings.policies.targets.type', 'Target type')}
                                 </Label>
-                                {target.type === 'team' ? (
-                                  <Input
-                                    id={`incident-policy-target-type-${stepIndex}-${targetIndex}`}
-                                    value={targetTypeLabel(translate, 'team')}
-                                    disabled
-                                  />
-                                ) : (
-                                  <Select
-                                    value={target.type}
-                                    onValueChange={(value) => {
-                                      if (value === 'user' || value === 'role') {
-                                        updatePolicyTarget(stepIndex, targetIndex, {
-                                          type: value,
-                                          id: value === 'role' ? roles[0]?.id ?? '' : '',
-                                        })
-                                      }
-                                    }}
-                                    disabled={policyPending}
-                                  >
-                                    <SelectTrigger id={`incident-policy-target-type-${stepIndex}-${targetIndex}`}>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="user">
-                                        {targetTypeLabel(translate, 'user')}
-                                      </SelectItem>
-                                      <SelectItem value="role">
-                                        {targetTypeLabel(translate, 'role')}
-                                      </SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                )}
+                                <Select
+                                  value={target.type}
+                                  onValueChange={(value) => {
+                                    if (value === 'user' || value === 'role' || value === 'team') {
+                                      updatePolicyTarget(stepIndex, targetIndex, {
+                                        type: value,
+                                        id: value === 'role' ? roles[0]?.id ?? '' : '',
+                                      })
+                                    }
+                                  }}
+                                  disabled={policyPending}
+                                >
+                                  <SelectTrigger id={`incident-policy-target-type-${stepIndex}-${targetIndex}`}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="user">
+                                      {targetTypeLabel(translate, 'user')}
+                                    </SelectItem>
+                                    <SelectItem value="role">
+                                      {targetTypeLabel(translate, 'role')}
+                                    </SelectItem>
+                                    <SelectItem value="team">
+                                      {targetTypeLabel(translate, 'team')}
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
                               </div>
                               <div className="space-y-2">
                                 <Label htmlFor={`incident-policy-target-id-${stepIndex}-${targetIndex}`}>
@@ -1443,7 +2278,7 @@ export default function IncidentSettingsPage() {
                                     <SelectContent>
                                       {roles.map((role) => (
                                         <SelectItem key={role.id} value={role.id}>
-                                          {optionLabel(role)}
+                                          {roleOptionLabel(translate, role)}
                                         </SelectItem>
                                       ))}
                                     </SelectContent>
@@ -1456,12 +2291,12 @@ export default function IncidentSettingsPage() {
                                     disabled={policyPending}
                                   />
                                 ) : (
-                                  <Input
+                                  <TeamSelect
                                     id={`incident-policy-target-id-${stepIndex}-${targetIndex}`}
                                     value={target.id}
-                                    onChange={(event) => updatePolicyTarget(stepIndex, targetIndex, { id: event.currentTarget.value })}
+                                    onChange={(value) => updatePolicyTarget(stepIndex, targetIndex, { id: value ?? '' })}
                                     placeholder={translate('incidents.settings.policies.targets.teamPlaceholder', 'Team UUID')}
-                                    disabled={policyPending || target.type === 'team'}
+                                    disabled={policyPending}
                                   />
                                 )}
                               </div>
@@ -1488,14 +2323,25 @@ export default function IncidentSettingsPage() {
                   ))}
                 </div>
               </div>
+
+              <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
+                <SectionHeader title={translate('incidents.escalation.preview.title', 'Escalation path preview')} />
+                <EscalationPathPreview
+                  steps={policyEditor.steps}
+                  repeatCount={policyEditor.repeatCount}
+                  userLabels={userLabels}
+                  roleLabels={roleLabels}
+                  teamLabels={teamLabels}
+                />
+              </div>
             </form>
           ) : null}
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setPolicyEditor(null)} disabled={policyPending}>
+            <Button type="button" variant="outline" className="whitespace-nowrap" onClick={() => setPolicyEditor(null)} disabled={policyPending}>
               {translate('incidents.settings.common.cancel', 'Cancel')}
             </Button>
-            <Button type="button" onClick={() => void handleSavePolicy()} disabled={policyPending || !policyIsValid(policyEditor)}>
+            <Button type="button" className="whitespace-nowrap" onClick={() => void handleSavePolicy()} disabled={policyPending || !policyIsValid(policyEditor)}>
               {policyPending ? <Spinner size="sm" /> : <Save aria-hidden="true" />}
               {translate('incidents.settings.common.save', 'Save')}
             </Button>

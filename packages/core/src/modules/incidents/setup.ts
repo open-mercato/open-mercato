@@ -5,18 +5,13 @@ import {
   IncidentRole,
   IncidentSettings,
   IncidentSeverity,
+  IncidentTrigger,
   IncidentType,
-  type IncidentAutoIncidentTriggers,
   type IncidentSlaTargets,
 } from './data/entities'
 
 const DEFAULT_NUMBER_FORMAT = 'INC-{yyyy}{mm}{dd}-{seq:4}'
 const INCIDENTS_ESCALATION_SWEEP_QUEUE = 'incidents-escalation-sweep'
-
-const DEFAULT_AUTO_INCIDENT_TRIGGERS: IncidentAutoIncidentTriggers = {
-  'data_sync.run.failed': { enabled: false, severity_key: 'sev2', type_key: 'operational' },
-  'integrations.state.updated': { enabled: false, severity_key: 'sev2', type_key: 'operational' },
-}
 
 type SchedulerServiceLike = {
   register: (cfg: Record<string, unknown>) => Promise<unknown>
@@ -44,6 +39,14 @@ type RoleSeed = {
   label: string
 }
 
+type TriggerSeed = {
+  eventId: string
+  isEnabled: boolean
+  severityKey: string | null
+  typeKey: string | null
+  conditions: Array<{ path: string; equals: string | number | boolean }> | null
+}
+
 const DEFAULT_SEVERITIES: SeveritySeed[] = [
   { key: 'sev1', label: 'Critical', rank: 1, colorToken: 'error', isDefault: false },
   { key: 'sev2', label: 'High', rank: 2, colorToken: 'warning', isDefault: false },
@@ -63,6 +66,23 @@ const DEFAULT_ROLES: RoleSeed[] = [
   { key: 'comms_lead', label: 'Comms Lead' },
   { key: 'scribe', label: 'Scribe' },
   { key: 'responder', label: 'Responder' },
+]
+
+const DEFAULT_TRIGGERS: TriggerSeed[] = [
+  {
+    eventId: 'data_sync.run.failed',
+    isEnabled: true,
+    severityKey: 'sev2',
+    typeKey: 'operational',
+    conditions: null,
+  },
+  {
+    eventId: 'integrations.state.updated',
+    isEnabled: true,
+    severityKey: 'sev2',
+    typeKey: 'operational',
+    conditions: [{ path: 'reauthRequired', equals: true }],
+  },
 ]
 
 function stableScheduleUuid(stableKey: string): string {
@@ -164,22 +184,22 @@ export const setup: ModuleSetupConfig = {
         escalationTimeoutMinutes: 30,
         defaultEscalationPolicyId: defaultPolicy.id,
         slaTargets,
-        autoIncidentTriggers: { ...DEFAULT_AUTO_INCIDENT_TRIGGERS },
+        updateCadence: null,
       }))
     } else {
       if (!existingSettings.defaultEscalationPolicyId) {
         existingSettings.defaultEscalationPolicyId = defaultPolicy.id
         existingSettings.updatedAt = new Date()
       }
-      const currentTriggers = existingSettings.autoIncidentTriggers ?? {}
-      const missingTriggerKeys = Object.keys(DEFAULT_AUTO_INCIDENT_TRIGGERS)
-        .filter((triggerKey) => !(triggerKey in currentTriggers))
-      if (missingTriggerKeys.length > 0) {
-        existingSettings.autoIncidentTriggers = {
-          ...currentTriggers,
-          ...Object.fromEntries(missingTriggerKeys.map((triggerKey) => [triggerKey, DEFAULT_AUTO_INCIDENT_TRIGGERS[triggerKey]])),
-        }
-        existingSettings.updatedAt = new Date()
+    }
+
+    for (const trigger of DEFAULT_TRIGGERS) {
+      const existingTrigger = await ctx.em.findOne(IncidentTrigger, {
+        ...scope,
+        eventId: trigger.eventId,
+      })
+      if (!existingTrigger) {
+        ctx.em.persist(ctx.em.create(IncidentTrigger, { ...scope, ...trigger }))
       }
     }
 
@@ -231,6 +251,7 @@ export const setup: ModuleSetupConfig = {
       'incidents.incident.escalate',
       'incidents.postmortem.view',
       'incidents.postmortem.manage',
+      'incidents.ai.use',
     ],
   },
 

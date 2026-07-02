@@ -34,6 +34,7 @@ import {
 } from '../data/action-validators'
 import { emitIncidentsEvent, type IncidentsEventId } from '../events'
 import * as escalationService from '../services/escalationService'
+import { applyIncidentUpdateCadence, clearIncidentUpdateCadence } from '../lib/updateCadence'
 import {
   applyIncidentSnapshot,
   createIncidentFromSnapshot,
@@ -214,6 +215,7 @@ export function applyIncidentCloseCascade(incident: Incident, now: Date): void {
   incident.closedAt = now
   incident.nextEscalationAt = null
   incident.snoozedUntil = null
+  clearIncidentUpdateCadence(incident)
   escalationService.clearEscalationForResolveClose(incident)
 }
 
@@ -609,6 +611,7 @@ const transitionIncidentCommand: CommandHandler<IncidentTransitionInput, Inciden
           incident.closedAt = null
           incident.nextEscalationAt = null
           incident.snoozedUntil = null
+          clearIncidentUpdateCadence(incident)
           escalationService.clearEscalationForResolveClose(incident)
         } else if (to === 'closed') {
           applyIncidentCloseCascade(incident, now)
@@ -706,6 +709,9 @@ const changeSeverityIncidentCommand: CommandHandler<IncidentChangeSeverityInput,
           metadata: { from, to: parsed.severityId },
           now,
         })
+      },
+      async () => {
+        await applyIncidentUpdateCadence(em, scope, incident, now)
       },
     ], { transaction: true })
 

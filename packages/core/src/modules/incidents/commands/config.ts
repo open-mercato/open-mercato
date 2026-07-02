@@ -23,7 +23,7 @@ import {
   IncidentSettings,
   IncidentSeverity,
   IncidentType,
-  type IncidentAutoIncidentTriggers,
+  type IncidentUpdateCadence,
   type IncidentSlaTargets,
 } from '../data/entities'
 import {
@@ -121,7 +121,7 @@ type SettingsSnapshot = {
   escalationTimeoutMinutes: number | null
   defaultEscalationPolicyId: string | null
   slaTargets: IncidentSlaTargets | null
-  autoIncidentTriggers: IncidentAutoIncidentTriggers | null
+  updateCadence: IncidentUpdateCadence | null
   createdAt: string
   updatedAt: string
   deletedAt: string | null
@@ -155,7 +155,7 @@ const SETTINGS_CHANGE_KEYS = [
   'escalationTimeoutMinutes',
   'defaultEscalationPolicyId',
   'slaTargets',
-  'autoIncidentTriggers',
+  'updateCadence',
 ] as const
 
 function optionalIso(value: Date | null | undefined): string | null {
@@ -461,7 +461,7 @@ function serializeSettings(record: IncidentSettings): SettingsSnapshot {
     escalationTimeoutMinutes: record.escalationTimeoutMinutes ?? null,
     defaultEscalationPolicyId: record.defaultEscalationPolicyId ?? null,
     slaTargets: record.slaTargets ?? null,
-    autoIncidentTriggers: record.autoIncidentTriggers ?? null,
+    updateCadence: record.updateCadence ?? null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     deletedAt: optionalIso(record.deletedAt),
@@ -474,7 +474,7 @@ function applySettingsSnapshot(record: IncidentSettings, snapshot: SettingsSnaps
   record.escalationTimeoutMinutes = snapshot.escalationTimeoutMinutes
   record.defaultEscalationPolicyId = snapshot.defaultEscalationPolicyId
   record.slaTargets = snapshot.slaTargets
-  record.autoIncidentTriggers = snapshot.autoIncidentTriggers
+  record.updateCadence = snapshot.updateCadence
   record.createdAt = new Date(snapshot.createdAt)
   record.updatedAt = new Date(snapshot.updatedAt)
   record.deletedAt = parseOptionalDate(snapshot.deletedAt)
@@ -490,7 +490,7 @@ function createSettingsFromSnapshot(em: EntityManager, snapshot: SettingsSnapsho
     escalationTimeoutMinutes: snapshot.escalationTimeoutMinutes,
     defaultEscalationPolicyId: snapshot.defaultEscalationPolicyId,
     slaTargets: snapshot.slaTargets,
-    autoIncidentTriggers: snapshot.autoIncidentTriggers,
+    updateCadence: snapshot.updateCadence,
     createdAt: new Date(snapshot.createdAt),
     updatedAt: new Date(snapshot.updatedAt),
     deletedAt: parseOptionalDate(snapshot.deletedAt),
@@ -1111,7 +1111,7 @@ const updateSettingsCommand: CommandHandler<IncidentSettingsUpdateInput, ConfigC
           escalationTimeoutMinutes: parsed.escalationTimeoutMinutes ?? null,
           defaultEscalationPolicyId: parsed.defaultEscalationPolicyId ?? null,
           slaTargets: parsed.slaTargets ?? null,
-          autoIncidentTriggers: parsed.autoIncidentTriggers ?? null,
+          updateCadence: parsed.updateCadence ?? null,
           createdAt: now,
           updatedAt: now,
           deletedAt: null,
@@ -1125,7 +1125,7 @@ const updateSettingsCommand: CommandHandler<IncidentSettingsUpdateInput, ConfigC
       if (parsed.escalationTimeoutMinutes !== undefined) record.escalationTimeoutMinutes = parsed.escalationTimeoutMinutes
       if (parsed.defaultEscalationPolicyId !== undefined) record.defaultEscalationPolicyId = parsed.defaultEscalationPolicyId
       if (parsed.slaTargets !== undefined) record.slaTargets = parsed.slaTargets
-      if (parsed.autoIncidentTriggers !== undefined) record.autoIncidentTriggers = parsed.autoIncidentTriggers
+      if (parsed.updateCadence !== undefined) record.updateCadence = parsed.updateCadence
       record.updatedAt = now
     }], { transaction: true })
     const savedSettings = requirePersistedSettings(record)

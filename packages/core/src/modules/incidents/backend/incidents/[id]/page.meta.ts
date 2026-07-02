@@ -8,6 +8,8 @@ export const metadata = {
   requireFeatures: ['incidents.incident.view'],
   pageTitle: 'Incident detail',
   pageTitleKey: 'incidents.incident.detail.title',
+  pageGroup: 'Operations',
+  pageGroupKey: 'incidents.nav.group',
   navHidden: true,
   icon: incidentIcon,
   breadcrumb: [

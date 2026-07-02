@@ -22,6 +22,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
 import type { FilterDef } from '@open-mercato/ui/backend/FilterBar'
 import { useUserLabels } from './components/useUserLabels'
+import { resolveCatalogLabel } from '../../lib/catalogLabels'
 
 type IncidentStatus = 'open' | 'investigating' | 'identified' | 'mitigated' | 'resolved' | 'closed'
 type IncidentSeverityKey = 'critical' | 'high' | 'medium' | 'low'
@@ -52,6 +53,7 @@ type IncidentApiRecord = {
   severity_id?: string | null
   priority?: string | null
   owner_user_id?: string | null
+  escalation_status?: string | null
   revenue_at_risk_minor?: string | null
   revenue_at_risk_currency?: string | null
   sla_at_risk?: boolean | null
@@ -68,6 +70,7 @@ type IncidentRow = {
   severityId: string | null
   priority: string | null
   ownerUserId: string | null
+  escalationStatus: string | null
   revenueAtRiskMinor: string | null
   revenueAtRiskCurrency: string | null
   slaAtRisk: boolean
@@ -95,6 +98,7 @@ type PagedResponse<T> = {
 type IncidentFilterValues = {
   status?: string
   severityId?: string
+  escalationStatus?: string
   active?: boolean
   excludeDrills?: boolean
 }
@@ -140,6 +144,7 @@ function mapIncident(item: IncidentApiRecord): IncidentRow {
     severityId: item.severity_id ?? null,
     priority: item.priority ?? null,
     ownerUserId: item.owner_user_id ?? null,
+    escalationStatus: item.escalation_status ?? null,
     revenueAtRiskMinor: item.revenue_at_risk_minor ?? null,
     revenueAtRiskCurrency: item.revenue_at_risk_currency ?? null,
     slaAtRisk: item.sla_at_risk === true,
@@ -172,6 +177,7 @@ function normalizeFilterValues(values: Record<string, unknown>): IncidentFilterV
   return {
     status: typeof values.status === 'string' && values.status.trim() ? values.status.trim() : undefined,
     severityId: typeof values.severityId === 'string' && values.severityId.trim() ? values.severityId.trim() : undefined,
+    escalationStatus: typeof values.escalationStatus === 'string' && values.escalationStatus.trim() ? values.escalationStatus.trim() : undefined,
     active: values.active === true ? true : undefined,
     excludeDrills: values.excludeDrills === true ? true : undefined,
   }
@@ -209,8 +215,18 @@ function statusLabel(t: ReturnType<typeof useT>, status: string | null | undefin
   return status ?? t('incidents.incident.status.unknown')
 }
 
+function escalationBadge(
+  t: ReturnType<typeof useT>,
+  status: string | null | undefined,
+): { label: string; variant: StatusBadgeVariant } | null {
+  if (status === 'active') return { label: t('incidents.incident.list.filters.escalation.active'), variant: 'warning' }
+  if (status === 'acknowledged') return { label: t('incidents.incident.list.filters.escalation.acknowledged'), variant: 'success' }
+  if (status === 'exhausted') return { label: t('incidents.incident.list.filters.escalation.exhausted'), variant: 'error' }
+  return null
+}
+
 function severityLabel(t: ReturnType<typeof useT>, key: IncidentSeverityKey | null, item: CatalogItem | null | undefined): string {
-  if (item?.label) return item.label
+  if (item?.label) return resolveCatalogLabel(t, 'severity', item.key, item.label)
   if (key === 'critical') return t('incidents.incident.severity.critical')
   if (key === 'high') return t('incidents.incident.severity.high')
   if (key === 'medium') return t('incidents.incident.severity.medium')
@@ -279,6 +295,7 @@ export default function IncidentsPage() {
     if (search.trim()) params.set('search', search.trim())
     if (filterValues.status) params.set('status', filterValues.status)
     if (filterValues.severityId) params.set('severityId', filterValues.severityId)
+    if (filterValues.escalationStatus) params.set('escalationStatus', filterValues.escalationStatus)
     if (filterValues.active === true) params.set('active', 'true')
     if (filterValues.excludeDrills === true) params.set('excludeDrills', 'true')
 
@@ -313,7 +330,7 @@ export default function IncidentsPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [filterValues.active, filterValues.excludeDrills, filterValues.severityId, filterValues.status, page, pageSize, search, t])
+  }, [filterValues.active, filterValues.escalationStatus, filterValues.excludeDrills, filterValues.severityId, filterValues.status, page, pageSize, search, t])
 
   React.useEffect(() => {
     loadData().catch(() => {
@@ -337,6 +354,16 @@ export default function IncidentsPage() {
     [severityOptions, t],
   )
 
+  const escalationStatusOptions = React.useMemo(
+    () => [
+      { value: 'escalated', label: t('incidents.incident.list.filters.escalation.escalated') },
+      { value: 'active', label: t('incidents.incident.list.filters.escalation.active') },
+      { value: 'acknowledged', label: t('incidents.incident.list.filters.escalation.acknowledged') },
+      { value: 'exhausted', label: t('incidents.incident.list.filters.escalation.exhausted') },
+    ],
+    [t],
+  )
+
   const filters = React.useMemo<FilterDef[]>(() => [
     {
       id: 'status',
@@ -351,6 +378,12 @@ export default function IncidentsPage() {
       options: severityFilterOptions,
     },
     {
+      id: 'escalationStatus',
+      label: t('incidents.incident.list.filters.escalation.label'),
+      type: 'select',
+      options: escalationStatusOptions,
+    },
+    {
       id: 'active',
       label: t('incidents.incident.list.filters.activeOnly'),
       type: 'checkbox',
@@ -360,7 +393,7 @@ export default function IncidentsPage() {
       label: t('incidents.incident.list.filters.excludeDrills'),
       type: 'checkbox',
     },
-  ], [severityFilterOptions, statusOptions, t])
+  ], [escalationStatusOptions, severityFilterOptions, statusOptions, t])
 
   const ownerUserIds = React.useMemo(
     () => rows.map((row) => row.ownerUserId).filter((id): id is string => typeof id === 'string' && id.length > 0),
@@ -372,18 +405,24 @@ export default function IncidentsPage() {
     {
       accessorKey: 'number',
       header: t('incidents.incident.list.columns.number'),
-      cell: ({ row }) => (
-        <Link href={buildIncidentUrl(row.original)} className="font-medium hover:underline">
-          {row.original.number ?? t('incidents.incident.list.unnumbered')}
-        </Link>
-      ),
+      cell: ({ row }) => {
+        const number = row.original.number ?? t('incidents.incident.list.unnumbered')
+        return (
+          <Link href={buildIncidentUrl(row.original)} className="font-medium hover:underline" title={number}>
+            {number}
+          </Link>
+        )
+      },
       meta: { alwaysVisible: true, truncate: true, maxWidth: 160 },
     },
     {
       accessorKey: 'title',
       header: t('incidents.incident.list.columns.title'),
-      cell: ({ row }) => row.original.title ?? t('incidents.common.notSet'),
-      meta: { alwaysVisible: true, truncate: true, maxWidth: 360 },
+      cell: ({ row }) => {
+        const title = row.original.title ?? t('incidents.common.notSet')
+        return <span title={title}>{title}</span>
+      },
+      meta: { alwaysVisible: true, truncate: true, maxWidth: 420 },
     },
     {
       accessorKey: 'severityId',
@@ -391,9 +430,10 @@ export default function IncidentsPage() {
       cell: ({ row }) => {
         const severity = row.original.severityId ? severityById.get(row.original.severityId) : null
         const key = normalizeSeverityKey(severity)
+        const label = severityLabel(t, key, severity)
         return (
           <StatusBadge variant={key ? severityVariant[key] : 'neutral'} dot>
-            {severityLabel(t, key, severity)}
+            {label}
           </StatusBadge>
         )
       },
@@ -424,28 +464,48 @@ export default function IncidentsPage() {
       meta: { filterType: 'select', filterOptions: statusOptions },
     },
     {
+      accessorKey: 'escalationStatus',
+      header: t('incidents.incident.list.filters.escalation.label'),
+      cell: ({ row }) => {
+        const badge = escalationBadge(t, row.original.escalationStatus)
+        if (!badge) return <span className="text-muted-foreground">{t('incidents.common.notSet')}</span>
+        return (
+          <StatusBadge variant={badge.variant} dot>
+            {badge.label}
+          </StatusBadge>
+        )
+      },
+      meta: { filterType: 'select', filterOptions: escalationStatusOptions },
+    },
+    {
       accessorKey: 'revenueAtRiskMinor',
       header: t('incidents.incident.list.columns.revenueAtRisk', 'Revenue at risk'),
-      cell: ({ row }) => formatRevenueAtRisk(row.original.revenueAtRiskMinor, row.original.revenueAtRiskCurrency),
-      meta: { truncate: true, maxWidth: 180 },
+      cell: ({ row }) => {
+        const revenue = formatRevenueAtRisk(row.original.revenueAtRiskMinor, row.original.revenueAtRiskCurrency)
+        return revenue ? <span title={revenue}>{revenue}</span> : null
+      },
+      meta: { truncate: true, maxWidth: 220 },
     },
     {
       accessorKey: 'ownerUserId',
       header: t('incidents.incident.list.columns.owner'),
       cell: ({ row }) => {
         const ownerId = row.original.ownerUserId
-        if (!ownerId) return t('incidents.incident.owner.unassigned')
-        return ownerLabels[ownerId] ?? ownerId
+        const owner = ownerId ? ownerLabels[ownerId] ?? ownerId : t('incidents.incident.owner.unassigned')
+        return <span title={owner}>{owner}</span>
       },
-      meta: { truncate: true, maxWidth: 220 },
+      meta: { truncate: true, maxWidth: 240 },
     },
     {
       accessorKey: 'updatedAt',
       header: t('incidents.incident.list.columns.updated'),
-      cell: ({ row }) => formatDate(row.original.updatedAt, t('incidents.common.notSet')),
+      cell: ({ row }) => {
+        const updated = formatDate(row.original.updatedAt, t('incidents.common.notSet'))
+        return <span title={updated}>{updated}</span>
+      },
       meta: { truncate: true, maxWidth: 180 },
     },
-  ], [ownerLabels, severityById, severityFilterOptions, statusOptions, t])
+  ], [escalationStatusOptions, ownerLabels, severityById, severityFilterOptions, statusOptions, t])
 
   const handleDelete = React.useCallback(async (row: IncidentRow) => {
     const approved = await confirm({
@@ -550,7 +610,7 @@ export default function IncidentsPage() {
           stickyActionsColumn
           title={t('incidents.incident.list.title')}
           actions={(
-            <Button asChild>
+            <Button asChild className="whitespace-nowrap">
               <Link href="/backend/incidents/create">
                 <AlertTriangle className="size-4" aria-hidden="true" />
                 {t('incidents.incident.list.actions.declare')}
@@ -617,7 +677,7 @@ export default function IncidentsPage() {
               title={t('incidents.incident.list.empty.title')}
               description={t('incidents.incident.list.empty.description')}
               actions={(
-                <Button asChild>
+                <Button asChild className="whitespace-nowrap">
                   <Link href="/backend/incidents/create">
                     <AlertTriangle className="size-4" aria-hidden="true" />
                     {t('incidents.incident.list.actions.declare')}

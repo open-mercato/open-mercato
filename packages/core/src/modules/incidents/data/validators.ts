@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { getDeclaredEvents } from '@open-mercato/shared/modules/events'
 
 const uuid = () => z.string().uuid()
 const emptyStringToNull = (value: unknown) => (value === '' ? null : value)
@@ -11,11 +12,27 @@ export const slaTargetsSchema = z.record(z.string(), z.object({
   at_risk_pct: z.number().int().min(1).max(99).default(80),
 }))
 
-export const autoIncidentTriggersSchema = z.record(z.string(), z.object({
-  enabled: z.boolean(),
-  severity_key: z.string(),
-  type_key: z.string(),
+export const updateCadenceSchema = z.record(z.string(), z.object({
+  updateMinutes: z.number().int().positive(),
 }))
+
+export const triggerConditionSchema = z.object({
+  path: z.string().trim().min(1).max(240),
+  equals: z.union([z.string(), z.number(), z.boolean()]),
+})
+
+function isExcludedDeclaredEvent(eventId: string): boolean {
+  const declaredEvent = getDeclaredEvents().find((event) => event.id === eventId)
+  return declaredEvent?.excludeFromTriggers === true
+}
+
+const triggerEventIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(240)
+  .refine((eventId) => !eventId.startsWith('incidents.'))
+  .refine((eventId) => !isExcludedDeclaredEvent(eventId))
 
 export const incidentCreateSchema = z.object({
   organizationId: uuid(),
@@ -27,6 +44,7 @@ export const incidentCreateSchema = z.object({
   priority: z.string().trim().max(50).nullable().optional(),
   ownerUserId: uuid().nullable().optional(),
   owningTeamId: uuid().nullable().optional(),
+  escalationPolicyId: uuid().nullable().optional(),
   customerImpactSummary: optionalText(8000),
   sourceEventRef: z.string().trim().min(1).max(300).nullable().optional(),
 })
@@ -35,7 +53,6 @@ export type IncidentCreateInput = z.infer<typeof incidentCreateSchema>
 
 export const incidentUpdateSchema = incidentCreateSchema.partial().extend({
   id: uuid(),
-  escalationPolicyId: uuid().nullable().optional(),
 })
 
 export type IncidentUpdateInput = z.infer<typeof incidentUpdateSchema>
@@ -128,12 +145,29 @@ const settingsUpdateBaseSchema = z.object({
   escalationTimeoutMinutes: z.coerce.number().int().nullable().optional(),
   defaultEscalationPolicyId: uuid().nullable().optional(),
   slaTargets: slaTargetsSchema.nullable().optional(),
-  autoIncidentTriggers: autoIncidentTriggersSchema.nullable().optional(),
+  updateCadence: updateCadenceSchema.nullable().optional(),
 })
 
 export const settingsUpdateSchema = settingsUpdateBaseSchema
 
 export type IncidentSettingsUpdateInput = z.infer<typeof settingsUpdateSchema>
+
+export const triggerCreateSchema = z.object({
+  organizationId: uuid(),
+  tenantId: uuid(),
+  eventId: triggerEventIdSchema,
+  isEnabled: z.boolean().optional(),
+  severityKey: optionalText(80),
+  typeKey: optionalText(80),
+  escalationPolicyId: uuid().nullable().optional(),
+  conditions: z.array(triggerConditionSchema).nullable().optional(),
+})
+
+export type IncidentTriggerCreateInput = z.infer<typeof triggerCreateSchema>
+
+export const triggerUpdateSchema = triggerCreateSchema.partial().extend({ id: uuid() })
+
+export type IncidentTriggerUpdateInput = z.infer<typeof triggerUpdateSchema>
 
 export const impactTargetTypeSchema = z.enum([
   'customer_person',

@@ -34,6 +34,7 @@ const listSchema = z
     incidentTypeId: z.string().uuid().optional(),
     active: z.string().optional(),
     excludeDrills: z.string().optional(),
+    escalationStatus: z.string().optional(),
     id: z.string().uuid().optional(),
     ids: z.string().optional(),
     sortField: z.string().optional(),
@@ -61,6 +62,8 @@ const listFields = [
   'priority',
   'owner_user_id',
   'owning_team_id',
+  'escalation_status',
+  'escalation_level',
   'revenue_at_risk_minor',
   'revenue_at_risk_currency',
   'sla_at_risk',
@@ -91,6 +94,8 @@ const detailFields = [
   'escalation_last_targets',
   'sla_response_due_at',
   'sla_resolution_due_at',
+  'next_update_due_at',
+  'update_overdue_notified_at',
   'merged_into_incident_id',
   'source_event_ref',
   'customer_impact_summary',
@@ -137,6 +142,9 @@ function buildFilters(query: IncidentListQuery): Record<string, unknown> {
   if (active === true) filters.status = { $nin: ['resolved', 'closed'] }
   if (active === false) filters.status = { $in: ['resolved', 'closed'] }
   if (parseBooleanToken(query.excludeDrills) === true) filters.is_drill = { $eq: false }
+  const escalationStatus = query.escalationStatus?.trim()
+  if (escalationStatus === 'escalated') filters.escalation_status = { $in: ['active', 'exhausted'] }
+  else if (escalationStatus) filters.escalation_status = { $eq: escalationStatus }
   return filters
 }
 
@@ -247,6 +255,8 @@ const incidentListItemSchema = z.object({
   }).passthrough().nullable().optional(),
   sla_response_due_at: z.string().nullable().optional(),
   sla_resolution_due_at: z.string().nullable().optional(),
+  next_update_due_at: z.string().nullable().optional(),
+  update_overdue_notified_at: z.string().nullable().optional(),
   sla_at_risk: z.boolean().nullable().optional(),
   sla_breached: z.boolean().nullable().optional(),
   merged_into_incident_id: z.string().uuid().nullable().optional(),

@@ -1,5 +1,6 @@
 import './incident'
 import './config'
+import './triggers'
 import './escalationPolicies'
 import './actions'
 import './timeline'

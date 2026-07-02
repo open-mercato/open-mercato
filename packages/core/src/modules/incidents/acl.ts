@@ -7,6 +7,7 @@ export const features = [
   { id: 'incidents.incident.escalate', title: 'Escalate incidents', module: 'incidents', dependsOn: ['incidents.incident.view'] },
   { id: 'incidents.postmortem.view', title: 'View postmortems', module: 'incidents' },
   { id: 'incidents.postmortem.manage', title: 'Manage postmortems', module: 'incidents', dependsOn: ['incidents.postmortem.view'] },
+  { id: 'incidents.ai.use', title: 'Use incidents AI', module: 'incidents', dependsOn: ['incidents.incident.view'] },
   { id: 'incidents.settings.manage', title: 'Manage incident settings', module: 'incidents' },
 ]
 

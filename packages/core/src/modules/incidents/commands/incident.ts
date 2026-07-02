@@ -29,6 +29,7 @@ import {
 import type { IncidentNumberGenerator } from '../services/incidentNumberGenerator'
 import * as escalationService from '../services/escalationService'
 import { emitIncidentsEvent } from '../events'
+import { applyIncidentUpdateCadence } from '../lib/updateCadence'
 
 const DEFAULT_NUMBER_FORMAT = 'INC-{yyyy}{mm}{dd}-{seq:4}'
 
@@ -79,6 +80,8 @@ export type IncidentSnapshot = {
   closedAt: string | null
   escalationLevel: number
   nextEscalationAt: string | null
+  nextUpdateDueAt: string | null
+  updateOverdueNotifiedAt: string | null
   snoozedUntil: string | null
   escalationPolicyId: string | null
   escalationStatus: string
@@ -130,6 +133,8 @@ export const INCIDENT_CHANGE_KEYS = [
   'closedAt',
   'escalationLevel',
   'nextEscalationAt',
+  'nextUpdateDueAt',
+  'updateOverdueNotifiedAt',
   'snoozedUntil',
   'escalationPolicyId',
   'escalationStatus',
@@ -151,6 +156,8 @@ const INCIDENT_DATE_FIELDS = [
   'resolvedAt',
   'closedAt',
   'nextEscalationAt',
+  'nextUpdateDueAt',
+  'updateOverdueNotifiedAt',
   'snoozedUntil',
   'slaResponseDueAt',
   'slaResolutionDueAt',
@@ -246,6 +253,8 @@ export async function loadIncidentSnapshot(
     closedAt: optionalIso(incident.closedAt),
     escalationLevel: incident.escalationLevel,
     nextEscalationAt: optionalIso(incident.nextEscalationAt),
+    nextUpdateDueAt: optionalIso(incident.nextUpdateDueAt),
+    updateOverdueNotifiedAt: optionalIso(incident.updateOverdueNotifiedAt),
     snoozedUntil: optionalIso(incident.snoozedUntil),
     escalationPolicyId: incident.escalationPolicyId ?? null,
     escalationStatus: incident.escalationStatus,
@@ -285,6 +294,8 @@ export function applyIncidentSnapshot(record: Incident, snapshot: IncidentSnapsh
   record.closedAt = parseOptionalDate(snapshot.closedAt)
   record.escalationLevel = snapshot.escalationLevel
   record.nextEscalationAt = parseOptionalDate(snapshot.nextEscalationAt)
+  record.nextUpdateDueAt = parseOptionalDate(snapshot.nextUpdateDueAt)
+  record.updateOverdueNotifiedAt = parseOptionalDate(snapshot.updateOverdueNotifiedAt)
   record.snoozedUntil = parseOptionalDate(snapshot.snoozedUntil)
   record.escalationPolicyId = snapshot.escalationPolicyId
   record.escalationStatus = snapshot.escalationStatus
@@ -327,6 +338,8 @@ export function createIncidentFromSnapshot(em: EntityManager, snapshot: Incident
     closedAt: parseOptionalDate(snapshot.closedAt),
     escalationLevel: snapshot.escalationLevel,
     nextEscalationAt: parseOptionalDate(snapshot.nextEscalationAt),
+    nextUpdateDueAt: parseOptionalDate(snapshot.nextUpdateDueAt),
+    updateOverdueNotifiedAt: parseOptionalDate(snapshot.updateOverdueNotifiedAt),
     snoozedUntil: parseOptionalDate(snapshot.snoozedUntil),
     escalationPolicyId: snapshot.escalationPolicyId,
     escalationStatus: snapshot.escalationStatus,
@@ -437,8 +450,13 @@ const createIncidentCommand: CommandHandler<IncidentCreateInput, IncidentCommand
         em.persist(incident)
       },
       async () => {
+        await applyIncidentUpdateCadence(em, scope, incident, now)
+      },
+      async () => {
         try {
-          const policyId = await escalationService.resolveDefaultPolicyId(em, scope, incident.incidentTypeId ?? null)
+          const policyId = parsed.escalationPolicyId !== undefined
+            ? parsed.escalationPolicyId ?? null
+            : await escalationService.resolveDefaultPolicyId(em, scope, incident.incidentTypeId ?? null)
           incident.escalationPolicyId = policyId
         } catch (error) {
           console.error('[incidents.create] failed to resolve escalation policy', error)
@@ -564,6 +582,12 @@ const updateIncidentCommand: CommandHandler<IncidentUpdateInput, IncidentCommand
         incident.updatedAt = now
       },
     ]
+
+    if (parsed.severityId !== undefined) {
+      phases.push(async () => {
+        await applyIncidentUpdateCadence(em, scope, incident, now)
+      })
+    }
 
     if (parsed.escalationPolicyId !== undefined) {
       const actorUserId = resolveActorUserId(ctx)
