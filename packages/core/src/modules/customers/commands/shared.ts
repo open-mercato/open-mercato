@@ -152,6 +152,7 @@ const DICTIONARY_KINDS = new Set([
   'temperature',
   'renewal_quarter',
   'person_company_role',
+  'interaction_status',
 ])
 
 const CUSTOM_DICTIONARY_KIND_PATTERN = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/

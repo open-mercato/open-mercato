@@ -76,4 +76,17 @@ describe('ActivityCard', () => {
     expect(screen.getByRole('button', { name: /Show email/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /Sentiment/i })).toBeDisabled()
   })
+
+  it.each(['planned', 'in_progress', 'waiting', 'follow_up_custom'])(
+    'shows the Mark done affordance for open status %s',
+    (status) => {
+      renderWithProviders(<ActivityCard activity={createActivity({ status })} />)
+      expect(screen.getByRole('button', { name: /Mark done/i })).toBeInTheDocument()
+    },
+  )
+
+  it.each(['done', 'canceled'])('hides the Mark done affordance for terminal status %s', (status) => {
+    renderWithProviders(<ActivityCard activity={createActivity({ status })} />)
+    expect(screen.queryByRole('button', { name: /Mark done/i })).not.toBeInTheDocument()
+  })
 })

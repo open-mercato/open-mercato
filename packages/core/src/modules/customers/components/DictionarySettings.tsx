@@ -108,6 +108,11 @@ export default function DictionarySettings() {
       description: t('customers.config.dictionaries.sections.activityTypes.description', 'Define the activity types used for customer interactions.'),
     },
     {
+      kind: 'interaction-statuses',
+      title: t('customers.config.dictionaries.sections.interactionStatuses.title', 'Interaction statuses'),
+      description: t('customers.config.dictionaries.sections.interactionStatuses.description', 'Manage the statuses available for tasks and logged interactions.'),
+    },
+    {
       kind: 'address-types',
       title: t('customers.config.dictionaries.sections.addressTypes.title', 'Address types'),
       description: t('customers.config.dictionaries.sections.addressTypes.description', 'Define the available address types.'),
