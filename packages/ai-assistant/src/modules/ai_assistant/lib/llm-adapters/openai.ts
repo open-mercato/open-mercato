@@ -62,6 +62,23 @@ export interface OpenAICompatiblePreset {
    * The first non-empty value wins and overrides {@link baseURL}.
    */
   baseURLEnvKeys?: readonly string[]
+  /**
+   * When `true`, the provider exposes OpenAI's `/v1/moderations` endpoint and
+   * the runtime may run input pre-moderation through it. Only the native
+   * `openai` preset sets this — OpenAI-compatible backends (Groq, DeepInfra,
+   * Together, …) do not implement the moderations endpoint, so they leave it
+   * unset and rely on their own server-side filtering.
+   */
+  supportsInputModeration?: boolean
+  /**
+   * When `true`, the provider maps the runtime end-user safety identifier into
+   * OpenAI's per-request `safetyIdentifier` provider option. Only the native
+   * `openai` preset sets this — `safety_identifier` is an OpenAI-specific body
+   * field, and OpenAI-compatible/self-hosted backends (Groq, DeepInfra, Azure,
+   * Ollama, LM Studio, …) may reject the unknown parameter, so they leave it
+   * unset and send no identifier (matching pre-feature behavior).
+   */
+  supportsEndUserSafetyIdentifier?: boolean
 }
 
 function readFirstNonEmpty(
@@ -108,12 +125,13 @@ export function createOpenAICompatibleProvider(
     return preset.baseURL
   }
 
-  return {
+  const provider: LlmProvider = {
     id: preset.id,
     name: preset.name,
     envKeys: preset.envKeys,
     defaultModel: preset.defaultModel,
     defaultModels: preset.defaultModels,
+    supportsInputModeration: preset.supportsInputModeration ?? false,
 
     isConfigured(env?: EnvLookup): boolean {
       return resolveApiKey(env) !== null
@@ -142,4 +160,17 @@ export function createOpenAICompatibleProvider(
       return openai(options.modelId)
     },
   }
+
+  // Only the native OpenAI preset maps the end-user safety identifier. The key
+  // MUST be the AI SDK provider-option name `safetyIdentifier` (camelCase) — the
+  // SDK translates it to the `safety_identifier` request-body field and strips
+  // any unknown providerOptions keys, so a snake_case key would be silently
+  // dropped and never reach OpenAI.
+  if (preset.supportsEndUserSafetyIdentifier) {
+    provider.mapEndUserIdentifier = (identifier: string): Record<string, unknown> => ({
+      openai: { safetyIdentifier: identifier },
+    })
+  }
+
+  return provider
 }

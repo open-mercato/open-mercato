@@ -1,0 +1,86 @@
+• turbo 2.9.16
+
+   • Packages in scope: @open-mercato/ai-assistant, @open-mercato/cache, @open-mercato/channel-gmail, @open-mercato/channel-imap, @open-mercato/checkout, @open-mercato/cli, @open-mercato/content, @open-mercato/core, @open-mercato/enterprise, @open-mercato/events, @open-mercato/gateway-stripe, @open-mercato/onboarding, @open-mercato/queue, @open-mercato/scheduler, @open-mercato/search, @open-mercato/shared, @open-mercato/storage-s3, @open-mercato/sync-akeneo, @open-mercato/ui, @open-mercato/webhooks, create-mercato-app
+   • Running build in 21 packages
+   • Remote caching disabled, using shared worktree cache
+
+create-mercato-app:build: cache miss, executing 043eece1315fbb15
+@open-mercato/events:build: cache miss, executing ba7a54aafed92fd3
+@open-mercato/webhooks:build: cache miss, executing adbde3bfb9419c88
+@open-mercato/channel-gmail:build: cache miss, executing dca103272f53a2f8
+@open-mercato/cli:build: cache miss, executing 277a9021a265e442
+@open-mercato/channel-imap:build: cache miss, executing 68875f0ee38e4884
+@open-mercato/scheduler:build: cache miss, executing 28e93fa4cb26f913
+@open-mercato/cache:build: cache miss, executing 4459c41495a6667f
+@open-mercato/content:build: cache miss, executing 086d0cfecb660043
+@open-mercato/shared:build: cache miss, executing b6a00f2cef40cb99
+@open-mercato/enterprise:build: cache miss, executing ac8be6f88c81d5cc
+@open-mercato/onboarding:build: cache miss, executing 34ec7d5a599f1ca0
+@open-mercato/search:build: cache miss, executing 4a841f797b29bc93
+@open-mercato/gateway-stripe:build: cache miss, executing 5340603cef5b838e
+@open-mercato/sync-akeneo:build: cache miss, executing 28e82f6358ff8026
+@open-mercato/core:build: cache miss, executing c9fc6ebdd566fd1d
+@open-mercato/ui:build: cache miss, executing d1b83df17416ceb6
+@open-mercato/queue:build: cache miss, executing 62cb1e027a9a7773
+@open-mercato/checkout:build: cache miss, executing f6382ba7bf7889d4
+@open-mercato/ai-assistant:build: cache miss, executing 9cb141be96b10307
+@open-mercato/storage-s3:build: cache miss, executing 178ea40f2ea087df
+@open-mercato/scheduler:build: [build:scheduler] found 51 entry points
+@open-mercato/scheduler:build: [build:scheduler] built successfully
+create-mercato-app:build: Copied src/lib/templates/ → dist/templates/
+create-mercato-app:build: Copied agentic/ → dist/agentic/
+create-mercato-app:build: Discovered 16 standalone guides → dist/agentic/guides/
+create-mercato-app:build: Build complete: dist/index.js
+ WARNING  IO error: Permission denied (os error 13)
+@open-mercato/checkout:build: [build:checkout] found 157 entry points
+ WARNING  IO error: Permission denied (os error 13)
+@open-mercato/sync-akeneo:build: [build:sync-akeneo] found 29 entry points
+@open-mercato/shared:build: [build:shared] found 223 entry points
+@open-mercato/channel-gmail:build: [build:channel-gmail] found 22 entry points
+@open-mercato/search:build: [build:search] found 88 entry points
+@open-mercato/sync-akeneo:build: [build:sync-akeneo] built successfully
+@open-mercato/channel-gmail:build: [build:channel-gmail] built successfully
+@open-mercato/ai-assistant:build: [build:ai-assistant] found 224 entry points
+@open-mercato/cli:build: [build:cli] found 87 entry points
+@open-mercato/queue:build: [build:queue] found 8 entry points
+@open-mercato/channel-imap:build: [build:channel-imap] found 33 entry points
+@open-mercato/enterprise:build: [build:enterprise] found 293 entry points
+ WARNING  IO error: Permission denied (os error 13)
+ WARNING  IO error: Permission denied (os error 13)
+@open-mercato/onboarding:build: [build:onboarding] found 26 entry points
+@open-mercato/queue:build: [build:queue] built successfully
+@open-mercato/cache:build: [build:cache] found 11 entry points
+@open-mercato/channel-imap:build: [build:channel-imap] built successfully
+@open-mercato/webhooks:build: [build:webhooks] found 67 entry points
+@open-mercato/checkout:build: [build:checkout] built successfully
+ WARNING  IO error: Permission denied (os error 13)
+@open-mercato/search:build: [build:search] built successfully
+@open-mercato/onboarding:build: [build:onboarding] built successfully
+@open-mercato/cache:build: [build:cache] built successfully
+@open-mercato/storage-s3:build: Found 18 entry points
+@open-mercato/events:build: [build:events] found 8 entry points
+@open-mercato/webhooks:build: [build:webhooks] built successfully
+@open-mercato/events:build: [build:events] built successfully
+@open-mercato/storage-s3:build: storage-s3 built successfully
+@open-mercato/cli:build: Copied create-app/agentic/ → dist/agentic/
+@open-mercato/cli:build: Discovered 16 standalone guides → dist/agentic/guides/
+@open-mercato/cli:build: [build:cli] built successfully
+@open-mercato/content:build: [build:content] found 7 entry points
+@open-mercato/shared:build: [build:shared] built successfully
+@open-mercato/content:build: [build:content] built successfully
+@open-mercato/core:build: [build:core] found 3311 entry points
+@open-mercato/gateway-stripe:build: [build:gateway-stripe] found 25 entry points
+@open-mercato/ai-assistant:build: [build:ai-assistant] built successfully
+@open-mercato/gateway-stripe:build: [build:gateway-stripe] built successfully
+@open-mercato/enterprise:build: [build:enterprise] built successfully
+@open-mercato/ui:build: Generated lucide registry with 141 icons -> /home/bernard/workspace/OpenMercatoTest/.ai/tmp/auto-create-pr/ai-input-moderation-safety-identifiers-20260610-145153/packages/ui/src/backend/icons/lucideRegistry.generated.tsx
+@open-mercato/ui:build: [build:ui] found 386 entry points
+@open-mercato/ui:build: [build:ui] built successfully
+@open-mercato/core:build: [build:core] built successfully
+@open-mercato/core:build: [build:core:generated] found 185 entry points
+@open-mercato/core:build: [build:core:generated] built successfully
+
+ Tasks:    21 successful, 21 total
+Cached:    0 cached, 21 total
+  Time:    9.078s 
+

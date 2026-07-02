@@ -214,6 +214,16 @@ export interface AiModelFactoryInput {
    * intersecting at resolution time.
    */
   tenantAllowlist?: TenantAllowlistSnapshot | null
+  /**
+   * Optional opaque end-user identifier (tenant-salted HMAC). When set and the
+   * resolved provider implements {@link LlmProvider.mapEndUserIdentifier}, the
+   * factory returns the provider-specific `providerOptions` fragment on the
+   * resolution so the runtime can attach it to the model call. No-op for
+   * providers without a mapping or when no identifier is supplied.
+   *
+   * @see .ai/specs/2026-06-04-ai-input-moderation-and-safety-identifiers.md
+   */
+  endUserIdentifier?: string
 }
 
 /**
@@ -265,6 +275,20 @@ export interface AiModelResolution {
     originalModelId: string
     reason: string
   }
+  /**
+   * Provider-specific `providerOptions` fragment produced by mapping the input
+   * {@link AiModelFactoryInput.endUserIdentifier} through the resolved
+   * provider's {@link LlmProvider.mapEndUserIdentifier}. Undefined when no
+   * identifier was supplied or the provider has no mapping. The runtime merges
+   * this into the AI SDK `providerOptions` for the model call.
+   */
+  providerOptions?: Record<string, unknown>
+  /**
+   * Mirror of the resolved provider's {@link LlmProvider.supportsInputModeration}
+   * capability flag. The runtime uses this to decide whether to run the input
+   * pre-moderation gate before the model call.
+   */
+  supportsInputModeration?: boolean
 }
 
 /**
@@ -721,17 +745,26 @@ export function createModelFactory(
         )
       }
 
+      const endUserIdentifier = normalizeOverride(input.endUserIdentifier)
+      const providerOptions =
+        endUserIdentifier && finalProvider.mapEndUserIdentifier
+          ? finalProvider.mapEndUserIdentifier(endUserIdentifier)
+          : undefined
+
       const model = finalProvider.createModel({
         modelId: finalModelId,
         apiKey: finalApiKey,
         baseURL: resolvedBaseURL,
+        ...(endUserIdentifier ? { endUserIdentifier } : {}),
       })
       return {
         model,
         modelId: finalModelId,
         providerId: finalProvider.id,
         source: finalSource,
+        supportsInputModeration: finalProvider.supportsInputModeration === true,
         ...(resolvedBaseURL !== undefined ? { baseURL: resolvedBaseURL } : {}),
+        ...(providerOptions !== undefined ? { providerOptions } : {}),
         ...(allowlistResult.fallback
           ? {
               allowlistFallback: {

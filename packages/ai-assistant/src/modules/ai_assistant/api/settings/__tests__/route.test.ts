@@ -161,6 +161,56 @@ describe('PUT /api/ai_assistant/settings', () => {
     )
   })
 
+  it('forwards inputModeration to the override upsert and echoes it back', async () => {
+    upsertDefaultMock.mockResolvedValueOnce({
+      id: 'row-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      agentId: 'catalog.catalog_assistant',
+      providerId: null,
+      modelId: null,
+      baseUrl: null,
+      inputModeration: true,
+      updatedAt: new Date('2026-06-10T00:00:00Z'),
+    })
+
+    const response = await PUT(
+      buildRequest('PUT', { agentId: 'catalog.catalog_assistant', inputModeration: true }) as any,
+    )
+
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.inputModeration).toBe(true)
+    expect(upsertDefaultMock).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'catalog.catalog_assistant', inputModeration: true }),
+      expect.objectContaining({ tenantId: 'tenant-1' }),
+    )
+  })
+
+  it('passes inputModeration: null (inherit) through to the upsert', async () => {
+    upsertDefaultMock.mockResolvedValueOnce({
+      id: 'row-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      agentId: 'catalog.catalog_assistant',
+      providerId: null,
+      modelId: null,
+      baseUrl: null,
+      inputModeration: null,
+      updatedAt: new Date('2026-06-10T00:00:00Z'),
+    })
+
+    const response = await PUT(
+      buildRequest('PUT', { agentId: 'catalog.catalog_assistant', inputModeration: null }) as any,
+    )
+
+    expect(response.status).toBe(200)
+    expect(upsertDefaultMock).toHaveBeenCalledWith(
+      expect.objectContaining({ inputModeration: null }),
+      expect.anything(),
+    )
+  })
+
   it('saves per-agent chat override allowlist without requiring a model override', async () => {
     upsertDefaultMock.mockResolvedValueOnce({
       id: 'row-1',

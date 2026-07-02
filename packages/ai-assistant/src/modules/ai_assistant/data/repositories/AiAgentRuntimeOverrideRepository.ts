@@ -35,6 +35,8 @@ export interface AiAgentRuntimeOverrideInput extends AiAgentRuntimeOverrideLoopI
   baseURL?: string | null
   allowedOverrideProviders?: string[] | null
   allowedOverrideModelsByProvider?: Record<string, string[]>
+  /** Input-moderation override: true = on, false = off, null = inherit. */
+  inputModeration?: boolean | null
   /**
    * Optional: the agent's declared allowedTools. When provided, loopActiveToolsJson
    * is validated to be a subset. When omitted, allowlist validation is skipped
@@ -270,6 +272,7 @@ export class AiAgentRuntimeOverrideRepository {
         if ('loopMaxTokens' in input) existing.loopMaxTokens = input.loopMaxTokens ?? null
         if ('loopStopWhenJson' in input) existing.loopStopWhenJson = input.loopStopWhenJson ?? null
         if ('loopActiveToolsJson' in input) existing.loopActiveToolsJson = input.loopActiveToolsJson ?? null
+        if ('inputModeration' in input) existing.inputModeration = input.inputModeration ?? null
         await tx.persist(existing).flush()
         return existing
       }
@@ -295,6 +298,7 @@ export class AiAgentRuntimeOverrideRepository {
         loopMaxTokens: input.loopMaxTokens ?? null,
         loopStopWhenJson: input.loopStopWhenJson ?? null,
         loopActiveToolsJson: input.loopActiveToolsJson ?? null,
+        inputModeration: input.inputModeration ?? null,
       } as unknown as AiAgentRuntimeOverride)
       await tx.persist(row).flush()
       return row

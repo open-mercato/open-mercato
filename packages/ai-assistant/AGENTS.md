@@ -876,6 +876,23 @@ yarn mcp:serve
 
 Typed pending-action lifecycle events live in `src/modules/ai_assistant/events.ts` and are emitted via the shared `emitAiAssistantEvent` helper (`createModuleEvents`). The three ids are FROZEN per `BACKWARD_COMPATIBILITY.md` §5 and MUST NOT be renamed; payload fields are additive-only. `ai.action.confirmed` fires from `executePendingActionConfirm` with `{ pendingActionId, agentId, toolName, status, tenantId, organizationId, userId, resolvedByUserId, resolvedAt, executionResult, failedRecords? }`; `ai.action.cancelled` fires from `executePendingActionCancel` with the same shape plus an optional `reason`; `ai.action.expired` fires from the cancel helper's TTL short-circuit (and the Step 5.12 cleanup worker) with `resolvedByUserId: null` and additional `expiresAt` / `expiredAt` timestamps. All three use `category: 'system'` and `entity: 'ai_pending_action'`.
 
+`ai_assistant.moderation_flag.created` (`category: 'system'`, `entity: 'ai_moderation_flag'`) fires best-effort from the input-moderation gate when a turn is blocked and the audit row is persisted; payload `{ id, tenantId, organizationId, agentId, userId, categories }` (`categories` = flagged category names only, never prompt content).
+
+## Input moderation & safety identifiers
+
+Two provider-aware content guardrails protect the instance owner's provider org from abuse by untrusted end users. **Full reference: [`apps/docs/docs/framework/ai-assistant/moderation.mdx`](../../apps/docs/docs/framework/ai-assistant/moderation.mdx)** + spec `.ai/specs/2026-06-04-ai-input-moderation-and-safety-identifiers.md`.
+
+- **Safety identifiers** — `runAiAgentText` computes a tenant-salted HMAC (`computeEndUserIdentifier` from `@open-mercato/shared/lib/ai/safety-identifier`, derived from `JWT_SECRET` — no new secret, no PII). The model factory maps it via the provider's optional `mapEndUserIdentifier` (OpenAI → `safety_identifier`, Anthropic → `metadata.user_id`) and the runtime merges the fragment into `streamText`/ToolLoopAgent `providerOptions`. Best-effort: derivation failure logs and omits the identifier.
+- **Input pre-moderation gate** — pre-loop, pre-SDK in `runAiAgentText` via `runInputModerationGate` + the DI `moderationService` (`lib/moderation.ts`, OpenAI `/v1/moderations`). Runs only when the resolved provider sets `supportsInputModeration` (OpenAI preset only). Policy precedence (`resolveModerationPolicy` in `lib/moderation-policy.ts`): `untrustedInput` → enforced; per-agent override; tenant-wide override; `OM_AI_INPUT_MODERATION` env; else off. **Enforced surfaces fail closed; opt-in surfaces fail open.** Flagged input throws `AiModerationBlockedError` → SSE `{ code: 'moderation_blocked' }`; outage on enforced → `AiModerationUnavailableError` → `{ code: 'moderation_unavailable' }`. `<AiChat>` renders translated copy (warning variant); categories are never sent to the client.
+- **`untrustedInput?: boolean`** on `AiAgentDefinition` marks a surface as accepting untrusted end-user input → enforces moderation regardless of tenant settings.
+- **Audit** — best-effort `AiModerationFlag` insert (`ai_moderation_flags`, categories+scores only) + `moderation_flag.created` event via the gate's `onFlagged` hook (`recordModerationFlag`); never blocks the rejection. Read-only audit at `GET /api/ai_assistant/moderation-flags` (guarded by `ai_assistant.settings.manage`, `pageSize ≤ 100`, tenant-scoped) + DataTable page `/backend/config/ai-assistant/moderation-flags`.
+- **Settings** — `GET/PUT /api/ai_assistant/settings` carry `inputModeration` (per-agent or tenant-wide via the `ai_agent_runtime_overrides.input_moderation` column); GET returns per-agent `moderation: { enforced, override, effective }`. UI: the "Input moderation" section on `/backend/config/ai-assistant/agents` (Inherit/On/Off + non-editable Enforced badge).
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OM_AI_INPUT_MODERATION` | unset (off) | Env default for the moderation policy (step 4). Parsed with `parseBooleanWithDefault`. |
+| `OM_AI_MODERATION_MODEL` | `omni-moderation-latest` | Model id sent to `/v1/moderations`. |
+
 ## Rules for the OpenCode Client
 
 Located in `lib/opencode-client.ts`. Use these methods when interacting with OpenCode:
