@@ -34,6 +34,10 @@ describe('catalog command registration', () => {
       path: '../categories',
       expected: ['catalog.categories.create', 'catalog.categories.update', 'catalog.categories.delete'],
     },
+    {
+      path: '../services',
+      expected: ['catalog.services.create', 'catalog.services.update', 'catalog.services.delete'],
+    },
   ]
 
   beforeEach(() => {

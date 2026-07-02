@@ -5,6 +5,7 @@ export type SalesLineRecord = {
   name: string | null
   productId: string | null
   productVariantId: string | null
+  serviceId: string | null
   quantity: number
   quantityUnit: string | null
   normalizedQuantity: number

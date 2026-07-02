@@ -38,6 +38,7 @@ export type SalesLineSnapshot = {
   kind: SalesLineKind
   productId?: string | null
   productVariantId?: string | null
+  serviceId?: string | null
   name?: string | null
   description?: string | null
   comment?: string | null

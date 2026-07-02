@@ -4,6 +4,8 @@ import type {
   CatalogExciseCategory,
   CatalogGtinType,
   CatalogHazmatPackingGroup,
+  CatalogServiceWorkAllocationMode,
+  CatalogServiceWorkTargetType,
   CatalogPriceDisplayMode,
   CatalogProductOptionSchema,
   CatalogProductRelationType,
@@ -282,6 +284,174 @@ export class CatalogProduct {
 
   @OneToMany(() => CatalogProductUnitConversion, (conversion) => conversion.product)
   unitConversions = new Collection<CatalogProductUnitConversion>(this)
+}
+
+@Entity({ tableName: 'catalog_services' })
+@Index({ name: 'catalog_services_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'catalog_services_category_idx', properties: ['category', 'organizationId', 'tenantId'] })
+export class CatalogService {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt' | 'isActive'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  title!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  scope?: string | null
+
+  @ManyToOne(() => CatalogProductCategory, {
+    fieldName: 'category_id',
+    nullable: true,
+    deleteRule: 'set null',
+  })
+  category?: CatalogProductCategory | null
+
+  @Property({ name: 'default_price_amount', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  defaultPriceAmount?: string | null
+
+  @Property({ name: 'default_price_currency_code', type: 'text', nullable: true })
+  defaultPriceCurrencyCode?: string | null
+
+  @Property({ name: 'default_media_id', type: 'uuid', nullable: true })
+  defaultMediaId?: string | null
+
+  @Property({ name: 'default_media_url', type: 'text', nullable: true })
+  defaultMediaUrl?: string | null
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @OneToMany(() => CatalogServiceMedia, (media) => media.service)
+  media = new Collection<CatalogServiceMedia>(this)
+
+  @OneToMany(() => CatalogServiceWorkRequirement, (requirement) => requirement.service)
+  workRequirements = new Collection<CatalogServiceWorkRequirement>(this)
+}
+
+@Entity({ tableName: 'catalog_service_media' })
+@Index({ name: 'catalog_service_media_scope_idx', properties: ['organizationId', 'tenantId', 'service'] })
+export class CatalogServiceMedia {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt' | 'sortOrder' | 'isDefault'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogService, { fieldName: 'service_id', deleteRule: 'cascade' })
+  service!: CatalogService
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'file_id', type: 'uuid', nullable: true })
+  fileId?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  url?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  alt?: string | null
+
+  @Property({ name: 'content_type', type: 'text', nullable: true })
+  contentType?: string | null
+
+  @Property({ name: 'sort_order', type: 'integer', default: 0 })
+  sortOrder: number = 0
+
+  @Property({ name: 'is_default', type: 'boolean', default: false })
+  isDefault: boolean = false
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'catalog_service_work_requirements' })
+@Index({
+  name: 'catalog_service_work_requirements_scope_idx',
+  properties: ['organizationId', 'tenantId', 'service'],
+})
+@Index({
+  name: 'catalog_service_work_requirements_target_idx',
+  properties: ['organizationId', 'tenantId', 'targetType', 'targetId'],
+})
+export class CatalogServiceWorkRequirement {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt' | 'sortOrder'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogService, { fieldName: 'service_id', deleteRule: 'cascade' })
+  service!: CatalogService
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'target_type', type: 'text' })
+  targetType!: CatalogServiceWorkTargetType
+
+  @Property({ name: 'target_id', type: 'uuid', nullable: true })
+  targetId?: string | null
+
+  @Property({ name: 'label_snapshot', type: 'text' })
+  labelSnapshot!: string
+
+  @Property({ name: 'allocation_mode', type: 'text' })
+  allocationMode!: CatalogServiceWorkAllocationMode
+
+  @Property({ name: 'allocation_value', type: 'numeric', precision: 16, scale: 4 })
+  allocationValue!: string
+
+  @Property({ name: 'sort_order', type: 'integer', default: 0 })
+  sortOrder: number = 0
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 
 @Entity({ tableName: 'catalog_product_unit_conversions' })

@@ -198,6 +198,15 @@ describe('ProductMediaManager', () => {
     expect(screen.getByText('3.7 MB')).toBeInTheDocument()
   })
 
+  it('does not show a fake 0 B size when the file size is unknown', () => {
+    const items = [
+      createMediaItem({ id: 'f1', fileName: 'restored.jpg', fileSize: undefined }),
+    ]
+    render(<ProductMediaManager {...defaultProps} items={items} />)
+    expect(screen.getByText('restored.jpg')).toBeInTheDocument()
+    expect(screen.queryByText('0 B')).not.toBeInTheDocument()
+  })
+
   it('renders multiple items with thumbnails as images', () => {
     const items = [
       createMediaItem({ id: 'a', fileName: 'alpha.jpg', thumbnailUrl: 'https://cdn.local/a-thumb.jpg' }),
