@@ -1,183 +1,156 @@
 /** @jest-environment node */
 
-// P3 audit coverage for #3386: proves that the messages GET handler uses the
-// correct two-phase shape — Kysely SQL ORDER BY m.sent_at + LIMIT/OFFSET
-// (non-encrypted field) produces a bounded page of IDs, then findWithDecryption
-// is called only for those IDs, never for the full result set.
+// P3 audit coverage for #3386 after the messages list was moved behind
+// makeCrudRoute: the route must delegate sorting/pagination to the CRUD
+// factory on the non-encrypted sent_at column. Message decryption remains
+// owned by the CRUD factory's bounded list path, not by the visibility filter.
 
-import {
-  Kysely,
-  PostgresAdapter,
-  PostgresQueryCompiler,
-  PostgresIntrospector,
-  DummyDriver,
-  type CompiledQuery,
-} from 'kysely'
-import { Message, MessageObject } from '../../data/entities'
-import { User } from '../../../auth/data/entities'
+const crudGetMock = jest.fn(async () => Response.json({ items: [], page: 1, pageSize: 20, total: 0, totalPages: 0 }))
+type MessageCrudOptions = {
+  list: {
+    sortFieldMap: Record<string, string>
+    buildFilters: (
+      input: Record<string, unknown>,
+      ctx: Record<string, unknown>,
+    ) => Promise<Record<string, unknown>>
+  }
+}
+let crudOptions: MessageCrudOptions | null = null
 
-const tenantId = '11111111-1111-4111-8111-111111111111'
-const orgId = '22222222-2222-4222-8222-222222222222'
-const userId = '33333333-3333-4333-8333-333333333333'
+jest.mock('@open-mercato/shared/lib/crud/factory', () => ({
+  makeCrudRoute: jest.fn((opts: MessageCrudOptions) => {
+    crudOptions = opts
+    return {
+      GET: crudGetMock,
+      POST: jest.fn(),
+      PUT: jest.fn(),
+      DELETE: jest.fn(),
+    }
+  }),
+}))
 
-const resolveMessageContextMock = jest.fn()
+const findWithDecryptionMock = jest.fn()
+const findMessageIdsBySearchTokensMock = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
+}))
 
 jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
-  resolveMessageContext: (...args: unknown[]) => resolveMessageContextMock(...args),
+  resolveMessageContext: jest.fn(),
   canUseMessageEmailFeature: jest.fn(async () => true),
 }))
 
 jest.mock('@open-mercato/core/modules/messages/lib/searchLookup', () => ({
-  findMessageIdsBySearchTokens: jest.fn(async () => []),
+  findMessageIdsBySearchTokens: (...args: unknown[]) => findMessageIdsBySearchTokensMock(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/messages/lib/message-types-registry', () => ({
   getMessageType: jest.fn(() => null),
 }))
 
-const findWithDecryptionMock = jest.fn()
-
-jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
-}))
-
-const recordedQueries: CompiledQuery[] = []
-
-function isScopeQuery(q: CompiledQuery): boolean {
-  const s = q.sql.toLowerCase()
-  // The scope query selects message rows and is the only one with ORDER BY
-  return s.includes('messages') && s.includes('order by')
-}
-
-function createRecordingKysely(): Kysely<any> {
-  const db = new Kysely<any>({
-    dialect: {
-      createAdapter: () => new PostgresAdapter(),
-      createDriver: () => new DummyDriver(),
-      createQueryCompiler: () => new PostgresQueryCompiler(),
-      createIntrospector: (instance: Kysely<any>) => new PostgresIntrospector(instance),
-    },
-  })
-
-  ;(db.getExecutor() as any).executeQuery = async (q: CompiledQuery) => {
-    recordedQueries.push(q)
-
-    const s = q.sql.toLowerCase()
-
-    if (s.includes('count(*)')) {
-      return { rows: [{ count: '3' }] }
-    }
-
-    if (isScopeQuery(q)) {
-      return {
-        rows: [
-          { id: 'msg-a', sender_user_id: userId, is_draft: false, recipient_status: null, read_at: null },
-          { id: 'msg-b', sender_user_id: userId, is_draft: false, recipient_status: null, read_at: null },
-        ],
-      }
-    }
-
-    return { rows: [] }
-  }
-
-  return db
-}
-
-function makeMessage(id: string): Partial<Message> {
-  return {
-    id,
-    type: 'default',
-    visibility: null,
-    sourceEntityType: null,
-    sourceEntityId: null,
-    externalEmail: null,
-    externalName: null,
-    subject: `Subject ${id}`,
-    body: `Body ${id}`,
-    senderUserId: userId,
-    priority: null,
-    actionData: null,
-    actionTaken: null,
-    sentAt: new Date('2026-01-01T00:00:00Z'),
-    threadId: null,
-  } as unknown as Partial<Message>
-}
-
 import { GET } from '../route'
 
-function buildMockEm() {
-  return {
-    getKysely: () => createRecordingKysely(),
-    find: jest.fn(async (entity: unknown) => {
-      if (entity === MessageObject) return []
-      return []
+const tenantId = '11111111-1111-4111-8111-111111111111'
+const orgId = '22222222-2222-4222-8222-222222222222'
+const userId = '33333333-3333-4333-8333-333333333333'
+
+function getCrudOptions() {
+  if (!crudOptions) throw new Error('makeCrudRoute was not called')
+  return crudOptions
+}
+
+function createQueryBuilder(result: unknown) {
+  const builder: Record<string, jest.Mock> = {}
+  const chain = jest.fn(() => builder)
+  const joinBuilder = {
+    onRef: jest.fn(() => joinBuilder),
+    on: jest.fn(() => joinBuilder),
+  }
+  const expressionBuilder = {
+    or: jest.fn((value) => value),
+    exists: jest.fn((value) => value),
+    not: jest.fn((value) => value),
+    selectFrom: jest.fn(() => builder),
+  }
+  Object.assign(builder, {
+    select: chain,
+    where: jest.fn((arg: unknown) => {
+      if (typeof arg === 'function') arg(expressionBuilder)
+      return builder
     }),
+    whereRef: chain,
+    leftJoin: jest.fn((_table: string, callback?: (jb: typeof joinBuilder) => unknown) => {
+      if (callback) callback(joinBuilder)
+      return builder
+    }),
+    groupBy: chain,
+    execute: jest.fn(async () => result),
+  })
+  return builder
+}
+
+function createEmMock() {
+  const db = {
+    selectFrom: jest.fn((table: string) => {
+      if (table === 'messages as m') return createQueryBuilder([{ id: 'msg-a' }, { id: 'msg-b' }])
+      return createQueryBuilder([])
+    }),
+  }
+
+  return {
+    getKysely: jest.fn(() => db),
+    find: jest.fn(async () => []),
   }
 }
 
 beforeEach(() => {
-  recordedQueries.length = 0
-  findWithDecryptionMock.mockReset()
-
-  findWithDecryptionMock.mockImplementation(
-    async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
-      if (entity === Message) {
-        const ids = (where as any)?.id?.$in as string[] | undefined
-        return (ids ?? []).map(makeMessage)
-      }
-      if (entity === User) return []
-      return []
-    },
-  )
-
-  resolveMessageContextMock.mockResolvedValue({
-    ctx: {
-      container: { resolve: (name: string) => (name === 'em' ? buildMockEm() : null) },
-    },
-    scope: { tenantId, organizationId: orgId, userId },
-  })
+  jest.clearAllMocks()
+  findMessageIdsBySearchTokensMock.mockResolvedValue([])
 })
 
-describe('messages GET — encrypted-sort audit (#3386 P3)', () => {
-  it('sorts at SQL level on m.sent_at (non-encrypted column), not in-memory after decrypt', async () => {
-    const res = await GET(new Request(`http://localhost/api/messages?pageSize=2`))
+describe('messages GET encrypted-sort audit (#3386 P3)', () => {
+  it('delegates default sorting to makeCrudRoute on sentAt desc', async () => {
+    const res = await GET(new Request('http://localhost/api/messages?pageSize=2'))
     expect(res.status).toBe(200)
 
-    const scopeQuery = recordedQueries.find(isScopeQuery)
-    expect(scopeQuery).toBeDefined()
-    expect(scopeQuery!.sql.toLowerCase()).toMatch(/order by\s+"m"\."sent_at"\s+desc/)
+    const delegatedRequest = crudGetMock.mock.calls[0]?.[0] as Request
+    const delegatedUrl = new URL(delegatedRequest.url)
+    expect(delegatedUrl.searchParams.get('sortField')).toBe('sentAt')
+    expect(delegatedUrl.searchParams.get('sortDir')).toBe('desc')
+    expect(delegatedUrl.searchParams.get('pageSize')).toBe('2')
   })
 
-  it('passes LIMIT and OFFSET so pagination is DB-side, not in-memory', async () => {
-    const res = await GET(new Request(`http://localhost/api/messages?page=2&pageSize=2`))
-    expect(res.status).toBe(200)
+  it('preserves explicit sort parameters for the CRUD factory', async () => {
+    await GET(new Request('http://localhost/api/messages?sortField=subject&sortDir=asc'))
 
-    const scopeQuery = recordedQueries.find(isScopeQuery)
-    expect(scopeQuery).toBeDefined()
-    expect(scopeQuery!.sql.toLowerCase()).toMatch(/limit/)
-    expect(scopeQuery!.sql.toLowerCase()).toMatch(/offset/)
+    const delegatedRequest = crudGetMock.mock.calls[0]?.[0] as Request
+    const delegatedUrl = new URL(delegatedRequest.url)
+    expect(delegatedUrl.searchParams.get('sortField')).toBe('subject')
+    expect(delegatedUrl.searchParams.get('sortDir')).toBe('asc')
   })
 
-  it('calls findWithDecryption for Message only with the bounded page IDs, never the full set', async () => {
-    const res = await GET(new Request(`http://localhost/api/messages?pageSize=2`))
-    expect(res.status).toBe(200)
+  it('maps the default sentAt sort to the non-encrypted sent_at column', () => {
+    const opts = getCrudOptions()
 
-    const messageCalls = findWithDecryptionMock.mock.calls.filter(
-      ([, entity]) => entity === Message,
-    )
-    expect(messageCalls).toHaveLength(1)
-
-    const [, , where] = messageCalls[0] as [unknown, unknown, Record<string, unknown>]
-    const ids = (where as any)?.id?.$in as string[]
-    // Must be exactly the two IDs the SQL scope query returned — bounded to the page
-    expect(ids).toEqual(['msg-a', 'msg-b'])
+    expect(opts.list.sortFieldMap.sentAt).toBe('sent_at')
+    expect(opts.list.sortFieldMap.sent_at).toBe('sent_at')
   })
 
-  it('returns the decrypted message fields, confirming the two phases connect end-to-end', async () => {
-    const res = await GET(new Request(`http://localhost/api/messages?pageSize=2`))
-    const body = await res.json() as { items: { id: string; subject: string }[] }
-    expect(body.items).toHaveLength(2)
-    expect(body.items[0]!.subject).toBe('Subject msg-a')
-    expect(body.items[1]!.subject).toBe('Subject msg-b')
+  it('keeps visibility filtering separate from bounded message decryption', async () => {
+    const opts = getCrudOptions()
+    const em = createEmMock()
+    const ctx = {
+      auth: { tenantId, orgId, sub: userId },
+      selectedOrganizationId: orgId,
+      container: {
+        resolve: (name: string) => (name === 'em' ? em : null),
+      },
+    }
+
+    const filter = await opts.list.buildFilters({ folder: 'inbox' }, ctx)
+
+    expect(filter).toEqual({ id: { $in: ['msg-a', 'msg-b'] } })
+    expect(findWithDecryptionMock).not.toHaveBeenCalled()
   })
 })
