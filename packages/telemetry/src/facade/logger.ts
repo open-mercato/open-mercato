@@ -1,11 +1,9 @@
 import { inspect } from 'node:util'
 import pino from 'pino'
 import type { Attributes, Logger, LogLevel, LogRecord } from '../types'
-import { readTelemetryEnv } from '../env'
+import { readTelemetryEnv, type TelemetryEnv } from '../env'
 import { getActiveProvider } from '../provider/registry'
 import { redactAttributes } from './redact'
-
-const env = readTelemetryEnv()
 
 /**
  * The default logger ALWAYS writes to stdout (it replaces `console.*` as the
@@ -16,21 +14,40 @@ const env = readTelemetryEnv()
  * Stdout format: single-line JSON by default (prod/CI, machine-parseable), or a
  * human-readable line in local dev (`TELEMETRY_LOG_PRETTY`, default on when
  * `NODE_ENV=development`) — no extra deps / no pino transport thread.
+ *
+ * Env is resolved lazily per write (against the memoized `readTelemetryEnv`),
+ * NOT at import time: a host that imports the facade before its `.env` is
+ * loaded (the CLI binary does) must still pick up `TELEMETRY_LOG_LEVEL` /
+ * `TELEMETRY_LOG_PRETTY` once `initTelemetry()` re-reads the environment.
+ * The pino instance is keyed on the memoized env object and rebuilt after an
+ * env-cache reset.
  */
-const base = pino({
-  level: env.logLevel,
-  formatters: { level: (label) => ({ level: label }) },
-})
+let base: pino.Logger | undefined
+let baseEnv: TelemetryEnv | undefined
+
+function getBase(env: TelemetryEnv): pino.Logger {
+  if (!base || baseEnv !== env) {
+    base = pino({
+      level: env.logLevel,
+      formatters: { level: (label) => ({ level: label }) },
+    })
+    baseEnv = env
+  }
+  return base
+}
 
 const LEVEL_ORDER: readonly LogLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
-const MIN_LEVEL_IDX = LEVEL_ORDER.indexOf(env.logLevel)
 const CONSOLE_METHOD: Record<LogLevel, 'debug' | 'info' | 'warn' | 'error'> = {
   trace: 'debug', debug: 'debug', info: 'info', warn: 'warn', error: 'error', fatal: 'error',
 }
 
+function minLevelIdx(env: TelemetryEnv): number {
+  return LEVEL_ORDER.indexOf(env.logLevel)
+}
+
 /** Human-readable line for local dev: `12:34:56.789 INFO  message { attrs }`. */
-function writePretty(level: LogLevel, message: string, obj: Record<string, unknown>): void {
-  if (LEVEL_ORDER.indexOf(level) < MIN_LEVEL_IDX) return
+function writePretty(env: TelemetryEnv, level: LogLevel, message: string, obj: Record<string, unknown>): void {
+  if (LEVEL_ORDER.indexOf(level) < minLevelIdx(env)) return
   const time = new Date().toISOString().slice(11, 23)
   const hasAttrs = Object.keys(obj).length > 0
   // Colorize only for an interactive terminal — piped/captured stdout (CI,
@@ -41,6 +58,7 @@ function writePretty(level: LogLevel, message: string, obj: Record<string, unkno
 
 /** Low-level: write one record to stdout + the active backend. Single log path. */
 export function writeRecord(record: LogRecord): void {
+  const env = readTelemetryEnv()
   const provider = getActiveProvider()
   // Redaction backstop: scrub secret-keyed values (Authorization/Cookie/…) and
   // inline emails/tokens from attributes before they reach stdout OR the backend.
@@ -50,17 +68,17 @@ export function writeRecord(record: LogRecord): void {
   const obj: Record<string, unknown> = { ...(record.attributes ?? {}) }
   // Correlate the stdout line with its trace (the OTLP log path correlates
   // automatically from active context; stdout needs the ids spelled out).
-  const tc = provider.activeTraceContext()
+  const tc = provider.activeTraceContext?.()
   if (tc) {
     obj.trace_id = tc.traceId
     obj.span_id = tc.spanId
   }
   if (record.error) obj.err = record.error
-  if (env.logPretty) writePretty(record.level, record.message, obj)
-  else base[record.level](obj, record.message)
+  if (env.logPretty) writePretty(env, record.level, record.message, obj)
+  else getBase(env)[record.level](obj, record.message)
   // Gate the backend export by the same configured level as stdout, so
   // TELEMETRY_LOG_LEVEL controls remote volume/cost too — not just stdout.
-  if (LEVEL_ORDER.indexOf(record.level) >= MIN_LEVEL_IDX) provider.emitLog(record)
+  if (LEVEL_ORDER.indexOf(record.level) >= minLevelIdx(env)) provider.emitLog(record)
 }
 
 function makeLogger(bindings: Attributes): Logger {

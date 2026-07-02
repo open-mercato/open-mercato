@@ -18,8 +18,8 @@ const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
 // The value runs to the next separator (`;`/`,`/`}`) or newline, so it swallows a
 // `Bearer <token>` value in one pass (before the standalone-scheme rule below).
 const SECRET_HEADER_RE = /\b(authorization|proxy-authorization|cookie|set-cookie)(\s*[:=]\s*)([^\n;,}]+)/gi
-// `Bearer <token>` / `Basic <base64>` standing alone in free text (message or stack).
-const AUTH_SCHEME_RE = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi
+// `Bearer <token>` / `Basic <base64>` / `ApiKey <key>` standing alone in free text (message or stack).
+const AUTH_SCHEME_RE = /\b(Bearer|Basic|ApiKey)\s+[A-Za-z0-9._~+/=-]+/gi
 
 export function redactPii(text: string): string {
   return text

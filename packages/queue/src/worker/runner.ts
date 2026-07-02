@@ -1,4 +1,4 @@
-import { initTelemetry } from '@open-mercato/telemetry'
+import { initTelemetry, shutdownTelemetry } from '@open-mercato/telemetry'
 import { createQueue } from '../factory'
 import type { Queue, JobHandler, AsyncQueueOptions, QueueStrategyType } from '../types'
 
@@ -54,6 +54,17 @@ function registerShutdownHandlers(): void {
     managedQueues.clear()
     unregisterShutdownHandlers(sigtermHandler, sigintHandler)
     shutdownInProgress = false
+
+    // Flush buffered spans/logs before the process dies. A worker never returns
+    // from run(), so bin.ts's post-run shutdownTelemetry() is unreachable on this
+    // path — without this, the BatchSpanProcessor's ~5s tail is dropped on every
+    // restart/redeploy. Idempotent and a no-op when telemetry is off; a flush
+    // failure must not turn a clean shutdown into a failed one.
+    try {
+      await shutdownTelemetry()
+    } catch (error) {
+      console.error('[worker] Error flushing telemetry during shutdown:', error)
+    }
 
     if (!hasError) {
       console.log('[worker] Worker closed successfully')

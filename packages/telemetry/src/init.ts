@@ -1,5 +1,5 @@
 import type { TelemetryBackendName, TelemetryProvider } from './types'
-import { isOtlpBackend, readTelemetryEnv } from './env'
+import { isOtlpBackend, readTelemetryEnv, resetTelemetryEnvCache } from './env'
 import { NoopProvider } from './provider/noop-provider'
 import { ConsoleProvider } from './provider/console-provider'
 import { getRegisteredProvider, setActiveProvider } from './provider/registry'
@@ -18,6 +18,10 @@ let activeProvider: TelemetryProvider | undefined
 export async function initTelemetry(): Promise<void> {
   if (initialized) return
 
+  // Drop any env snapshot memoized BEFORE the host loaded its `.env` (the CLI
+  // binary imports this package before dotenv runs) so init resolves the backend
+  // from the actual, fully-loaded environment.
+  resetTelemetryEnvCache()
   const env = readTelemetryEnv()
   const provider = await resolveProvider(env.backend)
 
