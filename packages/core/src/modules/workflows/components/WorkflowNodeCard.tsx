@@ -1,4 +1,4 @@
-import { Check, Play, Pause, Circle, Trash2 } from 'lucide-react'
+import { Check, Play, Pause, Circle, XCircle, Trash2 } from 'lucide-react'
 import { STATUS_COLORS, WorkflowStatus } from '../lib/status-colors'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NodeType } from '../lib/node-type-icons'
 
@@ -51,6 +51,8 @@ export function WorkflowNodeCard({
     completed: Check,
     in_progress: Play,
     pending: Pause,
+    failed: XCircle,
+    paused: Pause,
     not_started: Circle,
   }[status]
 

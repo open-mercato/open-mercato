@@ -2,7 +2,7 @@
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
-import { WorkflowStatus } from '../../lib/status-colors'
+import { toWorkflowStatus } from '../../lib/status-colors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export interface InvokeAgentNodeData {
@@ -30,15 +30,7 @@ export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps
   const t = useT()
   const nodeData = data as unknown as InvokeAgentNodeData
 
-  const mapStatus = (status?: string): WorkflowStatus => {
-    if (!status || status === 'pending') return 'not_started'
-    if (status === 'running' || status === 'in_progress') return 'in_progress'
-    if (status === 'completed') return 'completed'
-    if (status === 'error') return 'not_started'
-    return 'not_started'
-  }
-
-  const workflowStatus = mapStatus(nodeData.status)
+  const workflowStatus = toWorkflowStatus(nodeData.status)
 
   const agentId =
     nodeData.agentId ||
