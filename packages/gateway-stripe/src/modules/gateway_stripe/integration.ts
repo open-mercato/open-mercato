@@ -6,7 +6,7 @@ export const gatewayStripeDetailWidgetSpotId = buildIntegrationDetailWidgetSpotI
 export const integration: IntegrationDefinition = {
   id: 'gateway_stripe',
   title: 'Stripe',
-  description: 'Accept card payments, Apple Pay, Google Pay, and bank transfers via Stripe.',
+  description: 'Accept card payments, Apple Pay, Google Pay, and bank transfers via Stripe. Also powers recurring subscriptions for the Open Mercato subscriptions module.',
   category: 'payment',
   hub: 'payment_gateways',
   providerKey: 'stripe',
@@ -17,7 +17,7 @@ export const integration: IntegrationDefinition = {
   author: 'Open Mercato Team',
   company: 'Open Mercato',
   license: 'MIT',
-  tags: ['cards', 'apple-pay', 'google-pay', 'bank-transfer', 'checkout'],
+  tags: ['cards', 'apple-pay', 'google-pay', 'bank-transfer', 'checkout', 'subscriptions'],
   detailPage: {
     widgetSpotId: gatewayStripeDetailWidgetSpotId,
   },

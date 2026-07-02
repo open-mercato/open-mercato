@@ -1,0 +1,219 @@
+---
+title: Manage subscriptions for external apps
+description: Sync plan catalogs, provision API keys, inspect recurring billing state, and troubleshoot product access for an external application.
+sidebar_label: Subscriptions
+---
+
+The subscriptions module is designed for teams that want Open Mercato to own recurring billing for a separate product application. Your external app handles its own UI and product logic; Open Mercato handles plans, checkout orchestration, webhook-driven lifecycle updates, and access snapshots.
+
+## Before you start
+
+- Enable the `subscriptions` module in your app.
+- Configure Stripe in **External Systems -> Integrations -> Stripe**.
+- Make sure the external account you bill can be linked to a real Open Mercato record through `subjectEntityType` and `subjectEntityId`.
+- Decide which API key the external app will use.
+
+This module is best for:
+
+- SaaS or portal products that need recurring billing
+- machine-to-machine checkout flows
+- centralized entitlement checks based on billing status
+
+This module does not create Sales invoices or host a full customer billing UI inside Open Mercato.
+
+## 1. Configure Stripe once
+
+Open the Stripe integration and save:
+
+- publishable key
+- secret key
+- webhook signing secret
+
+If you use subscriptions, the Stripe webhook endpoint must include recurring events in addition to one-off payment events:
+
+- `customer.subscription.created`
+- `customer.subscription.updated`
+- `customer.subscription.deleted`
+- `customer.subscription.trial_will_end`
+- `invoice.paid`
+- `invoice.payment_failed`
+- `charge.refunded`
+
+Use the same webhook URL as the payment gateway module:
+
+```text
+https://YOUR_APP_URL/api/payment_gateways/webhook/stripe
+```
+
+## 2. Sync the plan catalog
+
+Open **Billing -> Plans** and click **Sync plans now**.
+
+This action:
+
+- reads the active manifest from the built-in catalog or an app-owned manifest
+- upserts local plan and price rows
+- ensures Stripe Product and Price references for active prices
+- deactivates removed rows locally without deleting historical subscriptions
+
+Important rule: if the price economics change, create a new versioned `priceCode`. Do not edit an existing price code in place.
+
+## 3. Create the external app API key
+
+Create an API key for the product backend in **Admin -> Security -> API keys**.
+
+Recommended role features:
+
+- `subscriptions.access`
+- `subscriptions.manage`
+- `subscriptions.view`
+
+Use `subscriptions.admin` only for human operators who should access the backoffice pages.
+
+Your external app can send the key as:
+
+- `X-Api-Key: <secret>`
+- `Authorization: ApiKey <secret>`
+
+## 4. Start checkout from the external app
+
+The product backend calls `POST /api/subscriptions/checkout` with:
+
+- `externalAccountId`
+- `subjectEntityType`
+- `subjectEntityId`
+- `priceCode`
+- `successUrl`
+- `cancelUrl`
+
+Open Mercato validates that the subject entity exists, ensures a Stripe customer, pre-creates a subscription mapping, and returns a hosted Stripe Checkout URL.
+
+The module supports Stripe-native promotion codes when `allowPromotionCodes` is left enabled.
+
+## 5. Use access snapshots for product gating
+
+After checkout and webhook processing, your external app should read:
+
+```text
+GET /api/subscriptions/access?externalAccountId=<id>&productCode=<productCode>
+```
+
+`accessState` is the main contract:
+
+| State | Meaning |
+|---|---|
+| `pending` | Checkout or billing is not complete yet |
+| `granted` | Access should be allowed |
+| `grace` | Payment failed or renewal is late; temporary grace period |
+| `blocked` | No usable subscription for this product |
+
+The access endpoint is cached for 60 seconds, but the module automatically invalidates cache tags when subscription state changes.
+
+## 6. Work in the backoffice
+
+### Plans page
+
+**Billing -> Plans**
+
+Use this page to:
+
+- review active plan and price codes
+- verify titles, product codes, and trial settings
+- trigger a manual sync
+
+### Subscriptions list
+
+**Billing -> Subscriptions**
+
+Use filters for:
+
+- `accessState`
+- `productCode`
+- `externalAccountId`
+
+This page is the fastest way to find stale or misconfigured accounts.
+
+### Subscription detail
+
+Open a row to inspect:
+
+- plan and price codes
+- provider status
+- Stripe customer and subscription IDs
+- current period dates
+- trial end
+- billing history
+
+Actions available on the detail page:
+
+- **Force reconcile** — fetch a fresh snapshot from Stripe
+- **Cancel subscription** — sends an at-period-end cancellation request
+
+## 7. Let customers self-serve in Stripe
+
+Open Mercato can create a Stripe Customer Portal session through `POST /api/subscriptions/portal`.
+
+The managed portal configuration allows:
+
+- payment method updates
+- invoice history
+- cancellation at period end
+
+The managed portal configuration does not allow:
+
+- plan switching
+- proration-based updates
+- customer profile editing through the portal
+
+That keeps the MVP subscription model predictable.
+
+## 8. Understand lifecycle automation
+
+The module reacts to Stripe webhooks by:
+
+- creating local subscriptions
+- updating provider status and normalized access state
+- appending billing records
+- restoring `granted` after a successful invoice payment
+- moving subscriptions to `grace` after `invoice.payment_failed`
+- notifying operators when a trial is about to end
+
+A scheduled reconcile worker refreshes stale subscriptions every 30 minutes and cleans up abandoned pre-checkout mappings.
+
+## 9. Common operational tasks
+
+### Price changed
+
+Create a new versioned `priceCode`, update the manifest, then sync plans again.
+
+### Access is stale
+
+Use **Force reconcile** in the detail page or run:
+
+```bash
+yarn mercato subscriptions reconcile --tenant <tenantId> --org <organizationId> --id <subscriptionId>
+```
+
+### Checkout finished but no subscription exists locally
+
+Check:
+
+- Stripe webhook delivery status
+- whether the account has a `GatewaySubscriptionMapping`
+- whether the external app used the expected `externalAccountId`
+
+### Cancel immediately instead of at period end
+
+The admin UI only sends at-period-end cancellations. For immediate cancellation, use the API or CLI:
+
+```bash
+yarn mercato subscriptions cancel --tenant <tenantId> --org <organizationId> --id <subscriptionId> --immediately
+```
+
+## Related docs
+
+- [Subscriptions REST API](/api/subscriptions)
+- [Subscriptions CLI](/cli/subscriptions)
+- [Subscriptions module architecture](/framework/modules/subscriptions)
+- [Stripe Payments](/user-guide/stripe-payments)
+- [Managing API keys](/user-guide/api-keys)

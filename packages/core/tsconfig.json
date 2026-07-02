@@ -4,7 +4,7 @@
   "compilerOptions": {
     "noEmit": true,
     "baseUrl": ".",
-    "ignoreDeprecations": "6.0",
+    "ignoreDeprecations": "5.0",
     "paths": {
       "@open-mercato/core/modules/core/__integration__/helpers/*": [
         "./src/modules/core/__integration__/helpers/*"

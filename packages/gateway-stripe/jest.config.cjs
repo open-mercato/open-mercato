@@ -21,7 +21,7 @@ module.exports = {
         tsconfig: {
           jsx: 'react-jsx',
           rootDir: '.',
-          ignoreDeprecations: '6.0',
+          ignoreDeprecations: '5.0',
         },
       },
     ],
