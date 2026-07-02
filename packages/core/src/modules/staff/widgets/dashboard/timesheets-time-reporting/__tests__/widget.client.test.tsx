@@ -71,6 +71,7 @@ type Deferred = { resolve: (value: unknown) => void }
 describe('staff TimeReportingWidget — issue #3306 parallel load', () => {
   let deferred: Partial<Record<LoadStage, Deferred>>
   let callCounts: Record<LoadStage, number>
+  let stageUrls: Partial<Record<LoadStage, string>>
 
   function callCount(stage: LoadStage): number {
     return callCounts[stage]
@@ -86,11 +87,14 @@ describe('staff TimeReportingWidget — issue #3306 parallel load', () => {
   beforeEach(() => {
     deferred = {}
     callCounts = { assignments: 0, self: 0, projects: 0, entries: 0 }
+    stageUrls = {}
     mockReadApiResult.mockReset()
     mockApiCall.mockReset()
     mockReadApiResult.mockImplementation((input: RequestInfo | URL) => {
-      const stage = classifyUrl(String(input))
+      const url = String(input)
+      const stage = classifyUrl(url)
       callCounts[stage] += 1
+      stageUrls[stage] = url
       return new Promise((resolve) => {
         deferred[stage] = { resolve }
       })
@@ -152,6 +156,27 @@ describe('staff TimeReportingWidget — issue #3306 parallel load', () => {
       expect(screen.getByText('Timer running')).toBeTruthy()
     })
     expect(screen.getByRole('button', { name: 'Stop Timer' })).toBeTruthy()
+  })
+
+  it('looks up the active timer by running state rather than today (issue #3717)', async () => {
+    renderWidget()
+
+    await waitFor(() => {
+      expect(callCount('assignments')).toBe(1)
+      expect(callCount('self')).toBe(1)
+    })
+    await resolveStage('assignments', { items: [] })
+    await resolveStage('self', { member: { id: 'member-1' } })
+
+    await waitFor(() => {
+      expect(callCount('entries')).toBe(1)
+    })
+
+    const entriesUrl = stageUrls.entries ?? ''
+    expect(entriesUrl).toContain('running=true')
+    // A date-scoped lookup hides a timer started before midnight after the date rolls over.
+    expect(entriesUrl).not.toContain('from=')
+    expect(entriesUrl).not.toContain('to=')
   })
 
   it('skips the project-details request and shows the empty state when no projects are assigned', async () => {
