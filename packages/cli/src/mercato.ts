@@ -1370,6 +1370,11 @@ export async function run(argv = process.argv) {
     return runWithCapturedExitCode(() => runUmesCheck())
   }
 
+  if (first === 'inspect') {
+    const { runInspect } = await import('./lib/inspect/run')
+    return runWithCapturedExitCode(() => runInspect(parts.slice(1)))
+  }
+
   if (first === 'seed:defaults') {
     await ensureEnvLoaded()
     const moduleFilter = parts.includes('--module') ? parts[parts.indexOf('--module') + 1] : null

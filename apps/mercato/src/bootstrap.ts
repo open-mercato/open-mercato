@@ -75,6 +75,37 @@ registerMessageObjectTypes(messageObjectTypes, { replace: true })
 registerCodeWorkflows(allCodeWorkflows)
 runBootstrapRegistrations()
 
+import { registerIntrospectionSnapshotLoader } from '@open-mercato/shared/lib/introspection/snapshot-loader'
+import type { IntrospectionSnapshotField } from '@open-mercato/shared/lib/introspection/snapshot-loader'
+
+registerIntrospectionSnapshotLoader(async (fields) => {
+  const result: Partial<Record<IntrospectionSnapshotField, unknown[] | Array<{ moduleId: string; tools: unknown[] }>>> = {}
+  const loaders: Partial<Record<IntrospectionSnapshotField, () => Promise<unknown>>> = {
+    notificationTypes: async () => {
+      const mod = await import('@/.mercato/generated/notifications.generated')
+      return mod.notificationTypes
+    },
+    aiToolConfigEntries: async () => {
+      const mod = await import('@/.mercato/generated/ai-tools.generated')
+      return mod.aiToolConfigEntries
+    },
+    messageTypes: async () => {
+      const mod = await import('@/.mercato/generated/message-types.generated')
+      return mod.messageTypes
+    },
+  }
+
+  await Promise.all(
+    fields.map(async (field) => {
+      const loader = loaders[field]
+      if (!loader) return
+      result[field] = (await loader()) as never
+    }),
+  )
+
+  return result
+})
+
 // Bootstrap factory from shared package
 import { createBootstrap, isBootstrapped } from '@open-mercato/shared/lib/bootstrap'
 
