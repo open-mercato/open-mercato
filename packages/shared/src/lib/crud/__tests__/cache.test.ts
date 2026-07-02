@@ -2,7 +2,7 @@ jest.mock('@open-mercato/cache', () => ({
   runWithCacheTenant: async <T>(_tenant: string | null, fn: () => Promise<T> | T) => fn(),
 }))
 
-import { deriveResourceFromCommandId } from '@open-mercato/shared/lib/crud/cache'
+import { deriveResourceFromCommandId, invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 
 describe('deriveResourceFromCommandId — irregular plurals (#2072)', () => {
   it('singularises "people" to "person"', () => {
@@ -60,5 +60,57 @@ describe('deriveResourceFromCommandId — irregular plurals (#2072)', () => {
     expect(deriveResourceFromCommandId(undefined)).toBeNull()
     expect(deriveResourceFromCommandId('')).toBeNull()
     expect(deriveResourceFromCommandId('singletonly')).toBeNull()
+  })
+})
+
+describe('invalidateCrudCache — tenant-level (org:null) collection flush (#2919)', () => {
+  const ORIGINAL_FLAG = process.env.ENABLE_CRUD_API_CACHE
+
+  beforeAll(() => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+  })
+
+  afterAll(() => {
+    if (ORIGINAL_FLAG === undefined) delete process.env.ENABLE_CRUD_API_CACHE
+    else process.env.ENABLE_CRUD_API_CACHE = ORIGINAL_FLAG
+  })
+
+  function makeContainer(deleteByTags: jest.Mock) {
+    const cache = { get: jest.fn(), set: jest.fn(), deleteByTags }
+    return { resolve: (name: string) => (name === 'cache' ? cache : null) } as never
+  }
+
+  it('flushes the org:null collection tag even when the write carries an actor org', async () => {
+    // Roles (orgField: null) cache their list under org:null, but the command bus
+    // resolves a write's organizationId from the actor's auth context. Without the
+    // org:null tag the cache would only expire on TTL — see TC-UNDO-001 / #2919.
+    const deleteByTags = jest.fn(async () => 0)
+    await invalidateCrudCache(
+      makeContainer(deleteByTags),
+      'auth.role',
+      { id: 'role-1', organizationId: 'org-9', tenantId: 'tenant-1' },
+      'tenant-1',
+      'test:org-mismatch',
+    )
+
+    expect(deleteByTags).toHaveBeenCalledTimes(1)
+    const tags = deleteByTags.mock.calls[0][0] as string[]
+    expect(tags).toContain('crud:auth.role:tenant:tenant-1:org:null:collection')
+    expect(tags).toContain('crud:auth.role:tenant:tenant-1:org:org-9:collection')
+    expect(tags).toContain('crud:auth.role:tenant:tenant-1:record:role-1')
+  })
+
+  it('still flushes the org:null collection tag for org-agnostic writes', async () => {
+    const deleteByTags = jest.fn(async () => 0)
+    await invalidateCrudCache(
+      makeContainer(deleteByTags),
+      'auth.role',
+      { id: 'role-2', organizationId: null, tenantId: 'tenant-1' },
+      'tenant-1',
+      'test:org-null',
+    )
+
+    const tags = deleteByTags.mock.calls[0][0] as string[]
+    expect(tags).toContain('crud:auth.role:tenant:tenant-1:org:null:collection')
   })
 })
