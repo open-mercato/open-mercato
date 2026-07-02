@@ -32,6 +32,7 @@
 | 3 | 3.6 | T6 agents-md module-guides test (packages/create-app) | done | b40cfc79f |
 | 4 | 4.1 | Delete 9 per-module standalone-guide.md | done | 21036de25 |
 | 4 | 4.2 | RELEASE_NOTES.md deprecation note | done | 9d656c20d |
+| 5 | 5.1 | Review feedback (@pat-lewczuk): extract module metadata.title/description in generator → module-facts.json; source create-app guide labels from it (drop hardcoded MODULE_GUIDE_LABELS map) + tests + regen versioned artifact | done | 980a2f658 |
 
 ## Goal
 
