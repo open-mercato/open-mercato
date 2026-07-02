@@ -57,6 +57,15 @@ When changes affect app shell behavior, verify all relevant template files are r
 7. `scripts/dev-splash-helpers.mjs` ↔ `packages/create-app/template/scripts/dev-splash-helpers.mjs`
 8. `apps/mercato/scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev-runtime.mjs`
 
+Telemetry / observability wiring (keep at parity when the `@open-mercato/telemetry` integration changes):
+
+9. `apps/mercato/src/instrumentation.ts` ↔ `packages/create-app/template/src/instrumentation.ts` (both call `registerTelemetryForNextjs` from `@open-mercato/telemetry/nextjs` — the package owns init + graceful degrade + shutdown flush, so there is no `instrumentation.node.ts` to sync)
+10. `apps/mercato/src/app/api/[...slug]/route.ts` ↔ `packages/create-app/template/src/app/api/[...slug]/route.ts` (kept **byte-identical** — enforced by `packages/create-app/src/lib/template-api-dispatcher-require-roles.test.ts`; the HTTP metric helper `recordHttpDuration` is imported from `@open-mercato/telemetry/nextjs`, not defined locally)
+11. `apps/mercato/next.config.ts` ↔ `packages/create-app/template/next.config.ts` — both spread `telemetryServerExternalPackages` from `@open-mercato/telemetry/nextjs` into `serverExternalPackages`. The `@opentelemetry/*` list lives in the package (single source of truth); do **not** re-inline it, and a partial copy is a known "telemetry silently emits nothing" footgun.
+12. `apps/mercato/.env.example` telemetry block (`TELEMETRY_*` / `OTEL_*`) ↔ `packages/create-app/template/.env.example`
+13. `packages/cli/src/lib/telemetry-init.ts` (the `mercato telemetry init` adoption command) embeds copies of the `.env` telemetry block and the `instrumentation.ts` bootstrap so it can patch a pre-telemetry app — keep those constants in sync when items 9/12 change.
+14. `@open-mercato/telemetry` dep + `bullmq-otel` optionalDep ↔ `packages/create-app/template/package.json.template` (telemetry ships the `@opentelemetry/*` SDK as transitive `optionalDependencies`, so the template only pins `@open-mercato/telemetry`). Because the template pins every `@open-mercato` dep to `{{PACKAGE_VERSION}}`, the telemetry package version MUST stay in monorepo lockstep — `scripts/check-version-alignment.sh` enforces it, and a fresh scaffold's `yarn install` fails otherwise.
+
 ## Dev Runtime Expectations
 
 - `yarn dev` is the compact runtime. It folds routine startup logs and lets the user press `d` to show or hide raw logs.

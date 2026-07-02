@@ -808,7 +808,10 @@ async function buildAllModules(): Promise<Module[]> {
 export async function run(argv = process.argv) {
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
-  await ensureEnvLoaded({ createIfMissing: first !== 'deploy', quiet: first === 'deploy' })
+  await ensureEnvLoaded({
+    createIfMissing: first !== 'deploy' && first !== 'telemetry',
+    quiet: first === 'deploy' || first === 'telemetry',
+  })
   
   // Handle init command directly
   if (first === 'init') {
@@ -1273,6 +1276,20 @@ export async function run(argv = process.argv) {
     const { runAgenticInit } = await import('./lib/agentic-init')
     const exitCode = await runAgenticInit(parts.slice(1))
     return exitCode
+  }
+
+  // Handle telemetry command (bootstrap-free) — wires @open-mercato/telemetry
+  // into an app scaffolded before telemetry existed.
+  if (first === 'telemetry') {
+    if (second === 'init') {
+      const { runTelemetryInit } = await import('./lib/telemetry-init')
+      return runTelemetryInit(remaining.filter(Boolean))
+    }
+    console.log('Usage: yarn mercato telemetry init [--dry-run]')
+    console.log('  Wires @open-mercato/telemetry into this app (package.json, .env,')
+    console.log('  instrumentation.ts, next.config.ts, and the API dispatcher).')
+    console.log('  Idempotent and safe to re-run. Use --dry-run to preview changes.')
+    return second && second !== 'help' && second !== '--help' && second !== '-h' ? 1 : 0
   }
 
   if (first === 'module') {

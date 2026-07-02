@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { reportError } from '@open-mercato/telemetry'
+import { recordHttpDuration } from '@open-mercato/telemetry/nextjs'
 import { apiRoutes } from '@/.mercato/generated/api-routes.generated'
 import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
 import { bootstrap } from '@/bootstrap'
@@ -421,8 +423,16 @@ async function handleRequest(
       tenantId: auth?.tenantId ?? null,
       durationMs: Date.now() - startedAt,
     })
+    recordHttpDuration(method, match.route.path, finalResponse.status, startedAt)
     return finalResponse
   } catch (error) {
+    // Unhandled throws become 500s (Next renders the error). This is the 5xx
+    // error funnel: record the exception (correlated to the active trace) and
+    // the request-duration metric, then re-throw unchanged.
+    reportError(error, {
+      attributes: { 'http.request.method': method, 'http.route': match.route.path, 'http.response.status_code': 500 },
+    })
+    recordHttpDuration(method, match.route.path, 500, startedAt)
     await emitLifecycleEvent(applicationLifecycleEvents.requestFailed, {
       ...receivedPayload,
       userId: auth?.sub ?? null,

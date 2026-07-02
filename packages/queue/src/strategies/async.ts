@@ -1,5 +1,7 @@
 import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult, EnqueueOptions } from '../types'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { isOtelSdkBackend } from '@open-mercato/telemetry'
+import { attachTraceMetadata, runJobInTrace } from '../tracing'
 
 // BullMQ interface types - we define the shape we use to maintain type safety
 // while keeping bullmq as an optional peer dependency
@@ -36,13 +38,16 @@ interface BullWorkerInterface {
 }
 
 interface BullMQModule {
-  Queue: new <T>(name: string, opts: { connection: ConnectionOptions }) => BullQueueInterface<T>
+  Queue: new <T>(name: string, opts: { connection: ConnectionOptions; telemetry?: unknown }) => BullQueueInterface<T>
   Worker: new <T>(
     name: string,
     processor: (job: { id?: string; data: T; attemptsMade: number }) => Promise<void>,
-    opts: { connection: ConnectionOptions; concurrency: number }
+    opts: { connection: ConnectionOptions; concurrency: number; telemetry?: unknown }
   ) => BullWorkerInterface
 }
+
+/** The `bullmq-otel` package (optional). Loaded only when an OTLP backend is active. */
+type BullMQOtelModule = { BullMQOtel: new (tracerName: string) => object }
 
 /**
  * Resolves Redis connection options from various sources.
@@ -93,6 +98,10 @@ export function createAsyncQueue<T = unknown>(
   let bullQueue: BullQueueInterface<QueuedJob<T>> | null = null
   let bullWorker: BullWorkerInterface | null = null
   let bullmqModule: BullMQModule | null = null
+  // Resolved once: a BullMQOtel instance (delegate async tracing to BullMQ) or
+  // undefined (use our own metadata._trace carrier instead). Memoized as the
+  // in-flight promise so concurrent first-time callers share one resolution.
+  let telemetryPromise: Promise<object | undefined> | null = null
 
   // -------------------------------------------------------------------------
   // Lazy BullMQ initialization
@@ -111,10 +120,35 @@ export function createAsyncQueue<T = unknown>(
     return bullmqModule
   }
 
+  /**
+   * When an OTLP backend is active, delegate async-queue tracing to `bullmq-otel`
+   * (richer BullMQ-internal spans: add / process / wait / attempts). Returns
+   * `undefined` — meaning "use our own `metadata._trace` carrier" — when telemetry
+   * is off, a non-OTEL backend is selected, or `bullmq-otel` isn't installed. (The
+   * `local` strategy always uses our carrier; it isn't BullMQ, so `bullmq-otel`
+   * cannot instrument it.)
+   */
+  async function getQueueTelemetry(): Promise<object | undefined> {
+    if (!telemetryPromise) {
+      telemetryPromise = (async () => {
+        if (!isOtelSdkBackend()) return undefined
+        try {
+          const mod = (await import('bullmq-otel')) as unknown as BullMQOtelModule
+          return new mod.BullMQOtel('open-mercato')
+        } catch {
+          console.warn(`[queue:${name}] bullmq-otel not available; using built-in trace carrier`)
+          return undefined
+        }
+      })()
+    }
+    return telemetryPromise
+  }
+
   async function getQueue(): Promise<BullQueueInterface<QueuedJob<T>>> {
     if (!bullQueue) {
       const { Queue: BullQueueClass } = await getBullMQ()
-      bullQueue = new BullQueueClass<QueuedJob<T>>(name, { connection })
+      const telemetry = await getQueueTelemetry()
+      bullQueue = new BullQueueClass<QueuedJob<T>>(name, { connection, ...(telemetry ? { telemetry } : {}) })
     }
     return bullQueue
   }
@@ -125,10 +159,14 @@ export function createAsyncQueue<T = unknown>(
 
   async function enqueue(data: T, options?: EnqueueOptions): Promise<string> {
     const queue = await getQueue()
+    // When bullmq-otel handles propagation, don't also attach our carrier.
+    const telemetry = await getQueueTelemetry()
+    const metadata = telemetry ? undefined : attachTraceMetadata(undefined)
     const jobData: QueuedJob<T> = {
       id: crypto.randomUUID(),
       payload: data,
       createdAt: new Date().toISOString(),
+      ...(metadata ? { metadata } : {}),
     }
 
     const job = await queue.add(jobData.id, jobData, {
@@ -144,21 +182,31 @@ export function createAsyncQueue<T = unknown>(
 
   async function process(handler: JobHandler<T>): Promise<ProcessResult> {
     const { Worker } = await getBullMQ()
+    const telemetry = await getQueueTelemetry()
 
     // Create worker that processes jobs
     bullWorker = new Worker<QueuedJob<T>>(
       name,
       async (job) => {
         const jobData = job.data
-        await handler(jobData, {
+        const ctx = {
           jobId: job.id ?? jobData.id,
           attemptNumber: job.attemptsMade + 1,
           queueName: name,
-        })
+        }
+        // With bullmq-otel active, BullMQ owns the process span and active
+        // context (the handler's pg/undici spans nest under it). Otherwise
+        // continue the trace from our own carrier.
+        if (telemetry) {
+          await handler(jobData, ctx)
+        } else {
+          await runJobInTrace(name, jobData.metadata, () => handler(jobData, ctx))
+        }
       },
       {
         connection,
         concurrency,
+        ...(telemetry ? { telemetry } : {}),
       }
     )
 
