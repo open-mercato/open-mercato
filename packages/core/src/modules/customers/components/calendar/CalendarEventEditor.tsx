@@ -248,27 +248,8 @@ function EditorBody({
           onUntilDateChange={(repeatUntilDate) => update({ repeatUntilDate })}
         />
       ) : null}
-      </div>
-      <div className="flex w-full flex-col gap-4">
-      <Field label={t('customers.calendar.editor.relatedTo', 'Related to')} error={errors.relatedTo}>
-        <RelatedToField
-          label={t('customers.calendar.editor.relatedTo', 'Related to')}
-          value={form.relatedTo}
-          deal={form.dealId && form.dealLabel ? { id: form.dealId, label: form.dealLabel } : null}
-          onChange={(relatedTo) => update({ relatedTo })}
-          onDealChange={(deal) => update({ dealId: deal?.id ?? null, dealLabel: deal?.label ?? null })}
-          error={errors.relatedTo}
-        />
-      </Field>
-      {config.location ? (
-        <LocationField variant={config.location} value={form.location} onChange={(location) => update({ location })} />
-      ) : null}
-      </div>
       {config.people && config.people !== 'assignee' ? (
-        <Field
-          label={t(PEOPLE_FIELD_TEXT[config.people].labelKey, PEOPLE_FIELD_TEXT[config.people].label)}
-          className={resourcesEnabled ? undefined : 'lg:col-span-2'}
-        >
+        <Field label={t(PEOPLE_FIELD_TEXT[config.people].labelKey, PEOPLE_FIELD_TEXT[config.people].label)}>
           <PeopleField
             mode="multi"
             includeCustomers
@@ -278,39 +259,6 @@ function EditorBody({
             value={form.participants}
             onChange={(participants) => update({ participants })}
           />
-        </Field>
-      ) : null}
-      {resourcesEnabled ? (
-        <Field label={t('customers.calendar.editor.resources', 'Resources')}>
-          <ResourcesField
-            placeholder={t('customers.calendar.editor.resourcesPlaceholder', 'Add a room, car or equipment…')}
-            ariaLabel={t('customers.calendar.editor.resources', 'Resources')}
-            value={form.resources}
-            onChange={(resources) => update({ resources })}
-          />
-        </Field>
-      ) : null}
-      {config.hasPriority ? (
-        <Field label={t('customers.calendar.editor.priority.label', 'Priority')}>
-          <SegmentedControl
-            value={form.priority}
-            onValueChange={(priority) => update({ priority: priority as EditorPriority })}
-            aria-label={t('customers.calendar.editor.priority.label', 'Priority')}
-            className="w-full"
-          >
-            <SegmentedControlItem value="low" className="flex-1 gap-1.5">
-              <ArrowDown aria-hidden className="h-4 w-4 text-status-success-text" />
-              {t('customers.calendar.editor.priority.low', 'Low')}
-            </SegmentedControlItem>
-            <SegmentedControlItem value="medium" className="flex-1 gap-1.5">
-              <Minus aria-hidden className="h-4 w-4 text-status-info-text" />
-              {t('customers.calendar.editor.priority.medium', 'Medium')}
-            </SegmentedControlItem>
-            <SegmentedControlItem value="high" className="flex-1 gap-1.5">
-              <ArrowUp aria-hidden className="h-4 w-4 text-status-error-text" />
-              {t('customers.calendar.editor.priority.high', 'High')}
-            </SegmentedControlItem>
-          </SegmentedControl>
         </Field>
       ) : null}
       {config.people === 'assignee' && staffEnabled ? (
@@ -331,6 +279,55 @@ function EditorBody({
           />
         </Field>
       ) : null}
+      </div>
+      <div className="flex w-full flex-col gap-4">
+      <Field label={t('customers.calendar.editor.relatedTo', 'Related to')} error={errors.relatedTo}>
+        <RelatedToField
+          label={t('customers.calendar.editor.relatedTo', 'Related to')}
+          value={form.relatedTo}
+          deal={form.dealId && form.dealLabel ? { id: form.dealId, label: form.dealLabel } : null}
+          onChange={(relatedTo) => update({ relatedTo })}
+          onDealChange={(deal) => update({ dealId: deal?.id ?? null, dealLabel: deal?.label ?? null })}
+          error={errors.relatedTo}
+        />
+      </Field>
+      {config.location ? (
+        <LocationField variant={config.location} value={form.location} onChange={(location) => update({ location })} />
+      ) : null}
+      {resourcesEnabled ? (
+        <Field label={t('customers.calendar.editor.resources', 'Resources')}>
+          <ResourcesField
+            placeholder={t('customers.calendar.editor.resourcesPlaceholder', 'Add a room, car or equipment…')}
+            ariaLabel={t('customers.calendar.editor.resources', 'Resources')}
+            value={form.resources}
+            onChange={(resources) => update({ resources })}
+          />
+        </Field>
+      ) : null}
+      {config.hasPriority ? (
+        <Field label={t('customers.calendar.editor.priority.label', 'Priority')}>
+          <SegmentedControl
+            value={form.priority}
+            onValueChange={(priority) => update({ priority: priority as EditorPriority })}
+            aria-label={t('customers.calendar.editor.priority.label', 'Priority')}
+            className="grid w-full grid-cols-3"
+          >
+            <SegmentedControlItem value="low" className="gap-1.5">
+              <ArrowDown aria-hidden className="h-4 w-4 text-status-success-text" />
+              {t('customers.calendar.editor.priority.low', 'Low')}
+            </SegmentedControlItem>
+            <SegmentedControlItem value="medium" className="gap-1.5">
+              <Minus aria-hidden className="h-4 w-4 text-status-info-text" />
+              {t('customers.calendar.editor.priority.medium', 'Medium')}
+            </SegmentedControlItem>
+            <SegmentedControlItem value="high" className="gap-1.5">
+              <ArrowUp aria-hidden className="h-4 w-4 text-status-error-text" />
+              {t('customers.calendar.editor.priority.high', 'High')}
+            </SegmentedControlItem>
+          </SegmentedControl>
+        </Field>
+      ) : null}
+      </div>
       <Field label={t('customers.calendar.editor.description', 'Description')} className="lg:col-span-2">
         <Textarea
           value={form.description}
