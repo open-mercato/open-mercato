@@ -37,6 +37,8 @@ export interface ModuleHostTokens {
 
 export interface ModuleFacts {
   module: string
+  title: string | null
+  description: string | null
   coreVersion: string | null
   entities: ModuleEntityFact[]
   events: ModuleEventFact[]
@@ -708,6 +710,18 @@ function extractHostEntityIds(entities: ModuleEntityFact[]): string[] {
   return entities.filter((entity) => entity.id.endsWith('_entity')).map((entity) => entity.id)
 }
 
+function extractModuleMeta(indexFilePath: string | null): { title: string | null; description: string | null } {
+  if (!indexFilePath) return { title: null, description: null }
+  const sourceFile = readSourceFile(indexFilePath)
+  if (!sourceFile) return { title: null, description: null }
+  const metadata = findObjectLiteralDeclaration(sourceFile, 'metadata')
+  if (!metadata) return { title: null, description: null }
+  return {
+    title: readStringPropertyInitializer(metadata, 'title') ?? null,
+    description: readStringPropertyInitializer(metadata, 'description') ?? null,
+  }
+}
+
 export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFacts {
   const { moduleId, coreSrcRoot, coreVersion = null } = options
   const moduleRoot = path.join(coreSrcRoot, moduleId)
@@ -723,9 +737,11 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
   const searchFilePath = resolveConventionFile(moduleRoot, 'search')
   const notificationsFilePath = resolveConventionFile(moduleRoot, 'notifications')
   const cliFilePath = resolveConventionFile(moduleRoot, 'cli')
+  const indexFilePath = resolveConventionFile(moduleRoot, 'index')
   const backendDir = path.join(moduleRoot, 'backend')
 
   const warnings: string[] = []
+  const { title, description } = extractModuleMeta(indexFilePath)
   const customFieldEntityIds = collectCustomFieldEntityIds(ceFilePath)
   const entities = extractEntities(moduleId, entitiesFilePath, customFieldEntityIds)
   const events = extractEvents(eventsFilePath)
@@ -744,6 +760,8 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
 
   return {
     module: moduleId,
+    title,
+    description,
     coreVersion,
     entities,
     events,
@@ -765,6 +783,8 @@ export interface ModuleFactsJsonEvent {
 }
 
 export interface ModuleFactsJsonEntry {
+  title: string | null
+  description: string | null
   coreVersion: string | null
   entities: ModuleEntityFact[]
   events: ModuleFactsJsonEvent[]
@@ -874,6 +894,8 @@ export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
 
 export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry {
   return {
+    title: facts.title,
+    description: facts.description,
     coreVersion: facts.coreVersion,
     entities: facts.entities,
     events: facts.events.map((event) => ({ id: event.id, category: event.category, entity: event.entity })),

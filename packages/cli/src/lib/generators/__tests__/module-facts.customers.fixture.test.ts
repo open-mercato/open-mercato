@@ -61,4 +61,9 @@ describe('module-facts customers fixture (T1 anti-drift guard)', () => {
     expect(facts.apiRoutes).toEqual([])
     expect(facts.warnings.some((warning) => warning.includes('module registry unavailable'))).toBe(true)
   })
+
+  it('locks the module metadata surface extracted from index.ts', () => {
+    expect(facts.title).toBe('Customer Relationship Management')
+    expect(facts.description).toBe('Core CRM capabilities for people, companies, deals, and activities.')
+  })
 })

@@ -58,22 +58,37 @@ export function selectModuleFactSheets(targetDir: string, modulesSubdir: string)
 const MODULE_GUIDES_START = '<!-- om:module-guides:start -->'
 const MODULE_GUIDES_END = '<!-- om:module-guides:end -->'
 
-const MODULE_GUIDE_LABELS: Record<string, string> = {
-  customers: 'Build CRUD modules — reference patterns, commands, custom fields, search',
-  workflows: 'Use workflow automation, triggers, user tasks, signals',
-  catalog: 'Use product catalog, pricing engine, variants, offers',
-  sales: 'Use sales orders, quotes, invoices, shipments, payments',
-  auth: 'Use staff authentication, RBAC, roles, feature guards',
-  currencies: 'Use multi-currency, exchange rates, dual recording',
-  integrations: 'Build integration providers, credentials, health checks',
-  data_sync: 'Build data sync adapters, import/export connectors',
-  customer_accounts: 'Use customer portal auth, customer RBAC, portal pages',
+// Read each module's guide label from the bundled `module-facts.json` (emitted by
+// build.mjs from the generator's extraction of each module's own `metadata`). The
+// label falls back description → title → generic, so create-app never re-declares
+// specific module names or descriptions. A missing/malformed sidecar degrades to an
+// empty map (generic labels), never a throw.
+export function readModuleGuideLabels(guidesDir: string): Record<string, string> {
+  const factsPath = join(guidesDir, 'module-facts.json')
+  if (!existsSync(factsPath)) return {}
+  try {
+    const parsed = JSON.parse(readFileSync(factsPath, 'utf-8')) as Record<
+      string,
+      { description?: unknown; title?: unknown }
+    >
+    const labels: Record<string, string> = {}
+    for (const [moduleId, entry] of Object.entries(parsed)) {
+      const label =
+        (entry && typeof entry.description === 'string' && entry.description) ||
+        (entry && typeof entry.title === 'string' && entry.title) ||
+        ''
+      if (label) labels[moduleId] = label
+    }
+    return labels
+  } catch {
+    return {}
+  }
 }
 
-function renderModuleGuidesBlock(selected: string[]): string {
+function renderModuleGuidesBlock(selected: string[], labels: Record<string, string>): string {
   if (selected.length === 0) return '_No module fact-sheets are bundled for this app._'
   const rows = selected.map((moduleId) => {
-    const label = MODULE_GUIDE_LABELS[moduleId] ?? `Use the ${moduleId} module`
+    const label = labels[moduleId] ?? `Use the ${moduleId} module`
     return `| ${label} | \`.ai/guides/modules/${moduleId}.md\` |`
   })
   return ['| Task | Load |', '|---|---|', ...rows].join('\n')
@@ -82,7 +97,11 @@ function renderModuleGuidesBlock(selected: string[]): string {
 // Regenerate the marker-delimited Module-Specific Guides block in the written
 // AGENTS.md from the selected module set. Replaces strictly between the markers so
 // surrounding prose is untouched and repeat runs are idempotent.
-export function injectModuleGuides(agentsMdPath: string, selected: string[]): void {
+export function injectModuleGuides(
+  agentsMdPath: string,
+  selected: string[],
+  labels: Record<string, string> = {},
+): void {
   if (!existsSync(agentsMdPath)) return
   const content = readFileSync(agentsMdPath, 'utf-8')
   const startIndex = content.indexOf(MODULE_GUIDES_START)
@@ -95,7 +114,7 @@ export function injectModuleGuides(agentsMdPath: string, selected: string[]): vo
   }
   const before = content.slice(0, startIndex + MODULE_GUIDES_START.length)
   const after = content.slice(endIndex)
-  const next = `${before}\n${renderModuleGuidesBlock(selected)}\n${after}`
+  const next = `${before}\n${renderModuleGuidesBlock(selected, labels)}\n${after}`
   if (next !== content) writeFileSync(agentsMdPath, next)
 }
 
@@ -124,10 +143,11 @@ export function generateShared(config: AgenticConfig): void {
 
   // Resolve which per-module fact-sheets this app gets (enabled ∩ bundled allowlist).
   const selectedModules = selectModuleFactSheets(targetDir, join(GUIDES_DIR, 'modules'))
+  const moduleGuideLabels = readModuleGuideLabels(GUIDES_DIR)
 
   // AGENTS.md (enhanced version replaces the minimal template one)
   writeTemplate('AGENTS.md.template', join(targetDir, 'AGENTS.md'), config)
-  injectModuleGuides(join(targetDir, 'AGENTS.md'), selectedModules)
+  injectModuleGuides(join(targetDir, 'AGENTS.md'), selectedModules, moduleGuideLabels)
 
   // .ai/ structure
   writeTemplate('ai/specs/README.md', join(targetDir, '.ai', 'specs', 'README.md'), config)

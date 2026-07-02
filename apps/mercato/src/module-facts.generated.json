@@ -1,5 +1,7 @@
 {
   "auth": {
+    "title": "Authentication & Accounts",
+    "description": "User accounts, sessions, roles and password resets.",
     "coreVersion": "0.6.5",
     "entities": [
       {
@@ -509,6 +511,8 @@
     ]
   },
   "catalog": {
+    "title": "Product Catalog",
+    "description": "Configurable catalog for products, variants, and pricing used by the sales module.",
     "coreVersion": "0.6.5",
     "entities": [
       {
@@ -1058,6 +1062,8 @@
     ]
   },
   "currencies": {
+    "title": "Currencies",
+    "description": "Currencies and Exchange rate management",
     "coreVersion": "0.6.5",
     "entities": [
       {
@@ -1267,6 +1273,8 @@
     ]
   },
   "customer_accounts": {
+    "title": "Customer Identity & Portal Authentication",
+    "description": "Customer-facing authentication with two-tier identity model and full RBAC.",
     "coreVersion": "0.6.5",
     "entities": [
       {
@@ -1847,6 +1855,8 @@
     "cli": []
   },
   "customers": {
+    "title": "Customer Relationship Management",
+    "description": "Core CRM capabilities for people, companies, deals, and activities.",
     "coreVersion": "0.6.5",
     "entities": [
       {
@@ -3418,6 +3428,8 @@
     ]
   },
   "data_sync": {
+    "title": "Data Sync",
+    "description": "Streaming data sync hub for import/export integrations.",
     "coreVersion": "0.6.5",
     "entities": [
       {
@@ -3691,6 +3703,8 @@
     "cli": []
   },
   "integrations": {
+    "title": "Integrations",
+    "description": "Core integration framework — external ID mapping, status badges, and integration registry.",
     "coreVersion": "0.6.5",
     "entities": [
       {
@@ -3871,6 +3885,8 @@
     "cli": []
   },
   "sales": {
+    "title": "Sales Management",
+    "description": "Quoting, ordering, fulfillment, and billing capabilities built on modular pricing and tax pipelines.",
     "coreVersion": "0.6.5",
     "entities": [
       {
@@ -5116,6 +5132,8 @@
     ]
   },
   "workflows": {
+    "title": "Workflow Engine",
+    "description": "Orchestrate business processes with state machines, transitions, and activities",
     "coreVersion": "0.6.5",
     "entities": [
       {

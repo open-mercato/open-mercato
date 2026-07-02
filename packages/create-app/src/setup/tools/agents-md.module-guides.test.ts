@@ -3,7 +3,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { injectModuleGuides, readEnabledModuleIds, selectModuleFactSheets } from './shared.js'
+import {
+  injectModuleGuides,
+  readEnabledModuleIds,
+  readModuleGuideLabels,
+  selectModuleFactSheets,
+} from './shared.js'
 
 const D5_MODULES = [
   'auth',
@@ -98,6 +103,44 @@ test('injectModuleGuides writes exactly the selected rows, drops the hedge, and 
   injectModuleGuides(agentsPath, ['customers', 'sales'])
   const secondPass = fs.readFileSync(agentsPath, 'utf8')
   assert.equal(secondPass, firstPass)
+})
+
+test('readModuleGuideLabels sources labels from module-facts.json (description → title → skip) (T6)', () => {
+  const guidesDir = makeTmpDir()
+  fs.writeFileSync(
+    join(guidesDir, 'module-facts.json'),
+    JSON.stringify({
+      customers: { title: 'Customer Relationship Management', description: 'Core CRM capabilities.' },
+      sales: { title: 'Sales Management', description: null },
+      auth: { title: null, description: null },
+    }),
+  )
+
+  const labels = readModuleGuideLabels(guidesDir)
+  assert.equal(labels.customers, 'Core CRM capabilities.')
+  assert.equal(labels.sales, 'Sales Management')
+  assert.ok(!('auth' in labels), 'a module with neither description nor title must be omitted')
+})
+
+test('readModuleGuideLabels degrades to an empty map when the sidecar is missing or malformed (T6)', () => {
+  const missingDir = makeTmpDir()
+  assert.deepEqual(readModuleGuideLabels(missingDir), {})
+
+  const malformedDir = makeTmpDir()
+  fs.writeFileSync(join(malformedDir, 'module-facts.json'), '{ not valid json')
+  assert.deepEqual(readModuleGuideLabels(malformedDir), {})
+})
+
+test('injectModuleGuides renders labels from the facts map and falls back to a generic label (T6)', () => {
+  const targetDir = makeTmpDir()
+  const agentsPath = join(targetDir, 'AGENTS.md')
+  fs.writeFileSync(agentsPath, AGENTS_TEMPLATE)
+
+  injectModuleGuides(agentsPath, ['customers', 'sales'], { customers: 'Core CRM capabilities.' })
+  const rendered = fs.readFileSync(agentsPath, 'utf8')
+
+  assert.match(rendered, /\| Core CRM capabilities\. \| `\.ai\/guides\/modules\/customers\.md` \|/)
+  assert.match(rendered, /\| Use the sales module \| `\.ai\/guides\/modules\/sales\.md` \|/)
 })
 
 test('injectModuleGuides warns and leaves the file unchanged when the markers are absent (T6)', () => {
