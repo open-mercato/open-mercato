@@ -14,6 +14,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -291,19 +292,25 @@ function EditorBody({
       ) : null}
       {config.hasPriority ? (
         <Field label={t('customers.calendar.editor.priority.label', 'Priority')}>
-          <SegmentGroup<EditorPriority>
-            size="md"
-            fullWidth
-            variant="inset"
-            ariaLabel={t('customers.calendar.editor.priority.label', 'Priority')}
+          <SegmentedControl
             value={form.priority}
-            onChange={(priority) => update({ priority })}
-            options={[
-              { value: 'low', label: t('customers.calendar.editor.priority.low', 'Low'), icon: <ArrowDown aria-hidden className="h-4 w-4 text-status-success-text" /> },
-              { value: 'medium', label: t('customers.calendar.editor.priority.medium', 'Medium'), icon: <Minus aria-hidden className="h-4 w-4 text-status-info-text" /> },
-              { value: 'high', label: t('customers.calendar.editor.priority.high', 'High'), icon: <ArrowUp aria-hidden className="h-4 w-4 text-status-error-text" /> },
-            ]}
-          />
+            onValueChange={(priority) => update({ priority: priority as EditorPriority })}
+            aria-label={t('customers.calendar.editor.priority.label', 'Priority')}
+            className="w-full"
+          >
+            <SegmentedControlItem value="low" className="flex-1 gap-1.5">
+              <ArrowDown aria-hidden className="h-4 w-4 text-status-success-text" />
+              {t('customers.calendar.editor.priority.low', 'Low')}
+            </SegmentedControlItem>
+            <SegmentedControlItem value="medium" className="flex-1 gap-1.5">
+              <Minus aria-hidden className="h-4 w-4 text-status-info-text" />
+              {t('customers.calendar.editor.priority.medium', 'Medium')}
+            </SegmentedControlItem>
+            <SegmentedControlItem value="high" className="flex-1 gap-1.5">
+              <ArrowUp aria-hidden className="h-4 w-4 text-status-error-text" />
+              {t('customers.calendar.editor.priority.high', 'High')}
+            </SegmentedControlItem>
+          </SegmentedControl>
         </Field>
       ) : null}
       {config.people === 'assignee' && staffEnabled ? (
