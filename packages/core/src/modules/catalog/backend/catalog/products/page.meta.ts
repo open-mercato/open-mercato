@@ -6,7 +6,7 @@ export const metadata = {
   pageGroup: 'Catalog',
   pageGroupKey: 'catalog.nav.group',
   pagePriority: 30,
-  pageOrder: 100,
+  pageOrder: 90,
   icon: 'package',
   breadcrumb: [{ label: 'Products & services', labelKey: 'catalog.products.page.title' }],
 }
