@@ -1,5 +1,5 @@
 {
-  "attachments.customers.storage.nav.group": "Almacenamiento",
+  "attachments.nav.group": "Medios",
   "attachments.errors.activeContentBlocked": "No se permite la carga de contenido activo.",
   "attachments.errors.dangerousExecutable": "No se permiten archivos ejecutables como adjuntos.",
   "attachments.errors.maxUploadSize": "El archivo adjunto supera el tamaño máximo de carga permitido.",

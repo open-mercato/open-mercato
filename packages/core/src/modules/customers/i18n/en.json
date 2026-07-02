@@ -2559,7 +2559,6 @@
   "customers.schedule.visibility": "Visibility",
   "customers.schedule.visibility.public": "Public",
   "customers.schedule.visibility.team": "Team only",
-  "customers.storage.nav.group": "Storage",
   "customers.tags.manage.addCategory": "New category",
   "customers.tags.manage.addCategoryPlaceholder": "Category name...",
   "customers.tags.manage.addCategoryRequired": "Enter a category name first.",

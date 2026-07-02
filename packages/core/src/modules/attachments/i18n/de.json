@@ -1,5 +1,5 @@
 {
-  "attachments.customers.storage.nav.group": "Speicher",
+  "attachments.nav.group": "Medien",
   "attachments.errors.activeContentBlocked": "Das Hochladen aktiver Inhalte ist nicht erlaubt.",
   "attachments.errors.dangerousExecutable": "Ausführbare Dateitypen sind als Anhänge nicht erlaubt.",
   "attachments.errors.maxUploadSize": "Der Anhang überschreitet die maximal zulässige Upload-Größe.",

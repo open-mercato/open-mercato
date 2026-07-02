@@ -1,5 +1,5 @@
 {
-  "attachments.customers.storage.nav.group": "Magazyn",
+  "attachments.nav.group": "Media",
   "attachments.errors.activeContentBlocked": "Przesyłanie treści aktywnych nie jest dozwolone.",
   "attachments.errors.dangerousExecutable": "Pliki wykonywalne nie są dozwolone jako załączniki.",
   "attachments.errors.maxUploadSize": "Załącznik przekracza maksymalny dopuszczalny rozmiar przesyłania.",

@@ -1,5 +1,5 @@
 {
-  "attachments.customers.storage.nav.group": "Storage",
+  "attachments.nav.group": "Media",
   "attachments.errors.activeContentBlocked": "Active content uploads are not allowed.",
   "attachments.errors.dangerousExecutable": "Executable file types are not allowed as attachments.",
   "attachments.errors.maxUploadSize": "Attachment exceeds the maximum upload size.",
