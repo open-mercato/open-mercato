@@ -15,6 +15,7 @@ import type { IncidentCreateInput, IncidentUpdateInput } from '../data/validator
 import type { IncidentChangeSeverityInput, IncidentTransitionInput } from '../data/action-validators'
 import type { TimelineAddInput } from '../data/collab-validators'
 import { emitIncidentsEvent } from '../events'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -47,6 +48,9 @@ jest.mock('@open-mercato/shared/lib/crud/optimistic-lock-command', () => ({
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(async (em: { findOne: (...args: unknown[]) => Promise<unknown> }, entity: unknown, where: unknown) =>
     em.findOne(entity, where),
+  ),
+  findWithDecryption: jest.fn(async (em: { find: (...args: unknown[]) => Promise<unknown[]> }, entity: unknown, where: unknown, options?: unknown) =>
+    em.find(entity, where, options),
   ),
 }))
 
@@ -508,6 +512,25 @@ describe('incidents customer update cadence runtime', () => {
         organizationId: ORG_ID,
       }),
       { persistent: true },
+    )
+    expect(findWithDecryption).toHaveBeenCalledWith(
+      harness.em,
+      Incident,
+      expect.objectContaining({ organizationId: ORG_ID, tenantId: TENANT_ID }),
+      undefined,
+      { organizationId: ORG_ID, tenantId: TENANT_ID },
+    )
+  })
+
+  it('excludes soft-deleted portal users when resolving customer update recipients', async () => {
+    const harness = buildHarness()
+    const { emitIncidentCustomerUpdated } = await import('../commands/actions')
+
+    await emitIncidentCustomerUpdated(harness.ctx, makeIncident(), ['55555555-5555-4555-8555-555555555555'])
+
+    expect(harness.connection.execute).toHaveBeenCalledWith(
+      expect.stringContaining('"deleted_at" is null'),
+      [TENANT_ID, ORG_ID, '55555555-5555-4555-8555-555555555555', '55555555-5555-4555-8555-555555555555'],
     )
   })
 

@@ -313,7 +313,7 @@ async function resolvePortalRecipientGroups(
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const placeholders = accountTargetIds.map(() => '?').join(', ')
     const rows = await em.getConnection().execute<{ id: string; customer_entity_id: string | null; person_entity_id: string | null }[]>(
-      `select "id", "customer_entity_id", "person_entity_id" from "customer_users" where "tenant_id" = ? and "organization_id" = ? and "is_active" = true and ("customer_entity_id" in (${placeholders}) or "person_entity_id" in (${placeholders}))`,
+      `select "id", "customer_entity_id", "person_entity_id" from "customer_users" where "tenant_id" = ? and "organization_id" = ? and "is_active" = true and "deleted_at" is null and ("customer_entity_id" in (${placeholders}) or "person_entity_id" in (${placeholders}))`,
       [incident.tenantId, incident.organizationId, ...accountTargetIds, ...accountTargetIds],
     )
     const groups: string[][] = []

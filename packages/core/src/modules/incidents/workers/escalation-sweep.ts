@@ -2,6 +2,7 @@ import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   Incident,
   IncidentSettings,
@@ -118,10 +119,16 @@ async function runSnoozeExpiryPass(
   scope: IncidentScope,
   now: Date,
 ): Promise<void> {
-  const incidents = await em.find(Incident, {
-    ...activeUnacknowledgedWhere(scope),
-    snoozedUntil: { $ne: null, $lte: now },
-  })
+  const incidents = await findWithDecryption(
+    em,
+    Incident,
+    {
+      ...activeUnacknowledgedWhere(scope),
+      snoozedUntil: { $ne: null, $lte: now },
+    },
+    undefined,
+    scope,
+  )
 
   for (const incident of incidents) {
     try {
@@ -161,7 +168,8 @@ async function runEscalationAdvancePass(
   scope: IncidentScope,
   now: Date,
 ): Promise<void> {
-  const incidents = await em.find(
+  const incidents = await findWithDecryption(
+    em,
     Incident,
     {
       ...activeUnacknowledgedWhere(scope),
@@ -172,6 +180,7 @@ async function runEscalationAdvancePass(
       ],
     },
     { orderBy: { nextEscalationAt: 'asc' }, limit: 200 },
+    scope,
   )
 
   for (const incident of incidents) {
@@ -262,15 +271,21 @@ async function runSlaPass(
   scope: IncidentScope,
   now: Date,
 ): Promise<void> {
-  const incidents = await em.find(Incident, {
-    ...scope,
-    status: { $nin: [...TERMINAL_STATUSES] },
-    deletedAt: null,
-    $or: [
-      { slaResponseDueAt: { $ne: null } },
-      { slaResolutionDueAt: { $ne: null } },
-    ],
-  })
+  const incidents = await findWithDecryption(
+    em,
+    Incident,
+    {
+      ...scope,
+      status: { $nin: [...TERMINAL_STATUSES] },
+      deletedAt: null,
+      $or: [
+        { slaResponseDueAt: { $ne: null } },
+        { slaResolutionDueAt: { $ne: null } },
+      ],
+    },
+    undefined,
+    scope,
+  )
   if (incidents.length === 0) return
 
   const settings = await em.findOne(IncidentSettings, { ...scope, deletedAt: null })
