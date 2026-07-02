@@ -2,9 +2,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageObject, MessageRecipient } from '../data/entities'
 import { emitMessagesEvent } from '../events'
+import { MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND } from '../lib/constants'
 import {
   findResolvedMessageActionById,
   isMessageSafeCommandId,
@@ -223,6 +225,18 @@ const executeActionCommand: CommandHandler<
     const input = executeActionSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const message = await requireActionMessage(em, input)
+
+    // Reject a stale action: if the message changed since the actor's tab loaded
+    // it (and the client sent the expected version), fail with the structured 409
+    // conflict instead of acting on an out-of-date aggregate. Strictly additive —
+    // a no-op for callers that don't send the optimistic-lock header.
+    enforceCommandOptimisticLock({
+      resourceKind: MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND,
+      resourceId: message.id,
+      current: message.updatedAt,
+      request: ctx.request ?? null,
+    })
+
     const objects = await em.find(MessageObject, { messageId: message.id })
     const action = findResolvedMessageActionById(message, objects, input.actionId)
 
