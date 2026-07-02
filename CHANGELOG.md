@@ -284,6 +284,7 @@ On the product surface, the CRM **deals list is redesigned** (with a follow-up m
 - ✨ Add the `om-help` workflow navigator skill. (#2140) *(@adeptofvoltron)*
 - ✨ Branding: add an organization sidebar logo. (#2822) *(@pmadajthey)*
 - ✨ Bootstrap: fail-loud production guard for single-instance strategies (#2987). (#3030) *(@adeptofvoltron)*
+- Business rules: add a Call OpenMercato action for scoped internal API calls through selected endpoint and API key profile options.
 
 ## 🔒 Security
 - 🔒 Webhooks: harden unauthenticated provider webhook failures. (#2680) *(@sravan27)*
