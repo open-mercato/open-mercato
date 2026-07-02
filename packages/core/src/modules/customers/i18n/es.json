@@ -2559,7 +2559,6 @@
   "customers.schedule.visibility": "Visibility",
   "customers.schedule.visibility.public": "Public",
   "customers.schedule.visibility.team": "Team only",
-  "customers.storage.nav.group": "Almacenamiento",
   "customers.tags.manage.addCategory": "Nueva categoría",
   "customers.tags.manage.addCategoryPlaceholder": "Nombre de la categoría...",
   "customers.tags.manage.addCategoryRequired": "Primero introduce un nombre de categoría.",
