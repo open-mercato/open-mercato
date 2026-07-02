@@ -17,7 +17,7 @@ import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
 
 type Props = { params: { orgSlug: string } }
-type SignupResponse = { ok: boolean; error?: string }
+type SignupResponse = { ok: boolean; error?: string; details?: Record<string, string[]> }
 
 export default function PortalSignupPage({ params }: Props) {
   const t = useT()
@@ -28,6 +28,7 @@ export default function PortalSignupPage({ params }: Props) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [success, setSuccess] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
@@ -35,6 +36,7 @@ export default function PortalSignupPage({ params }: Props) {
     async (event: React.FormEvent) => {
       event.preventDefault()
       setError(null)
+      setFieldErrors({})
 
       if (!tenant.organizationId) {
         setError(t('portal.org.invalid', 'Organization not found.'))
@@ -54,7 +56,22 @@ export default function PortalSignupPage({ params }: Props) {
           return
         }
 
-        setError(result.result?.error || t('portal.signup.error.generic', 'Signup failed. Please try again.'))
+        const details = result.result?.details
+        if (details && Object.keys(details).length > 0) {
+          const mapped: Record<string, string> = {}
+          if (details.displayName?.length) {
+            mapped.displayName = t('portal.signup.error.displayName.required', 'Full name is required.')
+          }
+          if (details.email?.length) {
+            mapped.email = t('portal.signup.error.email.invalid', 'Please enter a valid email address.')
+          }
+          if (details.password?.length) {
+            mapped.password = t('portal.signup.error.password.minLength', 'Password must be at least 8 characters.')
+          }
+          setFieldErrors(mapped)
+        } else {
+          setError(result.result?.error || t('portal.signup.error.generic', 'Signup failed. Please try again.'))
+        }
       } catch {
         setError(t('portal.signup.error.generic', 'Signup failed. Please try again.'))
       } finally {
@@ -123,16 +140,19 @@ export default function PortalSignupPage({ params }: Props) {
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="signup-name" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.displayName', 'Full Name')}</Label>
           <Input id="signup-name" type="text" autoComplete="name" required placeholder={t('portal.signup.displayName.placeholder', 'Jane Smith')} value={displayName} onChange={(e) => setDisplayName(e.target.value)} disabled={submitting} className="rounded-lg" />
+          {fieldErrors.displayName && <p className="text-sm text-destructive">{fieldErrors.displayName}</p>}
         </div>
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="signup-email" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.email', 'Email')}</Label>
           <EmailInput id="signup-email" required placeholder={t('portal.signup.email.placeholder', 'you@example.com')} value={email} onChange={(e) => setEmail(e.target.value)} disabled={submitting} className="rounded-lg" />
+          {fieldErrors.email && <p className="text-sm text-destructive">{fieldErrors.email}</p>}
         </div>
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="signup-password" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.password', 'Password')}</Label>
           <PasswordInput id="signup-password" autoComplete="new-password" required placeholder={t('portal.signup.password.placeholder', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022')} value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting} className="rounded-lg" />
+          {fieldErrors.password && <p className="text-sm text-destructive">{fieldErrors.password}</p>}
         </div>
 
         <Button type="submit" disabled={submitting} className="mt-1 w-full rounded-lg">

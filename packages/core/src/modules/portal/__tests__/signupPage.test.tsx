@@ -110,4 +110,63 @@ describe('PortalSignupPage', () => {
 
     await findByText(/signup failed/i)
   })
+
+  it('surfaces per-field validation errors from details and does not show raw Zod strings', async () => {
+    apiCallMock.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      result: {
+        ok: false,
+        error: 'Validation failed',
+        details: { password: ['Too small: expected string to have >=8 characters'] },
+      },
+    })
+
+    const { getByLabelText, getByRole, findByText, queryByText } = renderWithProviders(
+      <PortalSignupPage params={{ orgSlug: 'acme' }} />,
+    )
+    fillForm(getByLabelText)
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
+    })
+
+    // Shows the translated, user-friendly field-level message
+    await findByText(/password must be at least 8 characters/i)
+    // Does NOT show the generic "Validation failed" banner
+    expect(queryByText(/validation failed/i)).toBeNull()
+    // Does NOT show raw Zod message text
+    expect(queryByText(/too small/i)).toBeNull()
+  })
+
+  it('clears field errors on subsequent submit attempts', async () => {
+    apiCallMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        result: {
+          ok: false,
+          error: 'Validation failed',
+          details: { email: ['Invalid email'] },
+        },
+      })
+      .mockResolvedValueOnce({ ok: true, status: 202, result: { ok: true } })
+
+    const { getByLabelText, getByRole, findByText, queryByText } = renderWithProviders(
+      <PortalSignupPage params={{ orgSlug: 'acme' }} />,
+    )
+    fillForm(getByLabelText)
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
+    })
+
+    await findByText(/please enter a valid email address/i)
+
+    // Re-submit — field errors should clear and success view should appear
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
+    })
+
+    await findByText(/check your email/i)
+    expect(queryByText(/please enter a valid email address/i)).toBeNull()
+  })
 })
