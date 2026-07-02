@@ -85,13 +85,13 @@ function escapeRegExp(value: string): string {
 }
 
 function parseCurrencyAmount(value: string): number {
-  const normalized = value.replace(/,/g, '');
-  const matches = normalized.match(/-?\$[0-9]+(?:\.[0-9]{2})?/g);
+  const normalized = value.replace(/,/g, '').replace(/\s+/g, ' ');
+  const matches = normalized.match(/-?(?:(?:[A-Z]{3}|[$€£])\s*)?[0-9]+(?:\.[0-9]{2})?(?:\s*[A-Z]{3})?/g);
   const lastMatch = matches?.[matches.length - 1];
   if (!lastMatch) {
     throw new Error(`Could not parse currency from: ${value}`);
   }
-  return Number.parseFloat(lastMatch.replace('$', ''));
+  return Number.parseFloat(lastMatch.replace(/[^\d.-]/g, ''));
 }
 
 function readId(payload: unknown, keys: string[]): string | null {

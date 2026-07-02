@@ -553,6 +553,14 @@ type CreditMemoUndoPayload = {
   after?: CreditMemoGraphSnapshot | null;
 };
 
+function relationId(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && typeof (value as { id?: unknown }).id === "string") {
+    return (value as { id: string }).id;
+  }
+  return null;
+}
+
 const currencyCodeSchema = z
   .string()
   .trim()
@@ -651,6 +659,16 @@ type DocumentAdjustmentCreateInput =
 function cloneJson<T>(value: T): T {
   if (value === null || value === undefined) return value;
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function pickInputPatch(input: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(input, key)) {
+      patch[key] = input[key];
+    }
+  }
+  return patch;
 }
 
 async function resolveCustomerSnapshot(
@@ -1875,12 +1893,12 @@ async function loadInvoiceSnapshot(
   em: EntityManager,
   id: string,
 ): Promise<InvoiceGraphSnapshot | null> {
-  const invoice = await em.findOne(SalesInvoice, { id, deletedAt: null });
+  const invoice = await em.findOne(SalesInvoice, { id, deletedAt: null }, { populate: ["order"] });
   if (!invoice) return null;
   const lines = await em.find(
     SalesInvoiceLine,
     { invoice: invoice },
-    { orderBy: { lineNumber: "asc" } },
+    { populate: ["orderLine"], orderBy: { lineNumber: "asc" } },
   );
   const [invoiceCustomFields] = await Promise.all([
     loadCustomFieldValues({
@@ -1897,7 +1915,7 @@ async function loadInvoiceSnapshot(
       organizationId: invoice.organizationId,
       tenantId: invoice.tenantId,
       invoiceNumber: invoice.invoiceNumber,
-      orderId: invoice.orderId ?? null,
+      orderId: relationId(invoice.order),
       statusEntryId: invoice.statusEntryId ?? null,
       status: invoice.status ?? null,
       issueDate: invoice.issueDate ?? null,
@@ -1917,7 +1935,7 @@ async function loadInvoiceSnapshot(
     },
     lines: lines.map((line) => ({
       id: line.id,
-      orderLineId: line.orderLineId ?? null,
+      orderLineId: relationId(line.orderLine),
       lineNumber: line.lineNumber,
       kind: line.kind ?? "product",
       name: line.name ?? null,
@@ -8432,15 +8450,23 @@ const createInvoiceCommand: CommandHandler<
     ensureOrganizationScope(ctx, parsed.organizationId);
     ensureTenantScope(ctx, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const status = await resolveDictionaryEntryValue(
-      em,
-      parsed.statusEntryId ?? null,
-      { tenantId: parsed.tenantId },
-    );
+    const statusEntryId =
+      parsed.statusEntryId === undefined
+        ? await resolveStatusEntryIdByValue(em, {
+            tenantId: parsed.tenantId,
+            organizationId: parsed.organizationId,
+            value: "draft",
+          })
+        : parsed.statusEntryId;
+    const status =
+      parsed.statusEntryId === undefined
+        ? (await resolveDictionaryEntryValue(em, statusEntryId, { tenantId: parsed.tenantId })) ?? "draft"
+        : await resolveDictionaryEntryValue(em, parsed.statusEntryId, { tenantId: parsed.tenantId });
 
     // Validate orderId belongs to same org/tenant
+    let order: SalesOrder | null = null;
     if (parsed.orderId) {
-      const orderExists = await findOneWithDecryption(
+      order = await findOneWithDecryption(
         em,
         SalesOrder,
         {
@@ -8455,8 +8481,41 @@ const createInvoiceCommand: CommandHandler<
           organizationId: parsed.organizationId,
         },
       );
-      if (!orderExists) {
+      if (!order) {
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
+      }
+      const existingInvoice = await em.findOne(SalesInvoice, {
+        order,
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        deletedAt: null,
+      });
+      if (existingInvoice) {
+        throw new CrudHttpError(409, {
+          error: "An invoice already exists for this order.",
+          code: "sales.invoices.duplicate_for_order",
+          orderId: parsed.orderId,
+          invoiceId: existingInvoice.id,
+        });
+      }
+    }
+
+    const orderLineRefs = new Map<string, SalesOrderLine>();
+    const orderLineIds = Array.from(
+      new Set((parsed.lines ?? []).flatMap((line) => (line.orderLineId ? [line.orderLineId] : []))),
+    );
+    if (orderLineIds.length) {
+      const orderLines = await em.find(SalesOrderLine, {
+        id: { $in: orderLineIds } as any,
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        ...(order ? { order } : {}),
+      } as any);
+      for (const line of orderLines) {
+        orderLineRefs.set(line.id, line);
+      }
+      if (orderLineRefs.size !== orderLineIds.length) {
+        throw new CrudHttpError(400, { error: "Referenced order line not found in current scope." });
       }
     }
 
@@ -8466,8 +8525,8 @@ const createInvoiceCommand: CommandHandler<
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       invoiceNumber: ensuredInvoiceNumber,
-      orderId: parsed.orderId ?? null,
-      statusEntryId: parsed.statusEntryId ?? null,
+      order: order ?? null,
+      statusEntryId,
       status,
       issueDate: parsed.issueDate ?? new Date(),
       dueDate: parsed.dueDate ?? null,
@@ -8502,7 +8561,7 @@ const createInvoiceCommand: CommandHandler<
                 em.create(SalesInvoiceLine, {
                   id: randomUUID(),
                   invoice,
-                  orderLineId: line.orderLineId ?? null,
+                  orderLine: line.orderLineId ? orderLineRefs.get(line.orderLineId) ?? null : null,
                   organizationId: parsed.organizationId,
                   tenantId: parsed.tenantId,
                   lineNumber: line.lineNumber ?? i + 1,
@@ -8639,10 +8698,9 @@ const updateInvoiceCommand: CommandHandler<
       deletedAt: null,
     });
 
-    const changes = buildChanges(invoice, parsed, [
+    const changes = pickInputPatch(parsed, [
       "invoiceNumber",
       "statusEntryId",
-      "status",
       "issueDate",
       "dueDate",
       "currencyCode",
@@ -8658,7 +8716,7 @@ const updateInvoiceCommand: CommandHandler<
     ]);
 
     if (parsed.statusEntryId !== undefined) {
-      invoice.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: invoice.tenantId });
+      changes.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: invoice.tenantId });
     }
 
     Object.assign(invoice, changes);
@@ -8725,7 +8783,7 @@ const updateInvoiceCommand: CommandHandler<
     ensureOrganizationScope(ctx, invoice.organizationId);
     ensureTenantScope(ctx, invoice.tenantId);
     invoice.invoiceNumber = before.invoice.invoiceNumber;
-    invoice.orderId = before.invoice.orderId;
+    invoice.order = before.invoice.orderId ? em.getReference(SalesOrder, before.invoice.orderId) : null;
     invoice.statusEntryId = before.invoice.statusEntryId;
     invoice.status = before.invoice.status;
     invoice.issueDate = before.invoice.issueDate ? new Date(before.invoice.issueDate as string) : null;
@@ -8831,7 +8889,7 @@ const deleteInvoiceCommand: CommandHandler<
       organizationId: before.invoice.organizationId,
       tenantId: before.invoice.tenantId,
       invoiceNumber: before.invoice.invoiceNumber,
-      orderId: before.invoice.orderId,
+      order: before.invoice.orderId ? em.getReference(SalesOrder, before.invoice.orderId) : null,
       statusEntryId: before.invoice.statusEntryId,
       status: before.invoice.status,
       issueDate: before.invoice.issueDate ? new Date(before.invoice.issueDate as string) : new Date(),
@@ -8856,7 +8914,7 @@ const deleteInvoiceCommand: CommandHandler<
       em.persist(em.create(SalesInvoiceLine, {
         id: line.id,
         invoice: restored,
-        orderLineId: line.orderLineId,
+        orderLine: line.orderLineId ? em.getReference(SalesOrderLine, line.orderLineId) : null,
         organizationId: before.invoice.organizationId,
         tenantId: before.invoice.tenantId,
         lineNumber: line.lineNumber,
@@ -9146,10 +9204,9 @@ const updateCreditMemoCommand: CommandHandler<
       deletedAt: null,
     });
 
-    const changes = buildChanges(creditMemo, parsed, [
+    const changes = pickInputPatch(parsed, [
       "creditMemoNumber",
       "statusEntryId",
-      "status",
       "reason",
       "issueDate",
       "currencyCode",
@@ -9162,7 +9219,7 @@ const updateCreditMemoCommand: CommandHandler<
     ]);
 
     if (parsed.statusEntryId !== undefined) {
-      creditMemo.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: creditMemo.tenantId });
+      changes.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: creditMemo.tenantId });
     }
 
     Object.assign(creditMemo, changes);

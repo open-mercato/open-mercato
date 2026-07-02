@@ -11,14 +11,18 @@ export function formatPriceWithCurrency(
   if (amount === null || amount === undefined) return fallback
   const parsed = typeof amount === 'string' ? Number(amount) : amount
   if (Number.isNaN(parsed)) return fallback
-  if (currency) {
+  const normalizedCurrency = currency?.trim().toUpperCase()
+  if (normalizedCurrency) {
     try {
       return new Intl.NumberFormat(undefined, {
         style: 'currency',
-        currency,
+        currency: normalizedCurrency,
+        currencyDisplay: 'code',
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
-      }).format(parsed)
+      })
+        .format(parsed)
+        .replace(/[\u00a0\u202f]/g, ' ')
     } catch {
       // fall through to plain number formatting
     }

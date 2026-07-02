@@ -56,8 +56,8 @@ test.describe('TC-SALES-006: Order Tax Calculation', () => {
       await openOrderDetail(page, orderId, lineName);
 
       const row = page.getByRole('row', { name: new RegExp(lineName, 'i') });
-      await expect(row).toContainText('$123.00 gross', { timeout: 20_000 });
-      await expect(row).toContainText('$100.00 net', { timeout: 20_000 });
+      await expect(row).toContainText(/(?:\$|USD\s*)123\.00 gross/, { timeout: 20_000 });
+      await expect(row).toContainText(/(?:\$|USD\s*)100\.00 net/, { timeout: 20_000 });
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/order-lines', lineId);
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId);

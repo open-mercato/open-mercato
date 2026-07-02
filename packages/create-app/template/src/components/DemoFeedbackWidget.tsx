@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import { createPortal } from 'react-dom'
+import { usePathname } from 'next/navigation'
 import { MessageCircle, Send } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -43,8 +44,10 @@ type SubmitState = 'idle' | 'sending' | 'sent' | 'error'
 
 export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boolean }) {
   const t = useT()
+  const pathname = usePathname()
   const aiDock = useAiDock()
   const aiDockActive = Boolean(aiDock.state.assistant)
+  const isBackendRoute = pathname?.startsWith('/backend') ?? false
   const [open, setOpen] = useState(false)
   const [captionIndex, setCaptionIndex] = useState(0)
   const [mounted, setMounted] = useState(false)
@@ -101,6 +104,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
   // disruptive on top of (or competing with) the dock surface.
   useEffect(() => {
     if (!demoModeEnabled || !mounted) return
+    if (isBackendRoute) return
     if (aiDockActive) return
     if (getCookie(SUPPRESS_COOKIE) === '1') return
     if (getCookie(SHOWN_TODAY_COOKIE) === todayKey()) return
@@ -134,7 +138,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
       events.forEach((ev) => window.removeEventListener(ev, resetTimer))
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
     }
-  }, [demoModeEnabled, mounted, aiDockActive])
+  }, [demoModeEnabled, mounted, aiDockActive, isBackendRoute])
 
   const handleSubmit = useCallback(async () => {
     setFieldErrors({})
@@ -227,11 +231,11 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
   // globals.css so the FAB hides while the AI dock surface is open
   // (anchored on the right edge of the viewport); the same `aiDockActive`
   // gate hides the FAB outright when the dock is mounted in this app shell.
-  const floatingButton = aiDockActive ? null : (
+  const floatingButton = aiDockActive || isBackendRoute ? null : (
     <button
       type="button"
       onClick={() => { setOpen(true); if (submitState === 'sent') resetForm() }}
-      className="om-demo-feedback-floating fixed bottom-6 right-6 z-banner flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-black shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
+      className="om-demo-feedback-floating fixed bottom-[calc(env(safe-area-inset-bottom)+1rem)] right-3 z-banner flex size-12 items-center justify-center rounded-full text-sm font-semibold text-black shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:bottom-6 sm:right-6 sm:size-auto sm:gap-2 sm:px-5 sm:py-3 sm:animate-[subtle-bounce_2s_ease-in-out_infinite]"
       style={{
         backgroundImage: 'linear-gradient(135deg, var(--brand-lime, #B4F372) 0%, #EEFB63 50%, var(--brand-violet, #BC9AFF) 100%)',
       }}
@@ -240,7 +244,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
       <MessageCircle className="size-4" />
       <span
         key={captionIndex}
-        className="inline-block min-w-[90px] text-center animate-[caption-slide_0.3s_ease-out]"
+        className="hidden min-w-[90px] text-center animate-[caption-slide_0.3s_ease-out] sm:inline-block"
       >
         {currentCaption}
       </span>

@@ -39,6 +39,15 @@ describe('invoice and credit memo route modules', () => {
     expect(invoiceRoute.metadata).toBeDefined()
   })
 
+  it('invoice detail route exports GET, openApi, and invoices.manage guard', () => {
+    const invoiceDetailRoute = require('../../api/invoices/[id]/route')
+    expect(invoiceDetailRoute.GET).toBeDefined()
+    expect(typeof invoiceDetailRoute.GET).toBe('function')
+    expect(invoiceDetailRoute.openApi).toBeDefined()
+    expect(invoiceDetailRoute.metadata.GET.requireAuth).toBe(true)
+    expect(invoiceDetailRoute.metadata.GET.requireFeatures).toContain('sales.invoices.manage')
+  })
+
   it('credit memo route exports GET, POST, PUT, DELETE, openApi', () => {
     const creditMemoRoute = require('../../api/credit-memos/route')
     expect(creditMemoRoute.GET).toBeDefined()

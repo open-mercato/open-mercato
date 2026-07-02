@@ -41,6 +41,7 @@ import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/component
 import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
 import { SalesDocumentItemsSection } from '@open-mercato/core/modules/sales/components/documents/ItemsSection'
 import { SalesDocumentPaymentsSection } from '@open-mercato/core/modules/sales/components/documents/PaymentsSection'
+import { SalesDocumentInvoicesSection } from '@open-mercato/core/modules/sales/components/documents/InvoicesSection'
 import { SalesDocumentAdjustmentsSection } from '@open-mercato/core/modules/sales/components/documents/AdjustmentsSection'
 import type { AdjustmentRowData } from '@open-mercato/core/modules/sales/components/documents/AdjustmentDialog'
 import { SalesShipmentsSection } from '@open-mercato/core/modules/sales/components/documents/ShipmentsSection'
@@ -4028,6 +4029,7 @@ export default function SalesDocumentDetailPage({
       if (kind === 'order') {
         tabs.push(
           { id: 'shipments', label: t('sales.documents.detail.tabs.shipments', 'Shipments') },
+          { id: 'invoices', label: t('sales.documents.detail.tabs.invoices', 'Invoices') },
           { id: 'payments', label: t('sales.documents.detail.tabs.payments', 'Payments') },
           { id: 'returns', label: t('sales.documents.detail.tabs.returns', 'Returns') },
         )
@@ -4168,6 +4170,10 @@ export default function SalesDocumentDetailPage({
         title: t('sales.documents.detail.empty.payments.title', 'No payments yet.'),
         description: t('sales.documents.detail.empty.payments.description', 'Payments are work in progress.'),
       },
+      invoices: {
+        title: t('sales.invoices.empty.title', 'No invoices yet.'),
+        description: t('sales.invoices.empty.description', 'Create one full invoice from the current order lines and totals.'),
+      },
       returns: {
         title: t('sales.returns.empty.title', 'No returns yet.'),
         description: t('sales.returns.empty.description', 'Create a return to generate credit adjustments for returned items.'),
@@ -4282,6 +4288,20 @@ export default function SalesDocumentDetailPage({
           orderId={record.id}
           currencyCode={record.currencyCode ?? null}
           documentUpdatedAt={record.updatedAt}
+        />
+      )
+    }
+    if (activeTab === 'invoices') {
+      if (kind !== 'order') {
+        const placeholder = tabEmptyStates.invoices
+        return <TabEmptyState title={placeholder.title} description={placeholder.description} />
+      }
+      return (
+        <SalesDocumentInvoicesSection
+          orderId={record.id}
+          currencyCode={record.currencyCode ?? null}
+          organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
+          tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
         />
       )
     }
