@@ -102,6 +102,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Coding-Agent Session Collection](2026-06-15-coding-agent-session-collection.md) | 2026-06-15 | Coding-Agent Session Collection (Dev Session Insights) | Opt-in, consent-gated collection of sanitized Claude Code / Codex sessions: `create-mercato-app` hook installer, local PII/secret redaction (`@open-mercato/dev-session-kit`), fail-open shipper, and the OSS `coding_sessions` ingestion module (token `202` endpoint, async worker with server-side re-scan + quarantine, filesystem-first blobs + metadata index). Complements the telemetry/phone-home specs |
 | [Dictionary Custom Field Multiselect](2026-06-19-dictionary-custom-field-multiselect.md) | 2026-06-19 | Dictionary Custom Field Multiselect | Dictionary-backed custom fields can opt into multi-select CRUD form rendering while reusing existing EAV array persistence |
 | [Package Previews](2026-06-22-label-based-package-previews.md) | 2026-06-22 | Label-Based Package Previews | Label-triggered pkg.pr.new previews with npm canary snapshots moved behind a separate opt-in label |
+| [Deal Create Initial Values](2026-07-02-deal-create-initial-values.md) | 2026-07-02 | Deal Create Form `initialValues` Prop | Additive opt-in `initialValues` prop on `CreateDealForm` so downstream apps can prefill new-deal defaults; proposes auto-default-pipeline + pluggable per-tenant page defaults |
 
 ### Implemented Specifications
 
