@@ -151,6 +151,16 @@ export type GenericOptimisticLockReaderOptions = {
  * treats as "entity already gone" and lets the CRUD path's own 404 fire.
  * We MUST NOT throw out of the reader — that would 500 every mutation on
  * the affected entity instead of opting it out of the optimistic check.
+ *
+ * Because a genuine not-found resolves to `null` *without* throwing (MikroORM's
+ * `findOne` returns `null`, it does not raise), the catch below only fires on a
+ * real query failure — most commonly a `softDeleteField`/`tenantField`/`orgField`
+ * misconfig that filters on a column the entity's table does not have. That class
+ * of bug silently disables locking for the whole entity, so the catch logs loudly
+ * with the `resourceKind` instead of swallowing the error. The control flow stays
+ * fail-open (returns `null`) to honor the no-500 contract; the durable defense is
+ * the static reader-resolution guard (`optimistic-lock-editable-entities.test.ts`)
+ * which fails the build when a route would land in this path.
  */
 export function createGenericOptimisticLockReader(
   opts: GenericOptimisticLockReaderOptions,
@@ -162,7 +172,7 @@ export function createGenericOptimisticLockReader(
   const updatedAtField = opts.updatedAtField ?? 'updatedAt'
   const extraFilter = opts.extraFilter ?? {}
 
-  return async (em, { resourceId, tenantId, organizationId }) => {
+  return async (em, { resourceKind, resourceId, tenantId, organizationId }) => {
     const filter: Record<string, unknown> = { [idField]: resourceId }
     if (tenantField) filter[tenantField] = tenantId
     if (orgField && organizationId) filter[orgField] = organizationId
@@ -178,7 +188,18 @@ export function createGenericOptimisticLockReader(
       if (value instanceof Date) return value.toISOString()
       if (typeof value === 'string' && value.length > 0) return value
       return null
-    } catch {
+    } catch (err) {
+      // A genuine not-found returns null above without throwing; reaching here
+      // means the query itself failed (most likely a softDeleteField/tenant/org
+      // misconfig filtering on a column the table lacks), which silently disables
+      // locking for `resourceKind`. Log loudly so the misconfig is visible.
+      // Control flow stays fail-open (return null) to honor the no-500 contract.
+      // eslint-disable-next-line no-console
+      console.error(
+        `[optimistic-lock] reader query failed for resourceKind="${resourceKind}" — optimistic locking is DISABLED for this entity until fixed. ` +
+          `Most likely a softDeleteField/tenantField/orgField filters on a column the table does not have.`,
+        err,
+      )
       return null
     }
   }

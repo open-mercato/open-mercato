@@ -1,6 +1,7 @@
 {
   "name": "@open-mercato/channel-imap",
   "version": "0.6.5",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -65,7 +66,7 @@
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "@types/mailparser": "^3.4.5",
-    "@types/nodemailer": "^8.0.0",
+    "@types/nodemailer": "^8.0.1",
     "imapflow": "^1.4.2",
     "mailparser": "^3.9.11",
     "nodemailer": "^9.0.1"

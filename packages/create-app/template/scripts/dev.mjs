@@ -23,16 +23,19 @@ import {
   stripAnsi,
 } from './dev-splash-helpers.mjs'
 import { purgeAppBuildCaches } from './dev-cache-purge.mjs'
+import { ensureDevInotifyLimits } from './dev-inotify-limits.mjs'
 import { killProcessTree } from './dev-shutdown-utils.mjs'
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
+import { resolveSplashBindHost } from './dev-splash-shared.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
 import {
   resolveDevBaseUrl,
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
+import { parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
@@ -119,10 +122,6 @@ function shouldRefreshStandaloneRegistryPackages() {
   return !hasExistingStandaloneInstall()
 }
 
-function isContainerRuntime() {
-  return fs.existsSync('/.dockerenv')
-}
-
 function parsePortNumber(value) {
   if (typeof value !== 'string' && typeof value !== 'number') return null
   const parsed = Number.parseInt(String(value).trim(), 10)
@@ -193,6 +192,10 @@ const classic = args.includes('--classic') || isEnabledEnvFlag(process.env.OM_DE
 const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
 const greenfield = isMonorepo && args.includes('--greenfield')
 const appOnly = args.includes('--app-only')
+// Watch-scope CLI flags (e.g. `--watch=auto-optimized`, `--watch-popular`) are
+// translated into env vars and forwarded to the spawned package watcher, which
+// reads `OM_WATCH_SCOPE` / `OM_WATCH_PACKAGES`. CLI flags win over a pre-set env.
+const watchScopeArgs = parseWatchScopeArgs(args)
 const setupMode = !isMonorepo && args.includes('--setup')
 const reinstall = setupMode && args.includes('--reinstall')
 const standaloneLocalRegistryRefresh = !isMonorepo && shouldRefreshStandaloneRegistryPackages()
@@ -200,7 +203,7 @@ const splashMode = greenfield ? 'greenfield' : setupMode ? 'setup' : 'dev'
 const standaloneStageTotal = setupMode ? 5 : 4
 const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
-const splashBindHost = isContainerRuntime() ? '0.0.0.0' : '127.0.0.1'
+const splashBindHost = resolveSplashBindHost(process.env)
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
 const warmupReadyFilePath = path.join(
   process.cwd(),
@@ -318,6 +321,32 @@ function printDevLogLocation() {
   if (process.env.OM_DEV_LOG_ANNOUNCED === '1') return
   console.log(`📝 Verbose logs ${formatDevLogAnnouncement(getDevLogSession())}`)
   process.env.OM_DEV_LOG_ANNOUNCED = '1'
+}
+
+function ensureDevFileWatchLimits() {
+  const result = ensureDevInotifyLimits()
+  if (result.fixed) {
+    console.log('🔧 Raised Linux inotify file-watch limits for Turbopack')
+    return true
+  }
+  if (result.ok) {
+    return true
+  }
+
+  updateSplashState({
+    phase: 'File-watch limits too low',
+    detail: 'Raise Linux inotify limits before starting Turbopack',
+    failed: true,
+    failureLines: result.message.split('\n').filter(Boolean).slice(0, 10),
+    failureCommand: 'yarn dev:fix-wsl-watchers',
+    ready: false,
+    readyUrl: null,
+    loginUrl: null,
+    activity: 'File-watch limit preflight failed',
+  })
+  console.error(result.message)
+  shutdown(1)
+  return false
 }
 
 function spawnCommand(command, commandArgs, options = {}) {
@@ -1533,14 +1562,29 @@ function resolveWatchPackagesScript() {
   return raw === 'legacy' ? 'watch:packages:legacy' : 'watch:packages'
 }
 
+function buildWatchScopeEnv() {
+  const env = {}
+  if (watchScopeArgs.mode) env.OM_WATCH_SCOPE = watchScopeArgs.mode
+  if (watchScopeArgs.packages?.length) env.OM_WATCH_PACKAGES = watchScopeArgs.packages.join(',')
+  if (watchScopeArgs.popularLimit) env.OM_WATCH_POPULAR_LIMIT = String(watchScopeArgs.popularLimit)
+  return env
+}
+
+function resolveActiveWatchScope(watchScopeEnv = buildWatchScopeEnv()) {
+  return resolveWatchScope({ env: { ...process.env, ...watchScopeEnv }, argv: [] }).mode
+}
+
 function startPackageWatch() {
   const watchScript = resolveWatchPackagesScript()
+  const watchScopeEnv = buildWatchScopeEnv()
+  const activeScope = resolveActiveWatchScope(watchScopeEnv)
 
   if (classic) {
     const child = spawnCommand(yarnCommand, [watchScript], {
       label: watchScript,
       logFile: getDevRunnerLog(),
       mirrorOutput: true,
+      env: watchScopeEnv,
     })
 
     child.on('close', (code, signal) => {
@@ -1562,9 +1606,14 @@ function startPackageWatch() {
   const stageCurrent = greenfield ? 5 : 2
   const stageTotal = greenfield ? 5 : 3
   console.log(`👀 ${formatProgressLine('Watching workspace packages', stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}`)
+  if (activeScope !== 'all') {
+    console.log(`   ↳ watch scope: ${activeScope} (set OM_WATCH_SCOPE=all or pass --watch=all to watch every package)`)
+  }
   updateSplashState({
     phase: 'Watching workspace packages',
-    detail: 'Package watchers are running in the background',
+    detail: activeScope === 'all'
+      ? 'Package watchers are running in the background'
+      : `Package watchers are running (watch scope: ${activeScope})`,
     progressCurrent: stageCurrent,
     progressTotal: stageTotal,
     progressPercent: resolveProgressPercent(stageCurrent, stageTotal),
@@ -1576,6 +1625,7 @@ function startPackageWatch() {
     label: 'Watching workspace packages',
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
+    env: watchScopeEnv,
   })
 
   if (verbose) {
@@ -1759,6 +1809,7 @@ async function runClassicStandaloneDev() {
 async function main() {
   printDevLogLocation()
   await startSplashServer()
+  if (!ensureDevFileWatchLimits()) return
 
   if (!isMonorepo) {
     if (setupMode) {

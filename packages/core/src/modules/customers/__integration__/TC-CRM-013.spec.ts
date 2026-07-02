@@ -9,6 +9,11 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  */
 test.describe('TC-CRM-013: Pipeline View Navigation', () => {
   test('should display pipeline columns, show deal card info, open detail, and return to list view', async ({ page, request }) => {
+    // Heavy multi-navigation flow (login → kanban load → pipeline popover → deal
+    // detail → back to filtered list) routinely exceeds Playwright's 20s default
+    // on a loaded CI shard; opt into the sanctioned 3× budget instead of bumping
+    // the global timeout. Previously flaked at ~20.1s, passed at ~11s on retry.
+    test.slow();
     let token: string | null = null;
     let companyId: string | null = null;
     let dealId: string | null = null;

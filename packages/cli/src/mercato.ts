@@ -1080,6 +1080,11 @@ export async function run(argv = process.argv) {
         '--email', email,
         '--password', password,
         '--roles', roles,
+        // `mercato init` is the dev/demo bootstrap flow — it explicitly wants
+        // the derived admin@/employee@ demo accounts. Standalone callers of
+        // `mercato auth setup` must opt in themselves; without this flag the
+        // setup command no longer seeds those accounts by default.
+        '--include-demo-users',
       ]
       if (skipPasswordPolicy) {
         setupArgs.push('--skip-password-policy')
@@ -1277,8 +1282,8 @@ export async function run(argv = process.argv) {
 
       if (!subcommand || subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
         console.log('Usage: yarn mercato module <add|enable|eject> ...')
-        console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--eject]')
-        console.log('  yarn mercato module enable <packageName> [--module <moduleId>] [--eject]')
+        console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--eject] [--allow-third-party]')
+        console.log('  yarn mercato module enable <packageName> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module eject <moduleId>')
         return 0
       }
@@ -1286,14 +1291,14 @@ export async function run(argv = process.argv) {
       if (subcommand === 'add') {
         const { createResolver } = await import('./lib/resolver')
         const { addOfficialModule } = await import('./lib/module-install')
-        const { packageSpec, eject, moduleId } = parseModuleInstallArgs(commandArgs)
+        const { packageSpec, eject, moduleId, allowThirdParty } = parseModuleInstallArgs(commandArgs)
 
         if (!packageSpec) {
-          console.error('Usage: yarn mercato module add <packageSpec> [--module <moduleId>] [--eject]')
+          console.error('Usage: yarn mercato module add <packageSpec> [--module <moduleId>] [--eject] [--allow-third-party]')
           return 1
         }
 
-        const result = await addOfficialModule(createResolver(), packageSpec, eject, moduleId ?? undefined)
+        const result = await addOfficialModule(createResolver(), packageSpec, eject, moduleId ?? undefined, allowThirdParty)
         console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
         console.log('Next steps:')
         console.log('  1. Review generated files if needed: .mercato/generated/')
@@ -1304,14 +1309,14 @@ export async function run(argv = process.argv) {
       if (subcommand === 'enable') {
         const packageName = commandArgs.find((arg) => !arg.startsWith('-'))
         if (!packageName) {
-          console.error('Usage: yarn mercato module enable <packageName> [--module <moduleId>] [--eject]')
+          console.error('Usage: yarn mercato module enable <packageName> [--module <moduleId>] [--eject] [--allow-third-party]')
           return 1
         }
 
         const { createResolver } = await import('./lib/resolver')
         const { enableOfficialModule } = await import('./lib/module-install')
-        const { moduleId, eject } = parseModuleInstallArgs(commandArgs)
-        const result = await enableOfficialModule(createResolver(), packageName, moduleId ?? undefined, eject)
+        const { moduleId, eject, allowThirdParty } = parseModuleInstallArgs(commandArgs)
+        const result = await enableOfficialModule(createResolver(), packageName, moduleId ?? undefined, eject, allowThirdParty)
         console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
         console.log('Next steps:')
         console.log('  1. Review generated files if needed: .mercato/generated/')

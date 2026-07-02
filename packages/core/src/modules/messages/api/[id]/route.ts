@@ -10,6 +10,7 @@ import { getMessageObjectType } from '../../lib/message-objects-registry'
 import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
 import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
 import { hasOrganizationAccess, resolveMessageContext } from '../../lib/routeHelpers'
+import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../guards'
 import {
   errorResponseSchema,
   messageDetailResponseSchema,
@@ -121,6 +122,19 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     threadMessage.senderUserId === scope.userId || visibleRecipientMessageIds.has(threadMessage.id)
   ))
 
+  const actorRecipientStatusByMessageId = new Map<string, string>()
+  for (const row of visibleRecipientRows) {
+    actorRecipientStatusByMessageId.set(row.messageId, row.status)
+  }
+  if (recipient) {
+    actorRecipientStatusByMessageId.set(params.id, autoMarkRead ? 'read' : recipient.status)
+  }
+  const actorRecipientStatuses = Array.from(actorRecipientStatusByMessageId.values())
+  const conversationArchived = actorRecipientStatuses.length > 0
+    && actorRecipientStatuses.every((status) => status === 'archived')
+  const conversationAllUnread = actorRecipientStatuses.length > 0
+    && actorRecipientStatuses.every((status) => status === 'unread')
+
   const threadSenderIds = actorVisibleThreadMessages
     .map((threadMessage) => threadMessage.senderUserId)
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -178,6 +192,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     type: message.type,
     isDraft: message.isDraft,
     canEditDraft: message.isDraft && message.senderUserId === scope.userId,
+    canArchive: Boolean(recipient),
+    isArchived: recipient?.status === 'archived',
     visibility: message.visibility,
     sourceEntityType: message.sourceEntityType,
     sourceEntityId: message.sourceEntityId,
@@ -243,6 +259,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       }
     }),
     isRead: recipient ? (autoMarkRead || recipient.status !== 'unread') : true,
+    conversationArchived,
+    conversationAllUnread,
   })
 }
 
@@ -275,6 +293,28 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return Response.json({ error: 'Only draft messages can be edited' }, { status: 409 })
   }
 
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: message.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input as Record<string, unknown>,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
+
   try {
     const { logEntry } = await commandBus.execute('messages.messages.update_draft', {
       input: {
@@ -298,6 +338,16 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     attachOperationMetadataHeader(response, logEntry, {
       resourceKind: 'messages.message',
       resourceId: message.id,
+    })
+    await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: message.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
     })
     return response
   } catch (error) {
@@ -336,6 +386,28 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: params.id,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: null,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
+
   try {
     const { logEntry } = await commandBus.execute('messages.messages.delete_for_actor', {
       input: {
@@ -358,6 +430,16 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     attachOperationMetadataHeader(response, logEntry, {
       resourceKind: 'messages.message',
       resourceId: params.id,
+    })
+    await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: params.id,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
     })
     return response
   } catch (error) {

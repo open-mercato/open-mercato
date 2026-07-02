@@ -85,6 +85,12 @@ export function generateShared(config: AgenticConfig): void {
     'ai/skills/om-integration-builder/references/adapter-contracts.md',
     join(targetDir, '.ai', 'skills', 'om-integration-builder', 'references', 'adapter-contracts.md'),
   )
+  if (existsSync(join(AGENTIC_DIR, 'ai', 'skills', 'om-integration-builder', 'STANDALONE.md'))) {
+    copyFile(
+      'ai/skills/om-integration-builder/STANDALONE.md',
+      join(targetDir, '.ai', 'skills', 'om-integration-builder', 'STANDALONE.md'),
+    )
+  }
 
   // system-extension skill
   copyFile(

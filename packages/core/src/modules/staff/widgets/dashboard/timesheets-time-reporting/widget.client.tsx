@@ -6,6 +6,9 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { startTimerEntry } from '../../../lib/timesheets-ui/startTimer'
+import { resolveTimerActionError } from '../../../lib/timesheets-ui/timerErrors'
 import { DEFAULT_SETTINGS, hydrateSettings, type TimeReportingSettings } from './config'
 
 type ProjectOption = { id: string; name: string; code: string | null }
@@ -15,6 +18,17 @@ type TimerState = {
   running: boolean
   startedAt: string | null
   projectId: string | null
+}
+
+const TIMER_WIDGET_MUTATION_CONTEXT_ID = 'staff-timesheets-time-reporting-widget'
+
+type TimerWidgetMutationContext = {
+  formId: string
+  resourceKind: string
+  resourceId: string
+  staffMemberId: string
+  action: 'timer-create' | 'timer-start' | 'timer-stop'
+  retryLastMutation: () => Promise<boolean>
 }
 
 function formatElapsed(startedAt: string): string {
@@ -34,6 +48,10 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
   onRefreshStateChange,
 }) => {
   const t = useT()
+  const { runMutation, retryLastMutation } = useGuardedMutation<TimerWidgetMutationContext>({
+    contextId: TIMER_WIDGET_MUTATION_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
 
   const [projects, setProjects] = React.useState<ProjectOption[]>([])
@@ -51,52 +69,61 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
     setLoading(true)
     setError(null)
     try {
-      // Load assigned projects
-      const assignmentsRes = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-        '/api/staff/timesheets/my-projects?pageSize=100',
-        undefined,
-        { errorMessage: '', fallback: { items: [] } },
-      )
+      // Assignments and the current user's staff member are independent — fetch them together.
+      const [assignmentsRes, selfRes] = await Promise.all([
+        readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+          '/api/staff/timesheets/my-projects?pageSize=100',
+          undefined,
+          { errorMessage: '', fallback: { items: [] } },
+        ),
+        readApiResultOrThrow<{ member?: { id: string } | null }>(
+          '/api/staff/team-members/self',
+          undefined,
+          { errorMessage: '', fallback: { member: null } },
+        ),
+      ])
+
       const assignmentItems = Array.isArray(assignmentsRes.items) ? assignmentsRes.items : []
       const projectIds = assignmentItems
         .map((item) => String(item.time_project_id ?? item.timeProjectId ?? ''))
         .filter((id) => id.length > 0)
 
-      if (projectIds.length > 0) {
-        const projectsRes = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-          `/api/staff/timesheets/time-projects?ids=${projectIds.join(',')}&pageSize=100`,
-          undefined,
-          { errorMessage: '', fallback: { items: [] } },
-        )
-        const items = Array.isArray(projectsRes.items) ? projectsRes.items : []
-        setProjects(items.map((item) => ({
-          id: String(item.id ?? ''),
-          name: String(item.name ?? ''),
-          code: typeof item.code === 'string' ? item.code : null,
-        })))
-      } else {
-        setProjects([])
-      }
-
-      // Check for active timer — look for today's entries with startedAt set and endedAt null
-      const selfRes = await readApiResultOrThrow<{ member?: { id: string } | null }>(
-        '/api/staff/team-members/self',
-        undefined,
-        { errorMessage: '', fallback: { member: null } },
-      )
       const memberId = selfRes.member?.id ?? null
       setStaffMemberId(memberId)
+
+      const today = new Date().toISOString().slice(0, 10)
+
+      // Project details depend on the assignment ids and active entries depend on the staff
+      // member id, but the two requests are independent of each other — fetch them together.
+      const [projectsRes, entriesRes] = await Promise.all([
+        projectIds.length > 0
+          ? readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+              `/api/staff/timesheets/time-projects?ids=${projectIds.join(',')}&pageSize=100`,
+              undefined,
+              { errorMessage: '', fallback: { items: [] } },
+            )
+          : Promise.resolve<{ items?: Array<Record<string, unknown>> }>({ items: [] }),
+        memberId
+          ? readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+              `/api/staff/timesheets/time-entries?staffMemberId=${memberId}&from=${today}&to=${today}&pageSize=100`,
+              undefined,
+              { errorMessage: '', fallback: { items: [] } },
+            )
+          : Promise.resolve<{ items?: Array<Record<string, unknown>> }>({ items: [] }),
+      ])
+
+      const projectItems = Array.isArray(projectsRes.items) ? projectsRes.items : []
+      setProjects(projectItems.map((item) => ({
+        id: String(item.id ?? ''),
+        name: String(item.name ?? ''),
+        code: typeof item.code === 'string' ? item.code : null,
+      })))
+
       if (memberId) {
-        const today = new Date().toISOString().slice(0, 10)
-        const entriesRes = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-          `/api/staff/timesheets/time-entries?staffMemberId=${memberId}&from=${today}&to=${today}&pageSize=100`,
-          undefined,
-          { errorMessage: '', fallback: { items: [] } },
-        )
         const entries = Array.isArray(entriesRes.items) ? entriesRes.items : []
-        const running = entries.find((e) => {
-          const startedAt = e.started_at ?? e.startedAt
-          const endedAt = e.ended_at ?? e.endedAt
+        const running = entries.find((entry) => {
+          const startedAt = entry.started_at ?? entry.startedAt
+          const endedAt = entry.ended_at ?? entry.endedAt
           return startedAt != null && endedAt == null
         })
         if (running) {
@@ -138,49 +165,70 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
     setActionLoading(true)
     try {
       const today = new Date().toISOString().slice(0, 10)
-      // Create entry + start timer
-      const createRes = await apiCall<Record<string, unknown>>('/api/staff/timesheets/time-entries', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      // Single atomic create+start request (issue #3311): a partial failure can
+      // no longer leave an orphaned, unstarted timer entry, and a rejected start
+      // now surfaces here instead of being silently ignored. The call is routed
+      // through the mutation guard (issue #3308) so global injection modules can
+      // run onBeforeSave/onAfterSave and surface conflicts consistently.
+      const startPayload = {
+        staffMemberId,
+        timeProjectId: selectedProjectId,
+        date: today,
+        notes: notes.trim() || null,
+      }
+      await runMutation({
+        operation: () => startTimerEntry(startPayload),
+        context: {
+          formId: TIMER_WIDGET_MUTATION_CONTEXT_ID,
+          resourceKind: 'staff.timesheets.time_entry',
+          resourceId: staffMemberId,
           staffMemberId,
-          date: today,
-          timeProjectId: selectedProjectId,
-          durationMinutes: 0,
-          notes: notes.trim() || null,
-          source: 'timer',
-        }),
+          action: 'timer-start',
+          retryLastMutation,
+        },
+        mutationPayload: startPayload,
       })
-      if (!createRes.ok) throw new Error('Failed to create entry')
-      const body = createRes.result as Record<string, unknown> | null
-      const entryId = String(body?.id ?? (body?.item as Record<string, unknown> | undefined)?.id ?? '')
-      if (!entryId) throw new Error('Failed to extract entry ID')
-
-      await apiCall(`/api/staff/timesheets/time-entries/${entryId}/timer-start`, { method: 'POST' })
 
       onSettingsChange({ ...hydrated, lastProjectId: selectedProjectId })
       await loadState()
     } catch (err) {
       console.error('staff.timesheets.timeReporting.start', err)
-      setError(t('staff.timesheets.widgets.timeReporting.startError', 'Failed to start timer'))
+      setError(resolveTimerActionError(err, t('staff.timesheets.widgets.timeReporting.startError', 'Failed to start timer')))
     } finally {
       setActionLoading(false)
     }
-  }, [selectedProjectId, staffMemberId, timer.running, notes, hydrated, onSettingsChange, loadState, t])
+  }, [selectedProjectId, staffMemberId, timer.running, notes, hydrated, onSettingsChange, loadState, runMutation, retryLastMutation, t])
 
   const handleStop = React.useCallback(async () => {
-    if (!timer.entryId) return
+    if (!timer.entryId || !staffMemberId) return
     setActionLoading(true)
     try {
-      await apiCall(`/api/staff/timesheets/time-entries/${timer.entryId}/timer-stop`, { method: 'POST' })
+      const stopPayload = {
+        id: timer.entryId,
+        action: 'timer-stop',
+        staffMemberId,
+      }
+      await runMutation({
+        operation: () =>
+          apiCall(`/api/staff/timesheets/time-entries/${timer.entryId}/timer-stop`, { method: 'POST' }),
+        context: {
+          formId: TIMER_WIDGET_MUTATION_CONTEXT_ID,
+          resourceKind: 'staff.timesheets.time_entry',
+          resourceId: timer.entryId,
+          staffMemberId,
+          action: 'timer-stop',
+          retryLastMutation,
+        },
+        mutationPayload: stopPayload,
+      })
       await loadState()
     } catch (err) {
       console.error('staff.timesheets.timeReporting.stop', err)
-      setError(t('staff.timesheets.widgets.timeReporting.stopError', 'Failed to stop timer'))
+      setError(resolveTimerActionError(err, t('staff.timesheets.widgets.timeReporting.stopError', 'Failed to stop timer')))
     } finally {
       setActionLoading(false)
     }
-  }, [timer.entryId, loadState, t])
+  }, [timer.entryId, staffMemberId, loadState, runMutation, retryLastMutation, t])
 
   if (mode === 'settings') {
     return (
@@ -203,7 +251,7 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
   if (error) {
     return (
       <div className="flex h-full items-center justify-center py-8">
-        <p className="text-sm text-destructive">{error}</p>
+        <p role="alert" className="text-sm text-destructive">{error}</p>
       </div>
     )
   }

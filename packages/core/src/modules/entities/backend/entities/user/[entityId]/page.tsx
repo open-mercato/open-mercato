@@ -9,7 +9,7 @@ import { invalidateCustomFieldDefs } from '@open-mercato/ui/backend/utils/custom
 import { upsertCustomEntitySchema, upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
 import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import Link from 'next/link'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { loadGeneratedFieldRegistrations } from '@open-mercato/ui/backend/fields/registry'
@@ -27,6 +27,7 @@ import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entiti
 import { TranslationManager } from '@open-mercato/core/modules/translations/components/TranslationManager'
 
 type Def = FieldDefinition
+export type EntitySource = 'code' | 'custom'
 type EntitiesListResponse = { items?: Array<Record<string, unknown>> }
 type FieldsetGroup = { code: string; title?: string; hint?: string }
 type FieldsetDefinition = { code: string; label: string; icon?: string; description?: string; groups?: FieldsetGroup[] }
@@ -43,9 +44,9 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const queryClient = useQueryClient()
   const entityId = useMemo(() => decodeURIComponent((params?.entityId as any) || ''), [params])
   const [label, setLabel] = useState('')
-  const [entitySource, setEntitySource] = useState<'code'|'custom'>('custom')
+  const [entitySource, setEntitySource] = useState<EntitySource>('custom')
   const [entityFormLoading, setEntityFormLoading] = useState(true)
-  const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string; showInSidebar?: boolean }>({})
+  const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string; showInSidebar?: boolean; updatedAt?: string }>({})
   const [defs, setDefs] = useState<Def[]>([])
   const [orderDirty, setOrderDirty] = useState(false)
   const [orderSaving, setOrderSaving] = useState(false)
@@ -171,6 +172,8 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           const defaultEditorValue =
             typeof record?.defaultEditor === 'string' ? record.defaultEditor : ''
           const showInSidebarValue = record?.showInSidebar === true
+          const updatedAtValue =
+            typeof record?.updatedAt === 'string' && record.updatedAt.length > 0 ? record.updatedAt : undefined
           setLabel(labelValue)
           if (record?.source === 'code' || record?.source === 'custom') setEntitySource(record.source)
           setEntityInitial({
@@ -179,6 +182,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             labelField: labelFieldValue,
             defaultEditor: defaultEditorValue,
             showInSidebar: showInSidebarValue,
+            updatedAt: updatedAtValue,
           })
           setEntityFormLoading(false)
         }
@@ -388,13 +392,15 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       showInSidebar: z.boolean().optional(),
     }) as z.ZodType<Record<string, unknown>>
 
+  const metadataFieldsReadOnly = entitySource === 'code'
   const fields: CrudField[] = [
-    { id: 'label', label: 'Label', type: 'text', required: true },
-    { id: 'description', label: 'Description', type: 'textarea' },
+    { id: 'label', label: 'Label', type: 'text', required: true, readOnly: metadataFieldsReadOnly },
+    { id: 'description', label: 'Description', type: 'textarea', readOnly: metadataFieldsReadOnly },
     {
       id: 'defaultEditor',
       label: 'Default Editor (multiline)',
       type: 'select',
+      readOnly: metadataFieldsReadOnly,
       options: [
         { value: '', label: 'Default (Markdown)' },
         { value: 'markdown', label: 'Markdown (UIW)' },
@@ -473,7 +479,11 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       flash('Please fix validation errors in field definitions', 'error')
       throw createCrudFormError('Please fix validation errors in field definitions')
     }
-    {
+    // Code-declared system entities are not registered as custom entities — their
+    // metadata is owned by code and `POST /api/entities/entities` is fail-closed for
+    // ORM-backed system ids (#3115). Only their field definitions are user-editable, so
+    // skip the registration call and persist definitions below.
+    if (shouldRegisterEntityMetadata(entitySource)) {
       const entityPayload = buildEntityMetadataPayload(entitySource, vals)
       if (!entityPayload) throw createCrudFormError('Validation failed')
       const callEntity = await apiCall('/api/entities/entities', {
@@ -486,17 +496,12 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       }
       try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
     }
-    const defsPayload = {
+    const defsPayload = buildDefinitionsBatchPayload({
       entityId,
-      definitions: defs.filter((d) => !!d.key).map((d) => ({
-        key: d.key,
-        kind: d.kind,
-        configJson: d.configJson,
-        isActive: d.isActive !== false,
-      })),
+      defs,
       fieldsets: buildFieldsetPayload(),
       singleFieldsetPerRecord,
-    }
+    })
     const callDefs = await apiCall('/api/entities/definitions.batch', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -515,7 +520,10 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       <Page>
         <PageBody>
           <div className="p-6">
-            <ErrorNotice title="Invalid entity" message="The requested entity ID is missing or invalid." />
+            <Alert variant="destructive">
+              <AlertTitle>Invalid entity</AlertTitle>
+              <AlertDescription>The requested entity ID is missing or invalid.</AlertDescription>
+            </Alert>
           </div>
         </PageBody>
       </Page>
@@ -597,8 +605,31 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   )
 }
 
+export function shouldRegisterEntityMetadata(entitySource: EntitySource): boolean {
+  return entitySource === 'custom'
+}
+
+export function buildDefinitionsBatchPayload(options: {
+  entityId: string
+  defs: Array<Pick<Def, 'key' | 'kind' | 'configJson' | 'isActive'>>
+  fieldsets: FieldsetDefinition[]
+  singleFieldsetPerRecord: boolean
+}) {
+  return {
+    entityId: options.entityId,
+    definitions: options.defs.filter((d) => !!d.key).map((d) => ({
+      key: d.key,
+      kind: d.kind,
+      configJson: d.configJson,
+      isActive: d.isActive !== false,
+    })),
+    fieldsets: options.fieldsets,
+    singleFieldsetPerRecord: options.singleFieldsetPerRecord,
+  }
+}
+
 export function buildEntityMetadataPayload(
-  entitySource: 'code' | 'custom',
+  entitySource: EntitySource,
   vals: Record<string, unknown>,
 ): Record<string, unknown> | null {
   const partial = entitySource === 'custom'
