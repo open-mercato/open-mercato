@@ -14,9 +14,9 @@ export const LABEL_CLASS = 'text-xs font-medium text-muted-foreground'
 export const DROPDOWN_PANEL_CLASS =
   'absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
 
-export function Field({ label, children, error }: { label: string; children: React.ReactNode; error?: string | null }) {
+export function Field({ label, children, error, className }: { label: string; children: React.ReactNode; error?: string | null; className?: string }) {
   return (
-    <div className="flex w-full flex-col gap-1.5">
+    <div className={cn('flex w-full flex-col gap-1.5', className)}>
       <span className={LABEL_CLASS}>{label}</span>
       {children}
       {error ? <p className="text-xs text-status-error-text">{error}</p> : null}

@@ -179,20 +179,24 @@ function EditorBody({
       : t('customers.calendar.editor.titleLabel.generic', 'Title')
 
   return (
-    <div className="flex flex-col items-start gap-5">
+    // Single column on phones (full-screen sheet); two columns on lg+ where the
+    // dialog widens — long/structural fields span both columns, compact fields pair up.
+    <div className="grid w-full grid-cols-1 items-start gap-5 lg:grid-cols-2 lg:gap-x-6">
       {conflict ? (
-        <Alert variant="warning" className="rounded-lg">
+        <Alert variant="warning" className="rounded-lg lg:col-span-2">
           <AlertTitle>{t('customers.calendar.editor.conflictTitle', 'Calendar conflict')}</AlertTitle>
           <AlertDescription>{conflict}</AlertDescription>
         </Alert>
       ) : null}
-      <SegmentGroup<string>
-        ariaLabel={t('customers.calendar.editor.typeSwitcher', 'Event type')}
-        value={selectedType}
-        onChange={(type) => update({ kind: editorKindOfInteractionType(type), category: type })}
-        options={typeOptions}
-      />
-      <Field label={titleLabel} error={errors.title}>
+      <div className="w-full lg:col-span-2">
+        <SegmentGroup<string>
+          ariaLabel={t('customers.calendar.editor.typeSwitcher', 'Event type')}
+          value={selectedType}
+          onChange={(type) => update({ kind: editorKindOfInteractionType(type), category: type })}
+          options={typeOptions}
+        />
+      </div>
+      <Field label={titleLabel} error={errors.title} className="lg:col-span-2">
         <Input
           type="text"
           value={form.title}
@@ -203,7 +207,7 @@ function EditorBody({
           size="lg"
         />
       </Field>
-      <Field label={t('customers.calendar.editor.relatedTo', 'Related to')} error={errors.relatedTo}>
+      <Field label={t('customers.calendar.editor.relatedTo', 'Related to')} error={errors.relatedTo} className="lg:col-span-2">
         <RelatedToField
           label={t('customers.calendar.editor.relatedTo', 'Related to')}
           value={form.relatedTo}
@@ -213,6 +217,7 @@ function EditorBody({
           error={errors.relatedTo}
         />
       </Field>
+      <div className="w-full lg:col-span-2">
       <ScheduleSection
         dateLabel={config.dateLabel}
         hasAllDay={config.hasAllDay}
@@ -238,7 +243,9 @@ function EditorBody({
         onEndDateChange={(endDate) => update({ endDate })}
         onEndTimeChange={(endTime) => update({ endTime })}
       />
+      </div>
       {config.hasRepeat ? (
+        <div className="w-full lg:col-span-2">
         <RepeatField
           freq={form.repeatFreq}
           days={form.repeatDays}
@@ -258,6 +265,7 @@ function EditorBody({
           onCountChange={(repeatCount) => update({ repeatCount })}
           onUntilDateChange={(repeatUntilDate) => update({ repeatUntilDate })}
         />
+        </div>
       ) : null}
       <Field label={t('customers.calendar.editor.category', 'Category')}>
         <CategoryField
@@ -269,7 +277,9 @@ function EditorBody({
         />
       </Field>
       {config.location ? (
-        <LocationField variant={config.location} value={form.location} onChange={(location) => update({ location })} />
+        <div className="w-full">
+          <LocationField variant={config.location} value={form.location} onChange={(location) => update({ location })} />
+        </div>
       ) : null}
       {config.people && config.people !== 'assignee' ? (
         <Field label={t(PEOPLE_FIELD_TEXT[config.people].labelKey, PEOPLE_FIELD_TEXT[config.people].label)}>
@@ -327,7 +337,7 @@ function EditorBody({
           />
         </Field>
       ) : null}
-      <Field label={t('customers.calendar.editor.description', 'Description')}>
+      <Field label={t('customers.calendar.editor.description', 'Description')} className="lg:col-span-2">
         <Textarea
           value={form.description}
           onChange={(event) => update({ description: event.target.value })}
@@ -482,7 +492,7 @@ export function CalendarEventEditor({
         onKeyDown={handleKeyDown}
         aria-describedby={undefined}
         dismissible={false}
-        className="flex h-dvh max-h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 bg-background p-0 shadow-xl sm:h-auto sm:max-h-screen sm:w-full sm:max-w-md sm:rounded-2xl sm:border-0"
+        className="flex h-dvh max-h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 bg-background p-0 shadow-xl sm:h-auto sm:max-h-screen sm:w-full sm:max-w-lg sm:rounded-2xl sm:border-0 lg:max-w-3xl"
       >
         <VisuallyHidden>
           <DialogTitle>{dialogTitle}</DialogTitle>
