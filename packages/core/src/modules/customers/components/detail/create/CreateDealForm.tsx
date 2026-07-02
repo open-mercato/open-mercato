@@ -27,9 +27,11 @@ const CUSTOM_FIELDS_MANAGE_HREF = `/backend/entities/system/${encodeURIComponent
 
 export type CreateDealFormProps = {
   returnTo: string
+  /** Seed values merged over EMPTY_VALUES for the initial form state. Additive: omitting it preserves current behavior. */
+  initialValues?: Partial<BaseValues>
 }
 
-export function CreateDealForm({ returnTo }: CreateDealFormProps) {
+export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps) {
   const t = useT()
   const router = useRouter()
   const tr = React.useCallback(
@@ -38,7 +40,7 @@ export function CreateDealForm({ returnTo }: CreateDealFormProps) {
     [t],
   )
 
-  const [values, setValues] = React.useState<BaseValues>(EMPTY_VALUES)
+  const [values, setValues] = React.useState<BaseValues>(() => ({ ...EMPTY_VALUES, ...initialValues }))
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = React.useState(false)
 
