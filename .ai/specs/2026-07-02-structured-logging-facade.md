@@ -1,6 +1,6 @@
 # Structured Logging Facade for `@open-mercato/shared`
 
-- **Status:** Draft
+- **Status:** Ready for implementation (decisions resolved)
 - **Scope:** OSS (cross-cutting shared contract)
 - **Issue:** [#3743](https://github.com/open-mercato/open-mercato/issues/3743)
 - **Origin:** Follow-up to [#3738](https://github.com/open-mercato/open-mercato/issues/3738) (`OM_WORKFLOW_TRIGGER_DEBUG` env flag added to make a silent wildcard subscriber observable)
@@ -210,11 +210,11 @@ Per `BACKWARD_COMPATIBILITY.md` (contract-surface categories: import paths, type
 | R6 | Async init from a dynamic `import('pino')` makes logging lose synchronous ordering | Medium | Correctness | Use synchronous `createRequire` (CJS) rather than async `import()`, so `logger.info` stays synchronous like `console.*` | Low |
 | R7 | Perf regression from per-call binding merges on hot paths | Low | Performance | `child()` merges once, not per line; `isLevelEnabled()` exposed so callers can gate expensive field construction | Low |
 
-## Open Decisions (confirm during review)
+## Resolved Decisions
 
-1. **Library:** pino (recommended) vs alternative — spec assumes **pino** behind the facade, console transport client/edge.
-2. **Env var name:** `OM_LOG_LEVEL` (recommended) — confirm the name.
-3. **Advisory lint rule now vs follow-up:** spec recommends **add now, non-blocking** (informational CI), promote to blocking later.
+1. **Library — pino ✅.** Confirmed. pino is the enterprise-standard structured logger (default in Fastify, among the fastest Node loggers, JSON-first), kept behind the facade so it stays swappable and never imported directly by modules. Console transport on client/edge.
+2. **Env var name — `OM_LOG_LEVEL` ✅.** Confirmed.
+3. **Advisory lint rule — add now, non-blocking ✅.** Confirmed. Ships informational in CI (exit 0, per-package allowlist); promote to blocking in a later issue once the bulk of sites are migrated.
 
 ## Final Compliance Report
 
@@ -243,3 +243,4 @@ Per `BACKWARD_COMPATIBILITY.md` (contract-surface categories: import paths, type
 ## Changelog
 
 - 2026-07-02 — Initial draft (skeleton → full spec) for issue #3743. Library choice (pino), env var name (`OM_LOG_LEVEL`), and advisory-lint timing captured as open decisions with recommendations.
+- 2026-07-02 — Decisions resolved: **pino** behind the facade, **`OM_LOG_LEVEL`** as the level knob, **advisory lint added now (non-blocking)**. Status → Ready for implementation.
