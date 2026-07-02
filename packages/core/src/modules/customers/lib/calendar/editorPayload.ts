@@ -90,50 +90,6 @@ export function buildEditorTypeOptions(params: {
   return options
 }
 
-export type EditorCategoryOption = { value: string; label: string }
-
-/**
- * Builds the editor's Category quick-pick options from the tenant dictionary and
- * the user's calendar preferences:
- * - `surfacedTypes` (settings "Activity Types") filters which dictionary types are
- *   offered — a non-empty list keeps only matching labels; empty means "show all".
- * - `eventCategories` (settings "Event Categories") add custom quick-pick labels.
- * Dictionary entries keep their canonical key as the value (so category→tab/tint
- * mapping is preserved); custom labels use the label as the value.
- */
-export function buildEditorCategoryOptions(params: {
-  typeLabels: Record<string, string>
-  surfacedTypes: string[]
-  eventCategories: string[]
-  selectedValue: string
-  selectedFallbackLabel: string
-}): EditorCategoryOption[] {
-  const { typeLabels, surfacedTypes, eventCategories, selectedValue, selectedFallbackLabel } = params
-  const dictionaryOptions: EditorCategoryOption[] = Object.entries(typeLabels).map(([value, label]) => ({ value, label }))
-  const surfacedSet = new Set(surfacedTypes)
-  const filtered =
-    surfacedTypes.length > 0
-      ? dictionaryOptions.filter((option) => surfacedSet.has(option.label))
-      : dictionaryOptions
-  const options = [...filtered]
-  const knownLabels = new Set(options.map((option) => option.label))
-  const knownValues = new Set(options.map((option) => option.value))
-  const customLabels: string[] = []
-  for (const label of [...eventCategories, ...surfacedTypes]) {
-    const trimmed = label.trim()
-    if (!trimmed || knownLabels.has(trimmed) || customLabels.includes(trimmed)) continue
-    customLabels.push(trimmed)
-  }
-  for (const label of customLabels) {
-    options.push({ value: label, label })
-    knownValues.add(label)
-  }
-  if (!knownValues.has(selectedValue)) {
-    options.unshift({ value: selectedValue, label: typeLabels[selectedValue] ?? selectedFallbackLabel })
-  }
-  return options
-}
-
 export type EditorRepeatFreq = 'none' | 'daily' | 'weekly'
 
 export type EditorRepeatEndType = 'never' | 'date' | 'count'

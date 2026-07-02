@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Calendar, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Calendar, Minus, X } from 'lucide-react'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -20,7 +20,6 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { E } from '#generated/entities.ids.generated'
 import {
-  buildEditorCategoryOptions,
   buildEditorTypeOptions,
   buildInteractionPayload,
   computeDurationMinutes,
@@ -41,7 +40,6 @@ import type { CalendarItem } from './types'
 import { Field } from './editor/inputs'
 import { SegmentGroup } from './editor/SegmentGroup'
 import { RelatedToField } from './editor/RelatedToField'
-import { CategoryField } from './editor/CategoryField'
 import { RepeatField } from './editor/RepeatField'
 import { PeopleField } from './editor/PeopleField'
 import { ResourcesField } from './editor/ResourcesField'
@@ -56,10 +54,7 @@ export interface CalendarEventEditorProps {
   defaultDate?: Date
   defaultRange?: { start: Date; end: Date } | null
   typeLabels: Record<string, string>
-  typeColors: Record<string, string | null>
   typeIcons?: Record<string, string | null>
-  surfacedTypes?: string[]
-  eventCategories?: string[]
   conflictScope?: ConflictScope
   currentUserId?: string | null
   resourcesEnabled?: boolean
@@ -97,10 +92,7 @@ type EditorBodyProps = {
   isEdit: boolean
   item?: CalendarItem | null
   typeLabels: Record<string, string>
-  typeColors: Record<string, string | null>
   typeIcons: Record<string, string | null>
-  surfacedTypes: string[]
-  eventCategories: string[]
   conflictScope: ConflictScope
   currentUserId: string | null
   resourcesEnabled: boolean
@@ -113,10 +105,7 @@ function EditorBody({
   isEdit,
   item,
   typeLabels,
-  typeColors,
   typeIcons,
-  surfacedTypes,
-  eventCategories,
   conflictScope,
   currentUserId,
   resourcesEnabled,
@@ -171,18 +160,6 @@ function EditorBody({
         icon: renderDictionaryIcon(option.icon, 'h-4 w-4'),
       })),
     [typeOptions],
-  )
-
-  const categoryOptions = React.useMemo(
-    () =>
-      buildEditorCategoryOptions({
-        typeLabels,
-        surfacedTypes,
-        eventCategories,
-        selectedValue: selectedType,
-        selectedFallbackLabel: t(`customers.calendar.editor.types.${form.kind}`, form.kind),
-      }),
-    [typeLabels, surfacedTypes, eventCategories, selectedType, form.kind, t],
   )
 
   const titleLabel = form.kind === 'email'
@@ -282,15 +259,6 @@ function EditorBody({
           error={errors.relatedTo}
         />
       </Field>
-      <Field label={t('customers.calendar.editor.category', 'Category')}>
-        <CategoryField
-          label={t('customers.calendar.editor.category', 'Category')}
-          value={selectedType}
-          options={categoryOptions}
-          colors={typeColors}
-          onChange={(category) => update({ category })}
-        />
-      </Field>
       {config.location ? (
         <LocationField variant={config.location} value={form.location} onChange={(location) => update({ location })} />
       ) : null}
@@ -325,13 +293,14 @@ function EditorBody({
         <Field label={t('customers.calendar.editor.priority.label', 'Priority')}>
           <SegmentGroup<EditorPriority>
             size="md"
+            fullWidth
             ariaLabel={t('customers.calendar.editor.priority.label', 'Priority')}
             value={form.priority}
             onChange={(priority) => update({ priority })}
             options={[
-              { value: 'low', label: t('customers.calendar.editor.priority.low', 'Low') },
-              { value: 'medium', label: t('customers.calendar.editor.priority.medium', 'Medium') },
-              { value: 'high', label: t('customers.calendar.editor.priority.high', 'High') },
+              { value: 'low', label: t('customers.calendar.editor.priority.low', 'Low'), icon: <ArrowDown aria-hidden className="h-4 w-4" /> },
+              { value: 'medium', label: t('customers.calendar.editor.priority.medium', 'Medium'), icon: <Minus aria-hidden className="h-4 w-4" /> },
+              { value: 'high', label: t('customers.calendar.editor.priority.high', 'High'), icon: <ArrowUp aria-hidden className="h-4 w-4" /> },
             ]}
           />
         </Field>
@@ -374,10 +343,7 @@ export function CalendarEventEditor({
   defaultDate,
   defaultRange,
   typeLabels,
-  typeColors,
   typeIcons,
-  surfacedTypes,
-  eventCategories,
   conflictScope,
   currentUserId,
   resourcesEnabled,
@@ -479,10 +445,7 @@ export function CalendarEventEditor({
             isEdit={isEdit}
             item={item}
             typeLabels={typeLabels}
-            typeColors={typeColors}
             typeIcons={typeIcons ?? {}}
-            surfacedTypes={surfacedTypes ?? []}
-            eventCategories={eventCategories ?? []}
             conflictScope={conflictScope ?? 'all'}
             currentUserId={currentUserId ?? null}
             resourcesEnabled={resourcesEnabled === true}
@@ -492,7 +455,7 @@ export function CalendarEventEditor({
       },
       { id: 'customFields', kind: 'customFields' },
     ],
-    [open, isEdit, item, typeLabels, typeColors, typeIcons, surfacedTypes, eventCategories, conflictScope, currentUserId, resourcesEnabled, staffEnabled],
+    [open, isEdit, item, typeLabels, typeIcons, conflictScope, currentUserId, resourcesEnabled, staffEnabled],
   )
 
   const handleKeyDown = useDialogKeyHandler({
@@ -536,6 +499,7 @@ export function CalendarEventEditor({
               formId={FORM_ID}
               embedded
               hideFooterActions
+              customFieldsManageMode="page"
               fields={[]}
               groups={groups}
               initialValues={initialValues}

@@ -584,10 +584,7 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
           defaultDate={anchor}
           defaultRange={createRange}
           typeLabels={typeLabels}
-          typeColors={typeColors}
           typeIcons={typeIcons}
-          surfacedTypes={preferences.activityTypes}
-          eventCategories={preferences.eventCategories}
           conflictScope={preferences.conflictScope}
           currentUserId={currentUserId}
           resourcesEnabled={resourcesEnabled}
