@@ -9,7 +9,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import type { EditorResource } from '../../../lib/calendar/editorPayload'
 import { searchResourceOptions, type ResourceOption } from './lookups'
-import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS } from './inputs'
+import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS, useDropdownDismiss } from './inputs'
 
 // Multi-select of bookable resources (rooms, cars, equipment) from the
 // resources module. Rendered only when that module is loaded — the calendar
@@ -31,6 +31,8 @@ export function ResourcesField({
   const [open, setOpen] = React.useState(false)
   const [options, setOptions] = React.useState<ResourceOption[]>([])
   const [loading, setLoading] = React.useState(false)
+  const close = React.useCallback(() => setOpen(false), [])
+  const rootRef = useDropdownDismiss(open, close)
 
   React.useEffect(() => {
     if (!open) return
@@ -60,6 +62,7 @@ export function ResourcesField({
 
   return (
     <div
+      ref={rootRef}
       className="relative w-full"
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false)

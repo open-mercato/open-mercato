@@ -9,7 +9,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import type { EditorParticipant } from '../../../lib/calendar/editorPayload'
 import { composeAccessibleName } from '../../../lib/calendar/labels'
 import { searchPeopleOptions, type PersonOption } from './lookups'
-import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS, PersonChip, UppercaseBadge } from './inputs'
+import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS, PersonChip, UppercaseBadge, useDropdownDismiss } from './inputs'
 
 export function PeopleField({
   mode,
@@ -34,6 +34,8 @@ export function PeopleField({
   const [open, setOpen] = React.useState(false)
   const [options, setOptions] = React.useState<PersonOption[]>([])
   const [loading, setLoading] = React.useState(false)
+  const close = React.useCallback(() => setOpen(false), [])
+  const rootRef = useDropdownDismiss(open, close)
 
   React.useEffect(() => {
     if (!open) return
@@ -69,6 +71,7 @@ export function PeopleField({
 
   return (
     <div
+      ref={rootRef}
       className="relative w-full"
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false)

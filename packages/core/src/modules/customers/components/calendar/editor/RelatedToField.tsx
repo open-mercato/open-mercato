@@ -15,7 +15,7 @@ import {
   type DealOption,
   type RelatedEntityOption,
 } from './lookups'
-import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS, PersonChip, UppercaseBadge } from './inputs'
+import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS, PersonChip, UppercaseBadge, useDropdownDismiss } from './inputs'
 
 const OPTION_ROW_CLASS =
   'h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-sm font-normal text-foreground'
@@ -37,6 +37,8 @@ export function RelatedToField({
 }) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
+  const closeDropdown = React.useCallback(() => setOpen(false), [])
+  const rootRef = useDropdownDismiss(open, closeDropdown)
   const [query, setQuery] = React.useState('')
   const [options, setOptions] = React.useState<RelatedEntityOption[]>([])
   const [deals, setDeals] = React.useState<DealOption[]>([])
@@ -92,6 +94,7 @@ export function RelatedToField({
 
   return (
     <div
+      ref={rootRef}
       className="relative w-full"
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false)

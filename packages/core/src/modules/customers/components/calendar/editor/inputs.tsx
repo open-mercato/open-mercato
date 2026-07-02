@@ -14,6 +14,36 @@ export const LABEL_CLASS = 'text-xs font-medium text-muted-foreground'
 export const DROPDOWN_PANEL_CLASS =
   'absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
 
+/**
+ * Closes an editor dropdown on pointer-down outside the component or Escape.
+ * Blur alone is unreliable inside the Radix dialog focus trap (#3552 feedback:
+ * the Resources list stayed open), so dismissal listens on the document while
+ * the dropdown is open. Returns the ref to attach to the component root.
+ */
+export function useDropdownDismiss(open: boolean, onClose: () => void): React.RefObject<HTMLDivElement | null> {
+  const rootRef = React.useRef<HTMLDivElement | null>(null)
+  React.useEffect(() => {
+    if (!open) return
+    const handlePointerDown = (event: PointerEvent) => {
+      if (rootRef.current && event.target instanceof Node && !rootRef.current.contains(event.target)) onClose()
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        // Swallow Escape so the dialog itself stays open.
+        event.stopPropagation()
+        onClose()
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown, true)
+    }
+  }, [open, onClose])
+  return rootRef
+}
+
 export function Field({ label, children, error, className }: { label: string; children: React.ReactNode; error?: string | null; className?: string }) {
   return (
     <div className={cn('flex w-full flex-col gap-1.5', className)}>
